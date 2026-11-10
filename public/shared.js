@@ -292,8 +292,9 @@ export function lessonContext(ctx, opt = {}) {
 }
 
 /* Regel für Stunden, die zu einer Unterrichtseinheit gehören (Vorgabe der Lehrkraft) */
-export const UNIT_RULE = "Beziehe dich immer auf die in der Unterrichtseinheit festgelegten Aspekte (Lernaufgabe, Lernschritt, Stundenfrage). Die Stichpunkte zum Ablauf dienen nur als Inspiration: " +
-  "Liegt inzwischen ein besserer Vorschlag vor, darfst du abweichen und erläuterst, warum er besser passt. Schlägst du eine geänderte Stundenfrage oder einen geänderten groben Ablauf für diese Stunde vor, " +
+export const UNIT_RULE_BASE = "Beziehe dich immer auf die in der Unterrichtseinheit festgelegten Aspekte (Lernaufgabe, Lernschritt, Stundenfrage). Die Stichpunkte zum Ablauf dienen nur als Inspiration: " +
+  "Liegt inzwischen ein besserer Vorschlag vor, darfst du abweichen und erläuterst, warum er besser passt.";
+export const UNIT_RULE = UNIT_RULE_BASE + " Schlägst du eine geänderte Stundenfrage oder einen geänderten groben Ablauf für diese Stunde vor, " +
   "gib am Ende deiner Antwort zusätzlich genau diesen Block aus, damit die Lehrkraft die Änderung mit einem Klick in die Tabelle der Einheit übernehmen kann:\n" +
   "```einheit\n{\"stundenfrage\": \"…\", \"ablauf\": [\"…\", \"…\"], \"begruendung\": \"…\"}\n```";
 
@@ -365,49 +366,6 @@ const connectorHint = (ctx) => ctx.lessonId
   ? "\n\nFalls in diesem Chat der Connector „Unterricks“ verfügbar ist: Rufe zuerst `get_lesson` mit der Sitzungs-ID " + ctx.lessonId +
     " auf (dort stehen alle aktuellen Daten), und speichere deine Ergebnisse auf Wunsch der Lehrkraft direkt mit `save_schulportal_entry`, `add_text_material` bzw. `propose_feibeitsblatt` in der Plattform."
   : "";
-
-export function claudeIdeaPrompt(ctx, messages) {
-  const L = ctx.lesson || {};
-  const developed = (messages || []).filter((m) => m.role === "assistant").slice(-4).map((m) => String(m.content || "").trim()).join("\n\n---\n\n");
-  return [
-    "Du bist eine erfahrene Fachdidaktikerin bzw. ein erfahrener Fachdidaktiker und Unterrichtsplaner für das Fach " + subjectName(ctx.subject) +
-      " an einer Schule in Hessen. Entwickle auf Grundlage der folgenden Informationen die bestmögliche, fachlich fundierte und didaktisch durchdachte Unterrichtsidee für diese konkrete Stunde. " +
-      "Nutze dafür deine volle Leistungsfähigkeit: Denke gründlich nach, prüfe Alternativen und begründe deine Entscheidungen.",
-    "",
-    "## Rahmendaten",
-    "- Fach: " + subjectName(ctx.subject),
-    "- Klasse/Kurs: " + classShort(ctx.klass) + " – " + gradeInfo(ctx.klass).text,
-    "- Thema: " + (L.topic || L.title || "(bitte aus den Ideen ableiten)"),
-    "- Dauer der Unterrichtssitzung: " + (L.durationMin ? L.durationMin + " Minuten" : "(nicht angegeben – bitte nachfragen oder 45 Minuten annehmen und das kennzeichnen)"),
-    L.date ? "- Datum: " + fmtDay(L.date) : "",
-    L.homework ? "- Bereits eingetragene Hausaufgabe bis zur nächsten Sitzung: " + clip(L.homework, 2000) : "",
-    "",
-    ctx.unitText ? "\n## Einordnung in die Unterrichtseinheit\n" + ctx.unitText + "\n(" + UNIT_RULE.split(":")[0] + ".)" : "",
-    "",
-    "## Bisherige Ideen und Wünsche der Lehrkraft",
-    (L.ideas ? L.ideas.trim() + "\n" : "") + (teacherWishes(messages) || "(keine weiteren Angaben)"),
-    "",
-    "## Bereits entwickelte Unterrichtsinhalte",
-    developed ? clip(developed, 24000) : "(noch keine)",
-    ctx.portal ? "\nAktueller Stundenverlauf (Schulportal-Eintrag):\n" + ctx.portal : "",
-    "",
-    "## Vorhandene Materialien",
-    lessonContext({ ...ctx, sheets: ctx.sheets }, { portal: false, materialText: true, materialMax: 4000 }).split("\n").filter((l) => /^(- |  |Vorhandene|Feibeitsbl|Präsentation)/.test(l)).join("\n") || "(keine)",
-    "",
-    "## Deine Aufgabe",
-    "1. Analysiere kurz die Lernvoraussetzungen der Jahrgangsstufe und den fachlichen Kern des Themas (mit Bezug zu den Kompetenzbereichen des hessischen Kerncurriculums bzw. Lehrplans des Fachs).",
-    "2. Formuliere 2–4 überprüfbare Lernziele.",
-    "3. Entwickle einen Stundenverlauf als Tabelle: Phase | Minuten | Inhalt/Lehrerimpuls | Schüleraktivität | Methode/Sozialform | Material. Die Minuten müssen die Gesamtdauer genau ergeben.",
-    "4. Begründe die zentralen didaktischen und methodischen Entscheidungen (Problemorientierung, Aktivierung, Differenzierung, Sicherung).",
-    "5. Formuliere alle benötigten Materialien vollständig aus (Arbeitsaufträge mit Operatoren, Texte, Tafelbild/Ergebnissicherung, Erwartungshorizont).",
-    "6. Prüfe, ob statt eines klassischen Arbeitsblatts ein Feibeitsblatt sinnvoll ist. " + FEIBEITSBLATT_INFO + " Falls ja: Aufgaben und je Aufgabe den „Auftrag an die KI“ ausformulieren.",
-    "7. Schließe mit dem fertigen Eintrag für das Schulportal Hessen in genau diesem Format (Schulportal-Zeichen: " + PORTAL_RULES.join("; ") + "):",
-    "",
-    PORTAL_EXAMPLE,
-    "",
-    "Wenn wichtige Informationen fehlen, triff begründete Annahmen und kennzeichne sie, statt die Planung abzubrechen." + connectorHint(ctx),
-  ].filter((l) => l !== null && l !== undefined).join("\n").replace(/\n{3,}/g, "\n\n");
-}
 
 export function claudePresentationPrompt(ctx, portalText, messages) {
   const L = ctx.lesson || {};

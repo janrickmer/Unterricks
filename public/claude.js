@@ -27,7 +27,7 @@ export function claudeHandoff(opt) {
     h("ol", { class: "small", style: { marginTop: ".8rem" } },
       h("li", null, "Klicken Sie auf „Prompt kopieren“ und öffnen Sie claude.ai."),
       h("li", null, "Stellen Sie dort im Modellmenü das gewählte Modell und – falls angeboten – den Denkaufwand ein (die Plattform kann das in claude.ai nicht selbst einstellen)."),
-      h("li", null, "Aktivieren Sie im Chat den Connector „Unterricks“ und fügen Sie den Prompt ein."),
+      h("li", null, "Aktivieren Sie im Chat den Connector „Unterricks“ und fügen Sie den Prompt ein. Beim ersten Mal fragt claude.ai, ob der Connector verbunden werden und auf die Plattform zugreifen darf – bitte erlauben."),
       h("li", null, opt.after || "Wenn Claude fertig ist und gespeichert hat, kommen Sie hierher zurück – die Seite lädt die Ergebnisse beim Zurückkehren neu.")),
     h("p", { class: "hint", text: "Der Connector wird einmalig unter Einstellungen → Claude-Connector eingerichtet. Ohne Connector kann Claude nichts in der Plattform speichern." })),
     actions: [

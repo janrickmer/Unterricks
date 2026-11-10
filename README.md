@@ -21,9 +21,12 @@ direkt mit den Sitzungen arbeitet.
    veröffentlicht den Worker und erzeugt `SETTINGS_SECRET`. Am Ende steht die Adresse im Protokoll
    (`https://unterricks.<subdomain>.workers.dev`).
 5. Seite öffnen → unten **„Lehrkräfte“** → Benutzername und Passwort festlegen (einmalig).
-6. **Einstellungen → KI-Modelle:** mindestens einen kostenlosen Schlüssel eintragen (empfohlen: Google AI Studio für Gemini
-   und/oder Groq) und je Aufgabe das Modell wählen. Ohne Schlüssel läuft Cloudflare Workers AI (schwächer, kleines Kontingent).
-7. **Einstellungen → Claude-Connector:** Adresse erzeugen und in claude.ai als benutzerdefinierten Connector eintragen.
+6. **Einstellungen → Claude-Connector:** Adresse erzeugen und in claude.ai als benutzerdefinierten Connector eintragen. Beim
+   ersten Einsatz in einem Chat fragt claude.ai, ob der Connector verbunden werden und zugreifen darf – erlauben.
+7. **Einstellungen → KI-Modelle (Backup):** einen kostenlosen Groq-Schlüssel eintragen. Reihenfolge beim Planen:
+   **1. Claude** (Pro-Abo, Connector) → **2. Groq** im Chat der Plattform, wenn das Claude-Kontingent erschöpft ist →
+   **3. Cloudflare Workers AI** automatisch, wenn auch das Groq-Kontingent erschöpft ist oder Groq nicht antwortet. Weitere
+   Anbieter (Gemini, Cerebras, OpenRouter) lassen sich als Ausweichmodelle ergänzen.
 
 Feibeitsblatt braucht keine Änderung. Die Adressen stehen in `wrangler.jsonc` (`FEIBEITSBLATT_API`, `FEIBEITSBLATT_URL`) und in
 `public/_headers` (CSP, `connect-src`).
@@ -35,10 +38,14 @@ Feibeitsblatt braucht keine Änderung. Die Adressen stehen in `wrangler.jsonc` (
 * **Lehrkraft:** Einmalig unter **Planungsgrundlagen** je Fach Schulcurriculum, KCGO, E-Phasen-Curriculum und Abiturerlass
   (je Q-Kurs) als PDF hochladen und die Fach-Einstellungen prüfen. Dann: Fach → Klasse/Kurs → **Unterrichtseinheit planen**
   (Rahmendaten → „Einheit mit Claude planen“ → Leupold-Schema und Tabelle prüfen → „Einheit festlegen und Sitzungen anlegen“) →
-  Sitzung öffnen → im Chat planen → „Schulportal-Eintrag erstellen“ (bearbeiten, kopieren) → „Prompt für die Präsentation
-  kopieren“ → in claude.ai einfügen → die von Claude erzeugte **PDF** hochladen → im Unterricht „Ich bin im Unterricht und starte
+  Sitzung öffnen → **„Stunde mit Claude planen“** (Prompt kopieren, in claude.ai mit dem Connector einfügen; Claude speichert
+  Schulportal-Eintrag, Hausaufgabe, Materialien und Feibeitsblatt-Entwurf auf Wunsch direkt in der Sitzung – beim Zurückkehren
+  erscheinen sie) → Schulportal-Eintrag prüfen und kopieren → „Prompt für die Präsentation kopieren“ → in claude.ai einfügen →
+  die von Claude erzeugte **PDF** hochladen → im Unterricht „Ich bin im Unterricht und starte
   die Präsentation für alle.“ Den Sitzungscode zeigt „Für den Beamer zeigen“. Am Stundenende: Hausaufgabe eintragen und per
   Rechtsklick im Verlaufsplan „Zwischenstopp einfügen“, falls nicht alles geschafft wurde.
+  Ist das Claude-Kontingent erschöpft, plant der Chat **„Backup: Planung mit kostenloser KI“** in derselben Sitzung weiter
+  (Groq, danach automatisch Workers AI); „Schulportal-Eintrag erstellen“ baut dann auf diesem Verlauf auf.
   Bei Krankheit: „Lehrkraft ist zu dieser Sitzung krank – Alternative entwickeln“ → Claude entwickelt die Vertretung (z. B. einen
   Escape-Room nach dem bekannten Aufbau mit Feibeitsblatt-Finale) → Vorschau ansehen, prüfen und bestätigen (die ursprüngliche
   Planung wird archiviert und bleibt wiederherstellbar). Für das Anlegen des Feibeitsblatts beim Bestätigen muss die Sitzung mit

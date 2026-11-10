@@ -229,6 +229,15 @@ function aiSection(ai) {
   const paint = (cfg) => {
     clear(box).append(h("h2", { text: "KI-Modelle (kostenlos)" }),
       h("p", { class: "muted small", text: "Der Chatbot und die KI-Funktionen der Plattform nutzen kostenlose Modelle. Claude nutzen Sie über Ihr Pro-Abo in claude.ai (Connector unten) – Anthropic erlaubt nicht, das Abo in fremde Anwendungen einzubinden. Die Wahl des Claude-Modells treffen Sie direkt in claude.ai." }));
+    // Reihenfolge beim Planen: Claude (Hauptweg) → kostenlose Dienste in der Reihenfolge des Chats
+    const pl = cfg.tasks.find((t) => t.id === "planning"), route = (pl && pl.route) || (pl ? [pl.choice] : []);
+    const lab = (pid) => (cfg.providers.find((p) => p.id === pid) || {}).label || pid;
+    box.append(h("div", { class: "notice", id: "ai-order" }, h("strong", { text: "Reihenfolge beim Planen" }),
+      h("ol", { class: "small", style: { margin: ".3rem 0 .2rem" } },
+        h("li", null, h("strong", { text: "Claude" }), " – Ihr Pro-Abo in claude.ai über den Connector (Hauptweg): „Stunde mit Claude planen“ in jeder Sitzung, „Einheit mit Claude planen“ in jeder Einheit, Vertretung bei Krankheit."),
+        route.map((x, i) => h("li", null, h("strong", { text: lab(x.provider) }), " (" + (x.model || "Standardmodell") + ") – " +
+          (i === 0 ? "Chat der Plattform („Backup“ in jeder Sitzung), wenn Ihr Claude-Kontingent erschöpft ist." : "springt automatisch ein, wenn " + lab(route[i - 1].provider) + " nicht antwortet oder sein Kontingent erschöpft ist.")))),
+      h("p", { class: "hint", text: "Ihr Claude-Kontingent kann die Plattform nicht sehen – zum Backup wechseln Sie selbst. Danach wechselt die Plattform von allein: Ist bei Groq nur die Minutengrenze erreicht, wartet sie bis zu 30 Sekunden und verkleinert zu große Anfragen, bevor sie den nächsten Dienst fragt. Die Reihenfolge gilt für den Chat; unten lässt sie sich je Aufgabe ändern." })));
     // Schlüssel je Anbieter
     const keys = h("div", { class: "list" });
     for (const p of cfg.providers) {

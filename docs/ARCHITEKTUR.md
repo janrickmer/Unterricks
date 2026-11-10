@@ -43,7 +43,7 @@ implementiert und im End-to-End-Test geprüft (Ausnahmen unten ausdrücklich gen
  │   ├── D1  unterricks-db (EU): Sitzungen, Chat, Dateien-Metadaten, …     │       │
  │   ├── R2  unterricks-files (EU): Dateien, Präsentations-PDF, Folienbilder│       │
  │   ├── Durable Object LiveRoom (je Sitzung): Live-Folie per WebSocket     │       │
- │   └── kostenlose KI: Gemini · Groq · Cerebras · OpenRouter · Workers AI  │       │
+ │   └── kostenlose KI: Groq · Gemini · Cerebras · OpenRouter · Workers AI  │       │
  └──────────────────────────────────────────────────────────────────────────┘       │
                                                                                      ▼
                                                       Feibeitsblatt-Worker (bestehend, unverändert)
@@ -263,10 +263,25 @@ stattdessen der von Anthropic vorgesehene Weg in umgekehrter Richtung (Connector
   - Die Connector-Adresse enthält einen geheimen Schlüssel (wer sie kennt, hat Zugriff auf alle Sitzungen). Sie wird nur einmal
     angezeigt und lässt sich in den Einstellungen widerrufen. Alternativ kann der Schlüssel als `Authorization: Bearer` gesendet werden.
   - Anthropic kann die Connector-Funktion und ihre Menüs ändern; maßgeblich ist die verlinkte Hilfeseite.
+* **Reihenfolge beim Planen (Vorgabe der Lehrkraft):** 1. **Claude** über den Connector (Hauptweg: „Stunde mit Claude planen“ in
+  jeder Sitzung, „Einheit mit Claude planen“, Vertretung) → 2. **Groq** im Chat der Plattform („Backup“), wenn das
+  Claude-Kontingent erschöpft ist – den Wechsel entscheidet die Lehrkraft, denn ihr Claude-Kontingent ist für die Plattform nicht
+  sichtbar → 3. **Cloudflare Workers AI**, automatisch. Unter den kostenlosen Diensten steht Groq vorn (`DEFAULT_ORDER` in `ai.js`).
+  Groq meldet Grenzen genau („Limit 8000, Used …, Requested …“, „try again in 1.5s“). Vor dem Wechsel zum nächsten Dienst bessert
+  `callTask` deshalb beim selben Dienst höchstens zweimal nach (`adjustFor`): Eine einzelne Anfrage über der Minutengrenze (laut
+  Groq-Tabelle für `openai/gpt-oss-120b` 8 000 Token pro Minute; gezählt Eingabe + erlaubte Antwortlänge, Fehler 413) bekommt eine
+  kürzere Antwortlänge bzw. einen gekürzten Verlauf; bei einer kurzen Wartezeit (≤ 30 s, `retry-after`) wartet die Plattform.
+  Erst ein erschöpftes Kontingent (lange Wartezeit) oder ein anderer Fehler führt zu Workers AI.
 * **Modellauswahl.** In der Plattform: frei je Aufgabe (Planung, Ideen, Material, Schulportal, Feibeitsblatt) aus den kostenlosen
   Anbietern, mit „Modelle laden“ (aktuelle Liste des Anbieters) und Ausweichliste. Das **Claude-Modell** wählen Sie in claude.ai
   (Modellauswahl im Chat). Ohne API kann die Plattform Claude-Modelle nicht ansteuern.
-  Die Claude-Prompts (Unterrichtsidee, Präsentation) sind feste Vorlagen ohne KI-Aufruf und deshalb immer reproduzierbar.
+  Die Claude-Prompts (Stunde, Einheit, Vertretung, Präsentation) sind feste Vorlagen ohne KI-Aufruf und deshalb immer
+  reproduzierbar. Der Prompt „Stunde mit Claude planen“ (`claudeLessonPrompt` in `planning.js`) beginnt mit der festen Rolle,
+  enthält Sitzung, Einheit (Regel: Ablauf nur Inspiration, Abweichungen mit `update_unit_row` festhalten), eine nicht beendete
+  vorige Stunde und den bisherigen Chat-Verlauf und nennt die Werkzeuge zum Speichern (`save_schulportal_entry` mit
+  `base_version`, `save_planning_result`, `add_text_material`, `propose_feibeitsblatt` – auch mit Foto-Aufgabe –, `update_lesson`
+  für Hausaufgabe und Sitzungsdaten). Beim Zurückkehren übernimmt die Sitzungsseite Hausaufgabe, Sitzungsdaten, Material,
+  Entwürfe, Verlauf und Schulportal-Eintrag – nie in ein Feld, das gerade bearbeitet wird.
 
 ## 6. Feibeitsblatt-Integration
 
@@ -312,7 +327,8 @@ stattdessen der von Anthropic vorgesehene Weg in umgekehrter Richtung (Connector
 | R2 | 10 GB/Monat | Aktivierung mit Zahlungsmittel; Plattform begrenzt auf 9 GB |
 | Durable Objects | im Free-Plan (SQLite-Backend) | ein Objekt je Sitzung |
 | Workers AI | 10 000 Neurons/Tag (konto­weit, geteilt mit Feibeitsblatt) | Rückfall ohne Schlüssel |
-| Gemini / Groq / Cerebras / OpenRouter | Gratis-Kontingente der Anbieter | Schlüssel in den Einstellungen; Grenzen ändern sich |
+| Groq (Backup nach Claude) | laut Groq-Tabelle für `openai/gpt-oss-120b`: 30 Anfragen/Minute, 1 000/Tag, 8 000 Token/Minute, 200 000 Token/Tag | genaue Werte des eigenen Kontos: console.groq.com → Settings → Limits; Grenzen ändern sich |
+| Gemini / Cerebras / OpenRouter | Gratis-Kontingente der Anbieter | optional als Ausweichmodelle; Grenzen ändern sich |
 | Claude | Ihr Pro-Abo (Connector) | keine API-Kosten |
 
 ## 9. Bewusst getroffene Annahmen (änderbar)

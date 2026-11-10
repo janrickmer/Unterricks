@@ -275,6 +275,10 @@ details.box > summary { cursor: pointer; font-weight: 600; }
 .lp-row.current .lp-desc, .lp-row.current .lp-title { font-weight: 800; border-color: var(--brand-2); background: color-mix(in srgb, var(--brand-2) 14%, var(--surface)); }
 @media (max-width: 800px) { .lp-grid { grid-template-columns: 1fr; } .lp-row { grid-template-columns: 1fr; } }
 .unitbox { border-left: 4px solid var(--brand-2); }
+/* Hauptweg: Stunde mit Claude planen */
+.claudeplan { border-left: 4px solid var(--ok); }
+.claudeplan .btn.big { margin: .2rem 0 .5rem; }
+.claudeplan details { margin-top: .6rem; }
 .unit-row { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1.4fr); gap: .8rem; font-size: .92rem; }
 .unit-row ul { margin: 0; padding-left: 1.1rem; }
 @media (max-width: 560px) { .unit-row { grid-template-columns: 1fr; } }

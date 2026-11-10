@@ -1,7 +1,8 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import { normalizeParams, computeSlots, lessonSlots, normalizePlan, normalizeRows, assignDates, extractUnitChange, stripUnitBlock, unitContext,
-  claudeUnitPrompt, claudeSubstitutePrompt, normalizeSubstitute, SUBSTITUTE_SHARE } from "../../public/planning.js";
+  claudeUnitPrompt, claudeSubstitutePrompt, claudeLessonPrompt, normalizeSubstitute, SUBSTITUTE_SHARE } from "../../public/planning.js";
+import { SYSTEM_PROMPT_ROLE, UNIT_RULE_BASE, ANALOG_RULE, PORTAL_EXAMPLE } from "../../public/shared.js";
 import { detectKcgo, detectErlass, detectCurriculum, detectECurriculum, parseRanges, formatRanges, pageText, wantedSections, missingFor } from "../../public/bases-detect.js";
 
 let n = 0;
@@ -68,6 +69,30 @@ test("Prompt Krankheitsvertretung: Analysefragen, 80 % der Zeit, Abgabe; Jahrgan
   assert.ok(p.includes("zurzeit noch nicht über die Plattform verfügbar"), "Escape-Room ehrlich als nicht verfügbar gekennzeichnet");
   const a = claudeSubstitutePrompt({ ...ctx, klass: "6A" });
   assert.ok(a.includes("keine iPads") && !a.includes("z. B. ein Escape-Room") && !a.includes("Antwortart „Foto“"));
+});
+
+test("Prompt „Stunde mit Claude planen“: feste Rolle, Sitzung, Einheit, Vorgehen mit dem Connector, Speichern nur auf Wunsch", () => {
+  const unit = { id: "fedcba9876543210", title: "Gewaltenteilung", plan: { lernaufgabe: "Positionspapier schreiben", schritte: [{ titel: "Problem erschließen", beschreibung: "Karikatur" }] },
+    rows: [{ uid: "r1", stundenfrage: "Wer kontrolliert die Macht?", ablauf: ["Karikatur"], schritt: 0, date: "2026-11-12", minutes: 90 }] };
+  const base = { lessonId: "0123456789abcdef", subject: "powi", klass: "Q2-GK", unit, row: unit.rows[0], unitText: unitContext(unit, "r1"),
+    lesson: { title: "Wer kontrolliert die Macht?", topic: "Gewaltenteilung", durationMin: 90, date: "2026-11-12", ideas: "Mit Karikatur einsteigen", homework: "" },
+    materials: [{ name: "AB Gewaltenteilung", area: "student", kind: "text", text: "geheimer Langtext" }], sheets: [], portal: "**1) Einstieg**\n⏸ Zwischenstopp\n**2) Rest**",
+    messages: [{ role: "assistant", content: "Hallo! …", model: "begruessung" }, { role: "user", content: "Bitte mit Rollenspiel" }, { role: "assistant", content: "Vorschlag: Rollenspiel …", model: "mock" }],
+    previousStop: { title: "Vorige Stunde", date: "2026-11-10", portal: "**1) A**\n⏸ Zwischenstopp\n**2) Offen geblieben**" } };
+  const p = claudeLessonPrompt(base);
+  assert.ok(p.startsWith(SYSTEM_PROMPT_ROLE), "beginnt mit der festen Rolle (wörtlich)");
+  for (const s of ["Sitzungs-ID: 0123456789abcdef", "`get_lesson` mit der Sitzungs-ID 0123456789abcdef", "`get_unit` mit der ID fedcba9876543210", "`get_planning_basis`", "Q2 GK", "Grundkurs",
+    "Wer kontrolliert die Macht?", "laut Plattform 90 Minuten", "Mit Karikatur einsteigen", "AB Gewaltenteilung", "Zentrale Lernaufgabe (Ziel der Einheit): Positionspapier schreiben",
+    UNIT_RULE_BASE, "`update_unit_row`", "`save_schulportal_entry`", "`base_version`", "`save_planning_result`", "`add_text_material`", "`propose_feibeitsblatt`", "`hausaufgabe`",
+    "Speichere nur, was ich freigebe", "Feibeitsblatt", "„foto“", "Offen geblieben", "Bitte mit Rollenspiel", "Vorschlag: Rollenspiel", PORTAL_EXAMPLE, "Connector „Unterricks“ in diesem Chat nicht verfügbar"])
+    assert.ok(p.includes(s), s);
+  assert.ok(!p.includes("geheimer Langtext"), "Materialtexte liest Claude über get_lesson, nicht im Prompt");
+  assert.ok(!p.includes("Hallo! …"), "Begrüßung des Chatbots gehört nicht dazu");
+  assert.ok(!p.includes("```einheit"), "kein Übernahme-Block: mit dem Connector speichert Claude die Abweichung selbst");
+  // Jahrgang 6: analog, ohne Feibeitsblatt, ohne Einheit
+  const q = claudeLessonPrompt({ ...base, klass: "6B", unit: null, row: null, unitText: "", previousStop: null, messages: [], lesson: { ...base.lesson, durationMin: null } });
+  assert.ok(q.includes(ANALOG_RULE) && !q.includes("`propose_feibeitsblatt`") && !q.includes("`update_unit_row`") && !q.includes("get_unit") && q.includes("in der Plattform noch nicht eingetragen"));
+  assert.ok(!q.includes("Vorige Stunde") && !q.includes("Bisheriger Planungsverlauf"));
 });
 
 test("Vertretungsvorschlag normalisieren", () => {

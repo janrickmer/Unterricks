@@ -2,9 +2,10 @@
 import { h, clear, toast, errToast, busy, modal, confirmDialog, copyText, fmtBytes, fmtDate, fmtTime, fileIcon, downloadUrl, downloadBlob, upload, api, nn } from "./ui.js";
 import { render, go, onLeave } from "./app.js";
 import { T, tapi, teacherBar } from "./teacher.js";
-import { subjectName, gradeInfo, formatCode, claudeIdeaPrompt, claudePresentationPrompt, PORTAL_RULES, portalForCopy, insertStop, removeStops, hasStop, isStopLine,
+import { subjectName, gradeInfo, formatCode, claudePresentationPrompt, PORTAL_RULES, portalForCopy, insertStop, removeStops, hasStop, isStopLine,
   fmtDay, classShort, gradeKey, isAnalogClass, ANALOG_RULE } from "./shared.js";
-import { extractUnitChange, stripUnitBlock, unitContext } from "./planning.js";
+import { extractUnitChange, stripUnitBlock, unitContext, claudeLessonPrompt } from "./planning.js";
+import { claudeHandoff } from "./claude.js";
 import { leupoldView } from "./units.js";
 import { substituteCards } from "./substitute.js";
 import { paintPortalPreview, portalPreview, contextMenu } from "./portalview.js";
@@ -150,15 +151,23 @@ export async function sessionPage(id) {
   }
   sendBtn.addEventListener("click", send);
   input.addEventListener("keydown", (e) => { if (e.key === "Enter" && !e.shiftKey && !e.isComposing) { e.preventDefault(); send(); } });
-  const chatCard = h("section", { class: "card" },
-    h("div", { class: "section-title" }, h("h2", { text: "Unterrichtsplanung mit KI" }),
+  const routeHint = h("p", { class: "hint", text: "Fach, Klasse, Sitzungsdaten, Materialien und Schulportal-Eintrag werden automatisch mitgeschickt. Ist das Kontingent eines Dienstes erschöpft, wechselt die Plattform von selbst zum nächsten (zuletzt Cloudflare Workers AI)." });
+  const chatCard = h("section", { class: "card", id: "backupchat" },
+    h("div", { class: "section-title" }, h("h2", { text: "Backup: Planung mit kostenloser KI" }),
       h("button", { class: "btn small ghost", type: "button", onclick: async () => {
         if (!(await confirmDialog("Planungsverlauf neu beginnen", "Alle Nachrichten dieser Sitzung werden gelöscht. Schulportal-Eintrag und Materialien bleiben erhalten.", "Neu beginnen", true))) return;
         try { st.messages = (await tapi("DELETE", "/api/teacher/lessons/" + id + "/chat")).messages; paintMsgs(); } catch (e) { errToast(e); }
       } }, "Neu beginnen")),
     h("div", { class: "chat" }, msgsBox, h("div", { class: "composer" }, input, h("div", { class: "row between" }, h("div", { class: "row" }, modeSel, modelInfo), sendBtn))),
-    h("p", { class: "hint", text: "Kostenlose KI-Modelle (Auswahl je Aufgabe unter Einstellungen). Fach, Klasse, Sitzungsdaten, Materialien und Schulportal-Eintrag werden automatisch mitgeschickt." }));
+    h("p", { class: "small muted", text: "Für Zeiten, in denen Ihr Claude-Kontingent erschöpft ist: Planen Sie hier mit kostenlosen Modellen weiter. Ergebnisse (Schulportal-Eintrag, Material, Feibeitsblatt-Entwurf) übernehmen Sie mit den Knöpfen in den Antworten." }),
+    routeHint);
   paintMsgs();
+  // Reihenfolge der kostenlosen Dienste aus den Einstellungen anzeigen (ohne die Seite aufzuhalten)
+  tapi("GET", "/api/teacher/ai").then((r) => {
+    const t = (r.tasks || []).find((x) => x.id === "planning"), label = (pid) => ((r.providers || []).find((p) => p.id === pid) || {}).label || pid;
+    if (t && Array.isArray(t.route) && t.route.length) routeHint.textContent = "Reihenfolge der kostenlosen KI: " + t.route.map((x) => label(x.provider).replace(" (ohne Schlüssel)", "")).join(" → ") +
+      " – ist das Kontingent eines Dienstes erschöpft, wechselt die Plattform von selbst zum nächsten (Einstellungen → KI-Modelle). Fach, Klasse, Sitzungsdaten, Materialien und Schulportal-Eintrag werden automatisch mitgeschickt.";
+  }).catch(() => {});
 
   async function adoptMaterial(content) {
     const firstHeading = (/^\s*#{1,3}\s+(.+)$/m.exec(content) || [])[1];
@@ -306,7 +315,7 @@ export async function sessionPage(id) {
   function paintDue() { hwDue.textContent = L().nextDate ? "Fällig zur nächsten Sitzung am " + fmtDay(L().nextDate) + " (richtet sich nach dem Datum der nächsten Sitzung dieser Klasse)." : "Noch keine spätere Sitzung dieser Klasse angelegt – Schüler:innen sehen „bis zur nächsten Sitzung“."; }
   let hwT = null;
   const saveHw = async () => {
-    clearTimeout(hwT);
+    clearTimeout(hwT); hwT = null;
     try { const r = await tapi("PATCH", "/api/teacher/lessons/" + id, { body: { homework: hwTA.value } }); L().homework = r.lesson.homework; L().nextDate = r.lesson.nextDate; paintDue(); hwState.textContent = "Gespeichert ✓"; }
     catch (e) { hwState.textContent = "⚠ " + e.message; }
   };
@@ -737,22 +746,23 @@ export async function sessionPage(id) {
       try { await tapi("DELETE", "/api/teacher/lessons/" + id); toast("Sitzung gelöscht.", "ok"); go("#/lk/f/" + L().subject + "/" + L().klass); } catch (e) { errToast(e); }
     } }, "Sitzung löschen"));
 
-  const ideaOut = h("div");
-  const claudeCard = h("section", { class: "card" }, h("h2", { text: "Unterrichtsidee mit Claude weiterentwickeln" }),
-    h("p", { class: "small", text: "Erzeugt einen Prompt mit Klasse, Fach, Thema, Dauer, Ihren Ideen und Wünschen sowie den bisher entwickelten Inhalten und Materialien – für ein leistungsfähiges Claude-Modell in claude.ai." }),
-    h("button", { class: "btn primary", type: "button", onclick: async () => {
-      // erst kopieren (Safari verlangt die Zwischenablage direkt im Klick), dann den aktuellen Eintrag speichern
-      const p = claudeIdeaPrompt(ctx(), st.messages);
-      const ok = await copyText(p);
-      flushPortal();
-      clear(ideaOut).append(h("textarea", { rows: "9", readonly: true, value: p, class: "mono", style: { fontSize: ".8rem", marginTop: ".6rem" } }),
-        h("div", { class: "row", style: { marginTop: ".4rem" } }, h("button", { class: "btn small", type: "button", onclick: async () => toast((await copyText(p)) ? "Kopiert." : "Kopieren nicht möglich.", "ok") }, "Erneut kopieren"),
-          h("a", { class: "btn small", href: "https://claude.ai/new", target: "_blank", rel: "noopener" }, "claude.ai öffnen")));
-      toast(ok ? "Prompt kopiert – in claude.ai einfügen." : "Bitte den Prompt manuell kopieren.", ok ? "ok" : "err");
-    } }, "Prompt für Claude erzeugen und kopieren"), ideaOut,
-    h("details", { class: "box small", style: { marginTop: ".7rem" } }, h("summary", null, "Mit Connector: Claude arbeitet direkt in dieser Sitzung"),
-      h("p", null, "Ist der Connector „Unterricks“ in claude.ai eingerichtet (Einstellungen), kann Claude diese Sitzung selbst lesen und Ergebnisse speichern. Sitzungs-ID:"),
-      h("div", { class: "row" }, h("code", { class: "mono", text: id }), h("button", { class: "btn small", type: "button", onclick: async () => toast((await copyText(id)) ? "ID kopiert." : "", "ok") }, "Kopieren"))));
+  /* ======================= Hauptweg: Stunde mit Claude planen (claude.ai, Connector) ======================= */
+  const planWithClaude = () => {
+    flushPortal();
+    claudeHandoff({ title: "Stunde mit Claude planen",
+      intro: "Claude liest über den Connector diese Sitzung (" + (st.unit ? "Einheit und Stundenfrage, " : "") + "Materialien, Schulportal-Eintrag, bei Bedarf die Planungsgrundlagen), fragt nach Dauer und Wünschen und plant mit Ihnen im Dialog. " +
+        "Gespeichert wird nur, was Sie freigeben: Schulportal-Eintrag, Hausaufgabe, Materialien" + (analog ? "" : ", Feibeitsblatt-Entwurf") + (st.unit ? " und – nach Ihrer Zustimmung – eine geänderte Stundenfrage in der Einheit." : "."),
+      after: "Wenn Claude gespeichert hat, kommen Sie hierher zurück: Die Seite übernimmt Schulportal-Eintrag, Hausaufgabe, Materialien und Entwürfe beim Zurückkehren automatisch.",
+      prompt: () => claudeLessonPrompt({ ...ctx(), messages: st.messages, previousStop: d.previousStop }) });
+  };
+  const planCard = h("section", { class: "card claudeplan" },
+    h("div", { class: "section-title" }, h("h2", { text: "Stunde mit Claude planen" }), h("span", { class: "badge ok", text: "Hauptweg" })),
+    h("p", { class: "small", text: "Claude (Ihr Pro-Abo in claude.ai) plant diese Stunde mit Ihnen im Dialog und speichert die Ergebnisse über den Connector direkt in dieser Sitzung." }),
+    h("button", { class: "btn primary big", type: "button", onclick: planWithClaude }, "Stunde mit Claude planen"),
+    h("p", { class: "hint" }, "Ist Ihr Claude-Kontingent gerade erschöpft, planen Sie unten im ", h("a", { href: "#backupchat", onclick: (e) => { e.preventDefault(); chatCard.scrollIntoView({ behavior: "smooth", block: "start" }); } }, "Backup mit kostenloser KI"), " weiter."),
+    h("details", { class: "box small" }, h("summary", null, "Sitzungs-ID für Claude"),
+      h("p", null, "Claude findet die Sitzung auch selbst (list_lessons). Falls Sie die ID in einem bestehenden Chat nennen möchten:"),
+      h("div", { class: "row" }, h("code", { class: "mono", text: id }), h("button", { class: "btn small", type: "button", onclick: async () => toast((await copyText(id)) ? "ID kopiert." : "Kopieren nicht möglich.", "ok") }, "Kopieren"))));
 
   const ps = d.previousStop;
   const prevCard = ps ? h("section", { class: "card prevstop", role: "note" },
@@ -763,8 +773,8 @@ export async function sessionPage(id) {
       h("button", { class: "btn small ghost", type: "button", onclick: (e) => e.currentTarget.closest(".prevstop").remove() }, "Ausblenden"))) : null;
   const sub = substituteCards({ id, st, L, ctx, fb, analog, reload: () => sessionPage(id), openDraft: (dr, o) => editDraft(dr, { substitute: true, ...o }), flushPortal });
   main.append(h("div", { class: "session-grid" },
-    h("div", { class: "stack" }, sub.main, prevCard, unitCard, chatCard, portalCard, hwCard, presPromptCard, filesCard, presCard, fbCard),
-    h("aside", { class: "side" }, sub.side, codeCard, claudeCard, metaCard)));
+    h("div", { class: "stack" }, sub.main, prevCard, planCard, unitCard, chatCard, portalCard, hwCard, presPromptCard, filesCard, presCard, fbCard),
+    h("aside", { class: "side" }, sub.side, codeCard, metaCard)));
 
   // Änderungen von außen (z. B. Claude über den Connector) beim Zurückkehren übernehmen
   const onVis = async () => {
@@ -778,6 +788,21 @@ export async function sessionPage(id) {
       const subKey = (x) => (x ? x.status + ":" + x.updatedAt : "");
       if (subKey(r.substitute) !== subKey(st.sub)) { st.drafts = r.drafts; st.sub = r.substitute; sub.paint(); if (r.substitute && r.substitute.status === "vorschlag") toast("Claude hat einen Vertretungsvorschlag gespeichert – bitte prüfen.", "ok", 6000); }
       if (r.unit && st.unit && r.unit.version !== st.unit.version) { st.unit = r.unit; paintUnit(); }
+      // Hausaufgabe und Sitzungsdaten (z. B. von Claude mit update_lesson) – nie in ein Feld schreiben, das gerade bearbeitet wird
+      const busyField = (el) => document.activeElement === el;
+      if ((r.lesson.homework || "") !== (L().homework || "") && !busyField(hwTA) && !hwT && hwTA.value === (L().homework || "")) {
+        L().homework = r.lesson.homework || ""; L().nextDate = r.lesson.nextDate; hwTA.value = L().homework; paintDue(); hwState.textContent = "Aktualisiert";
+      }
+      const metaFields = [[fTitle, "title"], [fTopic, "topic"], [fDur, "durationMin"], [fIdeas, "ideas"]];
+      if (metaState.textContent !== "…" && !metaFields.some(([el]) => busyField(el)) && !busyField(fDate)) {
+        let changed = false;
+        for (const [el, k] of metaFields) {
+          const cur = String(L()[k] ?? ""), nv = String(r.lesson[k] ?? "");
+          if (nv !== cur && el.value === cur) { L()[k] = r.lesson[k]; el.value = nv; changed = true; }   // nur Felder ohne ungespeicherte eigene Änderung
+        }
+        if (r.lesson.date && r.lesson.date !== L().date) { L().date = r.lesson.date; L().nextDate = r.lesson.nextDate; fDate.value = r.lesson.date; paintDue(); changed = true; }
+        if (changed) { heading.textContent = L().title; paintSubline(); metaState.textContent = "Aktualisiert"; }
+      }
       if (r.lesson.portalVersion !== portal.version && !portal.dirty) {
         L().portal = r.lesson.portal; L().portalVersion = r.lesson.portalVersion; L().portalUpdatedAt = r.lesson.portalUpdatedAt; L().portalSource = r.lesson.portalSource;
         portal.version = r.lesson.portalVersion;

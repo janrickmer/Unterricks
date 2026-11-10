@@ -2,7 +2,7 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import {
   SUBJECTS, ALL_CLASSES, isValidClass, gradeInfo, classShort, gradeKey, subjectConfig, classAllowed, classGroupsFor, isAnalogClass, ANALOG_RULE, normalizeCode, isValidCode, formatCode, renderPortalEntry, parsePortalMarkup, portalSafe,
-  validatePortalData, PORTAL_EXAMPLE, claudeIdeaPrompt, claudePresentationPrompt, planningSystemPrompt, SYSTEM_PROMPT_ROLE, extractJsonObject, normalizeFbDraft,
+  validatePortalData, PORTAL_EXAMPLE, claudePresentationPrompt, planningSystemPrompt, SYSTEM_PROMPT_ROLE, extractJsonObject, normalizeFbDraft,
 } from "../../public/shared.js";
 
 test("genau drei Fächer", () => {
@@ -103,11 +103,6 @@ test("Chatbot-System-Prompt: feste Rolle wörtlich + Fach, Klasse, Sitzung", () 
   assert.match(p, /Klasse\/Kurs: Q2 GK – Qualifikationsphase Q2/);
   assert.match(p, /Unterrichtssitzung: BVerfG/);
   assert.match(p, /Feibeitsblatt/);
-});
-
-test("Claude-Prompt Unterrichtsidee enthält alle geforderten Angaben", () => {
-  const p = claudeIdeaPrompt(ctx, messages);
-  for (const s of ["Q2 GK", "Grundkurs", "Politik und Wirtschaft", "Das Bundesverfassungsgericht", "90 Minuten", "Mit Karikatur einsteigen", "Bitte mit Rollenspiel", "Vorschlag: Rollenspiel", "AB BVerfG", "AEH-4VY", "get_lesson"]) assert.ok(p.includes(s), s);
 });
 
 test("Präsentations-Prompt basiert auf genau dem übergebenen Schulportal-Eintrag", () => {

@@ -85,9 +85,9 @@ const TOOLS = [
     inputSchema: { type: "object", properties: { lesson_id: ID_ARG, titel: { type: "string", maxLength: 120 },
       aufgaben: { type: "array", minItems: 1, maxItems: 20, items: { type: "object", properties: {
         text: { type: "string", description: "Aufgabenstellung", maxLength: 4000 }, material: { type: "string", description: "optionaler Materialtext", maxLength: 8000 },
-        ki_auftrag: { type: "string", description: "Auftrag an die KI: worauf sie beim Feedback achten soll", maxLength: 8000 },
-        antwort: { description: "\"text\" oder Tabelle", oneOf: [{ type: "string", enum: ["text"] }, { type: "object", properties: { tabelle: { type: "array", items: { type: "string", maxLength: 60 }, minItems: 1, maxItems: 8 }, zeilen: { type: "integer", minimum: 1, maximum: 30 } }, required: ["tabelle"] }] } },
-        required: ["text", "ki_auftrag"] } } }, required: ["lesson_id", "titel", "aufgaben"], additionalProperties: false } },
+        ki_auftrag: { type: "string", description: "Auftrag an die KI: worauf sie beim Feedback achten soll. Pflicht bei Text- und Tabellenaufgaben (ohne Auftrag kein KI-Feedback); bei Foto-Aufgaben weglassen.", maxLength: 8000 },
+        antwort: { description: "\"text\" (Normalfall), \"foto\" (Foto z. B. eines Lernprodukts; nie an die KI, ohne ki_auftrag; höchstens 3 je Blatt) oder Tabelle", oneOf: [{ type: "string", enum: ["text", "foto"] }, { type: "object", properties: { tabelle: { type: "array", items: { type: "string", maxLength: 60 }, minItems: 1, maxItems: 8 }, zeilen: { type: "integer", minimum: 1, maximum: 30 } }, required: ["tabelle"] }] } },
+        required: ["text"] } } }, required: ["lesson_id", "titel", "aufgaben"], additionalProperties: false } },
   { name: "list_units", title: "Unterrichtseinheiten auflisten", annotations: ro,
     description: "Listet die Unterrichtseinheiten, optional nach Fach und Klasse/Kurs.",
     inputSchema: { type: "object", properties: { fach: SUBJECT_ARG, klasse: CLASS_ARG }, additionalProperties: false } },

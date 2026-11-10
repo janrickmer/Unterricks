@@ -1,6 +1,7 @@
 // planning.js – Unterrichtseinheiten (Leupold-Schema + Ablaufplan), Terminberechnung, Krankheitsvertretung, Claude-Prompts.
 // Gemeinsam für Browser und Worker (keine DOM-Zugriffe).
-import { subjectName, gradeInfo, classShort, isAnalogClass, ANALOG_RULE, fmtDay, addDays, isIsoDate, PORTAL_RULES, PORTAL_EXAMPLE, FEIBEITSBLATT_INFO } from "./shared.js";
+import { subjectName, gradeInfo, classShort, isAnalogClass, ANALOG_RULE, fmtDay, addDays, isIsoDate, PORTAL_RULES, PORTAL_EXAMPLE, FEIBEITSBLATT_INFO,
+  SYSTEM_PROMPT_ROLE, UNIT_RULE_BASE, STOP_LINE, lessonContext, teacherWishes } from "./shared.js";
 import { ESCAPE_FORMAT_HINT } from "./escape-data.js";
 export { UNIT_RULE } from "./shared.js";
 
@@ -153,6 +154,63 @@ export function claudeUnitPrompt(ctx) {
     "",
     "Falls der Connector „Unterricks“ in diesem Chat nicht verfügbar ist, sage es mir sofort (er muss in claude.ai unter „Connectors“ eingerichtet und im Chat aktiviert sein).",
   ].filter((l) => l !== "").join("\n").replace(/\n{3,}/g, "\n\n");
+}
+
+/* ---------- Prompt für Claude: eine Stunde planen (Hauptweg der Lehrkraft; claude.ai + Connector) ----------
+ * ctx wie in der Sitzungsansicht (lessonId, subject, klass, lesson, materials, sheets, portal, unit, row, unitText, gradeNote)
+ * + messages (Planungsverlauf der Plattform) + previousStop ({title, date, portal} der vorigen Stunde mit Zwischenstopp) */
+export function claudeLessonPrompt(ctx) {
+  const L = ctx.lesson || {}, analog = isAnalogClass(ctx.klass), unit = !!ctx.unitText, id = ctx.lessonId;
+  const minutes = L.durationMin || (ctx.row && ctx.row.minutes) || null;
+  const chat = (ctx.messages || []).filter((m) => (m.role === "user" || m.role === "assistant") && m.model !== "begruessung");
+  const lastAnswers = chat.filter((m) => m.role === "assistant").slice(-2).map((m) => str(m.content).trim()).join("\n\n---\n\n");
+  const ps = ctx.previousStop;
+  const saves = [
+    "   - Stundenverlauf → `save_schulportal_entry` (Schulportal-Zeichen: " + PORTAL_RULES.join("; ") + "; Aufbau genau wie in der Vorlage unten; übergib `base_version` aus `get_lesson` – meldet die Plattform eine neuere Fassung, rufe `get_lesson` erneut auf und berücksichtige meine Änderungen).",
+    "   - Ausgearbeiteter Stundenentwurf (Verlauf mit Minuten, Begründung, Erwartungen) → `save_planning_result` (erscheint im Planungsverlauf der Sitzung; darauf bauen der Präsentations-Prompt und spätere Planungen auf).",
+    "   - Materialien → `add_text_material` (`bereich` \"schueler\": für die Schüler:innen, als PDF herunterladbar" + (analog ? " bzw. von mir ausgedruckt" : "") + "; \"lehrkraft\": nur für mich, z. B. Erwartungshorizont oder Tafelbild).",
+    analog ? null : "   - Feibeitsblatt → `propose_feibeitsblatt` (nur ein Entwurf: Ich prüfe ihn in der Plattform und lege das Blatt dort an).",
+    "   - Hausaufgabe bis zur nächsten Sitzung → `update_lesson` mit `hausaufgabe` (für die Schüler:innen sichtbar; Schulportal-Zeichen erlaubt). Geänderte Sitzungsdaten (Titel, Thema, Dauer) ebenfalls mit `update_lesson`.",
+    unit ? "   - Abgestimmte Abweichung von der Einheit (Stundenfrage, grober Ablauf) → `update_unit_row`." : null,
+  ];
+  return [
+    SYSTEM_PROMPT_ROLE,
+    "",
+    "Die Lehrkraft bin ich. Wir planen zusammen die folgende Unterrichtssitzung meiner Unterrichtsplattform „Unterricks“. Über den Connector „Unterricks“ liest du sie und speicherst Ergebnisse auf meinen Wunsch direkt dort. Arbeite gründlich und fachlich korrekt.",
+    "",
+    "## Die Sitzung (von der Plattform übermittelt)",
+    "Sitzungs-ID: " + id,
+    lessonContext(ctx, { materialText: false }),
+    ps ? "\n## Vorige Stunde nicht vollständig beendet\nIn der vorigen Sitzung „" + str(ps.title) + "“" + (ps.date ? " (" + fmtDay(ps.date) + ")" : "") + " habe ich einen Zwischenstopp markiert. " +
+      "Ihr Schulportal-Eintrag („" + STOP_LINE + "“ markiert, bis wohin die Stunde gekommen ist; alles danach ist noch offen):\n<<<\n" + clip(ps.portal, 4000) + "\n>>>\nFrage mich, ob und wie der offene Teil in diese Stunde übernommen werden soll." : null,
+    chat.length ? "\n## Bisheriger Planungsverlauf in der Plattform (Auszug; vollständig über `get_lesson`)" +
+      (chat.some((m) => m.role === "user") ? "\nWünsche, die ich dort geäußert habe:\n" + teacherWishes(chat, 4000) : "") +
+      (lastAnswers ? "\nLetzter Stand:\n<<<\n" + clip(lastAnswers, 12000) + "\n>>>" : "") : null,
+    "",
+    "## Feste Vorgaben",
+    "- Plane mit Minutenangaben je Phase, die zusammen die Dauer der Sitzung ergeben, und nenne Methode und Sozialform.",
+    "- Formuliere Materialien (Arbeitsaufträge mit Operatoren, Texte, Tafelbild bzw. Ergebnissicherung, Erwartungshorizont) vollständig aus, wenn ich das möchte, damit ich sie direkt übernehmen kann.",
+    unit ? "- " + UNIT_RULE_BASE + " Stimme ich einer geänderten Stundenfrage oder einem geänderten groben Ablauf zu, halte das mit `update_unit_row` in der Einheit fest." : null,
+    analog ? "- " + ANALOG_RULE
+      : "- Schlage bewusst auch vor, statt eines klassischen Arbeitsblatts ein Feibeitsblatt zu erstellen, wenn es didaktisch passt. " + FEIBEITSBLATT_INFO +
+        " Für ein Lernprodukt (z. B. ein Plakat) kann eine Aufgabe die Antwortart „foto“ haben: Die Schüler:innen geben ein Foto ihres Produkts ab (nie an die KI, ohne „Auftrag an die KI“; höchstens 3 Foto-Aufgaben je Feibeitsblatt).",
+    "- Erfinde keine Quellen, Links oder Videos; kennzeichne Vorschläge, die ich prüfen sollte.",
+    "",
+    "## Vorgehen",
+    "1. Rufe zuerst mit dem Connector „Unterricks“ `get_lesson` mit der Sitzungs-ID " + id + " auf: Dort stehen die aktuellen Daten, alle Materialien im Wortlaut, der bisherige Planungsverlauf und der Schulportal-Eintrag mit seiner Version." +
+      (ctx.unit && ctx.unit.id ? " Die ganze Unterrichtseinheit (Leupold-Schema, alle Stunden) liefert `get_unit` mit der ID " + ctx.unit.id + "." : "") +
+      " Brauchst du die Vorgaben im Wortlaut (Schulcurriculum, KCGO, Abiturerlass), liefert sie `get_planning_basis` mit der Sitzungs-ID.",
+    "2. Frage mich dann nach der Dauer (" + (minutes ? "laut Plattform " + minutes + " Minuten – stimmt das?" : "in der Plattform noch nicht eingetragen") + ") und nach Ideen, Themen, Materialien oder didaktischen Wünschen. Warte auf meine Antwort.",
+    "3. Plane mit mir dialogisch, bis ich zufrieden bin.",
+    "4. Speichere nur, was ich freigebe, direkt in der Plattform:",
+    ...saves,
+    "5. Sage mir zum Schluss kurz, was du gespeichert hast. Die Präsentation erstelle ich danach in der Plattform mit „Präsentation mit Claude erstellen“ – deren Prompt baut auf dem gespeicherten Schulportal-Eintrag auf.",
+    "",
+    "Vorlage für den Schulportal-Eintrag (so sieht der fertige Eintrag aus):",
+    PORTAL_EXAMPLE,
+    "",
+    "Falls der Connector „Unterricks“ in diesem Chat nicht verfügbar ist, sage es mir sofort (beim ersten Mal muss er im Chat verbunden und sein Zugriff erlaubt werden). Plane dann mit den Angaben oben und gib mir den Schulportal-Eintrag am Ende zum Kopieren aus.",
+  ].filter((l) => l !== null).join("\n").replace(/\n{3,}/g, "\n\n");
 }
 
 /* ---------- Krankheitsvertretung ---------- */

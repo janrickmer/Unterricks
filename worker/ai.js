@@ -47,8 +47,10 @@ export async function loadAiConfig(db) {
   return { keys: isObj(s.keys) ? s.keys : {}, custom: isObj(s.custom) ? s.custom : { base: "" }, tasks: isObj(s.tasks) ? s.tasks : {}, fallbacks: Array.isArray(s.fallbacks) ? s.fallbacks : [] };
 }
 const usable = (cfg, p) => !!PROVIDERS[p] && (PROVIDERS[p].keyless ? true : !!cfg.keys[p]) && (p !== "custom" || !!cfg.custom.base);
+/* Reihenfolge der Lehrkraft: Claude (claude.ai, Connector) → Groq → Cloudflare Workers AI. Unter den kostenlosen Diensten steht Groq deshalb vorn. */
+export const DEFAULT_ORDER = ["groq", "gemini", "cerebras", "openrouter", "custom"];
 function defaultChoice(cfg) {
-  for (const p of ["gemini", "groq", "cerebras", "openrouter", "custom"]) if (usable(cfg, p)) return { provider: p, model: PROVIDERS[p].defaultModel || "" };
+  for (const p of DEFAULT_ORDER) if (usable(cfg, p)) return { provider: p, model: PROVIDERS[p].defaultModel || "" };
   return { provider: "cloudflare", model: PROVIDERS.cloudflare.defaultModel };
 }
 export function routeFor(cfg, task) {
@@ -67,17 +69,20 @@ const baseOf = (cfg, p) => (p === "custom" ? str(cfg.custom.base) : PROVIDERS[p]
 
 /* Verlauf auf das Budget des Anbieters kürzen (Zeichen, grob 4 Zeichen ≈ 1 Token): System bleibt, älteste Nachrichten fallen weg */
 export function fitMessages(messages, budget) {
-  const sys = messages.filter((m) => m.role === "system"), rest = messages.filter((m) => m.role !== "system");
+  const sysMax = Math.max(1000, budget - 1500);   // Platz für mindestens die letzte Nachricht
+  const sys = messages.filter((m) => m.role === "system").map((m) => (m.content.length > sysMax ? { ...m, content: m.content.slice(0, sysMax) } : m));
+  const rest = messages.filter((m) => m.role !== "system");
   let total = sys.reduce((n, m) => n + m.content.length, 0);
   const out = [];
   for (let i = rest.length - 1; i >= 0; i--) {
     const len = rest[i].content.length;
     if (out.length && total + len > budget) break;
-    out.unshift(len > budget ? { ...rest[i], content: rest[i].content.slice(-budget) } : rest[i]);
-    total += len;
+    const room = Math.max(500, budget - total);   // die neueste Nachricht nur so weit kürzen, wie neben dem System-Prompt Platz ist
+    out.unshift(len > room ? { ...rest[i], content: rest[i].content.slice(-room) } : rest[i]);
+    total += Math.min(len, room);
   }
   while (out.length && out[0].role === "assistant") out.shift();   // mit einer Nachricht der Lehrkraft beginnen
-  return [...sys.map((m) => (m.content.length > budget ? { ...m, content: m.content.slice(0, budget) } : m)), ...out];
+  return [...sys, ...out];
 }
 
 function openAIBody(p, model, messages, o) {
@@ -94,13 +99,52 @@ function errText(data, raw) {
   if (Array.isArray(data) && data[0] && data[0].error) return str(data[0].error.message).slice(0, 300);
   return str(raw).slice(0, 200);
 }
-function classify(status, msg) {
+/* Grenzen aus der Fehlermeldung lesen. Groq meldet sie genau, z. B. „… on tokens per minute (TPM): Limit 8000, Used 4810, Requested 5212.
+ * Please try again in 1.5165s.“ (429) bzw. bei einer einzelnen zu großen Anfrage „Request too large … Limit 8000, Requested 12500“ (413). */
+export function parseLimits(msg, headers) {
+  const s = str(msg), num = (re) => { const m = re.exec(s); return m ? Number(m[1]) : null; };
+  let retryMs = null;
+  const ra = headers && typeof headers.get === "function" ? str(headers.get("retry-after")).trim() : "";
+  if (/^\d+(\.\d+)?$/.test(ra)) retryMs = Math.ceil(Number(ra) * 1000);
+  else {
+    const m = /try again in\s+((?:\d+(?:\.\d+)?\s*(?:ms|h|m|s)\s*)+)/i.exec(s);
+    if (m) {
+      retryMs = 0;
+      for (const [, v, u] of m[1].matchAll(/(\d+(?:\.\d+)?)\s*(ms|h|m|s)/gi)) retryMs += Number(v) * { ms: 1, s: 1000, m: 60000, h: 3600000 }[u.toLowerCase()];
+      retryMs = Math.ceil(retryMs);
+    }
+  }
+  return { limit: num(/\bLimit\s+(\d+)/i), used: num(/\bUsed\s+(\d+)/i), requested: num(/\bRequested\s+(\d+)/i), retryMs, perMinute: /per minute|\b[TR]PM\b/i.test(s) };
+}
+function classify(status, msg, full, headers) {
+  const lim = parseLimits(full || msg, headers);
   if (status === 401 || status === 403) return new AIError("AUTH", "Der Schlüssel wurde abgelehnt (" + status + "): " + msg);
   if (status === 404) return new AIError("MODEL", "Modell nicht gefunden (" + status + "): " + msg, { soft: true });
-  if (status === 429) return new AIError("RATE_LIMIT", "Kontingent erschöpft oder zu viele Anfragen (429): " + msg, { soft: true });
-  if (status === 413 || /context|too long|maximum.*tokens/i.test(msg)) return new AIError("TOO_LARGE", "Anfrage zu lang für dieses Modell: " + msg, { soft: true });
+  if (status === 429) return new AIError("RATE_LIMIT", "Kontingent erschöpft oder zu viele Anfragen (429): " + msg, { soft: true, ...lim });
+  if (status === 413 || /context|too long|too large|maximum.*tokens/i.test(msg)) return new AIError("TOO_LARGE", "Anfrage zu lang für dieses Modell: " + msg, { soft: true, ...lim });
   return new AIError("SERVER", "Fehler des KI-Dienstes (" + status + "): " + msg, { soft: true });
 }
+
+/* Bevor die Plattform zum nächsten Dienst wechselt: Lässt sich die Anfrage beim selben Dienst noch retten?
+ * – Einzelne Anfrage größer als die Minutengrenze (Groq im Gratis-Tarif: 8000 Token pro Minute, gezählt Eingabe + erlaubte Antwortlänge):
+ *   Antwortlänge begrenzen bzw. den Verlauf kürzen, bis es passt (Zeichen je Token an genau dieser Anfrage gemessen).
+ * – Kurze Wartezeit (Minutengrenze, retry-after ≤ 30 s): abwarten und erneut fragen – erst ein erschöpftes Kontingent führt zum nächsten Dienst. */
+export const MAX_WAIT_MS = 30000;
+export function adjustFor(e, opt) {
+  if (!(e instanceof AIError)) return null;
+  if (e.limit && e.requested && e.requested > e.limit) {
+    const target = Math.floor(e.limit * 0.9), max = opt.maxTokens || 0;
+    const input = Math.max(1, e.requested - max);
+    const want = Math.min(max || target, Math.floor(target * 0.45));   // Mindestlänge der Antwort
+    if (target - input >= want) return { opt: { ...opt, maxTokens: Math.min(max || Infinity, target - input) } };
+    const ratio = (e.inputChars || 0) / input;
+    const budget = Math.floor((target - want) * ratio * 0.95);
+    return ratio && budget >= 2000 ? { opt: { ...opt, maxTokens: want, budget } } : null;
+  }
+  if (e.code === "RATE_LIMIT" && e.retryMs > 0 && e.retryMs <= MAX_WAIT_MS) return { waitMs: e.retryMs + 250, opt };
+  return null;
+}
+const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 function parseOpenAI(data) {
   const c = data && Array.isArray(data.choices) && data.choices[0];
   if (!c) throw new AIError("EMPTY", "Leere Antwort der KI.", { soft: true });
@@ -127,7 +171,8 @@ export async function callOne(env, cfg, choice, messages, o = {}) {
   if (!p) throw new AIError("CONFIG", "Unbekannter Anbieter.");
   const model = choice.model || p.defaultModel;
   if (!model) throw new AIError("CONFIG", "Für " + p.label + " ist kein Modell eingetragen.");
-  const msgs = fitMessages(messages, p.budget);
+  const msgs = fitMessages(messages, o.budget || p.budget);
+  const inputChars = msgs.reduce((n, m) => n + str(m.content).length, 0);
   const ac = new AbortController(), timer = setTimeout(() => ac.abort(), o.timeoutMs || 120000);
   try {
     if (p.keyless) {
@@ -153,28 +198,38 @@ export async function callOne(env, cfg, choice, messages, o = {}) {
     });
     if (!r.ok) {
       const raw = await r.text(); let data = null; try { data = JSON.parse(raw); } catch {}
-      throw classify(r.status, errText(data, raw));
+      const full = data && data.error && typeof data.error.message === "string" ? data.error.message : raw;
+      throw classify(r.status, errText(data, raw), str(full).slice(0, 2000), r.headers);
     }
     if (o.stream) return { stream: r.body, model, provider: choice.provider };
     const data = await r.json();
     return { text: parseOpenAI(data), model, provider: choice.provider };
   } catch (e) {
-    if (e instanceof AIError) throw e;
+    if (e instanceof AIError) { if (e.inputChars === undefined) e.inputChars = inputChars; throw e; }
     if (e && e.name === "AbortError") throw new AIError("TIMEOUT", "Die KI hat zu lange gebraucht.", { soft: true });
     throw new AIError("NETWORK", "Der KI-Dienst ist nicht erreichbar: " + str(e && e.message).slice(0, 200), { soft: true });
   } finally { clearTimeout(timer); }
 }
 
-/* Anfrage mit Ausweichliste: weiche Fehler (Kontingent, Modell, Zeit) → nächster Eintrag */
+/* Anfrage mit Ausweichliste: weiche Fehler (Kontingent, Modell, Zeit) → nächster Eintrag.
+ * Vorher wird beim selben Dienst noch höchstens zweimal nachgebessert (zu große Anfrage verkleinern, kurze Wartezeit abwarten). */
 export async function callTask(env, db, task, messages, o = {}) {
   const cfg = await loadAiConfig(db);
   const route = routeFor(cfg, task), errors = [];
   for (const choice of route) {
-    try { return await callOne(env, cfg, choice, messages, { maxTokens: TASKS[task].maxTokens, ...o, stream: o.stream && !PROVIDERS[choice.provider].keyless }); }
-    catch (e) {
-      errors.push(PROVIDERS[choice.provider].label + " (" + (choice.model || PROVIDERS[choice.provider].defaultModel) + "): " + e.message);
-      if (!(e instanceof AIError) || !e.soft) break;
+    let opt = { maxTokens: TASKS[task].maxTokens, ...o, stream: o.stream && !PROVIDERS[choice.provider].keyless }, last = null;
+    for (let attempt = 0; attempt < 3; attempt++) {
+      try { return await callOne(env, cfg, choice, messages, opt); }
+      catch (e) {
+        last = e;
+        const adj = attempt < 2 ? adjustFor(e, opt) : null;
+        if (!adj) break;
+        if (adj.waitMs) await (o.sleep || sleep)(adj.waitMs);
+        opt = adj.opt;
+      }
     }
+    errors.push(PROVIDERS[choice.provider].label + " (" + (choice.model || PROVIDERS[choice.provider].defaultModel) + "): " + last.message);
+    if (!(last instanceof AIError) || !last.soft) break;
   }
   throw new HttpError(502, "ai_error", "Die KI hat nicht geantwortet. " + errors.join(" | "));
 }
@@ -184,7 +239,7 @@ function publicConfig(cfg) {
   return {
     providers: Object.entries(PROVIDERS).map(([id, p]) => ({ id, label: p.label, keyless: !!p.keyless, hasKey: p.keyless ? true : !!cfg.keys[id],
       defaultModel: p.defaultModel, keyUrl: p.keyUrl || "", note: p.note || "", models: p.models || null, base: id === "custom" ? str(cfg.custom.base) : undefined })),
-    tasks: TASK_IDS.map((id) => ({ id, label: TASKS[id].label, choice: routeFor(cfg, id)[0], saved: isObj(cfg.tasks[id]) })),
+    tasks: TASK_IDS.map((id) => { const route = routeFor(cfg, id); return { id, label: TASKS[id].label, choice: route[0], route, saved: isObj(cfg.tasks[id]) }; }),
     fallbacks: cfg.fallbacks,
   };
 }

@@ -259,10 +259,29 @@ async function main() {
     await tp.locator(".save-state", { hasText: "Gespeichert ✓" }).waitFor({ timeout: 10000 });
     ok((await T("GET", "/api/teacher/lessons/" + lessonId)).data.lesson.portal.includes("Noch nicht gespeichert"), "… und speichert diesen Stand sofort");
 
-    step("Claude-Prompt „Unterrichtsidee weiterentwickeln“");
-    await tp.getByRole("button", { name: "Prompt für Claude erzeugen und kopieren" }).click();
-    const idea = await tp.evaluate(() => navigator.clipboard.readText());
-    ok(["Q2", "Politik und Wirtschaft", "Gewaltenteilung und BVerfG", "90 Minuten", "Karikatur und Partnerarbeit", "Ihre Nachricht war", lessonId].every((s) => idea.includes(s)), "enthält Klasse, Fach, Thema, Dauer, Wünsche, Inhalte und Sitzungs-ID");
+    step("Hauptweg „Stunde mit Claude planen“: Prompt, Claude speichert über den Connector, Seite übernimmt es beim Zurückkehren");
+    ok(await tp.locator(".claudeplan").evaluate((el) => el.compareDocumentPosition(document.querySelector("#backupchat")) & Node.DOCUMENT_POSITION_FOLLOWING) > 0
+      && (await tp.locator("#backupchat h2").textContent()).startsWith("Backup"), "Claude-Karte steht vor dem Chat der Plattform (Backup)");
+    await tp.locator("#backupchat .hint", { hasText: "Reihenfolge der kostenlosen KI: Anderer OpenAI-kompatibler Dienst → Cloudflare Workers AI" }).waitFor({ timeout: 10000 });
+    ok(true, "Backup nennt die Reihenfolge der kostenlosen KI aus den Einstellungen");
+    await tp.getByRole("button", { name: "Stunde mit Claude planen" }).click();
+    const lm = tp.locator(".modal", { hasText: "Welches Sprachmodell?" });
+    await lm.waitFor();
+    ok((await lm.textContent()).includes("Beim ersten Mal fragt claude.ai, ob der Connector verbunden werden"), "Hinweis: beim ersten Mal Connector verbinden und Zugriff erlauben");
+    await lm.getByRole("button", { name: "Prompt kopieren" }).click();
+    const lessonPrompt = await tp.evaluate(() => navigator.clipboard.readText());
+    ok(lessonPrompt.startsWith("Du bist ein leistungsfähiger didaktischer Assistent") && ["Q2 GK", "Politik und Wirtschaft", "Gewaltenteilung und BVerfG", "laut Plattform 90 Minuten", "Karikatur und Partnerarbeit", "Ihre Nachricht war",
+      "`get_lesson` mit der Sitzungs-ID " + lessonId, "`get_unit` mit der ID " + unitId, "Zentrale Lernaufgabe (Ziel der Einheit): Positionspapier", "`save_schulportal_entry`", "`update_lesson` mit `hausaufgabe`", "`update_unit_row`", "Speichere nur, was ich freigebe"].every((s) => lessonPrompt.includes(s)),
+      "Prompt: feste Rolle, Fach, Kurs, Thema, Dauer, Wünsche, bisheriger Stand, Einheit, Werkzeuge des Connectors");
+    await lm.getByRole("button", { name: "Schließen", exact: true }).getByText("Schließen").click();
+    r = await tool("update_lesson", { lesson_id: lessonId, hausaufgabe: "Lies M3 und notiere zwei Argumente (von Claude)." });
+    ok(!r.isError, "Claude trägt die Hausaufgabe ein (update_lesson)");
+    r = await tool("save_planning_result", { lesson_id: lessonId, text: "## Stundenentwurf von Claude\n- Einstieg mit Karikatur (10 min)" });
+    ok(!r.isError, "Claude speichert den ausgearbeiteten Entwurf (save_planning_result)");
+    await tp.evaluate(() => document.dispatchEvent(new Event("visibilitychange")));
+    await tp.waitForFunction(() => document.querySelector("#hw").value.includes("(von Claude)"), null, { timeout: 10000 }).then(() => ok(true, "beim Zurückkehren: Hausaufgabe übernommen"), () => ok(false, "beim Zurückkehren: Hausaufgabe übernommen"));
+    await tp.locator(".msg.assistant", { hasText: "Stundenentwurf von Claude" }).waitFor({ timeout: 10000 });
+    ok(true, "… und Claudes Entwurf erscheint im Planungsverlauf");
 
     step("Material hochladen (zwei getrennte Bereiche) und aus dem Chat übernehmen");
     await tp.locator(".zones input[type=file]").nth(0).setInputFiles({ name: "Arbeitsblatt BVerfG.pdf", mimeType: "application/pdf", buffer: await pdf(1, "Arbeitsblatt") });
@@ -422,6 +441,10 @@ async function main() {
     step("Datum (änderbar, ohne Verschieben), Hausaufgabe, Zwischenstopp");
     ok((await T("POST", "/api/teacher/lessons", { subject: "powi", klass: "Q2-GK", title: "Ohne Einheit", date: today })).status === 400, "Sitzung ohne Einheit wird abgelehnt");
     const l2 = (await T("GET", "/api/teacher/lessons/" + byRow(1).id)).data.lesson, l3 = (await T("GET", "/api/teacher/lessons/" + byRow(2).id)).data.lesson;
+    await tp.goto(BASE + "/#/lk/einstellungen");
+    await tp.locator("#ai-order li").first().waitFor({ timeout: 10000 });
+    const order = await tp.locator("#ai-order li").allTextContents();
+    ok(order.length === 3 && order[0].startsWith("Claude") && order[1].startsWith("Anderer OpenAI-kompatibler Dienst") && order[2].startsWith("Cloudflare Workers AI"), "Einstellungen: Reihenfolge Claude → kostenlose KI → Cloudflare Workers AI");
     await tp.goto(BASE + "/#/lk/s/" + lessonId);
     await tp.locator("#hw").fill("Lies **M2** und beantworte Aufgabe 3.");
     await tp.locator(".homework .save-state", { hasText: "Gespeichert ✓" }).waitFor({ timeout: 10000 });
