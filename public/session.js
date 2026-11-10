@@ -9,7 +9,7 @@ import { leupoldView } from "./units.js";
 import { substituteCards } from "./substitute.js";
 import { paintPortalPreview, portalPreview, contextMenu } from "./portalview.js";
 import { renderMarkdown } from "./markdown.js";
-import { personLabel, personKey } from "./fbclient.js";
+import { personLabel, personKey, cleanPhoto, PHOTO_TASKS_MAX } from "./fbclient.js";
 
 const MODES = [["planning", "Planung"], ["ideas", "Ideen weiterentwickeln"], ["material", "Material erstellen"]];
 
@@ -546,7 +546,10 @@ export async function sessionPage(id) {
         const cols = h("input", { value: (t.answer.columns || []).join(", "), placeholder: "Spalten, durch Komma getrennt" });
         const rows = h("input", { type: "number", min: "1", max: "30", value: t.answer.rows || 3, style: { maxWidth: "6rem" } });
         const tableBox = h("div", { class: "row" + (t.answer.type === "table" ? "" : " hidden") }, h("div", { class: "grow" }, cols), h("span", { class: "small", text: "Zeilen:" }), rows);
-        const syncAns = () => { t.answer = typ.value === "table" ? { type: "table", columns: cols.value.split(",").map((s) => s.trim()).filter(Boolean).slice(0, 8), rows: Math.min(30, Math.max(1, Number(rows.value) || 3)) } : { type: typ.value === "photo" ? "photo" : "text" }; tableBox.classList.toggle("hidden", typ.value !== "table"); };
+        const solBox = h("div");
+        const syncAns = () => { t.answer = typ.value === "table" ? { type: "table", columns: cols.value.split(",").map((s) => s.trim()).filter(Boolean).slice(0, 8), rows: Math.min(30, Math.max(1, Number(rows.value) || 3)) } : { type: typ.value === "photo" ? "photo" : "text" };
+          tableBox.classList.toggle("hidden", typ.value !== "table"); solBox.classList.toggle("hidden", typ.value === "photo");
+          if (typ.value === "photo" && data.tasks.filter((x) => x.answer && x.answer.type === "photo").length > PHOTO_TASKS_MAX) toast("Höchstens " + PHOTO_TASKS_MAX + " Foto-Aufgaben je Feibeitsblatt.", "err"); };
         typ.onchange = syncAns; cols.oninput = syncAns; rows.oninput = syncAns;
         tasksBox.append(h("div", { class: "task-edit" },
           h("div", { class: "row between" }, h("strong", { text: "Aufgabe " + (i + 1) }), h("div", { class: "row" },
@@ -555,9 +558,13 @@ export async function sessionPage(id) {
             h("button", { class: "btn small ghost danger", type: "button", disabled: data.tasks.length === 1 ? true : null, onclick: () => { data.tasks.splice(i, 1); paintTasks(); } }, "Entfernen"))),
           h("div", { class: "field" }, h("label", null, "Aufgabenstellung"), text),
           h("div", { class: "field" }, h("label", null, "Material (optional, Text)"), mat),
-          h("div", { class: "field" }, h("label", null, "Auftrag an die KI (Einstellung der KI-Rückmeldung)"), sol,
-            h("p", { class: "hint", text: "Worauf soll die KI beim Feedback achten? Erwartete Inhalte, Kriterien, typische Fehler – sie verrät den Schüler:innen die Lösung nicht. Leer = kein KI-Feedback zu dieser Aufgabe." })),
-          h("div", { class: "row" }, h("span", { class: "small", text: "Antwort als:" }), typ), tableBox));
+          solBox,
+          h("div", { class: "row" }, h("span", { class: "small", text: "Antwort als:" }), typ), tableBox,
+          h("p", { class: "hint" + (t.answer.type === "photo" ? "" : " hidden"), text: "Foto: Die Schüler:innen fotografieren z. B. ihr Lernprodukt und laden das Bild hoch (verkleinert, ohne Ortsdaten, verschlüsselt). Fotos gehen nie an die KI – deshalb gibt es hier keinen Auftrag an die KI." })));
+        solBox.append(h("div", { class: "field" }, h("label", null, "Auftrag an die KI (Einstellung der KI-Rückmeldung)"), sol,
+          h("p", { class: "hint", text: "Worauf soll die KI beim Feedback achten? Erwartete Inhalte, Kriterien, typische Fehler – sie verrät den Schüler:innen die Lösung nicht. Leer = kein KI-Feedback zu dieser Aufgabe." })));
+        solBox.classList.toggle("hidden", t.answer.type === "photo");
+        typ.addEventListener("change", () => { const hint = solBox.parentNode && solBox.parentNode.querySelector(":scope > p.hint:last-child"); if (hint) hint.classList.toggle("hidden", typ.value !== "photo"); });
       });
     };
     paintTasks();
@@ -641,7 +648,9 @@ export async function sessionPage(id) {
             const fin = (a && (a.final != null ? a.final : a.first)) || "";
             const fbk = (p.feedback || [])[i], fin2 = s.final && s.final.results ? s.final.results[i] : null;
             box.append(h("details", { open: rows.length <= 6 ? true : null }, h("summary", null, "Aufgabe " + (i + 1) + ": " + String(t.text || "").slice(0, 90)),
-              photoOf(a) ? photoNode(photoOf(a)) : h("div", { class: "answer", text: typeof fin === "string" ? fin || "(leer)" : JSON.stringify(fin) }),
+              photoOf(a) ? photoNode(photoOf(a), "Foto-" + sheet.code + "-" + (p.person && p.person.klasse ? p.person.klasse + "-" : "") + personLabel(p.person).replace(/[^\wÄÖÜäöüß-]+/g, "-").slice(0, 40) + "-Aufgabe-" + (i + 1) + ".jpg")
+                : t.answer && t.answer.type === "photo" ? h("div", { class: "answer muted", text: s.stage === "final" ? "(kein Foto abgegeben)" : "(Foto – erst in der Abgabe sichtbar)" })
+                : h("div", { class: "answer", text: typeof fin === "string" ? fin || "(leer)" : JSON.stringify(fin) }),
               a && a.first && a.final && a.first !== a.final ? h("details", { class: "small" }, h("summary", null, "Erste Fassung (vor dem KI-Feedback)"), h("div", { class: "answer", text: a.first })) : null,
               fbk ? fbBlock("KI-Feedback vor der Abgabe", fbk, "Gelingt schon", "Tipps") : null,
               fin2 ? fbBlock("Finale KI-Rückmeldung", fin2, "Gelingt schon", "Hat gefehlt") : null));
@@ -668,15 +677,14 @@ export async function sessionPage(id) {
       h("ul", null, st.map((x) => h("li", null, t(x && x.label, 200) + " – " + (x && Number.isInteger(x.attempts) ? x.attempts : "?") + " Versuch(e)",
         Array.isArray(x && x.errors) && x.errors.length ? h("ul", null, x.errors.slice(0, 30).map((er) => h("li", { text: t(er && er.item, 300) + (er && er.wrong ? " – Antwort: " + t(er.wrong, 200) : "") + (er && er.right ? " – richtig: " + t(er.right, 200) : "") }))) : null))));
   }
-  // Foto-Antwort (Feibeitsblatt: Bild als data:-URL im verschlüsselten Abgabepaket)
-  function photoOf(a) {
-    const v = a && (a.photo || (a.final && a.final.photo) || (typeof a.final === "object" && a.final && a.final.dataUrl ? a.final : null));
-    const url = v && (typeof v === "string" ? v : v.dataUrl);
-    return typeof url === "string" && /^data:image\/(jpeg|png|webp);base64,/.test(url) ? url : null;
-  }
-  function photoNode(url) {
-    const img = h("img", { src: url, alt: "Foto der Abgabe", class: "sub-photo" });
-    return h("div", { class: "answer" }, img, h("div", { class: "row", style: { marginTop: ".3rem" } }, h("a", { class: "btn small", href: url, download: "Foto.jpg" }, "Foto speichern")));
+  // Foto-Antwort: das Feibeitsblatt legt das Bild nur in der Abgabe (stage "final") als answers[i].photo ab (JPEG, data:-URL);
+  // final ist dann „[Foto]“. Fremde Daten → nur nach Prüfung als Bildquelle verwenden.
+  const photoOf = (a) => (a && typeof a === "object" ? cleanPhoto(a.photo) : null);
+  function photoNode(url, name) {
+    const img = h("img", { src: url, alt: "Foto der Abgabe", class: "sub-photo", loading: "lazy" });
+    return h("div", { class: "answer" }, img, h("div", { class: "row", style: { marginTop: ".3rem" } },
+      h("button", { class: "btn small", type: "button", onclick: () => window.open(url, "_blank", "noopener") }, "Groß ansehen"),
+      h("a", { class: "btn small", href: url, download: name || "Foto.jpg" }, "Foto speichern")));
   }
   function fbBlock(title, f, okLabel, missLabel) {
     const list = (arr) => h("ul", null, (Array.isArray(arr) ? arr : []).slice(0, 12).map((x) => h("li", { text: String(x).slice(0, 300) })));

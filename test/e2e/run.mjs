@@ -501,8 +501,9 @@ async function main() {
       hinweise_vertretung: "Bitte für eine ruhige Arbeitsatmosphäre sorgen." };
     r = await tool("save_substitute_plan", plan);
     ok(r.isError && /braucht eine Abgabe/.test(r.content[0].text), "ohne Abgabe (Feibeitsblatt) lehnt die Plattform den Vorschlag ab");
-    r = await tool("save_substitute_plan", { ...plan, feibeitsblatt: { titel: "Vertretung: Verfahren des BVerfG", aufgaben: [{ text: "Erkläre die Normenkontrolle.", ki_auftrag: "abstrakt und konkret unterscheiden" }] } });
-    ok(!r.isError, "Claude legt den Vertretungsvorschlag ab (save_substitute_plan)");
+    r = await tool("save_substitute_plan", { ...plan, feibeitsblatt: { titel: "Vertretung: Verfahren des BVerfG", aufgaben: [{ text: "Erkläre die Normenkontrolle.", ki_auftrag: "abstrakt und konkret unterscheiden" },
+      { text: "Fotografiere dein Schaubild zu den Verfahren.", antwort: "foto", ki_auftrag: "darf nicht an die KI" }] } });
+    ok(!r.isError, "Claude legt den Vertretungsvorschlag ab (save_substitute_plan), mit Foto-Aufgabe für das Lernprodukt");
     await tp.evaluate(() => document.dispatchEvent(new Event("visibilitychange")));
     const prop = tp.locator(".substitute", { hasText: "Vertretungsvorschlag prüfen" });
     await prop.waitFor({ timeout: 10000 });
@@ -520,7 +521,16 @@ async function main() {
     await prop.getByRole("button", { name: "Bestätigen: Sitzung auf Vertretung umstellen" }).click();
     await tp.locator(".modal").getByRole("button", { name: "Bestätigen und umstellen" }).click();
     await tp.locator(".substitute.active").waitFor({ timeout: 20000 });
-    ok(fbm.sheets.size === sheetsBefore + 1 && [...fbm.sheets.values()].some((x) => x.title === "Vertretung: Verfahren des BVerfG"), "Feibeitsblatt der Vertretung angelegt");
+    const subSheet = [...fbm.sheets.values()].find((x) => x.title === "Vertretung: Verfahren des BVerfG");
+    ok(fbm.sheets.size === sheetsBefore + 1 && subSheet, "Feibeitsblatt der Vertretung angelegt");
+    ok(subSheet && subSheet.tasks[1].answer && subSheet.tasks[1].answer.type === "photo" && subSheet.tasks[1].solution === "" && subSheet.tasks[0].solution.includes("abstrakt"), "Foto-Aufgabe als Antwortart „Foto“ angelegt – ohne Auftrag an die KI");
+    const jpeg = "data:image/jpeg;base64," + (await tp.screenshot({ type: "jpeg", quality: 40, clip: { x: 0, y: 0, width: 48, height: 32 } })).toString("base64");
+    await fbm.addSubmission(subSheet.code, { vorname: "Lea", nachname: "Sc", geburtsdatum: "--03-04", klasse: "Q2GK" }, ["Die Normenkontrolle prüft Gesetze.", ""], [null, jpeg]);
+    await tp.locator("#fbcard .item", { hasText: "Vertretung: Verfahren des BVerfG" }).getByRole("button", { name: "Abgaben ansehen" }).click();
+    await tp.locator(".modal .sub", { hasText: "Lea Sc" }).waitFor({ timeout: 20000 });
+    ok(await tp.locator(".modal img.sub-photo").count() === 1 && (await tp.locator(".modal img.sub-photo").getAttribute("src")).startsWith("data:image/jpeg;base64,/9j/"), "Abgaben: Foto der Schülerin wird angezeigt (geprüftes JPEG)");
+    await tp.locator(".modal .sub").first().screenshot({ path: join(OUT, "lehrkraft-abgabe-foto.png") });
+    await tp.keyboard.press("Escape");
     const tSub = (await T("GET", "/api/teacher/lessons/" + l2.id)).data;
     ok(tSub.files.some((f) => f.area === "archive" && f.name === "Original-Arbeitsblatt") && tSub.files.some((f) => f.area === "student" && f.name === "Anleitung zur Vertretungsstunde") &&
       tSub.files.some((f) => f.area === "teacher" && f.name === "Hinweise für die Vertretungslehrkraft") && tSub.lesson.portal.startsWith("**1) Vertretung**"), "ursprüngliche Planung archiviert, Material und Schulportal-Eintrag ausgetauscht");

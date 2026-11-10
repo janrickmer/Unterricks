@@ -7,6 +7,13 @@ const b64 = (buf) => { const b = buf instanceof Uint8Array ? buf : new Uint8Arra
 const unb64 = (s) => { const bin = atob(String(s)); const out = new Uint8Array(bin.length); for (let i = 0; i < bin.length; i++) out[i] = bin.charCodeAt(i); return out; };
 const hex = (buf) => Array.from(new Uint8Array(buf), (x) => x.toString(16).padStart(2, "0")).join("");
 
+export const PHOTO_TASKS_MAX = 3;   // Grenze des Feibeitsblatts (LIMITS.photoTasks)
+// Foto einer Abgabe (entschlüsselt, fremde Daten): nur ein JPEG als data:-URL in der Form, die das Feibeitsblatt erzeugt (≤ 200 KB)
+export function cleanPhoto(v) {
+  if (typeof v !== "string" || v.length > 280000) return null;
+  const m = /^data:image\/jpeg;base64,([A-Za-z0-9+/]+={0,2})$/.exec(v);
+  return m && m[1].length % 4 === 0 && m[1].startsWith("/9j/") ? v : null;
+}
 export class FbError extends Error { constructor(m, status, code) { super(m); this.status = status; this.code = code; } }
 
 export class FbClient {
@@ -73,19 +80,28 @@ export class FbClient {
   checklistSave(code, ai, tasks) { return this.call("PUT", "/api/teacher/sheets/" + encodeURIComponent(code) + "/checklist", { ai: !!ai, tasks }); }
 
   /* Entwurf (Plattform-Format) → Feibeitsblatt anlegen */
+  // Antwortarten: Text, Tabelle, Foto (Foto: {type:"photo"} ohne Auftrag an die KI – Fotos gehen nie an die KI; höchstens 3 je Blatt)
   async createSheet(draft) {
-    if (draft.tasks.some((t) => t.answer && t.answer.type === "photo"))
-      throw new FbError("Die Antwortart „Foto“ kann das Feibeitsblatt noch nicht entgegennehmen. Bitte die Foto-Aufgabe vorerst als Textaufgabe formulieren (z. B. Beschreibung des Lernprodukts).", 400, "photo_unsupported");
+    const photos = draft.tasks.filter((t) => t.answer && t.answer.type === "photo").length;
+    if (photos > PHOTO_TASKS_MAX) throw new FbError("Höchstens " + PHOTO_TASKS_MAX + " Aufgaben mit der Antwortart „Foto“ je Feibeitsblatt.", 400, "too_many_photos");
     const tasks = draft.tasks.map((t) => {
-      const task = { text: String(t.text || "").trim(), solution: String(t.solution || "").trim() };
+      const photo = t.answer && t.answer.type === "photo";
+      const task = { text: String(t.text || "").trim(), solution: photo ? "" : String(t.solution || "").trim() };
       const mat = materialRuns(t.material || "");
       if (mat.length) task.material = mat;
-      if (t.answer && t.answer.type === "table" && Array.isArray(t.answer.columns) && t.answer.columns.length) task.answer = { type: "table", columns: t.answer.columns.slice(0, 8), rows: Math.min(30, Math.max(1, Number(t.answer.rows) || 3)) };
+      if (photo) task.answer = { type: "photo" };
+      else if (t.answer && t.answer.type === "table" && Array.isArray(t.answer.columns) && t.answer.columns.length) task.answer = { type: "table", columns: t.answer.columns.slice(0, 8), rows: Math.min(30, Math.max(1, Number(t.answer.rows) || 3)) };
       return task;
     });
     const body = { title: String(draft.title || "").trim(), tasks };
     if (draft.escape && draft.escape.id && draft.escape.name) body.escape = { id: draft.escape.id, name: draft.escape.name };   // Finale eines Escape-Rooms (nur beim Anlegen möglich)
-    return this.call("POST", "/api/teacher/sheets", body);
+    try { return await this.call("POST", "/api/teacher/sheets", body); }
+    catch (e) {
+      // ein Feibeitsblatt ohne die Erweiterung „Foto“ kennt die Antwortart nicht: klar sagen, woran es liegt
+      if (photos && e.status === 400 && /Antwortart hat ein ungültiges Format/.test(e.message))
+        throw new FbError(e.message + " – Ihr Feibeitsblatt kennt die Antwortart „Foto“ noch nicht. Sie kommt mit der Erweiterung des Feibeitsblatts (Zweig claude/foto-antwort); bis sie veröffentlicht ist, bitte die Foto-Aufgabe als Textaufgabe formulieren.", 400, "photo_unsupported");
+      throw e;
+    }
   }
 
   /* Alle Abgaben eines Blattes laden und entschlüsseln (seitenweise, höchstens 40 Seiten wie im Feibeitsblatt) */

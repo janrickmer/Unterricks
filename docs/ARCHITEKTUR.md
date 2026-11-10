@@ -24,7 +24,7 @@ implementiert und im End-to-End-Test geprüft (Ausnahmen unten ausdrücklich gen
 | Oberstufe | **Grund- und Leistungskurs parallel** je Kurshalbjahr (Q1 GK … Q4 LK) |
 | Ursprüngliche Planung bei Krankheit | **Archivieren** (wiederherstellbar, in eine andere Sitzung übertragbar) |
 | Escape-Rooms | **Die Plattform hostet sie** (Vorlage mit dem bekannten Aufbau, Finale im Feibeitsblatt), siehe 4c |
-| Foto-Abgabe | **Feibeitsblatt wird erweitert** (Antwortart „Foto“) – noch nicht freigeschaltet, siehe 4b |
+| Foto-Abgabe | **Feibeitsblatt erweitert** um die Antwortart „Foto“ (Zweig `claude/foto-antwort` im Feibeitsblatt; wirksam, sobald er dort veröffentlicht ist), siehe 4b |
 
 ## 2. Gesamtarchitektur
 
@@ -182,8 +182,14 @@ implementiert und im End-to-End-Test geprüft (Ausnahmen unten ausdrücklich gen
   Feibeitsblatt-Verknüpfungen) wird **archiviert**, das Vertretungsmaterial eingesetzt, und die Schüler:innen sehen ganz oben
   „Heute ohne deine Lehrkraft“ mit der Schritt-für-Schritt-Anleitung. Wiederherstellen und Übertragen der archivierten Planung in
   eine andere Sitzung sind jederzeit möglich.
-* **Noch nicht freigeschaltet (ehrlich gekennzeichnet):** die Antwortart „Foto“ (setzt die Erweiterung des Feibeitsblatts voraus;
-  bis dahin verweigert die Plattform das Anlegen eines Blattes mit Foto-Aufgabe mit klarer Meldung).
+* **Foto-Abgabe (Lernprodukte).** Aufgaben mit der Antwortart „Foto“ (`{type:"photo"}`, höchstens 3 je Blatt, ohne Auftrag an
+  die KI – Fotos gehen im Feibeitsblatt nie an die KI). Die Schüler:innen fotografieren ihr Lernprodukt im Feibeitsblatt; der Browser
+  verkleinert das Bild (längste Seite ≤ 1280 px, ≤ 200 KB, ohne EXIF-Daten) und gibt es verschlüsselt ab. Unterricks zeigt das Foto
+  in „Abgaben ansehen“ (nur nach Prüfung: JPEG als data:-URL in der Form des Feibeitsblatts) zum Vergrößern und Speichern.
+  Voraussetzung ist die Erweiterung des Feibeitsblatts (Zweig `claude/foto-antwort`, dort per Pull Request nach `main` zu
+  veröffentlichen). Kennt das Feibeitsblatt die Antwortart noch nicht, meldet Unterricks das beim Anlegen klar.
+  Grenzen (laut Erweiterung): mit Fotos je Abgabe etwa 0,2–0,8 MB – die kostenlose D1-Datenbank des Feibeitsblatts (500 MB) und das
+  Abgabe-Kontingent je Schulnetz (60 MB/Stunde) füllen sich schneller; auf echten Geräten (Kamera, HEIC) noch nicht erprobt.
 
 ## 4c. Escape-Room-Vorlage der Plattform (Ergänzung vom 10.11.2026)
 

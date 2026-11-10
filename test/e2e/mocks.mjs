@@ -114,10 +114,11 @@ export async function startMockFeibeitsblatt(port, password, doorCode = "1104") 
     send(res, 404, { ok: false, error: "nicht gefunden" });
   });
   // Abgabe einer Schülerin (wie die Schülerseite von Feibeitsblatt sie verschlüsselt) samt serverseitig versiegelter finaler Rückmeldung
-  async function addSubmission(code, person, answers) {
-    const payload = { v: 1, stage: "final", sheetCode: code, sheetTitle: sheets.get(code).title, person, answers: answers.map((a) => ({ first: a, final: a })),
+  // photos[i] = data:-URL eines JPEG für Foto-Aufgaben (wie das Feibeitsblatt: final „[Foto]“, Bild in answers[i].photo)
+  async function addSubmission(code, person, answers, photos = []) {
+    const payload = { v: 1, stage: "final", sheetCode: code, sheetTitle: sheets.get(code).title, person, answers: answers.map((a, i) => (photos[i] ? { first: "[Foto]", final: "[Foto]", photo: photos[i] } : { first: a, final: a })),
       feedback: answers.map(() => ({ covered: ["Gute Gliederung"], missing: ["Beispiel ergänzen"] })), feedbackAt: new Date().toISOString(), submittedAt: new Date().toISOString(), finalMode: true };
-    const fin = { kind: "feibeitsblatt-final", v: 1, at: new Date().toISOString(), ah: answersDigest(answers), results: answers.map(() => ({ covered: ["Normenkontrolle genannt"], missing: ["Verfassungsbeschwerde fehlt"] })) };
+    const fin = { kind: "feibeitsblatt-final", v: 1, at: new Date().toISOString(), ah: answersDigest(answers.map((a, i) => (photos[i] ? "[Foto]" : a))), results: answers.map(() => ({ covered: ["Normenkontrolle genannt"], missing: ["Verfassungsbeschwerde fehlt"] })) };
     subs.push({ id: nextId++, code, stage: "final", receivedAt: Date.now(), envelope: await makeEnvelope(teacher.publicKey, payload), finalEnv: JSON.stringify(await makeEnvelope(teacher.publicKey, fin)) });
   }
   await new Promise((r) => srv.listen(port, "127.0.0.1", r));

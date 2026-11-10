@@ -121,7 +121,7 @@ const TOOLS = [
       abgabe: { type: "string", description: "Was wird wie abgegeben?" }, schulportal: { type: "string", description: "Schulportal-Eintrag der Vertretungsstunde (Schulportal-Zeichen)" },
       materialien: { type: "array", maxItems: 12, items: { type: "object", properties: { titel: { type: "string" }, bereich: { type: "string", enum: ["schueler", "lehrkraft"] }, markdown: { type: "string" } }, required: ["titel", "bereich", "markdown"] } },
       feibeitsblatt: { type: "object", properties: { titel: { type: "string" }, aufgaben: { type: "array", items: { type: "object", properties: { text: { type: "string" }, material: { type: "string" }, ki_auftrag: { type: "string" },
-        antwort: { description: "\"text\", \"foto\" oder Tabelle {tabelle: [...], zeilen}" } }, required: ["text"] } } }, required: ["titel", "aufgaben"] },
+        antwort: { description: "\"text\", \"foto\" (Foto z. B. eines Lernprodukts; nie an die KI, ohne ki_auftrag; höchstens 3 je Blatt) oder Tabelle {tabelle: [...], zeilen}" } }, required: ["text"] } } }, required: ["titel", "aufgaben"] },
       escape_room: ESCAPE_ROOM,
       hinweise_vertretung: { type: "string", description: "kurze Hinweise für die Vertretungslehrkraft" } },
       required: ["lesson_id", "analyse", "schritte", "abgabe"], additionalProperties: false } },
