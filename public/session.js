@@ -193,7 +193,7 @@ export async function sessionPage(id) {
   const portalState = h("span", { class: "save-state" });
   const preview = h("div", { class: "portal-preview", "aria-label": "Vorschau im Schulportal" });
   const portalBody = h("div", { class: "stack" });
-  const presPromptBtn = h("button", { class: "btn accent big", type: "button" }, "Prompt für die Präsentation kopieren");
+  const presPromptBtn = h("button", { class: "btn big", type: "button" }, "Prompt für die Präsentation kopieren");
   const presPromptOut = h("div");
   const genPortalBtn = h("button", { class: "btn primary", type: "button" }, "Schulportal-Eintrag erstellen");
   function paintPreview() { paintPortalPreview(preview, portalTA.value); updateStopBtns(); }
@@ -361,7 +361,7 @@ export async function sessionPage(id) {
         try { await tapi("DELETE", "/api/teacher/files/" + f.id); st.files = st.files.filter((x) => x !== f); paintFiles(); } catch (e) { errToast(e); }
       } }, icon("trash")));
     return h("div", { class: "item" }, fileIcon(f.name, f.mime, f.kind), h("div", { class: "main" }, h("div", { class: "name", text: f.name }),
-      h("div", { class: "meta", text: (f.kind === "text" ? "Text (PDF-Download)" : fmtBytes(f.size)) + (f.source === "claude" ? " · von Claude" : f.source === "chat" ? " · aus dem Chat" : f.source === "vertretung" ? " · Vertretung" : f.source === "uebernommen" ? " · übernommen" : "") + " · " + fmtTime(f.createdAt) })), acts);
+      h("div", { class: "meta", text: (f.kind === "text" ? "Text (PDF-Download)" : fmtBytes(f.size)) + (f.source === "claude" ? " · von Claude" : f.source === "chat" ? " · aus dem Chat" : f.source === "vertretung" ? " · Vertretung" : f.source === "uebernommen" ? " · übernommen" : f.source === "notfall" ? " · Notfall-Feibeitsblatt (automatisch aus dem Feibeitsblatt " + formatCode(f.fbCode || "") + ")" : "") + " · " + fmtTime(f.createdAt) })), acts);
   }
   function paintFiles() {
     for (const area of ["student", "teacher"]) {
@@ -475,6 +475,48 @@ export async function sessionPage(id) {
   /* ======================= Feibeitsblatt ======================= */
   const fbCard = h("section", { class: "card", id: "fbcard" });
   const fb = T.fb;
+  /* ---- Notfall-Feibeitsblätter: je verknüpftem Feibeitsblatt (nicht beim Finale eines Escape-Rooms) das analoge Arbeitsblatt als PDF
+   * unter „Material – Für Schüler:innen zugänglich“. Entsteht automatisch, sobald die Verbindung zum Feibeitsblatt besteht (anlegen,
+   * verknüpfen, verbinden, Seite öffnen); ändert sich der Stand (Checkliste bestätigt → QR-Code), wird die PDF ersetzt. ---- */
+  const notfall = new Map();   // Code → { state: "busy" | "ok" | "err", msg }
+  let notfallRun = 0, notfallQueue = Promise.resolve();
+  onLeave(() => { notfallRun++; });
+  const notfallFile = (code) => st.files.find((f) => f.fbCode === code && f.area !== "archive") || null;
+  function ensureNotfall(codes, force = false) {
+    if (analog || !fb.connected) return;
+    const run = notfallRun;
+    for (const code of codes) notfallQueue = notfallQueue.then(() => notfallOne(code, run, force)).catch(() => {});
+  }
+  async function notfallOne(code, run, force) {
+    const s = st.sheets.find((x) => x.code === code);
+    if (!s || s.kind === "escape" || run !== notfallRun || !fb.connected) return;
+    const set = (state, msg) => { if (run === notfallRun) { notfall.set(code, { state, msg }); paintFb(); } };
+    set("busy", "Notfall-Feibeitsblatt wird geprüft …");
+    try {
+      const N = await import("./notfall.js");
+      const info = await N.notfallInfo(fb, code);
+      if (info.escape) { s.kind = "escape"; notfall.delete(code); paintFb(); return; }
+      const have = notfallFile(code);
+      if (have && have.fbSig === info.sig && !force) { set("ok", ""); return; }
+      set("busy", "Notfall-Feibeitsblatt wird erstellt …");
+      const pdf = await N.buildNotfallPdf(fb, code, info, T.config.feibeitsblattUrl, (m) => set("busy", m));
+      if (run !== notfallRun) return;
+      const r = await upload("/api/teacher/lessons/" + id + "/sheets/" + code + "/notfall?sig=" + encodeURIComponent(info.sig), new Blob([pdf], { type: "application/pdf" }), T.token, null, "application/pdf");
+      if (run !== notfallRun) return;
+      st.files = st.files.filter((f) => !(f.fbCode === code && f.area !== "archive")).concat(r.file);
+      paintFiles(); set("ok", "");
+    } catch (e) { set("err", e && e.message ? e.message : String(e)); }
+  }
+  function notfallLine(s) {
+    if (s.kind === "escape" || analog) return null;
+    const st0 = notfall.get(s.code), f = notfallFile(s.code);
+    if (st0 && st0.state === "busy") return h("div", { class: "small notfall" }, h("span", { class: "spin", "aria-hidden": "true" }), st0.msg);
+    if (st0 && st0.state === "err") return h("div", { class: "small notfall warnc" }, "Notfall-Feibeitsblatt nicht erstellt: " + st0.msg + " ",
+      h("button", { class: "btn small", type: "button", onclick: () => ensureNotfall([s.code], true) }, "Erneut versuchen"));
+    if (f) return h("div", { class: "small notfall" }, h("span", { class: "ok" }, icon("check"), "Notfall-Feibeitsblatt im Material für Schüler:innen" + (/-qr/.test(f.fbSig || "") ? " (mit QR-Code zur Checkliste)" : "")),
+      fb.connected ? [" ", h("button", { class: "btn small ghost", type: "button", onclick: () => ensureNotfall([s.code], true) }, "Erneuern")] : null);
+    return h("div", { class: "small notfall muted", text: fb.connected ? "Notfall-Feibeitsblatt wird gleich erstellt …" : "Das Notfall-Feibeitsblatt entsteht automatisch, sobald Sie mit Feibeitsblatt verbunden sind." });
+  }
   async function paintFb() {
     if (analog) {
       clear(fbCard).append(...nn(h("h2", { text: "Feibeitsblatt" }), h("div", { class: "notice" }, "Jahrgang " + gradeKey(L().klass) + ": " + ANALOG_RULE),
@@ -487,7 +529,7 @@ export async function sessionPage(id) {
       const door = h("input", { inputmode: "numeric", autocomplete: "off", placeholder: "Türcode", "aria-label": "Türcode des Feibeitsblatts", style: { maxWidth: "9rem" } });
       const pw = h("input", { type: "password", autocomplete: "off", placeholder: "Feibeitsblatt-Passwort", "aria-label": "Feibeitsblatt-Passwort" });
       const btn = h("button", { class: "btn primary", type: "submit" }, "Verbinden");
-      fbCard.append(h("form", { class: "row", onsubmit: (e) => { e.preventDefault(); busy(btn, async () => { try { await fb.connect(door.value, pw.value); toast("Mit Feibeitsblatt verbunden.", "ok"); paintFb(); } catch (err) { errToast(err); } }, "Verbinde …"); } }, door, h("div", { class: "grow" }, pw), btn),
+      fbCard.append(h("form", { class: "row", onsubmit: (e) => { e.preventDefault(); busy(btn, async () => { try { await fb.connect(door.value, pw.value); toast("Mit Feibeitsblatt verbunden.", "ok"); paintFb(); ensureNotfall(st.sheets.map((x) => x.code)); } catch (err) { errToast(err); } }, "Verbinde …"); } }, door, h("div", { class: "grow" }, pw), btn),
         h("p", { class: "hint", text: "Nötig zum Anlegen von Feibeitsblättern und zum Lesen der verschlüsselten Abgaben. Passwort und Schlüssel bleiben nur in diesem Browserfenster (bis zum Neuladen/Abmelden)." }));
     } else {
       const set = h("div", { class: "small muted", text: "Lade Einstellungen …" });
@@ -503,12 +545,12 @@ export async function sessionPage(id) {
     const sheetList = h("div", { class: "list" });
     if (!st.sheets.length) sheetList.append(h("p", { class: "muted small", text: "Noch kein Feibeitsblatt in dieser Sitzung." }));
     for (const s of st.sheets) sheetList.append(h("div", { class: "item" }, h("div", { class: "ficon fb", "aria-hidden": "true", text: "FB" }),
-      h("div", { class: "main" }, h("div", { class: "name", text: s.title }), h("div", { class: "meta" }, "Code ", h("strong", { class: "mono", text: formatCode(s.code) }), s.kind === "escape" ? " · Finale des Escape-Rooms (Schüler:innen gelangen über den Tunnel dorthin)" : " · für Schüler:innen sichtbar")),
+      h("div", { class: "main" }, h("div", { class: "name", text: s.title }), notfallLine(s), h("div", { class: "meta" }, "Code ", h("strong", { class: "mono", text: formatCode(s.code) }), s.kind === "escape" ? " · Finale des Escape-Rooms (Schüler:innen gelangen über den Tunnel dorthin)" : " · für Schüler:innen sichtbar")),
       h("div", { class: "acts" }, h("button", { class: "btn small primary", type: "button", disabled: fb.connected ? null : true, title: fb.connected ? "" : "Erst verbinden", onclick: () => showSubmissions(s) }, "Abgaben ansehen"),
         h("button", { class: "btn small", type: "button", onclick: async () => toast((await copyText(formatCode(s.code))) ? "Code kopiert." : "Kopieren nicht möglich.", "ok") }, "Code kopieren"),
         h("button", { class: "btn small ghost danger", type: "button", "aria-label": "Aus der Sitzung entfernen", onclick: async () => {
-          if (!(await confirmDialog("Feibeitsblatt entfernen", "„" + s.title + "“ aus dieser Sitzung entfernen? Das Blatt selbst bleibt im Feibeitsblatt erhalten.", "Entfernen", true))) return;
-          try { await tapi("DELETE", "/api/teacher/lessons/" + id + "/sheets/" + s.code); st.sheets = st.sheets.filter((x) => x !== s); paintFb(); } catch (e) { errToast(e); }
+          if (!(await confirmDialog("Feibeitsblatt entfernen", "„" + s.title + "“ aus dieser Sitzung entfernen? Das Blatt selbst bleibt im Feibeitsblatt erhalten; sein Notfall-Feibeitsblatt verschwindet aus dem Material.", "Entfernen", true))) return;
+          try { await tapi("DELETE", "/api/teacher/lessons/" + id + "/sheets/" + s.code); st.sheets = st.sheets.filter((x) => x !== s); st.files = st.files.filter((f) => !(f.fbCode === s.code && f.area !== "archive")); notfall.delete(s.code); paintFb(); paintFiles(); } catch (e) { errToast(e); }
         } }, icon("trash")))));
     // vorhandenes Blatt verknüpfen
     const linkBox = h("details", { class: "box" }, h("summary", null, "Vorhandenes Feibeitsblatt verknüpfen"));
@@ -524,7 +566,7 @@ export async function sessionPage(id) {
         } catch (e) { errToast(e); }
       }
       linkBox.append(h("div", { class: "stack", style: { marginTop: ".6rem" } }, sel, h("div", { class: "row" }, code, h("div", { class: "grow" }, title),
-        h("button", { class: "btn primary", type: "button", onclick: (e) => busy(e.currentTarget, async () => { try { const r = await tapi("POST", "/api/teacher/lessons/" + id + "/sheets", { body: { code: code.value, title: title.value } }); st.sheets = st.sheets.filter((x) => x.code !== r.sheet.code).concat(r.sheet); paintFb(); } catch (err) { errToast(err); } }) }, "Verknüpfen"))));
+        h("button", { class: "btn primary", type: "button", onclick: (e) => busy(e.currentTarget, async () => { try { const r = await tapi("POST", "/api/teacher/lessons/" + id + "/sheets", { body: { code: code.value, title: title.value } }); st.sheets = st.sheets.filter((x) => x.code !== r.sheet.code).concat(r.sheet); paintFb(); ensureNotfall([r.sheet.code]); } catch (err) { errToast(err); } }) }, "Verknüpfen"))));
     });
     // Entwürfe
     const drafts = st.drafts.filter((x) => x.status === "draft" && x.data && x.source !== "vertretung");
@@ -541,7 +583,9 @@ export async function sessionPage(id) {
       await flushPortal();
       try { const r = await tapi("POST", "/api/teacher/lessons/" + id + "/fb-drafts/generate", { body: { wish: wish.value } }); st.drafts.unshift(r.draft); paintFb(); editDraft(r.draft); } catch (err) { errToast(err); }
     }, "Die KI entwirft …") }, "Feibeitsblatt-Entwurf aus dem Chat");
-    fbCard.append(h("h3", { style: { marginTop: "1rem" }, text: "Feibeitsblätter dieser Sitzung" }), sheetList, linkBox,
+    fbCard.append(h("h3", { style: { marginTop: "1rem" }, text: "Feibeitsblätter dieser Sitzung" }), sheetList,
+      st.sheets.some((x) => x.kind !== "escape") ? h("p", { class: "hint", text: "Zu jedem Feibeitsblatt legt Unterricks automatisch das Notfall-Feibeitsblatt – das analoge Arbeitsblatt als PDF, wie im Feibeitsblatt – unter „Material – Für Schüler:innen zugänglich“ ab (nicht beim Finale eines Escape-Rooms)." }) : null,
+      linkBox,
       h("h3", { style: { marginTop: "1rem" }, text: "Entwürfe" }), drafts.length ? draftList : h("p", { class: "muted small", text: "Keine offenen Entwürfe. Die KI schlägt in der Planung bei passender Gelegenheit ein Feibeitsblatt vor; den Entwurf erzeugen Sie hier." }),
       h("div", { class: "row" }, h("div", { class: "grow" }, wish), genBtn));
   }
@@ -604,6 +648,7 @@ export async function sessionPage(id) {
             const r = await fb.createSheet(d2.data);
             await tapi("POST", "/api/teacher/fb-drafts/" + dr.id + "/created", { body: { code: r.code, title: r.title } });
             dr.status = "created"; st.sheets.push({ code: r.code, title: r.title, createdAt: Date.now() }); paintFb();
+            ensureNotfall([r.code]);
             afterCreate(r);
           } catch (err) { errToast(err); return false; }
         } }]),
@@ -626,7 +671,8 @@ export async function sessionPage(id) {
           clear(box).append(...areas, h("button", { class: "btn primary", type: "button", onclick: (ev) => busy(ev.currentTarget, async () => {
             try {
               const tasks = [...box.querySelectorAll("textarea")].map((ta) => ({ n: Number(ta.dataset.n), points: ta.value.split("\n").map((s) => s.trim()).filter(Boolean).slice(0, 8) }));
-              await fb.checklistSave(r.code, draft.ai !== false, tasks); toast("Checkliste bestätigt.", "ok");
+              await fb.checklistSave(r.code, draft.ai !== false, tasks); toast("Checkliste bestätigt – das Notfall-Feibeitsblatt bekommt den QR-Code dazu.", "ok");
+              ensureNotfall([r.code]);
             } catch (err) { errToast(err); }
           }) }, "Checkliste bestätigen"));
         } catch (err) { errToast(err); }
@@ -707,6 +753,7 @@ export async function sessionPage(id) {
       (f.covered || []).length ? h("div", null, okLabel + ":", list(f.covered)) : null, (f.missing || []).length ? h("div", null, missLabel + ":", list(f.missing)) : null, f.note ? h("div", { class: "muted", text: String(f.note).slice(0, 300) }) : null);
   }
   paintFb();
+  ensureNotfall(st.sheets.map((x) => x.code));   // nur, wenn die Verbindung zum Feibeitsblatt schon besteht (z. B. nach einer Vertretung)
 
   /* ======================= Seitenleiste ======================= */
   const codeCard = h("section", { class: "card" }, h("h2", { text: "Sitzungscode" }),
@@ -793,7 +840,7 @@ export async function sessionPage(id) {
       if (r.messages.length !== st.messages.length && !sendBtn.disabled) { st.messages = r.messages; paintMsgs(); }
       const known = new Set(st.files.map((f) => f.id));
       if (r.files.some((f) => !known.has(f.id)) || r.files.length !== st.files.length) { st.files = r.files; paintFiles(); }
-      if (r.drafts.length !== st.drafts.length || r.sheets.length !== st.sheets.length) { st.drafts = r.drafts; st.sheets = r.sheets; paintFb(); }
+      if (r.drafts.length !== st.drafts.length || r.sheets.length !== st.sheets.length) { st.drafts = r.drafts; st.sheets = r.sheets; paintFb(); ensureNotfall(st.sheets.filter((x) => !notfallFile(x.code)).map((x) => x.code)); }
       const subKey = (x) => (x ? x.status + ":" + x.updatedAt : "");
       if (subKey(r.substitute) !== subKey(st.sub)) { st.drafts = r.drafts; st.sub = r.substitute; sub.paint(); if (r.substitute && r.substitute.status === "vorschlag") toast("Claude hat einen Vertretungsvorschlag gespeichert – bitte prüfen.", "ok", 6000); }
       if (r.unit && st.unit && r.unit.version !== st.unit.version) { st.unit = r.unit; paintUnit(); }

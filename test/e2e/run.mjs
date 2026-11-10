@@ -451,13 +451,27 @@ async function main() {
     if (fbm.sheets.size !== 1 || !created.tasks[0].text.endsWith("(geändert).")) console.log("    Blätter:", JSON.stringify([...fbm.sheets.values()]).slice(0, 800));
     ok(created && created.tasks[0].text.endsWith("(geändert).") && created.tasks[0].solution.includes("Normenkontrolle") && created.tasks[1].answer.type === "table", "Blatt angelegt – mit Änderung der Lehrkraft und KI-Einstellungen je Aufgabe");
     ok(Array.isArray(created.tasks[0].material) && created.tasks[0].material[0].some((x) => x.f === "b"), "Material im Feibeitsblatt-Format (Absätze/Läufe)");
+    // Notfall-Feibeitsblatt: entsteht gleich nach dem Anlegen (noch ohne Checkliste → ohne QR-Code) im Material für Schüler:innen
+    const notfallOf = async (code) => ((await T("GET", "/api/teacher/lessons/" + lessonId)).data.files || []).filter((f) => f.source === "notfall" && f.fbCode === code && f.area !== "archive");
+    const waitNotfall = async (code, pred) => { for (let i = 0; i < 60; i++) { const fs = await notfallOf(code); if (fs.length && pred(fs)) return fs; await sleep(250); } return notfallOf(code); };
+    const pdfOf = async (f) => { const l = await T("POST", "/api/teacher/files/" + f.id + "/link", {}); return Buffer.from(await (await fetch(BASE + l.data.url)).arrayBuffer()).toString("latin1"); };
+    let nf = await waitNotfall(created.code, (fs) => fs[0].fbSig && !fs[0].fbSig.includes("-qr"));
+    ok(nf.length === 1 && nf[0].area === "student" && nf[0].name === "Notfall-Feibeitsblatt – Mock-Blatt BVerfG.pdf" && nf[0].mime === "application/pdf", "Notfall-Feibeitsblatt automatisch im Material für Schüler:innen (" + (nf[0] && nf[0].name) + ")");
+    let nfPdf = nf.length ? await pdfOf(nf[0]) : "";
+    ok(nfPdf.startsWith("%PDF-1.7") && nfPdf.trim().endsWith("%%EOF") && !nfPdf.includes("#checkliste="), "… als PDF wie im Feibeitsblatt, ohne Checkliste noch ohne QR-Code");
     await tp.getByRole("button", { name: "Checkliste vorschlagen lassen" }).click();
     await tp.getByRole("button", { name: "Checkliste bestätigen" }).click();
     await sleep(500);
     ok(!!created.checklist, "geführt: KI-Checkliste bestätigt");
+    nf = await waitNotfall(created.code, (fs) => (fs[0].fbSig || "").includes("-qr"));
+    nfPdf = nf.length ? await pdfOf(nf[0]) : "";
+    ok(nf.length === 1 && nfPdf.includes("#checkliste=" + created.code) && nfPdf.includes("/Subtype /Link"), "nach der Checkliste ersetzt: Notfall-Feibeitsblatt mit QR-Code zur Checkliste (nur eine PDF)");
     await tp.locator(".modal").getByRole("button", { name: "Fertig" }).click();
+    ok(await fbSec.locator(".notfall", { hasText: "Notfall-Feibeitsblatt im Material für Schüler:innen (mit QR-Code zur Checkliste)" }).count() === 1, "Feibeitsblatt-Abschnitt zeigt den Stand des Notfall-Feibeitsblatts");
     await sp.reload();
-    const fbCard = sp.locator(".item", { hasText: "Mock-Blatt BVerfG" });
+    await sp.locator(".item", { hasText: "Notfall-Feibeitsblatt – Mock-Blatt BVerfG.pdf" }).waitFor();
+    ok(await sp.locator(".item", { hasText: "Notfall-Feibeitsblatt – Mock-Blatt BVerfG.pdf" }).getByRole("button", { name: "Herunterladen" }).count() === 1, "Schüler:innen finden das Notfall-Feibeitsblatt im Material");
+    const fbCard = sp.locator(".item", { hasText: "Feibeitsblatt · Code" }).filter({ hasText: "Mock-Blatt BVerfG" });
     await fbCard.waitFor();
     ok((await fbCard.textContent()).includes(created.code.slice(0, 3) + "-" + created.code.slice(3)), "Schüleransicht: Titel + Code des Feibeitsblatts (kein PDF)");
     const [popup] = await Promise.all([sctx.waitForEvent("page"), fbCard.getByRole("button", { name: "Code kopieren und Feibeitsblatt öffnen" }).click()]);
@@ -471,6 +485,20 @@ async function main() {
     ok(subTxt.includes("Normenkontrolle prüft Gesetze.") && subTxt.includes("Beispiel ergänzen") && subTxt.includes("Verfassungsbeschwerde fehlt"), "Abgabe entschlüsselt: Antworten, KI-Feedback und finale KI-Rückmeldung");
     await tp.screenshot({ ...SHOT, path: join(OUT, "lehrkraft-abgaben.png") });
     await tp.keyboard.press("Escape");
+    // ein vorhandenes Blatt mit Bild (im Feibeitsblatt angelegt) verknüpfen → Notfall-Feibeitsblatt mit eingebettetem Bild; entfernen → PDF weg
+    const png = (await tp.screenshot({ type: "png", clip: { x: 0, y: 0, width: 60, height: 40 } })).toString("base64");
+    fbm.sheets.set("MCKB23", { code: "MCKB23", title: "Blatt mit Bild", createdAt: Date.now(), escape: null, tasks: [{ text: "Beschreibe das Bild.", solution: "", images: [{ id: "0123456789abcdef", mode: "inline", w: 60, h: 40, alt: "Testbild" }] }],
+      imageData: { "0123456789abcdef": { mime: "image/png", w: 60, h: 40, data: png } } });
+    await fbSec.locator("summary", { hasText: "Vorhandenes Feibeitsblatt verknüpfen" }).click();
+    await fbSec.locator("details select").selectOption("MCKB23");
+    await fbSec.getByRole("button", { name: "Verknüpfen" }).click();
+    const nfImg = await waitNotfall("MCKB23", () => true);
+    const imgPdf = nfImg.length ? await pdfOf(nfImg[0]) : "";
+    ok(nfImg.length === 1 && imgPdf.includes("/Subtype /Image") && imgPdf.includes("/DCTDecode"), "verknüpftes Blatt mit Bild: Notfall-Feibeitsblatt mit eingebettetem Bild");
+    await fbSec.locator(".item", { hasText: "Blatt mit Bild" }).getByRole("button", { name: "Aus der Sitzung entfernen" }).click();
+    await tp.locator(".modal").getByRole("button", { name: "Entfernen" }).click();
+    await fbSec.locator(".item", { hasText: "Blatt mit Bild" }).waitFor({ state: "detached" });
+    ok((await notfallOf("MCKB23")).length === 0, "Blatt aus der Sitzung entfernt: sein Notfall-Feibeitsblatt ist auch weg");
 
     /* ---------- Datum, Hausaufgabe, Zwischenstopp ---------- */
     step("Datum (änderbar, ohne Verschieben), Hausaufgabe, Zwischenstopp");

@@ -88,7 +88,7 @@ export async function startPresenter({ lessonId, file, token, startSlide = 1, on
   const root = h("div", { class: "presenter", role: "dialog", "aria-label": "Präsentation läuft" },
     h("div", { class: "stage" }, img),
     h("div", { class: "bar" },
-      h("button", { class: "btn small", type: "button", onclick: () => goto(cur - 1), "aria-label": "Vorherige Folie" }, "◀"),
+      h("button", { class: "btn small", type: "button", onclick: () => goto(cur - 1), "aria-label": "Vorherige Folie" }, icon("left")),
       counter,
       h("button", { class: "btn small", type: "button", onclick: () => goto(cur + 1), "aria-label": "Nächste Folie" }, icon("right")),
       h("span", { class: "badge onair" }, h("span", { class: "dot" }), "LIVE für alle"), info,

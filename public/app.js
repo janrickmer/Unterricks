@@ -152,7 +152,7 @@ async function studentRoom(lessonId) {
       h("h2", { text: "Heute ohne deine Lehrkraft" }), h("div", { class: "notice" }, sub.hinweis),
       h("h3", { text: "So gehst du vor – Schritt für Schritt" }),
       h("ol", { class: "sub-steps" }, (sub.schritte || []).map((x) => h("li", null,
-        h("div", { class: "row between" }, h("strong", { text: x.titel }), h("span", { class: "row" }, x.minuten ? h("span", { class: "badge", text: "ca. " + x.minuten + " Minuten" }) : null, x.abgabe ? h("span", { class: "badge ok", text: "Abgabe" }) : null)),
+        h("div", { class: "row between" }, h("strong", { text: x.titel }), h("span", { class: "row" }, x.minuten ? h("span", { class: "badge", text: "ca. " + x.minuten + " Minuten" }) : null, x.abgabe ? h("span", { class: "badge ink", text: "Abgabe" }) : null)),
         renderMarkdown(x.anleitung || "")))),
       sub.abgabe ? h("p", null, h("strong", { text: "Was du abgibst: " }), sub.abgabe) : null,
       sub.escape ? h("div", { class: "escbox" }, h("h3", { text: "Escape-Room: " + sub.escape.name }), sub.escape.untertitel ? h("p", { class: "small", text: sub.escape.untertitel }) : null,

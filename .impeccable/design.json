@@ -1,0 +1,952 @@
+{
+  "schemaVersion": 2,
+  "generatedAt": "2026-11-10T17:35:41Z",
+  "title": "Design System: Unterricks",
+  "extensions": {
+    "tonalRampNote": "Die Rampen enthalten nur Werte aus public/styles.css (Ton, Tönung, Stufen des Dunkelmodus), dunkel nach hell; es wurden keine Zwischenstufen erzeugt.",
+    "colorMeta": {
+      "ground": {
+        "role": "neutral",
+        "displayName": "Leuchtfläche",
+        "canonical": "#f2f5fa",
+        "tonalRamp": [
+          "#0b111e",
+          "#f2f5fa"
+        ]
+      },
+      "surface": {
+        "role": "neutral",
+        "displayName": "Folie",
+        "canonical": "#ffffff",
+        "tonalRamp": [
+          "#131b2c",
+          "#ffffff"
+        ]
+      },
+      "surface-2": {
+        "role": "neutral",
+        "displayName": "Mattglas",
+        "canonical": "#e9eef6",
+        "tonalRamp": [
+          "#1a2438",
+          "#e9eef6"
+        ]
+      },
+      "paper": {
+        "role": "neutral",
+        "displayName": "Papier",
+        "canonical": "#eef2f8",
+        "tonalRamp": [
+          "#182134",
+          "#eef2f8"
+        ]
+      },
+      "text": {
+        "role": "neutral",
+        "displayName": "Folienstift-Tinte (Text)",
+        "canonical": "#13213b",
+        "tonalRamp": [
+          "#13213b",
+          "#e8edf6"
+        ]
+      },
+      "ink": {
+        "role": "neutral",
+        "displayName": "Folienstift-Tinte",
+        "canonical": "#13213b",
+        "tonalRamp": [
+          "#13213b"
+        ]
+      },
+      "muted": {
+        "role": "neutral",
+        "displayName": "Bleistiftgrau",
+        "canonical": "#4d5a73",
+        "tonalRamp": [
+          "#4d5a73",
+          "#a6b2c7"
+        ]
+      },
+      "line": {
+        "role": "neutral",
+        "displayName": "Haarlinie",
+        "canonical": "#d5dce8",
+        "tonalRamp": [
+          "#26324a",
+          "#d5dce8"
+        ]
+      },
+      "line-ui": {
+        "role": "neutral",
+        "displayName": "Bedienkante",
+        "canonical": "#7d8aa2",
+        "tonalRamp": [
+          "#5a6884",
+          "#7d8aa2"
+        ]
+      },
+      "blau": {
+        "role": "primary",
+        "displayName": "Politik-Blau",
+        "canonical": "#2557c7",
+        "tonalRamp": [
+          "#1a2a4f",
+          "#2557c7",
+          "#8db0ff",
+          "#e5ebf8"
+        ]
+      },
+      "violett": {
+        "role": "primary",
+        "displayName": "Religions-Violett",
+        "canonical": "#6a3cc0",
+        "tonalRamp": [
+          "#261d45",
+          "#6a3cc0",
+          "#bfa6ff",
+          "#ede8f7"
+        ]
+      },
+      "kupfer": {
+        "role": "primary",
+        "displayName": "Ethik-Kupfer",
+        "canonical": "#b2490c",
+        "tonalRamp": [
+          "#3a2216",
+          "#b2490c",
+          "#ffa766",
+          "#f6e9e2"
+        ]
+      },
+      "marke": {
+        "role": "primary",
+        "displayName": "Marken-Nachtblau",
+        "canonical": "#16264a",
+        "tonalRamp": [
+          "#1c2436",
+          "#16264a",
+          "#23396a",
+          "#c9d3e6",
+          "#e8edf7"
+        ]
+      },
+      "blau-t": {
+        "role": "primary",
+        "displayName": "Politik-Blau, getönt",
+        "canonical": "#e5ebf8",
+        "tonalRamp": [
+          "#1a2a4f",
+          "#2557c7",
+          "#8db0ff",
+          "#e5ebf8"
+        ]
+      },
+      "violett-t": {
+        "role": "primary",
+        "displayName": "Religions-Violett, getönt",
+        "canonical": "#ede8f7",
+        "tonalRamp": [
+          "#261d45",
+          "#6a3cc0",
+          "#bfa6ff",
+          "#ede8f7"
+        ]
+      },
+      "kupfer-t": {
+        "role": "primary",
+        "displayName": "Ethik-Kupfer, getönt",
+        "canonical": "#f6e9e2",
+        "tonalRamp": [
+          "#3a2216",
+          "#b2490c",
+          "#ffa766",
+          "#f6e9e2"
+        ]
+      },
+      "marke-t": {
+        "role": "primary",
+        "displayName": "Marken-Nachtblau, getönt",
+        "canonical": "#e8edf7",
+        "tonalRamp": [
+          "#1c2436",
+          "#16264a",
+          "#23396a",
+          "#c9d3e6",
+          "#e8edf7"
+        ]
+      },
+      "gelb": {
+        "role": "secondary",
+        "displayName": "Markergelb",
+        "canonical": "#ffd43b",
+        "tonalRamp": [
+          "#3a3214",
+          "#e5b80f",
+          "#ffd43b",
+          "#fff5cf"
+        ]
+      },
+      "gelb-kante": {
+        "role": "secondary",
+        "displayName": "Markergelb, Kante",
+        "canonical": "#e5b80f",
+        "tonalRamp": [
+          "#3a3214",
+          "#e5b80f",
+          "#ffd43b",
+          "#fff5cf"
+        ]
+      },
+      "gelb-t": {
+        "role": "secondary",
+        "displayName": "Dünne Markerfolie",
+        "canonical": "#fff5cf",
+        "tonalRamp": [
+          "#3a3214",
+          "#e5b80f",
+          "#ffd43b",
+          "#fff5cf"
+        ]
+      },
+      "rot": {
+        "role": "tertiary",
+        "displayName": "Signalrot",
+        "canonical": "#c8281e",
+        "tonalRamp": [
+          "#3d1a1a",
+          "#a81f17",
+          "#c8281e",
+          "#ff8a80",
+          "#fbe9e7"
+        ]
+      },
+      "rot-tief": {
+        "role": "tertiary",
+        "displayName": "Signalrot, tief",
+        "canonical": "#a81f17",
+        "tonalRamp": [
+          "#3d1a1a",
+          "#a81f17",
+          "#c8281e",
+          "#ff8a80",
+          "#fbe9e7"
+        ]
+      },
+      "rot-t": {
+        "role": "tertiary",
+        "displayName": "Signalrot, getönt",
+        "canonical": "#fbe9e7",
+        "tonalRamp": [
+          "#3d1a1a",
+          "#a81f17",
+          "#c8281e",
+          "#ff8a80",
+          "#fbe9e7"
+        ]
+      },
+      "gruen": {
+        "role": "tertiary",
+        "displayName": "Erledigt-Grün",
+        "canonical": "#14794a",
+        "tonalRamp": [
+          "#12301f",
+          "#116a40",
+          "#14794a",
+          "#5fd39a",
+          "#e3f2ea"
+        ]
+      },
+      "gruen-tief": {
+        "role": "tertiary",
+        "displayName": "Erledigt-Grün, tief",
+        "canonical": "#116a40",
+        "tonalRamp": [
+          "#12301f",
+          "#116a40",
+          "#14794a",
+          "#5fd39a",
+          "#e3f2ea"
+        ]
+      },
+      "gruen-t": {
+        "role": "tertiary",
+        "displayName": "Erledigt-Grün, getönt",
+        "canonical": "#e3f2ea",
+        "tonalRamp": [
+          "#12301f",
+          "#116a40",
+          "#14794a",
+          "#5fd39a",
+          "#e3f2ea"
+        ]
+      },
+      "stage": {
+        "role": "neutral",
+        "displayName": "Projektionsfläche",
+        "canonical": "#0b111e",
+        "tonalRamp": [
+          "#000",
+          "#0b111e",
+          "#cfd8e6"
+        ]
+      },
+      "stage-text": {
+        "role": "neutral",
+        "displayName": "Projektionsschrift",
+        "canonical": "#cfd8e6",
+        "tonalRamp": [
+          "#000",
+          "#0b111e",
+          "#cfd8e6"
+        ]
+      },
+      "ground-dark": {
+        "role": "neutral",
+        "displayName": "Leuchtfläche (dunkel)",
+        "canonical": "#0b111e",
+        "tonalRamp": [
+          "#0b111e",
+          "#f2f5fa"
+        ]
+      },
+      "surface-dark": {
+        "role": "neutral",
+        "displayName": "Folie (dunkel)",
+        "canonical": "#131b2c",
+        "tonalRamp": [
+          "#131b2c",
+          "#ffffff"
+        ]
+      },
+      "surface-2-dark": {
+        "role": "neutral",
+        "displayName": "Mattglas (dunkel)",
+        "canonical": "#1a2438",
+        "tonalRamp": [
+          "#1a2438",
+          "#e9eef6"
+        ]
+      },
+      "paper-dark": {
+        "role": "neutral",
+        "displayName": "Papier (dunkel)",
+        "canonical": "#182134",
+        "tonalRamp": [
+          "#182134",
+          "#eef2f8"
+        ]
+      },
+      "text-dark": {
+        "role": "neutral",
+        "displayName": "Schrift (dunkel)",
+        "canonical": "#e8edf6",
+        "tonalRamp": [
+          "#13213b",
+          "#e8edf6"
+        ]
+      },
+      "muted-dark": {
+        "role": "neutral",
+        "displayName": "Bleistiftgrau (dunkel)",
+        "canonical": "#a6b2c7",
+        "tonalRamp": [
+          "#4d5a73",
+          "#a6b2c7"
+        ]
+      },
+      "line-dark": {
+        "role": "neutral",
+        "displayName": "Haarlinie (dunkel)",
+        "canonical": "#26324a",
+        "tonalRamp": [
+          "#26324a",
+          "#d5dce8"
+        ]
+      },
+      "line-ui-dark": {
+        "role": "neutral",
+        "displayName": "Bedienkante (dunkel)",
+        "canonical": "#5a6884",
+        "tonalRamp": [
+          "#5a6884",
+          "#7d8aa2"
+        ]
+      },
+      "marke-dark": {
+        "role": "primary",
+        "displayName": "Marken-Nachtblau (dunkel)",
+        "canonical": "#23396a",
+        "tonalRamp": [
+          "#1c2436",
+          "#16264a",
+          "#23396a",
+          "#c9d3e6",
+          "#e8edf7"
+        ]
+      },
+      "blau-t-dark": {
+        "role": "primary",
+        "displayName": "Politik-Blau, getönt (dunkel)",
+        "canonical": "#1a2a4f",
+        "tonalRamp": [
+          "#1a2a4f",
+          "#2557c7",
+          "#8db0ff",
+          "#e5ebf8"
+        ]
+      },
+      "violett-t-dark": {
+        "role": "primary",
+        "displayName": "Religions-Violett, getönt (dunkel)",
+        "canonical": "#261d45",
+        "tonalRamp": [
+          "#261d45",
+          "#6a3cc0",
+          "#bfa6ff",
+          "#ede8f7"
+        ]
+      },
+      "kupfer-t-dark": {
+        "role": "primary",
+        "displayName": "Ethik-Kupfer, getönt (dunkel)",
+        "canonical": "#3a2216",
+        "tonalRamp": [
+          "#3a2216",
+          "#b2490c",
+          "#ffa766",
+          "#f6e9e2"
+        ]
+      },
+      "marke-t-dark": {
+        "role": "primary",
+        "displayName": "Marken-Nachtblau, getönt (dunkel)",
+        "canonical": "#1c2436",
+        "tonalRamp": [
+          "#1c2436",
+          "#16264a",
+          "#23396a",
+          "#c9d3e6",
+          "#e8edf7"
+        ]
+      },
+      "gelb-t-dark": {
+        "role": "secondary",
+        "displayName": "Dünne Markerfolie (dunkel)",
+        "canonical": "#3a3214",
+        "tonalRamp": [
+          "#3a3214",
+          "#e5b80f",
+          "#ffd43b",
+          "#fff5cf"
+        ]
+      },
+      "rot-t-dark": {
+        "role": "tertiary",
+        "displayName": "Signalrot, getönt (dunkel)",
+        "canonical": "#3d1a1a",
+        "tonalRamp": [
+          "#3d1a1a",
+          "#a81f17",
+          "#c8281e",
+          "#ff8a80",
+          "#fbe9e7"
+        ]
+      },
+      "gruen-t-dark": {
+        "role": "tertiary",
+        "displayName": "Erledigt-Grün, getönt (dunkel)",
+        "canonical": "#12301f",
+        "tonalRamp": [
+          "#12301f",
+          "#116a40",
+          "#14794a",
+          "#5fd39a",
+          "#e3f2ea"
+        ]
+      },
+      "fach-text-dark": {
+        "role": "primary",
+        "displayName": "Fachschrift ohne Fach (dunkel)",
+        "canonical": "#c9d3e6",
+        "tonalRamp": [
+          "#1c2436",
+          "#16264a",
+          "#23396a",
+          "#c9d3e6",
+          "#e8edf7"
+        ]
+      },
+      "blau-text-dark": {
+        "role": "primary",
+        "displayName": "Politik-Blau, Schrift (dunkel)",
+        "canonical": "#8db0ff",
+        "tonalRamp": [
+          "#1a2a4f",
+          "#2557c7",
+          "#8db0ff",
+          "#e5ebf8"
+        ]
+      },
+      "violett-text-dark": {
+        "role": "primary",
+        "displayName": "Religions-Violett, Schrift (dunkel)",
+        "canonical": "#bfa6ff",
+        "tonalRamp": [
+          "#261d45",
+          "#6a3cc0",
+          "#bfa6ff",
+          "#ede8f7"
+        ]
+      },
+      "kupfer-text-dark": {
+        "role": "primary",
+        "displayName": "Ethik-Kupfer, Schrift (dunkel)",
+        "canonical": "#ffa766",
+        "tonalRamp": [
+          "#3a2216",
+          "#b2490c",
+          "#ffa766",
+          "#f6e9e2"
+        ]
+      },
+      "ok-dark": {
+        "role": "tertiary",
+        "displayName": "Erledigt-Grün, Schrift (dunkel)",
+        "canonical": "#5fd39a",
+        "tonalRamp": [
+          "#12301f",
+          "#116a40",
+          "#14794a",
+          "#5fd39a",
+          "#e3f2ea"
+        ]
+      },
+      "err-dark": {
+        "role": "tertiary",
+        "displayName": "Signalrot, Schrift (dunkel)",
+        "canonical": "#ff8a80",
+        "tonalRamp": [
+          "#3d1a1a",
+          "#a81f17",
+          "#c8281e",
+          "#ff8a80",
+          "#fbe9e7"
+        ]
+      }
+    },
+    "typographyMeta": {
+      "display": {
+        "displayName": "Display (Beamer-Code)",
+        "purpose": "Sitzungscode im Vollbild für den Beamer (.codeshow .c), lesbar aus der letzten Reihe."
+      },
+      "code": {
+        "displayName": "Sitzungscode",
+        "purpose": "Code im Codekasten der Seitenleiste (.code-big)."
+      },
+      "headline": {
+        "displayName": "Headline",
+        "purpose": "h1 – Seitentitel im Kopfband, höchstens 34ch."
+      },
+      "title": {
+        "displayName": "Title",
+        "purpose": "h2 – Kartentitel; im Dialog 1.2rem."
+      },
+      "title-small": {
+        "displayName": "Title small",
+        "purpose": "h3 – Unterabschnitte in Karten."
+      },
+      "body": {
+        "displayName": "Body",
+        "purpose": "Fließtext, Felder, Listen."
+      },
+      "label": {
+        "displayName": "Label",
+        "purpose": "Feldbeschriftungen, Brotkrumen, Kursmitglieder (.course-members)."
+      },
+      "button": {
+        "displayName": "Knopf",
+        "purpose": "Text in Knöpfen; klein .92rem, groß 1.1rem."
+      },
+      "chip": {
+        "displayName": "Chip",
+        "purpose": "Kennungen im Kopfband (Fach, Kurs, Datum, Dauer, „Stunde n von m“)."
+      },
+      "badge": {
+        "displayName": "Abzeichen",
+        "purpose": "Kurze Zustände in Listen und Kartenköpfen."
+      },
+      "tag": {
+        "displayName": "Fach-Schild",
+        "purpose": "Fachkürzel am Zeilenanfang gemischter Listen (.ftag)."
+      },
+      "hint": {
+        "displayName": "Hinweis",
+        "purpose": "Hilfetexte unter Feldern und Karten, in --muted."
+      },
+      "brand": {
+        "displayName": "Wortmarke",
+        "purpose": "„Unterricks“ in der Kopfleiste neben dem Folien-U."
+      },
+      "code-input": {
+        "displayName": "Code-Eingabe",
+        "purpose": "Eingabefeld für den Sitzungscode (.codein), Großbuchstaben."
+      }
+    },
+    "shadows": [
+      {
+        "name": "shadow",
+        "value": "0 1px 2px rgba(0, 0, 0, .06), 0 8px 22px -12px rgba(0, 0, 0, .24)",
+        "purpose": "Aufliegend: Karten und Fachkacheln in Ruhe (--shadow)."
+      },
+      {
+        "name": "shadow-dark",
+        "value": "0 1px 2px rgba(0, 0, 0, .35), 0 10px 24px -12px rgba(0, 0, 0, .65)",
+        "purpose": "--shadow im Dunkelmodus."
+      },
+      {
+        "name": "shadow-lift",
+        "value": "0 2px 4px rgba(0, 0, 0, .08), 0 18px 40px -18px rgba(0, 0, 0, .36)",
+        "purpose": "Abgehoben: Anmeldekarte, Kachel-Hover, laufendes Live-Fenster, Kontextmenü, Toasts (--shadow-lift)."
+      },
+      {
+        "name": "shadow-lift-dark",
+        "value": "0 2px 4px rgba(0, 0, 0, .4), 0 20px 44px -18px rgba(0, 0, 0, .75)",
+        "purpose": "--shadow-lift im Dunkelmodus."
+      },
+      {
+        "name": "foil",
+        "value": "0 12px 18px -14px rgba(19, 33, 59, .5)",
+        "purpose": "Fachfolie im Kopfband."
+      },
+      {
+        "name": "foil-laying",
+        "value": "0 30px 34px -16px rgba(19, 33, 59, .5)",
+        "purpose": "Ausgangsschatten der Fachfolie bei „Folie auflegen“ (Keyframe from)."
+      },
+      {
+        "name": "covered",
+        "value": "0 -10px 18px -12px rgba(19, 33, 59, .42)",
+        "purpose": "Abdeckblatt am Zwischenstopp – nach oben geworfen."
+      },
+      {
+        "name": "modal",
+        "value": "0 24px 64px -12px rgba(0, 0, 0, .45)",
+        "purpose": "Dialog über der Abdunklung rgba(11, 17, 30, .55)."
+      },
+      {
+        "name": "tile-pressed",
+        "value": "0 0 0 2px var(--tc), var(--shadow)",
+        "purpose": "Gewählte Fachkachel: 2px-Ring in der Fachfarbe."
+      },
+      {
+        "name": "focus-field",
+        "value": "0 0 0 3px color-mix(in srgb, var(--fach-text) 28%, transparent)",
+        "purpose": "Fokus von Feldern, zusammen mit der Kante --fach-text."
+      },
+      {
+        "name": "inset-hairline",
+        "value": "inset 0 0 0 1px color-mix(in srgb, var(--fach) 24%, transparent)",
+        "purpose": "Innere Haarlinie des Dateisymbols (.ficon); beim Abzeichen „Hausaufgabe“ mit --gelb-kante zu 60 %."
+      },
+      {
+        "name": "focus-ring",
+        "value": "outline: 3px solid var(--ring, var(--fach-text)); outline-offset: 2px",
+        "purpose": "Fokusring aller Bedienelemente (kein Schatten); --ring ist im Band und am Beamer #fff, auf der Markerfolie #13213b."
+      }
+    ],
+    "motion": [
+      {
+        "name": "ease",
+        "value": "cubic-bezier(.16, 1, .3, 1)",
+        "purpose": "--ease: exponentielles Ausklingen für alle Übergänge und Animationen."
+      },
+      {
+        "name": "auflegen",
+        "value": ".75s var(--ease) both",
+        "purpose": "„Folie auflegen“: die Bandfolie senkt sich aus translate(6px, -14px) rotate(-4deg) scale(1.025) auf ihren Platz – nur beim ersten Kopfband nach dem Laden (:root:not([data-laid]))."
+      },
+      {
+        "name": "aufdecken",
+        "value": ".45s var(--ease) both",
+        "purpose": "„Aufdecken“: das Abdeckblatt gleitet aus translateY(-10px), wenn die Vorschau neu gezeichnet wird."
+      },
+      {
+        "name": "auflegen-modal",
+        "value": ".32s var(--ease) both",
+        "purpose": "Dialog legt sich aus translateY(10px) scale(.99) auf."
+      },
+      {
+        "name": "tile",
+        "value": ".22s var(--ease)",
+        "purpose": "Kachel-Hover (translateY(-2px), Schatten, Kante); die Folienecke dreht mit .35s."
+      },
+      {
+        "name": "button",
+        "value": ".18s var(--ease)",
+        "purpose": "Farben und Kanten von Knöpfen; das Nachgeben (translateY(1px)) mit .12s."
+      },
+      {
+        "name": "field",
+        "value": ".15s var(--ease)",
+        "purpose": "Kante und Fokusschatten von Feldern, Klassenknöpfe, Listenzeilen, Ablagezonen."
+      },
+      {
+        "name": "progress",
+        "value": ".2s var(--ease)",
+        "purpose": "Fortschrittsbalken und Winkel der Aufklapper."
+      },
+      {
+        "name": "presenter-bar",
+        "value": ".3s var(--ease)",
+        "purpose": "Leiste des Präsentationsmodus blendet nach Ruhe aus."
+      },
+      {
+        "name": "spin",
+        "value": ".8s linear infinite",
+        "purpose": "Drehkreis in beschäftigten Knöpfen (busy())."
+      },
+      {
+        "name": "pulse-live",
+        "value": "1.4s ease-in-out infinite",
+        "purpose": "Punkt im Abzeichen „LIVE“ (50 % Deckkraft .35)."
+      },
+      {
+        "name": "pulse-pending",
+        "value": "1s infinite",
+        "purpose": "Schreibmarke einer laufenden Antwort im Backup-Chat."
+      },
+      {
+        "name": "reduced-motion",
+        "value": "@media (prefers-reduced-motion: reduce) { * { animation: none !important; transition: none !important; } }",
+        "purpose": "Bei reduzierter Bewegung steht alles still."
+      }
+    ],
+    "breakpoints": [
+      {
+        "name": "mobil",
+        "value": "560px",
+        "purpose": "max-width: Kopfleiste nicht sticky, Navigation in eigener Zeile, aktuelle Brotkrume entfällt, Seitenrand .75rem."
+      },
+      {
+        "name": "zweispalter",
+        "value": "800px",
+        "purpose": "max-width: Schulportal, Upload-Zonen und Leupold-Schema einspaltig."
+      },
+      {
+        "name": "schmal-ohne-fach",
+        "value": "900px",
+        "purpose": "max-width: schmale Seiten ohne Fach – die drei Folien werden schmaler."
+      },
+      {
+        "name": "seitenleiste",
+        "value": "1000px",
+        "purpose": "max-width: Sitzungsseite einspaltig, Seitenleiste nicht mehr sticky."
+      }
+    ],
+    "exceptions": [
+      {
+        "name": "Escape-Room",
+        "scope": ".er und .er-* (escape.js)",
+        "source": "public/styles.css, letzter Abschnitt ab „Escape-Room (Gestaltung wie die Escape-Rooms der Lehrkraft …)“",
+        "tokens": {
+          "--er-bg": "#f4f1ea",
+          "--er-ink": "#1d2733",
+          "--er-pet": "#1f4e5f",
+          "--er-och": "#a9772a",
+          "--er-ok": "#2f7d41",
+          "--er-err": "#b1442f",
+          "--er-line": "#ddd5c6",
+          "--er-mute": "#5f6670"
+        },
+        "note": "Von der Lehrkraft vorgegebene, eigene Gestaltung (Petrol/Ocker, Georgia, immer hell). Nicht Teil des Systems; nichts davon in die Plattform übernehmen. .escbox am Anfang des Abschnitts gehört zur Plattform."
+      }
+    ]
+  },
+  "components": [
+    {
+      "name": "Primärknopf",
+      "kind": "button",
+      "refersTo": "button-primary",
+      "description": "Tinte mit weißer Schrift – eine Hauptaktion je Bereich; im Hover nimmt die Tinte einen Hauch Fachfarbe an.",
+      "html": "<button class=\"ds-btn-primary\" type=\"button\">Sitzung öffnen</button>",
+      "css": ".ds-btn-primary { display: inline-flex; align-items: center; justify-content: center; gap: .5rem; min-height: 44px; padding: .6rem 1.05rem; font: 700 1rem/1.2 var(--font, \"Atkinson Next\", system-ui, -apple-system, \"Segoe UI\", Roboto, sans-serif); border-radius: var(--radius-s, 10px); border: 1px solid var(--ink, #13213b); background: var(--ink, #13213b); color: #fff; cursor: pointer; transition: background-color .18s var(--ease, cubic-bezier(.16, 1, .3, 1)), border-color .18s var(--ease, cubic-bezier(.16, 1, .3, 1)), transform .12s var(--ease, cubic-bezier(.16, 1, .3, 1)); } .ds-btn-primary:hover { background: color-mix(in srgb, var(--ink, #13213b) 82%, var(--fach, #16264a)); } .ds-btn-primary:active { transform: translateY(1px); } .ds-btn-primary:focus-visible { outline: 3px solid var(--fach-text, #16264a); outline-offset: 2px; } @media (prefers-color-scheme: dark) { .ds-btn-primary { background: #e8edf6; border-color: #e8edf6; color: #13213b; } .ds-btn-primary:hover { background: #fff; } }"
+    },
+    {
+      "name": "Standardknopf, Ghost und Gefahr",
+      "kind": "button",
+      "refersTo": "button",
+      "description": "Flache Folie mit Bedienkante (Standard und klein), Ghost für Nebenaktionen, Gefahr mit roter Schrift für endgültige Aktionen.",
+      "html": "<div class=\"ds-row\"><button class=\"ds-btn\" type=\"button\">Kopieren</button><button class=\"ds-btn ds-small\" type=\"button\">Für den Beamer zeigen</button><button class=\"ds-btn ds-small ds-ghost\" type=\"button\"><svg class=\"ds-ico\" viewBox=\"0 0 24 24\" aria-hidden=\"true\" focusable=\"false\"><path d=\"M4 20h4L19 9l-4-4L4 16v4zM13.5 6.5l4 4\"/></svg>Klassen ändern</button><button class=\"ds-btn ds-small ds-danger\" type=\"button\">Sitzung löschen</button></div>",
+      "css": ".ds-btn { display: inline-flex; align-items: center; justify-content: center; gap: .5rem; min-height: 44px; padding: .6rem 1.05rem; font: 700 1rem/1.2 var(--font, \"Atkinson Next\", system-ui, -apple-system, \"Segoe UI\", Roboto, sans-serif); border-radius: var(--radius-s, 10px); border: 1px solid var(--line-ui, #7d8aa2); background: var(--surface, #ffffff); color: var(--text, #13213b); cursor: pointer; text-decoration: none; transition: background-color .18s var(--ease, cubic-bezier(.16, 1, .3, 1)), border-color .18s var(--ease, cubic-bezier(.16, 1, .3, 1)), transform .12s var(--ease, cubic-bezier(.16, 1, .3, 1)); } .ds-btn:hover { background: var(--surface-2, #e9eef6); } .ds-btn:active { transform: translateY(1px); } .ds-btn:focus-visible { outline: 3px solid var(--fach-text, #16264a); outline-offset: 2px; } .ds-btn.ds-small { min-height: 36px; padding: .35rem .7rem; font-size: .92rem; gap: .35rem; } .ds-ico { width: 1.15em; height: 1.15em; flex: none; stroke: currentColor; fill: none; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; vertical-align: -.2em; } .ds-row { display: flex; gap: .6rem; align-items: center; flex-wrap: wrap; } .ds-btn.ds-ghost { background: transparent; border-color: transparent; } .ds-btn.ds-ghost:hover { background: var(--surface-2, #e9eef6); } .ds-btn.ds-danger { color: var(--err, #c8281e); } .ds-btn.ds-danger:hover { background: var(--rot-t, #fbe9e7); border-color: color-mix(in srgb, var(--rot, #c8281e) 55%, var(--line-ui, #7d8aa2)); }"
+    },
+    {
+      "name": "Eingabefeld",
+      "kind": "input",
+      "refersTo": "input",
+      "description": "Bedienkante, Beschriftung darüber, Hinweis darunter; Fokus mit Kante und Schatten in der Fachschrift. Die Code-Eingabe steht in der Mono.",
+      "html": "<div class=\"ds-field\"><label class=\"ds-label\" for=\"ds-code\">Sitzungscode deiner Lehrkraft</label><input class=\"ds-input ds-codein\" id=\"ds-code\" placeholder=\"z. B. K7Q-M4X\" maxlength=\"9\" autocomplete=\"off\"><p class=\"ds-hint\">Einmal eingegebene Codes merkt sich dieses Gerät.</p></div><div class=\"ds-field\"><label class=\"ds-label\" for=\"ds-title\">Titel</label><input class=\"ds-input\" id=\"ds-title\" value=\"Das Bundesverfassungsgericht\"></div>",
+      "css": ".ds-field { margin-bottom: .95rem; font: 400 1.0625rem/1.55 var(--font, \"Atkinson Next\", system-ui, -apple-system, \"Segoe UI\", Roboto, sans-serif); color: var(--text, #13213b); } .ds-label { display: block; font-weight: 700; font-size: .95rem; margin-bottom: .3rem; } .ds-input { width: 100%; box-sizing: border-box; font: inherit; color: var(--text, #13213b); background: var(--surface, #ffffff); border: 1px solid var(--line-ui, #7d8aa2); border-radius: var(--radius-s, 10px); padding: .6rem .75rem; min-height: 44px; transition: border-color .15s var(--ease, cubic-bezier(.16, 1, .3, 1)), box-shadow .15s var(--ease, cubic-bezier(.16, 1, .3, 1)); } .ds-input:focus { outline: none; border-color: var(--fach-text, #16264a); box-shadow: 0 0 0 3px color-mix(in srgb, var(--fach-text, #16264a) 28%, transparent); } .ds-input::placeholder { color: var(--muted, #4d5a73); opacity: .85; } .ds-codein { font-family: var(--mono, \"Atkinson Mono\", ui-monospace, \"SF Mono\", Menlo, Consolas, monospace); font-size: 1.3rem; letter-spacing: .12em; text-transform: uppercase; } .ds-codein::placeholder { font-family: var(--font, \"Atkinson Next\", system-ui, -apple-system, \"Segoe UI\", Roboto, sans-serif); font-size: 1.05rem; letter-spacing: normal; text-transform: none; } .ds-hint { font-size: .9rem; color: var(--muted, #4d5a73); margin: .35rem 0 0; }"
+    },
+    {
+      "name": "Kopfleiste",
+      "kind": "nav",
+      "refersTo": "nav-link",
+      "description": "Weiße Kopfleiste mit Folien-U und Navigation; die aktuelle Seite in der Fachtönung. Mobil bricht die Navigation in eine eigene Zeile um.",
+      "html": "<header class=\"ds-topbar\"><div class=\"ds-topbar-inner\"><a class=\"ds-brand\" href=\"#\"><svg viewBox=\"0 0 48 48\" aria-hidden=\"true\"><g fill=\"none\" stroke-width=\"9\" stroke-linecap=\"round\"><path d=\"M11 7v15a11 11 0 0 0 22 0V7\" stroke=\"#2557c7\"/><path d=\"M16 11v15a11 11 0 0 0 22 0V11\" stroke=\"#ffd43b\" style=\"mix-blend-mode:multiply\"/></g></svg>Unterricks</a><nav class=\"ds-nav\" aria-label=\"Navigation\"><a href=\"#\" aria-current=\"page\">Unterricht</a><a href=\"#\">Planungsgrundlagen</a><a href=\"#\">Einstellungen</a><button type=\"button\">Abmelden</button></nav></div></header>",
+      "css": ".ds-topbar { background: var(--surface, #ffffff); border-bottom: 1px solid var(--line, #d5dce8); font: 400 1.0625rem/1.55 var(--font, \"Atkinson Next\", system-ui, -apple-system, \"Segoe UI\", Roboto, sans-serif); } .ds-topbar-inner { max-width: 1280px; margin: 0 auto; padding: .5rem 1rem; min-height: 62px; display: flex; align-items: center; gap: 1rem; } .ds-brand { display: flex; align-items: center; gap: .6rem; font-weight: 800; font-size: 1.2rem; letter-spacing: -.01em; color: var(--text, #13213b); text-decoration: none; } .ds-brand svg { width: 34px; height: 34px; } .ds-nav { margin-left: auto; display: flex; gap: .2rem; flex-wrap: wrap; } .ds-nav a, .ds-nav button { color: var(--text, #13213b); background: transparent; border: 0; padding: .5rem .8rem; border-radius: 10px; font: inherit; font-weight: 700; font-size: .98rem; cursor: pointer; text-decoration: none; } .ds-nav a:hover, .ds-nav button:hover { background: var(--surface-2, #e9eef6); } .ds-nav a[aria-current=\"page\"] { background: var(--fach-t, #e8edf7); color: var(--fach-text, #16264a); } .ds-nav a:focus-visible, .ds-nav button:focus-visible { outline: 3px solid var(--fach-text, #16264a); outline-offset: 2px; } .ds-brand:focus-visible { outline: 3px solid var(--fach-text, #16264a); outline-offset: 2px; border-radius: 6px; } @media (max-width: 560px) { .ds-topbar-inner { flex-wrap: wrap; row-gap: .15rem; gap: .5rem; padding-bottom: .35rem; min-height: 0; } .ds-nav { order: 3; width: 100%; margin: 0 -.25rem; row-gap: .1rem; } .ds-nav a, .ds-nav button { padding: .45rem .6rem; font-size: .92rem; white-space: nowrap; } }"
+    },
+    {
+      "name": "Chips und Abzeichen",
+      "kind": "chip",
+      "refersTo": "chip",
+      "description": "Chips nur im Kopfband (der hervorgehobene vorn, weiß), Abzeichen als flache Pillen für Zustände: neutral, erledigt, Zwischenstopp, Live, Tinte, Hausaufgabe, Code.",
+      "html": "<div class=\"ds-band\"><div class=\"ds-chips\"><span class=\"ds-chip ds-strong\">Stunde 1 von 6</span><span class=\"ds-chip\">Politik und Wirtschaft</span><span class=\"ds-chip\">Q2 GK</span><span class=\"ds-chip\">Di, 10.11.2026</span><span class=\"ds-chip\">90 Minuten</span></div></div><div class=\"ds-badges\"><span class=\"ds-badge\">0 SuS</span><span class=\"ds-badge ds-ok\"><svg class=\"ds-ico\" viewBox=\"0 0 24 24\" aria-hidden=\"true\" focusable=\"false\"><path d=\"M5 12.5l4.5 4.5L19 7\"/></svg>Schulportal</span><span class=\"ds-badge ds-stop\"><svg class=\"ds-ico\" viewBox=\"0 0 24 24\" aria-hidden=\"true\" focusable=\"false\"><path d=\"M9 5v14M15 5v14\"/></svg>Zwischenstopp</span><span class=\"ds-badge ds-onair\"><span class=\"ds-dot\"></span>LIVE</span><span class=\"ds-badge ds-ink\">Vertretung aktiv</span><span class=\"ds-badge ds-hw\">Hausaufgabe</span><span class=\"ds-badge ds-mono\">6HP-CC3</span></div>",
+      "css": ".ds-band { background: var(--blau, #2557c7); color: #fff; padding: 1.5rem 1rem 1.65rem; } .ds-chips { display: flex; flex-wrap: wrap; gap: .45rem; } .ds-chip { display: inline-flex; align-items: center; gap: .35rem; font: 700 .92rem/1.2 var(--font, \"Atkinson Next\", system-ui, -apple-system, \"Segoe UI\", Roboto, sans-serif); padding: .32rem .8rem; border-radius: 999px; background: rgba(10, 16, 30, .2); color: #fff; } .ds-chip.ds-strong { background: #fff; color: var(--blau, #2557c7); } .ds-badge { display: inline-flex; align-items: center; gap: .3rem; font: 700 .82rem/1.2 var(--font, \"Atkinson Next\", system-ui, -apple-system, \"Segoe UI\", Roboto, sans-serif); padding: .22rem .62rem; border-radius: 999px; background: var(--surface-2, #e9eef6); color: var(--muted, #4d5a73); white-space: nowrap; } .ds-ico { width: 1.15em; height: 1.15em; flex: none; stroke: currentColor; fill: none; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; vertical-align: -.2em; } .ds-badges { display: flex; flex-wrap: wrap; gap: .45rem; margin-top: .8rem; } .ds-badge.ds-ok { background: var(--gruen-t, #e3f2ea); color: var(--ok, #14794a); } .ds-badge.ds-stop { background: var(--rot-t, #fbe9e7); color: var(--err, #c8281e); } .ds-badge.ds-onair { background: var(--rot, #c8281e); color: #fff; } .ds-badge.ds-ink { background: var(--ink, #13213b); color: #fff; } .ds-badge.ds-hw { background: var(--gelb-t, #fff5cf); color: var(--text, #13213b); box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--gelb-kante, #e5b80f) 60%, transparent); } .ds-badge.ds-mono { font-family: var(--mono, \"Atkinson Mono\", ui-monospace, \"SF Mono\", Menlo, Consolas, monospace); } .ds-dot { width: .55rem; height: .55rem; border-radius: 50%; background: currentColor; display: inline-block; animation: ds-pulse 1.4s ease-in-out infinite; } @keyframes ds-pulse { 50% { opacity: .35; } } @media (prefers-reduced-motion: reduce) { .ds-dot { animation: none; } }"
+    },
+    {
+      "name": "Karte mit Haarlinien-Liste",
+      "kind": "card",
+      "refersTo": "card",
+      "description": "Weiße Karte auf der Leuchtfläche; Listen darin als Haarlinien-Zeilen statt Kästen in Kästen. Gemischte Listen beginnen jede Zeile mit dem Fach-Schild samt Text.",
+      "html": "<section class=\"ds-card\"><h2>Zuletzt bearbeitet</h2><div class=\"ds-list\"><a class=\"ds-item\" href=\"#\"><span class=\"ds-ftag\" data-fach=\"powi\">PoWi</span><span class=\"ds-main\"><span class=\"ds-name\">Das Bundesverfassungsgericht</span><span class=\"ds-meta\">Politik und Wirtschaft · Q2 GK · Di, 10.11.2026 · 90 min</span></span><span class=\"ds-badge\">Hausaufgabe</span></a><a class=\"ds-item\" href=\"#\"><span class=\"ds-ftag\" data-fach=\"evrel\">Ev. Religion</span><span class=\"ds-main\"><span class=\"ds-name\">Gleichnisse Jesu</span><span class=\"ds-meta\">Evangelische Religion · Kurs Jg. 8 · Mi, 11.11.2026 · 45 min</span></span><span class=\"ds-badge\">12 SuS</span></a><a class=\"ds-item\" href=\"#\"><span class=\"ds-ftag\" data-fach=\"ethik\">Ethik</span><span class=\"ds-main\"><span class=\"ds-name\">Was ist gerecht?</span><span class=\"ds-meta\">Ethik · Kurs E-Phase · ohne Datum</span></span></a></div></section>",
+      "css": ".ds-card { background: var(--surface, #ffffff); color: var(--text, #13213b); border: 1px solid var(--line, #d5dce8); border-radius: var(--radius, 16px); box-shadow: var(--shadow, 0 1px 2px rgba(0, 0, 0, .06), 0 8px 22px -12px rgba(0, 0, 0, .24)); padding: 1.25rem 1.35rem; font: 400 1.0625rem/1.55 var(--font, \"Atkinson Next\", system-ui, -apple-system, \"Segoe UI\", Roboto, sans-serif); } .ds-card h2 { font-size: 1.28rem; font-weight: 800; letter-spacing: -.01em; line-height: 1.18; margin: 0 0 .5em; } @media (max-width: 560px) { .ds-card { padding: 1rem .95rem; } } .ds-badge { display: inline-flex; align-items: center; gap: .3rem; font: 700 .82rem/1.2 var(--font, \"Atkinson Next\", system-ui, -apple-system, \"Segoe UI\", Roboto, sans-serif); padding: .22rem .62rem; border-radius: 999px; background: var(--surface-2, #e9eef6); color: var(--muted, #4d5a73); white-space: nowrap; } .ds-list { display: grid; gap: 0; } .ds-item { display: flex; gap: .85rem; align-items: center; padding: .75rem .4rem; color: inherit; text-decoration: none; transition: background-color .15s var(--ease, cubic-bezier(.16, 1, .3, 1)); } .ds-item + .ds-item { border-top: 1px solid var(--line, #d5dce8); } .ds-item:hover { background: var(--fach-t, #e8edf7); } .ds-item:focus-visible { outline: 3px solid var(--fach-text, #16264a); outline-offset: 2px; border-radius: 6px; } .ds-main { flex: 1 1 auto; min-width: 0; } .ds-name { display: block; font-weight: 700; overflow-wrap: anywhere; } .ds-meta { display: block; font-size: .88rem; color: var(--muted, #4d5a73); } .ds-ftag { flex: 0 0 auto; min-width: 4.6rem; text-align: center; font-weight: 800; font-size: .78rem; line-height: 1.2; padding: .34rem .5rem; border-radius: 8px; color: #fff; background: var(--marke, #16264a); white-space: nowrap; } .ds-ftag[data-fach=\"powi\"] { background: var(--blau, #2557c7); } .ds-ftag[data-fach=\"evrel\"] { background: var(--violett, #6a3cc0); } .ds-ftag[data-fach=\"ethik\"] { background: var(--kupfer, #b2490c); } @media (max-width: 560px) { .ds-item { flex-wrap: wrap; } }"
+    },
+    {
+      "name": "Kopfband mit Fachfolie",
+      "kind": "custom",
+      "refersTo": "pagehead-powi",
+      "description": "Randloses Band in der Fachfarbe; die Fachfolie mischt sich per multiply und hängt hell über die Bandkante (im Dunkelmodus endet sie dort). „Folie auflegen“ nur beim ersten Band.",
+      "html": "<div class=\"ds-stage\"><header class=\"ds-pagehead\"><div class=\"ds-foils\" aria-hidden=\"true\"><i></i></div><h1>Das Bundesverfassungsgericht</h1><div class=\"ds-chips\"><span class=\"ds-chip ds-strong\">Stunde 1 von 6</span><span class=\"ds-chip\">Politik und Wirtschaft</span><span class=\"ds-chip\">Q2 GK</span><span class=\"ds-chip\">90 Minuten</span></div></header></div>",
+      "css": ".ds-stage { background: var(--ground, #f2f5fa); padding-bottom: 1.9rem; overflow: hidden; font: 400 1.0625rem/1.55 var(--font, \"Atkinson Next\", system-ui, -apple-system, \"Segoe UI\", Roboto, sans-serif); } .ds-pagehead { position: relative; isolation: isolate; color: #fff; background: var(--blau, #2557c7); padding: 1.5rem 1rem 1.65rem; } .ds-foils { position: absolute; z-index: -1; inset: 0; pointer-events: none; clip-path: inset(0 -100vmax -26px); mix-blend-mode: multiply; } .ds-foils i { position: absolute; display: block; right: 4%; bottom: -14px; width: min(36%, 460px); height: calc(100% + 64px); border-radius: 20px; background: color-mix(in srgb, var(--blau, #2557c7) 36%, #fff); box-shadow: 0 12px 18px -14px rgba(19, 33, 59, .5); transform: rotate(-2deg); transform-origin: 50% 100%; animation: ds-auflegen .75s var(--ease, cubic-bezier(.16, 1, .3, 1)) both; } @keyframes ds-auflegen { from { transform: translate(6px, -14px) rotate(-4deg) scale(1.025); box-shadow: 0 30px 34px -16px rgba(19, 33, 59, .5); } } .ds-pagehead h1 { margin: 0 0 .6rem; max-width: 34ch; font-size: clamp(1.8rem, 1.25rem + 1.9vw, 2.6rem); font-weight: 800; letter-spacing: -.02em; line-height: 1.18; } .ds-chips { display: flex; flex-wrap: wrap; gap: .45rem; } .ds-chip { display: inline-flex; align-items: center; gap: .35rem; font: 700 .92rem/1.2 var(--font, \"Atkinson Next\", system-ui, -apple-system, \"Segoe UI\", Roboto, sans-serif); padding: .32rem .8rem; border-radius: 999px; background: rgba(10, 16, 30, .2); color: #fff; } .ds-chip.ds-strong { background: #fff; color: var(--blau, #2557c7); } @media (prefers-reduced-motion: reduce) { .ds-foils i { animation: none; } } @media (prefers-color-scheme: dark) { .ds-stage { background: var(--ground, #0b111e); } .ds-foils { clip-path: inset(0 -100vmax); } .ds-foils i { background: color-mix(in srgb, var(--blau, #2557c7) 30%, #c8d0de); opacity: .72; } }"
+    },
+    {
+      "name": "Hauptweg-Markerfolie",
+      "kind": "custom",
+      "refersTo": "hauptweg",
+      "description": "Die einzige volle gelbe Fläche: „Stunde mit Claude planen“ bzw. „Einheit mit Claude planen“, vorn in der Hauptspalte, mit großem Tinten-Knopf.",
+      "html": "<section class=\"ds-plan\"><div class=\"ds-plan-head\"><h2>Stunde mit Claude planen</h2><span class=\"ds-plan-tag\">Hauptweg</span></div><p>Claude (Ihr Pro-Abo in claude.ai) plant diese Stunde mit Ihnen im Dialog und speichert die Ergebnisse über den Connector direkt in dieser Sitzung.</p><button class=\"ds-plan-btn\" type=\"button\">Stunde mit Claude planen</button><p class=\"ds-plan-hint\">Ist Ihr Claude-Kontingent gerade erschöpft, planen Sie unten im <a href=\"#\">Backup mit kostenloser KI</a> weiter.</p></section>",
+      "css": ".ds-plan { background: var(--gelb, #ffd43b); border: 1px solid var(--gelb-kante, #e5b80f); color: #13213b; border-radius: var(--radius, 16px); box-shadow: var(--shadow, 0 1px 2px rgba(0, 0, 0, .06), 0 8px 22px -12px rgba(0, 0, 0, .24)); padding: 1.25rem 1.35rem; font: 400 1.0625rem/1.55 var(--font, \"Atkinson Next\", system-ui, -apple-system, \"Segoe UI\", Roboto, sans-serif); } .ds-plan-head { display: flex; align-items: center; gap: .6rem; justify-content: space-between; flex-wrap: wrap; margin-bottom: .75rem; } .ds-plan h2 { margin: 0; font-size: 1.28rem; font-weight: 800; letter-spacing: -.01em; line-height: 1.18; } .ds-plan-tag { display: inline-flex; align-items: center; font-size: .82rem; font-weight: 700; line-height: 1.2; padding: .22rem .62rem; border-radius: 999px; background: #13213b; color: var(--gelb, #ffd43b); } .ds-plan p { margin: 0 0 .75em; font-size: .9rem; } .ds-plan-btn { display: inline-flex; align-items: center; justify-content: center; min-height: 54px; padding: .85rem 1.4rem; margin: .3rem 0 .55rem; font: 700 1.1rem/1.2 var(--font, \"Atkinson Next\", system-ui, -apple-system, \"Segoe UI\", Roboto, sans-serif); border-radius: 12px; border: 1px solid #13213b; background: #13213b; color: #fff; cursor: pointer; transition: background-color .18s var(--ease, cubic-bezier(.16, 1, .3, 1)), transform .12s var(--ease, cubic-bezier(.16, 1, .3, 1)); } .ds-plan-btn:hover { background: #24375c; } .ds-plan-btn:active { transform: translateY(1px); } .ds-plan-btn:focus-visible, .ds-plan a:focus-visible { outline: 3px solid #13213b; outline-offset: 2px; } .ds-plan .ds-plan-hint { opacity: .85; } .ds-plan a { color: #13213b; font-weight: 700; text-underline-offset: .2em; }"
+    },
+    {
+      "name": "Abdeckblatt am Zwischenstopp",
+      "kind": "custom",
+      "refersTo": "covered",
+      "description": "Roter Reiter auf der Kante, darunter das Abdeckblatt mit 3px roter Oberkante und Schatten nach oben – der Rest bleibt lesbar, aber gedimmt. Es gleitet beim Neuzeichnen („Aufdecken“).",
+      "html": "<div class=\"ds-preview\"><p><strong>1) TOP 10</strong></p><p><strong>2) Blitzlicht ohne iPad</strong></p><ul><li>Einstieg: <em>Ist das Bundesverfassungsgericht zu mächtig?</em></li></ul><div class=\"ds-stop\" role=\"note\"><svg class=\"ds-ico\" viewBox=\"0 0 24 24\" aria-hidden=\"true\" focusable=\"false\"><path d=\"M9 5v14M15 5v14\"/></svg><span><strong>Zwischenstopp</strong> – bis hierher geschafft, ab hier weiterarbeiten</span></div><div class=\"ds-covered\" aria-label=\"Noch nicht aufgedeckt (nach dem Zwischenstopp)\"><p><strong>3) Partnerarbeit</strong></p><ul><li>Arbeitsblatt <em>Aufgaben des BVerfG</em></li><li>Ergebnisse vergleichen</li></ul><p>--&gt; Nächste Stunde</p></div></div>",
+      "css": ".ds-preview { position: relative; overflow: hidden; border: 1px solid var(--line, #d5dce8); border-radius: 12px; padding: .85rem 1rem; background: var(--surface, #ffffff); color: var(--text, #13213b); font: 400 1rem/1.55 var(--font, \"Atkinson Next\", system-ui, -apple-system, \"Segoe UI\", Roboto, sans-serif); } .ds-preview p { margin: 0; min-height: 1.45em; } .ds-preview ul { margin: 0; padding-left: 1.25rem; } .ds-preview strong { font-weight: 800; } .ds-stop { position: relative; z-index: 1; display: inline-flex; gap: .45rem; align-items: center; margin: .55rem 0 0; padding: .32rem .75rem; border-radius: 8px 8px 0 0; background: var(--rot, #c8281e); color: #fff; font-size: .9rem; font-weight: 700; } .ds-covered { position: relative; margin: 0 -1rem -.85rem; padding: .7rem 1rem .95rem; min-height: 2.6rem; background: var(--paper, #eef2f8); color: var(--muted, #4d5a73); border-top: 3px solid var(--rot, #c8281e); box-shadow: 0 -10px 18px -12px rgba(19, 33, 59, .42); animation: ds-aufdecken .45s var(--ease, cubic-bezier(.16, 1, .3, 1)) both; } @keyframes ds-aufdecken { from { transform: translateY(-10px); } } .ds-ico { width: 1.15em; height: 1.15em; flex: none; stroke: currentColor; fill: none; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; vertical-align: -.2em; } @media (prefers-reduced-motion: reduce) { .ds-covered { animation: none; } }"
+    },
+    {
+      "name": "Klassen- und Kurs-Knöpfe",
+      "kind": "custom",
+      "refersTo": "class-btn-course",
+      "description": "Klassenknöpfe (48px, gedrückt in der Fachfarbe) und die Kurszeile für Ev. Religion und Ethik: Kursknopf, Klassen des Kurses, „Klassen ändern“ – ohne Kurs „Kurs anlegen“.",
+      "html": "<div class=\"ds-classes\"><div class=\"ds-group\"><h3>Jahrgangsstufe 8</h3><div class=\"ds-course-row\"><a class=\"ds-class-btn ds-course\" href=\"#\">Kurs Jg. 8</a><span class=\"ds-course-members\">Klassen 8A, 8C</span><button class=\"ds-ghost-small\" type=\"button\"><svg class=\"ds-ico\" viewBox=\"0 0 24 24\" aria-hidden=\"true\" focusable=\"false\"><path d=\"M4 20h4L19 9l-4-4L4 16v4zM13.5 6.5l4 4\"/></svg>Klassen ändern</button></div></div><div class=\"ds-group\"><h3>Jahrgangsstufe 9</h3><div class=\"ds-course-row\"><button class=\"ds-btn-std\" type=\"button\">Kurs anlegen</button><span class=\"ds-course-members\">Sie wählen, welche Klassen im Kurs vertreten sind.</span></div></div><div class=\"ds-group\"><h3>Jahrgangsstufe 7</h3><div class=\"ds-class-grid\"><button class=\"ds-class-btn\" type=\"button\" aria-pressed=\"false\">7A</button><button class=\"ds-class-btn\" type=\"button\" aria-pressed=\"true\">7B</button><button class=\"ds-class-btn\" type=\"button\" aria-pressed=\"false\">7C</button><button class=\"ds-class-btn\" type=\"button\" aria-pressed=\"false\">7D</button></div></div></div>",
+      "css": ".ds-classes { font: 400 1.0625rem/1.55 var(--font, \"Atkinson Next\", system-ui, -apple-system, \"Segoe UI\", Roboto, sans-serif); color: var(--text, #13213b); } .ds-group { margin-bottom: 1.1rem; } .ds-group h3 { font-size: .98rem; color: var(--muted, #4d5a73); font-weight: 700; margin: 0 0 .45rem; line-height: 1.18; } .ds-class-grid { display: grid; gap: .5rem; grid-template-columns: repeat(auto-fill, minmax(68px, 1fr)); } .ds-class-btn { display: block; font: inherit; font-weight: 800; font-size: 1.02rem; padding: .7rem .3rem; min-height: 48px; border-radius: 12px; border: 1px solid var(--line-ui, #7d8aa2); background: var(--surface, #ffffff); color: var(--text, #13213b); cursor: pointer; position: relative; text-decoration: none; text-align: center; transition: background-color .15s var(--ease, cubic-bezier(.16, 1, .3, 1)), border-color .15s var(--ease, cubic-bezier(.16, 1, .3, 1)), transform .12s var(--ease, cubic-bezier(.16, 1, .3, 1)); } .ds-class-btn:hover { border-color: var(--fach-text, #6a3cc0); background: var(--fach-t, #ede8f7); } .ds-class-btn:active { transform: translateY(1px); } .ds-class-btn[aria-pressed=\"true\"] { background: var(--fach, #6a3cc0); border-color: var(--fach, #6a3cc0); color: #fff; } .ds-class-btn:focus-visible, .ds-ghost-small:focus-visible, .ds-btn-std:focus-visible { outline: 3px solid var(--fach-text, #6a3cc0); outline-offset: 2px; } .ds-course-row { display: flex; flex-wrap: wrap; align-items: center; gap: .55rem .9rem; } .ds-class-btn.ds-course { min-width: 9.5rem; padding-inline: .9rem; } .ds-course-members { font-weight: 700; color: var(--muted, #4d5a73); font-size: .95rem; } .ds-ghost-small, .ds-btn-std { display: inline-flex; align-items: center; justify-content: center; gap: .35rem; min-height: 36px; padding: .35rem .7rem; font: 700 .92rem/1.2 var(--font, \"Atkinson Next\", system-ui, -apple-system, \"Segoe UI\", Roboto, sans-serif); border-radius: 10px; border: 1px solid transparent; background: transparent; color: var(--text, #13213b); cursor: pointer; transition: background-color .18s var(--ease, cubic-bezier(.16, 1, .3, 1)), transform .12s var(--ease, cubic-bezier(.16, 1, .3, 1)); } .ds-btn-std { min-height: 44px; padding: .6rem 1.05rem; font-size: 1rem; gap: .5rem; border-color: var(--line-ui, #7d8aa2); background: var(--surface, #ffffff); } .ds-ghost-small:hover, .ds-btn-std:hover { background: var(--surface-2, #e9eef6); } .ds-ghost-small:active, .ds-btn-std:active { transform: translateY(1px); } .ds-ico { width: 1.15em; height: 1.15em; flex: none; stroke: currentColor; fill: none; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; vertical-align: -.2em; }"
+    },
+    {
+      "name": "Sitzungscode",
+      "kind": "custom",
+      "refersTo": "code-box",
+      "description": "Erste Karte der Seitenleiste: der Sitzungscode groß in Atkinson Mono auf der Fachtönung, darunter die freigeschalteten Geräte.",
+      "html": "<section class=\"ds-card\"><h2>Sitzungscode</h2><div class=\"ds-code-box\"><div class=\"ds-code-big\">6HP-CC3</div><div class=\"ds-small\">0 Geräte freigeschaltet</div></div><div class=\"ds-row\"><button class=\"ds-btn ds-small\" type=\"button\">Kopieren</button><button class=\"ds-btn ds-small\" type=\"button\">Für den Beamer zeigen</button></div></section>",
+      "css": ".ds-card { background: var(--surface, #ffffff); color: var(--text, #13213b); border: 1px solid var(--line, #d5dce8); border-radius: var(--radius, 16px); box-shadow: var(--shadow, 0 1px 2px rgba(0, 0, 0, .06), 0 8px 22px -12px rgba(0, 0, 0, .24)); padding: 1.25rem 1.35rem; font: 400 1.0625rem/1.55 var(--font, \"Atkinson Next\", system-ui, -apple-system, \"Segoe UI\", Roboto, sans-serif); } .ds-card h2 { font-size: 1.28rem; font-weight: 800; letter-spacing: -.01em; line-height: 1.18; margin: 0 0 .5em; } @media (max-width: 560px) { .ds-card { padding: 1rem .95rem; } } .ds-btn { display: inline-flex; align-items: center; justify-content: center; gap: .5rem; min-height: 44px; padding: .6rem 1.05rem; font: 700 1rem/1.2 var(--font, \"Atkinson Next\", system-ui, -apple-system, \"Segoe UI\", Roboto, sans-serif); border-radius: var(--radius-s, 10px); border: 1px solid var(--line-ui, #7d8aa2); background: var(--surface, #ffffff); color: var(--text, #13213b); cursor: pointer; text-decoration: none; transition: background-color .18s var(--ease, cubic-bezier(.16, 1, .3, 1)), border-color .18s var(--ease, cubic-bezier(.16, 1, .3, 1)), transform .12s var(--ease, cubic-bezier(.16, 1, .3, 1)); } .ds-btn:hover { background: var(--surface-2, #e9eef6); } .ds-btn:active { transform: translateY(1px); } .ds-btn:focus-visible { outline: 3px solid var(--fach-text, #16264a); outline-offset: 2px; } .ds-btn.ds-small { min-height: 36px; padding: .35rem .7rem; font-size: .92rem; gap: .35rem; } .ds-code-box { text-align: center; padding: .9rem .6rem .8rem; border-radius: 12px; background: var(--fach-t, #e5ebf8); } .ds-code-big { font-family: var(--mono, \"Atkinson Mono\", ui-monospace, \"SF Mono\", Menlo, Consolas, monospace); font-weight: 800; font-size: clamp(2.2rem, 1.6rem + 2.2vw, 3.2rem); letter-spacing: .08em; line-height: 1.1; font-variant-numeric: tabular-nums; color: var(--text, #13213b); } .ds-small { font-size: .9rem; color: var(--muted, #4d5a73); } .ds-row { display: flex; gap: .6rem; align-items: center; flex-wrap: wrap; margin-top: .6rem; }"
+    }
+  ],
+  "narrative": {
+    "northStar": "Folie & Aufdecken",
+    "overview": "Jede Sitzung ist eine Folie auf dem Overhead-Projektor. Die Seite ist die kühle Leuchtfläche, geschrieben wird mit Folienstift-Tinte, und jedes Fach legt seine getönte Farbfolie über den Kopf der Seite: Blau für Politik und Wirtschaft, Violett für Ev. Religion, Kupfer für Ethik. Die gelbe Markerfolie zeigt den Hauptweg „Stunde mit Claude planen“ bzw. „Einheit mit Claude planen“. Im Verlaufsplan liegt ab dem Zwischenstopp ein Abdeckblatt mit roter Kante – was darunter steht, ist noch nicht aufgedeckt, bleibt aber lesbar. Fach, Kurs und „Stunde n von m“ stehen auf jeder Seite im Kopfband.\n\nDie Gestaltung ist ruhig und lesbar bis in die letzte Reihe eines hellen Klassenraums: eine Schriftfamilie (Atkinson Hyperlegible Next, für Codes ihre Mono-Schwester), Hierarchie allein über Größe und Gewicht, volle Farbe flächig und ohne Verlauf, weiche nach unten versetzte Schatten, Haarlinien statt Kästen in Kästen. Die Arbeitsseiten der Lehrkraft sind dicht und zweispaltig (in der Sitzung: Inhalt links, Sitzungscode und Sitzungsdaten rechts), Schüler:innen-Seiten schmal und einspaltig mit einem eindeutigen nächsten Schritt. Bewegung gibt es nur, wo sich Folien bewegen: „Folie auflegen“ beim ersten Kopfband und „Aufdecken“ am Abdeckblatt.\n\nVerweigert sind graue Lernplattform-Karten mit einem einzigen Blau; falsch wäre eine Oberfläche, die kindlich, unruhig oder kühl-technisch wirkt. Hell- und Dunkelmodus folgen der Geräteeinstellung. Nichts wird von außen geladen – die Schriften liegen unter der SIL Open Font License in `public/fonts`. Kein Schulname, kein Schullogo, keine Schulfarben. Eine bewusst begrenzte Ausnahme ist der Escape-Room (`.er`, Petrol und Ocker, Serifenschrift): Er behält die von der Lehrkraft vorgegebene Gestaltung und gehört nicht zum System (siehe Components).",
+    "keyCharacteristics": [
+      "Leuchtfläche (`--ground`) und Folienstift-Tinte (`--ink`); drei Fachfolien, die sich per multiply mischen.",
+      "Randloses Kopfband in der Fachfarbe mit Brotkrumen, Titel und Chips; „Stunde n von m“ als weißer Chip vorn.",
+      "Gelb ist die Markerfolie des Hauptwegs, Rot steht nur für Zwischenstopp, Live und Fehler, Grün nur für erledigt bzw. gespeichert; Warnungen stehen in Tinte mit Warnsymbol.",
+      "Eine Schriftfamilie in drei Gewichten (400, 700, 800); Codes in Atkinson Mono.",
+      "Flache Flächen, weiche versetzte Schatten, Haarlinien; Symbole als eigene Strichzeichnungen im 24er-Raster.",
+      "Signaturen: Kopfband mit Fachfolie, Hauptweg-Markerfolie, Abdeckblatt am Zwischenstopp, Sitzungscode groß in Mono."
+    ],
+    "rules": [
+      {
+        "name": "Die Fachfolien-Regel",
+        "body": "Die Fachfarbe kommt nur über `data-fach` und die drei Variablen `--fach`, `--fach-t` und `--fach-text` in einen Baustein – nie als fest eingetragener Wert. Fest eingetragen sind die Fachfarben nur dort, wo alle drei Fächer nebeneinander stehen: Fach-Schild, Fachkachel und die drei Folien im Band ohne Fach. Ein Fach erscheint nie als Farbe allein, sondern immer mit Namen oder Kürzel.",
+        "section": "colors"
+      },
+      {
+        "name": "Die Markerfolien-Regel",
+        "body": "Volles Gelb (#ffd43b) ist die Markerfolie des Hauptwegs – „Stunde mit Claude planen“, „Einheit mit Claude planen“ – und sonst nichts. Für Aufgaben und Ziele gibt es nur die dünne Markerfolie `--gelb-t`.",
+        "section": "colors"
+      },
+      {
+        "name": "Die Signal-Regel",
+        "body": "Rot heißt Zwischenstopp, Live oder Fehler; Grün heißt erledigt bzw. gespeichert. Keine der beiden Farben schmückt. Eine Warnfarbe gibt es nicht: Ocker wurde bewusst entfernt, Warnungen stehen in Tinte mit Warnsymbol.",
+        "section": "colors"
+      },
+      {
+        "name": "Die Eine-Familie-Regel",
+        "body": "Eine Familie in drei Gewichten – 400 für Text, 700 für Bedienung und Beschriftung, 800 für Titel und Kennungen. Hierarchie entsteht über Größe und Gewicht, nie über eine zweite Schrift; weite Sperrung (ab .08em) und `text-transform: uppercase` sind Codes vorbehalten.",
+        "section": "typography"
+      },
+      {
+        "name": "Die Kennungs-Regel",
+        "body": "Codes stehen immer in Atkinson Mono und gesperrt (.08–.12em): im Codekasten und am Beamer in 800, in der Code-Eingabe in Großbuchstaben. In Abzeichen und IDs genügt die Mono ohne Sperrung. Zahlen und Zeiten im Text nutzen tabellarische Ziffern (`.num`, `time`).",
+        "section": "typography"
+      },
+      {
+        "name": "Die Letzte-Reihe-Regel",
+        "body": "Jedes Textpaar erreicht mindestens 4,5:1, hell wie dunkel; weiße Schrift im Kopfband liegt auch über der hellsten Folienstelle bei mindestens 6,1:1.",
+        "section": "typography"
+      },
+      {
+        "name": "Die Jetzt-zuerst-Regel",
+        "body": "Schüler:innen-Seiten sind einspaltig (`main.narrow`) und zeigen das Jetzt zuerst: die Vertretungsanleitung, wenn es eine gibt, dann Live-Fenster, Hausaufgabe und Material – ein nächster Schritt statt einer Fläche zum Suchen.",
+        "section": "layout"
+      },
+      {
+        "name": "Die Schwebe-Regel",
+        "body": "Schatten sind weich, nach unten versetzt und mit negativer Ausbreitung – eine Folie schwebt knapp über der Leuchtfläche. Nur das Abdeckblatt wirft seinen Schatten nach oben.",
+        "section": "elevation"
+      },
+      {
+        "name": "Die Multiply-Regel",
+        "body": "Farbfolien mischen sich durch Übereinanderlegen (`mix-blend-mode: multiply`), nie durch Verläufe. Im Dunkelmodus endet die Bandfolie an der Bandkante – ein heller Überstand läse sich als Lichtfleck.",
+        "section": "elevation"
+      },
+      {
+        "name": "Die Eine-Kante-Regel",
+        "body": "Die einzige farbige Kante im System ist die 3px rote Oberkante des Abdeckblatts (`border-top: 3px solid var(--rot)`). Karten bekommen keine farbigen Seitenbalken.",
+        "section": "shapes"
+      },
+      {
+        "name": "Die Ausnahme-bleibt-drinnen-Regel",
+        "body": "Nichts aus `.er-*` wandert in die Plattform: keine Seitenbalken, keine Überzeilen, keine Serifenschrift, keine Verläufe, keine Zeichen als Symbole, kein Ocker.",
+        "section": "components"
+      }
+    ],
+    "dos": [
+      "Do: Setze das Fach über `pageHead({ fach })` bzw. `setFach()` und färbe Bausteine nur mit `--fach`, `--fach-t` und `--fach-text`.",
+      "Do: Beginne jede Seite mit dem Kopfband aus `pageHead()` – Brotkrumen, Titel, Chips; in der Sitzung steht „Stunde n von m“ als weißer Chip vorn.",
+      "Do: Stelle den Hauptweg (Markerfolie) an den Anfang der Hauptspalte und den Sitzungscode an den Anfang der Seitenleiste.",
+      "Do: Trenne Listen in Karten mit Haarlinien (1px `--line`) und beginne Zeilen gemischter Listen mit dem Fach-Schild `.ftag` samt Text.",
+      "Do: Markiere den Zwischenstopp mit Reiter und Abdeckblatt (3px rote Oberkante, Schatten nach oben); der Inhalt darunter bleibt lesbar.",
+      "Do: Schreibe Warnungen in Tinte mit Warnsymbol (`.warnc`, `.notice.warn`) und Zustände mit `stateLine()`.",
+      "Do: Nimm Symbole aus `ICONS` über `icon()` – 24er-Raster, Strich 2, runde Enden, `currentColor`.",
+      "Do: Halte Bedienelemente mindestens 44px hoch (Klassenknöpfe 48px, große Knöpfe 54px).",
+      "Do: Bewege nur mit `--ease` (`cubic-bezier(.16, 1, .3, 1)`) und nur als „Folie auflegen“ bzw. „Aufdecken“; bei `prefers-reduced-motion: reduce` steht alles still.",
+      "Do: Zeige das Live-Fenster ruhend hell und kompakt; die dunkle Projektionsfläche erscheint erst, wenn eine Folie läuft.",
+      "Do: Prüfe jedes neue Textpaar auf mindestens 4,5:1 – hell und dunkel."
+    ],
+    "donts": [
+      "Don't: Volles Gelb außerhalb der Hauptweg-Karte – kein gelber Knopf, Zähler oder Chip. `.btn.accent` und der gelbe Zähler `.class-btn .n` sind im Bestand Abweichungen, kein Vorbild.",
+      "Don't: Rot für etwas anderes als Zwischenstopp, Live und Fehler; Grün für etwas, das nicht erledigt oder gespeichert ist.",
+      "Don't: Eine Warnfarbe einführen – kein Ocker, kein Orange.",
+      "Don't: Graue Lernplattform-Karten mit einem einzigen Blau – jede Seite trägt ihr Fach bzw. die Marke flächig im Kopfband.",
+      "Don't: Ein Fach nur durch Farbe kennzeichnen.",
+      "Don't: Verläufe, Leuchten oder harte Versatzschatten; `linear-gradient(var(--fach) 0 0)` im Kopfband ist nur ein einfarbiger Kniff für die randlose Fläche.",
+      "Don't: Farbige Seitenbalken an Karten; die einzige farbige Kante ist die rote Oberkante des Abdeckblatts.",
+      "Don't: Unicode-Zeichen als Symbole; der Knopf „◀“ im Präsentationsmodus ist eine Abweichung, kein Vorbild.",
+      "Don't: Eine zweite Schrift, Überzeilen (Kicker) über Überschriften oder gesperrte Großbuchstaben außerhalb von Codes.",
+      "Don't: Die Bandfolie im Dunkelmodus über die Bandkante hängen lassen.",
+      "Don't: Die älteren Aliase `--brand`, `--brand-2`, `--accent` und `--focus` für neue Bausteine; sie heißen `--fach`, `--fach-text`, `--gelb` und `--fach-text`.",
+      "Don't: Schulnamen, Schullogos oder Schulfarben; nichts von außen laden – keine fremden Schriften, Skripte oder Bilder.",
+      "Don't: Gestaltungsmittel des Escape-Rooms (`.er-*`) in die Plattform übernehmen."
+    ]
+  }
+}

@@ -45,6 +45,8 @@ export const COLUMNS = [
   ["lessons", "unit_id", "TEXT"],
   ["lessons", "unit_row", "TEXT"],
   ["fb_sheets", "kind", "TEXT NOT NULL DEFAULT ''"],   // 'escape' = Finale eines Escape-Rooms (Schüler:innen erreichen es über den Tunnel)
+  ["files", "fb_code", "TEXT"],   // Notfall-Feibeitsblatt: Code des Feibeitsblatts, dessen analoges Arbeitsblatt diese PDF ist
+  ["files", "fb_sig", "TEXT"],    // … und ihr Stand (mit/ohne QR-Code zur Checkliste, mit/ohne KI-Satz) – ändert er sich, wird sie erneuert
 ];
 
 // Indizes über nachträglich ergänzte Spalten (nach den Spalten angelegt; ein Fehler – z. B. alte Doppelungen – hält den Betrieb nicht auf)

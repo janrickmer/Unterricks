@@ -6,7 +6,7 @@ import { requireTeacher } from "./auth.js";
 import { requireAccess } from "./student.js";
 import { normalizeEscapeRoom } from "../public/escape-data.js";
 import { getLesson, savePortal, insertDraft } from "./lessons.js";
-import { insertTextMaterial, fileKey, checkStorage } from "./files.js";
+import { insertTextMaterial, fileKey, checkStorage, deleteNotfallFiles } from "./files.js";
 import { normalizeSubstitute } from "../public/planning.js";
 import { isAnalogClass, normalizeCode, isValidCode, subjectName, classShort } from "../public/shared.js";
 
@@ -120,7 +120,9 @@ export async function routeSubstituteRestore(c, lessonId) {
   for (const sh of (a.sheets || []).slice(0, 20)) re.push(c.db.prepare("INSERT INTO fb_sheets(lesson_id, code, title, created_at) VALUES(?1, ?2, ?3, ?4) ON CONFLICT(lesson_id, code) DO NOTHING").bind(lessonId, sh.code, sh.title, c.now));
   await c.db.batch(re);
   await savePortal(c.db, lessonId, a.portal || "", null, "lehrkraft", Date.now());
-  return json({ ok: true, removedSheets: subCodes.filter((x) => !(a.sheets || []).some((y) => y.code === x)) });
+  const removedSheets = subCodes.filter((x) => !(a.sheets || []).some((y) => y.code === x));
+  for (const code of removedSheets) await deleteNotfallFiles(c, lessonId, code);   // Notfall-Feibeitsblatt der Vertretung gehört nicht mehr dazu
+  return json({ ok: true, removedSheets });
 }
 
 /* Archivierte ursprüngliche Planung (Schulportal-Eintrag + Material) in eine andere Sitzung übernehmen */
@@ -136,7 +138,8 @@ export async function routeSubstituteTransfer(c, lessonId) {
   const all = a.files || [], from = Math.max(0, Math.min(all.length, Number(body.offset) || 0)), chunk = all.slice(from, from + 10);
   const found = chunk.length ? await c.db.prepare("SELECT * FROM files WHERE lesson_id=?1 AND id IN (SELECT value FROM json_each(?2))").bind(lessonId, JSON.stringify(chunk.map((f) => f.id))).all() : { results: [] };
   const byId = new Map((found.results || []).map((f) => [f.id, f]));
-  const files = chunk.map((f0) => ({ f0, f: byId.get(f0.id) })).filter((x) => x.f);
+  // Notfall-Feibeitsblätter nicht kopieren: Sie entstehen in der Zielsitzung neu, sobald dort das Feibeitsblatt verknüpft ist
+  const files = chunk.map((f0) => ({ f0, f: byId.get(f0.id) })).filter((x) => x.f && x.f.source !== "notfall");
   await checkStorage(c, files.reduce((n, x) => n + (x.f.kind === "file" ? x.f.size || 0 : 0), 0));
   const ins = [];
   for (const { f0, f } of files) {

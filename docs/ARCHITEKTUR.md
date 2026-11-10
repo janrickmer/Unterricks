@@ -29,6 +29,7 @@ implementiert und im End-to-End-Test geprüft (Ausnahmen unten ausdrücklich gen
 | Eigene Adresse (Ergänzung) | **Oberfläche über GitHub Pages** unter `unterricks.janrickmer.de`, Server bleibt der Worker (keine Änderung an den übrigen Subdomains und an den Proton-Mail-Einträgen), siehe 4e |
 | Kurse in Ev. Religion/Ethik (Ergänzung) | **Jg. 5–10 und E-Phase: ein Kurs je Jahrgang** mit Schüler:innen aus mehreren Klassen; die Lehrkraft wählt die Klassen, Schüler:innen wählen **wie bisher ihre Klasse**, siehe 4d |
 | Chat-Name (Ergänzung) | Prompt „Stunde mit Claude planen“ beginnt mit „Jg. 8 - PoWi - Sitzung 1 - Titel“: **Titel der Sitzung**, **Stunde in der Einheit**, **nur der Jahrgang**, Oberstufe als „E-Phase“ bzw. „Q2 GK“ |
+| Notfall-Feibeitsblatt (Ergänzung) | Zu jedem Feibeitsblatt einer Sitzung **automatisch** das analoge Arbeitsblatt des Feibeitsblatts als PDF unter „Material – Für Schüler:innen zugänglich“ (dieselbe Datei wie im Feibeitsblatt), siehe 4f |
 | Hausaufgabe im Schulportal (Ergänzung) | Kopie im Format „**Hausaufgabe zum 25. November 2026:**“, Leerzeile, Stichpunkte; zuletzt „Unter https://unterricks.janrickmer.de … mit dem Code ~~ABC-123~~ …“ (nur im Schulportal); ohne Hausaufgabe nur dieser Hinweis |
 
 ## 2. Gesamtarchitektur
@@ -89,6 +90,7 @@ implementiert und im End-to-End-Test geprüft (Ausnahmen unten ausdrücklich gen
 | | `public/substitute.js`, `public/claude.js` | Krankheitsvertretung in der Sitzung; Übergabe an Claude (Modell/Aufwand) |
 | | `public/escape.js`, `public/escape-data.js` | Escape-Room-Vorlage (Oberfläche, Überblick-PDF); Prüfen/Bewerten, Zwischenstand, Feibeitsblatt-Datensatz |
 | | `public/fbclient.js` | Feibeitsblatt-Client (Schlüsselableitung, Anlegen, Entschlüsseln) |
+| | `public/notfall.js`, `public/fbanalog.js` | Notfall-Feibeitsblatt: Blatt, Checkliste und Bilder laden; das analoge Arbeitsblatt (aus dem Feibeitsblatt übernommen per `scripts/fbanalog-sync.mjs`) |
 | | `public/presenter.js` | PDF → Folienbilder, Präsentationsmodus, Beamer-Code |
 | | `public/pdfmaker.js`, `public/markdown.js` | Textmaterial als PDF, sicheres Markdown |
 
@@ -271,6 +273,27 @@ implementiert und im End-to-End-Test geprüft (Ausnahmen unten ausdrücklich gen
   alle Anfragen am Worker, WebSocket, Download-Link, keine CSP- oder CORS-Fehler, eingebettet keine Anzeige. Mit der echten
   Domain noch nicht – das geht erst nach dem Einrichten von Pages.
 
+## 4f. Notfall-Feibeitsblätter (Ergänzung vom 10.11.2026)
+
+* **Was:** Das analoge Arbeitsblatt eines Feibeitsblatts (im Feibeitsblatt „Analoges Arbeitsblatt als PDF herunterladen“) heißt in
+  Unterricks **Notfall-Feibeitsblatt**. Zu jedem mit der Sitzung verknüpften Blatt liegt es als PDF „Notfall-Feibeitsblatt – <Titel>.pdf“
+  unter „Material – Für Schüler:innen zugänglich“ – für den Fall, dass digital nichts geht.
+* **Dieselbe Datei wie im Feibeitsblatt:** `public/fbanalog.js` enthält den Code des Feibeitsblatts unverändert (`makeAnalogPdf` mit
+  allen Bausteinen: PDF ohne Bibliothek, Bilder, Tabellen, Weltkarte, Foto-Rahmen, QR-Codes zu Videos und zur Checkliste). Erzeugt wird
+  er von `scripts/fbanalog-sync.mjs` aus `index.html` des Feibeitsblatts (benannte Deklarationen und die markierten Blöcke VIDEO,
+  PDFPLAIN, QR, WORLDMAP) – nicht von Hand ändern. `test/unit/fbanalog.test.mjs` prüft Aufbau, Inhalt und QR-Code.
+* **Ablauf:** Der Browser der Lehrkraft erzeugt die PDF (`public/notfall.js`), sobald die Verbindung zum Feibeitsblatt besteht – beim
+  Anlegen, Verknüpfen, Verbinden und Öffnen der Sitzung. Er liest das Blatt und die bestätigte Checkliste über die
+  Lehrkraft-Schnittstelle und die Bilder über die öffentliche; fehlt ein Bild, entsteht keine (unvollständige) PDF. Hochgeladen wird über
+  `POST /api/teacher/lessons/:id/sheets/:code/notfall?sig=…` (nur PDF, nur verknüpfte Blätter, nie zum Finale eines Escape-Rooms); die
+  neue PDF ersetzt die bisherige desselben Blattes (`files.fb_code`). `fb_sig` hält den Stand fest (`v1`, `-qr` mit QR-Code zur
+  bestätigten Checkliste, `-ki` mit dem Satz zur KI-Rückmeldung) – ändert er sich, wird die PDF erneuert (z. B. nach dem Bestätigen
+  der Checkliste). Entfernen des Blattes aus der Sitzung löscht sie mit; bei der Krankheitsvertretung wandert sie wie das übrige
+  Material ins Archiv. Beim Übertragen der archivierten Planung in eine andere Sitzung wird sie nicht mitkopiert – sie entsteht dort,
+  sobald das Feibeitsblatt mit der Zielsitzung verknüpft ist.
+* **Inhalt:** nur, was auch auf dem gedruckten Arbeitsblatt des Feibeitsblatts steht – nie Aufträge an die KI, Länder der
+  Weltkarte, Checklistenpunkte oder Abgaben.
+
 ## 5. Prüfung der direkten Claude-Integration
 
 **Ergebnis: Die Verbindung des persönlichen Claude-Pro-Kontos mit einer eigenen Plattform ist nicht erlaubt. Umgesetzt ist
@@ -344,7 +367,8 @@ stattdessen der von Anthropic vorgesehene Weg in umgekehrter Richtung (Connector
 * **Einsicht in Abgaben.** „Abgaben ansehen“ lädt die Abgaben, entschlüsselt sie im Browser und zeigt je Schüler:in die
   Antworten, die erste Fassung, das KI-Feedback und die finale KI-Rückmeldung (nur wenn ihr Prüfwert zur abgegebenen Fassung
   passt – wie im Feibeitsblatt). Optional alle 30 s aktualisieren.
-* **Eingeschränkt / im Feibeitsblatt verblieben:** Tippzeit-Auswertung, PDF-Export, Löschen von Abgaben, Bilder, Videos,
+* **Eingeschränkt / im Feibeitsblatt verblieben:** Tippzeit-Auswertung, Sicherung als PDF-Datei (das analoge Arbeitsblatt dagegen
+  legt Unterricks als Notfall-Feibeitsblatt ab, siehe 4f), Löschen von Abgaben, Bilder, Videos,
   Weltkarten-Aufgaben, Escape-Room-Anbindung und die Wahl des KI-Anbieters für die Rückmeldungen. Feibeitsblätter sind nach dem
   Anlegen unveränderlich (Eigenschaft des Feibeitsblatts) – Änderungen heißt: neues Blatt.
 * **Getestet gegen einen Nachbau.** Der End-to-End-Test prüft den Client gegen einen Nachbau der Feibeitsblatt-Schnittstelle mit

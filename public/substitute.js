@@ -43,7 +43,7 @@ export function substituteCards({ id, st, L, ctx, fb, analog, reload, openDraft,
   const list = (arr) => h("ul", null, arr.map((x) => h("li", { text: x })));
   function stepsNode(p) {
     return h("ol", { class: "sub-steps" }, (p.schritte || []).map((x) => h("li", null,
-      h("div", { class: "row between" }, h("strong", { text: x.titel }), h("span", { class: "row" }, x.minuten ? h("span", { class: "badge", text: "ca. " + x.minuten + " min" }) : null, x.abgabe ? h("span", { class: "badge ok", text: "Abgabe" }) : null)),
+      h("div", { class: "row between" }, h("strong", { text: x.titel }), h("span", { class: "row" }, x.minuten ? h("span", { class: "badge", text: "ca. " + x.minuten + " min" }) : null, x.abgabe ? h("span", { class: "badge ink", text: "Abgabe" }) : null)),
       renderMarkdown(x.anleitung || ""))));
   }
   function materialsNode(mats) {

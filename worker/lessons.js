@@ -4,6 +4,7 @@ import { requireTeacher } from "./auth.js";
 import { callTask, PROVIDERS } from "./ai.js";
 import { getUnit, unitOut } from "./units.js";
 import { loadSubjectConfigs } from "./bases.js";
+import { deleteNotfallFiles } from "./files.js";
 import {
   isValidClass, isValidSubject, isValidCode, normalizeCode, greetingText, planningSystemPrompt, portalMessages, feibeitsblattMessages,
   chatTranscript, extractJsonObject, validatePortalData, renderPortalEntry, normalizeFbDraft, isIsoDate, hasStop, gradeKey,
@@ -19,6 +20,7 @@ export const lessonOut = (r, extra = {}) => ({
 });
 export const fileOut = (f, withText = true) => ({
   id: f.id, area: f.area, kind: f.kind, name: f.name, mime: f.mime, size: f.size, pages: f.pages ?? null, status: f.status, source: f.source || null,
+  fbCode: f.fb_code || null, fbSig: f.fb_sig || null,
   createdAt: f.created_at, ...(withText && f.kind === "text" ? { text: f.text || "" } : {}),
 });
 const msgOut = (m) => ({ id: m.id, role: m.role, content: m.content, model: m.model || null, mode: m.mode || null, createdAt: m.created_at });
@@ -404,7 +406,9 @@ export async function routeSheetLink(c, id) {
 export async function routeSheetUnlink(c, id, codeRaw) {
   await requireTeacher(c);
   let raw = codeRaw; try { raw = decodeURIComponent(codeRaw); } catch {}
-  await c.db.prepare("DELETE FROM fb_sheets WHERE lesson_id=?1 AND code=?2").bind(id, normalizeCode(raw)).run();
-  return json({ ok: true });
+  const code = normalizeCode(raw);
+  const removedFiles = await deleteNotfallFiles(c, id, code);   // sein Notfall-Feibeitsblatt gehört nicht mehr zur Sitzung
+  await c.db.prepare("DELETE FROM fb_sheets WHERE lesson_id=?1 AND code=?2").bind(id, code).run();
+  return json({ ok: true, removedFiles });
 }
 export { isObj };

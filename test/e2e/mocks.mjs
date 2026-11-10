@@ -84,6 +84,8 @@ export async function startMockFeibeitsblatt(port, password, doorCode = "1104") 
   const srv = http.createServer(async (req, res) => {
     if (req.method === "OPTIONS") { res.writeHead(204, cors); res.end(); return; }
     const u = new URL(req.url, "http://x"), p = u.pathname, raw = await readBody(req), body = raw ? JSON.parse(raw) : {};
+    let im;   // öffentlich wie im Feibeitsblatt: Bild einer Aufgabe (für das Notfall-Feibeitsblatt)
+    if ((im = /^\/api\/sheet\/([A-Z0-9]+)\/images\/([0-9a-f]{16})$/.exec(p))) { const s0 = sheets.get(im[1]), d = s0 && s0.imageData && s0.imageData[im[2]]; return d ? send(res, 200, { ok: true, ...d }) : send(res, 404, { ok: false, error: "Bild nicht gefunden" }); }
     if (p === "/api/teacher/door" && req.method === "POST") return String(body.doorCode) === doorCode ? send(res, 200, { ok: true, setup: true, kdf: teacher.kdf }) : send(res, 403, { ok: false, error: "Falscher Türcode.", code: "wrong_code" });
     if (!p.startsWith("/api/teacher/")) return send(res, 404, { ok: false, error: "nicht gefunden" });
     if (!authed(req)) return send(res, 401, { ok: false, error: "Nicht angemeldet.", code: "unauthorized" });
@@ -110,6 +112,7 @@ export async function startMockFeibeitsblatt(port, password, doorCode = "1104") 
       const s = sheets.get(m[1]);
       if (req.method === "POST") return send(res, 200, { ok: true, draft: { v: 1, ai: true, tasks: s.tasks.map((t, i) => ({ n: i + 1, points: ["Punkt A" + (i + 1)] })) }, final: null, generated: true });
       if (req.method === "PUT") { s.checklist = body; return send(res, 200, { ok: true, final: { v: 1, ...body }, updatedAt: Date.now() }); }
+      if (req.method === "GET") return send(res, 200, { ok: true, checklist: s.checklist ? { draft: null, final: { v: 1, ...s.checklist }, updatedAt: Date.now() } : null, aiFeedback: true, aiReady: true });
     }
     send(res, 404, { ok: false, error: "nicht gefunden" });
   });

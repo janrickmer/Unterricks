@@ -3,6 +3,7 @@
 import { HttpError, bad, json, readJson, randomId, cleanLine, cleanText, isId, requireSecret, signLink, checkLink, contentDisposition, INLINE_SAFE } from "./lib.js";
 import { requireTeacher } from "./auth.js";
 import { getLesson, fileOut, LIMITS } from "./lessons.js";
+import { normalizeCode, isValidCode } from "../public/shared.js";
 
 export const MAX_FILE = 100 * 1024 * 1024;         // Grenze einer Anfrage im Cloudflare-Free-Plan
 export const MAX_SLIDE = 4 * 1024 * 1024;
@@ -74,6 +75,34 @@ export async function routeFileUpload(c, lessonId) {
   await c.db.prepare("INSERT INTO files(id, lesson_id, area, kind, name, mime, size, status, source, created_at, updated_at) VALUES(?1, ?2, ?3, 'file', ?4, ?5, ?6, 'ready', ?7, ?8, ?8)")
     .bind(id, lessonId, area, name, mime, len, cleanLine(u.searchParams.get("source"), 40) || "upload", c.now).run();
   return json({ ok: true, file: fileOut(await getFile(c.db, id)) });
+}
+/* ---------- Notfall-Feibeitsblatt (das analoge Arbeitsblatt eines verknüpften Feibeitsblatts) ----------
+ * Der Browser der Lehrkraft erzeugt die PDF mit dem Code des Feibeitsblatts (public/fbanalog.js) und lädt sie hier hoch: Material für
+ * Schüler:innen, zugeordnet über fb_code; eine neue PDF ersetzt die bisherige desselben Blattes (eine archivierte bleibt im Archiv). */
+export const MAX_NOTFALL = 40 * 1024 * 1024;
+export async function deleteNotfallFiles(c, lessonId, code, exceptId = "") {
+  const r = await c.db.prepare("SELECT * FROM files WHERE lesson_id=?1 AND fb_code=?2 AND id<>?3 AND area<>'archive'").bind(lessonId, code, exceptId).all();
+  for (const f of r.results || []) await deleteFileObjects(c, f);
+  return (r.results || []).length;
+}
+export async function routeNotfallUpload(c, lessonId, codeRaw) {
+  await requireTeacher(c);
+  await getLesson(c.db, lessonId);
+  let raw = codeRaw; try { raw = decodeURIComponent(codeRaw); } catch {}
+  const code = normalizeCode(raw);
+  const sh = isValidCode(code) ? await c.db.prepare("SELECT code, title, kind FROM fb_sheets WHERE lesson_id=?1 AND code=?2").bind(lessonId, code).first() : null;
+  if (!sh) throw new HttpError(404, "not_found", "Dieses Feibeitsblatt ist mit der Sitzung nicht verknüpft.");
+  if (sh.kind === "escape") throw bad("Zum Finale eines Escape-Rooms gibt es kein Notfall-Feibeitsblatt.");
+  if (String(c.request.headers.get("content-type") || "").split(";")[0].trim().toLowerCase() !== "application/pdf") throw bad("Das Notfall-Feibeitsblatt muss eine PDF-Datei sein.");
+  const len = uploadLength(c, MAX_NOTFALL);
+  await checkStorage(c, len);
+  const sig = cleanLine(new URL(c.request.url).searchParams.get("sig"), 60);
+  const id = randomId(8), name = cleanLine("Notfall-Feibeitsblatt – " + (sh.title || "Feibeitsblatt"), 190) + ".pdf";
+  await c.env.FILES.put(fileKey(lessonId, id), c.request.body, { httpMetadata: { contentType: "application/pdf" } });
+  await c.db.prepare("INSERT INTO files(id, lesson_id, area, kind, name, mime, size, status, source, fb_code, fb_sig, created_at, updated_at) " +
+    "VALUES(?1, ?2, 'student', 'file', ?3, 'application/pdf', ?4, 'ready', 'notfall', ?5, ?6, ?7, ?7)").bind(id, lessonId, name, len, code, sig, c.now).run();
+  const replaced = await deleteNotfallFiles(c, lessonId, code, id);
+  return json({ ok: true, file: fileOut(await getFile(c.db, id)), replaced });
 }
 export async function insertTextMaterial(db, lessonId, area, title, text, source, now) {
   if (!AREAS.has(area)) throw bad("Bitte den Bereich wählen (für Schüler:innen oder nur für die Lehrkraft).");

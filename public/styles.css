@@ -237,7 +237,7 @@ input[type=checkbox], input[type=radio] { width: 1.15rem; height: 1.15rem; }
 .class-btn:hover { border-color: var(--fach-text); background: var(--fach-t); }
 .class-btn:active { transform: translateY(1px); }
 .class-btn[aria-pressed="true"] { background: var(--fach); border-color: var(--fach); color: #fff; }
-.class-btn .n { position: absolute; top: -7px; right: -7px; background: var(--gelb); color: #13213b; border-radius: 999px; font-size: .74rem; font-weight: 800; padding: .05rem .42rem; }
+.class-btn .n { position: absolute; top: -7px; right: -7px; background: var(--fach); color: #fff; border-radius: 999px; font-size: .74rem; font-weight: 800; padding: .05rem .42rem; box-shadow: 0 0 0 2px var(--surface); }
 /* Kurs eines Jahrgangs (Ev. Religion, Ethik): ein Knopf für den Kurs, daneben seine Klassen */
 .course-row { display: flex; flex-wrap: wrap; align-items: center; gap: .55rem .9rem; }
 .class-btn.course { min-width: 9.5rem; padding-inline: .9rem; }
@@ -423,6 +423,10 @@ main.narrow .homework { background: var(--gelb-t); border-color: color-mix(in sr
 .sub .answer { white-space: pre-wrap; background: var(--surface-2); border-radius: 10px; padding: .55rem .75rem; margin: .3rem 0 .55rem; font-size: .96rem; }
 .sub details summary { cursor: pointer; font-weight: 700; }
 .fbk { font-size: .92rem; } .fbk .k { font-weight: 800; }
+/* Notfall-Feibeitsblatt je verknüpftem Blatt: eine Zeile unter dem Titel */
+.notfall { display: flex; align-items: center; gap: .4rem; flex-wrap: wrap; margin: .15rem 0 .1rem; }
+.notfall .spin { width: .9em; height: .9em; border: 2px solid currentColor; border-right-color: transparent; border-radius: 50%; animation: spin .8s linear infinite; display: inline-block; flex: none; }
+.notfall .ok { display: inline-flex; align-items: center; gap: .3rem; font-weight: 700; }
 
 .skeleton { color: var(--muted); padding: 2.5rem; text-align: center; font-weight: 700; }
 .kbd { font-family: var(--mono); font-size: .82rem; border: 1px solid var(--line-ui); border-bottom-width: 2px; border-radius: 6px; padding: 0 .32rem; }
@@ -489,7 +493,7 @@ pre.basetext { white-space: pre-wrap; font-size: .85rem; background: var(--surfa
 img.sub-photo { max-width: 100%; max-height: 60vh; border-radius: 12px; border: 1px solid var(--line); display: block; }
 
 /* ---------- Escape-Room (Gestaltung wie die Escape-Rooms der Lehrkraft: hell, seriös; Petrol/Ocker; dunkle Arena) ---------- */
-.escbox { border: 1px solid color-mix(in srgb, var(--accent) 55%, var(--line)); background: color-mix(in srgb, var(--accent) 9%, var(--surface)); border-radius: var(--radius-s); padding: .7rem .9rem; margin: .6rem 0; }
+.escbox { border: 1px solid var(--line-ui); background: var(--paper); border-radius: var(--radius-s); padding: .7rem .9rem; margin: .6rem 0; }
 .escbox ol { margin: .4rem 0; padding-left: 1.2rem; }
 .er { --er-bg: #f4f1ea; --er-ink: #1d2733; --er-pet: #1f4e5f; --er-och: #a9772a; --er-ok: #2f7d41; --er-err: #b1442f; --er-line: #ddd5c6; --er-mute: #5f6670;
   min-height: 100vh; background: var(--er-bg); color: var(--er-ink); font: 17px/1.6 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif; color-scheme: light; }

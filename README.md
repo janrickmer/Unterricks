@@ -65,6 +65,11 @@ Feibeitsblatt braucht keine Änderung. Die Adressen stehen in `wrangler.jsonc` (
   z. B. „Jg. 8 - PoWi - Sitzung 1 - Das Bundesverfassungsgericht“ (Jahrgang bzw. „E-Phase“/„Q2 GK“, Fach, Stunde in der
   Einheit, Titel der Sitzung); den Namen vergibt claude.ai selbst – passt er nicht, im Dialog „Chat-Namen kopieren“ und in
   claude.ai über „Umbenennen“ einfügen.
+* **Notfall-Feibeitsblätter:** Zu jedem Feibeitsblatt der Sitzung legt Unterricks automatisch dessen analoges Arbeitsblatt
+  (im Feibeitsblatt „Analoges Arbeitsblatt als PDF herunterladen“, dieselbe Datei) als PDF unter „Material – Für Schüler:innen
+  zugänglich“ ab, sobald die Sitzung mit dem Feibeitsblatt verbunden ist. Nach dem Bestätigen der Checkliste wird es mit dem
+  QR-Code zur Checkliste erneuert; entfernen Sie das Blatt aus der Sitzung, verschwindet auch sein Notfall-Feibeitsblatt. Zum
+  Finale eines Escape-Rooms gibt es keines.
 * **Kurse in Ev. Religion und Ethik (Jg. 5–10, E-Phase):** Je Jahrgang gibt es einen Kurs mit Schüler:innen aus mehreren
   Klassen. Fach wählen → beim Jahrgang **„Kurs anlegen“** → alle Klassen ankreuzen, die im Kurs vertreten sind (später über
   „Klassen ändern“ anpassbar). Sitzungen und Einheiten, die bisher in einer dieser Klassen lagen, ziehen dabei in den Kurs um.
@@ -84,6 +89,10 @@ npm run dev          # http://localhost:8787 (D1, R2 und Durable Objects lokal)
 npm test             # Unit-Tests
 npm run test:e2e     # End-to-End: Lehrkraft + Schüler:in in Chromium, Mock-KI, Nachbau der Feibeitsblatt-API
 ```
+
+`public/fbanalog.js` (das analoge Arbeitsblatt für die Notfall-Feibeitsblätter) ist aus dem Feibeitsblatt übernommen und wird
+nicht von Hand geändert: Nach einer Änderung im Feibeitsblatt `node scripts/fbanalog-sync.mjs <Pfad zu feibeitsblatt/index.html>
+[Stand, z. B. Commit]` ausführen (übernimmt die benannten Bausteine unverändert) und `npm test` laufen lassen.
 
 Der End-to-End-Test braucht Playwright mit Chromium (`require("playwright")`) und legt Screenshots in `test-results/` ab. Er prüft
 auch die GitHub-Pages-Fassung: `PAGES_API=<Worker-Adresse> npm run build` erzeugt `dist-pages/`, der Test liefert sie von einer

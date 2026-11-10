@@ -78,6 +78,8 @@ export class FbClient {
   checklistGet(code) { return this.call("GET", "/api/teacher/sheets/" + encodeURIComponent(code) + "/checklist"); }
   checklistPropose(code, force) { return this.call("POST", "/api/teacher/sheets/" + encodeURIComponent(code) + "/checklist", force ? { force: true } : {}); }
   checklistSave(code, ai, tasks) { return this.call("PUT", "/api/teacher/sheets/" + encodeURIComponent(code) + "/checklist", { ai: !!ai, tasks }); }
+  // Bild einer Aufgabe (öffentlich, wie für die Schüler:innen): {mime, w, h, data: Base64} – für das Notfall-Feibeitsblatt
+  image(code, imageId) { return this.call("GET", "/api/sheet/" + encodeURIComponent(code) + "/images/" + encodeURIComponent(imageId), undefined, false); }
 
   /* Entwurf (Plattform-Format) → Feibeitsblatt anlegen */
   // Antwortarten: Text, Tabelle, Foto (Foto: {type:"photo"} ohne Auftrag an die KI – Fotos gehen nie an die KI; höchstens 3 je Blatt)
