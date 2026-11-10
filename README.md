@@ -18,7 +18,8 @@ direkt mit den Sitzungen arbeitet.
 3. Im GitHub-Repository unter *Settings → Secrets and variables → Actions* anlegen:
    - `CLOUDFLARE_API_TOKEN` (Pflicht), `CLOUDFLARE_ACCOUNT_ID` (optional),
    - `SETUP_CODE` (empfohlen: ein beliebiger Code, der die Ersteinrichtung des Lehrkraft-Zugangs schützt).
-4. Auf `main` pushen bzw. den Workflow **Deploy** von Hand starten. Er legt Datenbank und Dateiablage in der EU an,
+4. Auf `main` bzw. den Arbeitsbranch `ccr-a0b9567a-04ain7` pushen (jeder Push veröffentlicht automatisch, sobald die
+   Unit-Tests grün sind) oder den Workflow **Deploy** von Hand starten (*Actions → Deploy → Run workflow*). Er legt Datenbank und Dateiablage in der EU an,
    veröffentlicht den Worker und erzeugt `SETTINGS_SECRET`. Am Ende steht die Adresse im Protokoll
    (`https://unterricks.<subdomain>.workers.dev`).
 5. Seite öffnen → unten **„Lehrkräfte“** → Benutzername und Passwort festlegen (einmalig).

@@ -7,9 +7,11 @@
 # unter Settings → Pages als Quelle „GitHub Actions“ gewählt ist; sonst nur ein Hinweis. Der Server bleibt der Worker.
 name: Deploy
 
+# Jeder Push auf den Arbeitsbranch (zugleich Standardbranch des Repositorys) veröffentlicht automatisch – die Unit-Tests
+# laufen vorher und stoppen den Deploy bei einem Fehler. Von Hand weiterhin über „Run workflow“.
 on:
   push:
-    branches: [main]
+    branches: [main, ccr-a0b9567a-04ain7]
   workflow_dispatch:
 
 permissions:

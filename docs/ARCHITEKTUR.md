@@ -67,7 +67,8 @@ implementiert und im End-to-End-Test geprüft (Ausnahmen unten ausdrücklich gen
 ```
 
 * **Hosting:** ein Cloudflare Worker (Free-Plan) mit statischer Seite (`public/` → `dist/`), wie beim Feibeitsblatt.
-  Deployment per GitHub Actions (`.github/workflows/deploy.yml`). Zusätzlich dieselbe Seite über GitHub Pages
+  Deployment per GitHub Actions (`.github/workflows/deploy.yml`): automatisch bei jedem Push auf `main` oder den Arbeitsbranch
+  `ccr-a0b9567a-04ain7` (nach den Unit-Tests), sonst von Hand. Zusätzlich dieselbe Seite über GitHub Pages
   (`unterricks.janrickmer.de`, `dist-pages/`), die den Worker als Server nutzt (Abschnitt 4e).
 * **Datenbank:** D1 (SQLite) in der EU. Tabellen legt der Worker selbst an (`worker/db.js`).
 * **Dateien:** R2 in der EU. Der Worker begrenzt die Ablage auf 9 GB, damit sie im kostenlosen Kontingent bleibt (`STORAGE_LIMIT_BYTES`).
