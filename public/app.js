@@ -1,6 +1,6 @@
 // app.js – Einstieg: Router und Schüleransicht. Die Lehrkräfteansicht wird erst bei Bedarf geladen (teacher.js).
 import { h, $, clear, nn, store, deviceId, api, apiUrl, wsUrl, ApiError, toast, errToast, busy, copyText, fmtBytes, fmtDate, fmtClock, fileIcon, downloadUrl, downloadBlob, topbar, icon, setFach, pageHead, modal } from "./ui.js";
-import { SUBJECTS, CLASS_GROUPS, subjectName, formatCode, normalizeCode, fmtDay, classShort, isAnalogClass, webUrlLabel, fmtClockBerlin, fmtDayBerlin, slidesUpTo } from "./shared.js";
+import { SUBJECTS, CLASS_GROUPS, STUDENT_LOGIN_MIN, subjectName, formatCode, normalizeCode, fmtDay, classShort, isAnalogClass, webUrlLabel, fmtClockBerlin, fmtDayBerlin, slidesUpTo } from "./shared.js";
 import { paintPortalPreview } from "./portalview.js";
 import { renderMarkdown } from "./markdown.js";
 
@@ -15,15 +15,71 @@ export function render(...nodes) { leave(); setFach(null); clear(app).append(...
 export const go = (hash) => { if (location.hash === hash) route(); else location.hash = hash; };
 
 const S = { get token() { return store.get("u.stoken"); }, set token(v) { if (v) store.set("u.stoken", v); else store.del("u.stoken"); } };
-const sapi = (method, path, o = {}) => api(method, path, { ...o, token: S.token });
+
+/* ---------- Anmeldung der Schüler:innen: höchstens STUDENT_LOGIN_MIN (90) Minuten (Wunsch der Lehrkraft vom 10.11.2026) ----------
+ * Danach fragt die Seite wieder nach dem Passwort. Das Gerät bleibt dasselbe (der Token bleibt gespeichert): freigeschaltete Sitzungen,
+ * Fach und Klasse und alles im Browser Gespeicherte bleiben; nach der Anmeldung geht es auf der vorigen Seite weiter. Der Server prüft
+ * die Frist bei jeder Anfrage (401 session_expired); hier zählt zusätzlich ein Zeitgeber mit – auch nach dem Ruhezustand des iPads. */
+const AUTH_KEY = "u.sauth", BACK_KEY = "u.sback";
+let authTimer = null, expiredNote = "";
+const beforeExpire = new Set();
+/* Seiten mit ungespeichertem Stand (Escape-Room) sichern ihn, bevor abgemeldet wird */
+export function onStudentExpire(fn) { beforeExpire.add(fn); onLeave(() => beforeExpire.delete(fn)); }
+const onStudentPage = () => /^#\/schueler(\/|$)/.test(location.hash);
+function armAuth(leftMs) {
+  if (Number.isFinite(leftMs)) store.set(AUTH_KEY, String(Date.now() + Math.max(0, leftMs)));
+  clearTimeout(authTimer);
+  const until = Number(store.get(AUTH_KEY)) || 0;
+  if (until && S.token) authTimer = setTimeout(checkAuth, Math.min(Math.max(0, until - Date.now()) + 300, 2 ** 31 - 1));
+}
+function checkAuth() {
+  const until = Number(store.get(AUTH_KEY)) || 0;
+  if (!S.token || !until) return;
+  if (Date.now() >= until) { if (onStudentPage()) expireStudent(); }
+  else armAuth();
+}
+function expireStudent(note) {
+  for (const fn of [...beforeExpire]) { try { fn(); } catch {} }
+  if (onStudentPage()) store.set(BACK_KEY, location.hash);
+  // abgelaufen vermerken (statt löschen): andere offene Tabs melden sich so beim nächsten Prüfen ebenfalls ab
+  store.set(AUTH_KEY, "1"); clearTimeout(authTimer);
+  expiredNote = note || "Du wurdest nach " + STUDENT_LOGIN_MIN + " Minuten abgemeldet. Gib das Passwort erneut ein – danach geht es dort weiter, wo du warst.";
+  if (location.hash !== "#/" && location.hash !== "") go("#/");
+}
+document.addEventListener("visibilitychange", () => { if (!document.hidden) checkAuth(); });
+window.addEventListener("pageshow", checkAuth);
+// anderer Tab: abgemeldet bzw. neu angemeldet → hier sofort prüfen bzw. den Zeitgeber neu stellen
+window.addEventListener("storage", (e) => { if (e.key === AUTH_KEY) { armAuth(); checkAuth(); } });
+/* Restzeit der Anmeldung aus einer Antwort des Servers übernehmen (z. B. vom Escape-Room, der api() direkt nutzt) */
+export const studentAuthLeft = (ms) => { if (Number.isFinite(ms)) armAuth(ms); };
+/* abgelehnte Anmeldung: abgelaufen → nur das Passwort erneut (Token bleibt); unbekanntes Gerät → neu anmelden. true = erledigt */
+export function studentAuthFailed(e) {
+  if (e && e.code === "session_expired") { expireStudent(e.message); return true; }
+  if (!e || e.status !== 401) return false;
+  S.token = null; store.del(AUTH_KEY); go("#/");
+  return true;
+}
+const sapi = async (method, path, o = {}) => {
+  try { const r = await api(method, path, { ...o, token: S.token }); if (r && Number.isFinite(r.authLeftMs)) armAuth(r.authLeftMs); return r; }
+  catch (e) { if (e && e.code === "session_expired") expireStudent(e.message); throw e; }
+};
 const footer = () => h("footer", { class: "footer" }, h("a", { href: "#/lehrkraft" }, "Lehrkräfte"));
 
 /* ---------- Startseite: nur die Passwortabfrage ---------- */
+const backHash = () => { const b = store.get(BACK_KEY) || ""; store.del(BACK_KEY); return onStudentHash(b) ? b : "#/schueler"; };
+const onStudentHash = (x) => /^#\/schueler(\/[a-z]+\/[a-f0-9]{16})?$/.test(String(x || ""));
 async function studentStart() {
-  if (S.token) {
-    try { await sapi("GET", "/api/student/me"); return go("#/schueler"); }
-    catch (e) { if (e.status === 401) S.token = null; else if (e.status === 0) { /* offline: trotzdem Passwortseite */ } }
+  // gerade nach 90 Minuten abgemeldet (Zeitgeber): immer das Passwort – nicht über /me überspringen (die Uhren von Gerät und Server weichen ab)
+  if (S.token && !expiredNote) {
+    // noch angemeldet? (ohne sapi: eine abgelaufene Anmeldung führte sonst wieder hierher)
+    try { const r = await api("GET", "/api/student/me", { token: S.token }); armAuth(r.authLeftMs); return go(backHash()); }
+    catch (e) {
+      if (e.code === "session_expired") { if (!expiredNote) expiredNote = e.message; }   // Token bleibt: nach dem Passwort weiter wie bisher
+      else if (e.status === 401) S.token = null;
+      else if (e.status === 0) { /* offline: trotzdem Passwortseite */ }
+    }
   }
+  const note = expiredNote;   // bleibt bis zur erfolgreichen Anmeldung (die Startseite kann zweimal gezeichnet werden)
   const pw = h("input", { type: "password", id: "spw", autocomplete: "current-password", autocapitalize: "off", spellcheck: "false", required: true });
   const msg = h("p", { class: "err", role: "alert" });
   const btn = h("button", { class: "btn primary big", type: "submit" }, "Weiter");
@@ -40,7 +96,7 @@ async function studentStart() {
     await busy(btn, async () => {
       try {
         const r = await api("POST", "/api/student/login", { body: { password: pw.value, deviceId: deviceId(), token: S.token || undefined } });
-        S.token = r.token; go("#/schueler");
+        S.token = r.token; expiredNote = ""; armAuth(r.authLeftMs); go(backHash());
       } catch (err) {
         if (err.status === 429 && err.data.retryAfter) lock(err.data.retryAfter);
         else msg.textContent = err.message;
@@ -49,7 +105,9 @@ async function studentStart() {
     }, "Prüfe …");
   } },
   h("div", { class: "logo" }, h("img", { src: "/icon.svg", alt: "" }), h("span", { text: "Unterricks" })),
+  note ? h("p", { class: "notice", role: "status", id: "spw-note", text: note }) : null,
   h("div", { class: "field" }, h("label", { for: "spw" }, "Passwort"), pw), msg, btn);
+  if (note) pw.setAttribute("aria-describedby", "spw-note");
   render(h("div", { class: "login-wrap" }, form), footer());
   setTimeout(() => pw.focus(), 50);
 }
@@ -91,7 +149,7 @@ async function studentHome() {
   if (!S.token) return go("#/");
   let me;
   try { me = await sapi("GET", "/api/student/me"); }
-  catch (e) { if (e.status === 401) { S.token = null; return go("#/"); } render(studentBar(), h("main", { class: "narrow" }, h("p", { class: "err", text: e.message }))); return; }
+  catch (e) { if (studentAuthFailed(e)) return; render(studentBar(), h("main", { class: "narrow" }, h("p", { class: "err", text: e.message }))); return; }
   const main = h("main", { class: "narrow" });
   render(studentBar(), main, footer());
   const show = (profile, forceChoose) => {
@@ -136,7 +194,7 @@ async function studentRoom(lessonId) {
   let d;
   try { d = await sapi("GET", "/api/student/lessons/" + lessonId); }
   catch (e) {
-    if (e.status === 401) { S.token = null; return go("#/"); }
+    if (studentAuthFailed(e)) return;
     clear(main).append(h("div", { class: "card" }, h("p", { class: "err", text: e.message }), h("a", { class: "btn", href: "#/schueler" }, "Zur Übersicht")));
     return;
   }
@@ -366,5 +424,8 @@ export function route() {
   go("#/");
 }
 window.addEventListener("hashchange", route);
+checkAuth();   // gespeicherte Frist der Anmeldung (auch nach dem Neuladen)
+// beim Abmelden gesicherte Escape-Room-Stände (mit Namen) nicht länger als einen Tag auf dem Gerät lassen
+try { for (const k of Object.keys(localStorage)) if (k.startsWith("u.esc.")) { let at = 0; try { at = Number(JSON.parse(localStorage.getItem(k)).at); } catch {} if (!(Date.now() - at < 24 * 3600e3)) localStorage.removeItem(k); } } catch {}
 route();
 export { ApiError, $ };

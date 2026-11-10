@@ -519,7 +519,8 @@ async function main() {
     ok(await fbSec.locator('input[aria-label="Feibeitsblatt-Passwort"]').count() === 0 && await fbSec.locator(".fblink", { hasText: "verschlüsselt in Ihrem Benutzerkonto gespeichert" }).count() === 1, "nach dem Neuladen automatisch verbunden – ohne erneute Eingabe");
     await fbSec.getByRole("button", { name: "Feibeitsblatt-Entwurf aus dem Chat" }).click();
     await tp.locator(".modal", { hasText: "Feibeitsblatt prüfen und anlegen" }).waitFor({ timeout: 20000 });
-    ok(await tp.locator(".modal textarea").nth(2).inputValue().then((v) => v.includes("Normenkontrolle")), "Entwurf mit „Auftrag an die KI“ zum Prüfen");
+    ok(await tp.locator(".modal textarea").nth(2).inputValue().then((v) => v.includes("Normenkontrolle") && v.includes("Altersgemäße Erwartung (Q2, Grundkurs)")), "Entwurf mit „Auftrag an die KI“ zum Prüfen – sichtbar mit der altersgemäßen Erwartung");
+    ok(await tp.locator(".modal .hint", { hasText: "Keine Musterlösung, sondern ein Auftrag an die korrigierende KI" }).count() >= 1, "Editor erklärt: Auftrag an die KI, keine Musterlösung");
     await tp.locator(".modal textarea").first().fill("Erkläre zwei Aufgaben des Bundesverfassungsgerichts (geändert).");
     await tp.locator(".modal").getByRole("button", { name: "Feibeitsblatt jetzt anlegen" }).click();
     await tp.locator(".modal", { hasText: "erhält einen Code" }).getByRole("button", { name: "Anlegen", exact: true }).click();
@@ -527,6 +528,8 @@ async function main() {
     const created = [...fbm.sheets.values()][0];
     if (fbm.sheets.size !== 1 || !created.tasks[0].text.endsWith("(geändert).")) console.log("    Blätter:", JSON.stringify([...fbm.sheets.values()]).slice(0, 800));
     ok(created && created.tasks[0].text.endsWith("(geändert).") && created.tasks[0].solution.includes("Normenkontrolle") && created.tasks[1].answer.type === "table", "Blatt angelegt – mit Änderung der Lehrkraft und KI-Einstellungen je Aufgabe");
+    ok(created && created.tasks.every((t) => t.solution === "" || (t.solution.includes("Altersgemäße Erwartung (Q2, Grundkurs): Das legt nur das Anspruchsniveau fest") && t.solution.split("Altersgemäße Erwartung").length === 2)),
+      "jeder Auftrag an die KI trägt die altersgemäße Erwartung der Lerngruppe (Q2, Grundkurs)");
     ok(Array.isArray(created.tasks[0].material) && created.tasks[0].material[0].some((x) => x.f === "b"), "Material im Feibeitsblatt-Format (Absätze/Läufe)");
     // Notfall-Feibeitsblatt: entsteht gleich nach dem Anlegen (noch ohne Checkliste → ohne QR-Code) im Material für Schüler:innen
     const notfallOf = async (code) => ((await T("GET", "/api/teacher/lessons/" + lessonId)).data.files || []).filter((f) => f.source === "notfall" && f.fbCode === code && f.area !== "archive");
@@ -784,7 +787,7 @@ async function main() {
     await tp.locator(".substitute.active").waitFor({ timeout: 20000 });
     const subSheet = [...fbm.sheets.values()].find((x) => x.title === "Vertretung: Verfahren des BVerfG");
     ok(fbm.sheets.size === sheetsBefore + 1 && subSheet, "Feibeitsblatt der Vertretung angelegt");
-    ok(subSheet && subSheet.tasks[1].answer && subSheet.tasks[1].answer.type === "photo" && subSheet.tasks[1].solution === "" && subSheet.tasks[0].solution.includes("abstrakt"), "Foto-Aufgabe als Antwortart „Foto“ angelegt – ohne Auftrag an die KI");
+    ok(subSheet && subSheet.tasks[1].answer && subSheet.tasks[1].answer.type === "photo" && subSheet.tasks[1].solution === "" && subSheet.tasks[0].solution.includes("abstrakt") && subSheet.tasks[0].solution.split("Altersgemäße Erwartung (Q2, Grundkurs)").length === 2, "Foto-Aufgabe als Antwortart „Foto“ angelegt – ohne Auftrag an die KI");
     const jpeg = "data:image/jpeg;base64," + (await tp.screenshot({ type: "jpeg", quality: 40, clip: { x: 0, y: 0, width: 48, height: 32 } })).toString("base64");
     await fbm.addSubmission(subSheet.code, { vorname: "Lea", nachname: "Sc", geburtsdatum: "--03-04", klasse: "Q2GK" }, ["Die Normenkontrolle prüft Gesetze.", ""], [null, jpeg]);
     await tp.locator("#fbcard .item", { hasText: "Vertretung: Verfahren des BVerfG" }).getByRole("button", { name: "Abgaben ansehen" }).click();
@@ -1095,6 +1098,53 @@ async function main() {
       await p2.reload(); await p2.locator('#fbcard input[aria-label="Feibeitsblatt-Passwort"]').waitFor({ timeout: 20000 });
       ok(gone.link === null, "gespeicherte Verbindung gelöscht – danach sind Türcode und Feibeitsblatt-Passwort wieder nötig");
       await d2.close();
+    }
+
+    /* ---------- Schüler:innen: nach 90 Minuten abgemeldet ---------- */
+    step("Schüler:innen: nach spätestens 90 Minuten abgemeldet – nach dem Passwort weiter, wo sie waren");
+    {
+      await sp.goto(BASE + "/#/schueler"); await sp.locator(".item").first().waitFor({ timeout: 15000 });
+      const store0 = await sp.evaluate(() => JSON.stringify(localStorage)), tok0 = JSON.parse(store0)["u.stoken"];
+      // die Anmeldung von sp ist schon einige Minuten alt: erst erneuern (dasselbe Gerät), damit die 90 Minuten ab jetzt zählen
+      const relog = await (await fetch(BASE + "/api/student/login", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ password: "Feindt", deviceId: JSON.parse(store0)["u.dev"], token: tok0 }) })).json();
+      ok(relog.ok && relog.token === tok0 && relog.authLeftMs === 90 * 60e3, "erneute Passworteingabe: dasselbe Gerät, Anmeldung wieder 90 Minuten");
+      const ectx = await browser.newContext();
+      await ectx.addInitScript((s) => { if (!sessionStorage.getItem("x")) { for (const [k, v] of Object.entries(JSON.parse(s))) localStorage.setItem(k, v); sessionStorage.setItem("x", "1"); } }, store0);
+      const xp2 = await ectx.newPage(); watch(xp2, "Schüler:in nach 90 min");
+      await xp2.clock.install();
+      await xp2.goto(BASE + "/#/schueler/s/" + lessonId);
+      await xp2.locator(".notfallbox, section.card h2", { hasText: /Material|Notfall/ }).first().waitFor({ timeout: 15000 });
+      await xp2.clock.fastForward("01:29:00");
+      ok(xp2.url().includes("#/schueler/s/" + lessonId) && await xp2.locator("#spw").count() === 0, "nach 89 Minuten noch angemeldet");
+      await xp2.clock.fastForward("00:02:00");
+      await xp2.locator("#spw").waitFor({ timeout: 10000 });
+      ok((await xp2.locator("#spw-note").textContent()).includes("nach 90 Minuten abgemeldet") && await xp2.evaluate(() => localStorage.getItem("u.stoken")) === tok0,
+        "nach 90 Minuten: Passwortabfrage mit Hinweis, das Gerät (Token) bleibt gespeichert");
+      await xp2.fill("#spw", "Feindt"); await xp2.getByRole("button", { name: "Weiter" }).click();
+      await xp2.waitForURL(/#\/schueler\/s\//, { timeout: 15000 });
+      await xp2.locator(".notfallbox, section.card h2", { hasText: /Material|Notfall/ }).first().waitFor({ timeout: 15000 });
+      ok(xp2.url().endsWith("#/schueler/s/" + lessonId) && await xp2.evaluate(() => localStorage.getItem("u.stoken")) === tok0, "nach dem Passwort zurück in derselben Sitzung – freigeschaltet bleibt freigeschaltet");
+      // Escape-Room: der Stand wird beim Abmelden im Browser gesichert und danach wiederhergestellt
+      await xp2.goto(BASE + "/#/schueler/escape/" + l3.id);
+      await xp2.locator(".er-title", { hasText: "Mission Gewaltenteilung" }).waitFor({ timeout: 10000 });
+      await xp2.fill("#er-fn", "Ben"); await xp2.fill("#er-ln", "Beispiel"); await xp2.fill("#er-bd", "01022010");
+      await xp2.getByRole("button", { name: "Weiter zum Auftrag" }).click();
+      await xp2.locator(".er-title", { hasText: "Willkommen" }).waitFor({ timeout: 10000 });
+      await xp2.clock.fastForward("01:31:00");
+      await xp2.locator("#spw").waitFor({ timeout: 10000 });
+      ok(await xp2.evaluate((k) => !!localStorage.getItem(k), "u.esc." + l3.id), "Escape-Room-Stand beim Abmelden im Browser gesichert");
+      await xp2.fill("#spw", "Feindt"); await xp2.getByRole("button", { name: "Weiter" }).click();
+      const askBack = xp2.locator(".modal", { hasText: "Weiter im Escape-Room?" });
+      await askBack.waitFor({ timeout: 15000 });
+      ok((await askBack.textContent()).includes("Stand von Ben B."), "vor dem Wiederherstellen: Rückfrage, ob der Stand zu dieser Person gehört (geteilte iPads)");
+      await askBack.getByRole("button", { name: "Ja, weiter" }).click();
+      await xp2.locator(".er-title", { hasText: "Willkommen" }).waitFor({ timeout: 15000 });
+      ok(xp2.url().endsWith("#/schueler/escape/" + l3.id) && await xp2.locator(".toast", { hasText: "Weiter geht es, wo du warst" }).count() === 1
+        && !(await xp2.evaluate((k) => localStorage.getItem(k), "u.esc." + l3.id)), "Escape-Room: nach dem Passwort genau dort weiter (Stand wiederhergestellt, Sicherung gelöscht)");
+      // Server: eine abgelaufene Anmeldung lehnt er ab (unbekannte Geräte weiter mit „unauthorized“)
+      const bad = await fetch(BASE + "/api/student/me", { headers: { Authorization: "Bearer gibt-es-nicht" } });
+      ok(bad.status === 401 && (await bad.json()).code === "unauthorized", "unbekanntes Gerät: 401 unauthorized");
+      await ectx.close();
     }
 
     /* ---------- Sperren ---------- */

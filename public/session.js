@@ -4,7 +4,8 @@ import { render, go, onLeave } from "./app.js";
 import { T, tapi, teacherBar, fbAutoConnect, fbUnlock, fbStore, fbForget, askTeacherPassword, notfallBackfill } from "./teacher.js";
 import { subjectName, gradeInfo, formatCode, claudePresentationPrompt, PORTAL_RULES, portalForCopy, insertStop, removeStops, hasStop, isStopLine,
   fmtDay, classShort, gradeKey, isAnalogClass, ANALOG_RULE, isCourseClass, courseMembers, homeworkForPortal, PUBLIC_URL, cleanWebUrl, webUrlLabel,
-  lessonTimes, fmtClockBerlin, fmtDayBerlin, HOMEWORK_BEFORE_END_MIN, PRESENTATION_AFTER_END_MIN, slidesUpTo, printFileName, subjectShort } from "./shared.js";
+  lessonTimes, fmtClockBerlin, fmtDayBerlin, HOMEWORK_BEFORE_END_MIN, PRESENTATION_AFTER_END_MIN, slidesUpTo, printFileName, subjectShort,
+  withAgeExpectation, looksLikeSolution } from "./shared.js";
 import { extractUnitChange, stripUnitBlock, unitContext, claudeLessonPrompt, lessonChatName } from "./planning.js";
 import { claudeHandoff } from "./claude.js";
 import { leupoldView } from "./units.js";
@@ -728,6 +729,8 @@ export async function sessionPage(id) {
 
   function editDraft(dr, opt = {}) {
     const data = JSON.parse(JSON.stringify(dr.data));
+    // jeder Auftrag an die KI bekommt sichtbar die altersgemäße Erwartung der Lerngruppe (das Feibeitsblatt kennt den Jahrgang nicht)
+    for (const t of data.tasks) if (!(t.answer && t.answer.type === "photo")) t.solution = withAgeExpectation(t.solution, L().klass);
     const title = h("input", { value: data.title, maxlength: "200" });
     const tasksBox = h("div");
     const paintTasks = () => {
@@ -735,7 +738,8 @@ export async function sessionPage(id) {
       data.tasks.forEach((t, i) => {
         const text = h("textarea", { rows: "3", value: t.text, oninput: (e) => { t.text = e.target.value; } });
         const mat = h("textarea", { rows: "3", value: t.material || "", oninput: (e) => { t.material = e.target.value; } });
-        const sol = h("textarea", { rows: "4", value: t.solution || "", oninput: (e) => { t.solution = e.target.value; } });
+        const solWarn = h("p", { class: "small warnc" + (looksLikeSolution(t.solution) ? "" : " hidden"), role: "status", text: "Das sieht nach einer Musterlösung aus. Formulieren Sie bitte einen Auftrag an die KI, z. B. „Achte darauf, ob die Antwort … enthält.“ – die KI soll beraten, nicht abgleichen." });
+        const sol = h("textarea", { rows: "6", value: t.solution || "", oninput: (e) => { t.solution = e.target.value; solWarn.classList.toggle("hidden", !looksLikeSolution(t.solution)); } });
         const typ = h("select", { style: { width: "auto" } }, h("option", { value: "text", selected: t.answer.type === "text" ? true : null }, "Textfeld"), h("option", { value: "table", selected: t.answer.type === "table" ? true : null }, "Tabelle"),
           h("option", { value: "photo", selected: t.answer.type === "photo" ? true : null }, "Foto (z. B. eines Lernprodukts)"));
         const cols = h("input", { value: (t.answer.columns || []).join(", "), placeholder: "Spalten, durch Komma getrennt" });
@@ -756,8 +760,11 @@ export async function sessionPage(id) {
           solBox,
           h("div", { class: "row" }, h("span", { class: "small", text: "Antwort als:" }), typ), tableBox,
           h("p", { class: "hint" + (t.answer.type === "photo" ? "" : " hidden"), text: "Foto: Die Schüler:innen fotografieren z. B. ihr Lernprodukt und laden das Bild hoch (verkleinert, ohne Ortsdaten, verschlüsselt). Fotos gehen nie an die KI – deshalb gibt es hier keinen Auftrag an die KI." })));
-        solBox.append(h("div", { class: "field" }, h("label", null, "Auftrag an die KI (Einstellung der KI-Rückmeldung)"), sol,
-          h("p", { class: "hint", text: "Worauf soll die KI beim Feedback achten? Erwartete Inhalte, Kriterien, typische Fehler – sie verrät den Schüler:innen die Lösung nicht. Leer = kein KI-Feedback zu dieser Aufgabe." })));
+        solBox.append(h("div", { class: "field" }, h("label", null, "Auftrag an die KI (Einstellung der KI-Rückmeldung)"), sol, solWarn,
+          h("p", { class: "hint", text: "Keine Musterlösung, sondern ein Auftrag an die korrigierende KI: Worauf soll sie achten, wenn sie die Antwort liest? Erwartete Inhalte, Kriterien, typische Fehler, " +
+            "worauf es nicht ankommt – ihre Rückmeldung zeigt den Schüler:innen, was schon gut ist und was sie verbessern können (vor der Abgabe verrät sie die Lösung nicht). " +
+            "Der letzte Absatz „Altersgemäße Erwartung“ passt das Anspruchsniveau an " + (gradeInfo(L().klass).stufe ? "die Lerngruppe (" + classShort(L().klass) + ")" : "die Lerngruppe") +
+            " an, ohne zusätzliche Anforderungen; Sie können ihn ändern – fehlt er beim Anlegen, ergänzt Unterricks ihn. Leer (oder nur dieser Absatz) = kein KI-Feedback zu dieser Aufgabe." })));
         solBox.classList.toggle("hidden", t.answer.type === "photo");
         typ.addEventListener("change", () => { const hint = solBox.parentNode && solBox.parentNode.querySelector(":scope > p.hint:last-child"); if (hint) hint.classList.toggle("hidden", typ.value !== "photo"); });
       });
@@ -781,7 +788,7 @@ export async function sessionPage(id) {
           if (!(await confirmDialog("Feibeitsblatt anlegen", "Das Blatt wird jetzt im Feibeitsblatt angelegt und erhält einen Code. Feibeitsblätter lassen sich danach nicht mehr ändern (nur neu anlegen).", "Anlegen"))) return false;
           try {
             const d2 = await save();
-            const r = await fb.createSheet(d2.data);
+            const r = await fb.createSheet(d2.data, { klass: L().klass });
             await tapi("POST", "/api/teacher/fb-drafts/" + dr.id + "/created", { body: { code: r.code, title: r.title } });
             dr.status = "created"; st.sheets.push({ code: r.code, title: r.title, createdAt: Date.now() }); paintFb();
             ensureNotfall([r.code]);

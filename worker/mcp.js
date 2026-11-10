@@ -53,7 +53,7 @@ const ESCAPE_ROOM = { type: "object", description: "Escape-Room nach der Vorlage
       raetsel: { type: "object", properties: { auftrag: T("ein Satz in der Stimme der Geschichte"), teile: { type: "array", minItems: 1, maxItems: 3, items: ESCAPE_PART }, erfolg: T("ein Satz") }, required: ["teile"] },
       erlaeuterung: T("Lösungserläuterung (400–1200 Zeichen)") }, required: ["titel", "bibliothek", "raetsel", "erlaeuterung"] } },
     finale: { type: "object", properties: { ueberschrift: T(""), text: T(""), warum: T("Warum dieses Lösungswort?"), rueckblick: { type: "array", items: { type: "string" } }, schluss: T("") } },
-    feibeitsblatt: { type: "object", description: "Finale im Feibeitsblatt", properties: { titel: T(""), aufgaben: { type: "array", minItems: 1, maxItems: 10, items: { type: "object", properties: { text: T(""), ki_auftrag: T("Auftrag an die KI für die Rückmeldung") }, required: ["text"] } } }, required: ["titel", "aufgaben"] } },
+    feibeitsblatt: { type: "object", description: "Finale im Feibeitsblatt", properties: { titel: T(""), aufgaben: { type: "array", minItems: 1, maxItems: 10, items: { type: "object", properties: { text: T(""), ki_auftrag: T("Auftrag an die korrigierende KI (keine Musterlösung): worauf sie bei der Rückmeldung achten soll, altersgemäß") }, required: ["text"] } } }, required: ["titel", "aufgaben"] } },
   required: ["name", "loesungswort", "rahmen", "stationen", "finale", "feibeitsblatt"] };
 
 const TOOLS = [
@@ -94,7 +94,7 @@ const TOOLS = [
     inputSchema: { type: "object", properties: { lesson_id: ID_ARG, titel: { type: "string", maxLength: 120 },
       aufgaben: { type: "array", minItems: 1, maxItems: 20, items: { type: "object", properties: {
         text: { type: "string", description: "Aufgabenstellung", maxLength: 4000 }, material: { type: "string", description: "optionaler Materialtext", maxLength: 8000 },
-        ki_auftrag: { type: "string", description: "Auftrag an die KI: worauf sie beim Feedback achten soll. Pflicht bei Text- und Tabellenaufgaben (ohne Auftrag kein KI-Feedback); bei Foto-Aufgaben weglassen.", maxLength: 8000 },
+        ki_auftrag: { type: "string", description: "Auftrag an die korrigierende KI – KEINE Musterlösung: worauf sie beim Lesen der Schülerantwort achten soll (erwartete Inhalte, Kriterien, typische Fehler; als Anweisung, z. B. „Achte darauf, ob …“), damit ihre Rückmeldung zeigt, was schon gut ist und was verbessert werden sollte. Erwartungen passend zur Jahrgangsstufe (Unterricks ergänzt beim Anlegen einen Satz zur altersgemäßen Erwartung). Pflicht bei Text- und Tabellenaufgaben (ohne Auftrag kein KI-Feedback); bei Foto-Aufgaben weglassen.", maxLength: 8000 },
         antwort: { description: "\"text\" (Normalfall), \"foto\" (Foto z. B. eines Lernprodukts; nie an die KI, ohne ki_auftrag; höchstens 3 je Blatt) oder Tabelle", oneOf: [{ type: "string", enum: ["text", "foto"] }, { type: "object", properties: { tabelle: { type: "array", items: { type: "string", maxLength: 60 }, minItems: 1, maxItems: 8 }, zeilen: { type: "integer", minimum: 1, maximum: 30 } }, required: ["tabelle"] }] } },
         required: ["text"] } } }, required: ["lesson_id", "titel", "aufgaben"], additionalProperties: false } },
   { name: "list_units", title: "Unterrichtseinheiten auflisten", annotations: ro,

@@ -22,7 +22,7 @@ export async function routeStudentMe(c) {
   const s = await requireStudent(c);
   const r = await c.db.prepare("SELECT " + LESSON_COLS + ", a.joined_at FROM student_access a JOIN lessons l ON l.id = a.lesson_id " +
     "WHERE a.device_id=?1 ORDER BY COALESCE(l.lesson_date, '') DESC, a.joined_at DESC LIMIT 500").bind(s.id).all();
-  return json({ ok: true, profile: { klass: s.klass, subject: s.subject }, lessons: (r.results || []).map((x) => lessonCard(x, x.joined_at, c.now)) });
+  return json({ ok: true, profile: { klass: s.klass, subject: s.subject }, lessons: (r.results || []).map((x) => lessonCard(x, x.joined_at, c.now)), authLeftMs: c.authLeftMs });
 }
 
 export async function routeStudentJoin(c) {
@@ -74,7 +74,7 @@ export async function routeStudentLesson(c, lessonId) {
   const p = (pres.results || [])[0] || null, times = timesOf(lesson), unlockAt = times ? times.presentationAt : null;
   const hw = homeworkShown(lesson, c.now) ? String(lesson.homework).trim() : "";
   const upTo = p && p.shown_until && p.shown_until < p.pages ? p.shown_until : null;
-  return json({ ok: true, lesson: lessonCard(lesson, joinedAt, c.now),
+  return json({ ok: true, authLeftMs: c.authLeftMs, lesson: lessonCard(lesson, joinedAt, c.now),
     files: (files.results || []).map((f) => ({ id: f.id, kind: f.kind, name: f.name, mime: f.mime, size: f.size, createdAt: f.created_at, ...(f.kind === "text" ? { text: f.text || "" } : {}),
       ...(f.kind === "link" ? { url: cleanWebUrl(f.text) || "" } : {}), ...(f.source === "notfall" ? { notfall: true } : {}) })),
     sheets: (sheets.results || []).filter((s) => s.kind !== "escape").map((s) => ({ code: s.code, title: s.title })),   // Escape-Finale nur über den Tunnel

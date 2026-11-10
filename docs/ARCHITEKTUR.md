@@ -115,6 +115,18 @@ implementiert und im End-to-End-Test geprüft (Ausnahmen unten ausdrücklich gen
    Ein Sitzungscode wird nur angenommen, wenn er zu genau dieser Klasse und diesem Fach gehört. Danach steht die Freischaltung
    (mit dem Zeitpunkt des **ersten** Betretens) dauerhaft in `student_access`. Bei späteren Besuchen ist das Gerät angemeldet und
    die Sitzung steht in der Liste – ohne erneute Code-Eingabe. Jede Schüler-Abfrage prüft serverseitig diese Freischaltung.
+   **Anmeldung höchstens 90 Minuten (Wunsch der Lehrkraft vom 10.11.2026):** `student_devices.auth_until` = Passworteingabe + 90 min
+   (`STUDENT_LOGIN_MIN` in `public/shared.js`). Danach lehnt der Server jede Anfrage mit **403** `session_expired` ab – bewusst nicht 401,
+   denn ältere, noch geöffnete Seiten löschten bei 401 den Token und mit ihm Freischaltungen, Fach und Klasse; unbekannte Geräte weiter mit
+   401 `unauthorized`. Geräte von vor der Regel (ohne Frist) bekommen beim ersten Kontakt die 90 Minuten (kein Massen-Abmelden beim
+   Ausrollen). Der Browser zählt mit (Zeitgeber auf die Restzeit aus den Antworten, `u.sauth`; geprüft auch nach dem Ruhezustand über
+   `visibilitychange`/`pageshow` und in anderen Tabs über `storage` – abgelaufen wird vermerkt, nicht gelöscht) und zeigt dann die
+   Passwortabfrage mit Hinweis. Der Token bleibt dabei gespeichert: Das erneute Passwort verlängert die Anmeldung desselben Geräts –
+   Freischaltungen, Fach, Klasse und alles im Browser Gespeicherte (z. B. die Einwilligung zur KI-Begriffshilfe) bleiben, und es geht auf
+   der vorigen Seite weiter (`u.sback`). Ein laufender Escape-Room sichert seinen Stand beim Abmelden im Browser (`u.esc.<Sitzung>`,
+   Format und Prüfsumme der Zwischenstand-Datei; ein gerade gelöster Rätselraum wird als nächste Station gesichert) und fragt nach der
+   Anmeldung „Weiter im Escape-Room? … Stand von Anna M. – Bist du das?“ (geteilte iPads), bevor er genau dort weitermacht. Gesicherte
+   Stände werden beim nächsten Öffnen von Unterricks nach einem Tag gelöscht.
 2. **Sitzungen.** Fach → Klasse/Kurs → Unterrichtseinheit → Sitzungen (siehe 4b). Jede Sitzung hat einen eigenen 6-stelligen Code.
 3. **KI-gestützte Planung.** Der Chat schickt bei jeder Nachricht den festen System-Prompt (wörtlich nach Vorgabe) + Fach,
    Klasse/Jahrgang und alle Sitzungsdaten (inkl. Materialtexten und aktuellem Schulportal-Eintrag). Die Antwort wird gestreamt
@@ -456,6 +468,19 @@ stattdessen der von Anthropic vorgesehene Weg in umgekehrter Richtung (Connector
   **„Auftrag an die KI“ je Aufgabe** (die Einstellung der KI-Rückmeldung) und Antwortart (Textfeld/Tabelle) → „Feibeitsblatt
   jetzt anlegen“ legt das Blatt über die Feibeitsblatt-API an → geführter Abschluss mit optionaler KI-Checkliste. Außerdem
   einstellbar: Wartezeit auf die finale KI-Rückmeldung (30/60/90 s, gilt im Feibeitsblatt global).
+* **Auftrag an die KI ≠ Musterlösung.** Das Feld (im Feibeitsblatt intern `solution`) sagt der korrigierenden KI, worauf sie beim Lesen
+  der Schülerantwort achten soll, damit ihre Rückmeldung zeigt, was schon gut ist und was verbessert werden sollte (Feibeitsblatt:
+  „Grundlage deiner Beratung, keine Lösung, die wörtlich erreicht werden muss“). So steht es in allen Prompts (`FEIBEITSBLATT_INFO`,
+  Entwurf aus dem Chat, Connector `propose_feibeitsblatt`, Vertretung, Escape-Finale) und im Editor; liefert eine KI bzw. der Connector
+  trotzdem „Musterlösung: …“, wird daraus ein Auftrag („Achte darauf, ob die Antwort diese Inhalte sinngemäß enthält …“, `kiAuftragText`,
+  nur in `insertDraft` – was die Lehrkraft schreibt, wird nie umgeschrieben, der Editor warnt nur). **Altersgemäße Erwartung:** Das
+  Feibeitsblatt kennt den Jahrgang nicht – deshalb hängt Unterricks an jeden nicht leeren Auftrag genau einen Absatz „Altersgemäße
+  Erwartung (Jahrgangsstufe 7): …“ an (`ageExpectation`/`withAgeExpectation`). Er legt nur das Anspruchsniveau fest („keine zusätzliche
+  Anforderung und kein eigener Prüfpunkt – maßgeblich ist, was Aufgabe und Operator verlangen“): Jg. 7/8 einfache, richtige Aussagen in
+  eigenen Worten statt ausdifferenzierter Lösung; 9/10 erste Fachbegriffe, Begründungen wo verlangt; E-Phase; Q-Phase Grund- bzw.
+  Leistungskurs nach dem Niveau der Abiturprüfung. Sichtbar und änderbar im Editor, beim Anlegen ergänzt, falls er fehlt (auch für Blätter
+  der Vertretung); ein automatisch erzeugter Absatz einer anderen Lerngruppe (z. B. aus einer Sitzungsdatei) wird ersetzt, ein von der
+  Lehrkraft geänderter bleibt; ein Auftrag, der nur noch aus dem Absatz besteht, gilt als leer (kein KI-Feedback).
 * **Schüleransicht.** Kein PDF, sondern Titel, Code und „Code kopieren und Feibeitsblatt öffnen“ (kopiert den Code und öffnet
   feibeitsblatt.janrickmer.de; Feibeitsblatt kennt keinen Direktlink mit vorausgefülltem Code).
 * **Einsicht in Abgaben.** „Abgaben ansehen“ lädt die Abgaben, entschlüsselt sie im Browser und zeigt je Schüler:in die

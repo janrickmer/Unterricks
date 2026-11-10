@@ -3,6 +3,7 @@
 // und HKDF der Anmeldeschlüssel und der Schlüssel zum Öffnen des privaten RSA-Schlüssels abgeleitet. Abgaben werden hier entschlüsselt.
 // Schlüssel liegen im Arbeitsspeicher; auf Wunsch speichert Unterricks den Feibeitsblatt-Schlüssel Ende-zu-Ende verschlüsselt im
 // Benutzerkonto (fblink.js), dann verbindet connectMaster ohne erneute Eingabe.
+import { withAgeExpectation } from "./shared.js";
 const subtle = crypto.subtle, te = new TextEncoder(), td = new TextDecoder();
 const b64 = (buf) => { const b = buf instanceof Uint8Array ? buf : new Uint8Array(buf); let s = ""; for (let i = 0; i < b.length; i += 0x8000) s += String.fromCharCode.apply(null, b.subarray(i, i + 0x8000)); return btoa(s); };
 const unb64 = (s) => { const bin = atob(String(s)); const out = new Uint8Array(bin.length); for (let i = 0; i < bin.length; i++) out[i] = bin.charCodeAt(i); return out; };
@@ -97,12 +98,13 @@ export class FbClient {
 
   /* Entwurf (Plattform-Format) → Feibeitsblatt anlegen */
   // Antwortarten: Text, Tabelle, Foto (Foto: {type:"photo"} ohne Auftrag an die KI – Fotos gehen nie an die KI; höchstens 3 je Blatt)
-  async createSheet(draft) {
+  // opt.klass: Lerngruppe – jeder Auftrag an die KI bekommt (falls noch nicht da) die altersgemäße Erwartung (das Feibeitsblatt kennt den Jahrgang nicht)
+  async createSheet(draft, opt = {}) {
     const photos = draft.tasks.filter((t) => t.answer && t.answer.type === "photo").length;
     if (photos > PHOTO_TASKS_MAX) throw new FbError("Höchstens " + PHOTO_TASKS_MAX + " Aufgaben mit der Antwortart „Foto“ je Feibeitsblatt.", 400, "too_many_photos");
     const tasks = draft.tasks.map((t) => {
       const photo = t.answer && t.answer.type === "photo";
-      const task = { text: String(t.text || "").trim(), solution: photo ? "" : String(t.solution || "").trim() };
+      const task = { text: String(t.text || "").trim(), solution: photo ? "" : withAgeExpectation(t.solution, opt.klass) };
       const mat = materialRuns(t.material || "");
       if (mat.length) task.material = mat;
       if (photo) task.answer = { type: "photo" };

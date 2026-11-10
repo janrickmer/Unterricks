@@ -49,6 +49,8 @@ Feibeitsblatt braucht keine Änderung. Die Adressen stehen in `wrangler.jsonc` (
 ## Bedienung in Kürze
 
 * **Schüler:innen:** Seite öffnen → Passwort „Feindt“ → Fach und Klasse → Sitzungscode. Danach merkt sich das Gerät die Sitzung.
+  Spätestens 90 Minuten nach der Passworteingabe wird abgemeldet; nach erneuter Eingabe von „Feindt“ geht es genau dort weiter
+  (freigeschaltete Sitzungen und im Browser Gespeichertes bleiben, ein laufender Escape-Room wird wiederhergestellt).
   In Ev. Religion und Ethik wählen sie ebenfalls ihre eigene Klasse – die Plattform ordnet sie dem Kurs ihres Jahrgangs zu.
   Oben läuft die Live-Präsentation, darunter Material (Download, z. B. für GoodNotes) und Feibeitsblätter.
 * **Lehrkraft:** Einmalig unter **Planungsgrundlagen** je Fach Schulcurriculum, KCGO, E-Phasen-Curriculum und Abiturerlass
@@ -83,6 +85,11 @@ Feibeitsblatt braucht keine Änderung. Die Adressen stehen in `wrangler.jsonc` (
 * **KI-Begriffshilfe:** Während der Stunde können Schüler:innen unter der Live-Präsentation Fachbegriffe kurz und einfach erklären
   lassen – nur nach ihrer Einwilligung, mit der kostenlosen KI; in den Sitzungsdaten abschaltbar. Bitte vor dem Einsatz prüfen, ob
   das an Ihrer Schule zulässig ist (siehe docs/ARCHITEKTUR.md, 4k).
+* **Feibeitsblatt-Entwürfe:** Je Aufgabe steht ein **„Auftrag an die KI“** – keine Musterlösung, sondern die Anweisung an die
+  korrigierende KI des Feibeitsblatts, worauf sie beim Lesen der Antwort achten soll, damit ihre Rückmeldung zeigt, was schon gut ist und
+  was verbessert werden sollte. Unterricks ergänzt jeden Auftrag um die **altersgemäße Erwartung** der Lerngruppe (z. B. „Jahrgangsstufe
+  7: eine kurze, richtige Antwort in eigenen Worten genügt …“), weil das Feibeitsblatt den Jahrgang nicht kennt; im Editor sichtbar und
+  änderbar.
 * **Notfall-Feibeitsblätter:** Zu jedem Feibeitsblatt der Sitzung legt Unterricks automatisch dessen analoges Arbeitsblatt
   (im Feibeitsblatt „Analoges Arbeitsblatt als PDF herunterladen“, dieselbe Datei) als PDF unter „Material – Für Schüler:innen
   zugänglich“ ab, sobald die Sitzung mit dem Feibeitsblatt verbunden ist. Nach dem Bestätigen der Checkliste wird es mit dem

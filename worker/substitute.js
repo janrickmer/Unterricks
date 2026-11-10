@@ -174,7 +174,7 @@ export const substituteForStudents = (s) => {
 function escapeOut(c, l, p, preview) {
   // Vorbelegung der Klasse im Escape-Room: bei Schüler:innen ihre eigene Klasse (bei Kursen über mehrere Klassen nicht die Kurskennung)
   return json({ ok: true, room: p.escape_room, sheetCode: preview ? "" : p.escapeSheet || "", preview, subject: l.subject, klass: !preview && c.student && c.student.klass ? c.student.klass : l.klass,
-    feibeitsblattUrl: c.env.FEIBEITSBLATT_URL || "https://feibeitsblatt.janrickmer.de/" });
+    feibeitsblattUrl: c.env.FEIBEITSBLATT_URL || "https://feibeitsblatt.janrickmer.de/", authLeftMs: preview ? undefined : c.authLeftMs });
 }
 export async function routeStudentEscape(c, lessonId) {
   const { lesson } = await requireAccess(c, lessonId);

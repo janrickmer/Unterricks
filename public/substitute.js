@@ -116,7 +116,7 @@ export function substituteCards({ id, st, L, ctx, fb, analog, reload, openDraft,
       (dr && !sheet ? " Das Feibeitsblatt der Vertretung wird jetzt im Feibeitsblatt angelegt (danach nicht mehr änderbar)." : ""), "Bestätigen und umstellen"))) return;
     await busy(btn, async () => {
       try {
-        if (dr && !sheet) { const r = await fb.createSheet(dr.data); sheet = { code: r.code, title: r.title }; memo.set(key, sheet); }
+        if (dr && !sheet) { const r = await fb.createSheet(dr.data, { klass: L().klass }); sheet = { code: r.code, title: r.title }; memo.set(key, sheet); }
         await tapi("POST", "/api/teacher/lessons/" + id + "/substitute/confirm", { body: { sheet } });
         memo.del(key);
         toast("Vertretung aktiv – die Schüler:innen sehen jetzt den Hinweis und die Anleitung.", "ok", 6000);

@@ -364,8 +364,16 @@ export function greetingText(ctx) {
     "1. " + dauer + "\n2. Sollen bestimmte Ideen, Themen, Materialien oder didaktische Wünsche berücksichtigt werden?";
 }
 
+/* Schüler:innen-Anmeldung: gilt höchstens so lange nach der Passworteingabe (Wunsch der Lehrkraft vom 10.11.2026) – danach erneut das
+   Passwort; das Gerät bleibt dasselbe (freigeschaltete Sitzungen, Fach und Klasse und im Browser Gespeichertes bleiben). */
+export const STUDENT_LOGIN_MIN = 90;
+
 export const FEIBEITSBLATT_INFO = "Feibeitsblatt ist das digitale Arbeitsblatt-Werkzeug der Lehrkraft: Die Lehrkraft legt Aufgaben (Aufgabenstellung, optional Material) " +
-  "und je Aufgabe einen „Auftrag an die KI“ an (worauf die KI beim Feedback achten soll, z. B. erwartete Inhalte und Kriterien). Die Schüler:innen öffnen das Blatt mit einem Code, " +
+  "und je Aufgabe einen „Auftrag an die KI“ an. Der Auftrag ist KEINE Musterlösung, sondern die Anweisung an die korrigierende KI, worauf sie beim Lesen der Schülerantwort " +
+  "achten soll (z. B. erwartete Inhalte, Kriterien, typische Fehler, worauf es nicht ankommt) – damit ihre Rückmeldung den Schüler:innen zeigt, was an ihrer Antwort schon gut ist " +
+  "und was sie noch verbessern können. Formuliere ihn als Anweisung („Achte darauf, ob …“, „Weise darauf hin, wenn …“) und miss die Erwartungen an der Jahrgangsstufe " +
+  "(z. B. genügen in Jahrgang 7 und 8 einfache, richtige Aussagen in eigenen Worten – keine perfekt differenzierte Lösung); Unterricks ergänzt jeden Auftrag um einen Absatz " +
+  "zur altersgemäßen Erwartung der Lerngruppe. Die Schüler:innen öffnen das Blatt mit einem Code, " +
   "schreiben ihre Antworten (Textfeld oder Tabelle), können einmal freiwillig KI-Feedback zu ihren Antworten erhalten, überarbeiten und geben verschlüsselt ab; " +
   "die Lehrkraft sieht alle Abgaben. Ein Feibeitsblatt ersetzt ein klassisches Arbeitsblatt, besonders bei Schreib-, Analyse- und Urteilsaufgaben.";
 
@@ -451,8 +459,10 @@ export function feibeitsblattMessages(ctx, chatText, wish) {
   const system = "Du entwirfst ein Feibeitsblatt für den Unterricht. " + FEIBEITSBLATT_INFO + " " +
     "Antworte ausschließlich mit einem JSON-Objekt der Form {\"title\": \"…\", \"tasks\": [{\"text\": \"Aufgabenstellung\", \"material\": \"optionaler Materialtext oder leer\", " +
     "\"ki_auftrag\": \"Auftrag an die KI für das Feedback\", \"antwort\": \"text\" oder {\"tabelle\": [\"Spalte 1\", \"Spalte 2\"], \"zeilen\": 3}}]}. " +
-    "Regeln: 1–6 Aufgaben mit Operatoren passend zur Jahrgangsstufe; der „ki_auftrag“ beschreibt konkret, welche Inhalte, Kriterien und Fehler die KI beim Feedback beachten soll, " +
-    "ohne den Schüler:innen die Lösung vorzusagen; Material nur als Text (keine Bilder, keine erfundenen Quellen). Antwortart „text“ ist der Normalfall; eine Tabelle nur, wenn sie didaktisch sinnvoll ist (höchstens 8 Spalten, 30 Zeilen).";
+    "Regeln: 1–6 Aufgaben mit Operatoren passend zur Jahrgangsstufe; der „ki_auftrag“ ist keine Musterlösung, sondern ein Auftrag an die korrigierende KI: Er beschreibt konkret, " +
+    "welche Inhalte, Kriterien und typischen Fehler sie beim Lesen der Antwort beachten soll (als Anweisung formuliert, z. B. „Achte darauf, ob …“), damit ihre Rückmeldung zeigt, " +
+    "was schon gut ist und was verbessert werden sollte – ohne den Schüler:innen die Lösung vorzusagen. Die Erwartungen passen zur Jahrgangsstufe (siehe Sitzung): " +
+    "z. B. in Jahrgang 7 eine kurze, richtige Antwort in eigenen Worten statt einer fachlich ausdifferenzierten Lösung. Material nur als Text (keine Bilder, keine erfundenen Quellen). Antwortart „text“ ist der Normalfall; eine Tabelle nur, wenn sie didaktisch sinnvoll ist (höchstens 8 Spalten, 30 Zeilen).";
   const user = "Sitzung:\n" + lessonContext(ctx, { materialText: true, materialMax: 2000 }) + "\n\n" +
     (wish ? "Wunsch der Lehrkraft zum Feibeitsblatt: " + clip(wish, 2000) + "\n\n" : "") +
     "Bisherige Planung (Chatverlauf):\n<<<\n" + clip(chatText, 30000) + "\n>>>\n\nGib jetzt nur das JSON-Objekt aus.";
@@ -543,8 +553,54 @@ export function extractJsonObject(text) {
   return null;
 }
 
+/* ---------- Auftrag an die KI (intern „solution“, so heißt das Feld im Feibeitsblatt) ----------
+ * Er ist keine Musterlösung, sondern sagt der korrigierenden KI des Feibeitsblatts, worauf sie bei der Rückmeldung achten soll. Das
+ * Feibeitsblatt kennt den Jahrgang nicht – deshalb steht die altersgemäße Erwartung im Auftrag selbst (Wunsch der Lehrkraft vom 10.11.2026). */
+export const AGE_MARK = "Altersgemäße Erwartung";
+export const KI_AUFTRAG_MAX = 8000;   // Grenze des Feibeitsblatts für den Auftrag an die KI
+/* Nur ein Maßstab, keine zusätzliche Anforderung: maßgeblich bleibt, was Aufgabe und Operator verlangen (sonst verlangte die KI z. B. eine
+   Begründung, wo nur „nennen“ gefragt ist, oder die Checkliste bekäme Punkte wie „Du antwortest in eigenen Worten“). */
+export function ageExpectation(klass) {
+  const g = gradeInfo(klass);
+  if (!g.stufe) return "";
+  const who = g.halfYear === "E" ? "Einführungsphase, Jahrgangsstufe 11" : g.halfYear ? g.halfYear + ", " + (g.level === "LK" ? "Leistungskurs" : "Grundkurs") : "Jahrgangsstufe " + g.stufe;
+  const age = (a) => "Die Schüler:innen sind etwa " + a + " bis " + (a + 1) + " Jahre alt: ";
+  const t = g.stufe <= 6 ? age(g.stufe + 5) + "Einfache, richtige Aussagen in eigenen Worten sind hier eine gute Leistung; erwarte keine Fachsprache."
+    : g.stufe <= 8 ? age(g.stufe + 5) + "Einfache, richtige Aussagen in eigenen Worten sind eine gute Leistung; wo eine Begründung oder ein Urteil verlangt ist, genügt ein nachvollziehbarer Grund. " +
+      "Erwarte keine vollständige, fachlich ausdifferenzierte Lösung und keine Fachsprache der Oberstufe, und nenne nur Verbesserungen, die in diesem Alter erreichbar sind."
+    : g.stufe <= 10 ? age(g.stufe + 5) + "Erste Fachbegriffe und – wo verlangt – nachvollziehbare Begründungen sind eine gute Leistung; Abwägen und Differenzieren genügen in Ansätzen. Lege keine Maßstäbe der Oberstufe an."
+    : g.halfYear === "E" ? "Fachbegriffe und – wo verlangt – begründete Zusammenhänge und eigene Urteile in Ansätzen sind eine gute Leistung; das Abiturniveau ist noch nicht der Maßstab."
+    : g.level === "LK" ? "Maßstab ist das erhöhte Niveau der Abiturprüfung: fachsprachlich präzise und differenziert; wo ein Urteil verlangt ist, ein eigenständiges, begründetes Urteil."
+    : "Maßstab ist das grundlegende Niveau der Abiturprüfung: fachlich korrekt, strukturiert und – wo verlangt – begründet; verlange keine Tiefe auf Leistungskurs-Niveau.";
+  return AGE_MARK + " (" + who + "): Das legt nur das Anspruchsniveau fest und ist keine zusätzliche Anforderung und kein eigener Prüfpunkt – maßgeblich ist, " +
+    "was Aufgabe und Operator verlangen. " + t;
+}
+let autoAge = null;   // alle automatisch erzeugten Absätze (jeder Lerngruppe) – sie werden beim Wiederverwenden durch den passenden ersetzt
+const isAutoAge = (p) => (autoAge ||= new Set(ALL_CLASSES.map(ageExpectation).filter(Boolean))).has(String(p).trim());
+/* Auftrag + altersgemäße Erwartung der Lerngruppe, genau ein Absatz: ein automatisch erzeugter (auch einer anderen Lerngruppe, z. B. aus
+   einer Sitzungsdatei) wird ersetzt, einer, den die Lehrkraft geändert hat, bleibt. Leer – oder nur noch der automatische Absatz – bleibt
+   leer (= kein KI-Feedback zu dieser Aufgabe). Höchstens KI_AUFTRAG_MAX Zeichen (gekürzt wird der Text der Lehrkraft, nie der Absatz). */
+export function withAgeExpectation(solution, klass) {
+  let body = String(solution == null ? "" : solution).split(/\n[ \t]*\n/).filter((p) => !isAutoAge(p)).join("\n\n").trim();
+  const a = ageExpectation(klass);
+  if (!body) return "";
+  if (!a || body.includes(AGE_MARK)) return body.slice(0, KI_AUFTRAG_MAX);
+  const room = KI_AUFTRAG_MAX - a.length - 2;
+  if (body.length > room) body = body.slice(0, room).trimEnd();
+  return body + "\n\n" + a;
+}
+/* liefert eine KI trotzdem eine Musterlösung („Musterlösung: …“), wird daraus ein Auftrag: sinngemäß statt wörtlich.
+   Nur für Entwürfe von KI und Connector – was die Lehrkraft schreibt, wird nie umgeschrieben (der Editor warnt nur). */
+const SOLUTION_RE = /^\s*(?:mögliche\s+|beispielhafte\s+)?(?:muster)?(?:lösung|antwort)(?:svorschlag)?\s*:\s*/i;
+export const looksLikeSolution = (text) => SOLUTION_RE.test(String(text || "")) && !/nicht\s+(?:verraten|vorsagen|nennen)/i.test(String(text || ""));
+export function kiAuftragText(text) {
+  const t = String(text == null ? "" : text).trim(), m = SOLUTION_RE.exec(t);
+  return m && looksLikeSolution(t) && t.length > m[0].length ? "Achte darauf, ob die Antwort diese Inhalte sinngemäß enthält – eigene Worte genügen, nicht wörtlich: " + t.slice(m[0].length) : t;
+}
+
 /* Feibeitsblatt-Entwurf (aus KI oder Connector) in eine einheitliche Form bringen */
-export function normalizeFbDraft(obj) {
+/* opt.fromAi: Entwurf von einer KI oder vom Connector – eine als „Musterlösung: …“ gelieferte Antwort wird zum Auftrag (kiAuftragText) */
+export function normalizeFbDraft(obj, opt = {}) {
   if (!obj || typeof obj !== "object") throw new Error("Der Entwurf ist leer.");
   const tasks = (Array.isArray(obj.tasks) ? obj.tasks : Array.isArray(obj.aufgaben) ? obj.aufgaben : []).slice(0, 20).map((t) => {
     const ans = t && (t.antwort || t.answer);
@@ -558,7 +614,7 @@ export function normalizeFbDraft(obj) {
     return {
       text: String((t && (t.text || t.aufgabe)) || "").slice(0, 4000),
       material: String((t && t.material) || "").slice(0, 20000),
-      solution: answer.type === "photo" ? "" : String((t && (t.ki_auftrag || t.solution || t.auftrag)) || "").slice(0, 4000),   // Fotos ohne KI-Feedback
+      solution: answer.type === "photo" ? "" : ((r) => (opt.fromAi ? kiAuftragText(r) : String(r)).slice(0, KI_AUFTRAG_MAX))((t && (t.ki_auftrag || t.solution || t.auftrag)) || ""),   // Fotos ohne KI-Feedback
       answer,
     };
   }).filter((t) => t.text.trim());

@@ -6,12 +6,13 @@ import {
   cleanLine, clientIp, LOCKS, lockedFor, registerFail, clearFails, lockedError, fmtWait, requireSecret,
 } from "./lib.js";
 import { getSetting, setSetting, setSettingStmt } from "./db.js";
-import { isValidClass, isValidSubject, classAllowed, subjectName, classShort } from "../public/shared.js";
+import { isValidClass, isValidSubject, classAllowed, subjectName, classShort, STUDENT_LOGIN_MIN } from "../public/shared.js";
 import { loadSubjectConfigs } from "./bases.js";
 
 export const TOKEN_TTL = 30 * 86400e3;
 const ITER = 600000;
 export const DEFAULT_STUDENT_PASSWORD = "Feindt";
+export const STUDENT_LOGIN_MS = STUDENT_LOGIN_MIN * 60e3;
 
 const isAuthKey = (s) => typeof s === "string" && /^[A-Za-z0-9_-]{43}$/.test(s);
 const isSalt = (s) => typeof s === "string" && /^[A-Za-z0-9_-]{22,88}$/.test(s);
@@ -202,24 +203,39 @@ export async function routeStudentLogin(c) {
     throw new HttpError(401, "wrong_password", "Das Passwort ist leider falsch. Versuch es noch einmal.", { left: r.left });
   }
   await clearFails(c.db, devKey);
-  // vorhandenes Gerät weiterverwenden (Freischaltungen bleiben), sonst neu anlegen
+  // vorhandenes Gerät weiterverwenden (Freischaltungen, Fach und Klasse bleiben) – die Anmeldung gilt wieder STUDENT_LOGIN_MIN Minuten
+  const until = c.now + STUDENT_LOGIN_MS;
   const old = typeof body.token === "string" && body.token.length <= 100 ? await studentByToken(c.db, body.token) : null;
-  if (old) return json({ ok: true, token: body.token, profile: { klass: old.klass, subject: old.subject } });
+  if (old) {
+    await c.db.prepare("UPDATE student_devices SET auth_until=?2, last_seen=?3 WHERE id=?1").bind(old.id, until, c.now).run();
+    return json({ ok: true, token: body.token, profile: { klass: old.klass, subject: old.subject }, authLeftMs: STUDENT_LOGIN_MS });
+  }
   const token = randomToken(32), id = randomId(8);
-  await c.db.prepare("INSERT INTO student_devices(id, token_hash, created_at, last_seen) VALUES(?1, ?2, ?3, ?3)").bind(id, await sha256Hex(token), c.now).run();
-  return json({ ok: true, token, profile: { klass: null, subject: null } });
+  await c.db.prepare("INSERT INTO student_devices(id, token_hash, created_at, last_seen, auth_until) VALUES(?1, ?2, ?3, ?3, ?4)").bind(id, await sha256Hex(token), c.now, until).run();
+  return json({ ok: true, token, profile: { klass: null, subject: null }, authLeftMs: STUDENT_LOGIN_MS });
 }
 
 async function studentByToken(db, token) {
-  return db.prepare("SELECT id, klass, subject, last_seen FROM student_devices WHERE token_hash=?1").bind(await sha256Hex(token)).first();
+  return db.prepare("SELECT id, klass, subject, last_seen, auth_until FROM student_devices WHERE token_hash=?1").bind(await sha256Hex(token)).first();
 }
 
+/* Schüler:in angemeldet? Unbekanntes Gerät → 401 unauthorized (neu anmelden). Anmeldung abgelaufen (spätestens STUDENT_LOGIN_MIN Minuten
+   nach der Passworteingabe) → 403 session_expired: das Gerät bleibt, nur das Passwort ist erneut nötig. Bewusst nicht 401 – ältere, noch
+   geöffnete Seiten löschten bei 401 den Token, und mit ihm Freischaltungen, Fach und Klasse. Geräte von vor dieser Regel (ohne Frist)
+   bekommen beim ersten Kontakt die 90 Minuten (sonst wären beim Ausrollen alle auf einmal abgemeldet). */
 export async function requireStudent(c) {
   const tok = bearer(c.request);
   const s = tok && tok.length <= 100 ? await studentByToken(c.db, tok) : null;
   if (!s) throw new HttpError(401, "unauthorized", "Bitte gib zuerst das Passwort ein.");
+  if (s.auth_until === null || s.auth_until === undefined) {
+    s.auth_until = c.now + STUDENT_LOGIN_MS;
+    await c.db.prepare("UPDATE student_devices SET auth_until=?2 WHERE id=?1 AND auth_until IS NULL").bind(s.id, s.auth_until).run();
+  }
+  if (!Number.isFinite(s.auth_until) || c.now >= s.auth_until)
+    throw new HttpError(403, "session_expired", "Du wurdest nach " + STUDENT_LOGIN_MIN + " Minuten abgemeldet. Bitte gib das Passwort erneut ein – danach geht es weiter, wo du warst.");
   if (c.now - s.last_seen > 6 * 3600e3) c.waitUntil(c.db.prepare("UPDATE student_devices SET last_seen=?2 WHERE id=?1").bind(s.id, c.now).run());
   c.student = s;
+  c.authLeftMs = s.auth_until - c.now;
   return s;
 }
 

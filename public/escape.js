@@ -3,7 +3,7 @@
 // Stufen, Fehler im ersten Versuch, Zwischenstand-Datei ab Station 2, Überblick-PDF mit eingebettetem Datensatz.
 // Fortschritt liegt nur im Browser (wie in den bekannten Räumen): Neuladen kostet ihn – vorher wird gefragt.
 import { h, clear, toast, errToast, busy, modal, confirmDialog, api, store, nn } from "./ui.js";
-import { render, go, onLeave } from "./app.js";
+import { render, go, onLeave, onStudentExpire, studentAuthFailed, studentAuthLeft } from "./app.js";
 import { gradePart, missingOf, HELP_HEADS, PART_LETTERS, escapeRecord, tunnelUrl, saveEncode, saveDecode, SAVE_BEGIN, SAVE_END, confirmCode, normKlasse } from "./escape-data.js";
 import { classShort, subjectName } from "./shared.js";
 
@@ -25,10 +25,12 @@ export async function escapePage(lessonId, opt = {}) {
   let d;
   try { d = await api("GET", "/api/" + (opt.teacher ? "teacher" : "student") + "/lessons/" + lessonId + "/escape", { token }); }
   catch (e) {
+    if (!opt.teacher && studentAuthFailed(e)) return;   // nach 90 Minuten abgemeldet: Passwort, danach geht es hier weiter
     clear(shell).append(h("div", { class: "er-wrap" }, h("div", { class: "er-card" }, h("p", { class: "er-err", text: e.message }),
       h("a", { class: "er-btn", href: opt.teacher ? "#/lk/s/" + lessonId : "#/schueler/s/" + lessonId }, "Zurück zur Sitzung"))));
     return;
   }
+  if (!opt.teacher) studentAuthLeft(d.authLeftMs);
   const room = d.room, preview = !!opt.teacher || d.preview;
   const S = { screen: "start", firstName: "", lastName: "", birthDate: "", klasse: classShort(d.klass || ""), solved: Array(N).fill(false), letters: Array(N).fill("_"),
     attempts: Array(N).fill(0), mistakes: Array(N).fill(null), visited: Array(N).fill(false), completedAt: null, resumeLog: [], pdfDownloaded: false };
@@ -369,6 +371,33 @@ export async function escapePage(lessonId, opt = {}) {
       ...room.stationen.map((st, i) => h("button", { class: "er-link", type: "button", onclick: () => { if (!S.firstName) Object.assign(S, { firstName: "Vorschau", lastName: "Lehrkraft", birthDate: "01.01.2000", klasse: normKlasse(S.klasse) || "Test" }); libScreen(i); } }, "Bibliothek " + (i + 1))),
       h("button", { class: "er-link", type: "button", onclick: () => { if (!S.firstName) Object.assign(S, { firstName: "Vorschau", lastName: "Lehrkraft", birthDate: "01.01.2000", klasse: "Test" }); S.solved = S.solved.map(() => true); S.letters = room.wort.split(""); finalScreen(); } }, "Finale"));
     shell.insertBefore(nav, main);
+  }
+  /* Abmeldung nach 90 Minuten (app.js): den Stand vorher im Browser sichern (wie die Zwischenstand-Datei, mit Prüfsumme) und nach der
+     erneuten Anmeldung genau dort weitermachen. Nur auf diesem Gerät, höchstens einen Tag; geladen wird er nur einmal. */
+  const autoKey = "u.esc." + lessonId;
+  if (!preview) onStudentExpire(() => {
+    if (/^(start|resume)$/.test(S.screen) || !S.firstName) return;
+    // gerade gelöster Rätselraum (Buchstabe wird noch gezeigt): weiter mit der nächsten Bibliothek bzw. dem Finale – nie derselbe Raum noch einmal
+    const m = /^room(\d+)$/.exec(S.screen), solved = m && S.solved[Number(m[1]) - 1];
+    const screen = solved ? (S.solved.every(Boolean) ? "final" : "lib" + (Number(m[1]) + 1)) : S.screen;
+    const data = { v: 1, game: room.name, savedAt: new Date().toISOString(), screen, place: placeOf(screen), state: JSON.parse(JSON.stringify(S)) };
+    store.set(autoKey, JSON.stringify({ at: Date.now(), txt: SAVE_BEGIN + "\n" + saveEncode(room.id, data) + "\n" + SAVE_END }));
+    leaving = true;
+  });
+  const auto = preview ? null : store.get(autoKey);
+  if (auto) {
+    store.del(autoKey);
+    let data = null;
+    try { const a = JSON.parse(auto); if (Date.now() - Number(a.at) < 24 * 3600e3) data = saveDecode(room.id, room.name, String(a.txt || "")); } catch {}
+    // geteilte iPads: erst fragen, ob der Stand zu dieser Person gehört (sonst ginge es mit fremdem Namen weiter)
+    const who = data && data.state ? (String(data.state.firstName || "") + " " + String(data.state.lastName || "").slice(0, 1) + ".").trim() : "";
+    if (data && data.state && who.length > 1 && await confirmDialog("Weiter im Escape-Room?", "Auf diesem Gerät ist der Stand von " + who + " gespeichert (" + (data.place || "") +
+      "). Bist du das? Dann geht es genau dort weiter – sonst beginnt der Escape-Room neu.", "Ja, weiter")) {
+      Object.assign(S, data.state, { pdfDownloaded: !!data.state.pdfDownloaded });
+      paintSeals();
+      toast("Weiter geht es, wo du warst: " + (data.place || ""), "ok");
+      return open(data.screen);
+    }
   }
   startScreen();
 }

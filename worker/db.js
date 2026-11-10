@@ -55,6 +55,7 @@ export const COLUMNS = [
   ["files", "print_copies", "INTEGER"],
   ["files", "print_duplex", "INTEGER"],
   ["files", "print_color", "INTEGER"],
+  ["student_devices", "auth_until", "INTEGER"],   // Anmeldung gilt bis hier (90 min nach der Passworteingabe); NULL = Passwort nötig
 ];
 
 // Indizes über nachträglich ergänzte Spalten (nach den Spalten angelegt; ein Fehler – z. B. alte Doppelungen – hält den Betrieb nicht auf)

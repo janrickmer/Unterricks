@@ -399,7 +399,7 @@ export async function routeChatClear(c, id) {
 
 /* ---------- Feibeitsblatt: Entwürfe und Verknüpfungen ---------- */
 export async function insertDraft(db, lessonId, data, source, now) {
-  const d = normalizeFbDraft(data), id = randomId(8);
+  const d = normalizeFbDraft(data, { fromAi: true }), id = randomId(8);   // Entwürfe von KI, Connector und Vertretung
   await db.prepare("INSERT INTO fb_drafts(id, lesson_id, data, source, status, created_at, updated_at) VALUES(?1, ?2, ?3, ?4, 'draft', ?5, ?5)")
     .bind(id, lessonId, JSON.stringify(d), source, now).run();
   return { id, data: d, source, status: "draft", sheetCode: null, createdAt: now, updatedAt: now };
