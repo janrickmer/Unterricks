@@ -177,3 +177,20 @@ export function contentDisposition(name, attachment = true) {
 }
 /* Nur diese Typen dürfen im Browser direkt angezeigt werden (keine HTML/SVG-Ausführung auf unserer Herkunft) */
 export const INLINE_SAFE = /^(application\/pdf|image\/(png|jpeg|gif|webp|avif)|text\/plain)$/i;
+
+/* Die Oberfläche kann auch von GitHub Pages kommen (z. B. https://unterricks.janrickmer.de): Anfragen von dort an /api sind
+ * erlaubt (CORS). Angemeldet wird nur über „Authorization: Bearer“, nie über Cookies – fremde Seiten erhalten so nichts. */
+/* Herkünfte: https ohne Pfad; für lokale Tests auch http://localhost:PORT bzw. http://127.0.0.1:PORT */
+export const pagesOrigins = (env) => String((env && env.PAGES_ORIGINS) || "").split(/[\s,]+/).filter((o) => /^(https:\/\/[a-z0-9.-]+|http:\/\/(localhost|127\.0\.0\.1):\d+)$/i.test(o));
+export function corsHeaders(request, env) {
+  const o = request.headers.get("Origin");
+  if (!o || !pagesOrigins(env).includes(o)) return null;
+  return { "Access-Control-Allow-Origin": o, "Vary": "Origin", "Access-Control-Allow-Headers": "Authorization, Content-Type",
+    "Access-Control-Allow-Methods": "GET, POST, PUT, PATCH, DELETE, OPTIONS", "Access-Control-Max-Age": "86400", "Access-Control-Expose-Headers": "Content-Disposition" };
+}
+export function withCors(res, cors) {
+  if (!cors || !res || res.status === 101 || res.webSocket) return res;
+  const h = new Headers(res.headers);
+  for (const [k, v] of Object.entries(cors)) h.set(k, v);
+  return new Response(res.body, { status: res.status, statusText: res.statusText, headers: h });
+}

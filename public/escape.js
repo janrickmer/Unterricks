@@ -102,7 +102,8 @@ export async function escapePage(lessonId, opt = {}) {
       h("p", { class: "er-hint", text: "Deine Angaben bleiben auf diesem Gerät. Sie stehen später in deiner Überblick-PDF und werden im Feibeitsblatt vorausgefüllt." }));
     show("start", h("p", { class: "er-kicker", text: [subjectName(d.subject) || room.fach, "Selbsterarbeitung", preview ? "Vorschau" : null].filter(Boolean).join(" · ") }),
       h("h1", { class: "er-title", text: room.titel }), room.untertitel ? h("p", { class: "er-lede", text: room.untertitel }) : null, form);
-    setTimeout(() => fn.focus(), 30);
+    // nur, wenn noch kein Feld gewählt ist – sonst landet schnelles Tippen im falschen Feld
+    setTimeout(() => { if (!form.contains(document.activeElement)) fn.focus(); }, 30);
   }
 
   /* ---------- Zwischenstand laden ---------- */

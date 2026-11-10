@@ -20,17 +20,31 @@ export const CLASS_GROUPS = [
   { key: "E", label: "Einführungsphase (Jahrgangsstufe 11)", classes: LETTERS.map((l) => "E" + l) },
   { key: "Q", label: "Qualifikationsphase (Jahrgangsstufen 12 und 13)", classes: Q_COURSES },
 ];
-export const ALL_CLASSES = CLASS_GROUPS.flatMap((g) => g.classes);
+/* Ev. Religion und Ethik: in den Jahrgängen 5–10 und in der E-Phase je Jahrgang EIN Kurs mit Schüler:innen aus mehreren Klassen.
+ * Kennung „<Jahrgang>-K“ (z. B. „8-K“, „E-K“); welche Klassen dazugehören, legt die Lehrkraft fest (Fach-Einstellungen, courses).
+ * Schüler:innen wählen weiter ihre eigene Klasse – die Plattform ordnet sie über diese Zuordnung dem Kurs zu. */
+export const COURSE_SUBJECTS = ["evrel", "ethik"];
+export const COURSE_GRADES = ["5", "6", "7", "8", "9", "10", "E"];
+export const courseKey = (g) => g + "-K";
+export const COURSE_CLASSES = COURSE_GRADES.map(courseKey);
+export const isCourseClass = (k) => typeof k === "string" && COURSE_CLASSES.includes(k);
+export const isCourseSubject = (s) => COURSE_SUBJECTS.includes(s);
+export const ALL_CLASSES = [...CLASS_GROUPS.flatMap((g) => g.classes), ...COURSE_CLASSES];
 const CLASS_SET = new Set(ALL_CLASSES);
 export const isValidClass = (k) => typeof k === "string" && CLASS_SET.has(k);
 export const GRADE_KEYS = CLASS_GROUPS.map((g) => g.key);
 export const gradeKey = (k) => (/^\d+/.test(k) ? String(parseInt(k, 10)) : k ? k[0] : "");
-/* Anzeige: „7B“, „EA“, „Q3 LK“ */
-export const classShort = (k) => String(k || "").replace("-", " ");
+/* Anzeige: „7B“, „EA“, „Q3 LK“, „Kurs Jg. 8“, „Kurs E-Phase“ */
+export const classShort = (k) => (isCourseClass(k) ? "Kurs " + (k[0] === "E" ? "E-Phase" : "Jg. " + parseInt(k, 10)) : String(k || "").replace("-", " "));
 
 /* Jahrgangsstufe zu einer Klasse – für die KI und die Prompts */
 export function gradeInfo(k) {
   if (!isValidClass(k)) return { stufe: null, text: "", level: null, halfYear: null };
+  if (isCourseClass(k)) {
+    const multi = ", Kurs mit Schüler:innen aus mehreren Klassen des Jahrgangs";
+    return k[0] === "E" ? { stufe: 11, text: "Einführungsphase der gymnasialen Oberstufe (Jahrgangsstufe 11)" + multi, level: null, halfYear: "E", course: true }
+      : { stufe: parseInt(k, 10), text: "Jahrgangsstufe " + parseInt(k, 10) + " (Sekundarstufe I)" + multi, level: null, halfYear: null, course: true };
+  }
   const m = /^(\d+)[A-F]$/.exec(k);
   if (m) return { stufe: Number(m[1]), text: "Jahrgangsstufe " + m[1] + " (Sekundarstufe I)", level: null, halfYear: null };
   if (k[0] === "E") return { stufe: 11, text: "Einführungsphase der gymnasialen Oberstufe (Jahrgangsstufe 11)", level: null, halfYear: "E" };
@@ -39,7 +53,7 @@ export function gradeInfo(k) {
   return { stufe: jg, level: lvl, halfYear: "Q" + q,
     text: "Qualifikationsphase Q" + q + " der gymnasialen Oberstufe (Jahrgangsstufe " + jg + ", " + hj + ". Halbjahr), " + KURSARTEN[lvl] + " (" + (lvl === "LK" ? "erhöhtes" : "grundlegendes") + " Niveau)" };
 }
-export const classLabel = (k) => (isValidClass(k) ? "Klasse/Kurs " + classShort(k) + " – " + gradeInfo(k).text : "");
+export const classLabel = (k) => (isValidClass(k) ? (isCourseClass(k) ? "" : "Klasse/Kurs ") + classShort(k) + " – " + gradeInfo(k).text : "");
 /* Jahrgänge 5 und 6 haben keine iPads: nur analoge, ausdruckbare Materialien (keine Feibeitsblätter, keine Escape-Rooms) */
 export const isAnalogClass = (k) => { const s = gradeInfo(k).stufe; return s === 5 || s === 6; };
 export const ANALOG_RULE = "In den Jahrgängen 5 und 6 haben die Schüler:innen an dieser Schule keine iPads und können nicht digital lernen: Entwickle KEINE digitalen Arbeitsformate " +
@@ -62,14 +76,23 @@ export const DEFAULT_SUBJECT_CONFIG = {
   evrel: { grades: ALL_GRADES, gradeNotes: {}, rules: "" },
   ethik: { grades: ALL_GRADES, gradeNotes: {}, rules: "" },
 };
+/* Klassen eines Kurses: nur echte Klassen genau dieses Jahrgangs, ohne Doppelte, sortiert */
+export const courseMembersClean = (g, list) => [...new Set((Array.isArray(list) ? list : []).filter((k) => typeof k === "string" && /^(\d+|E)[A-F]$/.test(k) && isValidClass(k) && gradeKey(k) === g))].sort();
 export function subjectConfig(all, subject) {
   const d = DEFAULT_SUBJECT_CONFIG[subject] || { grades: ALL_GRADES, gradeNotes: {}, rules: "" };
   const c = (all && all[subject]) || {};
+  const courseMode = isCourseSubject(subject), courses = {};
+  if (courseMode && c.courses && typeof c.courses === "object") for (const g of COURSE_GRADES) { const m = courseMembersClean(g, c.courses[g]); if (m.length) courses[g] = m; }
   return { grades: Array.isArray(c.grades) && c.grades.length ? c.grades.filter((g) => ALL_GRADES.includes(g)) : d.grades,
-    gradeNotes: c.gradeNotes && typeof c.gradeNotes === "object" ? c.gradeNotes : d.gradeNotes, rules: typeof c.rules === "string" ? c.rules : d.rules, complete: !!c.complete };
+    gradeNotes: c.gradeNotes && typeof c.gradeNotes === "object" ? c.gradeNotes : d.gradeNotes, rules: typeof c.rules === "string" ? c.rules : d.rules, complete: !!c.complete,
+    courseMode, courses };
 }
 export const classGroupsFor = (cfg) => CLASS_GROUPS.filter((g) => cfg.grades.includes(g.key));
-export const classAllowed = (cfg, k) => isValidClass(k) && cfg.grades.includes(gradeKey(k));
+/* Kurse (z. B. „8-K“) nur in Ev. Religion und Ethik; echte Klassen bleiben dort für die Schüler:innen wählbar */
+export const classAllowed = (cfg, k) => isValidClass(k) && cfg.grades.includes(gradeKey(k)) && (!isCourseClass(k) || !!cfg.courseMode);
+export const courseMembers = (cfg, k) => (isCourseClass(k) && cfg && cfg.courses ? cfg.courses[gradeKey(k)] || [] : []);
+/* Kurs, zu dem eine echte Klasse gehört (z. B. 8B → „8-K“), sonst null */
+export const courseOf = (cfg, k) => { const g = gradeKey(k); return cfg && cfg.courseMode && COURSE_GRADES.includes(g) && (cfg.courses[g] || []).includes(k) ? courseKey(g) : null; };
 
 /* ---------- Datum (JJJJ-MM-TT, ohne Zeitzonen-Verschiebung) ---------- */
 const WD = ["So", "Mo", "Di", "Mi", "Do", "Fr", "Sa"];
@@ -86,6 +109,34 @@ export const CODE_ALPHABET = "ABCDEFGHJKMNPQRSTUVWXYZ23456789";
 export const normalizeCode = (s) => String(s == null ? "" : s).toUpperCase().replace(/[^A-Z0-9]/g, "");
 export const isValidCode = (c) => typeof c === "string" && /^[ABCDEFGHJKMNPQRSTUVWXYZ23456789]{6}$/.test(c) && /[A-Z]/.test(c) && /[0-9]/.test(c);
 export const formatCode = (c) => (c && c.length === 6 ? c.slice(0, 3) + "-" + c.slice(3) : String(c || ""));
+
+/* Öffentliche Adresse der Oberfläche (GitHub Pages mit eigener Domain) – für Hinweise im Schulportal */
+export const PUBLIC_URL = "https://unterricks.janrickmer.de";
+export const subjectShort = (id) => (SUBJECTS.find((s) => s.id === id) || {}).short || "";
+/* Lerngruppe kurz (Chat-Namen): Sek. I – Klasse oder Kurs – „Jg. 8“, E-Phase „E-Phase“, Qualifikationsphase „Q2 GK“ */
+export function groupShort(k) {
+  if (!isValidClass(k)) return "";
+  const g = gradeKey(k);
+  return g === "Q" ? classShort(k) : g === "E" ? "E-Phase" : "Jg. " + g;
+}
+const MONTHS = ["Januar", "Februar", "März", "April", "Mai", "Juni", "Juli", "August", "September", "Oktober", "November", "Dezember"];
+/* „25. November 2026“ */
+export const fmtLongDay = (iso) => (isIsoDate(iso) ? Number(iso.slice(8, 10)) + ". " + MONTHS[Number(iso.slice(5, 7)) - 1] + " " + iso.slice(0, 4) : "");
+/* Hausaufgabe fürs Schulportal (Vorgabe der Lehrkraft):
+ *   **Hausaufgabe zum 25. November 2026:**
+ *   (Leerzeile)
+ *   - Stichpunkt 1
+ *   - …
+ *   - Unter https://unterricks.janrickmer.de kannst du diese Sitzung mit dem Code ~~ABC-123~~ aufrufen, …
+ * Jede Zeile der Hausaufgabe wird ein Stichpunkt (vorhandene „- “/„* “ werden übernommen); der letzte Stichpunkt – nur im Schulportal,
+ * nicht in Unterricks – nennt den Weg zu dieser Sitzung. Datum = nächste Sitzung (Fälligkeit). Ohne Hausaufgabe nur dieser Hinweis.
+ * Schulportal-Zeichen: **…** = fett, „- “ = Aufzählung, ~~…~~ = kursiv (wie die Codes in der Vorlage). */
+export function homeworkForPortal(homework, code, dueDate) {
+  const items = String(homework == null ? "" : homework).replace(/\r\n?/g, "\n").split("\n").map((l) => l.replace(/^\s*(?:[-*•–]\s+)?/, "").trim()).filter(Boolean);
+  const hint = "Unter " + PUBLIC_URL + " kannst du diese Sitzung mit dem Code ~~" + formatCode(code) + "~~ aufrufen, um alle Materialien zu sehen und Abgaben eines Feibeitsblattes zu erledigen.";
+  if (!items.length) return "- " + hint;
+  return "**Hausaufgabe " + (isIsoDate(dueDate) ? "zum " + fmtLongDay(dueDate) : "zur nächsten Sitzung") + ":**\n\n" + [...items, hint].map((x) => "- " + x).join("\n");
+}
 
 /* ---------- Schulportal Hessen: Formatierung (support.schulportal.hessen.de, Artikel 664) ----------
  * **fett**  __unterstrichen__  ~~kursiv~~  --durchgestrichen--  `Quellcode`  Zeilen mit "- " = Aufzählung

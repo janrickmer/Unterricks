@@ -1,5 +1,5 @@
 // presenter.js – Präsentation (PDF) in Folienbilder umwandeln und im Vollbild live für alle zeigen.
-import { h, clear, api, toast, errToast } from "./ui.js";
+import { h, clear, api, apiUrl, wsUrl, toast, errToast, icon } from "./ui.js";
 
 let pdfjsP = null;
 async function pdfjs() {
@@ -27,7 +27,7 @@ export async function rasterizeAndUpload(file, fileId, token, onProgress) {
     const blob = await new Promise((res) => canvas.toBlob(res, "image/jpeg", 0.86));
     for (let attempt = 0; ; attempt++) {
       try {
-        const r = await fetch("/api/teacher/files/" + fileId + "/slides/" + i + "?w=" + canvas.width + "&h=" + canvas.height, { method: "PUT", headers: { Authorization: "Bearer " + token, "Content-Type": "image/jpeg" }, body: blob });
+        const r = await fetch(apiUrl("/api/teacher/files/" + fileId + "/slides/" + i + "?w=" + canvas.width + "&h=" + canvas.height), { method: "PUT", headers: { Authorization: "Bearer " + token, "Content-Type": "image/jpeg" }, body: blob });
         const d = await r.json().catch(() => null);
         if (!r.ok || !d || !d.ok) throw new Error((d && d.error) || "Folie " + i + " konnte nicht gespeichert werden.");
         break;
@@ -49,7 +49,7 @@ export class TeacherLive {
     if (this.closed) return;
     try {
       const t = await api("POST", "/api/teacher/lessons/" + this.lessonId + "/live-ticket", { token: this.token });
-      const ws = new WebSocket((location.protocol === "https:" ? "wss://" : "ws://") + location.host + t.url);
+      const ws = new WebSocket(wsUrl(t.url));
       this.ws = ws;
       ws.onopen = () => {
         this.fails = 0;
@@ -79,7 +79,7 @@ export async function fetchSlides(fileId, token) {
 // slides vorab laden (fetchSlides), damit das Vollbild ohne Wartezeit direkt aus dem Klick angefordert werden kann
 export async function startPresenter({ lessonId, file, token, startSlide = 1, onEnd, slides }) {
   const s = slides || (await fetchSlides(file.id, token));
-  const urls = s.urls, n = s.pages;
+  const urls = (s.urls || []).map(apiUrl), n = s.pages;
   let cur = Math.min(Math.max(1, startSlide), n), students = 0, connOk = true;
   const img = h("img", { alt: "", draggable: "false" });
   const counter = h("span", { class: "counter" });
@@ -90,7 +90,7 @@ export async function startPresenter({ lessonId, file, token, startSlide = 1, on
     h("div", { class: "bar" },
       h("button", { class: "btn small", type: "button", onclick: () => goto(cur - 1), "aria-label": "Vorherige Folie" }, "◀"),
       counter,
-      h("button", { class: "btn small", type: "button", onclick: () => goto(cur + 1), "aria-label": "Nächste Folie" }, "▶"),
+      h("button", { class: "btn small", type: "button", onclick: () => goto(cur + 1), "aria-label": "Nächste Folie" }, icon("right")),
       h("span", { class: "badge onair" }, h("span", { class: "dot" }), "LIVE für alle"), info,
       h("span", { class: "grow" }),
       fsBtn,
@@ -104,7 +104,7 @@ export async function startPresenter({ lessonId, file, token, startSlide = 1, on
     else if (m.t === "conn") connOk = m.ok;
     paintInfo();
   });
-  function paintInfo() { info.textContent = (connOk ? "" : "⚠ Verbindung wird wiederhergestellt … · ") + students + " Schüler:in" + (students === 1 ? "" : "nen") + " verbunden"; }
+  function paintInfo() { clear(info).append(...(connOk ? [] : [icon("alert"), "Verbindung wird wiederhergestellt … · "]), students + " Schüler:in" + (students === 1 ? "" : "nen") + " verbunden"); }
   function paint() { img.src = urls[cur - 1]; counter.textContent = cur + " / " + n; preload(cur + 1); preload(cur + 2); preload(cur - 1); }
   function goto(k) { k = Math.min(Math.max(1, k), n); if (k === cur) return; cur = k; paint(); live.send({ t: "goto", slide: cur }); }
   const isFs = () => !!(document.fullscreenElement || document.webkitFullscreenElement);

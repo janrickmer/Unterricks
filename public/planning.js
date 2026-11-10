@@ -1,7 +1,7 @@
 // planning.js – Unterrichtseinheiten (Leupold-Schema + Ablaufplan), Terminberechnung, Krankheitsvertretung, Claude-Prompts.
 // Gemeinsam für Browser und Worker (keine DOM-Zugriffe).
 import { subjectName, gradeInfo, classShort, isAnalogClass, ANALOG_RULE, fmtDay, addDays, isIsoDate, PORTAL_RULES, PORTAL_EXAMPLE, FEIBEITSBLATT_INFO,
-  SYSTEM_PROMPT_ROLE, UNIT_RULE_BASE, STOP_LINE, lessonContext, teacherWishes } from "./shared.js";
+  SYSTEM_PROMPT_ROLE, UNIT_RULE_BASE, STOP_LINE, lessonContext, teacherWishes, groupShort, subjectShort } from "./shared.js";
 import { ESCAPE_FORMAT_HINT } from "./escape-data.js";
 export { UNIT_RULE } from "./shared.js";
 
@@ -159,8 +159,17 @@ export function claudeUnitPrompt(ctx) {
 /* ---------- Prompt für Claude: eine Stunde planen (Hauptweg der Lehrkraft; claude.ai + Connector) ----------
  * ctx wie in der Sitzungsansicht (lessonId, subject, klass, lesson, materials, sheets, portal, unit, row, unitText, gradeNote)
  * + messages (Planungsverlauf der Plattform) + previousStop ({title, date, portal} der vorigen Stunde mit Zwischenstopp) */
+/* Name des Chats in claude.ai, z. B. „Jg. 8 - PoWi - Sitzung 1 - Das Bundesverfassungsgericht“: Lerngruppe, Fach, Stunde in der
+ * Unterrichtseinheit (ohne Einheit entfällt sie), Titel der Sitzung */
+export function lessonChatName(ctx) {
+  const L = (ctx && ctx.lesson) || {}, rows = (ctx && ctx.unit && ctx.unit.rows) || [];
+  const i = ctx && ctx.row ? rows.findIndex((r) => r && r.uid === ctx.row.uid) : -1;
+  const title = str(L.title).replace(/\s+/g, " ").trim().slice(0, 90);
+  return [groupShort(ctx && ctx.klass), subjectShort(ctx && ctx.subject), i >= 0 ? "Sitzung " + (i + 1) : null, title || null].filter(Boolean).join(" - ");
+}
+
 export function claudeLessonPrompt(ctx) {
-  const L = ctx.lesson || {}, analog = isAnalogClass(ctx.klass), unit = !!ctx.unitText, id = ctx.lessonId;
+  const L = ctx.lesson || {}, analog = isAnalogClass(ctx.klass), unit = !!ctx.unitText, id = ctx.lessonId, chatName = lessonChatName(ctx);
   const minutes = L.durationMin || (ctx.row && ctx.row.minutes) || null;
   const chat = (ctx.messages || []).filter((m) => (m.role === "user" || m.role === "assistant") && m.model !== "begruessung");
   const lastAnswers = chat.filter((m) => m.role === "assistant").slice(-2).map((m) => str(m.content).trim()).join("\n\n---\n\n");
@@ -174,6 +183,8 @@ export function claudeLessonPrompt(ctx) {
     unit ? "   - Abgestimmte Abweichung von der Einheit (Stundenfrage, grober Ablauf) → `update_unit_row`." : null,
   ];
   return [
+    "Chat-Name: " + chatName,
+    "",
     SYSTEM_PROMPT_ROLE,
     "",
     "Die Lehrkraft bin ich. Wir planen zusammen die folgende Unterrichtssitzung meiner Unterrichtsplattform „Unterricks“. Über den Connector „Unterricks“ liest du sie und speicherst Ergebnisse auf meinen Wunsch direkt dort. Arbeite gründlich und fachlich korrekt.",
@@ -197,6 +208,7 @@ export function claudeLessonPrompt(ctx) {
     "- Erfinde keine Quellen, Links oder Videos; kennzeichne Vorschläge, die ich prüfen sollte.",
     "",
     "## Vorgehen",
+    "0. Dieser Chat soll „" + chatName + "“ heißen. Beginne deine erste Antwort mit der Zeile „Chat-Name: " + chatName + "“ (umbenennen kann ich den Chat in claude.ai nur selbst).",
     "1. Rufe zuerst mit dem Connector „Unterricks“ `get_lesson` mit der Sitzungs-ID " + id + " auf: Dort stehen die aktuellen Daten, alle Materialien im Wortlaut, der bisherige Planungsverlauf und der Schulportal-Eintrag mit seiner Version." +
       (ctx.unit && ctx.unit.id ? " Die ganze Unterrichtseinheit (Leupold-Schema, alle Stunden) liefert `get_unit` mit der ID " + ctx.unit.id + "." : "") +
       " Brauchst du die Vorgaben im Wortlaut (Schulcurriculum, KCGO, Abiturerlass), liefert sie `get_planning_basis` mit der Sitzungs-ID.",

@@ -17,7 +17,7 @@ import { SUBJECTS, ALL_CLASSES, subjectName, gradeInfo, formatCode, lessonContex
 const MODERN = "2026-07-28";
 const LEGACY = ["2025-11-25", "2025-06-18", "2025-03-26", "2024-11-05"];
 const SERVER_INFO = { name: "unterricks", title: "Unterricks – Unterrichtsplattform", version: "1.0.0" };
-const INSTRUCTIONS = "Unterricks ist die Unterrichtsplattform der Lehrkraft (Fächer: Politik und Wirtschaft, Evangelische Religion, Ethik; Klassen 5A–10F, EA–EF und in der Qualifikationsphase je Kurshalbjahr Grund- und Leistungskurs, z. B. Q3-LK). " +
+const INSTRUCTIONS = "Unterricks ist die Unterrichtsplattform der Lehrkraft (Fächer: Politik und Wirtschaft, Evangelische Religion, Ethik; Klassen 5A–10F, EA–EF und in der Qualifikationsphase je Kurshalbjahr Grund- und Leistungskurs, z. B. Q3-LK; in Ev. Religion und Ethik gibt es in den Jahrgängen 5–10 und in der E-Phase je Jahrgang einen Kurs mit Schüler:innen aus mehreren Klassen, z. B. 8-K oder E-K). " +
   "Geplant wird in Unterrichtseinheiten (Leupold-Schema: Ausgangslage → Lernschritte → zentrale Lernaufgabe; Ablauf als Tabelle mit Stundenfrage und grobem Stundenablauf); jede Sitzung gehört zu einer Zeile ihrer Einheit. " +
   "Planungsgrundlagen (Schulcurriculum, KCGO, E-Phasen-Curriculum, Abiturerlass je Kurs) liefert get_planning_basis. In den Jahrgängen 5 und 6 gibt es keine iPads: dort nur analoges, ausdruckbares Material. " +
   "Jede Unterrichtssitzung hat Fach, Klasse, Thema, Dauer, Ideen der Lehrkraft, einen Planungsverlauf (Chat), Materialien, Feibeitsblätter und einen Schulportal-Eintrag. " +
@@ -27,7 +27,7 @@ const INSTRUCTIONS = "Unterricks ist die Unterrichtsplattform der Lehrkraft (Fä
   "Der Schulportal-Eintrag verwendet die Schulportal-Zeichen (" + PORTAL_RULES.join("; ") + ") und folgt dieser Vorlage:\n" + PORTAL_EXAMPLE;
 
 const SUBJECT_ARG = { type: "string", description: "Fach: powi (Politik und Wirtschaft), evrel (Evangelische Religion) oder ethik", enum: SUBJECTS.map((s) => s.id) };
-const CLASS_ARG = { type: "string", description: "Klasse/Kurs, z. B. 7B, EA oder Q2-GK", enum: ALL_CLASSES };
+const CLASS_ARG = { type: "string", description: "Klasse/Kurs, z. B. 7B, EA, Q2-GK oder 8-K (Kurs Jg. 8 in Ev. Religion/Ethik)", enum: ALL_CLASSES };
 const UNIT_ID = { type: "string", description: "ID der Unterrichtseinheit (16 Hex-Zeichen, aus list_units)", pattern: "^[a-f0-9]{16}$" };
 const ID_ARG = { type: "string", description: "Sitzungs-ID (16 Hex-Zeichen, aus list_lessons)", pattern: "^[a-f0-9]{16}$" };
 const ro = { readOnlyHint: true, destructiveHint: false, openWorldHint: false };

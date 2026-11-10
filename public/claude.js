@@ -14,7 +14,7 @@ export const EFFORTS = [
 ];
 const pick = (k, list, def) => { const v = store.get(k); return list.some((x) => x[0] === v) ? v : def; };
 
-/* opt = { title, prompt (String oder Funktion), intro, after } */
+/* opt = { title, prompt (String oder Funktion), intro, after, chatName (optional, Funktion oder String) } */
 export function claudeHandoff(opt) {
   let model = pick("u.claude.model", MODELS, "opus"), effort = pick("u.claude.effort", EFFORTS, "high");
   const radios = (name, list, cur, set) => h("div", { class: "stack", role: "radiogroup", "aria-label": name }, list.map(([v, label, hint]) => h("label", { style: { fontWeight: 400, display: "flex", gap: ".5rem", alignItems: "flex-start" } },
@@ -24,6 +24,12 @@ export function claudeHandoff(opt) {
     h("div", { class: "meta-grid" },
       h("div", null, h("h3", { text: "Welches Sprachmodell?" }), radios("cm", MODELS, model, (v) => { model = v; store.set("u.claude.model", v); })),
       h("div", null, h("h3", { text: "Mit welchem Aufwand?" }), radios("ce", EFFORTS, effort, (v) => { effort = v; store.set("u.claude.effort", v); }))),
+    opt.chatName ? (() => {
+      const name = typeof opt.chatName === "function" ? opt.chatName() : opt.chatName;
+      return h("div", { class: "notice", style: { marginTop: ".8rem" } }, h("strong", { text: "Name des Chats: " }), h("span", { class: "mono", text: name }), " ",
+        h("button", { class: "btn small", type: "button", onclick: async () => toast((await copyText(name)) ? "Chat-Name kopiert." : "Kopieren nicht möglich.", "ok") }, "Chat-Namen kopieren"),
+        h("p", { class: "hint", text: "Der Name steht ganz oben im Prompt, und Claude nennt ihn in der ersten Antwort. Den Namen eines Chats vergibt claude.ai selbst – passt er nicht, in claude.ai oben auf den Chat-Titel klicken, „Umbenennen“ wählen und den Namen einfügen." }));
+    })() : null,
     h("ol", { class: "small", style: { marginTop: ".8rem" } },
       h("li", null, "Klicken Sie auf „Prompt kopieren“ und öffnen Sie claude.ai."),
       h("li", null, "Stellen Sie dort im Modellmenü das gewählte Modell und – falls angeboten – den Denkaufwand ein (die Plattform kann das in claude.ai nicht selbst einstellen)."),

@@ -1,10 +1,10 @@
 // session.js – Sitzungsansicht der Lehrkraft: Planung im Chat, Schulportal-Eintrag, Claude-Prompts, Material, Präsentation, Feibeitsblatt.
-import { h, clear, toast, errToast, busy, modal, confirmDialog, copyText, fmtBytes, fmtDate, fmtTime, fileIcon, downloadUrl, downloadBlob, upload, api, nn } from "./ui.js";
+import { h, clear, toast, errToast, busy, modal, confirmDialog, copyText, fmtBytes, fmtDate, fmtTime, fileIcon, downloadUrl, downloadBlob, upload, api, apiUrl, nn, icon, pageHead, setFach, stateLine } from "./ui.js";
 import { render, go, onLeave } from "./app.js";
 import { T, tapi, teacherBar } from "./teacher.js";
 import { subjectName, gradeInfo, formatCode, claudePresentationPrompt, PORTAL_RULES, portalForCopy, insertStop, removeStops, hasStop, isStopLine,
-  fmtDay, classShort, gradeKey, isAnalogClass, ANALOG_RULE } from "./shared.js";
-import { extractUnitChange, stripUnitBlock, unitContext, claudeLessonPrompt } from "./planning.js";
+  fmtDay, classShort, gradeKey, isAnalogClass, ANALOG_RULE, isCourseClass, courseMembers, homeworkForPortal, PUBLIC_URL } from "./shared.js";
+import { extractUnitChange, stripUnitBlock, unitContext, claudeLessonPrompt, lessonChatName } from "./planning.js";
 import { claudeHandoff } from "./claude.js";
 import { leupoldView } from "./units.js";
 import { substituteCards } from "./substitute.js";
@@ -31,15 +31,19 @@ export async function sessionPage(id) {
     portal: portalTA ? portalTA.value : L().portal, unit: st.unit, row: row(), unitText: st.unit ? unitContext(st.unit, L().unitRow) : "",
     gradeNote: cfg && cfg[L().subject] ? (cfg[L().subject].gradeNotes || {})[gradeKey(L().klass)] || "" : "" });
 
+  // Kopfband in der Fachfarbe: Folgennummer der Stunde in der Einheit, Fach, Kurs, Datum, Dauer
   const heading = h("h1", { text: L().title });
-  const subline = h("p", { class: "muted" });
-  const paintSubline = () => { subline.textContent = subjectName(L().subject) + " · " + classShort(L().klass) + " · " + gradeInfo(L().klass).text + (L().date ? " · " + fmtDay(L().date) : ""); };
+  const subline = h("div", { class: "chips" });
+  const paintSubline = () => {
+    const r = row(), idx = r && st.unit ? (st.unit.rows || []).indexOf(r) : -1;
+    clear(subline).append(...nn(idx >= 0 ? h("span", { class: "chip strong", text: "Stunde " + (idx + 1) + " von " + st.unit.rows.length }) : null,
+      h("span", { class: "chip", text: subjectName(L().subject) }), h("span", { class: "chip", text: classShort(L().klass), title: gradeInfo(L().klass).text }),
+      L().date ? h("span", { class: "chip", text: fmtDay(L().date) }) : null, L().durationMin ? h("span", { class: "chip", text: L().durationMin + " Minuten" }) : null));
+  };
   paintSubline();
-  clear(main).append(
-    h("div", { class: "crumbs" }, h("a", { href: "#/lk" }, "Fächer"), "›", h("a", { href: "#/lk/f/" + L().subject }, subjectName(L().subject)), "›",
-      h("a", { href: "#/lk/f/" + L().subject + "/" + L().klass }, classShort(L().klass)), "›",
-      ...(st.unit ? [h("a", { href: "#/lk/u/" + st.unit.id }, st.unit.title || "Einheit"), "›"] : []), h("span", { text: L().title })),
-    heading, subline);
+  clear(main).append(pageHead({ fach: L().subject, title: heading, sub: subline,
+    crumbs: [["#/lk", "Fächer"], ["#/lk/f/" + L().subject, subjectName(L().subject)], ["#/lk/f/" + L().subject + "/" + L().klass, classShort(L().klass)],
+      ...(st.unit ? [["#/lk/u/" + st.unit.id, st.unit.title || "Einheit"]] : []), L().title] }));
 
   /* ======================= Unterrichtseinheit ======================= */
   const unitCard = h("section", { class: "card unitbox" });
@@ -52,14 +56,14 @@ export async function sessionPage(id) {
     const u = st.unit, r = row(), idx = r ? u.rows.indexOf(r) : -1, step = r && r.schritt != null ? (u.plan.schritte || [])[r.schritt] : null;
     unitCard.append(...nn(h("div", { class: "section-title" }, h("h2", { text: "Unterrichtseinheit: " + (u.title || (u.plan && u.plan.titel) || "ohne Titel") }), h("a", { class: "btn small", href: "#/lk/u/" + u.id }, "Einheit öffnen")),
       r ? h("p", { class: "small" }, h("strong", { text: "Stunde " + (idx + 1) + " von " + u.rows.length }), step ? " · Lernschritt " + (r.schritt + 1) + ": " + step.titel : "") : h("p", { class: "small warnc", text: "Die Zeile dieser Sitzung steht nicht mehr in der Einheit." }),
-      r ? h("div", { class: "unit-row" }, h("div", null, h("div", { class: "lp-cap", text: "STUNDENFRAGE" }), h("div", { text: r.stundenfrage || "(noch offen)" })),
-        h("div", null, h("div", { class: "lp-cap", text: "GROBER ABLAUF (INSPIRATION)" }), r.ablauf.length ? h("ul", null, r.ablauf.map((a) => h("li", { text: a }))) : h("div", { class: "muted", text: "–" }))) : null,
+      r ? h("div", { class: "unit-row" }, h("div", null, h("div", { class: "lp-cap", text: "Stundenfrage" }), h("div", { text: r.stundenfrage || "(noch offen)" })),
+        h("div", null, h("div", { class: "lp-cap", text: "Grober Ablauf (Inspiration)" }), r.ablauf.length ? h("ul", null, r.ablauf.map((a) => h("li", { text: a }))) : h("div", { class: "muted", text: "–" }))) : null,
       u.plan && u.plan.lernaufgabe ? h("p", { class: "small", style: { marginTop: ".5rem" } }, h("strong", { text: "Zentrale Lernaufgabe: " }), u.plan.lernaufgabe) : null,
       h("details", { class: "box" }, h("summary", null, "Leupold-Schema der Einheit"), leupoldView(u, r ? r.schritt : null)),
       h("p", { class: "hint", text: "Die Planungsassistenz bezieht sich auf die Einheit; der Ablauf dort ist nur Inspiration. Schlägt sie eine Änderung der Stundenfrage oder des Ablaufs vor, können Sie diese mit einem Klick in die Einheit übernehmen." })));
   }
   function unitChangeBox(ch) {
-    const box = h("div", { class: "unit-change" }, h("div", { class: "lp-cap", text: "VORGESCHLAGENE ÄNDERUNG DER EINHEIT" }),
+    const box = h("div", { class: "unit-change" }, h("div", { class: "lp-cap", text: "Vorgeschlagene Änderung der Einheit" }),
       ch.stundenfrage ? h("p", { class: "small" }, h("strong", { text: "Stundenfrage: " }), ch.stundenfrage) : null,
       ch.ablauf.length ? h("ul", { class: "small" }, ch.ablauf.map((a) => h("li", { text: a }))) : null,
       ch.begruendung ? h("p", { class: "small muted" }, h("strong", { text: "Begründung: " }), ch.begruendung) : null);
@@ -93,7 +97,7 @@ export async function sessionPage(id) {
     if (!pending && m.id) tools.append(h("button", { class: "btn small ghost", type: "button", "aria-label": "Nachricht löschen", onclick: async () => {
       if (!(await confirmDialog("Nachricht löschen", "Diese Nachricht aus dem Planungsverlauf entfernen?", "Löschen", true))) return;
       try { await tapi("DELETE", "/api/teacher/lessons/" + id + "/chat/" + m.id); st.messages = st.messages.filter((x) => x.id !== m.id); paintMsgs(); } catch (e) { errToast(e); }
-    } }, "🗑"));
+    } }, icon("trash")));
     const who = m.role === "user" ? "Sie" : m.model === "begruessung" ? "Planungsassistent" : m.mode === "claude" ? "Claude (über Connector)" : "Planungsassistent" + (m.model ? " · " + m.model : "");
     return h("div", { class: "msg " + m.role + (pending ? " pending" : "") }, h("div", { class: "who" }, h("span", { text: who }), m.createdAt ? h("span", { text: fmtTime(m.createdAt) }) : null), body, tools.childNodes.length ? tools : null);
   }
@@ -194,7 +198,7 @@ export async function sessionPage(id) {
   const genPortalBtn = h("button", { class: "btn primary", type: "button" }, "Schulportal-Eintrag erstellen");
   function paintPreview() { paintPortalPreview(preview, portalTA.value); updateStopBtns(); }
   /* ---- Zwischenstopp: Rechtsklick auf eine Zeile (Textfeld oder Vorschau) → „Zwischenstopp einfügen“ (vor dieser Zeile) ---- */
-  const stopBtn = h("button", { class: "btn", type: "button", title: "Vor der Zeile mit der Schreibmarke einfügen" }, "⏸ Zwischenstopp einfügen");
+  const stopBtn = h("button", { class: "btn", type: "button", title: "Vor der Zeile mit der Schreibmarke einfügen" }, icon("pause"), "Zwischenstopp einfügen");
   const unstopBtn = h("button", { class: "btn ghost hidden", type: "button" }, "Zwischenstopp entfernen");
   function updateStopBtns() { if (portalTA) unstopBtn.classList.toggle("hidden", !hasStop(portalTA.value)); }
   const lineAt = (offset) => portalTA.value.slice(0, Math.max(0, offset)).split("\n").length - 1;
@@ -207,7 +211,7 @@ export async function sessionPage(id) {
   function stopMenu(line, x, y) {
     const onStop = isStopLine(portalTA.value.split("\n")[line] || "");
     contextMenu(x, y, onStop ? [{ label: "Zwischenstopp entfernen", danger: true, onClick: dropStop }]
-      : [{ label: "⏸ Zwischenstopp einfügen", onClick: () => insertStopAt(line) }, ...(hasStop(portalTA.value) ? [{ label: "Zwischenstopp entfernen", danger: true, onClick: dropStop }] : [])]);
+      : [{ label: [icon("pause"), "Zwischenstopp einfügen"], onClick: () => insertStopAt(line) }, ...(hasStop(portalTA.value) ? [{ label: "Zwischenstopp entfernen", danger: true, onClick: dropStop }] : [])]);
   }
   stopBtn.addEventListener("click", () => insertStopAt(lineAt(portalTA.selectionStart || 0)));
   unstopBtn.addEventListener("click", dropStop);
@@ -218,7 +222,7 @@ export async function sessionPage(id) {
     const el = e.target.closest("[data-line]"); if (el) stopMenu(Number(el.dataset.line), e.clientX, e.clientY);
   });
   const setPresBtn = () => { const has = !!(portalTA && portalTA.value.trim()); presPromptBtn.disabled = !has; presPromptBtn.title = has ? "" : "Erst einen Schulportal-Eintrag erstellen"; };
-  function setSaved(text) { portalState.textContent = text; }
+  function setSaved(text, kind) { stateLine(portalState, text, kind); }
   function schedulePortal() { portal.dirty = true; setSaved("Ungespeicherte Änderungen …"); clearTimeout(portal.timer); portal.timer = setTimeout(() => flushPortal(), 1200); }
   function flushPortal(force) {
     clearTimeout(portal.timer);
@@ -228,12 +232,12 @@ export async function sessionPage(id) {
       try {
         const r = await tapi("PUT", "/api/teacher/lessons/" + id + "/portal", { body: force ? { text, force: true } : { text, baseVersion: portal.version } });
         portal.version = r.portal.version; L().portal = text; L().portalVersion = r.portal.version;
-        setSaved("Gespeichert ✓ " + new Date().toLocaleTimeString("de-DE", { hour: "2-digit", minute: "2-digit" }) + " (Version " + r.portal.version + ")");
+        setSaved("Gespeichert " + new Date().toLocaleTimeString("de-DE", { hour: "2-digit", minute: "2-digit" }) + " (Version " + r.portal.version + ")", "ok");
         if (portalTA.value !== text) schedulePortal();
         return true;
       } catch (e) {
         if (e.status === 409 && e.data && e.data.current) { await portalConflict(e.data.current, text); return false; }
-        portal.dirty = true; setSaved("⚠ Nicht gespeichert: " + e.message); return false;
+        portal.dirty = true; setSaved("Nicht gespeichert: " + e.message, "err"); return false;
       }
     });
     return portal.chain;
@@ -300,7 +304,7 @@ export async function sessionPage(id) {
     const prompt = claudePresentationPrompt(ctx(), text, st.messages);
     const ok = await copyText(prompt);
     flushPortal();
-    clear(presPromptOut).append(h("details", { class: "box", open: ok ? null : true }, h("summary", null, ok ? "Prompt kopiert ✓ – in claude.ai einfügen (anzeigen)" : "Bitte den Prompt manuell kopieren"),
+    clear(presPromptOut).append(h("details", { class: "box", open: ok ? null : true }, h("summary", null, ok ? [icon("check"), "Prompt kopiert – in claude.ai einfügen (anzeigen)"] : "Bitte den Prompt manuell kopieren"),
       h("textarea", { rows: "10", readonly: true, value: prompt, class: "mono", style: { fontSize: ".82rem", marginTop: ".5rem" } }),
       h("p", { class: "hint" }, "Grundlage ist genau dieser Stand des Schulportal-Eintrags. ", h("a", { href: "https://claude.ai/new", target: "_blank", rel: "noopener" }, "claude.ai öffnen"))));
     toast(ok ? "Präsentations-Prompt in die Zwischenablage kopiert." : "Kopieren nicht möglich – bitte manuell kopieren.", ok ? "ok" : "err");
@@ -316,16 +320,18 @@ export async function sessionPage(id) {
   let hwT = null;
   const saveHw = async () => {
     clearTimeout(hwT); hwT = null;
-    try { const r = await tapi("PATCH", "/api/teacher/lessons/" + id, { body: { homework: hwTA.value } }); L().homework = r.lesson.homework; L().nextDate = r.lesson.nextDate; paintDue(); hwState.textContent = "Gespeichert ✓"; }
-    catch (e) { hwState.textContent = "⚠ " + e.message; }
+    try { const r = await tapi("PATCH", "/api/teacher/lessons/" + id, { body: { homework: hwTA.value } }); L().homework = r.lesson.homework; L().nextDate = r.lesson.nextDate; paintDue(); stateLine(hwState, "Gespeichert", "ok"); }
+    catch (e) { stateLine(hwState, e.message, "err"); }
   };
-  hwTA.addEventListener("input", () => { hwState.textContent = "…"; clearTimeout(hwT); hwT = setTimeout(saveHw, 900); });
+  hwTA.addEventListener("input", () => { stateLine(hwState, "…"); clearTimeout(hwT); hwT = setTimeout(saveHw, 900); });
   hwTA.addEventListener("blur", () => { if (hwTA.value !== (L().homework || "")) saveHw(); });
   paintDue();
   const hwCard = h("section", { class: "card homework" }, h("div", { class: "section-title" }, h("h2", { text: "Hausaufgabe bis zur nächsten Sitzung" }), hwState),
     h("label", { for: "hw" }, "Hausaufgabe (für Schüler:innen sichtbar)"), hwTA, hwDue,
-    h("div", { class: "row" }, h("button", { class: "btn small", type: "button", onclick: async () => toast((await copyText(hwTA.value)) ? "Hausaufgabe kopiert – im Schulportal in das Feld „Hausaufgabe“ einfügen." : "Bitte manuell kopieren.", "ok") }, "Für das Schulportal kopieren")),
-    h("p", { class: "hint", text: "Schüler:innen sehen sie in dieser Sitzung direkt unter der Live-Präsentation und in ihrer Sitzungsliste. Schulportal-Zeichen (**fett**, ~~kursiv~~) sind erlaubt." }));
+    h("div", { class: "row" }, h("button", { class: "btn small", type: "button", onclick: async () => toast((await copyText(homeworkForPortal(hwTA.value, L().code, L().nextDate)))
+      ? (hwTA.value.trim() ? "Hausaufgabe kopiert" : "Keine Hausaufgabe eingetragen – nur der Hinweis auf die Sitzung kopiert") + " – im Schulportal in das Feld „Hausaufgabe“ einfügen." : "Bitte manuell kopieren.", "ok", 6000) }, "Für das Schulportal kopieren")),
+    h("p", { class: "hint", text: "Schüler:innen sehen sie in dieser Sitzung direkt unter der Live-Präsentation und in ihrer Sitzungsliste. Schulportal-Zeichen (**fett**, ~~kursiv~~) sind erlaubt. " +
+      "Beim Kopieren für das Schulportal setzt Unterricks die fette Überschrift „Hausaufgabe zum …:“ (Datum der nächsten Sitzung) davor, macht aus jeder Zeile einen Stichpunkt und ergänzt als letzten Stichpunkt „Unter " + PUBLIC_URL + " kannst du diese Sitzung mit dem Code " + formatCode(L().code) + " aufrufen …“ – in Unterricks sehen die Schüler:innen diesen Hinweis nicht." }));
 
   const presPromptCard = h("section", { class: "card" }, h("div", { class: "section-title" }, h("h2", { text: "Präsentation mit Claude erstellen" })),
     h("p", { class: "small", text: "Erzeugt einen ausführlichen Prompt für Claude (claude.ai), der eine vollständige PowerPoint-Präsentation samt PDF-Fassung für diese Stunde anfordert – auf Grundlage des aktuellen Schulportal-Eintrags, der Materialien und Ihrer Planung." }),
@@ -345,15 +351,15 @@ export async function sessionPage(id) {
     acts.append(
       h("button", { class: "btn small", type: "button", title: "In den anderen Bereich verschieben", onclick: async () => {
         try { const r = await tapi("PATCH", "/api/teacher/files/" + f.id, { body: { area: other } }); Object.assign(f, r.file); paintFiles(); toast(other === "student" ? "Jetzt für Schüler:innen sichtbar." : "Jetzt nur noch für Lehrkräfte.", "ok"); } catch (e) { errToast(e); }
-      } }, other === "student" ? "→ für Schüler:innen" : "→ nur Lehrkraft"),
+      } }, icon("right"), other === "student" ? "Für Schüler:innen" : "Nur für Lehrkraft"),
       h("button", { class: "btn small ghost", type: "button", "aria-label": "Umbenennen", onclick: async () => {
         const n = prompt("Neuer Name:", f.name); if (!n) return;
         try { const r = await tapi("PATCH", "/api/teacher/files/" + f.id, { body: { name: n } }); Object.assign(f, r.file); paintFiles(); } catch (e) { errToast(e); }
-      } }, "✎"),
+      } }, icon("edit")),
       h("button", { class: "btn small ghost danger", type: "button", "aria-label": "Löschen", onclick: async () => {
         if (!(await confirmDialog("Datei löschen", "„" + f.name + "“ endgültig löschen?", "Löschen", true))) return;
         try { await tapi("DELETE", "/api/teacher/files/" + f.id); st.files = st.files.filter((x) => x !== f); paintFiles(); } catch (e) { errToast(e); }
-      } }, "🗑"));
+      } }, icon("trash")));
     return h("div", { class: "item" }, fileIcon(f.name, f.mime, f.kind), h("div", { class: "main" }, h("div", { class: "name", text: f.name }),
       h("div", { class: "meta", text: (f.kind === "text" ? "Text (PDF-Download)" : fmtBytes(f.size)) + (f.source === "claude" ? " · von Claude" : f.source === "chat" ? " · aus dem Chat" : f.source === "vertretung" ? " · Vertretung" : f.source === "uebernommen" ? " · übernommen" : "") + " · " + fmtTime(f.createdAt) })), acts);
   }
@@ -418,7 +424,7 @@ export async function sessionPage(id) {
       return;
     }
     if (!st.slides) { try { st.slides = await tapi("GET", "/api/teacher/files/" + p.id + "/slides"); } catch (e) { errToast(e); } }
-    const thumbs = h("div", { class: "thumbs" }, st.slides ? st.slides.urls.slice(0, 8).map((u, i) => h("img", { src: u, alt: "Folie " + (i + 1), loading: "lazy" })) : null);
+    const thumbs = h("div", { class: "thumbs" }, st.slides ? st.slides.urls.slice(0, 8).map((u, i) => h("img", { src: apiUrl(u), alt: "Folie " + (i + 1), loading: "lazy" })) : null);
     const liveLine = h("div", { class: "small" });
     const startBtn = h("button", { class: "btn onair big", type: "button" }, "Ich bin im Unterricht und starte die Präsentation für alle.");
     startBtn.addEventListener("click", async () => {
@@ -442,7 +448,7 @@ export async function sessionPage(id) {
           h("button", { class: "btn small ghost danger", type: "button", onclick: async () => {
             if (!(await confirmDialog("Präsentation löschen", "Präsentation und Folienbilder löschen? Eine laufende Live-Anzeige endet.", "Löschen", true))) return;
             try { await tapi("DELETE", "/api/teacher/files/" + p.id); st.files = st.files.filter((x) => x !== p); st.slides = null; paintPres(); } catch (e) { errToast(e); }
-          } }, "🗑"))),
+          } }, icon("trash")))),
       thumbs, startBtn, liveLine,
       h("p", { class: "hint", text: "Startet das Vollbild hier und zeigt dieselbe Folie oben in der Schüleransicht aller freigeschalteten Schüler:innen. Weiter mit →, Leertaste, Bildtaste (Presenter) oder Tippen; Schüler:innen können nicht selbst blättern. Die ganze PDF können sie erst 90 Minuten nach ihrem ersten Betreten selbst öffnen." }),
       h("details", { class: "box" }, h("summary", null, "Andere Präsentation hochladen"), zone));
@@ -503,7 +509,7 @@ export async function sessionPage(id) {
         h("button", { class: "btn small ghost danger", type: "button", "aria-label": "Aus der Sitzung entfernen", onclick: async () => {
           if (!(await confirmDialog("Feibeitsblatt entfernen", "„" + s.title + "“ aus dieser Sitzung entfernen? Das Blatt selbst bleibt im Feibeitsblatt erhalten.", "Entfernen", true))) return;
           try { await tapi("DELETE", "/api/teacher/lessons/" + id + "/sheets/" + s.code); st.sheets = st.sheets.filter((x) => x !== s); paintFb(); } catch (e) { errToast(e); }
-        } }, "🗑"))));
+        } }, icon("trash")))));
     // vorhandenes Blatt verknüpfen
     const linkBox = h("details", { class: "box" }, h("summary", null, "Vorhandenes Feibeitsblatt verknüpfen"));
     linkBox.addEventListener("toggle", async () => {
@@ -529,7 +535,7 @@ export async function sessionPage(id) {
         h("button", { class: "btn small ghost danger", type: "button", "aria-label": "Entwurf verwerfen", onclick: async () => {
           if (!(await confirmDialog("Entwurf verwerfen", "Diesen Entwurf löschen?", "Verwerfen", true))) return;
           try { await tapi("DELETE", "/api/teacher/fb-drafts/" + dr.id); st.drafts = st.drafts.filter((x) => x !== dr); paintFb(); } catch (e) { errToast(e); }
-        } }, "🗑"))));
+        } }, icon("trash")))));
     const wish = h("input", { placeholder: "Optional: Wunsch, z. B. „3 Aufgaben zur Analyse der Karikatur“" });
     const genBtn = h("button", { class: "btn", type: "button", onclick: (e) => busy(e.currentTarget, async () => {
       await flushPortal();
@@ -562,8 +568,8 @@ export async function sessionPage(id) {
         typ.onchange = syncAns; cols.oninput = syncAns; rows.oninput = syncAns;
         tasksBox.append(h("div", { class: "task-edit" },
           h("div", { class: "row between" }, h("strong", { text: "Aufgabe " + (i + 1) }), h("div", { class: "row" },
-            h("button", { class: "btn small ghost", type: "button", disabled: i === 0 ? true : null, onclick: () => { data.tasks.splice(i - 1, 0, data.tasks.splice(i, 1)[0]); paintTasks(); } }, "↑"),
-            h("button", { class: "btn small ghost", type: "button", disabled: i === data.tasks.length - 1 ? true : null, onclick: () => { data.tasks.splice(i + 1, 0, data.tasks.splice(i, 1)[0]); paintTasks(); } }, "↓"),
+            h("button", { class: "btn small ghost iconbtn", type: "button", "aria-label": "Aufgabe " + (i + 1) + " nach oben", disabled: i === 0 ? true : null, onclick: () => { data.tasks.splice(i - 1, 0, data.tasks.splice(i, 1)[0]); paintTasks(); } }, icon("up")),
+            h("button", { class: "btn small ghost iconbtn", type: "button", "aria-label": "Aufgabe " + (i + 1) + " nach unten", disabled: i === data.tasks.length - 1 ? true : null, onclick: () => { data.tasks.splice(i + 1, 0, data.tasks.splice(i, 1)[0]); paintTasks(); } }, icon("down")),
             h("button", { class: "btn small ghost danger", type: "button", disabled: data.tasks.length === 1 ? true : null, onclick: () => { data.tasks.splice(i, 1); paintTasks(); } }, "Entfernen"))),
           h("div", { class: "field" }, h("label", null, "Aufgabenstellung"), text),
           h("div", { class: "field" }, h("label", null, "Material (optional, Text)"), mat),
@@ -681,8 +687,8 @@ export async function sessionPage(id) {
     const t = (v, n) => String(v == null ? "" : v).slice(0, n);
     const st = (Array.isArray(e.stations) ? e.stations : []).slice(0, 20);
     const clean = st.filter((x) => x && x.attempts === 1 && !(Array.isArray(x.errors) && x.errors.length)).length;
-    return h("details", { class: "escbox small" }, h("summary", null, "Escape-Room „" + t(e.room && e.room.name, 80) + "“: Lösungswort " + t(e.word, 20) + " · " + clean + " von " + st.length + " Stationen im ersten Versuch fehlerfrei" +
-      (e.check === "mismatch" ? " · ⚠ Prüfsumme stimmt nicht (Datensatz verändert?)" : "")),
+    return h("details", { class: "escbox small" }, h("summary", null, "Escape-Room „" + t(e.room && e.room.name, 80) + "“: Lösungswort " + t(e.word, 20) + " · " + clean + " von " + st.length + " Stationen im ersten Versuch fehlerfrei",
+      e.check === "mismatch" ? [" · ", h("span", { class: "warnc", text: "Prüfsumme stimmt nicht (Datensatz verändert?)" })] : null),
       h("ul", null, st.map((x) => h("li", null, t(x && x.label, 200) + " – " + (x && Number.isInteger(x.attempts) ? x.attempts : "?") + " Versuch(e)",
         Array.isArray(x && x.errors) && x.errors.length ? h("ul", null, x.errors.slice(0, 30).map((er) => h("li", { text: t(er && er.item, 300) + (er && er.wrong ? " – Antwort: " + t(er.wrong, 200) : "") + (er && er.right ? " – richtig: " + t(er.right, 200) : "") }))) : null))));
   }
@@ -708,7 +714,9 @@ export async function sessionPage(id) {
     h("div", { class: "row", style: { marginTop: ".6rem" } },
       h("button", { class: "btn small", type: "button", onclick: async () => toast((await copyText(formatCode(L().code))) ? "Code kopiert." : "Kopieren nicht möglich.", "ok") }, "Kopieren"),
       h("button", { class: "btn small", type: "button", onclick: async () => (await import("./presenter.js")).showCode(formatCode(L().code), L().title) }, "Für den Beamer zeigen")),
-    h("p", { class: "hint", text: "Der Code öffnet nur diese Sitzung – und nur für Schüler:innen, die " + classShort(L().klass) + " und " + subjectName(L().subject) + " gewählt haben." }));
+    h("p", { class: "hint", text: "Der Code öffnet nur diese Sitzung – und nur für Schüler:innen, die " + (isCourseClass(L().klass)
+      ? (courseMembers(cfg && cfg[L().subject], L().klass).length ? "eine der Klassen " + courseMembers(cfg[L().subject], L().klass).map(classShort).join(", ") : "eine Klasse dieses Kurses (noch keine eingetragen)")
+      : classShort(L().klass)) + " und " + subjectName(L().subject) + " gewählt haben." }));
 
   const fTitle = h("input", { value: L().title, maxlength: "200" }), fTopic = h("input", { value: L().topic, maxlength: "500" });
   const fDate = h("input", { type: "date", value: L().date || "", required: true, "aria-label": "Datum der Sitzung" }), fDur = h("input", { type: "number", min: "5", max: "600", step: "5", value: L().durationMin || "" });
@@ -720,10 +728,10 @@ export async function sessionPage(id) {
     try {
       const r = await tapi("PATCH", "/api/teacher/lessons/" + id, { body: { title: fTitle.value, topic: fTopic.value, durationMin: fDur.value ? Number(fDur.value) : null, ideas: fIdeas.value } });
       Object.assign(st.lesson, { title: r.lesson.title, topic: r.lesson.topic, durationMin: r.lesson.durationMin, ideas: r.lesson.ideas });
-      heading.textContent = r.lesson.title; metaState.textContent = "Gespeichert ✓";
-    } catch (e) { metaState.textContent = "⚠ " + e.message; }
+      heading.textContent = r.lesson.title; paintSubline(); stateLine(metaState, "Gespeichert", "ok");
+    } catch (e) { stateLine(metaState, e.message, "err"); }
   };
-  for (const el of [fTitle, fTopic, fDur, fIdeas]) { el.addEventListener("input", () => { metaState.textContent = "…"; clearTimeout(metaT); metaT = setTimeout(saveMeta, 900); }); el.addEventListener("change", saveMeta); }
+  for (const el of [fTitle, fTopic, fDur, fIdeas]) { el.addEventListener("input", () => { stateLine(metaState, "…"); clearTimeout(metaT); metaT = setTimeout(saveMeta, 900); }); el.addEventListener("change", saveMeta); }
   // Datum ändern: nur diese Sitzung (keine Verschiebung folgender Sitzungen); das neue Datum steht auch in der Zeile der Einheit
   fDate.addEventListener("change", async () => {
     const nd = fDate.value, od = L().date;
@@ -733,7 +741,7 @@ export async function sessionPage(id) {
       const r = await tapi("PATCH", "/api/teacher/lessons/" + id, { body: { date: nd } });
       L().date = r.lesson.date; L().nextDate = r.lesson.nextDate; paintSubline(); paintDue();
       if (st.unit) { const x = (st.unit.rows || []).find((y) => y.uid === L().unitRow); if (x) x.date = nd; }
-      metaState.textContent = "Gespeichert ✓";
+      stateLine(metaState, "Gespeichert", "ok");
       toast("Datum geändert" + (st.unit ? " – auch in der Unterrichtseinheit." : "."), "ok");
     } catch (e) { fDate.value = od || ""; errToast(e); }
   });
@@ -753,6 +761,7 @@ export async function sessionPage(id) {
       intro: "Claude liest über den Connector diese Sitzung (" + (st.unit ? "Einheit und Stundenfrage, " : "") + "Materialien, Schulportal-Eintrag, bei Bedarf die Planungsgrundlagen), fragt nach Dauer und Wünschen und plant mit Ihnen im Dialog. " +
         "Gespeichert wird nur, was Sie freigeben: Schulportal-Eintrag, Hausaufgabe, Materialien" + (analog ? "" : ", Feibeitsblatt-Entwurf") + (st.unit ? " und – nach Ihrer Zustimmung – eine geänderte Stundenfrage in der Einheit." : "."),
       after: "Wenn Claude gespeichert hat, kommen Sie hierher zurück: Die Seite übernimmt Schulportal-Eintrag, Hausaufgabe, Materialien und Entwürfe beim Zurückkehren automatisch.",
+      chatName: () => lessonChatName(ctx()),
       prompt: () => claudeLessonPrompt({ ...ctx(), messages: st.messages, previousStop: d.previousStop }) });
   };
   const planCard = h("section", { class: "card claudeplan" },
@@ -774,7 +783,7 @@ export async function sessionPage(id) {
   const sub = substituteCards({ id, st, L, ctx, fb, analog, reload: () => sessionPage(id), openDraft: (dr, o) => editDraft(dr, { substitute: true, ...o }), flushPortal });
   main.append(h("div", { class: "session-grid" },
     h("div", { class: "stack" }, sub.main, prevCard, planCard, unitCard, chatCard, portalCard, hwCard, presPromptCard, filesCard, presCard, fbCard),
-    h("aside", { class: "side" }, sub.side, codeCard, metaCard)));
+    h("aside", { class: "side" }, codeCard, metaCard, sub.side)));
 
   // Änderungen von außen (z. B. Claude über den Connector) beim Zurückkehren übernehmen
   const onVis = async () => {
@@ -791,7 +800,7 @@ export async function sessionPage(id) {
       // Hausaufgabe und Sitzungsdaten (z. B. von Claude mit update_lesson) – nie in ein Feld schreiben, das gerade bearbeitet wird
       const busyField = (el) => document.activeElement === el;
       if ((r.lesson.homework || "") !== (L().homework || "") && !busyField(hwTA) && !hwT && hwTA.value === (L().homework || "")) {
-        L().homework = r.lesson.homework || ""; L().nextDate = r.lesson.nextDate; hwTA.value = L().homework; paintDue(); hwState.textContent = "Aktualisiert";
+        L().homework = r.lesson.homework || ""; L().nextDate = r.lesson.nextDate; hwTA.value = L().homework; paintDue(); stateLine(hwState, "Aktualisiert");
       }
       const metaFields = [[fTitle, "title"], [fTopic, "topic"], [fDur, "durationMin"], [fIdeas, "ideas"]];
       if (metaState.textContent !== "…" && !metaFields.some(([el]) => busyField(el)) && !busyField(fDate)) {
@@ -801,7 +810,7 @@ export async function sessionPage(id) {
           if (nv !== cur && el.value === cur) { L()[k] = r.lesson[k]; el.value = nv; changed = true; }   // nur Felder ohne ungespeicherte eigene Änderung
         }
         if (r.lesson.date && r.lesson.date !== L().date) { L().date = r.lesson.date; L().nextDate = r.lesson.nextDate; fDate.value = r.lesson.date; paintDue(); changed = true; }
-        if (changed) { heading.textContent = L().title; paintSubline(); metaState.textContent = "Aktualisiert"; }
+        if (changed) { heading.textContent = L().title; paintSubline(); stateLine(metaState, "Aktualisiert"); }
       }
       if (r.lesson.portalVersion !== portal.version && !portal.dirty) {
         L().portal = r.lesson.portal; L().portalVersion = r.lesson.portalVersion; L().portalUpdatedAt = r.lesson.portalUpdatedAt; L().portalSource = r.lesson.portalSource;

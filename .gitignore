@@ -1,7 +1,11 @@
 node_modules/
 dist/
+dist-pages/
 .wrangler/
 .dev.vars
 test-results/
 playwright-report/
 *.log
+# Gestaltungs-Werkstatt: Bildschirmfotos der Prüfung und Entwurfsskizzen (lassen sich neu erzeugen)
+.impeccable/review/
+.impeccable/mocks/

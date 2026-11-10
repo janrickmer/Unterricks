@@ -1,5 +1,5 @@
 // index.js – Einstieg des Unterricks-Workers: Routing, Fehlerbehandlung, Sicherheitskopfzeilen der Seite, Durable Object.
-import { HttpError, json, fail, clientIp } from "./lib.js";
+import { HttpError, json, fail, clientIp, corsHeaders, withCors } from "./lib.js";
 import { ensureSchema, cleanupStatements } from "./db.js";
 import * as A from "./auth.js";
 import * as L from "./lessons.js";
@@ -132,6 +132,13 @@ async function handleApi(request, env, ctx, path) {
   return fail(404, "not_found", "Nicht gefunden.");
 }
 
+function errorResponse(e) {
+  if (e instanceof HttpError) return fail(e.status, e.code, e.message, e.extra || {});
+  console.error("Fehler", e && e.stack ? e.stack.split("\n").slice(0, 3).join(" ") : String(e));
+  if (/D1|SQLITE|too many|limit/i.test(String(e && e.message))) return fail(503, "db_unavailable", "Die Datenbank ist gerade nicht erreichbar oder das Tageskontingent ist erschöpft. Bitte später erneut versuchen.");
+  return fail(500, "server_error", "Interner Fehler. Bitte erneut versuchen.");
+}
+
 function securityHeaders(res, request, env) {
   const h = new Headers(res.headers);
   h.set("X-Content-Type-Options", "nosniff");
@@ -165,13 +172,13 @@ export default {
         await ensureSchema(env.DB);
         return await M.routeMcp(c, tok);
       }
-      if (path === "/api" || path.startsWith("/api/")) return await handleApi(request, env, ctx, path);
-    } catch (e) {
-      if (e instanceof HttpError) return fail(e.status, e.code, e.message, e.extra || {});
-      console.error("Fehler", e && e.stack ? e.stack.split("\n").slice(0, 3).join(" ") : String(e));
-      if (/D1|SQLITE|too many|limit/i.test(String(e && e.message))) return fail(503, "db_unavailable", "Die Datenbank ist gerade nicht erreichbar oder das Tageskontingent ist erschöpft. Bitte später erneut versuchen.");
-      return fail(500, "server_error", "Interner Fehler. Bitte erneut versuchen.");
-    }
+      if (path === "/api" || path.startsWith("/api/")) {
+        const cors = corsHeaders(request, env);
+        if (request.method === "OPTIONS") return new Response(null, { status: cors ? 204 : 403, headers: cors || {} });
+        try { return withCors(await handleApi(request, env, ctx, path), cors); }
+        catch (e) { return withCors(errorResponse(e), cors); }
+      }
+    } catch (e) { return errorResponse(e); }
     const res = await env.ASSETS.fetch(request);
     return securityHeaders(res, request, env);
   },

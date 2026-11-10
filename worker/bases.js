@@ -4,7 +4,7 @@
 import { HttpError, bad, json, readJson, randomId, cleanText, cleanLine, isId, isObj } from "./lib.js";
 import { getSetting, setSetting } from "./db.js";
 import { requireTeacher } from "./auth.js";
-import { SUBJECTS, isValidSubject, subjectName, subjectConfig, isValidClass, gradeKey, Q_COURSES, GRADE_KEYS } from "../public/shared.js";
+import { SUBJECTS, isValidSubject, subjectName, subjectConfig, isValidClass, gradeKey, Q_COURSES, GRADE_KEYS, COURSE_GRADES, courseKey, courseMembersClean, isCourseSubject, classShort } from "../public/shared.js";
 import { BASE_KINDS, wantedSections, missingFor as missingForLabel } from "../public/bases-detect.js";
 
 export const KINDS = Object.fromEntries(Object.entries(BASE_KINDS).map(([k, v]) => [k, v.label]));
@@ -38,9 +38,31 @@ export async function routeSubjectPut(c, subject) {
   if (isObj(body.gradeNotes)) next.gradeNotes = Object.fromEntries(Object.entries(body.gradeNotes).filter(([k]) => GRADE_KEYS.includes(k)).map(([k, v]) => [k, cleanText(v, 1000).trim()]).filter(([, v]) => v));
   if (typeof body.rules === "string") next.rules = cleanText(body.rules, 8000).trim();
   if (typeof body.complete === "boolean") next.complete = body.complete;
+  // Kurse (Ev. Religion, Ethik; Jg. 5–10 und E-Phase): welche Klassen im Kurs des Jahrgangs vertreten sind
+  const moved = { lessons: 0, units: 0 }, moves = [];
+  if (isObj(body.courses)) {
+    if (!isCourseSubject(subject)) throw bad("Kurse über mehrere Klassen gibt es nur in Ev. Religion und Ethik.");
+    next.courses = { ...(cur.courses || {}) };
+    for (const [g, list] of Object.entries(body.courses)) {
+      if (!COURSE_GRADES.includes(g)) throw bad("Kurse über mehrere Klassen gibt es nur in den Jahrgängen 5–10 und in der E-Phase.");
+      const members = courseMembersClean(g, list);
+      if (!members.length) throw bad("Bitte mindestens eine Klasse für den " + classShort(courseKey(g)) + " wählen.");
+      next.courses[g] = members;
+      moves.push([courseKey(g), members]);
+    }
+  }
+  delete next.courseMode;   // wird beim Lesen aus dem Fach abgeleitet
   all[subject] = next;
   await setSetting(c.db, "subjects", all);
-  return json({ ok: true, subject: next });
+  // Sitzungen und Einheiten, die bisher in einer dieser Klassen lagen, gehören jetzt zum Kurs (es gibt je Jahrgang nur einen Kurs)
+  if (moves.length) {
+    const st = moves.flatMap(([k, members]) => [
+      c.db.prepare("UPDATE lessons SET klass=?1, updated_at=?4 WHERE subject=?2 AND klass IN (SELECT value FROM json_each(?3))").bind(k, subject, JSON.stringify(members), c.now),
+      c.db.prepare("UPDATE units SET klass=?1, updated_at=?4 WHERE subject=?2 AND klass IN (SELECT value FROM json_each(?3))").bind(k, subject, JSON.stringify(members), c.now)]);
+    const res = await c.db.batch(st);
+    res.forEach((r, i) => { moved[i % 2 ? "units" : "lessons"] += (r.meta && r.meta.changes) || 0; });
+  }
+  return json({ ok: true, subject: subjectConfig(all, subject), moved });
 }
 
 /* ---------- Planungsgrundlagen ---------- */

@@ -1,5 +1,5 @@
 // portalview.js – Vorschau eines Schulportal-Eintrags (Schulportal-Zeichen) samt internem Zwischenstopp-Feld.
-import { h } from "./ui.js";
+import { h, icon } from "./ui.js";
 import { parsePortalMarkup } from "./shared.js";
 
 export function runsNodes(runs) {
@@ -16,22 +16,26 @@ export function runsNodes(runs) {
   });
 }
 
-export const stopField = () => h("div", { class: "stopfield", role: "note" }, h("span", { class: "stopicon", "aria-hidden": "true", text: "⏸" }),
+export const stopField = () => h("div", { class: "stopfield", role: "note" }, h("span", { class: "stopicon" }, icon("pause")),
   h("span", null, h("strong", { text: "Zwischenstopp" }), " – bis hierher geschafft, ab hier weiterarbeiten"));
 
-/* Vorschau in box schreiben; jede Zeile trägt data-line (Index im Text) für das Kontextmenü */
+/* Vorschau in box schreiben; jede Zeile trägt data-line (Index im Text) für das Kontextmenü.
+ * Ab dem Zwischenstopp liegt ein „Abdeckblatt“ auf dem Rest: noch nicht aufgedeckt, aber lesbar. */
 export function paintPortalPreview(box, text) {
   while (box.firstChild) box.firstChild.remove();
-  let ul = null;
+  let ul = null, target = box;
   parsePortalMarkup(text).forEach((ln, i) => {
     if (ln.type === "li") {
-      if (!ul) { ul = h("ul"); box.append(ul); }
+      if (!ul) { ul = h("ul"); target.append(ul); }
       ul.append(h("li", { dataset: { line: String(i) } }, runsNodes(ln.runs)));
       return;
     }
     ul = null;
-    if (ln.type === "stop") box.append(h("div", { dataset: { line: String(i) } }, stopField()));
-    else box.append(ln.type === "blank" ? h("div", { class: "pl", dataset: { line: String(i) } }) : h("p", { class: "pl", dataset: { line: String(i) } }, runsNodes(ln.runs)));
+    if (ln.type === "stop") {
+      box.append(h("div", { dataset: { line: String(i) } }, stopField()));
+      target = h("div", { class: "covered", "aria-label": "Noch nicht aufgedeckt (nach dem Zwischenstopp)" });
+      box.append(target);
+    } else target.append(ln.type === "blank" ? h("div", { class: "pl", dataset: { line: String(i) } }) : h("p", { class: "pl", dataset: { line: String(i) } }, runsNodes(ln.runs)));
   });
   return box;
 }

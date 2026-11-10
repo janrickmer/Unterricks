@@ -1,14 +1,17 @@
 // app.js – Einstieg: Router und Schüleransicht. Die Lehrkräfteansicht wird erst bei Bedarf geladen (teacher.js).
-import { h, $, clear, store, deviceId, api, ApiError, toast, errToast, busy, copyText, fmtBytes, fmtDate, fmtClock, fileIcon, downloadUrl, downloadBlob, topbar } from "./ui.js";
+import { h, $, clear, store, deviceId, api, apiUrl, wsUrl, ApiError, toast, errToast, busy, copyText, fmtBytes, fmtDate, fmtClock, fileIcon, downloadUrl, downloadBlob, topbar, icon, setFach, pageHead } from "./ui.js";
 import { SUBJECTS, CLASS_GROUPS, subjectName, formatCode, normalizeCode, fmtDay, classShort, isAnalogClass } from "./shared.js";
 import { paintPortalPreview } from "./portalview.js";
 import { renderMarkdown } from "./markdown.js";
+
+// Nie in fremden Seiten eingebettet anzeigen: Auf GitHub Pages fehlen die Schutz-Header (frame-ancestors gilt nicht als <meta>)
+if (window.top !== window.self) { document.documentElement.hidden = true; throw new Error("Unterricks lässt sich nicht in andere Seiten einbetten."); }
 
 const app = document.getElementById("app");
 let disposers = [];
 export const onLeave = (fn) => disposers.push(fn);
 function leave() { for (const fn of disposers.splice(0)) { try { fn(); } catch {} } }
-export function render(...nodes) { leave(); clear(app).append(...nodes); window.scrollTo(0, 0); }
+export function render(...nodes) { leave(); setFach(null); clear(app).append(...nodes); window.scrollTo(0, 0); }
 export const go = (hash) => { if (location.hash === hash) route(); else location.hash = hash; };
 
 const S = { get token() { return store.get("u.stoken"); }, set token(v) { if (v) store.set("u.stoken", v); else store.del("u.stoken"); } };
@@ -69,16 +72,17 @@ function chooser(profile, onSave) {
         klass = k; classWrap.querySelectorAll(".class-btn").forEach((t) => t.setAttribute("aria-pressed", "false")); e.currentTarget.setAttribute("aria-pressed", "true"); save.disabled = !(subject && klass);
       } }, classShort(k)))))) : [h("p", { class: "muted", text: "Bitte zuerst dein Fach wählen." })]));
   };
-  const subjWrap = h("div", { class: "tiles", role: "group", "aria-label": "Fach" }, SUBJECTS.map((s) => h("button", { class: "tile", type: "button", "aria-pressed": String(s.id === subject), onclick: (e) => {
-    subject = s.id; subjWrap.querySelectorAll(".tile").forEach((t) => t.setAttribute("aria-pressed", "false")); e.currentTarget.setAttribute("aria-pressed", "true"); paintClasses();
+  const subjWrap = h("div", { class: "tiles", role: "group", "aria-label": "Fach" }, SUBJECTS.map((s) => h("button", { class: "tile", type: "button", dataset: { fach: s.id }, "aria-pressed": String(s.id === subject), onclick: (e) => {
+    subject = s.id; setFach(subject); subjWrap.querySelectorAll(".tile").forEach((t) => t.setAttribute("aria-pressed", "false")); e.currentTarget.setAttribute("aria-pressed", "true"); paintClasses();
   } }, h("div", { class: "t", text: s.name }))));
+  setFach(subject);
   paintClasses();
   api("GET", "/api/subjects").then((r) => { grades = Object.fromEntries(Object.entries(r.subjects || {}).map(([k, v]) => [k, v.grades])); paintClasses(); }).catch(() => {});
   save.addEventListener("click", () => busy(save, async () => {
     try { const r = await sapi("PUT", "/api/student/profile", { body: { klass, subject } }); onSave(r.profile); } catch (e) { errToast(e); }
   }));
   return h("div", { class: "stack" },
-    h("div", { class: "card" }, h("h2", { text: "1. Dein Fach" }), subjWrap),
+    h("section", { class: "choose" }, h("h2", { text: "1. Dein Fach" }), subjWrap),
     h("div", { class: "card" }, h("h2", { text: "2. Deine Klasse bzw. dein Kurs" }), classWrap),
     h("div", { class: "row end" }, save));
 }
@@ -93,10 +97,10 @@ async function studentHome() {
   const show = (profile, forceChoose) => {
     clear(main);
     if (forceChoose || !profile.klass || !profile.subject) {
-      main.append(h("h1", { text: "Wähle dein Fach und deine Klasse" }), chooser(profile, (p) => { me.profile = p; show(p); }));
+      main.append(pageHead({ title: "Wähle dein Fach und deine Klasse", sub: "Danach siehst du nur die Sitzungen deines Kurses." }), chooser(profile, (p) => { me.profile = p; show(p); }));
       return;
     }
-    const code = h("input", { id: "code", inputmode: "text", autocapitalize: "characters", autocomplete: "off", spellcheck: "false", placeholder: "z. B. K7Q-M4X", maxlength: "9", style: { fontFamily: "var(--mono)", fontSize: "1.3rem", letterSpacing: ".12em", textTransform: "uppercase" } });
+    const code = h("input", { id: "code", inputmode: "text", autocapitalize: "characters", autocomplete: "off", spellcheck: "false", placeholder: "z. B. K7Q-M4X", maxlength: "9", class: "codein" });
     const msg = h("p", { class: "err", role: "alert" });
     const btn = h("button", { class: "btn primary", type: "submit" }, "Sitzung öffnen");
     const form = h("form", { class: "card", onsubmit: async (e) => {
@@ -114,10 +118,10 @@ async function studentHome() {
     if (!lessons.length) list.append(h("p", { class: "muted", text: "Noch keine Sitzung freigeschaltet." }));
     for (const l of lessons) list.append(h("a", { class: "item", href: "#/schueler/s/" + l.id },
       h("div", { class: "main" }, h("div", { class: "name", text: l.title }), h("div", { class: "meta", text: l.subjectName + " · " + classShort(l.klass) + (l.date ? " · " + fmtDay(l.date) : "") })),
-      l.hasHomework ? h("span", { class: "badge", style: { color: "var(--warn)" }, text: "Hausaufgabe" }) : null, h("span", { class: "btn small" }, "Öffnen")));
+      l.hasHomework ? h("span", { class: "badge hw", text: "Hausaufgabe" }) : null, h("span", { class: "btn small" }, "Öffnen")));
     main.append(
-      h("div", { class: "row between", style: { marginBottom: ".8rem" } }, h("h1", { style: { margin: 0 }, text: "Hallo!" }),
-        h("div", { class: "row" }, h("span", { class: "badge", text: classShort(profile.klass) + " · " + subjectName(profile.subject) }), h("button", { class: "btn small", type: "button", onclick: () => show(profile, true) }, "Klasse/Fach ändern"))),
+      pageHead({ fach: profile.subject, title: "Hallo!", chips: [{ text: subjectName(profile.subject), strong: true }, classShort(profile.klass)],
+        aside: h("button", { class: "btn small", type: "button", onclick: () => show(profile, true) }, "Klasse/Fach ändern") }),
       form, h("div", { class: "card" }, h("h2", { text: "Deine Sitzungen" }), list));
     if (!lessons.length) setTimeout(() => code.focus(), 50);
   };
@@ -138,14 +142,14 @@ async function studentRoom(lessonId) {
   }
   const offset = (d.now || Date.now()) - Date.now();
   clear(main);
-  main.append(h("div", { class: "crumbs" }, h("a", { href: "#/schueler" }, "Meine Sitzungen"), "›", h("span", { text: d.lesson.title })),
-    h("h1", { text: d.lesson.title }), h("p", { class: "muted", text: d.lesson.subjectName + " · " + classShort(d.lesson.klass) + (d.lesson.date ? " · " + fmtDay(d.lesson.date) : "") }));
+  main.append(pageHead({ fach: d.lesson.subject, crumbs: [["#/schueler", "Meine Sitzungen"], d.lesson.title], title: d.lesson.title,
+    chips: [{ text: d.lesson.subjectName, strong: true }, classShort(d.lesson.klass), d.lesson.date ? fmtDay(d.lesson.date) : null] }));
 
   // 0) Vertretung: Hinweis auf die Abwesenheit der Lehrkraft und chronologische Anleitung ganz oben
   if (d.substitute) {
     const sub = d.substitute;
     main.append(h("section", { class: "card substitute student", "aria-label": "Vertretungsstunde" },
-      h("h2", { text: "Heute ohne deine Lehrkraft" }), h("div", { class: "notice warn" }, sub.hinweis),
+      h("h2", { text: "Heute ohne deine Lehrkraft" }), h("div", { class: "notice" }, sub.hinweis),
       h("h3", { text: "So gehst du vor – Schritt für Schritt" }),
       h("ol", { class: "sub-steps" }, (sub.schritte || []).map((x) => h("li", null,
         h("div", { class: "row between" }, h("strong", { text: x.titel }), h("span", { class: "row" }, x.minuten ? h("span", { class: "badge", text: "ca. " + x.minuten + " Minuten" }) : null, x.abgabe ? h("span", { class: "badge ok", text: "Abgabe" }) : null)),
@@ -161,8 +165,8 @@ async function studentRoom(lessonId) {
   const img = h("img", { alt: "Aktuelle Folie der Lehrkraft", draggable: "false" });
   const ph = h("div", { class: "placeholder" }, h("div", { class: "big", text: "Noch keine Live-Präsentation" }), h("div", { text: "Sobald deine Lehrkraft die Präsentation startet, erscheint sie hier automatisch." }));
   const status = h("div", { class: "status" });
-  const fsBtn = h("button", { class: "btn small fs", type: "button", "aria-label": "Live-Fenster vergrößern" }, "⛶ Groß");
-  const live = h("section", { class: "live", "aria-label": "Live-Präsentation" }, ph, status, fsBtn);
+  const fsBtn = h("button", { class: "btn small fs", type: "button", "aria-label": "Live-Fenster vergrößern" }, icon("expand"), "Groß");
+  const live = h("section", { class: "live idle", "aria-label": "Live-Präsentation" }, ph, status, fsBtn);
   live.addEventListener("contextmenu", (e) => e.preventDefault());
   fsBtn.addEventListener("click", () => {
     const fs = live.requestFullscreen || live.webkitRequestFullscreen;
@@ -185,11 +189,12 @@ async function studentRoom(lessonId) {
     if (st.v !== undefined && st.v === lastV && st.active) return;
     lastV = st.v;
     clear(status);
+    live.classList.toggle("idle", !(st.active && st.url));
     if (st.active && st.url) {
       status.append(h("span", { class: "badge onair" }, h("span", { class: "dot" }), "LIVE"), h("span", { class: "badge", text: "Folie " + st.slide + " / " + st.pages }));
       const pre = new Image();
       pre.onload = () => { img.src = pre.src; if (!img.isConnected) { ph.remove(); live.prepend(img); } };
-      pre.src = st.url;
+      pre.src = apiUrl(st.url);
     } else {
       img.remove(); if (!ph.isConnected) live.prepend(ph);
     }
@@ -201,7 +206,7 @@ async function studentRoom(lessonId) {
     if (closed) return;
     try {
       const t = await sapi("POST", "/api/student/lessons/" + lessonId + "/live-ticket");
-      ws = new WebSocket((location.protocol === "https:" ? "wss://" : "ws://") + location.host + t.url);
+      ws = new WebSocket(wsUrl(t.url));
       ws.onopen = () => { fails = 0; clearInterval(pollT); pollT = null; clearInterval(pingT); pingT = setInterval(() => { try { ws.send("ping"); } catch {} }, 25000); };
       ws.onmessage = (ev) => { if (ev.data === "pong") return; try { showState(JSON.parse(ev.data)); } catch {} };
       ws.onclose = () => { clearInterval(pingT); if (closed) return; fails++; if (fails >= 2 && !pollT) { poll(); pollT = setInterval(poll, 2000); } reT = setTimeout(connect, Math.min(15000, 1000 * 2 ** Math.min(fails, 4))); };
@@ -227,7 +232,7 @@ async function studentRoom(lessonId) {
   async function openPresentation(btn) {
     const w = window.open("about:blank", "_blank");
     await busy(btn, async () => {
-      try { const r = await sapi("POST", "/api/student/lessons/" + lessonId + "/presentation-link", { body: { inline: true } }); if (w) w.location.href = r.url; else location.href = r.url; }
+      try { const r = await sapi("POST", "/api/student/lessons/" + lessonId + "/presentation-link", { body: { inline: true } }); if (w) w.location.href = apiUrl(r.url); else location.href = apiUrl(r.url); }
       catch (e) { if (w) w.close(); errToast(e); }
     }, "Öffne …");
   }

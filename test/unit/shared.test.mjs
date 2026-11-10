@@ -1,7 +1,8 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import {
-  SUBJECTS, ALL_CLASSES, isValidClass, gradeInfo, classShort, gradeKey, subjectConfig, classAllowed, classGroupsFor, isAnalogClass, ANALOG_RULE, normalizeCode, isValidCode, formatCode, renderPortalEntry, parsePortalMarkup, portalSafe,
+  SUBJECTS, ALL_CLASSES, isValidClass, gradeInfo, classShort, gradeKey, subjectConfig, classAllowed, classGroupsFor, isAnalogClass, ANALOG_RULE,
+  COURSE_CLASSES, isCourseClass, courseMembers, courseOf, classLabel, homeworkForPortal, PUBLIC_URL, groupShort, fmtLongDay, normalizeCode, isValidCode, formatCode, renderPortalEntry, parsePortalMarkup, portalSafe,
   validatePortalData, PORTAL_EXAMPLE, claudePresentationPrompt, planningSystemPrompt, SYSTEM_PROMPT_ROLE, extractJsonObject, normalizeFbDraft,
 } from "../../public/shared.js";
 
@@ -9,10 +10,11 @@ test("genau drei Fächer", () => {
   assert.deepEqual(SUBJECTS.map((s) => s.name), ["Politik und Wirtschaft", "Evangelische Religion", "Ethik"]);
 });
 
-test("Klassen: 5A–10F, EA–EF, Q1–Q4 je als Grund- und Leistungskurs – und sonst nichts", () => {
-  assert.equal(ALL_CLASSES.length, 6 * 6 + 6 + 8);
+test("Klassen: 5A–10F, EA–EF, Q1–Q4 je als Grund- und Leistungskurs, Kurse 5-K–10-K und E-K – und sonst nichts", () => {
+  assert.equal(ALL_CLASSES.length, 6 * 6 + 6 + 8 + 7);
+  assert.deepEqual(COURSE_CLASSES, ["5-K", "6-K", "7-K", "8-K", "9-K", "10-K", "E-K"]);
   for (const k of ["5A", "5F", "7B", "10C", "10F", "EA", "EF", "Q1-GK", "Q1-LK", "Q4-GK", "Q4-LK"]) assert.ok(isValidClass(k), k);
-  for (const k of ["4A", "11A", "10G", "E1", "EG", "Q1", "Q4", "Q5-GK", "Q2-XK", "Q", "12A", "5a"]) assert.ok(!isValidClass(k), k);
+  for (const k of ["4A", "11A", "10G", "E1", "EG", "Q1", "Q4", "Q5-GK", "Q2-XK", "Q", "12A", "5a", "Q-K", "4-K", "11-K", "8-k", "8K"]) assert.ok(!isValidClass(k), k);
   assert.equal(gradeInfo("7B").stufe, 7);
   assert.equal(gradeInfo("EC").stufe, 11);
   assert.match(gradeInfo("Q2-GK").text, /Jahrgangsstufe 12, 2\. Halbjahr\), Grundkurs \(grundlegendes Niveau\)/);
@@ -156,4 +158,44 @@ test("Datumshilfen", () => {
   assert.equal(fmtDay("2026-11-12"), "Do, 12.11.2026");
   assert.ok(isIsoDate("2026-02-28") && !isIsoDate("2026-02-30") && !isIsoDate("12.11.2026"));
   assert.ok(isWeekend("2026-11-15") && !isWeekend("2026-11-16"));
+});
+
+test("Kurse in Ev. Religion und Ethik: ein Kurs je Jahrgang (5–10, E-Phase) mit Klassen, die die Lehrkraft wählt", () => {
+  assert.equal(classShort("8-K"), "Kurs Jg. 8"); assert.equal(classShort("E-K"), "Kurs E-Phase"); assert.equal(classShort("10-K"), "Kurs Jg. 10");
+  assert.equal(gradeKey("8-K"), "8"); assert.equal(gradeKey("10-K"), "10"); assert.equal(gradeKey("E-K"), "E");
+  assert.equal(gradeInfo("8-K").stufe, 8); assert.equal(gradeInfo("E-K").stufe, 11); assert.equal(gradeInfo("E-K").halfYear, "E");
+  assert.match(gradeInfo("8-K").text, /^Jahrgangsstufe 8 \(Sekundarstufe I\), Kurs mit Schüler:innen aus mehreren Klassen/);
+  assert.ok(isAnalogClass("5-K") && isAnalogClass("6-K") && !isAnalogClass("7-K"), "Jg. 5/6 bleiben analog");
+  assert.equal(classLabel("8-K"), "Kurs Jg. 8 – " + gradeInfo("8-K").text);
+  // Zuordnung: nur echte Klassen genau dieses Jahrgangs, ohne Doppelte, sortiert; nur Ev. Religion und Ethik
+  const all = { ethik: { courses: { "8": ["8D", "8A", "8A", "7B", "8-K", "x", 3], E: ["EB"], Q: ["Q1-GK"], "11": ["EA"] } }, powi: { courses: { "8": ["8A"] } } };
+  const ethik = subjectConfig(all, "ethik"), powi = subjectConfig(all, "powi");
+  assert.deepEqual(ethik.courses, { "8": ["8A", "8D"], E: ["EB"] });
+  assert.ok(ethik.courseMode && !powi.courseMode); assert.deepEqual(powi.courses, {});
+  assert.ok(classAllowed(ethik, "8-K") && classAllowed(ethik, "8B"), "Kurs für die Lehrkraft, eigene Klasse für die Schüler:innen");
+  assert.ok(!classAllowed(powi, "8-K"), "Politik und Wirtschaft kennt keine Kurse über mehrere Klassen");
+  assert.ok(!classAllowed(subjectConfig({ ethik: { grades: ["9", "E", "Q"] } }, "ethik"), "8-K"), "nur in Jahrgängen, in denen das Fach unterrichtet wird");
+  assert.deepEqual(courseMembers(ethik, "8-K"), ["8A", "8D"]); assert.deepEqual(courseMembers(ethik, "9-K"), []); assert.deepEqual(courseMembers(ethik, "8A"), []);
+  assert.equal(courseOf(ethik, "8D"), "8-K"); assert.equal(courseOf(ethik, "8B"), null); assert.equal(courseOf(powi, "8A"), null);
+  assert.ok(isCourseClass("E-K") && !isCourseClass("EA") && !isCourseClass("Q2-GK"));
+});
+
+test("Hausaufgabe fürs Schulportal: fette Überschrift mit Datum, Stichpunkte, zuletzt der Weg zur Sitzung (Code kursiv)", () => {
+  const line = "- Unter https://unterricks.janrickmer.de kannst du diese Sitzung mit dem Code ~~K45-7A4~~ aufrufen, um alle Materialien zu sehen und Abgaben eines Feibeitsblattes zu erledigen.";
+  assert.equal(PUBLIC_URL, "https://unterricks.janrickmer.de");
+  assert.equal(fmtLongDay("2026-11-25"), "25. November 2026"); assert.equal(fmtLongDay("2027-03-01"), "1. März 2027"); assert.equal(fmtLongDay("kein Datum"), "");
+  assert.equal(homeworkForPortal("Lies **M2** und beantworte Aufgabe 3.", "K457A4", "2026-11-25"),
+    "**Hausaufgabe zum 25. November 2026:**\n\n- Lies **M2** und beantworte Aufgabe 3.\n" + line);
+  assert.equal(homeworkForPortal("- Aufgabe 1\n* Aufgabe 2\n\n  Aufgabe 3  \n--alt--", "K457A4", "2026-11-25"),
+    "**Hausaufgabe zum 25. November 2026:**\n\n- Aufgabe 1\n- Aufgabe 2\n- Aufgabe 3\n- --alt--\n" + line, "jede Zeile ein Stichpunkt; Durchgestrichenes bleibt");
+  assert.equal(homeworkForPortal("Lies M2", "K457A4", null), "**Hausaufgabe zur nächsten Sitzung:**\n\n- Lies M2\n" + line, "ohne spätere Sitzung kein Datum");
+  assert.equal(homeworkForPortal("", "K457A4", "2026-11-25"), line, "ohne Hausaufgabe nur der Hinweis");
+  assert.equal(homeworkForPortal(null, "K457A4"), line);
+  const parsed = parsePortalMarkup(homeworkForPortal("Lies M2.", "K457A4", "2026-11-25"));
+  assert.ok(parsed[0].type === "p" && parsed[0].runs.every((r) => r.b) && parsed[1].type === "blank", "Überschrift fett, dann eine Leerzeile");
+  // im Schulportal: ein Aufzählungspunkt mit anklickbarer Adresse und kursivem Code (nicht durchgestrichen)
+  const li = parsed[3];
+  assert.equal(li.type, "li");
+  assert.ok(li.runs.some((r) => r.href === "https://unterricks.janrickmer.de") && li.runs.some((r) => r.text === "K45-7A4" && r.i && !r.s));
+  assert.equal(groupShort("8B"), "Jg. 8"); assert.equal(groupShort("8-K"), "Jg. 8"); assert.equal(groupShort("EA"), "E-Phase"); assert.equal(groupShort("Q2-GK"), "Q2 GK"); assert.equal(groupShort("x"), "");
 });

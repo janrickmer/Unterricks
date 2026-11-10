@@ -1,7 +1,8 @@
 // teacher.js – Lehrkräfteansicht: Anmeldung/Einrichtung, Fach- und Klassenauswahl, Sitzungslisten, Einstellungen.
-import { h, clear, store, deviceId, api, toast, errToast, busy, modal, confirmDialog, copyText, fmtDate, fmtTime, topbar, nn } from "./ui.js";
+import { h, clear, store, deviceId, api, toast, errToast, busy, modal, confirmDialog, copyText, fmtDate, fmtTime, topbar, nn, pageHead, setFach, icon } from "./ui.js";
 import { render, go, onLeave } from "./app.js";
-import { SUBJECTS, subjectName, gradeInfo, isValidClass, isValidSubject, formatCode, fmtDay, classGroupsFor, classAllowed, classShort, gradeKey, isAnalogClass, ANALOG_RULE } from "./shared.js";
+import { SUBJECTS, subjectName, gradeInfo, isValidClass, isValidSubject, formatCode, fmtDay, classGroupsFor, classAllowed, classShort, gradeKey, isAnalogClass, ANALOG_RULE,
+  COURSE_GRADES, courseKey, isCourseClass, courseMembers } from "./shared.js";
 import { missingFor } from "./bases-detect.js";
 import { portalPreview } from "./portalview.js";
 import { FbClient } from "./fbclient.js";
@@ -101,10 +102,10 @@ async function subjectsPage() {
   const main = h("main", null, h("div", { class: "skeleton", text: "Lade …" }));
   render(teacherBar("lessons"), main);
   let all; try { all = await loadLessons(); } catch (e) { clear(main).append(h("p", { class: "err", text: e.message })); return; }
-  clear(main).append(...nn(h("h1", { text: "Welches Fach unterrichten Sie?" }),
+  clear(main).append(...nn(pageHead({ title: "Welches Fach unterrichten Sie?", sub: "Planung in Unterrichtseinheiten – jede Sitzung gehört zu einer Stunde ihrer Einheit." }),
     h("div", { class: "tiles" }, SUBJECTS.map((s) => {
       const n = all.filter((l) => l.subject === s.id).length;
-      return h("a", { class: "tile", href: "#/lk/f/" + s.id }, h("div", { class: "t", text: s.name }), h("div", { class: "s", text: n ? n + " Sitzung" + (n === 1 ? "" : "en") : "Noch keine Sitzungen" }));
+      return h("a", { class: "tile", href: "#/lk/f/" + s.id, dataset: { fach: s.id } }, h("div", { class: "t", text: s.name }), h("div", { class: "s", text: n ? n + " Sitzung" + (n === 1 ? "" : "en") : "Noch keine Sitzungen" }));
     })),
     h("p", { class: "hint", style: { marginTop: ".8rem" } }, "Die Unterrichtsplanung beginnt mit der Unterrichtseinheit; Grundlage sind die ", h("a", { href: "#/lk/grundlagen" }, "Planungsgrundlagen"), " (Schulcurriculum, KCGO, Abiturerlass) – bitte einmal je Fach hochladen."),
     all.length ? h("div", { class: "card", style: { marginTop: "1.2rem" } }, h("h2", { text: "Zuletzt bearbeitet" }), lessonList(all.slice().sort((a, b) => b.updatedAt - a.updatedAt).slice(0, 6), true)) : null));
@@ -120,23 +121,61 @@ async function classesPage(subject) {
   try { [all, cfg] = await Promise.all([loadLessons().then((x) => x.filter((l) => l.subject === subject)), subjectConfigs().then((c) => c[subject])]); }
   catch (e) { clear(main).append(h("p", { class: "err", text: e.message })); return; }
   const notes = cfg.gradeNotes || {};
-  clear(main).append(h("div", { class: "crumbs" }, h("a", { href: "#/lk" }, "Fächer"), "›", h("span", { text: subjectName(subject) })),
-    h("h1", { text: "In welcher Klasse bzw. welchem Kurs unterrichten Sie " + subjectName(subject) + "?" }),
+  const count = (k) => all.filter((l) => l.klass === k).length;
+  const classGrid = (g) => h("div", { class: "class-grid" + (g.key === "Q" ? " q" : "") }, g.classes.map((k) => { const n = count(k); return h("a", { class: "class-btn", href: "#/lk/f/" + subject + "/" + k }, classShort(k), n ? h("span", { class: "n", text: String(n) }) : null); }));
+  // Ev. Religion und Ethik (Jg. 5–10, E-Phase): je Jahrgang ein Kurs; die Lehrkraft wählt, welche Klassen darin vertreten sind
+  const courseBlock = (g) => {
+    const k = courseKey(g.key), members = (cfg.courses || {})[g.key] || [], n = count(k);
+    const loose = g.classes.map((c) => [c, count(c)]).filter(([, m]) => m);   // ältere Sitzungen in einzelnen Klassen (nicht im Kurs)
+    return [members.length
+      ? h("div", { class: "course-row" },
+          h("a", { class: "class-btn course", href: "#/lk/f/" + subject + "/" + k }, classShort(k), n ? h("span", { class: "n", text: String(n) }) : null),
+          h("span", { class: "course-members", text: "Klassen " + members.map(classShort).join(", ") }),
+          h("button", { class: "btn small ghost", type: "button", onclick: () => editCourse(subject, g, members, () => classesPage(subject)) }, icon("edit"), "Klassen ändern"))
+      : h("div", { class: "course-row" },
+          h("button", { class: "btn", type: "button", onclick: () => editCourse(subject, g, [], () => go("#/lk/f/" + subject + "/" + k)) }, "Kurs anlegen"),
+          h("span", { class: "course-members", text: "Sie wählen, welche Klassen im Kurs vertreten sind." })),
+      loose.length ? h("p", { class: "small" }, "Ältere Sitzungen in einzelnen Klassen: ", loose.map(([c, m], i) => [i ? ", " : "", h("a", { href: "#/lk/f/" + subject + "/" + c }, classShort(c) + " (" + m + ")")])) : null];
+  };
+  clear(main).append(pageHead({ fach: subject, crumbs: [["#/lk", "Fächer"], subjectName(subject)], title: "In welcher Klasse bzw. welchem Kurs unterrichten Sie " + subjectName(subject) + "?" }),
     h("div", { class: "card" }, classGroupsFor(cfg).map((g) => h("div", { class: "class-group" }, h("h3", { text: g.label }),
       notes[g.key] ? h("p", { class: "hint", text: notes[g.key] }) : null,
-      h("div", { class: "class-grid" + (g.key === "Q" ? " q" : "") }, g.classes.map((k) => { const n = all.filter((l) => l.klass === k).length; return h("a", { class: "class-btn", href: "#/lk/f/" + subject + "/" + k }, classShort(k), n ? h("span", { class: "n", text: String(n) }) : null); }))))),
-    h("p", { class: "hint" }, "Angezeigt werden die Jahrgänge, in denen " + subjectName(subject) + " laut Fach-Einstellungen unterrichtet wird (", h("a", { href: "#/lk/grundlagen/" + subject }, "ändern"), ")."));
+      cfg.courseMode && COURSE_GRADES.includes(g.key) ? courseBlock(g) : classGrid(g)))),
+    h("p", { class: "hint" }, "Angezeigt werden die Jahrgänge, in denen " + subjectName(subject) + " laut Fach-Einstellungen unterrichtet wird (", h("a", { href: "#/lk/grundlagen/" + subject }, "ändern"), ")." +
+      (cfg.courseMode ? " In den Jahrgängen 5–10 und in der E-Phase gibt es je Jahrgang einen Kurs mit Schüler:innen aus mehreren Klassen." : "")));
+}
+
+/* Kurs eines Jahrgangs anlegen bzw. seine Klassen ändern (Ev. Religion, Ethik) */
+function editCourse(subject, g, current, after) {
+  const sel = new Set(current), k = courseKey(g.key);
+  const grid = h("div", { class: "class-grid", role: "group", "aria-label": "Klassen im " + classShort(k) }, g.classes.map((c) => h("button", { class: "class-btn", type: "button", "aria-pressed": String(sel.has(c)),
+    onclick: (e) => { if (sel.has(c)) sel.delete(c); else sel.add(c); e.currentTarget.setAttribute("aria-pressed", String(sel.has(c))); err.textContent = ""; } }, classShort(c))));
+  const err = h("p", { class: "err", role: "alert" });
+  modal({ title: subjectName(subject) + ": " + classShort(k), body: h("div", null,
+      h("p", { text: "Welche Klassen sind in Ihrem Kurs vertreten? Schüler:innen wählen weiter ihre eigene Klasse – die Plattform ordnet sie diesem Kurs zu." }),
+      grid, err,
+      h("p", { class: "hint", text: "Sitzungen und Einheiten, die bisher in einer der gewählten Klassen liegen, ziehen in den Kurs um. Schüler:innen einer später entfernten Klasse behalten die Sitzungen, die sie schon geöffnet haben." })),
+    actions: [{ label: "Abbrechen" }, { label: current.length ? "Speichern" : "Kurs anlegen", class: "primary", onClick: async () => {
+      if (!sel.size) { err.textContent = "Bitte mindestens eine Klasse wählen."; return false; }
+      try {
+        const r = await tapi("PUT", "/api/teacher/subjects/" + subject, { body: { courses: { [g.key]: [...sel] } } });
+        const m = r.moved || {}, parts = [m.lessons ? m.lessons + " Sitzung" + (m.lessons === 1 ? "" : "en") : null, m.units ? m.units + " Einheit" + (m.units === 1 ? "" : "en") : null].filter(Boolean);
+        toast((current.length ? "Klassen des Kurses gespeichert." : classShort(k) + " angelegt.") + (parts.length ? " " + parts.join(" und ") + " in den Kurs übernommen." : ""), "ok", 6000);
+        if (after) after();
+      } catch (e) { err.textContent = e.message; return false; }
+    } }] });
 }
 
 function lessonList(lessons, showContext) {
   const list = h("div", { class: "list" });
   if (!lessons.length) list.append(h("p", { class: "muted", text: "Noch keine Sitzungen." }));
   for (const l of lessons) list.append(h("a", { class: "item", href: "#/lk/s/" + l.id },
+    showContext ? h("span", { class: "ftag", dataset: { fach: l.subject }, text: (SUBJECTS.find((s) => s.id === l.subject) || {}).short || "" }) : null,
     h("div", { class: "main" }, h("div", { class: "name", text: l.title }),
       h("div", { class: "meta", text: [showContext ? subjectName(l.subject) + " · " + classShort(l.klass) : null, l.date ? fmtDay(l.date) : "ohne Datum", showContext ? l.topic || null : null, l.durationMin ? l.durationMin + " min" : null].filter(Boolean).join(" · ") })),
-    h("div", { class: "row" }, l.substitute === "aktiv" ? h("span", { class: "badge", style: { color: "var(--warn)" }, text: "Vertretung aktiv" }) : l.substitute === "vorschlag" ? h("span", { class: "badge", text: "Vertretungsvorschlag" }) : null,
-      l.hasStop ? h("span", { class: "badge", style: { color: "var(--warn)" }, text: "⏸ Zwischenstopp" }) : null, l.hasHomework ? h("span", { class: "badge", text: "Hausaufgabe" }) : null,
-      l.hasPortal ? h("span", { class: "badge ok", text: "Schulportal ✓" }) : null, h("span", { class: "badge", text: l.studentCount + " SuS" }), h("span", { class: "badge mono", text: formatCode(l.code) }))));
+    h("div", { class: "row" }, l.substitute === "aktiv" ? h("span", { class: "badge ink", text: "Vertretung aktiv" }) : l.substitute === "vorschlag" ? h("span", { class: "badge", text: "Vertretungsvorschlag" }) : null,
+      l.hasStop ? h("span", { class: "badge stop" }, icon("pause"), "Zwischenstopp") : null, l.hasHomework ? h("span", { class: "badge", text: "Hausaufgabe" }) : null,
+      l.hasPortal ? h("span", { class: "badge ok" }, icon("check"), "Schulportal") : null, h("span", { class: "badge", text: l.studentCount + " SuS" }), h("span", { class: "badge mono", text: formatCode(l.code) }))));
   return list;
 }
 
@@ -152,7 +191,7 @@ async function lessonsPage(subject, klass) {
       subjectConfigs().then((c) => c[subject]),
       tapi("GET", "/api/teacher/bases?subject=" + subject).then((r) => r.bases)]);
   } catch (e) { clear(main).append(h("p", { class: "err", text: e.message })); return; }
-  const name = subjectName(subject), gk = gradeKey(klass);
+  const name = subjectName(subject), gk = gradeKey(klass), members = courseMembers(cfg, klass);
   if (!classAllowed(cfg, klass)) {
     clear(main).append(h("div", { class: "card" }, h("p", { text: name + " wird in " + classShort(klass) + " laut Fach-Einstellungen nicht unterrichtet." }),
       h("a", { class: "btn", href: "#/lk/grundlagen/" + subject }, "Fach-Einstellungen öffnen")));
@@ -188,10 +227,12 @@ async function lessonsPage(subject, klass) {
   const loose = list.filter((l) => !l.unitId || !units.some((u) => u.id === l.unitId)).sort(byDateAsc);
   if (loose.length) unitBox.append(h("section", { class: "card" }, h("h2", { text: "Sitzungen ohne Einheit" }), lessonList(loose, false)));
   const stopNote = h("div");
-  clear(main).append(...nn(h("div", { class: "crumbs" }, h("a", { href: "#/lk" }, "Fächer"), "›", h("a", { href: "#/lk/f/" + subject }, name), "›", h("span", { text: classShort(klass) })),
-    h("h1", { text: name + " · " + classShort(klass) }), h("p", { class: "muted", text: gradeInfo(klass).text }),
+  const courseSub = isCourseClass(klass) ? (members.length ? "Klassen " + members.map(classShort).join(", ") : "Noch keine Klassen eingetragen") + " · " + gradeInfo(klass).text.split(",")[0] : null;
+  clear(main).append(...nn(pageHead({ fach: subject, crumbs: [["#/lk", "Fächer"], ["#/lk/f/" + subject, name], classShort(klass)], title: name + " · " + classShort(klass), sub: courseSub || gradeInfo(klass).text }),
+    isCourseClass(klass) && !members.length ? h("div", { class: "notice warn", style: { marginBottom: ".8rem" } }, "Für diesen Kurs sind noch keine Klassen eingetragen – Schüler:innen können seine Sitzungen erst öffnen, wenn ihre Klasse dazugehört. ",
+      h("a", { href: "#/lk/f/" + subject }, "Klassen wählen")) : null,
     (cfg.gradeNotes || {})[gk] ? h("div", { class: "notice", style: { marginBottom: ".8rem" } }, h("strong", { text: "Hinweis: " }), cfg.gradeNotes[gk]) : null,
-    isAnalogClass(klass) ? h("div", { class: "notice warn", style: { marginBottom: ".8rem" } }, "Jahrgang " + gk + ": " + ANALOG_RULE) : null,
+    isAnalogClass(klass) ? h("div", { class: "notice", style: { marginBottom: ".8rem" } }, h("strong", { text: "Jahrgang " + gk + ": " }), ANALOG_RULE) : null,
     missing.length ? h("div", { class: "notice warn", style: { marginBottom: ".8rem" } }, "Für die Planung fehlt noch: " + missing.join("; ") + ". ", h("a", { href: "#/lk/grundlagen/" + subject }, "Planungsgrundlagen hochladen"))
       : subject !== "powi" && !cfg.complete ? h("div", { class: "notice", style: { marginBottom: ".8rem" } }, "Bitte prüfen Sie, ob alle Vorgaben für " + name + " hochgeladen sind, und bestätigen Sie die Vollständigkeit. ", h("a", { href: "#/lk/grundlagen/" + subject }, "Planungsgrundlagen")) : null,
     h("div", { class: "session-grid" }, unitBox, h("div", { class: "side" }, stopNote, form))));
@@ -217,7 +258,7 @@ async function settingsPage() {
   let ai, mcp, me, sp;
   try { [ai, mcp, me, sp] = await Promise.all([tapi("GET", "/api/teacher/ai"), tapi("GET", "/api/teacher/mcp"), tapi("GET", "/api/teacher/me"), tapi("GET", "/api/teacher/student-settings"), config()]); }
   catch (e) { clear(main).append(h("p", { class: "err", text: e.message })); return; }
-  clear(main).append(h("h1", { text: "Einstellungen" }));
+  clear(main).append(pageHead({ title: "Einstellungen" }));
   main.append(aiSection(ai), connectorSection(mcp), studentSection(sp), accountSection(me), fbSection());
 }
 

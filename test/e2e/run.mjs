@@ -2,9 +2,10 @@
 // Nachbau der Feibeitsblatt-Schnittstelle und spielt die Abläufe mit Chromium durch (Lehrkraft am Laptop, Schüler:in am iPad).
 // Aufruf: npm run test:e2e   (Screenshots landen in test-results/)
 import { spawn, execFileSync } from "node:child_process";
-import { mkdtempSync, mkdirSync, writeFileSync } from "node:fs";
+import { mkdtempSync, mkdirSync, writeFileSync, readFileSync, existsSync, statSync } from "node:fs";
+import { createServer } from "node:http";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { join, extname } from "node:path";
 import { createRequire } from "node:module";
 import { PDFDocument, StandardFonts, rgb } from "pdf-lib";
 import { startMockAI, startMockFeibeitsblatt } from "./mocks.mjs";
@@ -13,8 +14,11 @@ const require = createRequire(import.meta.url);
 const { chromium, devices } = require("playwright");
 const ROOT = new URL("../..", import.meta.url).pathname;
 const PORT = 8787, AI_PORT = 8790, FB_PORT = 8788, BASE = "http://localhost:" + PORT, FB = "http://localhost:" + FB_PORT;
+const PAGES_PORT = 8792, PAGES = "http://localhost:" + PAGES_PORT;   // Nachbau von GitHub Pages: andere Herkunft, keine eigenen Header
 const OUT = join(ROOT, "test-results"); mkdirSync(OUT, { recursive: true });
 const FB_PW = "Feibeitsblatt-Testpasswort", T_PW = "Lehrkraft-Passwort-2026";
+// Bildschirmfotos ohne kurzzeitige Meldungen (Toasts) und mit abgeschlossenen Einblendungen – sonst verdecken sie Teile der Seite
+const SHOT = { style: "#toasts{display:none!important}", animations: "disabled" };
 
 let failures = 0;
 const ok = (cond, label) => { if (cond) console.log("  ✓ " + label); else { failures++; console.log("  ✗ " + label); } };
@@ -64,6 +68,17 @@ async function pdf(pages, label) {
   return Buffer.from(await d.save());
 }
 
+// Statischer Server wie GitHub Pages (nur Dateien, keine Sicherheits-Header)
+function startStatic(dir, port) {
+  const types = { ".html": "text/html; charset=utf-8", ".js": "text/javascript", ".mjs": "text/javascript", ".css": "text/css", ".svg": "image/svg+xml", ".woff2": "font/woff2", ".txt": "text/plain" };
+  const srv = createServer((req, res) => {
+    const u = new URL(req.url, "http://x"), f = join(dir, decodeURIComponent(u.pathname.endsWith("/") ? u.pathname + "index.html" : u.pathname));
+    if (!f.startsWith(dir) || !existsSync(f) || statSync(f).isDirectory()) { res.writeHead(404); return res.end("nicht gefunden"); }
+    res.writeHead(200, { "content-type": types[extname(f)] || "application/octet-stream" }); res.end(readFileSync(f));
+  });
+  return new Promise((resolve) => srv.listen(port, () => resolve(srv)));
+}
+
 async function main() {
   step("Bauen und Dienste starten");
   execFileSync("node", ["scripts/build.mjs"], { cwd: ROOT, env: { ...process.env, FEIBEITSBLATT_API: FB }, stdio: "inherit" });
@@ -73,7 +88,7 @@ async function main() {
   for (let i = 0; i < 20; i++) { try { await fetch(BASE + "/api/health"); await sleep(1000); } catch { break; } }
   const persist = mkdtempSync(join(process.env.E2E_TMP || tmpdir(), "unterricks-e2e-"));
   const wd = spawn("npx", ["wrangler", "dev", "--local", "--port", String(PORT), "--persist-to", persist, "--var", "SETTINGS_SECRET:e2e-geheimnis-1234567890",
-    "--var", "DEV_ALLOW_HTTP_AI:1", "--var", "FEIBEITSBLATT_API:" + FB, "--var", "FEIBEITSBLATT_URL:" + FB + "/"], { cwd: ROOT, env: { ...process.env, WRANGLER_SEND_METRICS: "false" }, stdio: ["ignore", "pipe", "pipe"], detached: true });
+    "--var", "DEV_ALLOW_HTTP_AI:1", "--var", "FEIBEITSBLATT_API:" + FB, "--var", "FEIBEITSBLATT_URL:" + FB + "/", "--var", "PAGES_ORIGINS:" + PAGES], { cwd: ROOT, env: { ...process.env, WRANGLER_SEND_METRICS: "false" }, stdio: ["ignore", "pipe", "pipe"], detached: true });
   const stopWrangler = () => { try { process.kill(-wd.pid, "SIGTERM"); } catch {} };
   process.on("exit", stopWrangler);
   let wlog = ""; wd.stdout.on("data", (d) => (wlog += d)); wd.stderr.on("data", (d) => (wlog += d));
@@ -90,7 +105,9 @@ async function main() {
     await tp.goto(BASE + "/");
     ok(await tp.locator("#spw").isVisible(), "Startseite zeigt nur die Passwortabfrage");
     ok(await tp.getByRole("link", { name: "Lehrkräfte" }).isVisible(), "kleiner Link „Lehrkräfte“ in der Fußleiste");
+    await tp.screenshot({ ...SHOT, path: join(OUT, "start-passwort.png") });
     await tp.getByRole("link", { name: "Lehrkräfte" }).click();
+    await tp.locator("#tu").waitFor(); await tp.screenshot({ ...SHOT, path: join(OUT, "lehrkraft-einrichtung.png") });
     await tp.fill("#tu", "Feindt"); await tp.fill("#tp", T_PW); await tp.fill("#tp2", T_PW);
     let tLogin = Date.now();
     await tp.getByRole("button", { name: "Zugang einrichten" }).click();
@@ -144,9 +161,9 @@ async function main() {
     ok(await tp.locator('input[aria-label="Seiten für Fachteil"]').inputValue() === "3–4", "Fachteil „Politik und Wirtschaft“ im Erlass gefunden");
     await tp.getByRole("button", { name: "Hochladen" }).click();
     await tp.locator(".toast", { hasText: "(4 Seiten)" }).waitFor({ timeout: 20000 });
-    await tp.locator(".unit-table tr", { hasText: "Q2 GK" }).locator(".ok", { hasText: "✓" }).waitFor();
+    await tp.locator(".unit-table tr", { hasText: "Q2 GK" }).locator(".ok", { hasText: "vollständig" }).waitFor();
     ok(await tp.locator(".unit-table tr", { hasText: "Q2 LK" }).locator(".warnc", { hasText: "Abiturerlass für den Kurs Q2 LK" }).count() === 1, "Erlass gilt nur für den zugeordneten Kurs (Q2 GK ✓, Q2 LK fehlt)");
-    await tp.screenshot({ path: join(OUT, "lehrkraft-planungsgrundlagen.png"), fullPage: true });
+    await tp.screenshot({ ...SHOT, path: join(OUT, "lehrkraft-planungsgrundlagen.png"), fullPage: true });
     r = await T("GET", "/api/teacher/basis?subject=powi&klass=Q2-GK");
     ok(r.data.docs.length === 2 && !r.data.missing.length, "Planungsgrundlagen für Q2 GK vollständig");
 
@@ -203,7 +220,7 @@ async function main() {
     let unit = (await T("GET", "/api/teacher/units/" + unitId)).data.unit;
     ok(unit.rows[0].stundenfrage === "Das Bundesverfassungsgericht" && unit.rows.every((x) => x.date), "Tabelle bearbeitet und gespeichert; alle Stunden mit Termin");
     ok((await T("PATCH", "/api/teacher/units/" + unitId, { rows: unit.rows, baseVersion: 1 })).status === 409, "veraltete Fassung der Einheit überschreibt nie still (409)");
-    await tp.screenshot({ path: join(OUT, "lehrkraft-einheit.png"), fullPage: true });
+    await tp.screenshot({ ...SHOT, path: join(OUT, "lehrkraft-einheit.png"), fullPage: true });
     await tp.getByRole("button", { name: "Einheit festlegen und Sitzungen anlegen" }).click();
     await tp.locator(".toast", { hasText: "6 Sitzung(en) angelegt." }).waitFor({ timeout: 20000 });
     ok(await tp.getByRole("link", { name: "Sitzung öffnen" }).count() === 6, "je Stunde eine Sitzung mit Datum");
@@ -246,7 +263,7 @@ async function main() {
     ok(!(await tp.getByRole("button", { name: "Prompt für die Präsentation kopieren" }).isDisabled()), "Präsentations-Knopf erst mit Eintrag aktiv");
     await tp.locator("#portal").press("End");
     await tp.locator("#portal").evaluate((el) => { el.value += "\n- Manuell ergänzt: Hausaufgabe S. 12"; el.dispatchEvent(new Event("input")); });
-    await tp.locator(".save-state", { hasText: "Gespeichert ✓" }).waitFor({ timeout: 10000 });
+    await tp.locator('.save-state[data-state="ok"]', { hasText: /^Gespeichert \d\d:\d\d/ }).waitFor({ timeout: 10000 });
     r = await T("GET", "/api/teacher/lessons/" + lessonId);
     ok(r.data.lesson.portal.endsWith("- Manuell ergänzt: Hausaufgabe S. 12"), "manuelle Änderung dauerhaft gespeichert");
     const stale = await T("PUT", "/api/teacher/lessons/" + lessonId + "/portal", { text: "alt", baseVersion: 1 });
@@ -256,7 +273,7 @@ async function main() {
     const presPrompt = await tp.evaluate(() => navigator.clipboard.readText());
     ok(presPrompt.includes("Manuell ergänzt: Hausaufgabe S. 12") && presPrompt.includes("Noch nicht gespeichert"), "Präsentations-Prompt nutzt exakt den aktuellen Textfeld-Inhalt");
     ok(/PowerPoint-Präsentation \(\.pptx/.test(presPrompt) && presPrompt.includes("Politik und Wirtschaft") && presPrompt.includes("90 Minuten"), "Prompt fordert PPTX + PDF mit allen Rahmendaten an");
-    await tp.locator(".save-state", { hasText: "Gespeichert ✓" }).waitFor({ timeout: 10000 });
+    await tp.locator('.save-state[data-state="ok"]', { hasText: /^Gespeichert \d\d:\d\d/ }).waitFor({ timeout: 10000 });
     ok((await T("GET", "/api/teacher/lessons/" + lessonId)).data.lesson.portal.includes("Noch nicht gespeichert"), "… und speichert diesen Stand sofort");
 
     step("Hauptweg „Stunde mit Claude planen“: Prompt, Claude speichert über den Connector, Seite übernimmt es beim Zurückkehren");
@@ -264,13 +281,29 @@ async function main() {
       && (await tp.locator("#backupchat h2").textContent()).startsWith("Backup"), "Claude-Karte steht vor dem Chat der Plattform (Backup)");
     await tp.locator("#backupchat .hint", { hasText: "Reihenfolge der kostenlosen KI: Anderer OpenAI-kompatibler Dienst → Cloudflare Workers AI" }).waitFor({ timeout: 10000 });
     ok(true, "Backup nennt die Reihenfolge der kostenlosen KI aus den Einstellungen");
+    await tp.evaluate(() => window.scrollTo(0, 0)); await tp.screenshot({ ...SHOT, path: join(OUT, "lehrkraft-sitzung-oben.png") });
+    {
+      const mp = await tctx.newPage(); await mp.setViewportSize({ width: 390, height: 844 });
+      await mp.goto(BASE + "/#/lk/s/" + lessonId); await mp.locator(".claudeplan").waitFor(); await mp.waitForTimeout(800);
+      await mp.screenshot({ ...SHOT, path: join(OUT, "mobil-lehrkraft-sitzung.png") }); await mp.close();
+      const mctx = await browser.newContext({ ...devices["iPhone 13"] }); const mq = await mctx.newPage();
+      await mq.goto(BASE + "/"); await mq.locator("#spw").waitFor(); await mq.screenshot({ ...SHOT, path: join(OUT, "mobil-start.png") }); await mctx.close();
+    }
+    await tp.getByRole("button", { name: "Für den Beamer zeigen" }).click();
+    await tp.locator(".codeshow").waitFor(); await tp.waitForTimeout(300); await tp.screenshot({ ...SHOT, path: join(OUT, "beamer-code.png") });
+    await tp.locator(".codeshow").getByRole("button", { name: "Schließen" }).click();
     await tp.getByRole("button", { name: "Stunde mit Claude planen" }).click();
     const lm = tp.locator(".modal", { hasText: "Welches Sprachmodell?" });
     await lm.waitFor();
     ok((await lm.textContent()).includes("Beim ersten Mal fragt claude.ai, ob der Connector verbunden werden"), "Hinweis: beim ersten Mal Connector verbinden und Zugriff erlauben");
+    const chatName = "Q2 GK - PoWi - Sitzung 1 - " + lesson0.title;
+    ok((await lm.locator(".notice", { hasText: "Name des Chats:" }).textContent()).includes(chatName), "Dialog nennt den Chat-Namen (" + chatName + ")");
+    await lm.getByRole("button", { name: "Chat-Namen kopieren" }).click();
+    ok(await tp.evaluate(() => navigator.clipboard.readText()) === chatName, "Chat-Name lässt sich einzeln kopieren");
     await lm.getByRole("button", { name: "Prompt kopieren" }).click();
     const lessonPrompt = await tp.evaluate(() => navigator.clipboard.readText());
-    ok(lessonPrompt.startsWith("Du bist ein leistungsfähiger didaktischer Assistent") && ["Q2 GK", "Politik und Wirtschaft", "Gewaltenteilung und BVerfG", "laut Plattform 90 Minuten", "Karikatur und Partnerarbeit", "Ihre Nachricht war",
+    ok(lessonPrompt.startsWith("Chat-Name: " + chatName + "\n") && lessonPrompt.includes("Beginne deine erste Antwort mit der Zeile „Chat-Name: " + chatName + "“"), "Prompt beginnt mit dem Chat-Namen, Claude nennt ihn zuerst");
+    ok(lessonPrompt.split("\n")[2].startsWith("Du bist ein leistungsfähiger didaktischer Assistent") && ["Q2 GK", "Politik und Wirtschaft", "Gewaltenteilung und BVerfG", "laut Plattform 90 Minuten", "Karikatur und Partnerarbeit", "Ihre Nachricht war",
       "`get_lesson` mit der Sitzungs-ID " + lessonId, "`get_unit` mit der ID " + unitId, "Zentrale Lernaufgabe (Ziel der Einheit): Positionspapier", "`save_schulportal_entry`", "`update_lesson` mit `hausaufgabe`", "`update_unit_row`", "Speichere nur, was ich freigebe"].every((s) => lessonPrompt.includes(s)),
       "Prompt: feste Rolle, Fach, Kurs, Thema, Dauer, Wünsche, bisheriger Stand, Einheit, Werkzeuge des Connectors");
     await lm.getByRole("button", { name: "Schließen", exact: true }).getByText("Schließen").click();
@@ -298,7 +331,7 @@ async function main() {
     await tp.locator("section.card", { hasText: "Präsentation für den Unterricht" }).locator("input[type=file]").first().setInputFiles({ name: "BVerfG.pdf", mimeType: "application/pdf", buffer: await pdf(3, "BVerfG") });
     await tp.getByRole("button", { name: "Ich bin im Unterricht und starte die Präsentation für alle." }).waitFor({ timeout: 40000 });
     ok(await tp.locator(".item", { hasText: "3 Folien" }).count() === 1, "3 Folien erzeugt, Start-Knopf unter der Präsentation");
-    await tp.screenshot({ path: join(OUT, "lehrkraft-sitzung.png"), fullPage: true });
+    await tp.screenshot({ ...SHOT, path: join(OUT, "lehrkraft-sitzung.png"), fullPage: true });
 
     /* ---------- Schüler:in am iPad ---------- */
     step("Schüler:in: Passwort, Klasse/Fach, Sitzungscode");
@@ -311,6 +344,7 @@ async function main() {
     await sp.fill("#spw", "Feindt"); await sp.getByRole("button", { name: "Weiter" }).click();
     await sp.waitForURL(/#\/schueler$/);
     await sp.locator(".tiles .tile").first().waitFor();
+    await sp.screenshot({ ...SHOT, path: join(OUT, "schueler-fachwahl.png") });
     ok(await sp.getByRole("button", { name: "Politik und Wirtschaft" }).isVisible() && await sp.getByRole("button", { name: "Evangelische Religion" }).isVisible() && await sp.getByRole("button", { name: "Ethik" }).isVisible() && (await sp.locator(".tiles .tile").count()) === 3, "genau drei Fächer zur Auswahl");
     await sp.getByRole("button", { name: "Politik und Wirtschaft" }).click();
     await sp.waitForFunction(() => document.querySelectorAll(".class-btn").length > 0 && ![...document.querySelectorAll(".class-btn")].some((b) => b.textContent === "7A"), null, { timeout: 10000 }).then(() => ok(true, "PoWi: Jahrgang 7 nicht wählbar"), () => ok(false, "PoWi: Jahrgang 7 nicht wählbar"));
@@ -323,6 +357,7 @@ async function main() {
     await sp.getByRole("button", { name: "Klasse/Fach ändern" }).click();
     await sp.getByRole("button", { name: "Politik und Wirtschaft" }).click(); await sp.getByRole("button", { name: "Q2 GK", exact: true }).click();
     await sp.getByRole("button", { name: "Speichern und weiter" }).click();
+    await sp.locator("#code").waitFor(); await sp.screenshot({ ...SHOT, path: join(OUT, "schueler-start.png") });
     await sp.fill("#code", lesson0.code.slice(0, 3) + "-" + lesson0.code.slice(3)); await sp.getByRole("button", { name: "Sitzung öffnen" }).click();
     await sp.waitForURL(/#\/schueler\/s\//);
     ok(true, "Sitzungscode eingelöst");
@@ -363,8 +398,8 @@ async function main() {
     await sp.waitForFunction(() => /\/2\?/.test((document.querySelector(".live img") || {}).src || ""), null, { timeout: 10000 });
     const src = await sp.locator(".live img").getAttribute("src");
     ok((await fetch(new URL(src, BASE).href)).status === 200 && (await fetch(new URL(src, BASE).href.replace(/\/(\d+)\?/, "/3?"))).status === 403, "Schüler:innen können nicht vorblättern (Folie 3 gesperrt)");
-    await sp.screenshot({ path: join(OUT, "schueler-live.png") });
-    await tp.screenshot({ path: join(OUT, "lehrkraft-praesentation.png") });
+    await sp.screenshot({ ...SHOT, path: join(OUT, "schueler-live.png") });
+    await tp.screenshot({ ...SHOT, path: join(OUT, "lehrkraft-praesentation.png") });
     await tp.getByRole("button", { name: "Präsentation für alle beenden" }).click();
     await sp.locator(".live .placeholder").waitFor({ timeout: 10000 });
     ok(true, "Beenden kommt bei allen an");
@@ -434,32 +469,41 @@ async function main() {
     await tp.locator(".modal .sub", { hasText: "Max Mu (Q2)" }).waitFor({ timeout: 20000 });
     const subTxt = await tp.locator(".modal .sub").first().textContent();
     ok(subTxt.includes("Normenkontrolle prüft Gesetze.") && subTxt.includes("Beispiel ergänzen") && subTxt.includes("Verfassungsbeschwerde fehlt"), "Abgabe entschlüsselt: Antworten, KI-Feedback und finale KI-Rückmeldung");
-    await tp.screenshot({ path: join(OUT, "lehrkraft-abgaben.png") });
+    await tp.screenshot({ ...SHOT, path: join(OUT, "lehrkraft-abgaben.png") });
     await tp.keyboard.press("Escape");
 
     /* ---------- Datum, Hausaufgabe, Zwischenstopp ---------- */
     step("Datum (änderbar, ohne Verschieben), Hausaufgabe, Zwischenstopp");
     ok((await T("POST", "/api/teacher/lessons", { subject: "powi", klass: "Q2-GK", title: "Ohne Einheit", date: today })).status === 400, "Sitzung ohne Einheit wird abgelehnt");
     const l2 = (await T("GET", "/api/teacher/lessons/" + byRow(1).id)).data.lesson, l3 = (await T("GET", "/api/teacher/lessons/" + byRow(2).id)).data.lesson;
+    await tp.goto(BASE + "/#/lk"); await tp.locator(".tiles .tile").first().waitFor(); await tp.screenshot({ ...SHOT, path: join(OUT, "lehrkraft-faecher.png") });
     await tp.goto(BASE + "/#/lk/einstellungen");
     await tp.locator("#ai-order li").first().waitFor({ timeout: 10000 });
+    await tp.screenshot({ ...SHOT, path: join(OUT, "lehrkraft-einstellungen.png") });
     const order = await tp.locator("#ai-order li").allTextContents();
     ok(order.length === 3 && order[0].startsWith("Claude") && order[1].startsWith("Anderer OpenAI-kompatibler Dienst") && order[2].startsWith("Cloudflare Workers AI"), "Einstellungen: Reihenfolge Claude → kostenlose KI → Cloudflare Workers AI");
     await tp.goto(BASE + "/#/lk/s/" + lessonId);
     await tp.locator("#hw").fill("Lies **M2** und beantworte Aufgabe 3.");
-    await tp.locator(".homework .save-state", { hasText: "Gespeichert ✓" }).waitFor({ timeout: 10000 });
+    await tp.locator('.homework .save-state[data-state="ok"]', { hasText: /^Gespeichert$/ }).waitFor({ timeout: 10000 });
     ok(await tp.locator(".homework", { hasText: "Fällig zur nächsten Sitzung am " + fmtDay(l2.date) }).count() === 1, "Hausaufgabe gespeichert, fällig zur nächsten Sitzung derselben Klasse");
     await sp.reload();
     await sp.locator(".homework").waitFor();
     const hwTxt = await sp.locator(".homework").textContent();
-    await sp.screenshot({ path: join(OUT, "schueler-hausaufgabe.png") });
+    await sp.screenshot({ ...SHOT, path: join(OUT, "schueler-hausaufgabe.png") });
     ok(hwTxt.includes("Bis zur nächsten Sitzung am " + fmtDay(l2.date)) && hwTxt.includes("M2") && await sp.locator(".homework strong", { hasText: "M2" }).count() === 1, "Schüler:innen sehen die Hausaufgabe mit Fälligkeit");
+    ok(!hwTxt.includes("unterricks.janrickmer.de"), "der Schulportal-Hinweis erscheint in Unterricks nicht");
+    await tp.locator(".homework").getByRole("button", { name: "Für das Schulportal kopieren" }).click();
+    const hwCopy = await tp.evaluate(() => navigator.clipboard.readText());
+    const code0 = lesson0.code.slice(0, 3) + "-" + lesson0.code.slice(3);
+    const longDay = (iso) => Number(iso.slice(8, 10)) + ". " + ["Januar", "Februar", "März", "April", "Mai", "Juni", "Juli", "August", "September", "Oktober", "November", "Dezember"][Number(iso.slice(5, 7)) - 1] + " " + iso.slice(0, 4);
+    ok(hwCopy === "**Hausaufgabe zum " + longDay(l2.date) + ":**\n\n- Lies **M2** und beantworte Aufgabe 3.\n- Unter https://unterricks.janrickmer.de kannst du diese Sitzung mit dem Code ~~" + code0 + "~~ aufrufen, um alle Materialien zu sehen und Abgaben eines Feibeitsblattes zu erledigen.",
+      "Hausaufgabe fürs Schulportal: fette Überschrift mit Datum, Stichpunkte, zuletzt der Weg zur Sitzung mit dem Code");
     await sp.goto(BASE + "/#/schueler");
     await sp.locator(".item", { hasText: "Das Bundesverfassungsgericht" }).waitFor();
     ok(await sp.locator(".item", { hasText: "Das Bundesverfassungsgericht" }).locator(".badge", { hasText: "Hausaufgabe" }).count() === 1, "… und in ihrer Sitzungsliste");
 
     await tp.locator(".portal-preview p", { hasText: "3) Partnerarbeit" }).click({ button: "right" });
-    await tp.locator(".ctxmenu").getByRole("menuitem", { name: "⏸ Zwischenstopp einfügen" }).click();
+    await tp.locator(".ctxmenu").getByRole("menuitem", { name: "Zwischenstopp einfügen" }).click();
     ok((await tp.inputValue("#portal")).includes("⏸ Zwischenstopp\n**3) Partnerarbeit**"), "Rechtsklick in der Vorschau → Zwischenstopp vor der Zeile");
     ok(await tp.locator(".portal-preview .stopfield").count() === 1, "als kleines Feld in der Vorschau");
     await tp.locator("#portal").click({ button: "right" });
@@ -467,11 +511,11 @@ async function main() {
     await tp.keyboard.press("Escape");
     await tp.locator("#portal").evaluate((el) => { el.value = el.value.replace("**2) Blitzlicht ohne iPad**", "**2) Blitzlicht ohne iPad**"); el.setSelectionRange(0, 0); });
     await tp.locator("#portal").click({ button: "right", position: { x: 10, y: 8 } });
-    await tp.locator(".ctxmenu").getByRole("menuitem", { name: "⏸ Zwischenstopp einfügen" }).click();
+    await tp.locator(".ctxmenu").getByRole("menuitem", { name: "Zwischenstopp einfügen" }).click();
     ok((await tp.inputValue("#portal")).split("Zwischenstopp").length === 2, "höchstens ein Zwischenstopp (verschoben statt doppelt)");
     await tp.locator(".portal-preview p", { hasText: "3) Partnerarbeit" }).click({ button: "right" });
-    await tp.locator(".ctxmenu").getByRole("menuitem", { name: "⏸ Zwischenstopp einfügen" }).click();
-    await tp.locator("#portal ~ *, .save-state", { hasText: "Gespeichert ✓" }).first().waitFor({ timeout: 10000 });
+    await tp.locator(".ctxmenu").getByRole("menuitem", { name: "Zwischenstopp einfügen" }).click();
+    await tp.locator('.save-state[data-state="ok"]', { hasText: /^Gespeichert \d\d:\d\d/ }).first().waitFor({ timeout: 10000 });
     await tp.getByRole("button", { name: "Eintrag kopieren" }).click();
     const copied = await tp.evaluate(() => navigator.clipboard.readText());
     ok(!copied.includes("Zwischenstopp") && copied.includes("**3) Partnerarbeit**"), "beim Kopieren ins Schulportal wird der Zwischenstopp weggelassen");
@@ -480,14 +524,14 @@ async function main() {
     ok(r.data.lesson.portal.includes("⏸ Zwischenstopp\n**3) Partnerarbeit**"), "Zwischenstopp dauerhaft in der Sitzung gespeichert");
     await tp.locator(".portal-preview p", { hasText: "3) Partnerarbeit" }).click({ button: "right" });
     await tp.locator(".ctxmenu").waitFor();
-    await tp.locator("section.card").filter({ has: tp.locator("h2", { hasText: /^Schulportal-Eintrag$/ }) }).screenshot({ path: join(OUT, "lehrkraft-zwischenstopp.png") });
+    await tp.locator("section.card").filter({ has: tp.locator("h2", { hasText: /^Schulportal-Eintrag$/ }) }).screenshot({ ...SHOT, path: join(OUT, "lehrkraft-zwischenstopp.png") });
     await tp.keyboard.press("Escape");
-    await tp.locator(".homework").screenshot({ path: join(OUT, "lehrkraft-hausaufgabe.png") });
+    await tp.locator(".homework").screenshot({ ...SHOT, path: join(OUT, "lehrkraft-hausaufgabe.png") });
 
     await tp.goto(BASE + "/#/lk/s/" + l2.id);
     await tp.locator(".prevstop").waitFor({ timeout: 10000 });
     ok(await tp.locator(".prevstop .stopfield").count() === 1 && (await tp.locator(".prevstop").textContent()).includes("Das Bundesverfassungsgericht"), "nächste Sitzung: Hinweis + Schulportal-Eintrag der letzten Stunde mit Zwischenstopp");
-    await tp.locator(".prevstop").screenshot({ path: join(OUT, "lehrkraft-hinweis-folgestunde.png") });
+    await tp.locator(".prevstop").screenshot({ ...SHOT, path: join(OUT, "lehrkraft-hinweis-folgestunde.png") });
     await tp.goto(BASE + "/#/lk/s/" + l3.id);
     await tp.locator("#chatin").waitFor();
     ok(await tp.locator(".prevstop").count() === 0, "übernächste Sitzung: kein Hinweis (die direkt vorige Stunde endete normal)");
@@ -495,7 +539,7 @@ async function main() {
     await tp.locator(".prevstop").waitFor({ timeout: 10000 });
     ok(await tp.locator(".prevstop .stopfield").count() === 1, "beim Planen einer neuen Stunde: Hinweis auf die zuletzt gehaltene Stunde");
 
-    await tp.screenshot({ path: join(OUT, "lehrkraft-klasse.png"), fullPage: true });
+    await tp.screenshot({ ...SHOT, path: join(OUT, "lehrkraft-klasse.png"), fullPage: true });
     await tp.goto(BASE + "/#/lk/s/" + l3.id);
     await tp.locator('input[aria-label="Datum der Sitzung"]').fill(addDays(l3.date, 1));
     await tp.locator(".toast", { hasText: "Datum geändert – auch in der Unterrichtseinheit." }).waitFor({ timeout: 10000 });
@@ -535,7 +579,7 @@ async function main() {
     await SA("POST", "/api/student/join", { code: l2.code });
     const before = (await SA("GET", "/api/student/lessons/" + l2.id)).data;
     ok(!before.substitute && before.files.some((f) => f.name === "Original-Arbeitsblatt") && !(await tp.locator(".item", { hasText: "Anleitung zur Vertretungsstunde" }).count()), "vor der Bestätigung ändert sich nichts (auch nicht für Schüler:innen)");
-    await tp.screenshot({ path: join(OUT, "lehrkraft-vertretung-vorschlag.png"), fullPage: true });
+    await tp.screenshot({ ...SHOT, path: join(OUT, "lehrkraft-vertretung-vorschlag.png"), fullPage: true });
     if (await tp.locator("#fbcard .badge", { hasText: "nicht verbunden" }).count()) {
       await tp.locator("#fbcard input[inputmode=numeric]").fill("1104"); await tp.locator("#fbcard input[type=password]").fill(FB_PW);
       await tp.locator("#fbcard").getByRole("button", { name: "Verbinden" }).click(); await tp.locator("#fbcard .badge", { hasText: "verbunden" }).first().waitFor({ timeout: 20000 });
@@ -552,7 +596,7 @@ async function main() {
     await tp.locator("#fbcard .item", { hasText: "Vertretung: Verfahren des BVerfG" }).getByRole("button", { name: "Abgaben ansehen" }).click();
     await tp.locator(".modal .sub", { hasText: "Lea Sc" }).waitFor({ timeout: 20000 });
     ok(await tp.locator(".modal img.sub-photo").count() === 1 && (await tp.locator(".modal img.sub-photo").getAttribute("src")).startsWith("data:image/jpeg;base64,/9j/"), "Abgaben: Foto der Schülerin wird angezeigt (geprüftes JPEG)");
-    await tp.locator(".modal .sub").first().screenshot({ path: join(OUT, "lehrkraft-abgabe-foto.png") });
+    await tp.locator(".modal .sub").first().screenshot({ ...SHOT, path: join(OUT, "lehrkraft-abgabe-foto.png") });
     await tp.keyboard.press("Escape");
     const tSub = (await T("GET", "/api/teacher/lessons/" + l2.id)).data;
     ok(tSub.files.some((f) => f.area === "archive" && f.name === "Original-Arbeitsblatt") && tSub.files.some((f) => f.area === "student" && f.name === "Anleitung zur Vertretungsstunde") &&
@@ -563,7 +607,7 @@ async function main() {
     const sTxt = await sp.locator("main").textContent();
     ok(sTxt.includes("Heute ohne deine Lehrkraft") && sTxt.includes("Eure Lehrkraft ist heute krank.") && (await sbox.locator(".sub-steps > li").count()) === 2, "Schüler:innen: Hinweis auf die Abwesenheit und chronologische Anleitung ganz oben");
     ok(sTxt.includes("Anleitung zur Vertretungsstunde") && sTxt.includes("M1 Verfahren des BVerfG") && sTxt.includes("Vertretung: Verfahren des BVerfG") && !sTxt.includes("Original-Arbeitsblatt"), "… mit dem Vertretungsmaterial und Feibeitsblatt (ursprüngliches Material ausgeblendet)");
-    await sp.screenshot({ path: join(OUT, "schueler-vertretung.png"), fullPage: true });
+    await sp.screenshot({ ...SHOT, path: join(OUT, "schueler-vertretung.png"), fullPage: true });
     await tp.locator(".substitute.active").getByRole("button", { name: "Ursprüngliche Planung in eine andere Sitzung übernehmen" }).click();
     await tp.locator(".modal", { hasText: "Ursprüngliche Planung übernehmen" }).getByRole("button", { name: "Übernehmen" }).click();
     await tp.locator(".toast", { hasText: "übernommen" }).waitFor({ timeout: 10000 });
@@ -588,7 +632,7 @@ async function main() {
     await tp.locator(".er .er-title", { hasText: "Mission Gewaltenteilung" }).waitFor({ timeout: 10000 });
     await tp.locator(".er-previewnav").getByRole("button", { name: "Finale" }).click();
     ok(await tp.locator(".er-gate").isDisabled() && (await tp.locator(".er-gate").textContent()).includes("Vorschau"), "Vorschau der Lehrkraft: alle Stationen ansehen, Tunnel gesperrt");
-    await tp.screenshot({ path: join(OUT, "lehrkraft-escape-vorschau.png"), fullPage: true });
+    await tp.screenshot({ ...SHOT, path: join(OUT, "lehrkraft-escape-vorschau.png"), fullPage: true });
     await tp.getByRole("button", { name: "Vorschau schließen" }).click();
     await tp.locator(".substitute", { hasText: "Vertretungsvorschlag prüfen" }).getByRole("button", { name: "Bestätigen: Sitzung auf Vertretung umstellen" }).click();
     await tp.locator(".modal").getByRole("button", { name: "Bestätigen und umstellen" }).click();
@@ -604,7 +648,7 @@ async function main() {
     ok(await sp.inputValue("#er-bd") === "07.03.2009" && await sp.inputValue("#er-kl") === "Q2 GK", "Geburtsdatum wird beim Tippen formatiert, Kurs vorausgefüllt");
     await sp.getByRole("button", { name: "Weiter zum Auftrag" }).click();
     await sp.locator(".er-title", { hasText: "Willkommen" }).waitFor({ timeout: 10000 }).catch(async (e) => {
-      await sp.screenshot({ path: join(OUT, "fehler-escape-anmeldung.png"), fullPage: true });
+      await sp.screenshot({ ...SHOT, path: join(OUT, "fehler-escape-anmeldung.png"), fullPage: true });
       console.log("    Anmeldung im Escape-Room:", JSON.stringify(await sp.locator(".er-err").allTextContents()), pageErrors.join(" | "));
       throw e;
     });
@@ -642,7 +686,7 @@ async function main() {
     await sleep(800);   // ein zweiter Tipp innerhalb von 0,7 s auf denselben Stand zählt nicht
     await sp.getByRole("button", { name: "Prüfen" }).click();
     ok((await sp.locator(".er-help").textContent()).includes("Stufe 2 von 3") && (await sp.locator(".er-help").textContent()).includes("„Der Bu …“"), "Hilfe Stufe 2 (Anfang der Antwort)");
-    await sp.screenshot({ path: join(OUT, "schueler-escape-hilfe.png"), fullPage: true });
+    await sp.screenshot({ ...SHOT, path: join(OUT, "schueler-escape-hilfe.png"), fullPage: true });
     await sp.locator(".er-opt", { hasText: "Der Bundestag" }).click();
     for (const c of escRoom.stationen[0].raetsel.teile[1].karten.filter((x) => x.korb === 2)) await sp.locator(".er-bcard").filter({ has: sp.locator("span", { hasText: new RegExp("^" + c.text + "$") }) }).getByRole("button", { name: "Judikative", exact: true }).click();
     await sp.getByRole("button", { name: "Prüfen" }).click();
@@ -651,7 +695,7 @@ async function main() {
     for (let i = 1; i < 6; i++) await solve(i);
     await sp.locator(".er-arena").waitFor({ timeout: 10000 });
     ok((await sp.locator(".er-tiles.big").textContent()) === "GERICH" && await sp.locator(".er-ci.on").count() === 6, "Finale: Lösungswort aus den sechs Buchstaben");
-    await sp.screenshot({ path: join(OUT, "schueler-escape-finale.png"), fullPage: true });
+    await sp.screenshot({ ...SHOT, path: join(OUT, "schueler-escape-finale.png"), fullPage: true });
     const [dlo] = await Promise.all([sp.waitForEvent("download"), sp.getByRole("button", { name: "Überblick als PDF herunterladen" }).click()]);
     const ovPath = join(OUT, "escape-ueberblick.pdf"); await dlo.saveAs(ovPath);
     const ovBytes = (await import("node:fs")).readFileSync(ovPath).toString("latin1");
@@ -684,6 +728,95 @@ async function main() {
     await tp.fill("#chatin", "Bitte ein Arbeitsblatt."); await tp.keyboard.press("Enter");
     await tp.locator(".msg.assistant", { hasText: "Ihre Nachricht war: Bitte ein Arbeitsblatt" }).waitFor({ timeout: 20000 });
     ok(ai.calls.length > l6sys && ai.calls[ai.calls.length - 1].messages[0].content.includes("keine iPads"), "Planungsassistent plant für Jg. 6 nur analoge Materialien");
+
+    /* ---------- Ev. Religion/Ethik: ein Kurs je Jahrgang mit Schüler:innen aus mehreren Klassen ---------- */
+    step("Ethik: Kurs Jg. 7 über mehrere Klassen (Lehrkraft wählt die Klassen, Schüler:innen wählen ihre Klasse)");
+    // wie bisher üblich: eine Einheit mit einer Stunde in der Klasse 7A (Sitzungen entstehen aus den Zeilen der Einheit)
+    const u7a = (await T("POST", "/api/teacher/units", { subject: "ethik", klass: "7A", title: "Gerechtigkeit" })).data.unit;
+    await T("PATCH", "/api/teacher/units/" + u7a.id, { plan: { lernaufgabe: "Ein gerechtes Klassenzimmer entwerfen", schritte: [{ titel: "Was ist gerecht?", beschreibung: "Beispiele sammeln" }] },
+      rows: [{ stundenfrage: "Was ist gerecht?", date: today, minutes: 45, ablauf: ["Beispiele sammeln"], schritt: 0 }] });
+    const made7a = await T("POST", "/api/teacher/units/" + u7a.id + "/sessions");
+    const old7a = (made7a.data.unit.lessons || [])[0];
+    ok(made7a.status === 200 && old7a && (await T("GET", "/api/teacher/lessons/" + old7a.id)).data.lesson.klass === "7A", "Vorbereitung: Sitzung einer Einheit in der Klasse 7A");
+    await tp.goto(BASE + "/#/lk/f/ethik");
+    const g7 = tp.locator(".class-group").filter({ has: tp.locator("h3", { hasText: /^Jahrgangsstufe 7$/ }) });
+    await g7.getByRole("button", { name: "Kurs anlegen" }).waitFor();
+    ok(await g7.locator(".class-btn").count() === 0 && await g7.locator("a", { hasText: "7A (1)" }).count() === 1, "Ethik Jg. 7: ein Kurs statt einzelner Klassen; die ältere Sitzung in 7A bleibt erreichbar");
+    await g7.getByRole("button", { name: "Kurs anlegen" }).click();
+    const cm = tp.locator(".modal");
+    await cm.getByRole("button", { name: "Kurs anlegen" }).click();
+    ok(await cm.locator(".err", { hasText: "mindestens eine Klasse" }).count() === 1, "ohne Klasse kein Kurs");
+    await cm.getByRole("button", { name: "7A", exact: true }).click(); await cm.getByRole("button", { name: "7C", exact: true }).click();
+    await cm.getByRole("button", { name: "Kurs anlegen" }).click();
+    await tp.waitForURL(/#\/lk\/f\/ethik\/7-K$/);
+    await tp.locator(".pagehead h1", { hasText: "Ethik · Kurs Jg. 7" }).waitFor();
+    ok(await tp.locator(".pagehead .pagesub", { hasText: "Klassen 7A, 7C" }).count() === 1, "Kurs Jg. 7 mit den gewählten Klassen 7A, 7C angelegt");
+    const moved7 = (await T("GET", "/api/teacher/lessons/" + old7a.id)).data.lesson;
+    ok(moved7.klass === "7-K" && (await T("GET", "/api/teacher/units/" + u7a.id)).data.unit.klass === "7-K", "Sitzung und Einheit aus 7A sind in den Kurs umgezogen");
+    const kursStudent = async (klass) => {
+      const lg = await (await fetch(BASE + "/api/student/login", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ password: "Feindt", deviceId: "e2e-kurs-" + klass + "-" + Math.random().toString(36).slice(2) }) })).json();
+      await fetch(BASE + "/api/student/profile", { method: "PUT", headers: { Authorization: "Bearer " + lg.token, "Content-Type": "application/json" }, body: JSON.stringify({ klass, subject: "ethik" }) });
+      return lg.token;
+    };
+    const kursJoin = async (tok, code) => { const x = await fetch(BASE + "/api/student/join", { method: "POST", headers: { Authorization: "Bearer " + tok, "Content-Type": "application/json" }, body: JSON.stringify({ code }) }); return { status: x.status, data: await x.json() }; };
+    ok((await kursJoin(await kursStudent("7C"), moved7.code)).status === 200, "Schüler:in aus 7C öffnet die Sitzung des Kurses");
+    const j7b = await kursJoin(await kursStudent("7B"), moved7.code);
+    ok(j7b.status === 403 && j7b.data.error.includes("Kurs Jg. 7") && j7b.data.error.includes("7B"), "7B gehört nicht zum Kurs: klare Meldung (" + j7b.data.error + ")");
+    await tp.goto(BASE + "/#/lk/f/ethik");
+    await g7.getByRole("button", { name: "Klassen ändern" }).click();
+    await cm.getByRole("button", { name: "7B", exact: true }).click(); await cm.getByRole("button", { name: "Speichern" }).click();
+    await g7.locator(".course-members", { hasText: "Klassen 7A, 7B, 7C" }).waitFor();
+    ok((await kursJoin(await kursStudent("7B"), moved7.code)).status === 200, "nach dem Ändern: Schüler:in aus 7B kommt hinein");
+    await tp.goto(BASE + "/#/lk/s/" + old7a.id);
+    await tp.locator(".hint", { hasText: "eine der Klassen 7A, 7B, 7C und Ethik gewählt haben" }).waitFor({ timeout: 15000 });
+    ok(await tp.locator(".pagehead .chip", { hasText: "Kurs Jg. 7" }).count() === 1, "Sitzungsseite: Kurs Jg. 7 und die Klassen beim Code");
+    ok((await T("PUT", "/api/teacher/subjects/powi", { courses: { "8": ["8A"] } })).status === 400, "Politik und Wirtschaft: keine Kurse über mehrere Klassen");
+
+    /* ---------- GitHub Pages: dieselbe Oberfläche von einer anderen Herkunft ---------- */
+    step("GitHub Pages: Oberfläche von anderer Herkunft (CORS, Live-Verbindung, Links zum Worker, Schutz gegen Einbetten)");
+    execFileSync("node", ["scripts/build.mjs"], { cwd: ROOT, env: { ...process.env, PAGES_API: BASE, FEIBEITSBLATT_API: FB }, stdio: "ignore" });
+    const pagesSrv = await startStatic(join(ROOT, "dist-pages"), PAGES_PORT);
+    try {
+      const html = readFileSync(join(ROOT, "dist-pages/index.html"), "utf8");
+      ok(html.includes('<meta name="unterricks-api" content="' + BASE + '">') && html.includes("connect-src 'self' " + BASE + " ws://localhost:" + PORT) && !existsSync(join(ROOT, "dist-pages/_headers")),
+        "Pages-Build: Server-Adresse und Sicherheitsregeln als <meta>, keine _headers");
+      const pre = await fetch(BASE + "/api/student/me", { method: "OPTIONS", headers: { Origin: PAGES, "Access-Control-Request-Method": "GET", "Access-Control-Request-Headers": "authorization" } });
+      const evil = await fetch(BASE + "/api/student/me", { method: "OPTIONS", headers: { Origin: "http://localhost:9999", "Access-Control-Request-Method": "GET" } });
+      ok(pre.status === 204 && pre.headers.get("access-control-allow-origin") === PAGES && evil.status === 403 && !evil.headers.get("access-control-allow-origin"), "CORS nur für die eingetragene Pages-Adresse");
+      const pctx = await browser.newContext({ ...devices["iPad (gen 7)"] }); const pp = await pctx.newPage(); watch(pp, "Pages-Schüler");
+      const cspErr = []; pp.on("console", (m) => { if (m.type() === "error" && /Content Security Policy|CORS|Access-Control/i.test(m.text())) cspErr.push(m.text()); });
+      const sockets = []; pp.on("websocket", (w) => sockets.push(w.url()));
+      const apiCalls = []; pp.on("request", (r) => { if (r.url().includes("/api/")) apiCalls.push(r.url()); });
+      await pp.goto(PAGES + "/");
+      await pp.fill("#spw", "Feindt"); await pp.getByRole("button", { name: "Weiter" }).click();
+      await pp.waitForURL(/#\/schueler$/); await pp.locator(".tiles .tile").first().waitFor();
+      await pp.getByRole("button", { name: "Politik und Wirtschaft" }).click(); await pp.getByRole("button", { name: "Q2 GK", exact: true }).click();
+      await pp.getByRole("button", { name: "Speichern und weiter" }).click();
+      await pp.fill("#code", lesson0.code); await pp.getByRole("button", { name: "Sitzung öffnen" }).click();
+      await pp.waitForURL(/#\/schueler\/s\//); await pp.locator(".live").waitFor();
+      await pp.waitForFunction(() => document.querySelector(".card h2") && [...document.querySelectorAll(".card h2")].some((x) => x.textContent === "Material"), null, { timeout: 15000 });
+      ok(apiCalls.length > 0 && apiCalls.every((u) => u.startsWith(BASE + "/api/")), "Schüler:in auf Pages: alle Anfragen gehen an den Worker (" + apiCalls.length + ")");
+      for (let i = 0; i < 40 && !sockets.length; i++) await sleep(250);
+      ok(sockets.some((u) => u.startsWith("ws://localhost:" + PORT + "/api/live/")), "Live-Verbindung (WebSocket) geht an den Worker");
+      const dlBtn = pp.locator(".card .item").filter({ has: pp.getByRole("button", { name: "Herunterladen" }) }).first();
+      if (await dlBtn.count()) {
+        const [req] = await Promise.all([pp.waitForRequest((r) => r.url().startsWith(BASE + "/api/dl/"), { timeout: 15000 }), dlBtn.getByRole("button", { name: "Herunterladen" }).click()]);
+        ok(!!req, "Download-Link aus der Antwort zeigt auf den Worker");
+      } else console.log("    (in dieser Sitzung gerade keine Datei zum Herunterladen – Download nicht geprüft)");
+      const ptc = await browser.newContext({ viewport: { width: 1280, height: 900 } }); const ptp = await ptc.newPage(); watch(ptp, "Pages-Lehrkraft");
+      ptp.on("console", (m) => { if (m.type() === "error" && /Content Security Policy|CORS|Access-Control/i.test(m.text())) cspErr.push(m.text()); });
+      await ptp.goto(PAGES + "/#/lehrkraft"); await ptp.fill("#tu", "feindt"); await ptp.fill("#tp", T_PW);
+      const tl = Date.now(); await ptp.getByRole("button", { name: "Anmelden" }).click(); await waitTeacherHome(ptp, tl, "Anmeldung auf Pages");
+      await ptp.goto(PAGES + "/#/lk/s/" + lessonId); await ptp.locator(".code-big").waitFor({ timeout: 20000 });
+      ok(true, "Lehrkraft auf Pages: Anmeldung (mit Vorabanfrage) und Sitzung laden");
+      ok(cspErr.length === 0, "keine CSP- oder CORS-Fehler auf Pages" + (cspErr.length ? ": " + cspErr.slice(0, 3).join(" | ") : ""));
+      const fctx = await browser.newContext(); const fp = await fctx.newPage();
+      await fp.setContent('<iframe src="' + PAGES + '/" style="width:800px;height:600px"></iframe>');
+      let hidden = null;
+      for (let i = 0; i < 40 && hidden === null; i++) { await sleep(250); const fr = fp.frames().find((f) => f.url().startsWith(PAGES)); if (fr) hidden = await fr.evaluate(() => document.documentElement.hidden === true && !document.querySelector(".login-wrap, .topbar")).catch(() => null); }
+      ok(hidden === true, "eingebettet in eine fremde Seite: Unterricks zeigt nichts");
+      await fctx.close(); await ptc.close(); await pctx.close();
+    } finally { pagesSrv.close(); }
 
     /* ---------- Sperren ---------- */
     step("Sperren");

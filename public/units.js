@@ -1,6 +1,6 @@
 // units.js – Seite einer Unterrichtseinheit: Rahmendaten → Termine, Planungsgrundlagen, Planung mit Claude, Leupold-Schema, Ablauf-Tabelle,
 // Sitzungen anlegen. Außerdem: Darstellung des Leupold-Schemas (auch in der Sitzungsansicht, aktuelle Stunde fett).
-import { h, clear, toast, errToast, busy, confirmDialog, fmtTime, nn } from "./ui.js";
+import { h, clear, toast, errToast, busy, confirmDialog, fmtTime, nn, icon, pageHead } from "./ui.js";
 import { render, go, onLeave } from "./app.js";
 import { T, tapi, teacherBar } from "./teacher.js";
 import { subjectName, gradeInfo, classShort, fmtDay, isAnalogClass } from "./shared.js";
@@ -14,10 +14,10 @@ export function leupoldView(unit, highlight) {
   return h("div", { class: "leupold", role: "group", "aria-label": "Leupold-Schema" },
     h("div", { class: "lp-head" }, h("strong", { text: "Leupold-Schema" }), " ", h("span", { text: (unit.title || plan.titel || "") + (plan.thema ? " – " + plan.thema : "") })),
     h("div", { class: "lp-grid" },
-      h("div", { class: "lp-side lp-start" }, h("div", { class: "lp-cap", text: "AUSGANGSLAGE" }), h("div", { text: plan.ausgangslage || "–" })),
+      h("div", { class: "lp-side lp-start" }, h("div", { class: "lp-cap", text: "Ausgangslage" }), h("div", { text: plan.ausgangslage || "–" })),
       h("div", { class: "lp-steps" }, steps.map((s, i) => h("div", { class: "lp-row" + (highlight === i ? " current" : "") },
         h("div", { class: "lp-desc", text: s.beschreibung || "" }), h("div", { class: "lp-title", text: s.titel || "" })))),
-      h("div", { class: "lp-side lp-goal" }, h("div", { class: "lp-cap", text: "LERNAUFGABE" }), h("div", { text: plan.lernaufgabe || "–" }))),
+      h("div", { class: "lp-side lp-goal" }, h("div", { class: "lp-cap", text: "Lernaufgabe" }), h("div", { text: plan.lernaufgabe || "–" }))),
     plan.planungsgrundlage && plan.planungsgrundlage.name ? h("p", { class: "small", style: { marginTop: ".5rem" } }, h("strong", { text: "Planungsgrundlage: " }), plan.planungsgrundlage.name,
       plan.planungsgrundlage.begruendung ? " – " + plan.planungsgrundlage.begruendung : "") : null);
 }
@@ -34,11 +34,9 @@ export async function unitPage(id) {
 
   const paint = () => {
     clear(main);
-    main.append(h("div", { class: "crumbs" }, h("a", { href: "#/lk" }, "Fächer"), "›", h("a", { href: "#/lk/f/" + u.subject }, subjectName(u.subject)), "›",
-      h("a", { href: "#/lk/f/" + u.subject + "/" + u.klass }, classShort(u.klass)), "›", h("span", { text: u.title || "Neue Einheit" })),
-      h("div", { class: "row between" }, h("h1", { style: { margin: 0 }, text: u.title || "Neue Unterrichtseinheit" }),
-        h("span", { class: "badge " + (u.status === "geplant" ? "ok" : ""), text: u.status === "geplant" ? "festgelegt · Sitzungen angelegt" : "Entwurf" })),
-      h("p", { class: "muted", text: subjectName(u.subject) + " · " + classShort(u.klass) + " · " + gradeInfo(u.klass).text }),
+    main.append(pageHead({ fach: u.subject, crumbs: [["#/lk", "Fächer"], ["#/lk/f/" + u.subject, subjectName(u.subject)], ["#/lk/f/" + u.subject + "/" + u.klass, classShort(u.klass)], u.title || "Neue Einheit"],
+        title: u.title || "Neue Unterrichtseinheit", aside: h("span", { class: "badge " + (u.status === "geplant" ? "ok" : ""), text: u.status === "geplant" ? "festgelegt · Sitzungen angelegt" : "Entwurf" }),
+        sub: subjectName(u.subject) + " · " + classShort(u.klass) + " · " + gradeInfo(u.klass).text }),
       paramsCard(), basisCard(), claudeCard(), schemaCard(), tableCard(), finishCard());
   };
 
@@ -52,13 +50,13 @@ export async function unitPage(id) {
     const paintWd = () => clear(wdBox).append(...wds.map((w, i) => h("div", { class: "row" },
       h("select", { style: { width: "auto" }, "aria-label": "Wochentag", onchange: (e) => { w.day = Number(e.target.value); } }, WEEKDAYS.map((d) => h("option", { value: d.d, selected: d.d === w.day ? true : null }, d.n))),
       h("input", { type: "number", min: "20", max: "240", step: "5", value: w.minutes, style: { maxWidth: "7rem" }, "aria-label": "Minuten", oninput: (e) => { w.minutes = Number(e.target.value); } }), h("span", { class: "small", text: "Minuten" }),
-      h("button", { class: "btn small ghost", type: "button", "aria-label": "Entfernen", onclick: () => { wds.splice(i, 1); paintWd(); } }, "✕"))),
+      h("button", { class: "btn small ghost", type: "button", "aria-label": "Entfernen", onclick: () => { wds.splice(i, 1); paintWd(); } }, icon("x")))),
       h("button", { class: "btn small", type: "button", onclick: () => { wds.push({ day: 4, minutes: 45 }); paintWd(); } }, "+ Sitzung pro Woche"));
     const paintBr = () => clear(brBox).append(...brs.map((b, i) => h("div", { class: "row" },
       h("input", { type: "date", value: b.from || "", style: { maxWidth: "11rem" }, "aria-label": "von", oninput: (e) => { b.from = e.target.value; } }), "–",
       h("input", { type: "date", value: b.to || "", style: { maxWidth: "11rem" }, "aria-label": "bis", oninput: (e) => { b.to = e.target.value; } }),
       h("input", { value: b.label || "", placeholder: "z. B. Weihnachtsferien", style: { maxWidth: "16rem" }, oninput: (e) => { b.label = e.target.value; } }),
-      h("button", { class: "btn small ghost", type: "button", "aria-label": "Entfernen", onclick: () => { brs.splice(i, 1); paintBr(); } }, "✕"))),
+      h("button", { class: "btn small ghost", type: "button", "aria-label": "Entfernen", onclick: () => { brs.splice(i, 1); paintBr(); } }, icon("x")))),
       h("button", { class: "btn small", type: "button", onclick: () => { brs.push({ from: "", to: "", label: "" }); paintBr(); } }, "+ Ferien/Ausfall"));
     paintWd(); paintBr();
     const start = h("input", { type: "date", value: p.start || "", "aria-label": "Beginn" }), end = h("input", { type: "date", value: p.end || "", "aria-label": "Ende" });
@@ -112,7 +110,7 @@ export async function unitPage(id) {
         prompt: () => claudeUnitPrompt({ unitId: u.id, subject: u.subject, klass: u.klass, title: u.title, params: u.params, slots: computeSlots(u.params),
           rules: cfg.rules, gradeNote: b.gradeNote, bases: b.docs.map((d) => d.title), missing: b.missing }) });
     });
-    return h("section", { class: "card" }, h("h2", { text: "3. Planung mit Claude" }),
+    return h("section", { class: "card claudeplan" }, h("div", { class: "section-title" }, h("h2", { text: "3. Planung mit Claude" }), h("span", { class: "badge", text: "Hauptweg" })),
       h("p", { class: "small", text: "Die Planung der Einheit übernimmt Claude mit Ihrem Pro-Abo in claude.ai. Claude liest die Planungsgrundlagen über den Connector, stimmt Planungsgrundlage und Lernaufgabe mit Ihnen ab und speichert Leupold-Schema und Ablauf direkt hier." }),
       ls.length ? null : h("p", { class: "warnc small", text: "Bitte zuerst die Rahmendaten eintragen und Termine berechnen." }), btn,
       u.source === "claude" ? h("p", { class: "ok small", text: "Zuletzt von Claude gespeichert: " + fmtTime(u.updatedAt) }) : null);
@@ -132,7 +130,7 @@ export async function unitPage(id) {
         h("h3", { text: "Lernschritte" }));
       (plan.schritte || (plan.schritte = [])).forEach((s, i) => edit.append(h("div", { class: "task-edit" },
         h("div", { class: "row between" }, h("strong", { text: "Lernschritt " + (i + 1) }), h("div", { class: "row" },
-          h("button", { class: "btn small ghost", type: "button", disabled: i === 0 ? true : null, onclick: () => { plan.schritte.splice(i - 1, 0, plan.schritte.splice(i, 1)[0]); markDirty(); paintEdit(); } }, "↑"),
+          h("button", { class: "btn small ghost iconbtn", type: "button", "aria-label": "Lernschritt " + (i + 1) + " nach oben", disabled: i === 0 ? true : null, onclick: () => { plan.schritte.splice(i - 1, 0, plan.schritte.splice(i, 1)[0]); markDirty(); paintEdit(); } }, icon("up")),
           h("button", { class: "btn small ghost danger", type: "button", onclick: () => { plan.schritte.splice(i, 1); markDirty(); paintEdit(); } }, "Entfernen"))),
         f("Titel", h("input", { value: s.titel || "", oninput: (e) => { s.titel = e.target.value; markDirty(); } })), f("Tätigkeitsbeschreibung (mit Operatoren)", ta(s.beschreibung, (v) => { s.beschreibung = v; }, 2)))));
       edit.append(h("button", { class: "btn small", type: "button", onclick: () => { plan.schritte.push({ titel: "", beschreibung: "" }); markDirty(); paintEdit(); } }, "+ Lernschritt"));
@@ -163,9 +161,9 @@ export async function unitPage(id) {
             h("option", { value: "" }, "–"), steps.map((s, k) => h("option", { value: k, selected: r.schritt === k ? true : null }, (k + 1) + ". " + (s.titel || "").slice(0, 40))))),
           h("td", { class: "small" }, l ? h("a", { class: "btn small", href: "#/lk/s/" + l.id }, "Sitzung öffnen") : h("span", { class: "muted", text: "noch keine Sitzung" }),
             h("div", { class: "row", style: { marginTop: ".3rem" } },
-              h("button", { class: "btn small ghost", type: "button", "aria-label": "Nach oben", disabled: i === 0 ? true : null, onclick: () => { rows.splice(i - 1, 0, rows.splice(i, 1)[0]); markDirty(); paintRows(); } }, "↑"),
-              h("button", { class: "btn small ghost", type: "button", "aria-label": "Nach unten", disabled: i === rows.length - 1 ? true : null, onclick: () => { rows.splice(i + 1, 0, rows.splice(i, 1)[0]); markDirty(); paintRows(); } }, "↓"),
-              l ? null : h("button", { class: "btn small ghost danger", type: "button", "aria-label": "Zeile löschen", onclick: () => { rows.splice(i, 1); markDirty(); paintRows(); } }, "✕")))));
+              h("button", { class: "btn small ghost iconbtn", type: "button", "aria-label": "Stunde " + (i + 1) + " nach oben", disabled: i === 0 ? true : null, onclick: () => { rows.splice(i - 1, 0, rows.splice(i, 1)[0]); markDirty(); paintRows(); } }, icon("up")),
+              h("button", { class: "btn small ghost iconbtn", type: "button", "aria-label": "Stunde " + (i + 1) + " nach unten", disabled: i === rows.length - 1 ? true : null, onclick: () => { rows.splice(i + 1, 0, rows.splice(i, 1)[0]); markDirty(); paintRows(); } }, icon("down")),
+              l ? null : h("button", { class: "btn small ghost iconbtn", type: "button", "aria-label": "Stunde " + (i + 1) + " löschen", onclick: () => { rows.splice(i, 1); markDirty(); paintRows(); } }, icon("x"))))));
       });
     };
     paintRows();

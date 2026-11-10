@@ -25,6 +25,11 @@ implementiert und im End-to-End-Test geprüft (Ausnahmen unten ausdrücklich gen
 | Ursprüngliche Planung bei Krankheit | **Archivieren** (wiederherstellbar, in eine andere Sitzung übertragbar) |
 | Escape-Rooms | **Die Plattform hostet sie** (Vorlage mit dem bekannten Aufbau, Finale im Feibeitsblatt), siehe 4c |
 | Foto-Abgabe | **Feibeitsblatt erweitert** um die Antwortart „Foto“ (Zweig `claude/foto-antwort` im Feibeitsblatt; wirksam, sobald er dort veröffentlicht ist), siehe 4b |
+| Gestaltung (Ergänzung) | **Neuer Look „Folie & Aufdecken“** (Overhead-Folien in den Fachfarben, gelbe Markerfolie für den Hauptweg, Abdeckblatt am Zwischenstopp), freundlich und farbig, für Beamer, iPads und jüngere Schüler:innen – siehe [DESIGN.md](../DESIGN.md) |
+| Eigene Adresse (Ergänzung) | **Oberfläche über GitHub Pages** unter `unterricks.janrickmer.de`, Server bleibt der Worker (keine Änderung an den übrigen Subdomains und an den Proton-Mail-Einträgen), siehe 4e |
+| Kurse in Ev. Religion/Ethik (Ergänzung) | **Jg. 5–10 und E-Phase: ein Kurs je Jahrgang** mit Schüler:innen aus mehreren Klassen; die Lehrkraft wählt die Klassen, Schüler:innen wählen **wie bisher ihre Klasse**, siehe 4d |
+| Chat-Name (Ergänzung) | Prompt „Stunde mit Claude planen“ beginnt mit „Jg. 8 - PoWi - Sitzung 1 - Titel“: **Titel der Sitzung**, **Stunde in der Einheit**, **nur der Jahrgang**, Oberstufe als „E-Phase“ bzw. „Q2 GK“ |
+| Hausaufgabe im Schulportal (Ergänzung) | Kopie im Format „**Hausaufgabe zum 25. November 2026:**“, Leerzeile, Stichpunkte; zuletzt „Unter https://unterricks.janrickmer.de … mit dem Code ~~ABC-123~~ …“ (nur im Schulportal); ohne Hausaufgabe nur dieser Hinweis |
 
 ## 2. Gesamtarchitektur
 
@@ -51,7 +56,8 @@ implementiert und im End-to-End-Test geprüft (Ausnahmen unten ausdrücklich gen
 ```
 
 * **Hosting:** ein Cloudflare Worker (Free-Plan) mit statischer Seite (`public/` → `dist/`), wie beim Feibeitsblatt.
-  Deployment per GitHub Actions (`.github/workflows/deploy.yml`).
+  Deployment per GitHub Actions (`.github/workflows/deploy.yml`). Zusätzlich dieselbe Seite über GitHub Pages
+  (`unterricks.janrickmer.de`, `dist-pages/`), die den Worker als Server nutzt (Abschnitt 4e).
 * **Datenbank:** D1 (SQLite) in der EU. Tabellen legt der Worker selbst an (`worker/db.js`).
 * **Dateien:** R2 in der EU. Der Worker begrenzt die Ablage auf 9 GB, damit sie im kostenlosen Kontingent bleibt (`STORAGE_LIMIT_BYTES`).
 * **Live-Synchronisation:** ein Durable Object je Sitzung (SQLite-Backend, im Free-Plan verfügbar) mit WebSocket-Hibernation.
@@ -227,6 +233,43 @@ implementiert und im End-to-End-Test geprüft (Ausnahmen unten ausdrücklich gen
   Überblick-PDF, Zwischenstand, Tunnel; Prüfsumme und Datensatz werden nachgerechnet). Gegen das echte Feibeitsblatt wurde der Weg
   durch Lesen seines Codes abgeglichen (Prüfsumme, Hülle, PDF-Leser); ein Durchlauf mit dem echten Feibeitsblatt steht noch aus.
 
+## 4d. Kurse in Ev. Religion und Ethik (Ergänzung vom 10.11.2026)
+
+* **Kennung:** Je Jahrgang 5–10 und E-Phase gibt es in Ev. Religion und Ethik höchstens einen Kurs mit der Kennung
+  `<Jahrgang>-K` (`8-K`, `E-K`; `public/shared.js`: `COURSE_CLASSES`, `isCourseClass`, Anzeige `classShort` → „Kurs Jg. 8“,
+  „Kurs E-Phase“). Sitzungen und Einheiten des Kurses tragen diese Kennung wie sonst eine Klasse; Jahrgangsstufe, analoges
+  Material in Jg. 5/6 und Planungsgrundlagen richten sich nach dem Jahrgang (`gradeKey`).
+* **Klassen des Kurses:** in den Fach-Einstellungen (`settings.subjects.<fach>.courses = {"8": ["8A", "8B", "8D"]}`), gesetzt über
+  `PUT /api/teacher/subjects/:fach` mit `courses` (nur echte Klassen dieses Jahrgangs, mindestens eine; Politik und Wirtschaft
+  → 400). Beim Speichern ziehen Sitzungen und Einheiten, die bisher in einer dieser Klassen lagen, in den Kurs um (je Jahrgang
+  gibt es nur einen Kurs); die Antwort nennt die Zahl (`moved`).
+* **Schüler:innen** wählen weiter ihre eigene Klasse. Beim Einlösen eines Codes prüft der Worker bei Kurs-Sitzungen, ob die
+  Klasse zum Kurs gehört (`courseMembers`, eine D1-Abfrage mehr nur in diesem Fall). Schüler:innen einer später entfernten
+  Klasse behalten die schon freigeschalteten Sitzungen. Im Escape-Room wird ihre eigene Klasse vorbelegt, nicht die Kurskennung.
+* **Oberfläche:** Fach → je Jahrgang „Kurs anlegen“ bzw. „Kurs Jg. 8“ mit „Klassen ändern“; ältere Sitzungen in einzelnen
+  Klassen außerhalb des Kurses bleiben verlinkt. Der Hinweis beim Sitzungscode nennt die Klassen des Kurses. Der Connector
+  (`worker/mcp.js`) kennt die Kurse (`8-K` in der Klassenliste, Hinweis in den Anweisungen).
+
+## 4e. Eigene Adresse über GitHub Pages (Ergänzung vom 10.11.2026)
+
+* **Aufbau:** `PAGES_API=<Worker-Adresse> npm run build` erzeugt `dist-pages/`: dieselben Dateien wie `dist/`, dazu in
+  `index.html` `<meta name="unterricks-api">` (Server-Adresse) und die CSP als `<meta http-equiv>` (GitHub Pages setzt keine
+  eigenen Header; `_headers` entfällt). Im Browser setzt `public/ui.js` (`API`, `apiUrl`, `wsUrl`) alle Pfade `/api/…` – auch
+  signierte Links aus Antworten (Downloads, Folien) und den WebSocket der Live-Präsentation – auf den Worker.
+* **Worker:** CORS nur für die Herkünfte in `PAGES_ORIGINS` (`wrangler.jsonc`, `https://unterricks.janrickmer.de`; lokal für
+  Tests auch `http://localhost:PORT`), Vorabanfragen (OPTIONS) 204 bzw. 403. Angemeldet wird ausschließlich per
+  `Authorization: Bearer`, nie per Cookie – fremde Seiten erhalten dadurch nichts.
+* **Schutz gegen Einbetten:** `frame-ancestors` wirkt nicht als `<meta>`; deshalb zeigt `app.js` in einem fremden Rahmen nichts an.
+* **Veröffentlichung:** Job „pages“ im Workflow **Deploy** (nach dem Worker, mit dessen Adresse; `actions/upload-pages-artifact`
+  v4.0.0 und `actions/deploy-pages` v4.0.5, per Commit-SHA gepinnt). Er läuft nur, wenn im Repository Pages mit der Quelle
+  „GitHub Actions“ eingerichtet ist, sonst gibt er einen Hinweis aus. Die eigene Domain wird in den Pages-Einstellungen
+  eingetragen (eine `CNAME`-Datei wertet GitHub bei Actions nicht aus).
+* **Datenschutz:** GitHub, Inc. (USA) erhält beim Laden der Seite die IP-Adresse. Unterricks hat bisher keinen eigenen
+  Datenschutzhinweis – vor dem Einsatz mit Schüler:innen ergänzen (nicht Teil dieser Ergänzung).
+* **Getestet:** End-to-End mit einer zweiten Herkunft (statischer Server, keine Header): Anmeldung von Lehrkraft und Schüler:in,
+  alle Anfragen am Worker, WebSocket, Download-Link, keine CSP- oder CORS-Fehler, eingebettet keine Anzeige. Mit der echten
+  Domain noch nicht – das geht erst nach dem Einrichten von Pages.
+
 ## 5. Prüfung der direkten Claude-Integration
 
 **Ergebnis: Die Verbindung des persönlichen Claude-Pro-Kontos mit einer eigenen Plattform ist nicht erlaubt. Umgesetzt ist
@@ -314,7 +357,8 @@ stattdessen der von Anthropic vorgesehene Weg in umgekehrter Richtung (Connector
 * **Trennung Schüler/Lehrkraft:** getrennte Tokens; jede Schüler-Abfrage prüft Freischaltung und Bereich serverseitig; Downloads
   und Folien nur über kurzlebige HMAC-signierte Links; HTML/SVG-Dateien werden nie im Kontext der Seite ausgeführt (Download mit
   `Content-Security-Policy: sandbox`).
-* **Seite:** strikte CSP (keine fremden Skripte), keine `innerHTML`-Übernahme fremder Daten, keine Protokolle bei Cloudflare.
+* **Seite:** strikte CSP (keine fremden Skripte), keine `innerHTML`-Übernahme fremder Daten, keine Protokolle bei Cloudflare. Auf
+  GitHub Pages steht die CSP als `<meta>`; CORS nur für `PAGES_ORIGINS` (Abschnitt 4e).
 * **Grenzen des Schülerzugangs:** Das gemeinsame Passwort ist keine echte Authentifizierung – wer Passwort und Code kennt,
   kommt in die Sitzung. Die 90-Minuten-Frist gilt je Gerät; ein Gerätewechsel startet sie neu (später, nie früher).
 

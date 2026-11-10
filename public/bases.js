@@ -1,6 +1,6 @@
 // bases.js – Planungsgrundlagen je Fach: Übersicht, was je Jahrgang/Kurs vorliegt oder fehlt; Dokumente hochladen (Text je Seite
 // per PDF.js im Browser – die PDF selbst wird nicht gespeichert), Abschnitte automatisch erkennen und korrigieren; Fach-Einstellungen.
-import { h, clear, toast, errToast, busy, modal, confirmDialog, fmtTime, fmtBytes } from "./ui.js";
+import { h, clear, toast, errToast, busy, modal, confirmDialog, fmtTime, fmtBytes, icon, pageHead } from "./ui.js";
 import { render, go } from "./app.js";
 import { tapi, teacherBar } from "./teacher.js";
 import { SUBJECTS, subjectName, isValidSubject, CLASS_GROUPS, Q_COURSES, classShort } from "./shared.js";
@@ -47,12 +47,12 @@ export async function basesOverview() {
   let bases, cfgs;
   try { [bases, cfgs] = await Promise.all([tapi("GET", "/api/teacher/bases").then((r) => r.bases), tapi("GET", "/api/teacher/subjects").then((r) => r.subjects)]); }
   catch (e) { clear(main).append(h("p", { class: "err", text: e.message })); return; }
-  clear(main).append(h("h1", { text: "Planungsgrundlagen" }),
+  clear(main).append(pageHead({ title: "Planungsgrundlagen" }),
     h("p", { class: "small", text: "Die KI plant Unterrichtseinheiten auf Grundlage dieser Vorgaben: in den Jahrgängen 5–10 das Schulcurriculum, in der E-Phase das KCGO (und für Politik und Wirtschaft das schulinterne E-Phasen-Curriculum), in Q1–Q4 das KCGO und den Abiturerlass des Kurses. Laden Sie die Dokumente einmal je Fach hoch; für jeden neuen Abiturjahrgang kommt der aktuelle Abiturerlass dazu." }),
     h("div", { class: "tiles" }, SUBJECTS.map((s) => {
       const mine = bases.filter((b) => b.subject === s.id), cfg = cfgs[s.id];
       const gaps = statusRows(cfg.grades).filter((r) => missingFor(mine, s.id, s.name, r.klass).length).length;
-      return h("a", { class: "tile", href: "#/lk/grundlagen/" + s.id }, h("div", { class: "t", text: s.name }),
+      return h("a", { class: "tile", href: "#/lk/grundlagen/" + s.id, dataset: { fach: s.id } }, h("div", { class: "t", text: s.name }),
         h("div", { class: "s", text: mine.length + " Dokument" + (mine.length === 1 ? "" : "e") + (gaps ? " · bei " + gaps + " Jahrgang/Kurs fehlt noch etwas" : " · vollständig") + (cfg.complete ? " · von Ihnen bestätigt" : "") }));
     })));
 }
@@ -69,8 +69,7 @@ export async function basesPage(subject) {
   try { await load(); } catch (e) { clear(main).append(h("p", { class: "err", text: e.message })); return; }
   const name = subjectName(subject);
   const paint = () => {
-    clear(main).append(h("div", { class: "crumbs" }, h("a", { href: "#/lk/grundlagen" }, "Planungsgrundlagen"), "›", h("span", { text: name })),
-      h("h1", { text: "Planungsgrundlagen · " + name }),
+    clear(main).append(pageHead({ fach: subject, crumbs: [["#/lk/grundlagen", "Planungsgrundlagen"], name], title: "Planungsgrundlagen · " + name }),
       statusCard(), docsCard(), uploadCard(), settingsCard());
   };
   const reload = async () => { try { await load(); paint(); } catch (e) { errToast(e); } };
@@ -81,7 +80,7 @@ export async function basesPage(subject) {
       const docs = bases.filter((b) => wantedSections(b, r.klass).length), miss = missingFor(bases, subject, name, r.klass);
       return h("tr", null, h("td", { text: r.label }),
         h("td", { class: "small" }, docs.length ? docs.map((b) => h("div", { text: b.title + " (S. " + formatRanges([...new Set(wantedSections(b, r.klass).map((w) => w.n))]) + ")" })) : h("span", { class: "muted", text: "–" })),
-        h("td", { class: "small" }, miss.length ? h("span", { class: "warnc", text: "fehlt: " + miss.join("; ") }) : h("span", { class: "ok", text: "✓" })));
+        h("td", { class: "small" }, miss.length ? h("span", { class: "warnc", text: "fehlt: " + miss.join("; ") }) : h("span", { class: "ok" }, icon("check"), "vollständig")));
     }));
     const otherSubject = subject !== "powi";
     return h("section", { class: "card" }, h("h2", { text: "Was liegt je Jahrgang bzw. Kurs vor?" }),
@@ -106,7 +105,7 @@ export async function basesPage(subject) {
           h("button", { class: "btn small ghost danger", type: "button", "aria-label": "Löschen", onclick: async () => {
             if (!(await confirmDialog("Planungsgrundlage löschen", "„" + b.title + "“ mit allen Seitentexten löschen? Bereits geplante Einheiten bleiben erhalten.", "Löschen", true))) return;
             try { await tapi("DELETE", "/api/teacher/bases/" + b.id); toast("Gelöscht.", "ok"); reload(); } catch (e) { errToast(e); }
-          } }, "🗑"))));
+          } }, icon("trash")))));
     }
     return h("section", { class: "card" }, h("h2", { text: "Dokumente" }), list);
   }
@@ -132,7 +131,7 @@ export async function basesPage(subject) {
       if (!cur.length) box.append(h("p", { class: "muted small", text: kind === "sonstiges" ? "Das ganze Dokument wird verwendet." : "Keine Abschnitte erkannt – ohne Abschnitte verwendet die Plattform das ganze Dokument." }));
       cur.forEach((x, i) => box.append(h("div", { class: "row" }, h("span", { class: "small", style: { minWidth: "12rem" }, text: sectionLabel(x.k) }),
         h("input", { value: x.s, style: { maxWidth: "14rem" }, "aria-label": "Seiten für " + sectionLabel(x.k), placeholder: "z. B. 12–24, 31", oninput: (e) => { x.s = e.target.value; } }),
-        h("button", { class: "btn small ghost", type: "button", "aria-label": "Abschnitt entfernen", onclick: () => { cur.splice(i, 1); paintS(); } }, "✕"))));
+        h("button", { class: "btn small ghost", type: "button", "aria-label": "Abschnitt entfernen", onclick: () => { cur.splice(i, 1); paintS(); } }, icon("x")))));
       const free = (SECTION_KEYS[kind] || []).filter((k) => !cur.some((x) => x.k === k));
       if (free.length) {
         const add = h("select", { style: { width: "auto" }, "aria-label": "Abschnitt hinzufügen" }, h("option", { value: "" }, "+ Abschnitt hinzufügen …"), free.map((k) => h("option", { value: k }, sectionLabel(k))));
@@ -239,9 +238,9 @@ export async function basesPage(subject) {
       try {
         const r = await tapi("GET", "/api/teacher/bases/" + b.id + "/text?from=" + from + "&to=" + Math.min(b.pages, from + 4));
         clear(box).append(...r.pages.map((p) => h("div", null, h("div", { class: "small muted", text: "Seite " + p.n }), h("pre", { class: "basetext", text: p.text || "(kein Text)" }))));
-        clear(nav).append(h("button", { class: "btn small", type: "button", disabled: from <= 1 ? true : null, onclick: () => { from = Math.max(1, from - 5); show(); } }, "← zurück"),
+        clear(nav).append(h("button", { class: "btn small", type: "button", disabled: from <= 1 ? true : null, onclick: () => { from = Math.max(1, from - 5); show(); } }, icon("left"), "zurück"),
           h("span", { class: "small", text: "Seiten " + from + "–" + Math.min(b.pages, from + 4) + " von " + b.pages }),
-          h("button", { class: "btn small", type: "button", disabled: from + 5 > b.pages ? true : null, onclick: () => { from += 5; show(); } }, "weiter →"));
+          h("button", { class: "btn small", type: "button", disabled: from + 5 > b.pages ? true : null, onclick: () => { from += 5; show(); } }, "weiter", icon("right")));
       } catch (e) { clear(box).append(h("p", { class: "err", text: e.message })); }
     };
     modal({ title: b.title, wide: true, body: (el) => el.append(h("p", { class: "hint", text: "So liest die KI das Dokument (Text ohne Layout)." }), nav, box) });

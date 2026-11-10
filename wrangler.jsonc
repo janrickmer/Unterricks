@@ -19,7 +19,9 @@
   "ai": { "binding": "AI", "remote": true },
   "vars": {
     "FEIBEITSBLATT_API": "https://feibeitsblatt.feindt.workers.dev",
-    "FEIBEITSBLATT_URL": "https://feibeitsblatt.janrickmer.de/"
+    "FEIBEITSBLATT_URL": "https://feibeitsblatt.janrickmer.de/",
+    // Herkunft der Oberfläche auf GitHub Pages: darf /api aufrufen (CORS). Mehrere durch Leerzeichen trennen.
+    "PAGES_ORIGINS": "https://unterricks.janrickmer.de"
   },
   // Kein Cron Trigger (das Free-Kontingent von 5 je Konto teilt sich die Plattform mit Feibeitsblatt): aufgeräumt wird
   // gelegentlich bei normalen Anfragen (siehe worker/index.js).

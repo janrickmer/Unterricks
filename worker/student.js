@@ -6,7 +6,8 @@ import { getFile, downloadUrl } from "./files.js";
 import { nextLessonDate } from "./lessons.js";
 import { getSubstitute, substituteForStudents } from "./substitute.js";
 import { liveTicket, liveState } from "./live.js";
-import { normalizeCode, isValidCode, subjectName } from "../public/shared.js";
+import { normalizeCode, isValidCode, subjectName, classShort, isCourseClass, courseMembers } from "../public/shared.js";
+import { loadSubjectConfigs } from "./bases.js";
 
 export const PRESENTATION_DELAY_MS = 90 * 60e3;   // Vorgabe: vollständige Datei erst 90 Minuten nach dem ersten Betreten
 
@@ -36,9 +37,15 @@ export async function routeStudentJoin(c) {
     await registerFail(c.db, ipKey, LOCKS.joinIp, c.now);
     throw new HttpError(404, "unknown_code", "Diesen Sitzungscode gibt es nicht. Bitte prüfe die Eingabe.");
   }
-  // Ein Code öffnet nur seine eigene Sitzung – und nur, wenn Klasse und Fach passen
-  if (l.klass !== s.klass || l.subject !== s.subject)
-    throw new HttpError(403, "wrong_class", "Dieser Code gehört zu einer anderen Klasse oder einem anderen Fach. Prüfe deine Auswahl (" + s.klass + ", " + subjectName(s.subject) + ").");
+  // Ein Code öffnet nur seine eigene Sitzung – und nur, wenn Klasse und Fach passen. Kurse (Ev. Religion, Ethik): die eigene Klasse
+  // muss zu den Klassen gehören, die die Lehrkraft für den Kurs des Jahrgangs eingetragen hat.
+  let fits = l.subject === s.subject && l.klass === s.klass;
+  if (!fits && l.subject === s.subject && isCourseClass(l.klass)) {
+    fits = courseMembers((await loadSubjectConfigs(c.db))[l.subject], l.klass).includes(s.klass);
+    if (!fits) throw new HttpError(403, "wrong_class", "Dieser Code gehört zum " + classShort(l.klass) + " in " + subjectName(l.subject) + ", für den deine Klasse " + classShort(s.klass) + " nicht eingetragen ist. Prüfe deine Auswahl.");
+  }
+  if (!fits)
+    throw new HttpError(403, "wrong_class", "Dieser Code gehört zu einer anderen Klasse oder einem anderen Fach. Prüfe deine Auswahl (" + classShort(s.klass) + ", " + subjectName(s.subject) + ").");
   await c.db.prepare("INSERT INTO student_access(device_id, lesson_id, joined_at) VALUES(?1, ?2, ?3) ON CONFLICT(device_id, lesson_id) DO NOTHING").bind(s.id, l.id, c.now).run();
   const a = await c.db.prepare("SELECT joined_at FROM student_access WHERE device_id=?1 AND lesson_id=?2").bind(s.id, l.id).first();
   return json({ ok: true, lesson: lessonCard(l, a.joined_at) });

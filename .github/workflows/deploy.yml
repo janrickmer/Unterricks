@@ -3,6 +3,8 @@
 # Benötigte Repository-Secrets: CLOUDFLARE_API_TOKEN (Berechtigungen: Konto → Workers Scripts: Bearbeiten, D1: Bearbeiten,
 # Workers R2 Storage: Bearbeiten, Workers AI: Lesen; Zone/Benutzer: keine), optional CLOUDFLARE_ACCOUNT_ID.
 # Ohne Token wird nur ein Hinweis ausgegeben. R2 muss im Cloudflare-Konto einmal aktiviert sein (Dashboard → R2 → Plan wählen).
+# Danach baut der Job „pages“ die Oberfläche für GitHub Pages (eigene Adresse, z. B. unterricks.janrickmer.de) – nur wenn im Repository
+# unter Settings → Pages als Quelle „GitHub Actions“ gewählt ist; sonst nur ein Hinweis. Der Server bleibt der Worker.
 name: Deploy
 
 on:
@@ -41,6 +43,8 @@ jobs:
     if: needs.check.outputs.enabled == 'true'
     runs-on: ubuntu-latest
     timeout-minutes: 15
+    outputs:
+      api: ${{ steps.address.outputs.api }}
     env:
       WRANGLER_SEND_METRICS: "false"
     steps:
@@ -128,8 +132,67 @@ jobs:
           if [ -n "$SETUP_CODE" ]; then printf '%s' "$SETUP_CODE" | npx wrangler secret put SETUP_CODE; else echo "Kein SETUP_CODE gesetzt – die Ersteinrichtung ist offen, bis sie erledigt ist."; fi
 
       - name: Adresse ausgeben
+        id: address
         env:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
         run: |
           SUB=$(curl -fsS "https://api.cloudflare.com/client/v4/accounts/$CF_ACCOUNT/workers/subdomain" -H "Authorization: Bearer $CLOUDFLARE_API_TOKEN" | jq -r '.result.subdomain // empty')
+          if [ -n "$SUB" ]; then echo "api=https://unterricks.$SUB.workers.dev" >> "$GITHUB_OUTPUT"; fi
           echo "::notice title=Unterricks ist online::https://unterricks.${SUB:-<ihre-subdomain>}.workers.dev – bitte sofort öffnen, unten „Lehrkräfte“ wählen und den Lehrkraft-Zugang einrichten."
+
+  pages:
+    name: Oberfläche auf GitHub Pages veröffentlichen
+    needs: deploy
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: read
+      pages: write
+      id-token: write
+    environment:
+      name: github-pages
+      url: ${{ steps.publish.outputs.page_url }}
+    steps:
+      - name: Ist GitHub Pages eingerichtet?
+        id: check
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+        run: |
+          TYPE=$(gh api "repos/$REPO/pages" --jq .build_type 2>/dev/null || true)
+          if [ "$TYPE" = "workflow" ]; then
+            echo "enabled=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "enabled=false" >> "$GITHUB_OUTPUT"
+            echo "::notice title=GitHub Pages übersprungen::Im Repository ist GitHub Pages nicht mit der Quelle „GitHub Actions“ eingerichtet (Settings → Pages → Build and deployment → Source). Die Oberfläche bleibt über die Worker-Adresse erreichbar."
+          fi
+
+      - if: steps.check.outputs.enabled == 'true'
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+
+      - if: steps.check.outputs.enabled == 'true'
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Abhängigkeiten installieren
+        if: steps.check.outputs.enabled == 'true'
+        run: npm ci
+
+      - name: Seite für GitHub Pages bauen (dist-pages/, Server = Worker)
+        if: steps.check.outputs.enabled == 'true'
+        env:
+          PAGES_API: ${{ needs.deploy.outputs.api }}
+        run: |
+          if [ -z "$PAGES_API" ]; then echo "::error::Die Adresse des Workers ist unbekannt (workers.dev-Subdomain nicht ermittelbar)."; exit 1; fi
+          npm run build
+
+      - if: steps.check.outputs.enabled == 'true'
+        uses: actions/upload-pages-artifact@7b1f4a764d45c48632c6b24a0339c27f5614fb0b # v4.0.0
+        with:
+          path: dist-pages
+
+      - id: publish
+        if: steps.check.outputs.enabled == 'true'
+        uses: actions/deploy-pages@d6db90164ac5ed86f2b6aed7e0febac5b3c0c03e # v4.0.5

@@ -34,7 +34,7 @@ export function substituteCards({ id, st, L, ctx, fb, analog, reload, openDraft,
   function paintSide() {
     const s = st.sub;
     clear(side).append(...nn(h("h2", { text: "Krankheit" }),
-      s && s.status === "aktiv" ? h("p", { class: "small" }, h("span", { class: "badge", style: { color: "var(--warn)" }, text: "Vertretung aktiv" }), " seit " + fmtTime(s.confirmedAt || s.updatedAt))
+      s && s.status === "aktiv" ? h("p", { class: "small" }, h("span", { class: "badge ink", text: "Vertretung aktiv" }), " seit " + fmtTime(s.confirmedAt || s.updatedAt))
         : s && s.status === "vorschlag" ? h("p", { class: "small" }, h("span", { class: "badge", text: "Vorschlag liegt vor" }), " – bitte oben prüfen.") : null,
       h("button", { class: "btn sickbtn", type: "button", onclick: start }, "Lehrkraft ist zu dieser Sitzung krank – Alternative entwickeln"),
       h("p", { class: "hint", text: "Claude (Ihr Pro-Abo in claude.ai, über den Connector) entwickelt eine Vertretungsstunde aus dieser Planung. Sie prüfen und bestätigen sie hier; die ursprüngliche Planung wird archiviert und bleibt wiederherstellbar." })));
@@ -83,13 +83,13 @@ export function substituteCards({ id, st, L, ctx, fb, analog, reload, openDraft,
       h("p", { class: "small", text: "Claude hat den Vorschlag am " + fmtTime(s.updatedAt) + " gespeichert. Erst wenn Sie bestätigen, wird die ursprüngliche Planung archiviert und die Sitzung für die Schüler:innen auf die Vertretung umgestellt." }),
       h("h3", { text: "Analyse der geplanten Stunde" }),
       h("div", { class: "meta-grid" },
-        h("div", null, h("div", { class: "lp-cap", text: "FACHDIDAKTISCHE KOMPETENZ" }), h("div", { class: "small", text: a.kompetenz || "–" })),
-        h("div", null, h("div", { class: "lp-cap", text: "STUNDENFRAGE" }), h("div", { class: "small", text: a.stundenfrage || "–" })),
-        h("div", { class: "full" }, h("div", { class: "lp-cap", text: "LERNINHALTE" }), (a.inhalte || []).length ? list(a.inhalte) : h("div", { class: "small muted", text: "–" }))),
+        h("div", null, h("div", { class: "lp-cap", text: "Fachdidaktische Kompetenz" }), h("div", { class: "small", text: a.kompetenz || "–" })),
+        h("div", null, h("div", { class: "lp-cap", text: "Stundenfrage" }), h("div", { class: "small", text: a.stundenfrage || "–" })),
+        h("div", { class: "full" }, h("div", { class: "lp-cap", text: "Lerninhalte" }), (a.inhalte || []).length ? list(a.inhalte) : h("div", { class: "small muted", text: "–" }))),
       h("p", { class: "small" }, h("strong", { text: "Format: " }), p.format || "–", " · ", h("strong", { text: "Bearbeitungszeit: " }),
         (p.bearbeitungszeit || total || "?") + " Minuten", " (Ziel: ca. " + work() + " Minuten = 80 % von " + minutes() + ")"),
       h("h3", { text: "Das sehen die Schüler:innen" }),
-      h("div", { class: "notice warn" }, p.hinweis || ""), stepsNode(p),
+      h("div", { class: "notice" }, p.hinweis || ""), stepsNode(p),
       p.abgabe ? h("p", { class: "small" }, h("strong", { text: "Abgabe: " }), p.abgabe) : null,
       h("h3", { text: "Material" }), materialsNode(p.materialien),
       p.escape_room ? h("h3", { text: "Escape-Room" }) : null, escapeNode(p, false),
@@ -135,9 +135,9 @@ export function substituteCards({ id, st, L, ctx, fb, analog, reload, openDraft,
     const s = st.sub, p = s.proposal || {}, ar = s.archive || {};
     const archived = st.files.filter((f) => f.area === "archive");
     clear(mainBox).append(h("section", { class: "card substitute active", "aria-label": "Vertretung aktiv" },
-      h("div", { class: "section-title" }, h("h2", { text: "Vertretung aktiv" }), h("span", { class: "badge", style: { color: "var(--warn)" }, text: "seit " + fmtTime(s.confirmedAt || s.updatedAt) })),
+      h("div", { class: "section-title" }, h("h2", { text: "Vertretung aktiv" }), h("span", { class: "badge ink", text: "seit " + fmtTime(s.confirmedAt || s.updatedAt) })),
       h("p", { class: "small", text: "Die Schüler:innen sehen in dieser Sitzung den Hinweis auf Ihre Abwesenheit und die Anleitung mit " + (p.schritte || []).length + " Schritten. Material, Schulportal-Eintrag und Feibeitsblatt sind ausgetauscht (unten in den Abschnitten der Sitzung)." }),
-      h("details", { class: "box" }, h("summary", null, "Anleitung für die Schüler:innen"), h("div", { class: "notice warn" }, p.hinweis || ""), stepsNode(p), p.abgabe ? h("p", { class: "small" }, h("strong", { text: "Abgabe: " }), p.abgabe) : null),
+      h("details", { class: "box" }, h("summary", null, "Anleitung für die Schüler:innen"), h("div", { class: "notice" }, p.hinweis || ""), stepsNode(p), p.abgabe ? h("p", { class: "small" }, h("strong", { text: "Abgabe: " }), p.abgabe) : null),
       escapeNode(p, true),
       h("h3", { text: "Ursprüngliche Planung (archiviert)" }),
       h("p", { class: "small", text: [archived.length ? archived.length + " Datei(en): " + archived.map((f) => f.name).join(", ") : "keine Dateien",

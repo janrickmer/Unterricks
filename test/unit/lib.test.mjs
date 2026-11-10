@@ -121,3 +121,19 @@ test("callTask: Groq bleibt erste Wahl – verkleinert bzw. wartet kurz; erst ei
 test("Feibeitsblatt-Material: Absätze aus Läufen", () => {
   assert.deepEqual(materialRuns("\nErster **fett** Absatz\n\nZweiter\n"), [[{ t: "Erster " }, { t: "fett", f: "b" }, { t: " Absatz" }], [], [{ t: "Zweiter" }]]);
 });
+
+test("CORS nur für die eingetragene Herkunft der Oberfläche (GitHub Pages)", async () => {
+  const { corsHeaders, withCors, pagesOrigins } = await import("../../worker/lib.js");
+  const env = { PAGES_ORIGINS: "https://unterricks.janrickmer.de  https://x.example" };
+  assert.deepEqual(pagesOrigins(env), ["https://unterricks.janrickmer.de", "https://x.example"]);
+  assert.deepEqual(pagesOrigins({ PAGES_ORIGINS: "http://unsicher.example * https://x.example/pfad http://localhost http://localhost.example:80" }), [], "nur https-Herkünfte ohne Pfad");
+  assert.deepEqual(pagesOrigins({ PAGES_ORIGINS: "http://localhost:8792,http://127.0.0.1:9000" }), ["http://localhost:8792", "http://127.0.0.1:9000"], "lokale Tests: http://localhost:PORT");
+  const req = (o) => new Request("https://u.workers.dev/api/health", { headers: o ? { Origin: o } : {} });
+  const c = corsHeaders(req("https://unterricks.janrickmer.de"), env);
+  assert.equal(c["Access-Control-Allow-Origin"], "https://unterricks.janrickmer.de");
+  assert.match(c["Access-Control-Allow-Headers"], /Authorization/);
+  assert.equal(corsHeaders(req("https://boese.example"), env), null);
+  assert.equal(corsHeaders(req(null), env), null, "gleiche Herkunft braucht keine CORS-Kopfzeilen");
+  const r = withCors(new Response("x", { status: 418, headers: { "content-type": "text/plain" } }), c);
+  assert.equal(r.status, 418); assert.equal(r.headers.get("access-control-allow-origin"), "https://unterricks.janrickmer.de"); assert.equal(await r.text(), "x");
+});

@@ -1,7 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import { normalizeParams, computeSlots, lessonSlots, normalizePlan, normalizeRows, assignDates, extractUnitChange, stripUnitBlock, unitContext,
-  claudeUnitPrompt, claudeSubstitutePrompt, claudeLessonPrompt, normalizeSubstitute, SUBSTITUTE_SHARE } from "../../public/planning.js";
+  claudeUnitPrompt, claudeSubstitutePrompt, claudeLessonPrompt, lessonChatName, normalizeSubstitute, SUBSTITUTE_SHARE } from "../../public/planning.js";
 import { SYSTEM_PROMPT_ROLE, UNIT_RULE_BASE, ANALOG_RULE, PORTAL_EXAMPLE } from "../../public/shared.js";
 import { detectKcgo, detectErlass, detectCurriculum, detectECurriculum, parseRanges, formatRanges, pageText, wantedSections, missingFor } from "../../public/bases-detect.js";
 
@@ -80,7 +80,8 @@ test("Prompt „Stunde mit Claude planen“: feste Rolle, Sitzung, Einheit, Vorg
     messages: [{ role: "assistant", content: "Hallo! …", model: "begruessung" }, { role: "user", content: "Bitte mit Rollenspiel" }, { role: "assistant", content: "Vorschlag: Rollenspiel …", model: "mock" }],
     previousStop: { title: "Vorige Stunde", date: "2026-11-10", portal: "**1) A**\n⏸ Zwischenstopp\n**2) Offen geblieben**" } };
   const p = claudeLessonPrompt(base);
-  assert.ok(p.startsWith(SYSTEM_PROMPT_ROLE), "beginnt mit der festen Rolle (wörtlich)");
+  assert.ok(p.startsWith("Chat-Name: Q2 GK - PoWi - Sitzung 1 - Wer kontrolliert die Macht?\n\n" + SYSTEM_PROMPT_ROLE), "beginnt mit dem Chat-Namen, dann die feste Rolle (wörtlich)");
+  assert.ok(p.includes("Beginne deine erste Antwort mit der Zeile „Chat-Name: Q2 GK - PoWi - Sitzung 1 - Wer kontrolliert die Macht?“"), "Claude nennt den Chat-Namen zuerst");
   for (const s of ["Sitzungs-ID: 0123456789abcdef", "`get_lesson` mit der Sitzungs-ID 0123456789abcdef", "`get_unit` mit der ID fedcba9876543210", "`get_planning_basis`", "Q2 GK", "Grundkurs",
     "Wer kontrolliert die Macht?", "laut Plattform 90 Minuten", "Mit Karikatur einsteigen", "AB Gewaltenteilung", "Zentrale Lernaufgabe (Ziel der Einheit): Positionspapier schreiben",
     UNIT_RULE_BASE, "`update_unit_row`", "`save_schulportal_entry`", "`base_version`", "`save_planning_result`", "`add_text_material`", "`propose_feibeitsblatt`", "`hausaufgabe`",
@@ -93,6 +94,18 @@ test("Prompt „Stunde mit Claude planen“: feste Rolle, Sitzung, Einheit, Vorg
   const q = claudeLessonPrompt({ ...base, klass: "6B", unit: null, row: null, unitText: "", previousStop: null, messages: [], lesson: { ...base.lesson, durationMin: null } });
   assert.ok(q.includes(ANALOG_RULE) && !q.includes("`propose_feibeitsblatt`") && !q.includes("`update_unit_row`") && !q.includes("get_unit") && q.includes("in der Plattform noch nicht eingetragen"));
   assert.ok(!q.includes("Vorige Stunde") && !q.includes("Bisheriger Planungsverlauf"));
+  assert.ok(q.startsWith("Chat-Name: Jg. 6 - PoWi - Wer kontrolliert die Macht?\n"), "ohne Einheit keine Sitzungsnummer");
+});
+
+test("Chat-Name: Jahrgang bzw. E-Phase/Q-Kurs, Fach kurz, Stunde in der Einheit, Titel der Sitzung", () => {
+  const unit = { id: "u", rows: [{ uid: "a" }, { uid: "b" }, { uid: "c" }] };
+  assert.equal(lessonChatName({ klass: "8B", subject: "powi", unit, row: { uid: "a" }, lesson: { title: "Das  Bundesverfassungsgericht " } }), "Jg. 8 - PoWi - Sitzung 1 - Das Bundesverfassungsgericht");
+  assert.equal(lessonChatName({ klass: "10F", subject: "evrel", unit, row: { uid: "c" }, lesson: { title: "Bergpredigt" } }), "Jg. 10 - Ev. Religion - Sitzung 3 - Bergpredigt");
+  assert.equal(lessonChatName({ klass: "7-K", subject: "ethik", unit, row: { uid: "b" }, lesson: { title: "Gerechtigkeit" } }), "Jg. 7 - Ethik - Sitzung 2 - Gerechtigkeit", "Kurs über mehrere Klassen: Jahrgang");
+  assert.equal(lessonChatName({ klass: "EB", subject: "powi", lesson: { title: "Wahlen" } }), "E-Phase - PoWi - Wahlen");
+  assert.equal(lessonChatName({ klass: "E-K", subject: "ethik", lesson: { title: "" } }), "E-Phase - Ethik");
+  assert.equal(lessonChatName({ klass: "Q3-LK", subject: "powi", unit, row: { uid: "zz" }, lesson: { title: "Europa" } }), "Q3 LK - PoWi - Europa", "Zeile nicht in der Einheit: keine Nummer");
+  assert.ok(lessonChatName({ klass: "8A", subject: "powi", lesson: { title: "x".repeat(300) } }).length <= 110, "langer Titel gekürzt");
 });
 
 test("Vertretungsvorschlag normalisieren", () => {

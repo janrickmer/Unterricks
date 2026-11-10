@@ -41,6 +41,12 @@ export function deviceId() {
 }
 
 /* ---------- API ---------- */
+/* Server-Adresse: leer = gleiche Herkunft (Seite läuft auf dem Worker). Auf GitHub Pages trägt der Build die Worker-Adresse als
+ * <meta name="unterricks-api" content="https://…"> ein; Pfade des Servers („/api/…“, auch signierte Links aus Antworten) gehen dann dorthin. */
+const apiMeta = typeof document !== "undefined" ? document.querySelector('meta[name="unterricks-api"]') : null;
+export const API = apiMeta && /^(https:\/\/[a-z0-9.-]+|http:\/\/(localhost|127\.0\.0\.1):\d+)$/i.test(apiMeta.getAttribute("content") || "") ? apiMeta.getAttribute("content") : "";
+export const apiUrl = (u) => (typeof u === "string" && u.startsWith("/api/") ? API + u : u);
+export const wsUrl = (path) => (API || location.origin).replace(/^http/, "ws") + path;
 export class ApiError extends Error {
   constructor(message, status, data) { super(message); this.status = status; this.data = data || {}; this.code = (data && data.code) || ""; }
 }
@@ -51,7 +57,7 @@ export async function api(method, path, o = {}) {
   if (o.raw !== undefined) body = o.raw;
   else if (o.body !== undefined) { headers["Content-Type"] = "application/json"; body = JSON.stringify(o.body); }
   let res;
-  try { res = await fetch(path, { method, headers, body, cache: "no-store", credentials: "omit", signal: o.signal }); }
+  try { res = await fetch(apiUrl(path), { method, headers, body, cache: "no-store", credentials: "omit", signal: o.signal }); }
   catch (e) { if (e && e.name === "AbortError") throw e; throw new ApiError("Keine Verbindung zum Server. Bitte Internetverbindung prüfen.", 0); }
   if (o.stream && res.ok && (res.headers.get("content-type") || "").includes("text/event-stream")) return res;
   let data = null;
@@ -66,7 +72,7 @@ export async function api(method, path, o = {}) {
 export function upload(path, file, token, onProgress, contentType) {
   return new Promise((resolve, reject) => {
     const x = new XMLHttpRequest();
-    x.open("POST", path);
+    x.open("POST", apiUrl(path));
     if (token) x.setRequestHeader("Authorization", "Bearer " + token);
     x.setRequestHeader("Content-Type", contentType || file.type || "application/octet-stream");
     x.upload.onprogress = (e) => { if (e.lengthComputable && onProgress) onProgress(e.loaded / e.total); };
@@ -112,7 +118,7 @@ export function modal({ title, body, actions = [], wide = false, onClose }) {
   const foot = h("footer", null, actions.map((a) => h("button", { class: "btn " + (a.class || ""), type: "button", onclick: async (e) => {
     if (a.onClick) { const r = await a.onClick(e, close); if (r === false) return; } close();
   } }, a.label)));
-  box.append(h("header", null, h("h2", { text: title }), h("button", { class: "btn ghost small", type: "button", "aria-label": "Schließen", onclick: close }, "✕")), content);
+  box.append(h("header", null, h("h2", { text: title }), h("button", { class: "btn ghost small iconbtn", type: "button", "aria-label": "Schließen", onclick: close }, icon("x"))), content);
   if (actions.length) box.append(foot);
   back.append(box);
   back.addEventListener("mousedown", (e) => { if (e.target === back) close(); });
@@ -162,13 +168,74 @@ export function fileIcon(name, mime, kind) {
 
 /* Datei aus signiertem Link herunterladen (funktioniert auch auf dem iPad: „In GoodNotes öffnen“ über Teilen) */
 export function downloadUrl(url, name) {
-  const a = h("a", { href: url, download: name || "", rel: "noopener" });
+  const a = h("a", { href: apiUrl(url), download: name || "", rel: "noopener" });
   document.body.append(a); a.click(); a.remove();
 }
 export function downloadBlob(blob, name) {
   const url = URL.createObjectURL(blob);
   downloadUrl(url, name);
   setTimeout(() => URL.revokeObjectURL(url), 60000);
+}
+
+/* ---------- Symbole: eigene SVG-Strichzeichnungen (24er-Raster, Strich 2) statt Sonderzeichen ---------- */
+const ICONS = {
+  trash: "M4 7h16M10 11v6M14 11v6M6 7l1 12a2 2 0 0 0 2 2h6a2 2 0 0 0 2-2l1-12M9 7V4h6v3",
+  edit: "M4 20h4L19 9l-4-4L4 16v4zM13.5 6.5l4 4",
+  x: "M6 6l12 12M18 6L6 18",
+  expand: "M4 9V4h5M20 9V4h-5M4 15v5h5M20 15v5h-5",
+  play: "M8 5v14l11-7z",
+  pause: "M9 5v14M15 5v14",
+  check: "M5 12.5l4.5 4.5L19 7",
+  left: "M15 5l-7 7 7 7",
+  right: "M9 5l7 7-7 7",
+  up: "M12 19V5M6 11l6-6 6 6",
+  down: "M12 5v14M6 13l6 6 6-6",
+  alert: "M12 3.8 2.8 19.6h18.4L12 3.8zM12 9.6v4.6M12 17.2h.01",
+};
+const SVGNS = "http://www.w3.org/2000/svg";
+export function icon(name) {
+  const svg = document.createElementNS(SVGNS, "svg");
+  svg.setAttribute("viewBox", "0 0 24 24"); svg.setAttribute("class", "ico"); svg.setAttribute("aria-hidden", "true"); svg.setAttribute("focusable", "false");
+  const p = document.createElementNS(SVGNS, "path"); p.setAttribute("d", ICONS[name] || "");
+  if (name === "play") p.setAttribute("fill", "currentColor");
+  svg.append(p);
+  return svg;
+}
+
+/* Fach der aktuellen Seite: färbt Kopfband, Akzente und Fokus (Politik und Wirtschaft, Ev. Religion, Ethik) */
+export function setFach(subject) {
+  const root = document.documentElement;
+  if (subject === "powi" || subject === "evrel" || subject === "ethik") root.dataset.fach = subject; else delete root.dataset.fach;
+}
+
+/* Zustandszeile (z. B. „Gespeichert 10:42“): Symbol statt Sonderzeichen; kind = "ok" | "err" | "" (neutral) */
+export function stateLine(el, text, kind = "") {
+  clear(el);
+  if (kind) { el.dataset.state = kind; el.append(icon(kind === "ok" ? "check" : "alert")); } else delete el.dataset.state;
+  el.append(String(text == null ? "" : text));
+  return el;
+}
+
+/* Kopfband einer Seite: Brotkrumen ([href, Text] bzw. Text), Titel (Text oder fertiges h1), Unterzeile, Chips ({text, strong}), Inhalt rechts.
+ * Die Folien (.foils) liegen hinter dem Inhalt: auf Fachseiten eine Folie in der Fachfarbe, sonst die drei Fachfolien übereinander.
+ * „Folie auflegen“ läuft nur beim ersten Kopfband nach dem Laden (danach data-laid an <html>). */
+export function pageHead({ crumbs, title, sub, chips, aside, fach } = {}) {
+  if (fach !== undefined) setFach(fach);
+  const root = document.documentElement;
+  if (!root.hasAttribute("data-laid") && !pageHead.timer) pageHead.timer = setTimeout(() => root.setAttribute("data-laid", ""), 900);
+  const trail = [], n = (crumbs || []).length;
+  (crumbs || []).forEach((c, i) => {
+    const cur = i === n - 1 && !Array.isArray(c);   // letzte Krume = aktuelle Seite (wiederholt den Titel; am Handy ausgeblendet)
+    if (i) trail.push(h("span", { class: "sep" + (cur ? " cur-sep" : ""), "aria-hidden": "true", text: "›" }));
+    trail.push(Array.isArray(c) ? h("a", { href: c[0] }, c[1]) : h("span", { class: cur ? "cur" : null, "aria-current": cur ? "page" : null, text: c }));
+  });
+  const head = title instanceof Node ? title : h("h1", { text: title || "" });
+  return h("header", { class: "pagehead" },
+    h("div", { class: "foils", "aria-hidden": "true" }, h("i"), h("i"), h("i")),
+    trail.length ? h("nav", { class: "crumbs", "aria-label": "Brotkrumen" }, trail) : null,
+    aside ? h("div", { class: "row between" }, head, aside) : head,
+    sub ? (sub instanceof Node ? sub : h("p", { class: "pagesub", text: sub })) : null,
+    chips && chips.length ? h("div", { class: "chips" }, chips.filter(Boolean).map((c) => h("span", { class: "chip" + (c.strong ? " strong" : ""), text: c.text || c }))) : null);
 }
 
 /* Seitenrahmen */

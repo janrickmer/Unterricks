@@ -167,7 +167,8 @@ export const substituteForStudents = (s) => {
 
 /* Escape-Room einer Sitzung: Schüler:innen nur bei aktiver Vertretung (mit Freischaltung der Sitzung), Lehrkraft auch als Vorschau */
 function escapeOut(c, l, p, preview) {
-  return json({ ok: true, room: p.escape_room, sheetCode: preview ? "" : p.escapeSheet || "", preview, subject: l.subject, klass: l.klass,
+  // Vorbelegung der Klasse im Escape-Room: bei Schüler:innen ihre eigene Klasse (bei Kursen über mehrere Klassen nicht die Kurskennung)
+  return json({ ok: true, room: p.escape_room, sheetCode: preview ? "" : p.escapeSheet || "", preview, subject: l.subject, klass: !preview && c.student && c.student.klass ? c.student.klass : l.klass,
     feibeitsblattUrl: c.env.FEIBEITSBLATT_URL || "https://feibeitsblatt.janrickmer.de/" });
 }
 export async function routeStudentEscape(c, lessonId) {
