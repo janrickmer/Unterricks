@@ -261,7 +261,8 @@ implementiert und im End-to-End-Test geprüft (Ausnahmen unten ausdrücklich gen
   `Authorization: Bearer`, nie per Cookie – fremde Seiten erhalten dadurch nichts.
 * **Schutz gegen Einbetten:** `frame-ancestors` wirkt nicht als `<meta>`; deshalb zeigt `app.js` in einem fremden Rahmen nichts an.
 * **Veröffentlichung:** Job „pages“ im Workflow **Deploy** (nach dem Worker, mit dessen Adresse; `actions/upload-pages-artifact`
-  v4.0.0 und `actions/deploy-pages` v4.0.5, per Commit-SHA gepinnt). Er läuft nur, wenn im Repository Pages mit der Quelle
+  v5.0.0 und `actions/deploy-pages` v5.0.1, per Commit-SHA gepinnt; alle Actions des Workflows laufen auf Node.js 24 – seit dem
+  10.11.2026 auch `actions/checkout` v7.0.1 und `actions/setup-node` v7.1.0, weil GitHub Node.js 20 abkündigt). Er läuft nur, wenn im Repository Pages mit der Quelle
   „GitHub Actions“ eingerichtet ist, sonst gibt er einen Hinweis aus. Die eigene Domain wird in den Pages-Einstellungen
   eingetragen (eine `CNAME`-Datei wertet GitHub bei Actions nicht aus).
 * **Datenschutz:** GitHub, Inc. (USA) erhält beim Laden der Seite die IP-Adresse. Unterricks hat bisher keinen eigenen

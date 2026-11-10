@@ -48,9 +48,9 @@ jobs:
     env:
       WRANGLER_SEND_METRICS: "false"
     steps:
-      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
-      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
           node-version: 22
           cache: npm
@@ -138,7 +138,7 @@ jobs:
         run: |
           SUB=$(curl -fsS "https://api.cloudflare.com/client/v4/accounts/$CF_ACCOUNT/workers/subdomain" -H "Authorization: Bearer $CLOUDFLARE_API_TOKEN" | jq -r '.result.subdomain // empty')
           if [ -n "$SUB" ]; then echo "api=https://unterricks.$SUB.workers.dev" >> "$GITHUB_OUTPUT"; fi
-          echo "::notice title=Unterricks ist online::https://unterricks.${SUB:-<ihre-subdomain>}.workers.dev – bitte sofort öffnen, unten „Lehrkräfte“ wählen und den Lehrkraft-Zugang einrichten."
+          echo "::notice title=Worker veröffentlicht::https://unterricks.${SUB:-<ihre-subdomain>}.workers.dev (Server und Connector-Adresse). Nur beim allerersten Mal: Seite öffnen, unten „Lehrkräfte“ wählen und den Lehrkraft-Zugang einrichten."
 
   pages:
     name: Oberfläche auf GitHub Pages veröffentlichen
@@ -168,10 +168,10 @@ jobs:
           fi
 
       - if: steps.check.outputs.enabled == 'true'
-        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
       - if: steps.check.outputs.enabled == 'true'
-        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+        uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
           node-version: 22
           cache: npm
@@ -189,10 +189,10 @@ jobs:
           npm run build
 
       - if: steps.check.outputs.enabled == 'true'
-        uses: actions/upload-pages-artifact@7b1f4a764d45c48632c6b24a0339c27f5614fb0b # v4.0.0
+        uses: actions/upload-pages-artifact@fc324d3547104276b827a68afc52ff2a11cc49c9 # v5.0.0
         with:
           path: dist-pages
 
       - id: publish
         if: steps.check.outputs.enabled == 'true'
-        uses: actions/deploy-pages@d6db90164ac5ed86f2b6aed7e0febac5b3c0c03e # v4.0.5
+        uses: actions/deploy-pages@368f82528645a54fb793d4d04e342629a3f51346 # v5.0.1
