@@ -109,3 +109,38 @@ test("Feibeitsblatt-Entwurf normalisieren", () => {
   assert.equal(d.tasks[0].solution, "K1");
   assert.throws(() => normalizeFbDraft({ tasks: [] }), /keine Aufgabe/);
 });
+
+import { insertStop, removeStops, portalForCopy, hasStop, STOP_LINE, addDays, daysBetween, fmtDay, isIsoDate, isWeekend, lessonContext } from "../../public/shared.js";
+
+test("Zwischenstopp: vor der angeklickten Zeile, höchstens einer, beim Kopieren entfernt", () => {
+  const t = "**1) Einstieg**\n- A\n\n**2) Partnerarbeit**\n- B";
+  const r = insertStop(t, 3);
+  assert.equal(r.text, "**1) Einstieg**\n- A\n\n" + STOP_LINE + "\n**2) Partnerarbeit**\n- B");
+  assert.equal(r.line, 3);
+  assert.ok(hasStop(r.text));
+  const moved = insertStop(r.text, 1);   // neuer Stopp verschiebt den alten
+  assert.equal(moved.text, "**1) Einstieg**\n" + STOP_LINE + "\n- A\n\n**2) Partnerarbeit**\n- B");
+  assert.equal(moved.text.split(STOP_LINE).length, 2);
+  assert.equal(portalForCopy(r.text), t);
+  assert.equal(removeStops("a\n\n" + STOP_LINE + "\n\nb"), "a\n\nb");
+  const lines = parsePortalMarkup(r.text);
+  assert.equal(lines[3].type, "stop");
+  assert.equal(insertStop(t, 99).text, t + "\n" + STOP_LINE);
+});
+
+test("Präsentations-Prompt ohne Zwischenstopp, mit Hausaufgabe", () => {
+  const p = claudePresentationPrompt({ ...ctx, lesson: { ...ctx.lesson, homework: "Lies M2." } }, "**1) A**\n" + STOP_LINE + "\n**2) B**", []);
+  assert.ok(!p.includes("Zwischenstopp"));
+  assert.ok(p.includes("**1) A**\n**2) B**"));
+  assert.ok(p.includes("Lies M2."));
+  assert.match(lessonContext({ ...ctx, lesson: { ...ctx.lesson, homework: "Lies M2." }, portal: "x\n" + STOP_LINE }), /Hausaufgabe aus dieser Sitzung.*Lies M2\.[\s\S]*markiert, bis wohin/);
+});
+
+test("Datumshilfen", () => {
+  assert.equal(addDays("2026-11-12", 3), "2026-11-15");
+  assert.equal(addDays("2026-03-28", 2), "2026-03-30");   // Zeitumstellung egal
+  assert.equal(daysBetween("2026-11-12", "2026-11-10"), -2);
+  assert.equal(fmtDay("2026-11-12"), "Do, 12.11.2026");
+  assert.ok(isIsoDate("2026-02-28") && !isIsoDate("2026-02-30") && !isIsoDate("12.11.2026"));
+  assert.ok(isWeekend("2026-11-15") && !isWeekend("2026-11-16"));
+});

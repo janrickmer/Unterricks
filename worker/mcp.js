@@ -15,6 +15,7 @@ const SERVER_INFO = { name: "unterricks", title: "Unterricks – Unterrichtsplat
 const INSTRUCTIONS = "Unterricks ist die Unterrichtsplattform der Lehrkraft (Fächer: Politik und Wirtschaft, Evangelische Religion, Ethik; Klassen 5A–10F, EA–EF, Q1–Q4). " +
   "Jede Unterrichtssitzung hat Fach, Klasse, Thema, Dauer, Ideen der Lehrkraft, einen Planungsverlauf (Chat), Materialien, Feibeitsblätter und einen Schulportal-Eintrag. " +
   "Lies vor dem Planen immer zuerst die Sitzung mit get_lesson. Speichere Ergebnisse nur, wenn die Lehrkraft das möchte. " +
+  "Eine Zeile „⏸ Zwischenstopp“ im Schulportal-Eintrag ist eine interne Markierung der Lehrkraft: Bis dorthin wurde die Stunde geschafft, ab dort ist der Inhalt offen (sie wird beim Kopieren ins Schulportal entfernt). " +
   "Der Schulportal-Eintrag verwendet die Schulportal-Zeichen (" + PORTAL_RULES.join("; ") + ") und folgt dieser Vorlage:\n" + PORTAL_EXAMPLE;
 
 const SUBJECT_ARG = { type: "string", description: "Fach: powi (Politik und Wirtschaft), evrel (Evangelische Religion) oder ethik", enum: SUBJECTS.map((s) => s.id) };
@@ -33,11 +34,12 @@ const TOOLS = [
   { name: "create_lesson", title: "Neue Sitzung anlegen", annotations: wr,
     description: "Legt eine neue Unterrichtssitzung an und liefert ihre ID und den Sitzungscode für die Schüler:innen.",
     inputSchema: { type: "object", properties: { fach: SUBJECT_ARG, klasse: CLASS_ARG, titel: { type: "string", maxLength: 200 }, thema: { type: "string", maxLength: 500 },
-      dauer_minuten: { type: "integer", minimum: 5, maximum: 600 }, datum: { type: "string", description: "JJJJ-MM-TT", pattern: "^\\d{4}-\\d{2}-\\d{2}$" } }, required: ["fach", "klasse", "titel"], additionalProperties: false } },
+      dauer_minuten: { type: "integer", minimum: 5, maximum: 600 }, datum: { type: "string", description: "Datum der Sitzung, JJJJ-MM-TT (Pflicht)", pattern: "^\\d{4}-\\d{2}-\\d{2}$" } }, required: ["fach", "klasse", "titel", "datum"], additionalProperties: false } },
   { name: "update_lesson", title: "Sitzungsdaten ändern", annotations: wr,
-    description: "Ändert Titel, Thema, Dauer, Datum oder das Notizfeld „Ideen und Wünsche“ einer Sitzung (nur übergebene Felder).",
+    description: "Ändert Titel, Thema, Dauer, Datum, das Notizfeld „Ideen und Wünsche“ oder die Hausaufgabe (bis zur nächsten Sitzung, für Schüler:innen sichtbar) einer Sitzung (nur übergebene Felder).",
     inputSchema: { type: "object", properties: { lesson_id: ID_ARG, titel: { type: "string", maxLength: 200 }, thema: { type: "string", maxLength: 500 },
-      dauer_minuten: { type: "integer", minimum: 5, maximum: 600 }, datum: { type: "string", pattern: "^\\d{4}-\\d{2}-\\d{2}$" }, ideen: { type: "string", maxLength: 20000 } }, required: ["lesson_id"], additionalProperties: false } },
+      dauer_minuten: { type: "integer", minimum: 5, maximum: 600 }, datum: { type: "string", pattern: "^\\d{4}-\\d{2}-\\d{2}$" }, ideen: { type: "string", maxLength: 20000 },
+      hausaufgabe: { type: "string", maxLength: 10000, description: "Schulportal-Zeichen erlaubt; leer = keine Hausaufgabe" } }, required: ["lesson_id"], additionalProperties: false } },
   { name: "save_planning_result", title: "Planungsergebnis in der Sitzung speichern", annotations: wr,
     description: "Speichert ein Planungsergebnis (z. B. den ausgearbeiteten Stundenentwurf) als Nachricht „Claude“ im Planungsverlauf der Sitzung, damit Schulportal-Eintrag und Präsentations-Prompt der Plattform darauf aufbauen.",
     inputSchema: { type: "object", properties: { lesson_id: ID_ARG, text: { type: "string", description: "Markdown", maxLength: 100000 } }, required: ["lesson_id", "text"], additionalProperties: false } },
@@ -108,7 +110,8 @@ async function callTool(c, name, a) {
       if (a.dauer_minuten !== undefined) b.durationMin = a.dauer_minuten;
       if (a.datum !== undefined) b.date = a.datum;
       if (a.ideen !== undefined) b.ideas = a.ideen;
-      const l = await updateLesson(c.db, a.lesson_id, b, c.now);
+      if (a.hausaufgabe !== undefined) b.homework = a.hausaufgabe;
+      const { lesson: l } = await updateLesson(c.db, a.lesson_id, b, c.now);
       return toolText("Gespeichert.", { lesson: lessonOut(l) });
     }
     case "save_planning_result": {

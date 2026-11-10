@@ -3,16 +3,19 @@
 import { HttpError, bad, json, readJson, isId, requireSecret, sha256Hex, LOCKS, lockedFor, registerFail, lockedError, fmtWait } from "./lib.js";
 import { requireStudent } from "./auth.js";
 import { getFile, downloadUrl } from "./files.js";
+import { nextLessonDate } from "./lessons.js";
 import { liveTicket, liveState } from "./live.js";
 import { normalizeCode, isValidCode, subjectName } from "../public/shared.js";
 
 export const PRESENTATION_DELAY_MS = 90 * 60e3;   // Vorgabe: vollständige Datei erst 90 Minuten nach dem ersten Betreten
 
-const lessonCard = (l, joinedAt) => ({ id: l.id, subject: l.subject, subjectName: subjectName(l.subject), klass: l.klass, title: l.title, date: l.lesson_date || null, joinedAt });
+const lessonCard = (l, joinedAt) => ({ id: l.id, subject: l.subject, subjectName: subjectName(l.subject), klass: l.klass, title: l.title, date: l.lesson_date || null, joinedAt,
+  hasHomework: !!(l.homework && String(l.homework).trim()) });
 
 export async function routeStudentMe(c) {
   const s = await requireStudent(c);
-  const r = await c.db.prepare("SELECT l.id, l.subject, l.klass, l.title, l.lesson_date, a.joined_at FROM student_access a JOIN lessons l ON l.id = a.lesson_id WHERE a.device_id=?1 ORDER BY a.joined_at DESC LIMIT 500").bind(s.id).all();
+  const r = await c.db.prepare("SELECT l.id, l.subject, l.klass, l.title, l.lesson_date, l.homework, a.joined_at FROM student_access a JOIN lessons l ON l.id = a.lesson_id " +
+    "WHERE a.device_id=?1 ORDER BY COALESCE(l.lesson_date, '') DESC, a.joined_at DESC LIMIT 500").bind(s.id).all();
   return json({ ok: true, profile: { klass: s.klass, subject: s.subject }, lessons: (r.results || []).map((x) => lessonCard(x, x.joined_at)) });
 }
 
@@ -26,7 +29,7 @@ export async function routeStudentJoin(c) {
   ms = await lockedFor(c.db, ipKey, c.now);
   if (ms) throw lockedError(ms, "Gerade wurden sehr viele falsche Codes eingegeben. Bitte warte " + fmtWait(ms) + ".");
   const code = normalizeCode(body.code);
-  const l = isValidCode(code) ? await c.db.prepare("SELECT id, subject, klass, title, lesson_date FROM lessons WHERE code=?1").bind(code).first() : null;
+  const l = isValidCode(code) ? await c.db.prepare("SELECT id, subject, klass, title, lesson_date, homework FROM lessons WHERE code=?1").bind(code).first() : null;
   if (!l) {
     await registerFail(c.db, devKey, LOCKS.joinDevice, c.now);
     await registerFail(c.db, ipKey, LOCKS.joinIp, c.now);
@@ -43,7 +46,7 @@ export async function routeStudentJoin(c) {
 export async function requireAccess(c, lessonId) {
   const s = await requireStudent(c);
   if (!isId(lessonId)) throw new HttpError(404, "not_found", "Diese Sitzung gibt es nicht.");
-  const a = await c.db.prepare("SELECT a.joined_at, l.id, l.subject, l.klass, l.title, l.lesson_date FROM student_access a JOIN lessons l ON l.id = a.lesson_id WHERE a.device_id=?1 AND a.lesson_id=?2")
+  const a = await c.db.prepare("SELECT a.joined_at, l.id, l.subject, l.klass, l.title, l.lesson_date, l.homework, l.created_at FROM student_access a JOIN lessons l ON l.id = a.lesson_id WHERE a.device_id=?1 AND a.lesson_id=?2")
     .bind(s.id, lessonId).first();
   if (!a) throw new HttpError(403, "no_access", "Für diese Sitzung bist du nicht freigeschaltet. Bitte gib den Sitzungscode ein.");
   return { student: s, lesson: a, joinedAt: a.joined_at };
@@ -57,10 +60,12 @@ export async function routeStudentLesson(c, lessonId) {
     c.db.prepare("SELECT id, name, pages FROM files WHERE lesson_id=?1 AND area='presentation' AND status='ready' LIMIT 1").bind(lessonId),
   ]);
   const p = (pres.results || [])[0] || null, unlockAt = joinedAt + PRESENTATION_DELAY_MS;
+  const hw = String(lesson.homework || "").trim();
   return json({ ok: true, lesson: lessonCard(lesson, joinedAt),
     files: (files.results || []).map((f) => ({ id: f.id, kind: f.kind, name: f.name, mime: f.mime, size: f.size, createdAt: f.created_at, ...(f.kind === "text" ? { text: f.text || "" } : {}) })),
     sheets: (sheets.results || []).map((s) => ({ code: s.code, title: s.title })),
     presentation: p ? { name: p.name, pages: p.pages, unlockAt, unlocked: c.now >= unlockAt } : null,
+    homework: hw ? { text: hw, dueDate: await nextLessonDate(c.db, lesson) } : null,
     feibeitsblattUrl: c.env.FEIBEITSBLATT_URL || "https://feibeitsblatt.janrickmer.de/",
     now: c.now });
 }

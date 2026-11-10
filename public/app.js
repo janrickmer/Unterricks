@@ -1,6 +1,7 @@
 // app.js – Einstieg: Router und Schüleransicht. Die Lehrkräfteansicht wird erst bei Bedarf geladen (teacher.js).
 import { h, $, clear, store, deviceId, api, ApiError, toast, errToast, busy, copyText, fmtBytes, fmtDate, fmtClock, fileIcon, downloadUrl, downloadBlob, topbar } from "./ui.js";
-import { SUBJECTS, CLASS_GROUPS, subjectName, formatCode, normalizeCode } from "./shared.js";
+import { SUBJECTS, CLASS_GROUPS, subjectName, formatCode, normalizeCode, fmtDay } from "./shared.js";
+import { paintPortalPreview } from "./portalview.js";
 import { renderMarkdown } from "./markdown.js";
 
 const app = document.getElementById("app");
@@ -103,7 +104,8 @@ async function studentHome() {
     const lessons = me.lessons || [];
     if (!lessons.length) list.append(h("p", { class: "muted", text: "Noch keine Sitzung freigeschaltet." }));
     for (const l of lessons) list.append(h("a", { class: "item", href: "#/schueler/s/" + l.id },
-      h("div", { class: "main" }, h("div", { class: "name", text: l.title }), h("div", { class: "meta", text: l.subjectName + " · " + l.klass + (l.date ? " · " + fmtDate(l.date) : "") })), h("span", { class: "btn small" }, "Öffnen")));
+      h("div", { class: "main" }, h("div", { class: "name", text: l.title }), h("div", { class: "meta", text: l.subjectName + " · " + l.klass + (l.date ? " · " + fmtDay(l.date) : "") })),
+      l.hasHomework ? h("span", { class: "badge", style: { color: "var(--warn)" }, text: "Hausaufgabe" }) : null, h("span", { class: "btn small" }, "Öffnen")));
     main.append(
       h("div", { class: "row between", style: { marginBottom: ".8rem" } }, h("h1", { style: { margin: 0 }, text: "Hallo!" }),
         h("div", { class: "row" }, h("span", { class: "badge", text: profile.klass + " · " + subjectName(profile.subject) }), h("button", { class: "btn small", type: "button", onclick: () => show(profile, true) }, "Klasse/Fach ändern"))),
@@ -128,7 +130,7 @@ async function studentRoom(lessonId) {
   const offset = (d.now || Date.now()) - Date.now();
   clear(main);
   main.append(h("div", { class: "crumbs" }, h("a", { href: "#/schueler" }, "Meine Sitzungen"), "›", h("span", { text: d.lesson.title })),
-    h("h1", { text: d.lesson.title }), h("p", { class: "muted", text: d.lesson.subjectName + " · " + d.lesson.klass + (d.lesson.date ? " · " + fmtDate(d.lesson.date) : "") }));
+    h("h1", { text: d.lesson.title }), h("p", { class: "muted", text: d.lesson.subjectName + " · " + d.lesson.klass + (d.lesson.date ? " · " + fmtDay(d.lesson.date) : "") }));
 
   // 1) Live-Fenster ganz oben
   const img = h("img", { alt: "Aktuelle Folie der Lehrkraft", draggable: "false" });
@@ -145,6 +147,13 @@ async function studentRoom(lessonId) {
   });
   const presRow = h("div", { class: "row", style: { margin: ".6rem 0 1.2rem" } });
   main.append(live, presRow);
+  // Hausaufgabe aus dieser Sitzung bis zur nächsten Sitzung
+  if (d.homework) {
+    main.append(h("section", { class: "card homework", style: { marginBottom: "1rem" }, "aria-label": "Hausaufgabe" },
+      h("h2", { text: "Deine Hausaufgabe" }),
+      h("p", { class: "due", text: d.homework.dueDate ? "Bis zur nächsten Sitzung am " + fmtDay(d.homework.dueDate) + ":" : "Bis zur nächsten Sitzung:" }),
+      paintPortalPreview(h("div", { class: "hwtext" }), d.homework.text)));
+  }
   let lastV = -1;
   function showState(st) {
     if (!st || typeof st !== "object") return;

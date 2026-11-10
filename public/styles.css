@@ -233,3 +233,18 @@ details.box > summary { cursor: pointer; font-weight: 600; }
   .item { flex-wrap: wrap; } .item .acts { width: 100%; justify-content: flex-start; }
 }
 @media (prefers-reduced-motion: reduce) { * { animation: none !important; transition: none !important; } }
+
+/* Zwischenstopp (interne Markierung im Verlaufsplan) und Kontextmenü */
+.stopfield { display: flex; gap: .5rem; align-items: center; margin: .35rem 0; padding: .4rem .65rem; border-radius: 8px; font-size: .88rem;
+  background: color-mix(in srgb, var(--accent) 22%, var(--surface)); border: 1px dashed color-mix(in srgb, var(--warn) 60%, var(--line)); color: var(--text); }
+.stopfield .stopicon { font-size: 1.05rem; }
+.ctxmenu { position: fixed; z-index: 300; min-width: 220px; background: var(--surface); color: var(--text); border: 1px solid var(--line); border-radius: 10px;
+  box-shadow: 0 10px 30px rgba(0, 0, 0, .25); padding: .3rem; display: grid; }
+.ctxmenu button { font: inherit; text-align: left; background: transparent; border: 0; padding: .5rem .7rem; border-radius: 7px; cursor: pointer; color: inherit; }
+.ctxmenu button:hover, .ctxmenu button:focus-visible { background: var(--surface-2); }
+.ctxmenu button.danger { color: var(--err); }
+.portal-preview [data-line] { cursor: context-menu; }
+.homework { border-left: 4px solid var(--accent); }
+.homework .due { font-weight: 700; }
+.prevstop { border-left: 4px solid var(--warn); }
+.hwtext .pl { margin: 0; min-height: 1.2em; } .hwtext ul { margin: 0; padding-left: 1.2rem; } .hwtext { font-size: 1.02rem; }

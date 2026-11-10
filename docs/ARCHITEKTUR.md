@@ -16,6 +16,9 @@ implementiert und im End-to-End-Test geprüft (Ausnahmen unten ausdrücklich gen
 | Schulportal-Format | Formatierung laut Schulportal Hessen, Artikel 664; Struktur nach dem Beispiel der Lehrkraft |
 | Feibeitsblatt-Passwort | **Bei jeder Anmeldung** neu eingeben (Schlüssel nur im Arbeitsspeicher) |
 | Schülerzugang | **Gerätegebunden**, ohne Konten und ohne Personendaten |
+| Datum (Ergänzung) | **Pflicht** beim Anlegen, jederzeit änderbar; beim Ändern auf Wunsch **alle späteren Sitzungen** derselben Klasse im Fach um denselben Abstand mitverschieben |
+| Hausaufgabe (Ergänzung) | eigenes Feld je Sitzung; Schüler:innen sehen sie „bis zur nächsten Sitzung“ (Datum automatisch) |
+| Zwischenstopp (Ergänzung) | per Rechtsklick **vor** der angeklickten Zeile, **nur intern** (nicht im Schulportal); **nur Markierung** – beim Planen der nächsten Stunde ein Hinweis mit dem Eintrag der letzten Stunde |
 
 ## 2. Gesamtarchitektur
 
@@ -99,6 +102,30 @@ implementiert und im End-to-End-Test geprüft (Ausnahmen unten ausdrücklich gen
 8. **Feibeitsblatt.** Siehe Abschnitt 6.
 9. **Einsicht in Schülerbearbeitungen.** Siehe Abschnitt 6.
 10. **Claude.** Siehe Abschnitt 5.
+
+## 4a. Datum, Hausaufgabe und Zwischenstopp (Ergänzung vom 10.11.2026)
+
+* **Datum.** Ohne Datum lässt sich keine Sitzung anlegen (auch nicht über den Connector). Ändern Sie das Datum (z. B. bei
+  Krankheit) und es gibt spätere Sitzungen derselben Klasse im selben Fach, zeigt ein Dialog die neuen Termine (mit Warnung, falls
+  einer auf ein Wochenende fällt) und bietet „Nur diese Sitzung“, „Alle folgenden mitverschieben“ oder „Abbrechen“. Das
+  Mitverschieben geschieht in einer Datenbank-Transaktion; andere Klassen und Fächer bleiben unberührt. Verschoben wird um
+  Kalendertage (z. B. Di → Mi = alle folgenden einen Tag später).
+* **Hausaufgabe.** Feld „Hausaufgabe bis zur nächsten Sitzung“ in jeder Sitzung (automatisch gespeichert, Schulportal-Zeichen
+  erlaubt, eigener Knopf zum Kopieren in das Hausaufgaben-Feld des Schulportals). Fällig ist sie zur zeitlich nächsten Sitzung
+  derselben Klasse im selben Fach; das Datum wird bei jeder Anzeige neu bestimmt und wandert deshalb beim Verschieben mit.
+  Schüler:innen sehen sie im Sitzungsraum direkt unter dem Live-Fenster („Bis zur nächsten Sitzung am Di, 17.11.2026:“) und als
+  Markierung in ihrer Sitzungsliste. Sie geht außerdem in den KI-Kontext, den Connector und den Präsentations-Prompt (letzte Folie).
+* **Zwischenstopp.** Rechtsklick auf eine Zeile des Verlaufsplans – im Textfeld oder in der Vorschau – → „⏸ Zwischenstopp
+  einfügen“. Die Plattform setzt eine eigene Zeile `⏸ Zwischenstopp` **vor** die angeklickte Zeile (ab hier offen); in der Vorschau
+  erscheint sie als kleines Feld. Je Eintrag gibt es höchstens einen Zwischenstopp (erneutes Einfügen verschiebt ihn); entfernen per
+  Rechtsklick auf das Feld oder Knopf. Auf dem iPad (kein Rechtsklick): Zeile in der Vorschau antippen oder Knopf „Zwischenstopp
+  einfügen“ (vor der Zeile mit der Schreibmarke). Umschalt + Rechtsklick öffnet weiterhin das normale Menü des Browsers.
+  Der Zwischenstopp ist **intern**: „Eintrag kopieren“ und der Präsentations-Prompt lassen ihn weg. Wer den Text von Hand im
+  Textfeld markiert und kopiert, kopiert ihn allerdings mit – dafür ist der Knopf da.
+* **Hinweis in der nächsten Stunde.** Öffnen Sie die nächste Sitzung derselben Klasse (die zeitlich direkt folgende) oder legen Sie
+  eine neue an, erscheint der Hinweis „Die letzte Stunde wurde nicht vollständig beendet“ mit dem Schulportal-Eintrag der letzten
+  Sitzung samt markiertem Zwischenstopp. Inhalte werden nicht automatisch übernommen (Entscheidung der Lehrkraft). Maßgeblich für
+  den Hinweis beim Anlegen ist die zuletzt gehaltene Sitzung (Datum bis heute).
 
 ## 5. Prüfung der direkten Claude-Integration
 

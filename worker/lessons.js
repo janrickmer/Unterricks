@@ -4,14 +4,14 @@ import { requireTeacher } from "./auth.js";
 import { callTask, PROVIDERS } from "./ai.js";
 import {
   isValidClass, isValidSubject, isValidCode, normalizeCode, greetingText, planningSystemPrompt, portalMessages, feibeitsblattMessages,
-  chatTranscript, extractJsonObject, validatePortalData, renderPortalEntry, normalizeFbDraft,
+  chatTranscript, extractJsonObject, validatePortalData, renderPortalEntry, normalizeFbDraft, isIsoDate, daysBetween, hasStop,
 } from "../public/shared.js";
 
-export const LIMITS = { title: 200, topic: 500, ideas: 20000, portal: 30000, message: 30000, answer: 100000, textMaterial: 200000 };
+export const LIMITS = { title: 200, topic: 500, ideas: 20000, homework: 10000, portal: 30000, message: 30000, answer: 100000, textMaterial: 200000 };
 
 export const lessonOut = (r, extra = {}) => ({
   id: r.id, subject: r.subject, klass: r.klass, title: r.title, topic: r.topic, durationMin: r.duration_min ?? null, date: r.lesson_date || null,
-  ideas: r.ideas, code: r.code, portal: r.portal, portalVersion: r.portal_version, portalUpdatedAt: r.portal_updated_at ?? null, portalSource: r.portal_source || null,
+  ideas: r.ideas, homework: r.homework || "", code: r.code, portal: r.portal, portalVersion: r.portal_version, portalUpdatedAt: r.portal_updated_at ?? null, portalSource: r.portal_source || null,
   createdAt: r.created_at, updatedAt: r.updated_at, ...extra,
 });
 export const fileOut = (f, withText = true) => ({
@@ -36,7 +36,7 @@ export async function lessonCtx(db, lesson) {
   ]);
   return {
     lessonId: lesson.id, subject: lesson.subject, klass: lesson.klass,
-    lesson: { title: lesson.title, topic: lesson.topic, durationMin: lesson.duration_min, date: lesson.lesson_date, ideas: lesson.ideas },
+    lesson: { title: lesson.title, topic: lesson.topic, durationMin: lesson.duration_min, date: lesson.lesson_date, ideas: lesson.ideas, homework: lesson.homework || "" },
     materials: (files.results || []).map((f) => ({ name: f.name, area: f.area, kind: f.kind, pages: f.pages, text: f.text || "" })),
     sheets: sheets.results || [], portal: lesson.portal,
   };
@@ -51,15 +51,17 @@ function lessonFields(body, partial) {
   if (!partial || body.title !== undefined) f.title = cleanLine(body.title, LIMITS.title);
   if (!partial || body.topic !== undefined) f.topic = cleanLine(body.topic, LIMITS.topic);
   if (!partial || body.ideas !== undefined) f.ideas = cleanText(body.ideas, LIMITS.ideas);
+  if (!partial || body.homework !== undefined) f.homework = cleanText(body.homework, LIMITS.homework).trim();
   if (!partial || body.durationMin !== undefined) {
     const d = body.durationMin === null || body.durationMin === "" || body.durationMin === undefined ? null : Number(body.durationMin);
     if (d !== null && (!Number.isInteger(d) || d < 5 || d > 600)) throw bad("Die Dauer muss zwischen 5 und 600 Minuten liegen.");
     f.duration_min = d;
   }
+  // Datum ist Pflicht (Vorgabe der Lehrkraft) und bleibt änderbar, z. B. bei Krankheit
   if (!partial || body.date !== undefined) {
-    const v = body.date || null;
-    if (v !== null && !isDate(v)) throw bad("Ungültiges Datum.");
-    f.lesson_date = v;
+    if (!body.date) throw bad("Bitte das Datum wählen, an dem die Sitzung stattfindet.");
+    if (!isDate(body.date) || !isIsoDate(body.date)) throw bad("Ungültiges Datum.");
+    f.lesson_date = body.date;
   }
   return f;
 }
@@ -72,9 +74,9 @@ export async function createLesson(db, body, now) {
   const id = randomId(8);
   for (let i = 0; i < 8; i++) {
     const code = generateCode();
-    const r = await db.prepare("INSERT INTO lessons(id, subject, klass, title, topic, duration_min, lesson_date, ideas, code, created_at, updated_at) " +
-      "VALUES(?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?10) ON CONFLICT(code) DO NOTHING")
-      .bind(id, body.subject, body.klass, f.title, f.topic, f.duration_min, f.lesson_date, f.ideas, code, now).run();
+    const r = await db.prepare("INSERT INTO lessons(id, subject, klass, title, topic, duration_min, lesson_date, ideas, homework, code, created_at, updated_at) " +
+      "VALUES(?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?11) ON CONFLICT(code) DO NOTHING")
+      .bind(id, body.subject, body.klass, f.title, f.topic, f.duration_min, f.lesson_date, f.ideas, f.homework, code, now).run();
     if (r.meta && r.meta.changes) {
       await db.prepare("INSERT INTO chat(lesson_id, role, content, model, created_at) VALUES(?1, 'assistant', ?2, 'begruessung', ?3)")
         .bind(id, greetingText({ subject: body.subject, klass: body.klass, durationMin: f.duration_min }), now).run();
@@ -89,6 +91,7 @@ export async function routeLessonsList(c) {
   const u = new URL(c.request.url);
   const subject = u.searchParams.get("subject"), klass = u.searchParams.get("klass");
   let q = "SELECT l.id, l.subject, l.klass, l.title, l.topic, l.lesson_date, l.duration_min, l.code, l.created_at, l.updated_at, length(l.portal) > 0 AS has_portal, " +
+    "(instr(l.portal, '⏸') > 0 AND instr(l.portal, 'Zwischenstopp') > 0) AS has_stop, length(l.homework) > 0 AS has_homework, " +
     "(SELECT COUNT(*) FROM student_access a WHERE a.lesson_id = l.id) AS students FROM lessons l";
   const args = [];
   if (subject) { if (!isValidSubject(subject)) throw bad("Unbekanntes Fach."); args.push(subject); q += " WHERE l.subject=?" + args.length; }
@@ -96,7 +99,8 @@ export async function routeLessonsList(c) {
   q += " ORDER BY COALESCE(l.lesson_date, '') DESC, l.created_at DESC LIMIT 2000";
   const r = await c.db.prepare(q).bind(...args).all();
   return json({ ok: true, lessons: (r.results || []).map((x) => ({ id: x.id, subject: x.subject, klass: x.klass, title: x.title, topic: x.topic, date: x.lesson_date, durationMin: x.duration_min,
-    code: x.code, createdAt: x.created_at, updatedAt: x.updated_at, hasPortal: !!x.has_portal, studentCount: x.students || 0 })) });
+    code: x.code, createdAt: x.created_at, updatedAt: x.updated_at, hasPortal: !!x.has_portal,
+    hasStop: !!x.has_stop, hasHomework: !!x.has_homework, studentCount: x.students || 0 })) });
 }
 
 export async function routeLessonCreate(c) {
@@ -115,25 +119,47 @@ export async function routeLessonGet(c, id) {
     c.db.prepare("SELECT COUNT(*) AS n FROM student_access WHERE lesson_id=?1").bind(id),
   ]);
   const messages = await chatMessages(c.db, id);
-  return json({ ok: true, lesson: lessonOut(l, { studentCount: (students.results[0] || {}).n || 0 }), messages: messages.map(msgOut),
+  const [prev, nextDate] = await Promise.all([previousLesson(c.db, l), nextLessonDate(c.db, l)]);
+  const previousStop = prev && hasStop(prev.portal) ? { id: prev.id, title: prev.title, date: prev.lesson_date, portal: prev.portal } : null;
+  return json({ ok: true, lesson: lessonOut(l, { studentCount: (students.results[0] || {}).n || 0, nextDate }), previousStop, messages: messages.map(msgOut),
     files: (files.results || []).map((f) => fileOut(f)), sheets: (sheets.results || []).map((s) => ({ code: s.code, title: s.title, createdAt: s.created_at })),
     drafts: (drafts.results || []).map(draftOut) });
 }
 
-export async function updateLesson(db, id, body, now) {
+/* Nachbarsitzungen derselben Klasse im selben Fach (nach Datum, bei gleichem Datum nach Anlegezeit) */
+export function previousLesson(db, l) {
+  if (!l.lesson_date) return null;
+  return db.prepare("SELECT id, title, lesson_date, portal FROM lessons WHERE subject=?1 AND klass=?2 AND id<>?3 AND lesson_date IS NOT NULL " +
+    "AND (lesson_date < ?4 OR (lesson_date = ?4 AND created_at < ?5)) ORDER BY lesson_date DESC, created_at DESC LIMIT 1").bind(l.subject, l.klass, l.id, l.lesson_date, l.created_at).first();
+}
+// Fälligkeit der Hausaufgabe: Datum der nächsten Sitzung (ändert sich mit, wenn Sitzungen verschoben werden)
+export async function nextLessonDate(db, l) {
+  if (!l.lesson_date) return null;
+  const r = await db.prepare("SELECT lesson_date FROM lessons WHERE subject=?1 AND klass=?2 AND id<>?3 AND lesson_date > ?4 ORDER BY lesson_date LIMIT 1")
+    .bind(l.subject, l.klass, l.id, l.lesson_date).first();
+  return r ? r.lesson_date : null;
+}
+
+/* Ändern; shiftFollowing: alle späteren Sitzungen derselben Klasse im Fach um denselben Abstand (Tage) mitverschieben */
+export async function updateLesson(db, id, body, now, shiftFollowing = false) {
   const f = lessonFields(body, true), keys = Object.keys(f);
-  if (!keys.length) return getLesson(db, id);
+  if (!keys.length) return { lesson: await getLesson(db, id), shifted: 0 };
   if (f.title !== undefined && !f.title) throw bad("Der Titel darf nicht leer sein.");
+  const old = await getLesson(db, id);
   const sets = keys.map((k, i) => k + "=?" + (i + 2)).join(", ");
-  const r = await db.prepare("UPDATE lessons SET " + sets + ", updated_at=?" + (keys.length + 2) + " WHERE id=?1").bind(id, ...keys.map((k) => f[k]), now).run();
-  if (!r.meta || !r.meta.changes) throw new HttpError(404, "not_found", "Diese Sitzung gibt es nicht (mehr).");
-  return getLesson(db, id);
+  const stmts = [db.prepare("UPDATE lessons SET " + sets + ", updated_at=?" + (keys.length + 2) + " WHERE id=?1").bind(id, ...keys.map((k) => f[k]), now)];
+  const offset = shiftFollowing && f.lesson_date && old.lesson_date ? daysBetween(old.lesson_date, f.lesson_date) : 0;
+  if (offset) stmts.push(db.prepare("UPDATE lessons SET lesson_date=date(lesson_date, ?1), updated_at=?2 WHERE subject=?3 AND klass=?4 AND id<>?5 AND lesson_date > ?6")
+    .bind((offset > 0 ? "+" : "") + offset + " days", now, old.subject, old.klass, id, old.lesson_date));
+  const res = await db.batch(stmts);   // eine Transaktion: entweder alles oder nichts
+  return { lesson: await getLesson(db, id), shifted: offset ? (res[1].meta && res[1].meta.changes) || 0 : 0 };
 }
 export async function routeLessonPatch(c, id) {
   await requireTeacher(c);
   await getLesson(c.db, id);
-  const l = await updateLesson(c.db, id, await readJson(c.request, 100000), c.now);
-  return json({ ok: true, lesson: lessonOut(l) });
+  const body = await readJson(c.request, 100000);
+  const r = await updateLesson(c.db, id, body, c.now, body.shiftFollowing === true);
+  return json({ ok: true, lesson: lessonOut(r.lesson, { nextDate: await nextLessonDate(c.db, r.lesson) }), shifted: r.shifted });
 }
 
 export async function routeLessonDelete(c, id) {

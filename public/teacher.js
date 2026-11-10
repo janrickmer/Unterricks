@@ -1,7 +1,8 @@
 // teacher.js – Lehrkräfteansicht: Anmeldung/Einrichtung, Fach- und Klassenauswahl, Sitzungslisten, Einstellungen.
 import { h, clear, store, deviceId, api, toast, errToast, busy, modal, confirmDialog, copyText, fmtDate, fmtTime, topbar } from "./ui.js";
 import { render, go, onLeave } from "./app.js";
-import { SUBJECTS, CLASS_GROUPS, subjectName, gradeInfo, isValidClass, isValidSubject, formatCode } from "./shared.js";
+import { SUBJECTS, CLASS_GROUPS, subjectName, gradeInfo, isValidClass, isValidSubject, formatCode, fmtDay } from "./shared.js";
+import { portalPreview } from "./portalview.js";
 import { FbClient } from "./fbclient.js";
 
 export const T = {
@@ -123,8 +124,9 @@ function lessonList(lessons, showContext) {
   if (!lessons.length) list.append(h("p", { class: "muted", text: "Noch keine Sitzungen." }));
   for (const l of lessons) list.append(h("a", { class: "item", href: "#/lk/s/" + l.id },
     h("div", { class: "main" }, h("div", { class: "name", text: l.title }),
-      h("div", { class: "meta", text: [showContext ? subjectName(l.subject) + " · " + l.klass : null, l.date ? fmtDate(l.date) : null, l.topic || null, l.durationMin ? l.durationMin + " min" : null].filter(Boolean).join(" · ") })),
-    h("div", { class: "row" }, l.hasPortal ? h("span", { class: "badge ok", text: "Schulportal ✓" }) : null, h("span", { class: "badge", text: l.studentCount + " SuS" }), h("span", { class: "badge mono", text: formatCode(l.code) }))));
+      h("div", { class: "meta", text: [showContext ? subjectName(l.subject) + " · " + l.klass : null, l.date ? fmtDay(l.date) : "ohne Datum", l.topic || null, l.durationMin ? l.durationMin + " min" : null].filter(Boolean).join(" · ") })),
+    h("div", { class: "row" }, l.hasStop ? h("span", { class: "badge", style: { color: "var(--warn)" }, text: "⏸ Zwischenstopp" }) : null, l.hasHomework ? h("span", { class: "badge", text: "Hausaufgabe" }) : null,
+      l.hasPortal ? h("span", { class: "badge ok", text: "Schulportal ✓" }) : null, h("span", { class: "badge", text: l.studentCount + " SuS" }), h("span", { class: "badge mono", text: formatCode(l.code) }))));
   return list;
 }
 
@@ -135,23 +137,38 @@ async function lessonsPage(subject, klass) {
   let list; try { list = (await tapi("GET", "/api/teacher/lessons?subject=" + subject + "&klass=" + klass)).lessons; } catch (e) { clear(main).append(h("p", { class: "err", text: e.message })); return; }
   const title = h("input", { id: "nt", required: true, maxlength: "200", placeholder: "z. B. Das Bundesverfassungsgericht" });
   const topic = h("input", { id: "ntp", maxlength: "500", placeholder: "Thema der Stunde (optional)" });
-  const date = h("input", { id: "nd", type: "date", value: new Date().toISOString().slice(0, 10) });
+  const date = h("input", { id: "nd", type: "date", required: true, value: new Date().toISOString().slice(0, 10) });
   const dur = h("input", { id: "ndu", type: "number", min: "5", max: "600", step: "5", placeholder: "z. B. 90" });
   const btn = h("button", { class: "btn primary", type: "submit" }, "Sitzung anlegen");
+  const stopNote = h("div");
   const form = h("form", { class: "card", onsubmit: async (e) => {
     e.preventDefault();
     await busy(btn, async () => {
       try {
-        const r = await tapi("POST", "/api/teacher/lessons", { body: { subject, klass, title: title.value, topic: topic.value, date: date.value || null, durationMin: dur.value ? Number(dur.value) : null } });
+        if (!date.value) throw new Error("Bitte das Datum wählen, an dem die Sitzung stattfindet.");
+        const r = await tapi("POST", "/api/teacher/lessons", { body: { subject, klass, title: title.value, topic: topic.value, date: date.value, durationMin: dur.value ? Number(dur.value) : null } });
         go("#/lk/s/" + r.lesson.id);
       } catch (err) { errToast(err); }
     }, "Lege an …");
   } }, h("h2", { text: "Neue Unterrichtssitzung" }),
     h("div", { class: "meta-grid" }, h("div", { class: "field full" }, h("label", { for: "nt" }, "Titel"), title), h("div", { class: "field full" }, h("label", { for: "ntp" }, "Thema"), topic),
-      h("div", { class: "field" }, h("label", { for: "nd" }, "Datum"), date), h("div", { class: "field" }, h("label", { for: "ndu" }, "Dauer (Minuten)"), dur)), btn);
+      h("div", { class: "field" }, h("label", { for: "nd" }, "Datum (Pflicht, später änderbar)"), date), h("div", { class: "field" }, h("label", { for: "ndu" }, "Dauer (Minuten)"), dur)), btn);
   clear(main).append(h("div", { class: "crumbs" }, h("a", { href: "#/lk" }, "Fächer"), "›", h("a", { href: "#/lk/f/" + subject }, subjectName(subject)), "›", h("span", { text: klass })),
     h("h1", { text: subjectName(subject) + " · " + klass }), h("p", { class: "muted", text: gradeInfo(klass).text }),
-    h("div", { class: "session-grid" }, h("div", { class: "card" }, h("h2", { text: "Sitzungen" }), lessonList(list, false)), h("div", { class: "side" }, form)));
+    h("div", { class: "session-grid" }, h("div", { class: "card" }, h("h2", { text: "Sitzungen" }), lessonList(list, false)), h("div", { class: "side" }, stopNote, form)));
+  // Beginnt die Planung der nächsten Stunde: Hinweis, wenn die letzte Sitzung mit einem Zwischenstopp endete
+  // maßgeblich ist die zuletzt gehaltene Sitzung (Datum bis heute); sind alle in der Zukunft, die neueste
+  const today = new Date().toLocaleDateString("sv-SE");
+  const byDate = list.filter((l) => l.date).sort((a, b) => (a.date === b.date ? b.createdAt - a.createdAt : a.date < b.date ? 1 : -1));
+  const last = byDate.find((l) => l.date <= today) || byDate[0];
+  if (last && last.hasStop) {
+    try {
+      const d = await tapi("GET", "/api/teacher/lessons/" + last.id);
+      stopNote.append(h("section", { class: "card prevstop", role: "note" }, h("h2", { text: "Die letzte Stunde wurde nicht vollständig beendet" }),
+        h("p", { class: "small" }, "„", h("strong", { text: last.title }), "“ (" + fmtDay(last.date) + ") endet mit einem Zwischenstopp:"),
+        portalPreview(d.lesson.portal), h("a", { class: "btn small", href: "#/lk/s/" + last.id, style: { marginTop: ".6rem" } }, "Sitzung öffnen")));
+    } catch {}
+  }
 }
 
 /* ---------- Einstellungen ---------- */

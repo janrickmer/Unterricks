@@ -2,7 +2,9 @@
 import { h, clear, toast, errToast, busy, modal, confirmDialog, copyText, fmtBytes, fmtDate, fmtTime, fileIcon, downloadUrl, downloadBlob, upload, api } from "./ui.js";
 import { render, go, onLeave } from "./app.js";
 import { T, tapi, teacherBar } from "./teacher.js";
-import { subjectName, gradeInfo, formatCode, parsePortalMarkup, claudeIdeaPrompt, claudePresentationPrompt, PORTAL_RULES } from "./shared.js";
+import { subjectName, gradeInfo, formatCode, claudeIdeaPrompt, claudePresentationPrompt, PORTAL_RULES, portalForCopy, insertStop, removeStops, hasStop, isStopLine,
+  fmtDay, addDays, daysBetween, isWeekend } from "./shared.js";
+import { paintPortalPreview, portalPreview, contextMenu } from "./portalview.js";
 import { renderMarkdown } from "./markdown.js";
 import { personLabel, personKey } from "./fbclient.js";
 
@@ -18,15 +20,18 @@ export async function sessionPage(id) {
   const L = () => st.lesson;
   let portalTA = null;
   const ctx = () => ({ lessonId: id, subject: L().subject, klass: L().klass,
-    lesson: { title: L().title, topic: L().topic, durationMin: L().durationMin, date: L().date, ideas: L().ideas },
+    lesson: { title: L().title, topic: L().topic, durationMin: L().durationMin, date: L().date, ideas: L().ideas, homework: L().homework },
     materials: st.files.map((f) => ({ name: f.name, area: f.area, kind: f.kind, text: f.text || "", pages: f.pages })), sheets: st.sheets,
     portal: portalTA ? portalTA.value : L().portal });
 
   const heading = h("h1", { text: L().title });
+  const subline = h("p", { class: "muted" });
+  const paintSubline = () => { subline.textContent = subjectName(L().subject) + " · " + L().klass + " · " + gradeInfo(L().klass).text + (L().date ? " · " + fmtDay(L().date) : ""); };
+  paintSubline();
   clear(main).append(
     h("div", { class: "crumbs" }, h("a", { href: "#/lk" }, "Fächer"), "›", h("a", { href: "#/lk/f/" + L().subject }, subjectName(L().subject)), "›",
       h("a", { href: "#/lk/f/" + L().subject + "/" + L().klass }, L().klass), "›", h("span", { text: L().title })),
-    heading, h("p", { class: "muted", text: subjectName(L().subject) + " · " + L().klass + " · " + gradeInfo(L().klass).text }));
+    heading, subline);
 
   /* ======================= Chat ======================= */
   const msgsBox = h("div", { class: "msgs", "aria-live": "polite" });
@@ -136,15 +141,31 @@ export async function sessionPage(id) {
   const presPromptBtn = h("button", { class: "btn accent big", type: "button" }, "Prompt für die Präsentation kopieren");
   const presPromptOut = h("div");
   const genPortalBtn = h("button", { class: "btn primary", type: "button" }, "Schulportal-Eintrag erstellen");
-  function paintPreview() {
-    clear(preview);
-    let ul = null;
-    for (const ln of parsePortalMarkup(portalTA.value)) {
-      if (ln.type === "li") { if (!ul) { ul = h("ul"); preview.append(ul); } ul.append(h("li", null, runsNodes(ln.runs))); continue; }
-      ul = null;
-      preview.append(ln.type === "blank" ? h("div", { class: "pl" }) : h("p", { class: "pl" }, runsNodes(ln.runs)));
-    }
+  function paintPreview() { paintPortalPreview(preview, portalTA.value); updateStopBtns(); }
+  /* ---- Zwischenstopp: Rechtsklick auf eine Zeile (Textfeld oder Vorschau) → „Zwischenstopp einfügen“ (vor dieser Zeile) ---- */
+  const stopBtn = h("button", { class: "btn", type: "button", title: "Vor der Zeile mit der Schreibmarke einfügen" }, "⏸ Zwischenstopp einfügen");
+  const unstopBtn = h("button", { class: "btn ghost hidden", type: "button" }, "Zwischenstopp entfernen");
+  function updateStopBtns() { if (portalTA) unstopBtn.classList.toggle("hidden", !hasStop(portalTA.value)); }
+  const lineAt = (offset) => portalTA.value.slice(0, Math.max(0, offset)).split("\n").length - 1;
+  function applyPortalText(t) { portalTA.value = t; paintPreview(); setPresBtn(); schedulePortal(); }
+  function insertStopAt(line) {
+    applyPortalText(insertStop(portalTA.value, line).text);
+    toast("Zwischenstopp eingefügt – er bleibt intern und wird nicht ins Schulportal kopiert.", "ok");
   }
+  const dropStop = () => { applyPortalText(removeStops(portalTA.value)); toast("Zwischenstopp entfernt.", "ok"); };
+  function stopMenu(line, x, y) {
+    const onStop = isStopLine(portalTA.value.split("\n")[line] || "");
+    contextMenu(x, y, onStop ? [{ label: "Zwischenstopp entfernen", danger: true, onClick: dropStop }]
+      : [{ label: "⏸ Zwischenstopp einfügen", onClick: () => insertStopAt(line) }, ...(hasStop(portalTA.value) ? [{ label: "Zwischenstopp entfernen", danger: true, onClick: dropStop }] : [])]);
+  }
+  stopBtn.addEventListener("click", () => insertStopAt(lineAt(portalTA.selectionStart || 0)));
+  unstopBtn.addEventListener("click", dropStop);
+  preview.addEventListener("contextmenu", (e) => { const el = e.target.closest("[data-line]"); if (!el || e.shiftKey) return; e.preventDefault(); stopMenu(Number(el.dataset.line), e.clientX, e.clientY); });
+  // iPad: kein Rechtsklick – Tippen auf eine Zeile der Vorschau öffnet das Menü
+  preview.addEventListener("click", (e) => {
+    if (!window.matchMedia("(pointer: coarse)").matches || e.target.closest("a")) return;
+    const el = e.target.closest("[data-line]"); if (el) stopMenu(Number(el.dataset.line), e.clientX, e.clientY);
+  });
   const setPresBtn = () => { const has = !!(portalTA && portalTA.value.trim()); presPromptBtn.disabled = !has; presPromptBtn.title = has ? "" : "Erst einen Schulportal-Eintrag erstellen"; };
   function setSaved(text) { portalState.textContent = text; }
   function schedulePortal() { portal.dirty = true; setSaved("Ungespeicherte Änderungen …"); clearTimeout(portal.timer); portal.timer = setTimeout(() => flushPortal(), 1200); }
@@ -183,11 +204,22 @@ export async function sessionPage(id) {
     portalTA = h("textarea", { class: "portal-text", id: "portal", spellcheck: "true", "aria-label": "Schulportal-Eintrag (bearbeitbar)", value: L().portal || "" });
     portalTA.addEventListener("input", () => { paintPreview(); setPresBtn(); schedulePortal(); });
     portalTA.addEventListener("blur", () => flushPortal());
+    portalTA.addEventListener("contextmenu", (e) => {
+      if (e.shiftKey) return;   // Umschalt + Rechtsklick = normales Menü des Browsers
+      e.preventDefault();
+      // Stelle unter dem Mauszeiger (sonst die Schreibmarke, die der Rechtsklick in Chrome/Safari/Edge setzt)
+      let off = portalTA.selectionStart || 0;
+      try { const cp = document.caretPositionFromPoint && document.caretPositionFromPoint(e.clientX, e.clientY); if (cp && cp.offsetNode === portalTA) off = cp.offset; } catch {}
+      stopMenu(lineAt(off), e.clientX, e.clientY);
+    });
     clear(portalBody).append(
       h("div", { class: "portal-wrap" }, h("div", null, h("label", { for: "portal" }, "Eintrag (direkt bearbeitbar, wird automatisch gespeichert)"), portalTA),
-        h("div", null, h("label", null, "Vorschau im Schulportal"), preview)),
-      h("div", { class: "row between" }, portalState, h("div", { class: "row" },
-        h("button", { class: "btn", type: "button", onclick: async () => toast((await copyText(portalTA.value)) ? "Eintrag kopiert – im Schulportal einfügen." : "Bitte manuell kopieren.", "ok") }, "Eintrag kopieren"),
+        h("div", null, h("label", null, "Vorschau im Schulportal"), preview, h("p", { class: "hint", text: "Rechtsklick auf eine Zeile (Textfeld oder Vorschau; am iPad: Zeile antippen) → „Zwischenstopp einfügen“: markiert intern, wo Sie in der nächsten Stunde weitermachen. Umschalt + Rechtsklick öffnet das normale Menü." }))),
+      h("div", { class: "row between" }, portalState, h("div", { class: "row" }, stopBtn, unstopBtn,
+        h("button", { class: "btn", type: "button", onclick: async () => {
+          const ok = await copyText(portalForCopy(portalTA.value));
+          toast(ok ? "Eintrag kopiert" + (hasStop(portalTA.value) ? " (ohne Zwischenstopp)" : "") + " – im Schulportal einfügen." : "Bitte manuell kopieren.", ok ? "ok" : "err");
+        } }, "Eintrag kopieren"),
         h("button", { class: "btn", type: "button", onclick: (e) => generatePortal(e.currentTarget) }, "Mit KI neu erstellen"))),
       h("details", { class: "box small" }, h("summary", null, "Schulportal-Zeichen"), h("ul", null, PORTAL_RULES.map((r) => h("li", { text: r })))));
     paintPreview(); setPresBtn();
@@ -226,6 +258,24 @@ export async function sessionPage(id) {
   if (L().portal) showPortalEditor();
   else portalBody.append(h("p", { class: "muted small", text: "Erstellt aus dem Planungsverlauf einen fertig formatierten Eintrag für das Schulportal Hessen, den Sie bearbeiten und kopieren können." }));
   setPresBtn();
+  /* ======================= Hausaufgabe ======================= */
+  const hwTA = h("textarea", { id: "hw", rows: "3", value: L().homework || "", placeholder: "z. B. Lies M2 und beantworte Aufgabe 3 schriftlich." });
+  const hwState = h("span", { class: "save-state" }), hwDue = h("p", { class: "small" });
+  function paintDue() { hwDue.textContent = L().nextDate ? "Fällig zur nächsten Sitzung am " + fmtDay(L().nextDate) + " (ändert sich mit, wenn Sitzungen verschoben werden)." : "Noch keine spätere Sitzung dieser Klasse angelegt – Schüler:innen sehen „bis zur nächsten Sitzung“."; }
+  let hwT = null;
+  const saveHw = async () => {
+    clearTimeout(hwT);
+    try { const r = await tapi("PATCH", "/api/teacher/lessons/" + id, { body: { homework: hwTA.value } }); L().homework = r.lesson.homework; L().nextDate = r.lesson.nextDate; paintDue(); hwState.textContent = "Gespeichert ✓"; }
+    catch (e) { hwState.textContent = "⚠ " + e.message; }
+  };
+  hwTA.addEventListener("input", () => { hwState.textContent = "…"; clearTimeout(hwT); hwT = setTimeout(saveHw, 900); });
+  hwTA.addEventListener("blur", () => { if (hwTA.value !== (L().homework || "")) saveHw(); });
+  paintDue();
+  const hwCard = h("section", { class: "card homework" }, h("div", { class: "section-title" }, h("h2", { text: "Hausaufgabe bis zur nächsten Sitzung" }), hwState),
+    h("label", { for: "hw" }, "Hausaufgabe (für Schüler:innen sichtbar)"), hwTA, hwDue,
+    h("div", { class: "row" }, h("button", { class: "btn small", type: "button", onclick: async () => toast((await copyText(hwTA.value)) ? "Hausaufgabe kopiert – im Schulportal in das Feld „Hausaufgabe“ einfügen." : "Bitte manuell kopieren.", "ok") }, "Für das Schulportal kopieren")),
+    h("p", { class: "hint", text: "Schüler:innen sehen sie in dieser Sitzung direkt unter der Live-Präsentation und in ihrer Sitzungsliste. Schulportal-Zeichen (**fett**, ~~kursiv~~) sind erlaubt." }));
+
   const presPromptCard = h("section", { class: "card" }, h("div", { class: "section-title" }, h("h2", { text: "Präsentation mit Claude erstellen" })),
     h("p", { class: "small", text: "Erzeugt einen ausführlichen Prompt für Claude (claude.ai), der eine vollständige PowerPoint-Präsentation samt PDF-Fassung für diese Stunde anfordert – auf Grundlage des aktuellen Schulportal-Eintrags, der Materialien und Ihrer Planung." }),
     presPromptBtn, presPromptOut);
@@ -574,19 +624,54 @@ export async function sessionPage(id) {
     h("p", { class: "hint", text: "Der Code öffnet nur diese Sitzung – und nur für Schüler:innen, die " + L().klass + " und " + subjectName(L().subject) + " gewählt haben." }));
 
   const fTitle = h("input", { value: L().title, maxlength: "200" }), fTopic = h("input", { value: L().topic, maxlength: "500" });
-  const fDate = h("input", { type: "date", value: L().date || "" }), fDur = h("input", { type: "number", min: "5", max: "600", step: "5", value: L().durationMin || "" });
+  const fDate = h("input", { type: "date", value: L().date || "", required: true, "aria-label": "Datum der Sitzung" }), fDur = h("input", { type: "number", min: "5", max: "600", step: "5", value: L().durationMin || "" });
   const fIdeas = h("textarea", { rows: "4", value: L().ideas, placeholder: "Ideen, Wünsche, Materialhinweise …" });
   const metaState = h("span", { class: "save-state" });
   let metaT = null;
   const saveMeta = async () => {
     clearTimeout(metaT);
     try {
-      const r = await tapi("PATCH", "/api/teacher/lessons/" + id, { body: { title: fTitle.value, topic: fTopic.value, date: fDate.value || null, durationMin: fDur.value ? Number(fDur.value) : null, ideas: fIdeas.value } });
-      Object.assign(st.lesson, { title: r.lesson.title, topic: r.lesson.topic, date: r.lesson.date, durationMin: r.lesson.durationMin, ideas: r.lesson.ideas });
+      const r = await tapi("PATCH", "/api/teacher/lessons/" + id, { body: { title: fTitle.value, topic: fTopic.value, durationMin: fDur.value ? Number(fDur.value) : null, ideas: fIdeas.value } });
+      Object.assign(st.lesson, { title: r.lesson.title, topic: r.lesson.topic, durationMin: r.lesson.durationMin, ideas: r.lesson.ideas });
       heading.textContent = r.lesson.title; metaState.textContent = "Gespeichert ✓";
     } catch (e) { metaState.textContent = "⚠ " + e.message; }
   };
-  for (const el of [fTitle, fTopic, fDate, fDur, fIdeas]) { el.addEventListener("input", () => { metaState.textContent = "…"; clearTimeout(metaT); metaT = setTimeout(saveMeta, 900); }); el.addEventListener("change", saveMeta); }
+  for (const el of [fTitle, fTopic, fDur, fIdeas]) { el.addEventListener("input", () => { metaState.textContent = "…"; clearTimeout(metaT); metaT = setTimeout(saveMeta, 900); }); el.addEventListener("change", saveMeta); }
+  // Datum ändern (z. B. bei Krankheit): auf Wunsch alle späteren Sitzungen dieser Klasse im Fach um denselben Abstand mitverschieben
+  fDate.addEventListener("change", async () => {
+    const nd = fDate.value, od = L().date;
+    if (!nd) { fDate.value = od || ""; toast("Jede Sitzung braucht ein Datum.", "err"); return; }
+    if (nd === od) return;
+    const off = od ? daysBetween(od, nd) : 0;
+    let later = [];
+    if (od) { try { later = (await tapi("GET", "/api/teacher/lessons?subject=" + L().subject + "&klass=" + L().klass)).lessons.filter((x) => x.id !== id && x.date && x.date > od).sort((a, b) => (a.date < b.date ? -1 : 1)); } catch {} }
+    let shift = false;
+    if (later.length && off) {
+      const choice = await new Promise((resolve) => {
+        let picked = null;
+        const days = Math.abs(off) + " Tag" + (Math.abs(off) === 1 ? "" : "e") + (off > 0 ? " später" : " früher");
+        modal({ title: "Datum verschieben", wide: true, onClose: () => resolve(picked),
+          body: (el) => el.append(
+            h("p", null, "Diese Sitzung: ", h("strong", { text: fmtDay(od) }), " → ", h("strong", { text: fmtDay(nd) }), " (" + days + ")."),
+            h("p", { text: "Sollen die " + later.length + " späteren Sitzungen von " + L().klass + " in " + subjectName(L().subject) + " ebenfalls um " + days.replace(/ (später|früher)$/, "") + " verschoben werden?" }),
+            h("div", { class: "list" }, later.map((x) => { const n = addDays(x.date, off); return h("div", { class: "item" }, h("div", { class: "main" }, h("div", { class: "name", text: x.title }),
+              h("div", { class: "meta" }, fmtDay(x.date) + " → " + fmtDay(n) + " ", isWeekend(n) ? h("span", { class: "badge", style: { color: "var(--warn)" }, text: "⚠ Wochenende" }) : null))); }))),
+          actions: [
+            { label: "Abbrechen", onClick: () => { picked = "cancel"; } },
+            { label: "Nur diese Sitzung", onClick: () => { picked = "one"; } },
+            { label: "Alle folgenden mitverschieben", class: "primary", onClick: () => { picked = "all"; } },
+          ] });
+      });
+      if (!choice || choice === "cancel") { fDate.value = od; return; }
+      shift = choice === "all";
+    }
+    try {
+      const r = await tapi("PATCH", "/api/teacher/lessons/" + id, { body: { date: nd, shiftFollowing: shift } });
+      L().date = r.lesson.date; L().nextDate = r.lesson.nextDate; paintSubline(); paintDue();
+      metaState.textContent = "Gespeichert ✓";
+      toast("Datum geändert" + (r.shifted ? " – " + r.shifted + " folgende Sitzung" + (r.shifted === 1 ? "" : "en") + " mitverschoben." : "."), "ok");
+    } catch (e) { fDate.value = od || ""; errToast(e); }
+  });
   const metaCard = h("section", { class: "card" }, h("div", { class: "section-title" }, h("h2", { text: "Sitzungsdaten" }), metaState),
     h("div", { class: "field" }, h("label", null, "Titel"), fTitle), h("div", { class: "field" }, h("label", null, "Thema"), fTopic),
     h("div", { class: "meta-grid" }, h("div", { class: "field" }, h("label", null, "Datum"), fDate), h("div", { class: "field" }, h("label", null, "Dauer (Minuten)"), fDur)),
@@ -613,8 +698,15 @@ export async function sessionPage(id) {
       h("p", null, "Ist der Connector „Unterricks“ in claude.ai eingerichtet (Einstellungen), kann Claude diese Sitzung selbst lesen und Ergebnisse speichern. Sitzungs-ID:"),
       h("div", { class: "row" }, h("code", { class: "mono", text: id }), h("button", { class: "btn small", type: "button", onclick: async () => toast((await copyText(id)) ? "ID kopiert." : "", "ok") }, "Kopieren"))));
 
+  const ps = d.previousStop;
+  const prevCard = ps ? h("section", { class: "card prevstop", role: "note" },
+    h("h2", { text: "Hinweis: Die letzte Stunde wurde nicht vollständig beendet" }),
+    h("p", { class: "small" }, "In der vorigen Sitzung „", h("strong", { text: ps.title }), "“ (" + fmtDay(ps.date) + ") ist ein Zwischenstopp markiert. Ihr Schulportal-Eintrag:"),
+    portalPreview(ps.portal),
+    h("div", { class: "row", style: { marginTop: ".6rem" } }, h("a", { class: "btn small", href: "#/lk/s/" + ps.id }, "Vorige Sitzung öffnen"),
+      h("button", { class: "btn small ghost", type: "button", onclick: (e) => e.currentTarget.closest(".prevstop").remove() }, "Ausblenden"))) : null;
   main.append(h("div", { class: "session-grid" },
-    h("div", { class: "stack" }, chatCard, portalCard, presPromptCard, filesCard, presCard, fbCard),
+    h("div", { class: "stack" }, prevCard, chatCard, portalCard, hwCard, presPromptCard, filesCard, presCard, fbCard),
     h("aside", { class: "side" }, codeCard, claudeCard, metaCard)));
 
   // Änderungen von außen (z. B. Claude über den Connector) beim Zurückkehren übernehmen
@@ -637,19 +729,7 @@ export async function sessionPage(id) {
   document.addEventListener("visibilitychange", onVis);
   const beforeUnload = (e) => { if (portal.dirty) { flushPortal(); e.preventDefault(); e.returnValue = ""; } };
   window.addEventListener("beforeunload", beforeUnload);
-  onLeave(() => { document.removeEventListener("visibilitychange", onVis); window.removeEventListener("beforeunload", beforeUnload); if (portal.dirty) flushPortal(); clearTimeout(metaT); });
+  onLeave(() => { document.removeEventListener("visibilitychange", onVis); window.removeEventListener("beforeunload", beforeUnload); if (portal.dirty) flushPortal(); clearTimeout(metaT);
+    if (hwT) { clearTimeout(hwT); saveHw(); } document.querySelectorAll(".ctxmenu").forEach((m) => m.remove()); });
 }
 
-function runsNodes(runs) {
-  return runs.map((r) => {
-    let n = r.href ? h("a", { href: r.href, target: "_blank", rel: "noopener noreferrer", text: r.text.length > 60 ? r.text.slice(0, 57) + "…" : r.text }) : document.createTextNode(r.text);
-    if (r.code) n = h("code", null, n);
-    if (r.sup) n = h("sup", null, n);
-    if (r.sub) n = h("sub", null, n);
-    if (r.i) n = h("em", null, n);
-    if (r.u) n = h("u", null, n);
-    if (r.s) n = h("s", null, n);
-    if (r.b) n = h("strong", null, n);
-    return n;
-  });
-}

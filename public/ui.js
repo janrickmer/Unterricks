@@ -80,9 +80,12 @@ export function upload(path, file, token, onProgress, contentType) {
 
 /* ---------- Rückmeldungen ---------- */
 export function toast(msg, type = "", ms = 4200) {
+  const box = document.getElementById("toasts"), last = box.lastElementChild;
+  // gleiche Meldung nicht stapeln, sondern nur länger zeigen
+  if (last && last.textContent === msg) { clearTimeout(last._t); last._t = setTimeout(() => last.remove(), ms); return; }
   const t = h("div", { class: "toast " + type, text: msg });
-  document.getElementById("toasts").append(t);
-  setTimeout(() => t.remove(), ms);
+  box.append(t);
+  t._t = setTimeout(() => t.remove(), ms);
 }
 export function errToast(e) { toast(e && e.message ? e.message : String(e), "err", 7000); }
 

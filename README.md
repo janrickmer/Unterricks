@@ -32,9 +32,12 @@ Feibeitsblatt braucht keine Änderung. Die Adressen stehen in `wrangler.jsonc` (
 
 * **Schüler:innen:** Seite öffnen → Passwort „Feindt“ → Fach und Klasse → Sitzungscode. Danach merkt sich das Gerät die Sitzung.
   Oben läuft die Live-Präsentation, darunter Material (Download, z. B. für GoodNotes) und Feibeitsblätter.
-* **Lehrkraft:** Fach → Klasse → Sitzung anlegen → im Chat planen → „Schulportal-Eintrag erstellen“ (bearbeiten, kopieren) →
+* **Lehrkraft:** Fach → Klasse → Sitzung mit Datum anlegen → im Chat planen → „Schulportal-Eintrag erstellen“ (bearbeiten, kopieren) →
   „Prompt für die Präsentation kopieren“ → in claude.ai einfügen → die von Claude erzeugte **PDF** hochladen → im Unterricht
   „Ich bin im Unterricht und starte die Präsentation für alle.“ Den Sitzungscode zeigt „Für den Beamer zeigen“.
+  Am Stundenende: Hausaufgabe eintragen und per Rechtsklick im Verlaufsplan „Zwischenstopp einfügen“, falls nicht alles
+  geschafft wurde – die nächste Sitzung der Klasse zeigt dann einen Hinweis. Bei Krankheit das Datum ändern (auf Wunsch rücken
+  alle folgenden Sitzungen der Klasse mit).
 
 ## Entwicklung
 

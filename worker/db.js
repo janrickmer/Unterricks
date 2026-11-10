@@ -28,9 +28,25 @@ export const SCHEMA = [
   "CREATE INDEX IF NOT EXISTS drafts_lesson ON fb_drafts(lesson_id, created_at)",
 ];
 
+// Nachträglich ergänzte Spalten (bestehende Datenbanken bekommen sie per ALTER TABLE, nur additiv)
+export const COLUMNS = [
+  ["lessons", "homework", "TEXT NOT NULL DEFAULT ''"],
+];
+
 let ready = null;
 export function ensureSchema(db) {
-  if (!ready) ready = db.batch(SCHEMA.map((s) => db.prepare(s))).catch((e) => { ready = null; throw e; });
+  if (!ready) ready = (async () => {
+    await db.batch(SCHEMA.map((s) => db.prepare(s)));
+    for (const table of [...new Set(COLUMNS.map((c) => c[0]))]) {
+      const info = await db.prepare("PRAGMA table_info(" + table + ")").all();
+      const have = new Set((info.results || []).map((r) => r.name));
+      for (const [t, col, def] of COLUMNS) {
+        if (t !== table || have.has(col)) continue;
+        try { await db.prepare("ALTER TABLE " + t + " ADD COLUMN " + col + " " + def).run(); }
+        catch (e) { if (!/duplicate column/i.test(String(e && e.message))) throw e; }   // gleichzeitig von einer anderen Instanz angelegt
+      }
+    }
+  })().catch((e) => { ready = null; throw e; });
   return ready;
 }
 

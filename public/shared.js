@@ -33,6 +33,16 @@ export function gradeInfo(k) {
 }
 export const classLabel = (k) => (isValidClass(k) ? "Klasse/Kurs " + k + " – " + gradeInfo(k).text : "");
 
+/* ---------- Datum (JJJJ-MM-TT, ohne Zeitzonen-Verschiebung) ---------- */
+const WD = ["So", "Mo", "Di", "Mi", "Do", "Fr", "Sa"];
+const utcNoon = (iso) => Date.parse(iso + "T12:00:00Z");
+export const isIsoDate = (s) => typeof s === "string" && /^\d{4}-\d{2}-\d{2}$/.test(s) && !Number.isNaN(utcNoon(s)) && new Date(utcNoon(s)).toISOString().slice(0, 10) === s;
+export function addDays(iso, n) { const d = new Date(utcNoon(iso)); d.setUTCDate(d.getUTCDate() + n); return d.toISOString().slice(0, 10); }
+export const daysBetween = (a, b) => Math.round((utcNoon(b) - utcNoon(a)) / 86400e3);
+export const weekday = (iso) => WD[new Date(utcNoon(iso)).getUTCDay()];
+export const isWeekend = (iso) => { const d = new Date(utcNoon(iso)).getUTCDay(); return d === 0 || d === 6; };
+export const fmtDay = (iso) => (isIsoDate(iso) ? weekday(iso) + ", " + iso.slice(8, 10) + "." + iso.slice(5, 7) + "." + iso.slice(0, 4) : "");
+
 /* ---------- Sitzungscodes (wie bei Feibeitsblatt: 6 Zeichen ohne I, L, O, 0, 1; Anzeige ABC-123) ---------- */
 export const CODE_ALPHABET = "ABCDEFGHJKMNPQRSTUVWXYZ23456789";
 export const normalizeCode = (s) => String(s == null ? "" : s).toUpperCase().replace(/[^A-Z0-9]/g, "");
@@ -125,10 +135,32 @@ export function validatePortalData(obj) {
   return { phasen, naechsteStundeAb: Number.isInteger(next) && next > 1 && next <= phasen.length ? next : null };
 }
 
-/* Schulportal-Markup für die Vorschau zerlegen: Zeilen → {type: "li"|"p"|"blank", runs: [{text, b, i, u, s, code, sup, sub, href}]} */
+/* ---------- Zwischenstopp (nur intern): markiert, bis wohin eine Stunde tatsächlich gekommen ist ----------
+ * Eigene Zeile „⏸ Zwischenstopp“ VOR dem ersten Punkt, der nicht mehr geschafft wurde. Beim Kopieren ins Schulportal und im
+ * Präsentations-Prompt wird sie entfernt. Je Eintrag höchstens ein Zwischenstopp (Einfügen verschiebt ihn). */
+export const STOP_LINE = "⏸ Zwischenstopp";
+const STOP_RE = /^\s*⏸\s*Zwischenstopp\b.*$/;
+export const isStopLine = (l) => STOP_RE.test(String(l));
+export const hasStop = (text) => String(text == null ? "" : text).split("\n").some(isStopLine);
+const splitLines = (text) => String(text == null ? "" : text).replace(/\r\n?/g, "\n").split("\n");
+/* vor Zeile lineIndex (0-basiert, bezogen auf den bisherigen Text) einfügen → {text, line: Index der Stopp-Zeile} */
+export function insertStop(text, lineIndex) {
+  const out = [];
+  let target = null;
+  splitLines(text).forEach((l, i) => { if (i === lineIndex) target = out.length; if (!isStopLine(l)) out.push(l); });
+  if (target === null) target = out.length;
+  out.splice(target, 0, STOP_LINE);
+  return { text: out.join("\n"), line: target };
+}
+export const removeStops = (text) => splitLines(text).filter((l) => !isStopLine(l)).join("\n").replace(/\n{3,}/g, "\n\n").replace(/\s+$/, "");
+/* Text für das Schulportal (ohne interne Markierungen) */
+export const portalForCopy = (text) => removeStops(text);
+
+/* Schulportal-Markup für die Vorschau zerlegen: Zeilen → {type: "li"|"p"|"blank"|"stop", runs: [{text, b, i, u, s, code, sup, sub, href}]} */
 export function parsePortalMarkup(text) {
   const lines = String(text == null ? "" : text).replace(/\r\n?/g, "\n").split("\n");
   return lines.map((line) => {
+    if (isStopLine(line)) return { type: "stop", runs: [] };
     if (!line.trim()) return { type: "blank", runs: [] };
     const li = /^- /.test(line);
     return { type: li ? "li" : "p", runs: parseRuns(li ? line.slice(2) : line) };
@@ -193,9 +225,10 @@ export function lessonContext(ctx, opt = {}) {
   const lines = [
     "Unterrichtsfach: " + subjectName(ctx.subject),
     "Klasse/Kurs: " + ctx.klass + " – " + gradeInfo(ctx.klass).text,
-    "Unterrichtssitzung: " + (L.title || "(noch ohne Titel)") + (L.date ? " am " + L.date : ""),
+    "Unterrichtssitzung: " + (L.title || "(noch ohne Titel)"),
     "Thema: " + (L.topic || "(noch nicht festgelegt)"),
     "Dauer: " + (L.durationMin ? L.durationMin + " Minuten" : "(noch nicht angegeben – bitte erfragen)"),
+    ...(L.date ? ["Datum: " + fmtDay(L.date)] : []),
   ];
   if (L.ideas) lines.push("Ideen und Wünsche der Lehrkraft (Notizfeld):\n" + clip(L.ideas, opt.ideasMax || 4000));
   const mats = (ctx.materials || []).filter((m) => m.area !== "presentation");
@@ -212,7 +245,9 @@ export function lessonContext(ctx, opt = {}) {
     lines.push("Feibeitsblätter dieser Sitzung:");
     for (const s of ctx.sheets) lines.push("- „" + s.title + "“ mit dem Code " + formatCode(s.code));
   }
-  if (opt.portal !== false && ctx.portal) lines.push("Aktueller Schulportal-Eintrag (Stundenverlauf):\n" + clip(ctx.portal, 6000));
+  if (L.homework) lines.push("Hausaufgabe aus dieser Sitzung (bis zur nächsten Sitzung): " + clip(L.homework, 3000));
+  if (opt.portal !== false && ctx.portal) lines.push("Aktueller Schulportal-Eintrag (Stundenverlauf):\n" + clip(ctx.portal, 6000) +
+    (hasStop(ctx.portal) ? "\n(„" + STOP_LINE + "“ markiert, bis wohin die Stunde tatsächlich gekommen ist; alles danach ist noch offen.)" : ""));
   return lines.join("\n");
 }
 
@@ -295,7 +330,8 @@ export function claudeIdeaPrompt(ctx, messages) {
     "- Klasse/Kurs: " + ctx.klass + " – " + gradeInfo(ctx.klass).text,
     "- Thema: " + (L.topic || L.title || "(bitte aus den Ideen ableiten)"),
     "- Dauer der Unterrichtssitzung: " + (L.durationMin ? L.durationMin + " Minuten" : "(nicht angegeben – bitte nachfragen oder 45 Minuten annehmen und das kennzeichnen)"),
-    L.date ? "- Datum: " + L.date : "",
+    L.date ? "- Datum: " + fmtDay(L.date) : "",
+    L.homework ? "- Bereits eingetragene Hausaufgabe bis zur nächsten Sitzung: " + clip(L.homework, 2000) : "",
     "",
     "## Bisherige Ideen und Wünsche der Lehrkraft",
     (L.ideas ? L.ideas.trim() + "\n" : "") + (teacherWishes(messages) || "(keine weiteren Angaben)"),
@@ -335,13 +371,14 @@ export function claudePresentationPrompt(ctx, portalText, messages) {
     "- Klasse/Kurs: " + ctx.klass + " – " + gradeInfo(ctx.klass).text,
     "- Thema: " + (L.topic || L.title || "(siehe Stundenverlauf)"),
     "- Dauer: " + (L.durationMin ? L.durationMin + " Minuten" : "(nicht angegeben)"),
-    L.date ? "- Datum: " + L.date : "",
+    L.date ? "- Datum: " + fmtDay(L.date) : "",
     "",
     "## Verbindlicher Stundenverlauf (aktueller Schulportal-Eintrag der Lehrkraft – genau diese Fassung gilt, auch wenn ältere Planungen abweichen)",
     "Formatierung im Text: **…** = fett, ~~…~~ = kursiv (Titel, Leitfragen, Codes), Zeilen mit „- “ = Stichpunkte, „--> Nächste Stunde“ = ab hier folgt der Teil für die nächste Stunde.",
     "<<<",
-    String(portalText || "").trim(),
+    removeStops(portalText).trim(),
     ">>>",
+    L.homework ? "\nHausaufgabe bis zur nächsten Sitzung (als letzte Folie zeigen): " + clip(L.homework, 3000) : "",
     "",
     "## Materialien und weitere Informationen",
     lessonContext(ctx, { portal: false, materialText: true, materialMax: 5000 }).split("\n").filter((l) => /^(- |  |Vorhandene|Feibeitsbl|Ideen|Präsentation)/.test(l)).join("\n") || "(keine)",

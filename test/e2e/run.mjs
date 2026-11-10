@@ -20,6 +20,13 @@ let failures = 0;
 const ok = (cond, label) => { if (cond) console.log("  ✓ " + label); else { failures++; console.log("  ✗ " + label); } };
 const step = (s) => console.log("\n▶ " + s);
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+// Nach Anmeldung/Einrichtung: auf die Übersicht warten (Zustand der Seite statt Navigationsereignis) und die Dauer melden
+async function waitTeacherHome(page, t0, label) {
+  try { await page.waitForFunction(() => location.hash === "#/lk" && !!document.querySelector(".tiles .tile"), null, { timeout: 60000 }); }
+  catch (e) { console.log("    " + label + ": Übersicht nicht erreicht. URL:", page.url(), "Meldung:", await page.locator(".err").allTextContents()); throw e; }
+  const ms = Date.now() - t0;
+  if (ms > 8000) console.log("    Hinweis: " + label + " dauerte " + ms + " ms");
+}
 
 async function pdf(pages, label) {
   const d = await PDFDocument.create(), f = await d.embedFont(StandardFonts.HelveticaBold);
@@ -55,8 +62,9 @@ async function main() {
     ok(await tp.getByRole("link", { name: "Lehrkräfte" }).isVisible(), "kleiner Link „Lehrkräfte“ in der Fußleiste");
     await tp.getByRole("link", { name: "Lehrkräfte" }).click();
     await tp.fill("#tu", "Feindt"); await tp.fill("#tp", T_PW); await tp.fill("#tp2", T_PW);
+    let tLogin = Date.now();
     await tp.getByRole("button", { name: "Zugang einrichten" }).click();
-    await tp.waitForURL(/#\/lk$/, { timeout: 40000 }).catch(async (e) => { console.log("    Meldung:", await tp.locator(".err").allTextContents(), "URL:", tp.url(), "Knopf:", await tp.locator("form button").allTextContents()); await tp.screenshot({ path: join(OUT, "fehler-einrichtung.png") }); throw e; });
+    await waitTeacherHome(tp, tLogin, "Einrichtung");
     ok(true, "eingerichtet und angemeldet");
     const token = await tp.evaluate(() => localStorage.getItem("u.ttoken"));
     const T = (method, path, body) => fetch(BASE + path, { method, headers: { Authorization: "Bearer " + token, ...(body ? { "Content-Type": "application/json" } : {}) }, body: body ? JSON.stringify(body) : undefined }).then(async (r) => ({ status: r.status, data: await r.json().catch(() => null) }));
@@ -273,6 +281,81 @@ async function main() {
     await tp.screenshot({ path: join(OUT, "lehrkraft-abgaben.png") });
     await tp.keyboard.press("Escape");
 
+    /* ---------- Datum, Hausaufgabe, Zwischenstopp ---------- */
+    step("Datum (Pflicht, verschiebbar), Hausaufgabe, Zwischenstopp");
+    ok((await T("POST", "/api/teacher/lessons", { subject: "powi", klass: "Q2", title: "Ohne Datum" })).status === 400, "Sitzung ohne Datum wird abgelehnt");
+    const { addDays, fmtDay } = await import("../../public/shared.js");
+    const d0 = lesson0.date;
+    const l2 = (await T("POST", "/api/teacher/lessons", { subject: "powi", klass: "Q2", title: "Folgestunde", date: addDays(d0, 7) })).data.lesson;
+    const l3 = (await T("POST", "/api/teacher/lessons", { subject: "powi", klass: "Q2", title: "Übernächste Stunde", date: addDays(d0, 14) })).data.lesson;
+    await T("POST", "/api/teacher/lessons", { subject: "powi", klass: "EA", title: "Andere Klasse", date: addDays(d0, 9) });
+    await tp.goto(BASE + "/#/lk/s/" + lessonId);
+    await tp.locator("#hw").fill("Lies **M2** und beantworte Aufgabe 3.");
+    await tp.locator(".homework .save-state", { hasText: "Gespeichert ✓" }).waitFor({ timeout: 10000 });
+    ok(await tp.locator(".homework", { hasText: "Fällig zur nächsten Sitzung am " + fmtDay(addDays(d0, 7)) }).count() === 1, "Hausaufgabe gespeichert, fällig zur nächsten Sitzung derselben Klasse");
+    await sp.reload();
+    await sp.locator(".homework").waitFor();
+    const hwTxt = await sp.locator(".homework").textContent();
+    await sp.screenshot({ path: join(OUT, "schueler-hausaufgabe.png") });
+    ok(hwTxt.includes("Bis zur nächsten Sitzung am " + fmtDay(addDays(d0, 7))) && hwTxt.includes("M2") && await sp.locator(".homework strong", { hasText: "M2" }).count() === 1, "Schüler:innen sehen die Hausaufgabe mit Fälligkeit");
+    await sp.goto(BASE + "/#/schueler");
+    await sp.locator(".item", { hasText: "Das Bundesverfassungsgericht" }).waitFor();
+    ok(await sp.locator(".item", { hasText: "Das Bundesverfassungsgericht" }).locator(".badge", { hasText: "Hausaufgabe" }).count() === 1, "… und in ihrer Sitzungsliste");
+
+    await tp.locator(".portal-preview p", { hasText: "3) Partnerarbeit" }).click({ button: "right" });
+    await tp.locator(".ctxmenu").getByRole("menuitem", { name: "⏸ Zwischenstopp einfügen" }).click();
+    ok((await tp.inputValue("#portal")).includes("⏸ Zwischenstopp\n**3) Partnerarbeit**"), "Rechtsklick in der Vorschau → Zwischenstopp vor der Zeile");
+    ok(await tp.locator(".portal-preview .stopfield").count() === 1, "als kleines Feld in der Vorschau");
+    await tp.locator("#portal").click({ button: "right" });
+    ok(await tp.locator(".ctxmenu").getByRole("menuitem", { name: /Zwischenstopp/ }).first().isVisible(), "Rechtsklick im Textfeld bietet den Zwischenstopp an");
+    await tp.keyboard.press("Escape");
+    await tp.locator("#portal").evaluate((el) => { el.value = el.value.replace("**2) Blitzlicht ohne iPad**", "**2) Blitzlicht ohne iPad**"); el.setSelectionRange(0, 0); });
+    await tp.locator("#portal").click({ button: "right", position: { x: 10, y: 8 } });
+    await tp.locator(".ctxmenu").getByRole("menuitem", { name: "⏸ Zwischenstopp einfügen" }).click();
+    ok((await tp.inputValue("#portal")).split("Zwischenstopp").length === 2, "höchstens ein Zwischenstopp (verschoben statt doppelt)");
+    await tp.locator(".portal-preview p", { hasText: "3) Partnerarbeit" }).click({ button: "right" });
+    await tp.locator(".ctxmenu").getByRole("menuitem", { name: "⏸ Zwischenstopp einfügen" }).click();
+    await tp.locator("#portal ~ *, .save-state", { hasText: "Gespeichert ✓" }).first().waitFor({ timeout: 10000 });
+    await tp.getByRole("button", { name: "Eintrag kopieren" }).click();
+    const copied = await tp.evaluate(() => navigator.clipboard.readText());
+    ok(!copied.includes("Zwischenstopp") && copied.includes("**3) Partnerarbeit**"), "beim Kopieren ins Schulportal wird der Zwischenstopp weggelassen");
+    await sleep(1500);
+    r = await T("GET", "/api/teacher/lessons/" + lessonId);
+    ok(r.data.lesson.portal.includes("⏸ Zwischenstopp\n**3) Partnerarbeit**"), "Zwischenstopp dauerhaft in der Sitzung gespeichert");
+    await tp.locator(".portal-preview p", { hasText: "3) Partnerarbeit" }).click({ button: "right" });
+    await tp.locator(".ctxmenu").waitFor();
+    await tp.locator("section.card").filter({ has: tp.locator("h2", { hasText: /^Schulportal-Eintrag$/ }) }).screenshot({ path: join(OUT, "lehrkraft-zwischenstopp.png") });
+    await tp.keyboard.press("Escape");
+    await tp.locator(".homework").screenshot({ path: join(OUT, "lehrkraft-hausaufgabe.png") });
+
+    await tp.goto(BASE + "/#/lk/s/" + l2.id);
+    await tp.locator(".prevstop").waitFor({ timeout: 10000 });
+    ok(await tp.locator(".prevstop .stopfield").count() === 1 && (await tp.locator(".prevstop").textContent()).includes("Das Bundesverfassungsgericht"), "nächste Sitzung: Hinweis + Schulportal-Eintrag der letzten Stunde mit Zwischenstopp");
+    await tp.locator(".prevstop").screenshot({ path: join(OUT, "lehrkraft-hinweis-folgestunde.png") });
+    await tp.goto(BASE + "/#/lk/s/" + l3.id);
+    await tp.locator("#chatin").waitFor();
+    ok(await tp.locator(".prevstop").count() === 0, "übernächste Sitzung: kein Hinweis (die direkt vorige Stunde endete normal)");
+    await tp.goto(BASE + "/#/lk/f/powi/Q2");
+    await tp.locator(".prevstop").waitFor({ timeout: 10000 });
+    ok(await tp.locator(".prevstop .stopfield").count() === 1, "beim Planen einer neuen Stunde: Hinweis auf die zuletzt gehaltene Stunde");
+
+    await tp.goto(BASE + "/#/lk/s/" + lessonId);
+    await tp.locator('input[aria-label="Datum der Sitzung"]').fill(addDays(d0, 1));
+    await tp.locator(".modal", { hasText: "Datum verschieben" }).waitFor();
+    ok((await tp.locator(".modal").textContent()).includes(fmtDay(addDays(d0, 7)) + " → " + fmtDay(addDays(d0, 8))), "Vorschau der mitverschobenen Termine");
+    await tp.locator(".modal").screenshot({ path: join(OUT, "lehrkraft-verschieben.png") });
+    await tp.locator(".modal").getByRole("button", { name: "Alle folgenden mitverschieben" }).click();
+    await tp.locator(".toast", { hasText: "mitverschoben" }).waitFor({ timeout: 10000 });
+    const all = (await T("GET", "/api/teacher/lessons")).data.lessons;
+    const dateOf = (t) => all.find((x) => x.title === t).date;
+    ok(dateOf("Das Bundesverfassungsgericht") === addDays(d0, 1) && dateOf("Folgestunde") === addDays(d0, 8) && dateOf("Übernächste Stunde") === addDays(d0, 15), "Datum geändert, folgende Sitzungen derselben Klasse um 1 Tag verschoben");
+    ok(dateOf("Andere Klasse") === addDays(d0, 9), "andere Klassen bleiben unverändert");
+    ok(await tp.locator(".homework", { hasText: fmtDay(addDays(d0, 8)) }).count() === 1, "Fälligkeit der Hausaufgabe wandert mit");
+    await tp.locator('input[aria-label="Datum der Sitzung"]').fill(addDays(d0, 2));
+    await tp.locator(".modal").getByRole("button", { name: "Nur diese Sitzung" }).click();
+    await tp.locator(".toast", { hasText: "Datum geändert." }).waitFor({ timeout: 10000 });
+    ok((await T("GET", "/api/teacher/lessons/" + l2.id)).data.lesson.date === addDays(d0, 8), "„Nur diese Sitzung“ lässt die folgenden unverändert");
+
     /* ---------- Sperren ---------- */
     step("Sperren");
     const ectx = await browser.newContext(); const ep = await ectx.newPage(); watch(ep, "Fremdgerät");
@@ -283,8 +366,9 @@ async function main() {
     await sleep(800);
     ok(!ep.url().includes("#/lk"), "… auch mit richtigem Passwort während der Sperre");
     await tp.getByRole("button", { name: "Abmelden" }).click();
-    await tp.fill("#tu", "feindt"); await tp.fill("#tp", T_PW); await tp.getByRole("button", { name: "Anmelden" }).click();
-    await tp.waitForURL(/#\/lk$/, { timeout: 20000 });
+    await tp.fill("#tu", "feindt"); await tp.fill("#tp", T_PW);
+    tLogin = Date.now(); await tp.getByRole("button", { name: "Anmelden" }).click();
+    await waitTeacherHome(tp, tLogin, "Anmeldung");
     ok(true, "eigenes, bekanntes Gerät bleibt nutzbar");
     const xctx = await browser.newContext(); const xp = await xctx.newPage(); watch(xp, "Schülergerät 2");
     await xp.goto(BASE + "/");
