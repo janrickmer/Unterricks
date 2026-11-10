@@ -83,7 +83,9 @@ export class FbClient {
       if (t.answer && t.answer.type === "table" && Array.isArray(t.answer.columns) && t.answer.columns.length) task.answer = { type: "table", columns: t.answer.columns.slice(0, 8), rows: Math.min(30, Math.max(1, Number(t.answer.rows) || 3)) };
       return task;
     });
-    return this.call("POST", "/api/teacher/sheets", { title: String(draft.title || "").trim(), tasks });
+    const body = { title: String(draft.title || "").trim(), tasks };
+    if (draft.escape && draft.escape.id && draft.escape.name) body.escape = { id: draft.escape.id, name: draft.escape.name };   // Finale eines Escape-Rooms (nur beim Anlegen möglich)
+    return this.call("POST", "/api/teacher/sheets", body);
   }
 
   /* Alle Abgaben eines Blattes laden und entschlüsseln (seitenweise, höchstens 40 Seiten wie im Feibeitsblatt) */

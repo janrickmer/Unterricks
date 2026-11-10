@@ -34,6 +34,30 @@ async function textPdf(pages) {
   for (const lines of pages) { const p = d.addPage([595, 842]); lines.forEach((l, i) => p.drawText(l, { x: 50, y: 780 - i * 22, size: 12, font: f })); }
   return Buffer.from(await d.save());
 }
+// Escape-Room wie ihn Claude liefert (alle sieben Rätseltypen) – für den Durchlauf im Test
+function escapeFixture() {
+  const sec = (k) => ({ ueberschrift: "Thema " + k, text: "Sachtext zum Thema " + k + ". Die Gewaltenteilung verteilt Macht auf Legislative, Exekutive und Judikative." });
+  const station = (i, teile) => ({ titel: "Station" + i + " Prüfung", ort: "Saal " + i, bibliothek: { einleitung: "Lies genau.", abschnitte: [sec(1), sec(2), sec(3)] },
+    raetsel: { auftrag: "Löse das Rätsel " + i + ".", teile, erfolg: "Raum " + i + " ist geschafft." }, erlaeuterung: "Erläuterung zu Station " + i + ": Die Lösung ergibt sich aus Abschnitt 1." });
+  return { name: "Mission Gewaltenteilung", titel: "Mission Gewaltenteilung", untertitel: "Rette die Verfassung von Karlsruhe.", loesungswort: "GERICH",
+    rahmen: { sprecher: "Präsidentin des Gerichts", auftrag: "Das Archiv wurde durcheinandergebracht. Hilf uns!", rolle: "Du bist die neue Archivarin." },
+    stationen: [
+      station(1, [{ typ: "einfachwahl", frage: "Wer beschließt Gesetze?", optionen: [{ text: "Der Bundestag", richtig: true }, { text: "Das Bundesverfassungsgericht" }, { text: "Die Bundesregierung" }], abschnitt: 1, anfang: "Der Bu", loesung: "Der Bundestag" },
+        { typ: "koerbe", frage: "Sortiere die Organe.", koerbe: [{ name: "Legislative", anfang: "Leg" }, { name: "Judikative", anfang: "Jud" }], karten: [{ text: "Bundestag", korb: 1, abschnitt: 1 }, { text: "Bundesrat", korb: 1 }, { text: "Amtsgericht", korb: 2 }, { text: "Verfassungsgericht", korb: 2 }] }]),
+      station(2, [{ typ: "zuordnung", frage: "Ordne zu.", optionen: ["prüft Gesetze", "beschließt Gesetze", "führt Gesetze aus"], zeilen: [{ text: "Das BVerfG", antwort: "prüft Gesetze", abschnitt: 2 }, { text: "Der Bundestag", antwort: "beschließt Gesetze" }, { text: "Die Verwaltung", antwort: "führt Gesetze aus" }] },
+        { typ: "mehrfachwahl", frage: "Welche Aussagen stimmen?", optionen: [{ text: "Gerichte sind unabhängig.", richtig: true }, { text: "Richter sind weisungsgebunden.", erklaerung: "Nein, sie sind unabhängig." }, { text: "Gesetze binden die Verwaltung.", richtig: true }], abschnitt: 2 }]),
+      station(3, [{ typ: "luecken", frage: "Ergänze.", text: "Die [[1]] ist die gesetzgebende Gewalt, die [[2]] die rechtsprechende.", luecken: [{ nr: 1, loesungen: ["Legislative"], abschnitt: 1 }, { nr: 2, loesungen: ["Judikative", "Rechtsprechung"], abschnitt: 1 }] },
+        { typ: "zahl", frage: "Wie viele Richter:innen hat das BVerfG?", einheit: "Richter:innen", min: 16, max: 16, woerter: ["sechzehn"], abschnitt: 3, hinweis: "Zwei Senate zu je acht.", loesung: "16" }]),
+      station(4, [{ typ: "luecken", frage: "Wähle aus.", text: "Das Grundgesetz trat [[1]] in Kraft.", luecken: [{ nr: 1, loesungen: ["1949"], abschnitt: 2 }], wortbank: ["1949", "1919", "1990"] },
+        { typ: "einfachwahl", frage: "Wo sitzt das BVerfG?", optionen: [{ text: "Karlsruhe", richtig: true }, { text: "Berlin" }], abschnitt: 3, anfang: "Ka" }]),
+      station(5, [{ typ: "koerbe", frage: "Verfahren oder Organ?", koerbe: [{ name: "Verfahren" }, { name: "Organ" }], karten: [{ text: "Normenkontrolle", korb: 1 }, { text: "Verfassungsbeschwerde", korb: 1 }, { text: "Bundesrat", korb: 2 }, { text: "Bundespräsident", korb: 2 }] },
+        { typ: "zuordnung", frage: "Wer klagt?", optionen: ["Bürger:in", "Landesregierung"], zeilen: [{ text: "Verfassungsbeschwerde", antwort: "Bürger:in" }, { text: "Abstrakte Normenkontrolle", antwort: "Landesregierung" }] }]),
+      station(6, [{ typ: "mehrfachwahl", frage: "Was schützt die Demokratie?", optionen: [{ text: "Gewaltenteilung", richtig: true }, { text: "Machtkonzentration" }, { text: "Grundrechte", richtig: true }] },
+        { typ: "schlussstein", frage: "Wie lautet das Lösungswort?", loesungen: ["GERICH", "Gericht"], hinweis1: "Sieh dir die Buchstaben an.", hinweis2: "Es beginnt mit G.", loesung: "GERICH" }]),
+    ],
+    finale: { ueberschrift: "Das Archiv ist gerettet", text: "Du hast alle Räume gelöst.", warum: "GERICH steht für das Gericht, das die Verfassung hütet.", rueckblick: ["Gewaltenteilung", "Organe", "Verfahren", "Grundgesetz", "Karlsruhe", "Schutz"], schluss: "Weiter zum Finale!" },
+    feibeitsblatt: { titel: "Finale: Mission Gewaltenteilung", aufgaben: [{ text: "Beurteile, ob das BVerfG zu mächtig ist.", ki_auftrag: "Pro/Contra, eigenes Urteil" }] } };
+}
 async function pdf(pages, label) {
   const d = await PDFDocument.create(), f = await d.embedFont(StandardFonts.HelveticaBold);
   for (let i = 1; i <= pages; i++) { const p = d.addPage([960, 540]); p.drawRectangle({ x: 0, y: 0, width: 960, height: 540, color: rgb(0.12, 0.23, 0.37) }); p.drawText(label + " – Folie " + i, { x: 60, y: 260, size: 48, font: f, color: rgb(1, 1, 1) }); }
@@ -109,7 +133,8 @@ async function main() {
     ok(await tp.locator('input[aria-label="Seiten für Q2"]').inputValue() === "9" && await tp.locator('input[aria-label="Seiten für Verbindliche Regelungen (3.3)"]').inputValue() === "5", "Kurshalbjahre und Regeln automatisch erkannt (korrigierbar)");
     await tp.getByRole("button", { name: "Hochladen" }).click();
     await tp.locator(".toast", { hasText: "(11 Seiten)" }).waitFor({ timeout: 20000 });
-    await tp.locator(".unit-table tr", { hasText: "Q2 GK" }).locator(".warnc", { hasText: "Abiturerlass für den Kurs Q2 GK" }).waitFor();
+    // erst wenn die Seite neu gezeichnet ist (vorher fehlten KCGO und Erlass)
+    await tp.waitForFunction(() => { const tr = [...document.querySelectorAll(".unit-table tr")].find((x) => x.textContent.startsWith("Q2 GK")); return !!tr && !tr.textContent.includes("KCGO Politik") && tr.textContent.includes("Abiturerlass für den Kurs Q2 GK"); }, null, { timeout: 15000 });
     ok(true, "KCGO gespeichert; für Q2 GK fehlt jetzt nur noch der Abiturerlass");
     const erlass = await textPdf([["Abiturerlass 2028", "Inhalt"], ["Ethik", "4.1 Kursart Grundkurs", "Text Ethik"], ["Politik und Wirtschaft", "5.1 Kursart Grundkurs", "Verbindlich: Themenfeld Q2.3 Europäische Wirtschaftspolitik"], ["Physik", "6.1 Kursart"]]);
     await tp.locator('select[aria-label="Art der Planungsgrundlage"]').selectOption("abiturerlass");
@@ -515,6 +540,99 @@ async function main() {
     await tp.locator(".toast", { hasText: "wiederhergestellt" }).waitFor({ timeout: 20000 });
     await sp.reload(); await sp.locator(".item", { hasText: "Original-Arbeitsblatt" }).waitFor({ timeout: 10000 });
     ok(await sp.locator(".substitute.student").count() === 0 && !(await sp.locator("main").textContent()).includes("Anleitung zur Vertretungsstunde"), "wiederhergestellt: ursprüngliche Planung wieder sichtbar, Vertretung entfernt");
+
+    step("Krankheit mit Escape-Room: Vorschau, Bestätigen, Schüler:in spielt alle 6 Stationen, Überblick-PDF, Tunnel ins Feibeitsblatt");
+    const escRoom = escapeFixture();
+    r = await tool("save_substitute_plan", { ...plan, lesson_id: l3.id, format: "Escape-Room", escape_room: { ...escRoom, stationen: escRoom.stationen.slice(0, 5) } });
+    ok(r.isError && /genau 6 Stationen/.test(r.content[0].text), "unvollständiger Escape-Room wird mit genauer Fehlerliste abgelehnt");
+    r = await tool("save_substitute_plan", { ...plan, lesson_id: l3.id, format: "Escape-Room", schritte: [{ titel: "Escape-Room starten", anleitung: "Öffne den Escape-Room in der Sitzung.", minuten: 60, abgabe: true }], abgabe: "Finale im Feibeitsblatt abgeben", escape_room: escRoom });
+    ok(!r.isError && r.content[0].text.includes("Lösungswort GERICH"), "Claude legt Vertretung mit Escape-Room ab");
+    await tp.goto(BASE + "/#/lk/s/" + l3.id);
+    const eprop = tp.locator(".substitute", { hasText: "Vertretungsvorschlag prüfen" });
+    await eprop.waitFor({ timeout: 10000 });
+    ok((await eprop.textContent()).includes("Escape-Room „Mission Gewaltenteilung“") && (await eprop.locator(".escbox ol li").count()) === 6, "Vorschlag zeigt den Escape-Room mit 6 Stationen");
+    await eprop.getByRole("button", { name: "Escape-Room ansehen (Vorschau)" }).click();
+    await tp.locator(".er .er-title", { hasText: "Mission Gewaltenteilung" }).waitFor({ timeout: 10000 });
+    await tp.locator(".er-previewnav").getByRole("button", { name: "Finale" }).click();
+    ok(await tp.locator(".er-gate").isDisabled() && (await tp.locator(".er-gate").textContent()).includes("Vorschau"), "Vorschau der Lehrkraft: alle Stationen ansehen, Tunnel gesperrt");
+    await tp.screenshot({ path: join(OUT, "lehrkraft-escape-vorschau.png"), fullPage: true });
+    await tp.getByRole("button", { name: "Vorschau schließen" }).click();
+    await tp.locator(".substitute", { hasText: "Vertretungsvorschlag prüfen" }).getByRole("button", { name: "Bestätigen: Sitzung auf Vertretung umstellen" }).click();
+    await tp.locator(".modal").getByRole("button", { name: "Bestätigen und umstellen" }).click();
+    await tp.locator(".substitute.active").waitFor({ timeout: 20000 });
+    const escSheet = [...fbm.sheets.values()].find((x) => x.title === "Finale: Mission Gewaltenteilung");
+    ok(escSheet && escSheet.escape && /^unterricks-[a-f0-9]{8}-[a-f0-9]{6}$/.test(escSheet.escape.id) && escSheet.escape.name === "Mission Gewaltenteilung", "Finale-Feibeitsblatt mit Escape-Kennung angelegt");
+    await SA("POST", "/api/student/join", { code: l3.code });
+    ok(!(await SA("GET", "/api/student/lessons/" + l3.id)).data.sheets.some((x) => x.code === escSheet.code), "Escape-Finale erscheint nicht als normales Feibeitsblatt (nur über den Tunnel)");
+    await sp.goto(BASE + "/#/schueler/s/" + l3.id);
+    await sp.getByRole("link", { name: "Escape-Room starten" }).click();
+    await sp.locator(".er-title", { hasText: "Mission Gewaltenteilung" }).waitFor({ timeout: 10000 });
+    await sp.fill("#er-fn", "Anna"); await sp.fill("#er-ln", "Muster"); await sp.fill("#er-bd", "07032009");
+    ok(await sp.inputValue("#er-bd") === "07.03.2009" && await sp.inputValue("#er-kl") === "Q2 GK", "Geburtsdatum wird beim Tippen formatiert, Kurs vorausgefüllt");
+    await sp.getByRole("button", { name: "Weiter zum Auftrag" }).click();
+    await sp.locator(".er-title", { hasText: "Willkommen" }).waitFor({ timeout: 10000 }).catch(async (e) => {
+      await sp.screenshot({ path: join(OUT, "fehler-escape-anmeldung.png"), fullPage: true });
+      console.log("    Anmeldung im Escape-Room:", JSON.stringify(await sp.locator(".er-err").allTextContents()), pageErrors.join(" | "));
+      throw e;
+    });
+    await sp.getByRole("button", { name: "Erste Bibliothek betreten" }).click();
+    const solve = async (i) => {
+      const st = escRoom.stationen[i];
+      await sp.locator(".er-warnbar").waitFor();
+      if (i === 1) ok((await sp.locator(".er-sec").count()) === 3, "Bibliothek mit nummerierten Abschnitten und Warnung „kein Weg zurück“");
+      await sp.getByRole("button", { name: "Zum Rätselraum: " + st.titel }).click();
+      await sp.locator(".er-part").first().waitFor();
+      for (const t of st.raetsel.teile) {
+        if (t.typ === "einfachwahl") await sp.locator(".er-opt", { hasText: t.optionen.find((o) => o.richtig).text }).click();
+        else if (t.typ === "mehrfachwahl") { for (const o of t.optionen.filter((x) => x.richtig)) await sp.locator(".er-opt", { hasText: o.text }).click(); }
+        else if (t.typ === "zuordnung") { for (const z of t.zeilen) await sp.locator(".er-assign").filter({ has: sp.locator("span", { hasText: new RegExp("^" + z.text + "$") }) }).locator("select").selectOption(z.antwort); }
+        else if (t.typ === "koerbe") { for (const c of t.karten) await sp.locator(".er-bcard").filter({ has: sp.locator("span", { hasText: new RegExp("^" + c.text + "$") }) }).getByRole("button", { name: t.koerbe[c.korb - 1].name, exact: true }).click(); }
+        else if (t.typ === "luecken") { for (const [k, g] of t.luecken.entries()) { const el = sp.locator('[aria-label="Lücke ' + (k + 1) + '"]'); if (t.wortbank) await el.selectOption(g.loesungen[0]); else await el.fill(g.loesungen[0]); } }
+        else await sp.locator(".er-in").fill(t.typ === "zahl" ? "ca. 16 Richter:innen" : "gericht");
+      }
+      await sp.getByRole("button", { name: "Prüfen" }).click();
+      await sp.locator(".er-reveal").waitFor({ timeout: 10000 });
+      if (i === 1) ok((await sp.locator(".er-letter").textContent()) === "E", "gelöster Raum verrät den nächsten Buchstaben des Lösungsworts");
+      await sp.locator(".er-reveal").getByRole("button").click();
+    };
+    // Station 1: erst falsch (Fehler im ersten Versuch, Hilfe Stufe 1), dann unvollständig, dann richtig
+    await sp.locator(".er-warnbar").waitFor();
+    await sp.getByRole("button", { name: "Zum Rätselraum: " + escRoom.stationen[0].titel }).click();
+    await sp.getByRole("button", { name: "Prüfen" }).click();
+    ok((await sp.locator(".er-status").textContent()).includes("Noch unvollständig"), "unvollständig: kein Versuch, klare Meldung");
+    await sp.locator(".er-opt", { hasText: "Die Bundesregierung" }).click();
+    for (const c of escRoom.stationen[0].raetsel.teile[1].karten) await sp.locator(".er-bcard").filter({ has: sp.locator("span", { hasText: new RegExp("^" + c.text + "$") }) }).getByRole("button", { name: "Legislative", exact: true }).click();
+    await sp.getByRole("button", { name: "Prüfen" }).click();
+    await sp.locator(".er-help").waitFor();
+    const help1 = await sp.locator(".er-help").textContent();
+    ok(help1.includes("Stufe 1 von 3: Wo stand es?") && help1.includes("Abschnitt 1 – Thema 1") && (await sp.locator(".er-opt.bad").count()) === 1, "Hilfe Stufe 1 (wo es stand), falsche Antwort rot markiert");
+    await sleep(800);   // ein zweiter Tipp innerhalb von 0,7 s auf denselben Stand zählt nicht
+    await sp.getByRole("button", { name: "Prüfen" }).click();
+    ok((await sp.locator(".er-help").textContent()).includes("Stufe 2 von 3") && (await sp.locator(".er-help").textContent()).includes("„Der Bu …“"), "Hilfe Stufe 2 (Anfang der Antwort)");
+    await sp.screenshot({ path: join(OUT, "schueler-escape-hilfe.png"), fullPage: true });
+    await sp.locator(".er-opt", { hasText: "Der Bundestag" }).click();
+    for (const c of escRoom.stationen[0].raetsel.teile[1].karten.filter((x) => x.korb === 2)) await sp.locator(".er-bcard").filter({ has: sp.locator("span", { hasText: new RegExp("^" + c.text + "$") }) }).getByRole("button", { name: "Judikative", exact: true }).click();
+    await sp.getByRole("button", { name: "Prüfen" }).click();
+    await sp.locator(".er-reveal").waitFor({ timeout: 10000 });
+    await sp.locator(".er-reveal").getByRole("button").click();
+    for (let i = 1; i < 6; i++) await solve(i);
+    await sp.locator(".er-arena").waitFor({ timeout: 10000 });
+    ok((await sp.locator(".er-tiles.big").textContent()) === "GERICH" && await sp.locator(".er-ci.on").count() === 6, "Finale: Lösungswort aus den sechs Buchstaben");
+    await sp.screenshot({ path: join(OUT, "schueler-escape-finale.png"), fullPage: true });
+    const [dlo] = await Promise.all([sp.waitForEvent("download"), sp.getByRole("button", { name: "Überblick als PDF herunterladen" }).click()]);
+    const ovPath = join(OUT, "escape-ueberblick.pdf"); await dlo.saveAs(ovPath);
+    const ovBytes = (await import("node:fs")).readFileSync(ovPath).toString("latin1");
+    ok(ovBytes.startsWith("%PDF-") && /\/FbEscape 1\b/.test(ovBytes) && ovBytes.includes('"kind":"feibeitsblatt-escape"') && ovBytes.includes("/EmbeddedFiles"), "Überblick-PDF mit eingebettetem Datensatz (/FbEscape 1) zum Fortsetzen im Feibeitsblatt");
+    const [dls] = await Promise.all([sp.waitForEvent("download"), sp.getByRole("button", { name: "Zwischenstand als Datei speichern" }).last().click()]);
+    ok(/^Zwischenstand zum Escape-Room Mission Gewaltenteilung vom .* von Anna Muster\.txt$/.test(dls.suggestedFilename()), "Zwischenstand als Datei");
+    await sp.locator(".er-gate").click();
+    await sp.waitForURL(/#escape=/, { timeout: 15000 });
+    const hullTxt = Buffer.from(decodeURIComponent(sp.url().split("#escape=")[1]).replace(/-/g, "+").replace(/_/g, "/"), "base64").toString("utf8");
+    const hull = JSON.parse(hullTxt), rec = JSON.parse(hull.d);
+    const { fbEscapeHash } = await import("../../public/escape-data.js");
+    ok(sp.url().startsWith(FB + "/#escape=") && hull.kind === "feibeitsblatt-escape" && hull.v === 1 && hull.s === fbEscapeHash("FbEscape|v1|" + hull.d), "Tunnel: Hülle v1 mit gültiger Prüfsumme an die Feibeitsblatt-Adresse");
+    ok(rec.code === escSheet.code && rec.room.id === escSheet.escape.id && rec.word === "GERICH" && rec.person.vorname === "Anna" && rec.person.geburtsdatum === "07.03.2009" && rec.person.klasse === "Q2GK" &&
+      rec.stations.length === 6 && rec.stations[0].attempts === 3 && rec.stations[0].errors.length === 3 && rec.stations[1].attempts === 1 && rec.notes.length === 6 && /^\d+$/.test(rec.confirm), "Datensatz: Code, Raum, Person, Versuche und Fehler im ersten Versuch, Erläuterungen");
 
     step("Jahrgang 6: analog (keine Feibeitsblätter, kein digitales Arbeiten); PoWi nicht in Jahrgang 7");
     ok((await T("POST", "/api/teacher/units", { subject: "powi", klass: "7A" })).status === 400, "PoWi-Einheit in Jahrgang 7 abgelehnt");

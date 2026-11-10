@@ -489,5 +489,6 @@ export function normalizeFbDraft(obj) {
     };
   }).filter((t) => t.text.trim());
   if (!tasks.length) throw new Error("Der Entwurf enthält keine Aufgabe.");
-  return { title: String(obj.title || obj.titel || "Feibeitsblatt").slice(0, 120), tasks };
+  const esc = obj.escape && typeof obj.escape === "object" ? { id: String(obj.escape.id || "").trim().toLowerCase(), name: String(obj.escape.name || "").replace(/\s+/g, " ").trim().slice(0, 80) } : null;
+  return { title: String(obj.title || obj.titel || "Feibeitsblatt").slice(0, 120), tasks, ...(esc && /^[a-z0-9-]{3,60}$/.test(esc.id) && esc.name ? { escape: esc } : {}) };
 }

@@ -57,14 +57,14 @@ export async function routeStudentLesson(c, lessonId) {
   const { lesson, joinedAt } = await requireAccess(c, lessonId);
   const [files, sheets, pres] = await c.db.batch([
     c.db.prepare("SELECT id, kind, name, mime, size, text, created_at FROM files WHERE lesson_id=?1 AND area='student' AND status='ready' ORDER BY created_at").bind(lessonId),
-    c.db.prepare("SELECT code, title FROM fb_sheets WHERE lesson_id=?1 ORDER BY created_at").bind(lessonId),
+    c.db.prepare("SELECT code, title, kind FROM fb_sheets WHERE lesson_id=?1 ORDER BY created_at").bind(lessonId),
     c.db.prepare("SELECT id, name, pages FROM files WHERE lesson_id=?1 AND area='presentation' AND status='ready' LIMIT 1").bind(lessonId),
   ]);
   const p = (pres.results || [])[0] || null, unlockAt = joinedAt + PRESENTATION_DELAY_MS;
   const hw = String(lesson.homework || "").trim();
   return json({ ok: true, lesson: lessonCard(lesson, joinedAt),
     files: (files.results || []).map((f) => ({ id: f.id, kind: f.kind, name: f.name, mime: f.mime, size: f.size, createdAt: f.created_at, ...(f.kind === "text" ? { text: f.text || "" } : {}) })),
-    sheets: (sheets.results || []).map((s) => ({ code: s.code, title: s.title })),
+    sheets: (sheets.results || []).filter((s) => s.kind !== "escape").map((s) => ({ code: s.code, title: s.title })),   // Escape-Finale nur über den Tunnel
     presentation: p ? { name: p.name, pages: p.pages, unlockAt, unlocked: c.now >= unlockAt } : null,
     homework: hw ? { text: hw, dueDate: await nextLessonDate(c.db, lesson) } : null,
     substitute: substituteForStudents(await getSubstitute(c.db, lessonId)),

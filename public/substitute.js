@@ -3,6 +3,7 @@
 // ursprüngliche Planung wird archiviert, die Sitzung umgestellt), Wiederherstellen und Übernahme der Planung in eine andere Sitzung.
 import { h, clear, toast, errToast, busy, modal, confirmDialog, fmtTime, store, nn } from "./ui.js";
 import { tapi } from "./teacher.js";
+import { go } from "./app.js";
 import { formatCode, fmtDay } from "./shared.js";
 import { claudeSubstitutePrompt, SUBSTITUTE_SHARE } from "./planning.js";
 import { claudeHandoff } from "./claude.js";
@@ -25,9 +26,9 @@ export function substituteCards({ id, st, L, ctx, fb, analog, reload, openDraft,
     flushPortal();
     claudeHandoff({ title: "Lehrkraft ist krank – Vertretungsstunde mit Claude entwickeln",
       intro: "Claude untersucht die geplante Stunde (fachdidaktische Kompetenz, Stundenfrage, Lerninhalte) und entwickelt daraus eine Stunde, die die Schüler:innen ohne Sie bearbeiten: ca. " + work() + " Minuten Bearbeitungszeit (80 % von " + minutes() + " Minuten)" +
-        (analog ? ", mit ausdruckbarem Material (Jahrgang 5/6, keine iPads)." : ", mit Abgabe in der Plattform (Feibeitsblatt; bei einem Lernprodukt mit Foto-Abgabe)."),
+        (analog ? ", mit ausdruckbarem Material (Jahrgang 5/6, keine iPads)." : ", mit Abgabe in der Plattform – z. B. ein Escape-Room nach dem bekannten Aufbau mit Feibeitsblatt-Finale oder ein Feibeitsblatt (bei einem Lernprodukt mit Foto-Abgabe)."),
       after: "Wenn Claude den Vorschlag mit „save_substitute_plan“ gespeichert hat, kommen Sie hierher zurück: Der Vorschlag erscheint oben auf dieser Seite. Erst wenn Sie ihn bestätigen, wird der Inhalt der Sitzung ausgetauscht.",
-      prompt: () => claudeSubstitutePrompt({ ...ctx(), escape: false }) });
+      prompt: () => claudeSubstitutePrompt({ ...ctx(), escape: !analog }) });
   }
 
   function paintSide() {
@@ -49,6 +50,16 @@ export function substituteCards({ id, st, L, ctx, fb, analog, reload, openDraft,
     if (!mats || !mats.length) return h("p", { class: "muted small", text: "Kein zusätzliches Material." });
     return h("div", { class: "list" }, mats.map((m) => h("div", { class: "item" }, h("div", { class: "main" }, h("div", { class: "name", text: m.titel }), h("div", { class: "meta", text: m.bereich === "teacher" ? "nur für Lehrkräfte" : "für Schüler:innen · als PDF herunterladbar" })),
       h("div", { class: "acts" }, h("button", { class: "btn small", type: "button", onclick: () => modal({ title: m.titel, wide: true, body: (el) => el.append(renderMarkdown(m.markdown)) }) }, "Ansehen")))));
+  }
+
+  // Escape-Room im Vorschlag bzw. in der aktiven Vertretung: Stationen, Lösungswort, Vorschau
+  function escapeNode(p, active) {
+    const r = p.escape_room;
+    if (!r) return null;
+    return h("div", { class: "escbox" }, h("div", { class: "row between" }, h("strong", { text: "Escape-Room „" + r.name + "“" }), h("span", { class: "badge mono", text: "Lösungswort " + r.wort })),
+      h("ol", { class: "small" }, r.stationen.map((x) => h("li", { text: x.titel + " – " + x.raetsel.teile.length + " Rätselteil" + (x.raetsel.teile.length === 1 ? "" : "e") + " (" + x.raetsel.teile.map((t) => t.typ).join(", ") + ")" }))),
+      h("p", { class: "small muted", text: "Finale: Feibeitsblatt „" + r.feibeitsblatt.titel + "“ mit " + r.feibeitsblatt.aufgaben.length + " Aufgabe(n)" + (active ? (p.escapeSheet ? " (Code " + formatCode(p.escapeSheet) + ")." : ".") : " – wird beim Bestätigen angelegt.") }),
+      h("button", { class: "btn small", type: "button", onclick: () => go("#/lk/escape/" + id) }, "Escape-Room ansehen (Vorschau)"));
   }
 
   function paintProposal() {
@@ -81,7 +92,8 @@ export function substituteCards({ id, st, L, ctx, fb, analog, reload, openDraft,
       h("div", { class: "notice warn" }, p.hinweis || ""), stepsNode(p),
       p.abgabe ? h("p", { class: "small" }, h("strong", { text: "Abgabe: " }), p.abgabe) : null,
       h("h3", { text: "Material" }), materialsNode(p.materialien),
-      h("h3", { text: "Feibeitsblatt" }), fbBox,
+      p.escape_room ? h("h3", { text: "Escape-Room" }) : null, escapeNode(p, false),
+      h("h3", { text: p.escape_room ? "Finale im Feibeitsblatt" : "Feibeitsblatt" }), fbBox,
       p.schulportal ? h("details", { class: "box" }, h("summary", null, "Schulportal-Eintrag der Vertretung"), portalPreview(p.schulportal)) : null,
       p.vertretung ? h("details", { class: "box" }, h("summary", null, "Hinweise für die Vertretungslehrkraft"), renderMarkdown(p.vertretung)) : null,
       h("div", { class: "row between", style: { marginTop: ".8rem" } },
@@ -126,6 +138,7 @@ export function substituteCards({ id, st, L, ctx, fb, analog, reload, openDraft,
       h("div", { class: "section-title" }, h("h2", { text: "Vertretung aktiv" }), h("span", { class: "badge", style: { color: "var(--warn)" }, text: "seit " + fmtTime(s.confirmedAt || s.updatedAt) })),
       h("p", { class: "small", text: "Die Schüler:innen sehen in dieser Sitzung den Hinweis auf Ihre Abwesenheit und die Anleitung mit " + (p.schritte || []).length + " Schritten. Material, Schulportal-Eintrag und Feibeitsblatt sind ausgetauscht (unten in den Abschnitten der Sitzung)." }),
       h("details", { class: "box" }, h("summary", null, "Anleitung für die Schüler:innen"), h("div", { class: "notice warn" }, p.hinweis || ""), stepsNode(p), p.abgabe ? h("p", { class: "small" }, h("strong", { text: "Abgabe: " }), p.abgabe) : null),
+      escapeNode(p, true),
       h("h3", { text: "Ursprüngliche Planung (archiviert)" }),
       h("p", { class: "small", text: [archived.length ? archived.length + " Datei(en): " + archived.map((f) => f.name).join(", ") : "keine Dateien",
         (ar.sheets || []).length ? "Feibeitsblätter: " + ar.sheets.map((x) => x.title + " (" + formatCode(x.code) + ")").join(", ") : null,

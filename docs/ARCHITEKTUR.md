@@ -23,7 +23,7 @@ implementiert und im End-to-End-Test geprüft (Ausnahmen unten ausdrücklich gen
 | Sitzungen aus der Einheit | **Automatisch mit Datum**: die festgelegte Einheit erzeugt je Zeile eine Sitzung (Termine aus Stundenplan, Zeitraum, Ferien, Klausur) |
 | Oberstufe | **Grund- und Leistungskurs parallel** je Kurshalbjahr (Q1 GK … Q4 LK) |
 | Ursprüngliche Planung bei Krankheit | **Archivieren** (wiederherstellbar, in eine andere Sitzung übertragbar) |
-| Escape-Rooms | **Die Plattform hostet sie** (Vorlage mit dem bekannten Aufbau, Finale im Feibeitsblatt) – noch nicht freigeschaltet, siehe 4b |
+| Escape-Rooms | **Die Plattform hostet sie** (Vorlage mit dem bekannten Aufbau, Finale im Feibeitsblatt), siehe 4c |
 | Foto-Abgabe | **Feibeitsblatt wird erweitert** (Antwortart „Foto“) – noch nicht freigeschaltet, siehe 4b |
 
 ## 2. Gesamtarchitektur
@@ -81,6 +81,7 @@ implementiert und im End-to-End-Test geprüft (Ausnahmen unten ausdrücklich gen
 | | `public/teacher.js`, `public/session.js` | Lehrkräfteansicht (Fach → Klasse/Kurs → Einheiten), Sitzungsansicht |
 | | `public/units.js`, `public/bases.js` | Seite der Unterrichtseinheit (Leupold-Schema, Tabelle), Planungsgrundlagen |
 | | `public/substitute.js`, `public/claude.js` | Krankheitsvertretung in der Sitzung; Übergabe an Claude (Modell/Aufwand) |
+| | `public/escape.js`, `public/escape-data.js` | Escape-Room-Vorlage (Oberfläche, Überblick-PDF); Prüfen/Bewerten, Zwischenstand, Feibeitsblatt-Datensatz |
 | | `public/fbclient.js` | Feibeitsblatt-Client (Schlüsselableitung, Anlegen, Entschlüsseln) |
 | | `public/presenter.js` | PDF → Folienbilder, Präsentationsmodus, Beamer-Code |
 | | `public/pdfmaker.js`, `public/markdown.js` | Textmaterial als PDF, sicheres Markdown |
@@ -181,9 +182,44 @@ implementiert und im End-to-End-Test geprüft (Ausnahmen unten ausdrücklich gen
   Feibeitsblatt-Verknüpfungen) wird **archiviert**, das Vertretungsmaterial eingesetzt, und die Schüler:innen sehen ganz oben
   „Heute ohne deine Lehrkraft“ mit der Schritt-für-Schritt-Anleitung. Wiederherstellen und Übertragen der archivierten Planung in
   eine andere Sitzung sind jederzeit möglich.
-* **Noch nicht freigeschaltet (ehrlich gekennzeichnet):** Escape-Rooms (die Vorlage nach dem bekannten Aufbau wird in der Plattform
-  gehostet; bis dahin bietet der Prompt sie nicht an und der Server lehnt sie ab) und die Antwortart „Foto“ (setzt die Erweiterung
-  des Feibeitsblatts voraus; bis dahin verweigert die Plattform das Anlegen eines Blattes mit Foto-Aufgabe mit klarer Meldung).
+* **Noch nicht freigeschaltet (ehrlich gekennzeichnet):** die Antwortart „Foto“ (setzt die Erweiterung des Feibeitsblatts voraus;
+  bis dahin verweigert die Plattform das Anlegen eines Blattes mit Foto-Aufgabe mit klarer Meldung).
+
+## 4c. Escape-Room-Vorlage der Plattform (Ergänzung vom 10.11.2026)
+
+* **Aufbau wie in den bekannten Escape-Rooms der Lehrkraft** (Vorbild: „FastFashion“, datengetriebene Fassung; Rätselarten auch
+  aus „Stunde Null“): Anmeldung (Vorname, Nachname, Geburtsdatum, Klasse/Kurs – vorausgefüllt) → Einführung mit Rahmengeschichte und
+  „So läuft es ab“ → sechs Stationen, jede **Bibliothek** (nummerierte Sachtext-Abschnitte, Warnung „kein Weg zurück – mach dir
+  Notizen“) und **Rätselraum** (1–3 Teile) → je gelöstem Raum ein Buchstabe des 6-buchstabigen Lösungsworts (Siegel in der
+  Kopfleiste) → Finale mit dunkler Arena und Tunnel ins Feibeitsblatt.
+* **Rätselarten:** Einfachwahl, Mehrfachwahl, Zuordnung, zwei Körbe, Lückentext (frei oder mit Wortbank inkl. Ablenkern), Zahl
+  (mit „ca.“, Einheiten, Zahlwörtern), Schlussstein (letzte Station). Unvollständige Eingaben zählen nicht als Versuch.
+  Freie Antworten werden wie in „FastFashion“ verglichen (Groß-/Kleinschreibung, Anführungszeichen, Satzzeichen am Ende, Umlaute
+  ä/ae, Leerzeichen und Bindestriche egal). Hilfe in drei Stufen je Versuch: **wo es stand** (Abschnitt), **wie die Antwort
+  beginnt**, **die Lösung**. Fehler werden nur beim **ersten Versuch** festgehalten; ein schneller Doppeltipp zählt nicht doppelt.
+* **Zwischenstand-Datei** (ab Station 2 und im Finale): `.txt` mit verschleiertem Inhalt und Prüfsumme, gilt nur für diesen Raum;
+  Laden auf der Anmeldeseite, die Nutzung steht später in der Überblick-PDF. Ohne Datei geht der Fortschritt beim Neuladen verloren
+  (wie in den bekannten Räumen gibt es keine Speicherung im Browser oder auf dem Server); die Seite fragt vorher nach.
+* **Überblick-PDF** „Überblick deiner Antworten & Erläuterungen“ (Angaben, Bestätigungscode, Fehler im ersten Versuch je Station),
+  „Lösungserläuterungen“, „Verwendung von Zwischenstand-Dateien“ – mit Link zum Feibeitsblatt und dem Datensatz als eingebettete
+  Datei (`feibeitsblatt-escape.json`, Kennzeichen `/FbEscape 1`), damit das Finale später über „Zwischenstand-PDF hochladen“
+  fortgesetzt werden kann.
+* **Finale im Feibeitsblatt (Schnittstelle v1, unverändert):** Beim Bestätigen der Vertretung legt der Browser der Lehrkraft das
+  Finale-Blatt mit `escape = {id, name}` an (Kennung je Raum `unterricks-…`). Der Tunnel öffnet
+  `FEIBEITSBLATT_URL#escape=<Hülle>` im selben Tab; die Hülle `{kind:"feibeitsblatt-escape", v:1, d, s}` enthält Code, Raum,
+  Person, Bestätigungscode, Lösungswort, Versuche und Fehler im ersten Versuch je Station, Lösungserläuterungen und
+  Zwischenstands-Protokoll; `s` ist die Prüfsumme des Feibeitsblatts (Testvektoren identisch). Die Auswertung (KI-Rückmeldung,
+  Abgaben) bleibt im Feibeitsblatt; Unterricks zeigt das Finale-Blatt in der Sitzung („Abgaben ansehen“), Schüler:innen sehen es
+  nicht als normales Feibeitsblatt (sie erreichen es nur über den Tunnel).
+* **Inhalte von Claude:** `save_substitute_plan` mit `escape_room`. Die Plattform prüft streng (genau 6 Stationen, Lösungswort aus
+  6 Buchstaben A–Z, genau eine richtige Option bei Einfachwahl, Zuordnungs-Antworten wörtlich in den Optionen, jede Lücke genau
+  einmal, Abschnittsnummern, Finale-Aufgaben …) und meldet Fehler mit genauer Stelle an Claude zurück. Die Lehrkraft sieht den Raum
+  vor dem Bestätigen in einer **Vorschau** (mit Sprung zu jeder Station).
+* **Gestaltung:** helles, seriöses Design wie „Stunde Null“ (Petrol/Ocker, Serifen-Überschriften, Karten mit Ockerkante, dunkle
+  Arena mit goldenem Tunnel) – mit Systemschriften, ohne externe Schriftarten.
+* **Geprüft:** End-to-End-Test spielt alle sechs Stationen mit allen Rätselarten durch (Hilfe-Stufen, Fehler, Lösungswort,
+  Überblick-PDF, Zwischenstand, Tunnel; Prüfsumme und Datensatz werden nachgerechnet). Gegen das echte Feibeitsblatt wurde der Weg
+  durch Lesen seines Codes abgeglichen (Prüfsumme, Hülle, PDF-Leser); ein Durchlauf mit dem echten Feibeitsblatt steht noch aus.
 
 ## 5. Prüfung der direkten Claude-Integration
 

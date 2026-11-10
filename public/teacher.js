@@ -370,6 +370,7 @@ export async function route(hash) {
   if ((m = /^#\/lk\/f\/([a-z]+)\/([A-Z0-9-]{2,5})$/.exec(hash))) return lessonsPage(m[1], m[2]);
   if ((m = /^#\/lk\/s\/([a-f0-9]{16})$/.exec(hash))) return (await import("./session.js")).sessionPage(m[1]);
   if ((m = /^#\/lk\/u\/([a-f0-9]{16})$/.exec(hash))) return (await import("./units.js")).unitPage(m[1]);
+  if ((m = /^#\/lk\/escape\/([a-f0-9]{16})$/.exec(hash))) return (await import("./escape.js")).escapePage(m[1], { teacher: true });
   if (hash === "#/lk/grundlagen") return (await import("./bases.js")).basesOverview();
   if ((m = /^#\/lk\/grundlagen\/([a-z]+)$/.exec(hash))) return (await import("./bases.js")).basesPage(m[1]);
   go("#/lk");

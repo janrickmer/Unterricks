@@ -11,6 +11,7 @@ import { planningBasis } from "./bases.js";
 import { saveProposal, getSubstitute } from "./substitute.js";
 import { paramsText, lessonSlots } from "../public/planning.js";
 import { insertTextMaterial } from "./files.js";
+import { ESCAPE_FORMAT_HINT, PART_TYPES } from "../public/escape-data.js";
 import { SUBJECTS, ALL_CLASSES, subjectName, gradeInfo, formatCode, lessonContext, chatTranscript, PORTAL_RULES, PORTAL_EXAMPLE, SYSTEM_PROMPT_ROLE, FEIBEITSBLATT_INFO, classShort, fmtDay } from "../public/shared.js";
 
 const MODERN = "2026-07-28";
@@ -30,6 +31,29 @@ const UNIT_ID = { type: "string", description: "ID der Unterrichtseinheit (16 He
 const ID_ARG = { type: "string", description: "Sitzungs-ID (16 Hex-Zeichen, aus list_lessons)", pattern: "^[a-f0-9]{16}$" };
 const ro = { readOnlyHint: true, destructiveHint: false, openWorldHint: false };
 const wr = { readOnlyHint: false, destructiveHint: false, openWorldHint: false };
+
+const T = (d) => ({ type: "string", description: d }), I = (d) => ({ type: "integer", description: d });
+const ESCAPE_PART = { type: "object", description: "Rätselteil; Felder je typ siehe Beschreibung des Escape-Rooms", properties: {
+  typ: { type: "string", enum: PART_TYPES }, frage: T("Frage bzw. Anweisung"), abschnitt: I("Nummer des Bibliotheksabschnitts (ab 1), in dem die Antwort steht"),
+  anfang: T("Anfang der richtigen Antwort (Hilfe Stufe 2)"), loesung: T("Lösung im Klartext (Hilfe Stufe 3)"), hinweis: T("Hinweis (Stufe 2)"),
+  optionen: { type: "array", description: "einfachwahl/mehrfachwahl: [{text, richtig, erklaerung}]; zuordnung: [Text]" },
+  zeilen: { type: "array", items: { type: "object", properties: { text: T(""), antwort: T("wörtlich aus optionen"), abschnitt: I(""), anfang: T("") }, required: ["text", "antwort"] } },
+  koerbe: { type: "array", items: { type: "object", properties: { name: T(""), anfang: T("") }, required: ["name"] } },
+  karten: { type: "array", items: { type: "object", properties: { text: T(""), korb: { type: "integer", enum: [1, 2] }, abschnitt: I("") }, required: ["text", "korb"] } },
+  text: T("luecken: Text mit Platzhaltern [[1]], [[2]] …"), luecken: { type: "array", items: { type: "object", properties: { nr: I(""), loesungen: { type: "array", items: { type: "string" } }, abschnitt: I(""), hinweis: T(""), loesung: T("") }, required: ["nr", "loesungen"] } },
+  wortbank: { type: "array", items: { type: "string" }, description: "optional: Auswahlliste inkl. Ablenker (sonst freie Eingabe)" },
+  einheit: T("zahl: Einheit"), min: { type: "number" }, max: { type: "number" }, loesungen: { type: "array", items: { type: "string" }, description: "schlussstein: akzeptierte Antworten" },
+  hinweis1: T("schlussstein: Hilfe Stufe 1"), hinweis2: T("schlussstein: Hilfe Stufe 2") }, required: ["typ"] };
+const ESCAPE_ROOM = { type: "object", description: "Escape-Room nach der Vorlage der Plattform (statt eines einzelnen Feibeitsblatts; das Finale ist ein Feibeitsblatt). " + ESCAPE_FORMAT_HINT,
+  properties: { name: T("Name des Raums (≤ 80 Zeichen)"), titel: T("Überschrift der Startseite"), untertitel: T("1–2 Sätze"), loesungswort: T("genau 6 Buchstaben A–Z, ohne Umlaute"),
+    rahmen: { type: "object", properties: { sprecher: T("Stimme der Geschichte"), auftrag: T("Briefing (2–4 Sätze)"), rolle: T("Rolle der Schüler:innen") } },
+    stationen: { type: "array", minItems: 6, maxItems: 6, items: { type: "object", properties: { titel: T(""), ort: T("Ort in der Geschichte"),
+      bibliothek: { type: "object", properties: { einleitung: T(""), abschnitte: { type: "array", minItems: 2, maxItems: 6, items: { type: "object", properties: { ueberschrift: T(""), text: T("Sachtext"), liste: { type: "array", items: { type: "string" } } }, required: ["ueberschrift", "text"] } } }, required: ["abschnitte"] },
+      raetsel: { type: "object", properties: { auftrag: T("ein Satz in der Stimme der Geschichte"), teile: { type: "array", minItems: 1, maxItems: 3, items: ESCAPE_PART }, erfolg: T("ein Satz") }, required: ["teile"] },
+      erlaeuterung: T("Lösungserläuterung (400–1200 Zeichen)") }, required: ["titel", "bibliothek", "raetsel", "erlaeuterung"] } },
+    finale: { type: "object", properties: { ueberschrift: T(""), text: T(""), warum: T("Warum dieses Lösungswort?"), rueckblick: { type: "array", items: { type: "string" } }, schluss: T("") } },
+    feibeitsblatt: { type: "object", description: "Finale im Feibeitsblatt", properties: { titel: T(""), aufgaben: { type: "array", minItems: 1, maxItems: 10, items: { type: "object", properties: { text: T(""), ki_auftrag: T("Auftrag an die KI für die Rückmeldung") }, required: ["text"] } } }, required: ["titel", "aufgaben"] } },
+  required: ["name", "loesungswort", "rahmen", "stationen", "finale", "feibeitsblatt"] };
 
 const TOOLS = [
   { name: "list_lessons", title: "Unterrichtssitzungen auflisten", annotations: ro,
@@ -87,7 +111,7 @@ const TOOLS = [
     inputSchema: { type: "object", properties: { lesson_id: ID_ARG, stundenfrage: { type: "string", maxLength: 400 }, ablauf: { type: "array", items: { type: "string", maxLength: 400 }, maxItems: 15 }, begruendung: { type: "string", maxLength: 1000 } }, required: ["lesson_id"], additionalProperties: false } },
   { name: "save_substitute_plan", title: "Vertretungsstunde (Lehrkraft krank) vorschlagen", annotations: wr,
     description: "Legt für eine Sitzung, die wegen Krankheit der Lehrkraft ohne sie stattfindet, einen Vertretungsvorschlag ab. Die Lehrkraft prüft ihn in der Plattform; erst nach ihrer Bestätigung wird das Material ausgetauscht und den Schüler:innen der Vertretungshinweis gezeigt. " +
-      "Pflicht: Analyse (Kompetenz, Stundenfrage, Inhalte), chronologische Schritte für die Schüler:innen, Abgabe. Ab Jahrgang 7 ist ein Feibeitsblatt Pflicht (bei Lernprodukten mit einer Aufgabe der Antwortart \"foto\" für das Foto des Produkts); in den Jahrgängen 5/6 nur analoge Materialien.",
+      "Pflicht: Analyse (Kompetenz, Stundenfrage, Inhalte), chronologische Schritte für die Schüler:innen, Abgabe. Ab Jahrgang 7 ist eine Abgabe in der Plattform Pflicht: ein Feibeitsblatt (bei Lernprodukten mit einer Aufgabe der Antwortart \"foto\" für das Foto des Produkts) oder ein Escape-Room (escape_room) mit Feibeitsblatt-Finale; in den Jahrgängen 5/6 nur analoge Materialien. Die Plattform prüft einen Escape-Room streng und meldet fehlende oder widersprüchliche Angaben mit genauer Stelle zurück.",
     inputSchema: { type: "object", properties: { lesson_id: ID_ARG,
       analyse: { type: "object", properties: { kompetenz: { type: "string" }, stundenfrage: { type: "string" }, inhalte: { type: "array", items: { type: "string" } } }, required: ["kompetenz", "stundenfrage", "inhalte"] },
       format: { type: "string", description: "z. B. Feibeitsblatt, Lernprodukt, Escape-Room, analog" }, bearbeitungszeit: { type: "integer", description: "Minuten (ca. 80 % der Stunde)" },
@@ -97,6 +121,7 @@ const TOOLS = [
       materialien: { type: "array", maxItems: 12, items: { type: "object", properties: { titel: { type: "string" }, bereich: { type: "string", enum: ["schueler", "lehrkraft"] }, markdown: { type: "string" } }, required: ["titel", "bereich", "markdown"] } },
       feibeitsblatt: { type: "object", properties: { titel: { type: "string" }, aufgaben: { type: "array", items: { type: "object", properties: { text: { type: "string" }, material: { type: "string" }, ki_auftrag: { type: "string" },
         antwort: { description: "\"text\", \"foto\" oder Tabelle {tabelle: [...], zeilen}" } }, required: ["text"] } } }, required: ["titel", "aufgaben"] },
+      escape_room: ESCAPE_ROOM,
       hinweise_vertretung: { type: "string", description: "kurze Hinweise für die Vertretungslehrkraft" } },
       required: ["lesson_id", "analyse", "schritte", "abgabe"], additionalProperties: false } },
 ];
@@ -185,7 +210,8 @@ async function callTool(c, name, a) {
     }
     case "save_substitute_plan": {
       const p = await saveProposal(c.db, a.lesson_id, a, c.now);
-      return toolText("Vertretungsvorschlag gespeichert (" + p.schritte.length + " Schritte" + (p.draftId ? ", Feibeitsblatt-Entwurf" : "") + "). Die Lehrkraft prüft und bestätigt ihn in der Plattform.");
+      return toolText("Vertretungsvorschlag gespeichert (" + p.schritte.length + " Schritte" + (p.escape_room ? ", Escape-Room „" + p.escape_room.name + "“ mit Lösungswort " + p.escape_room.wort + " und Feibeitsblatt-Finale" : p.draftId ? ", Feibeitsblatt-Entwurf" : "") +
+        "). Die Lehrkraft prüft und bestätigt ihn in der Plattform" + (p.escape_room ? " (mit Vorschau des Escape-Rooms)." : "."));
     }
     case "update_lesson": {
       await getLesson(c.db, a.lesson_id);

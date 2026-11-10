@@ -64,6 +64,8 @@ const ROUTES = [
   ["POST", "/api/teacher/lessons/" + ID + "/substitute/discard", SUB.routeSubstituteDiscard],
   ["POST", "/api/teacher/lessons/" + ID + "/substitute/restore", SUB.routeSubstituteRestore],
   ["POST", "/api/teacher/lessons/" + ID + "/substitute/transfer", SUB.routeSubstituteTransfer],
+  ["GET", "/api/teacher/lessons/" + ID + "/escape", SUB.routeTeacherEscape],
+  ["GET", "/api/student/lessons/" + ID + "/escape", SUB.routeStudentEscape],
   // Lehrkraft: Sitzungen
   ["GET", "/api/teacher/lessons", L.routeLessonsList],
   ["POST", "/api/teacher/lessons", L.routeLessonCreate],

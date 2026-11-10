@@ -131,7 +131,7 @@ export async function routeLessonGet(c, id) {
   const l = await getLesson(c.db, id);
   const [files, sheets, drafts, students] = await c.db.batch([
     c.db.prepare("SELECT * FROM files WHERE lesson_id=?1 ORDER BY created_at").bind(id),
-    c.db.prepare("SELECT code, title, created_at FROM fb_sheets WHERE lesson_id=?1 ORDER BY created_at").bind(id),
+    c.db.prepare("SELECT code, title, kind, created_at FROM fb_sheets WHERE lesson_id=?1 ORDER BY created_at").bind(id),
     c.db.prepare("SELECT * FROM fb_drafts WHERE lesson_id=?1 ORDER BY created_at DESC LIMIT 50").bind(id),
     c.db.prepare("SELECT COUNT(*) AS n FROM student_access WHERE lesson_id=?1").bind(id),
   ]);
@@ -146,7 +146,7 @@ export async function routeLessonGet(c, id) {
   const substitute = sub ? { status: sub.status, proposal, createdAt: sub.created_at, updatedAt: sub.updated_at, confirmedAt: sub.confirmed_at ?? null,
     archive: archive ? { portal: archive.portal || "", homework: archive.homework || "", sheets: archive.sheets || [], files: (archive.files || []).map((f) => f.id), at: archive.at || null } : null } : null;
   return json({ ok: true, lesson: lessonOut(l, { studentCount: (students.results[0] || {}).n || 0, nextDate }), previousStop, unit, substitute, messages: messages.map(msgOut),
-    files: (files.results || []).map((f) => fileOut(f)), sheets: (sheets.results || []).map((s) => ({ code: s.code, title: s.title, createdAt: s.created_at })),
+    files: (files.results || []).map((f) => fileOut(f)), sheets: (sheets.results || []).map((s) => ({ code: s.code, title: s.title, kind: s.kind || "", createdAt: s.created_at })),
     drafts: (drafts.results || []).map(draftOut) });
 }
 

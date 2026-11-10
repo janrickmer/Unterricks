@@ -1,6 +1,7 @@
 // planning.js – Unterrichtseinheiten (Leupold-Schema + Ablaufplan), Terminberechnung, Krankheitsvertretung, Claude-Prompts.
 // Gemeinsam für Browser und Worker (keine DOM-Zugriffe).
 import { subjectName, gradeInfo, classShort, isAnalogClass, ANALOG_RULE, fmtDay, addDays, isIsoDate, PORTAL_RULES, PORTAL_EXAMPLE, FEIBEITSBLATT_INFO } from "./shared.js";
+import { ESCAPE_FORMAT_HINT } from "./escape-data.js";
 export { UNIT_RULE } from "./shared.js";
 
 export const WEEKDAYS = [{ d: 1, n: "Montag" }, { d: 2, n: "Dienstag" }, { d: 3, n: "Mittwoch" }, { d: 4, n: "Donnerstag" }, { d: 5, n: "Freitag" }];
@@ -164,7 +165,9 @@ export function claudeSubstitutePrompt(ctx) {
     ? ["- " + ANALOG_RULE, "- Abgabe: ein ausgefülltes Arbeitsblatt (oder ein kleines Lernprodukt auf Papier), das die Vertretungslehrkraft einsammelt."]
     : ["- Kreative Selbstlern-Formate sind ausdrücklich erwünscht, z. B. ein Escape-Room" + (ctx.escape ? " (nach der Vorlage der Plattform – Inhalt im Feld `escape_room`, Finale ist automatisch ein Feibeitsblatt)" : " (zurzeit noch nicht über die Plattform verfügbar)") + ", ein Feibeitsblatt (" + FEIBEITSBLATT_INFO + ") oder ein Lernprodukt.",
       "- Entscheidest du dich für ein Lernprodukt (z. B. ein Plakat), führt ein Feibeitsblatt die Schüler:innen durch den Planungsprozess des Lernprodukts und enthält eine Aufgabe mit der Antwortart „Foto“, in der sie ein Foto ihres Lernprodukts abgeben.",
-      "- Jede Vertretungsstunde enthält eine Abgabe in der Plattform: " + (ctx.escape ? "ein Feibeitsblatt, ein Escape-Room mit Feibeitsblatt-Finale oder ein Feibeitsblatt mit Foto-Abgabe." : "ein Feibeitsblatt (bei einem Lernprodukt mit Foto-Abgabe).")];
+      "- Jede Vertretungsstunde enthält eine Abgabe in der Plattform: " + (ctx.escape ? "ein Feibeitsblatt, ein Escape-Room mit Feibeitsblatt-Finale oder ein Feibeitsblatt mit Foto-Abgabe." : "ein Feibeitsblatt (bei einem Lernprodukt mit Foto-Abgabe)."),
+      ...(ctx.escape ? ["- Wählst du einen Escape-Room, liefere ihn vollständig im Feld `escape_room` (statt `feibeitsblatt`). Die Plattform hostet ihn in ihrer Vorlage. " + ESCAPE_FORMAT_HINT.replace(/\n/g, " ") +
+        " Plane ihn so, dass er mit dem Finale in die Bearbeitungszeit passt (ca. 5–8 Minuten je Station). In der Anleitung für die Schüler:innen: Escape-Room in der Sitzung mit „Escape-Room starten“ öffnen, Stationen der Reihe nach bearbeiten (Notizen machen), am Ende durch den Tunnel ins Feibeitsblatt und dort abgeben."] : [])];
   return [
     "Ich bin krank und kann die folgende Unterrichtsstunde nicht selbst halten. Entwickle eine Vertretungsstunde, die die Schüler:innen ohne mich bearbeiten können. Arbeite gründlich und fachlich korrekt.",
     "",

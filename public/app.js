@@ -151,6 +151,9 @@ async function studentRoom(lessonId) {
         h("div", { class: "row between" }, h("strong", { text: x.titel }), h("span", { class: "row" }, x.minuten ? h("span", { class: "badge", text: "ca. " + x.minuten + " Minuten" }) : null, x.abgabe ? h("span", { class: "badge ok", text: "Abgabe" }) : null)),
         renderMarkdown(x.anleitung || "")))),
       sub.abgabe ? h("p", null, h("strong", { text: "Was du abgibst: " }), sub.abgabe) : null,
+      sub.escape ? h("div", { class: "escbox" }, h("h3", { text: "Escape-Room: " + sub.escape.name }), sub.escape.untertitel ? h("p", { class: "small", text: sub.escape.untertitel }) : null,
+        h("a", { class: "btn primary big", href: "#/schueler/escape/" + lessonId }, "Escape-Room starten"),
+        h("p", { class: "hint", text: "Sechs Stationen: erst die Bibliothek lesen (Notizen machen!), dann das Rätsel lösen. Am Ende führt dich ein Tunnel ins Feibeitsblatt, wo du abgibst. Neu laden kostet deinen Fortschritt – speichere zwischendurch deinen Zwischenstand." })) : null,
       h("p", { class: "hint", text: "Das Material zu den Schritten findest du unten unter „Material“." + (d.sheets.length ? " Die Abgabe machst du im Feibeitsblatt (Knopf „Code kopieren und Feibeitsblatt öffnen“)." : "") })));
   }
 
@@ -269,6 +272,7 @@ const ROUTES = [
   [/^#?\/?$/, () => studentStart()],
   [/^#\/schueler$/, () => studentHome()],
   [/^#\/schueler\/s\/([a-f0-9]{16})$/, (m) => studentRoom(m[1])],
+  [/^#\/schueler\/escape\/([a-f0-9]{16})$/, (m) => import("./escape.js").then((x) => x.escapePage(m[1])).catch((e) => { render(h("main", null, h("p", { class: "err", text: "Der Escape-Room konnte nicht geladen werden: " + e.message }))); })],
   [/^#\/(lehrkraft|lk)(\/.*)?$/, () => import("./teacher.js").then((t) => t.route(location.hash)).catch((e) => { render(h("main", null, h("p", { class: "err", text: "Die Lehrkräfteansicht konnte nicht geladen werden: " + e.message }))); })],
 ];
 export function route() {

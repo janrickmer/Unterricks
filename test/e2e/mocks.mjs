@@ -90,12 +90,14 @@ export async function startMockFeibeitsblatt(port, password, doorCode = "1104") 
     if (p === "/api/teacher/login") return send(res, 200, { ok: true, publicKey: teacher.publicKey, encPrivateKey: teacher.encPrivateKey, kdf: teacher.kdf });
     if (p === "/api/teacher/ai") return send(res, 200, { ok: true, provider: "cloudflare", label: "Cloudflare Workers AI", model: "@cf/google/gemma-4-26b-a4b-it", ready: true, finalWaitSec });
     if (p === "/api/teacher/final-wait") { finalWaitSec = body.waitSec; return send(res, 200, { ok: true, finalWaitSec }); }
-    if (p === "/api/teacher/sheets" && req.method === "GET") return send(res, 200, { ok: true, sheets: [...sheets.values()].map((s) => ({ code: s.code, title: s.title, createdAt: s.createdAt, taskCount: s.tasks.length, submissionCount: subs.filter((x) => x.code === s.code && x.stage === "final").length, firstCount: 0, escape: null })) });
+    if (p === "/api/teacher/sheets" && req.method === "GET") return send(res, 200, { ok: true, sheets: [...sheets.values()].map((s) => ({ code: s.code, title: s.title, createdAt: s.createdAt, taskCount: s.tasks.length, submissionCount: subs.filter((x) => x.code === s.code && x.stage === "final").length, firstCount: 0, escape: s.escape || null })) });
     if (p === "/api/teacher/sheets" && req.method === "POST") {
       if (!Array.isArray(body.tasks) || !body.tasks.length || body.tasks.some((t) => !t.text)) return send(res, 400, { ok: false, error: "Aufgabe fehlt" });
       for (const t of body.tasks) if (t.material && (!Array.isArray(t.material) || t.material.some((para) => !Array.isArray(para)))) return send(res, 400, { ok: false, error: "Material-Format" });
       const code = "MCK" + String(sheets.size + 2).padStart(3, "2").replace(/[01]/g, "9");
-      sheets.set(code, { code, title: body.title || "Feibeitsblatt", tasks: body.tasks, createdAt: Date.now() });
+      if (body.escape && (!/^[a-z0-9-]{3,60}$/.test(String(body.escape.id || "")) || !body.escape.name)) return send(res, 400, { ok: false, error: "Escape-Kennung ungültig" });
+      if (body.tasks.some((t) => t.answer && !["table", "photo"].includes(t.answer.type))) return send(res, 400, { ok: false, error: "Antwortart ungültig" });
+      sheets.set(code, { code, title: body.title || "Feibeitsblatt", tasks: body.tasks, createdAt: Date.now(), escape: body.escape ? { id: body.escape.id, name: body.escape.name } : null });
       return send(res, 200, { ok: true, code, title: body.title, createdAt: Date.now(), taskCount: body.tasks.length });
     }
     let m;

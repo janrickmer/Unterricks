@@ -488,7 +488,7 @@ export async function sessionPage(id) {
     const sheetList = h("div", { class: "list" });
     if (!st.sheets.length) sheetList.append(h("p", { class: "muted small", text: "Noch kein Feibeitsblatt in dieser Sitzung." }));
     for (const s of st.sheets) sheetList.append(h("div", { class: "item" }, h("div", { class: "ficon fb", "aria-hidden": "true", text: "FB" }),
-      h("div", { class: "main" }, h("div", { class: "name", text: s.title }), h("div", { class: "meta" }, "Code ", h("strong", { class: "mono", text: formatCode(s.code) }), " · für Schüler:innen sichtbar")),
+      h("div", { class: "main" }, h("div", { class: "name", text: s.title }), h("div", { class: "meta" }, "Code ", h("strong", { class: "mono", text: formatCode(s.code) }), s.kind === "escape" ? " · Finale des Escape-Rooms (Schüler:innen gelangen über den Tunnel dorthin)" : " · für Schüler:innen sichtbar")),
       h("div", { class: "acts" }, h("button", { class: "btn small primary", type: "button", disabled: fb.connected ? null : true, title: fb.connected ? "" : "Erst verbinden", onclick: () => showSubmissions(s) }, "Abgaben ansehen"),
         h("button", { class: "btn small", type: "button", onclick: async () => toast((await copyText(formatCode(s.code))) ? "Code kopiert." : "Kopieren nicht möglich.", "ok") }, "Code kopieren"),
         h("button", { class: "btn small ghost danger", type: "button", "aria-label": "Aus der Sitzung entfernen", onclick: async () => {
@@ -635,6 +635,7 @@ export async function sessionPage(id) {
           const box = h("div", { class: "sub" }, h("div", { class: "row between" }, h("strong", { text: p ? personLabel(p.person) : "Unlesbar" }),
             h("span", { class: "row" }, h("span", { class: "badge " + (s.stage === "final" ? "ok" : ""), text: s.stage === "final" ? "abgegeben" : "Erstversuch" }), h("span", { class: "small muted", text: fmtTime(s.receivedAt) }))));
           if (!p) { box.append(h("p", { class: "err small", text: s.error })); content.append(box); continue; }
+          if (p.escape && typeof p.escape === "object") box.append(escapeSummary(p.escape));
           (p.answers || []).forEach((a, i) => {
             const t = tasks[i] || {};
             const fin = (a && (a.final != null ? a.final : a.first)) || "";
@@ -656,6 +657,16 @@ export async function sessionPage(id) {
         h("button", { class: "btn small", type: "button", onclick: (e) => busy(e.currentTarget, load, "Lade …") }, "Aktualisieren")), content,
       h("p", { class: "hint", text: "Entschlüsselt in Ihrem Browser. Tippzeit-Auswertung, PDF-Export und Löschen der Abgaben bleiben im Feibeitsblatt." })) });
     load();
+  }
+  // Ergebnis aus dem Escape-Room (vom Feibeitsblatt mit der Abgabe verschlüsselt; fremde Daten → nur als Text, gekappt)
+  function escapeSummary(e) {
+    const t = (v, n) => String(v == null ? "" : v).slice(0, n);
+    const st = (Array.isArray(e.stations) ? e.stations : []).slice(0, 20);
+    const clean = st.filter((x) => x && x.attempts === 1 && !(Array.isArray(x.errors) && x.errors.length)).length;
+    return h("details", { class: "escbox small" }, h("summary", null, "Escape-Room „" + t(e.room && e.room.name, 80) + "“: Lösungswort " + t(e.word, 20) + " · " + clean + " von " + st.length + " Stationen im ersten Versuch fehlerfrei" +
+      (e.check === "mismatch" ? " · ⚠ Prüfsumme stimmt nicht (Datensatz verändert?)" : "")),
+      h("ul", null, st.map((x) => h("li", null, t(x && x.label, 200) + " – " + (x && Number.isInteger(x.attempts) ? x.attempts : "?") + " Versuch(e)",
+        Array.isArray(x && x.errors) && x.errors.length ? h("ul", null, x.errors.slice(0, 30).map((er) => h("li", { text: t(er && er.item, 300) + (er && er.wrong ? " – Antwort: " + t(er.wrong, 200) : "") + (er && er.right ? " – richtig: " + t(er.right, 200) : "") }))) : null))));
   }
   // Foto-Antwort (Feibeitsblatt: Bild als data:-URL im verschlüsselten Abgabepaket)
   function photoOf(a) {

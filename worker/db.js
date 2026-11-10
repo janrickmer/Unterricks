@@ -44,6 +44,7 @@ export const COLUMNS = [
   ["lessons", "homework", "TEXT NOT NULL DEFAULT ''"],
   ["lessons", "unit_id", "TEXT"],
   ["lessons", "unit_row", "TEXT"],
+  ["fb_sheets", "kind", "TEXT NOT NULL DEFAULT ''"],   // 'escape' = Finale eines Escape-Rooms (Schüler:innen erreichen es über den Tunnel)
 ];
 
 let ready = null;

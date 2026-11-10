@@ -3,12 +3,14 @@
 // Feibeitsblätter), tauscht das Material aus und zeigt den Schüler:innen den Vertretungshinweis mit der chronologischen Anleitung.
 import { HttpError, bad, json, readJson, randomId, isId } from "./lib.js";
 import { requireTeacher } from "./auth.js";
+import { requireAccess } from "./student.js";
+import { normalizeEscapeRoom } from "../public/escape-data.js";
 import { getLesson, savePortal, insertDraft } from "./lessons.js";
 import { insertTextMaterial, fileKey, getFile } from "./files.js";
 import { normalizeSubstitute } from "../public/planning.js";
-import { isAnalogClass, normalizeCode, isValidCode } from "../public/shared.js";
+import { isAnalogClass, normalizeCode, isValidCode, subjectName, classShort } from "../public/shared.js";
 
-export const ESCAPE_ROOMS_AVAILABLE = false;   // die Escape-Room-Vorlage wird gesondert freigeschaltet
+export const ESCAPE_ROOMS_AVAILABLE = true;   // Escape-Room-Vorlage der Plattform (public/escape.js, Finale im Feibeitsblatt)
 const parseJ = (s, d) => { try { const v = JSON.parse(s); return v ?? d; } catch { return d; } };
 export async function getSubstitute(db, lessonId) {
   return db.prepare("SELECT * FROM substitutes WHERE lesson_id=?1").bind(lessonId).first();
@@ -22,13 +24,19 @@ export async function saveProposal(db, lessonId, raw, now) {
   const p = normalizeSubstitute(raw);
   if (p.escape_room && !ESCAPE_ROOMS_AVAILABLE) throw bad("Escape-Rooms kann die Plattform noch nicht bereitstellen. Bitte ein Feibeitsblatt (bei einem Lernprodukt mit Foto-Abgabe) verwenden.");
   if (!p.schritte.length) throw bad("Der Vorschlag braucht eine chronologische Anleitung (schritte).");
+  // Escape-Room: Inhalte streng prüfen (Fehlerliste geht an Claude zurück); das Finale ist ein Feibeitsblatt mit Escape-Kennung
+  if (p.escape_room && !isAnalogClass(l.klass)) {
+    try { p.escape_room = normalizeEscapeRoom(p.escape_room, { id: "unterricks-" + lessonId.slice(0, 8) + "-" + randomId(3), fach: subjectName(l.subject), klasse: classShort(l.klass) }); }
+    catch (e) { throw bad(e.message); }
+    p.feibeitsblatt = { titel: p.escape_room.feibeitsblatt.titel, aufgaben: p.escape_room.feibeitsblatt.aufgaben, escape: { id: p.escape_room.id, name: p.escape_room.name } };
+  }
   if (isAnalogClass(l.klass) && (p.feibeitsblatt || p.escape_room)) throw bad("In den Jahrgängen 5 und 6 gibt es keine digitalen Formate (keine Feibeitsblätter/Escape-Rooms) – bitte analoges, ausdruckbares Material.");
   if (!isAnalogClass(l.klass) && !p.feibeitsblatt && !p.escape_room) throw bad("Jede Vertretungsstunde braucht eine Abgabe in der Plattform: ein Feibeitsblatt (ggf. mit Foto-Aufgabe) oder einen Escape-Room mit Feibeitsblatt-Finale.");
   // Feibeitsblatt als Entwurf: die Lehrkraft prüft ihn im bekannten Editor und legt ihn beim Bestätigen an
   let draftId = null;
   if (p.feibeitsblatt) {
     const fb = p.feibeitsblatt;
-    const d = await insertDraft(db, lessonId, { title: fb.titel || fb.title, tasks: fb.aufgaben || fb.tasks }, "vertretung", now);
+    const d = await insertDraft(db, lessonId, { title: fb.titel || fb.title, tasks: fb.aufgaben || fb.tasks, escape: fb.escape }, "vertretung", now);
     draftId = d.id;
   }
   const proposal = { ...p, draftId };
@@ -50,7 +58,7 @@ export async function routeSubstituteConfirm(c, lessonId) {
   const p = parseJ(s.proposal, {});
   const body = await readJson(c.request, 20000);
   const sheet = body.sheet && isValidCode(normalizeCode(body.sheet.code)) ? { code: normalizeCode(body.sheet.code), title: String(body.sheet.title || "Feibeitsblatt").slice(0, 200) } : null;
-  if (p.draftId && !sheet && !isAnalogClass(l.klass) && !p.escape_room) throw bad("Bitte zuerst das Feibeitsblatt der Vertretung anlegen (Verbindung zu Feibeitsblatt nötig).");
+  if (p.draftId && !sheet && !isAnalogClass(l.klass)) throw bad("Bitte zuerst das Feibeitsblatt der Vertretung anlegen (Verbindung zu Feibeitsblatt nötig).");
   const [files, sheets] = await c.db.batch([
     c.db.prepare("SELECT id, area FROM files WHERE lesson_id=?1 AND area IN ('student','teacher')").bind(lessonId),
     c.db.prepare("SELECT code, title FROM fb_sheets WHERE lesson_id=?1").bind(lessonId),
@@ -71,10 +79,11 @@ export async function routeSubstituteConfirm(c, lessonId) {
   // 3) Schulportal-Eintrag der Vertretung, Feibeitsblatt verknüpfen
   if (p.schulportal) await savePortal(c.db, lessonId, p.schulportal, null, "vertretung", Date.now());
   if (sheet) {
-    await c.db.prepare("INSERT INTO fb_sheets(lesson_id, code, title, created_at) VALUES(?1, ?2, ?3, ?4) ON CONFLICT(lesson_id, code) DO UPDATE SET title=excluded.title").bind(lessonId, sheet.code, sheet.title, c.now).run();
+    await c.db.prepare("INSERT INTO fb_sheets(lesson_id, code, title, created_at, kind) VALUES(?1, ?2, ?3, ?4, ?5) ON CONFLICT(lesson_id, code) DO UPDATE SET title=excluded.title, kind=excluded.kind")
+      .bind(lessonId, sheet.code, sheet.title, c.now, p.escape_room ? "escape" : "").run();
+    if (p.escape_room) p.escapeSheet = sheet.code;
     if (p.draftId) await c.db.prepare("UPDATE fb_drafts SET status='created', sheet_code=?2, updated_at=?3 WHERE id=?1").bind(p.draftId, sheet.code, c.now).run();
   }
-  if (body.escapeId) p.escapeId = String(body.escapeId).slice(0, 32);
   await c.db.prepare("UPDATE substitutes SET status='aktiv', proposal=?2, archive=?3, confirmed_at=?4, updated_at=?4 WHERE lesson_id=?1").bind(lessonId, JSON.stringify(p), JSON.stringify(archive), c.now).run();
   return json({ ok: true });
 }
@@ -146,5 +155,24 @@ export async function routeSubstituteTransfer(c, lessonId) {
 export const substituteForStudents = (s) => {
   if (!s || s.status !== "aktiv") return null;
   const p = parseJ(s.proposal, {});
-  return { hinweis: p.hinweis, schritte: (p.schritte || []).map((x) => ({ titel: x.titel, anleitung: x.anleitung, minuten: x.minuten, abgabe: !!x.abgabe })), abgabe: p.abgabe || "", escapeId: p.escapeId || null };
+  return { hinweis: p.hinweis, schritte: (p.schritte || []).map((x) => ({ titel: x.titel, anleitung: x.anleitung, minuten: x.minuten, abgabe: !!x.abgabe })), abgabe: p.abgabe || "",
+    escape: p.escape_room ? { name: p.escape_room.name, titel: p.escape_room.titel, untertitel: p.escape_room.untertitel, ready: !!p.escapeSheet } : null };
 };
+
+/* Escape-Room einer Sitzung: Schüler:innen nur bei aktiver Vertretung (mit Freischaltung der Sitzung), Lehrkraft auch als Vorschau */
+function escapeOut(c, l, p, preview) {
+  return json({ ok: true, room: p.escape_room, sheetCode: preview ? "" : p.escapeSheet || "", preview, subject: l.subject, klass: l.klass,
+    feibeitsblattUrl: c.env.FEIBEITSBLATT_URL || "https://feibeitsblatt.janrickmer.de/" });
+}
+export async function routeStudentEscape(c, lessonId) {
+  const { lesson } = await requireAccess(c, lessonId);
+  const s = await getSubstitute(c.db, lessonId), p = s && s.status === "aktiv" ? parseJ(s.proposal, {}) : null;
+  if (!p || !p.escape_room) throw new HttpError(404, "not_found", "Zu dieser Sitzung gibt es keinen Escape-Room.");
+  return escapeOut(c, lesson, p, false);
+}
+export async function routeTeacherEscape(c, lessonId) {
+  await requireTeacher(c);
+  const l = await getLesson(c.db, lessonId), s = await getSubstitute(c.db, lessonId), p = s ? parseJ(s.proposal, {}) : null;
+  if (!p || !p.escape_room) throw new HttpError(404, "not_found", "Zu dieser Sitzung gibt es keinen Escape-Room.");
+  return escapeOut(c, l, p, true);
+}
