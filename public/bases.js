@@ -76,17 +76,17 @@ export async function basesPage(subject) {
 
   function statusCard() {
     const rows = statusRows(cfg.grades);
-    const tbody = h("tbody", null, rows.map((r) => {
+    const tbody = h("tbody", { role: "rowgroup" }, rows.map((r) => {
       const docs = bases.filter((b) => wantedSections(b, r.klass).length), miss = missingFor(bases, subject, name, r.klass);
-      return h("tr", null, h("td", { text: r.label }),
-        h("td", { class: "small" }, docs.length ? docs.map((b) => h("div", { text: b.title + " (S. " + formatRanges([...new Set(wantedSections(b, r.klass).map((w) => w.n))]) + ")" })) : h("span", { class: "muted", text: "–" })),
-        h("td", { class: "small" }, miss.length ? h("span", { class: "warnc", text: "fehlt: " + miss.join("; ") }) : h("span", { class: "ok" }, icon("check"), "vollständig")));
+      return h("tr", { role: "row" }, h("td", { text: r.label, "data-label": "Jahrgang / Kurs", role: "cell" }),
+        h("td", { class: "small", "data-label": "Verwendete Grundlagen", role: "cell" }, docs.length ? docs.map((b) => h("div", { text: b.title + " (S. " + formatRanges([...new Set(wantedSections(b, r.klass).map((w) => w.n))]) + ")" })) : h("span", { class: "muted", text: "–" })),
+        h("td", { class: "small", "data-label": "Status", role: "cell" }, miss.length ? h("span", { class: "warnc", text: "fehlt: " + miss.join("; ") }) : h("span", { class: "ok" }, icon("check"), "vollständig")));
     }));
     const otherSubject = subject !== "powi";
     return h("section", { class: "card" }, h("h2", { text: "Was liegt je Jahrgang bzw. Kurs vor?" }),
       otherSubject && !cfg.complete ? h("div", { class: "notice warn", style: { marginBottom: ".7rem" } },
         "Für " + name + " kennt die Plattform die Vorgaben Ihrer Schule nicht. Bitte laden Sie alle Dokumente hoch, die für die Planung nötig sind (Schulcurriculum, KCGO, Abiturerlass, ggf. Fachkonferenzbeschlüsse), und bestätigen Sie unten in den Fach-Einstellungen, dass sie vollständig sind – die Vollständigkeit liegt bei Ihnen.") : null,
-      h("div", { class: "table-wrap" }, h("table", { class: "unit-table" }, h("thead", null, h("tr", null, h("th", { text: "Jahrgang / Kurs" }), h("th", { text: "Verwendete Grundlagen" }), h("th", { text: "Status" }))), tbody)),
+      h("div", { class: "table-wrap" }, h("table", { class: "unit-table", role: "table" }, h("thead", { role: "rowgroup" }, h("tr", { role: "row" }, ["Jahrgang / Kurs", "Verwendete Grundlagen", "Status"].map((t) => h("th", { text: t, role: "columnheader" })))), tbody)),
       h("p", { class: "hint", text: "Angezeigt werden nur die Jahrgänge, in denen " + name + " laut Fach-Einstellungen unterrichtet wird. Q-Kurse: Grundkurs (GK) und Leistungskurs (LK) je Kurshalbjahr." }));
   }
 

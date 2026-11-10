@@ -498,7 +498,7 @@ function fbSection() {
       none: ["muted", "Keine Verbindung gespeichert."],
     }[lk.state];
     if (!line) return;
-    clear(state).append(h("p", { class: "small " + line[0], text: line[1] }), lk.state !== "none" && lk.state !== "error" ? h("div", { class: "row" }, del) : null);
+    clear(state).append(...nn(h("p", { class: "small " + line[0], text: line[1] }), lk.state !== "none" && lk.state !== "error" ? h("div", { class: "row" }, del) : null));
   };
   fbAutoConnect().then(paint, () => {});
   return h("section", { class: "card" }, h("h2", { text: "Feibeitsblatt" }),

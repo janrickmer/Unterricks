@@ -1,6 +1,6 @@
 // claude.js – Übergabe an Claude (claude.ai, Pro-Abo über den Connector): Modell und Aufwand erfragen, Prompt kopieren, claude.ai öffnen.
 // Die Plattform kann das Modell in claude.ai nicht selbst einstellen (keine API) – sie erfragt die Wahl und erinnert daran.
-import { h, modal, copyText, toast, store } from "./ui.js";
+import { h, nn, modal, copyText, toast, store } from "./ui.js";
 
 export const MODELS = [
   ["opus", "Claude Opus", "Empfehlung für Planung und Material: sehr gute Qualität"],
@@ -19,7 +19,7 @@ export function claudeHandoff(opt) {
   let model = pick("u.claude.model", MODELS, "opus"), effort = pick("u.claude.effort", EFFORTS, "high");
   const radios = (name, list, cur, set) => h("div", { class: "stack", role: "radiogroup", "aria-label": name }, list.map(([v, label, hint]) => h("label", { style: { fontWeight: 400, display: "flex", gap: ".5rem", alignItems: "flex-start" } },
     h("input", { type: "radio", name, value: v, checked: v === cur ? true : null, onchange: () => set(v) }), h("span", null, h("strong", { text: label }), h("span", { class: "muted small", text: " – " + hint })))));
-  modal({ title: opt.title || "Mit Claude weiterarbeiten", wide: true, body: (el) => el.append(
+  modal({ title: opt.title || "Mit Claude weiterarbeiten", wide: true, body: (el) => el.append(...nn(
     opt.intro ? h("p", { class: "small", text: opt.intro }) : null,
     h("div", { class: "meta-grid" },
       h("div", null, h("h3", { text: "Welches Sprachmodell?" }), radios("cm", MODELS, model, (v) => { model = v; store.set("u.claude.model", v); })),
@@ -35,7 +35,7 @@ export function claudeHandoff(opt) {
       h("li", null, "Stellen Sie dort im Modellmenü das gewählte Modell und – falls angeboten – den Denkaufwand ein (die Plattform kann das in claude.ai nicht selbst einstellen)."),
       h("li", null, "Aktivieren Sie im Chat den Connector „Unterricks“ und fügen Sie den Prompt ein. Beim ersten Mal fragt claude.ai, ob der Connector verbunden werden und auf die Plattform zugreifen darf – bitte erlauben."),
       h("li", null, opt.after || "Wenn Claude fertig ist und gespeichert hat, kommen Sie hierher zurück – die Seite lädt die Ergebnisse beim Zurückkehren neu.")),
-    h("p", { class: "hint", text: "Der Connector wird einmalig unter Einstellungen → Claude-Connector eingerichtet. Ohne Connector kann Claude nichts in der Plattform speichern." })),
+    h("p", { class: "hint", text: "Der Connector wird einmalig unter Einstellungen → Claude-Connector eingerichtet. Ohne Connector kann Claude nichts in der Plattform speichern." }))),
     actions: [
       { label: "Schließen" },
       { label: "claude.ai öffnen", onClick: () => { window.open("https://claude.ai/new", "_blank", "noopener"); return false; } },

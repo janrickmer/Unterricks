@@ -477,11 +477,18 @@ Leuchtfläche und Tinte.
 
 **Auswahlraster.** Fachkacheln `repeat(auto-fill, minmax(230px, 1fr))` mit 1rem Abstand; Klassenknöpfe `minmax(68px, 1fr)` mit .5rem, in der Qualifikationsphase `minmax(96px, 1fr)`; die Kurszeile ist eine umbrechende Flex-Zeile (`gap: .55rem .9rem`).
 
-**Zweispalter in Karten.** Schulportal-Eintrag (Text | Vorschau, `1fr 1fr`, Abstand .9rem), Upload-Zonen und das Leupold-Schema (`minmax(140px, 1fr) minmax(0, 3fr) minmax(140px, 1fr)`) werden unter 800px einspaltig; Sitzungsdaten (`1fr 1fr`, .7rem) und Stundenfrage | Ablauf (`minmax(0, 1fr) minmax(0, 1.4fr)`) unter 560px. Breite Tabellen scrollen in `.table-wrap` waagerecht.
+**Zweispalter in Karten.** Schulportal-Eintrag (Text | Vorschau, `minmax(0, 1fr) minmax(0, 1fr)`, Abstand .9rem) und das Leupold-Schema (`minmax(140px, 1fr) minmax(0, 3fr) minmax(140px, 1fr)`) werden unter 800px einspaltig; die Upload-Zonen stehen nur nebeneinander, wenn jede mindestens 24rem breit sein kann (`repeat(auto-fit, minmax(min(100%, 24rem), 1fr))` – auf dem iPad hochkant untereinander); Sitzungsdaten (`minmax(0, 1fr)` × 2, .7rem) und Stundenfrage | Ablauf (`minmax(0, 1fr) minmax(0, 1.4fr)`) unter 560px.
 
-**Breakpoints.** 1000px (Sitzungsseite einspaltig), 900px (schmale Seiten ohne Fach: Folien schmaler), 800px (Zweispalter in Karten), 560px (Handy).
+**Nur senkrecht scrollen (Wunsch der Lehrkraft vom 10.11.2026).** Auf Handy und iPad ragt nichts über den Rand, und kein Bereich scrollt seitlich:
+- Rasterspalten immer als `minmax(0, …)` (nie bloß `1fr` – das wächst mit dem breitesten Inhalt), auch implizite Raster (`.list`, `.side`, `.shownbox`, Dialoge) bekommen `grid-template-columns: minmax(0, 1fr)`.
+- Auswahllisten sind höchstens so breit wie ihr Platz (`max-width: 100%; min-width: 0`) – ihre längste Option bestimmt sonst die Breite; lange Wörter brechen um (`overflow-wrap: break-word`, in Links, Code und Tabellenzellen `anywhere`, Überschriften mit Silbentrennung).
+- Tabellen (Ablauf der Einheit, Planungsgrundlagen) werden bis 960px zu untereinander stehenden Karten: jede Zelle nennt ihre Spalte (`data-label`), `role="table"`/`row`/`cell` halten sie für Screenreader zusammen. Tabellen und Code im Chat brechen um, die Folien-Vorschau bricht in Zeilen um (höchstens 21rem hoch, dann senkrecht scrollbar).
+- Bis 400px (iPhone SE) etwas kleinere Schrift: Grundschrift 1rem, `h1` 1.6rem, `h2` 1.16rem, Sitzungscode 2.1rem, Knöpfe mit weniger Innenabstand; der Code der Beamer-Folie mindestens 2.4rem.
+- `html { overflow-x: clip }` ist nur das Sicherheitsnetz gegen seitliches Wackeln; der End-to-End-Test prüft je Seite auf iPhone SE, iPhone 13 und iPad, dass nichts übersteht (`test/e2e/mobile-audit.mjs`), und dass kein Textrest wie „null“ sichtbar ist.
 
-**Mobil (≤ 560px).** Seitenrand .75rem. Die Kopfleiste ist nicht mehr sticky, ihre Navigation bricht in eine eigene Zeile unter der Wortmarke um (`order: 3`, volle Breite, Links in .92rem). Im Band entfällt die letzte Brotkrume (die aktuelle Seite, `.cur`, wiederholt nur den Titel); Brotkrumen .84rem, Chips .86rem. Karten haben innen 1rem/.95rem; Listenzeilen brechen um, ihre Aktionen bekommen eine eigene Zeile.
+**Breakpoints.** 1000px (Sitzungsseite einspaltig), 960px (Tabellen als Karten), 900px (schmale Seiten ohne Fach: Folien schmaler), 800px (Zweispalter in Karten), 560px (Handy), 400px (sehr schmale Handys: kleinere Schrift).
+
+**Mobil (≤ 560px).** Seitenrand .75rem. Die Kopfleiste ist nicht mehr sticky, ihre Navigation bricht in eine eigene Zeile unter der Wortmarke um (`order: 3`, volle Breite, Links in .92rem). Im Band entfällt die letzte Brotkrume (die aktuelle Seite, `.cur`, wiederholt nur den Titel); Brotkrumen .84rem, Chips .86rem. Karten haben innen 1rem/.95rem (bis 400px .95rem/.85rem); Listenzeilen brechen um, ihre Aktionen bekommen eine eigene Zeile.
 
 **Bedienung mit dem Finger.** Knöpfe und Felder sind mindestens 44px hoch, Klassenknöpfe 48px, große Knöpfe 54px; kleine Knöpfe (36px) nur für Nebenaktionen in dichten Zeilen.
 

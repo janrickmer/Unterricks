@@ -1,5 +1,5 @@
 // app.js – Einstieg: Router und Schüleransicht. Die Lehrkräfteansicht wird erst bei Bedarf geladen (teacher.js).
-import { h, $, clear, store, deviceId, api, apiUrl, wsUrl, ApiError, toast, errToast, busy, copyText, fmtBytes, fmtDate, fmtClock, fileIcon, downloadUrl, downloadBlob, topbar, icon, setFach, pageHead, modal } from "./ui.js";
+import { h, $, clear, nn, store, deviceId, api, apiUrl, wsUrl, ApiError, toast, errToast, busy, copyText, fmtBytes, fmtDate, fmtClock, fileIcon, downloadUrl, downloadBlob, topbar, icon, setFach, pageHead, modal } from "./ui.js";
 import { SUBJECTS, CLASS_GROUPS, subjectName, formatCode, normalizeCode, fmtDay, classShort, isAnalogClass, webUrlLabel, fmtClockBerlin, fmtDayBerlin, slidesUpTo } from "./shared.js";
 import { paintPortalPreview } from "./portalview.js";
 import { renderMarkdown } from "./markdown.js";
@@ -278,8 +278,8 @@ async function studentRoom(lessonId) {
     if (!pres) return;
     const unlocked = pres.unlockAt !== null && Date.now() + offset >= pres.unlockAt;
     if (unlocked) {
-      presRow.append(h("button", { class: "btn primary", type: "button", onclick: (e) => openPresentation(e.currentTarget) }, pres.upTo ? "Präsentation (" + slidesUpTo(pres.upTo) + ") selbst öffnen" : "Präsentation selbst öffnen und durchklicken"),
-        pres.upTo ? h("span", { class: "muted small", text: "So weit, wie ihr im Unterricht gekommen seid." }) : null);
+      presRow.append(...nn(h("button", { class: "btn primary", type: "button", onclick: (e) => openPresentation(e.currentTarget) }, pres.upTo ? "Präsentation (" + slidesUpTo(pres.upTo) + ") selbst öffnen" : "Präsentation selbst öffnen und durchklicken"),
+        pres.upTo ? h("span", { class: "muted small", text: "So weit, wie ihr im Unterricht gekommen seid." }) : null));
     } else if (pres.unlockAt === null) {
       presRow.append(h("span", { class: "muted small", text: "Die Präsentation kannst du nach dem Unterricht selbst öffnen." }));
     } else {

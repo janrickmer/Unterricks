@@ -364,7 +364,7 @@ export async function sessionPage(id) {
     } else {
       acts.append(h("button", { class: "btn small", type: "button", onclick: (e) => busy(e.currentTarget, async () => { try { const r = await tapi("POST", "/api/teacher/files/" + f.id + "/link", { body: {} }); downloadUrl(r.url, f.name); } catch (err) { errToast(err); } }) }, "Herunterladen"));
     }
-    acts.append(
+    acts.append(...nn(
       h("button", { class: "btn small", type: "button", title: "In den anderen Bereich verschieben", onclick: async () => {
         try { const r = await tapi("PATCH", "/api/teacher/files/" + f.id, { body: { area: other } }); Object.assign(f, r.file); paintFiles(); toast(other === "student" ? "Jetzt für Schüler:innen sichtbar." : "Jetzt nur noch für Lehrkräfte.", "ok"); } catch (e) { errToast(e); }
       } }, icon("right"), other === "student" ? "Für Schüler:innen" : "Nur für Lehrkraft"),
@@ -375,7 +375,7 @@ export async function sessionPage(id) {
       h("button", { class: "btn small ghost danger", type: "button", "aria-label": "Löschen", onclick: async () => {
         if (!(await confirmDialog("Datei löschen", "„" + f.name + "“ endgültig löschen?", "Löschen", true))) return;
         try { await tapi("DELETE", "/api/teacher/files/" + f.id); st.files = st.files.filter((x) => x !== f); paintFiles(); } catch (e) { errToast(e); }
-      } }, icon("trash")));
+      } }, icon("trash"))));
     return h("div", { class: "item" }, fileIcon(f.name, f.mime, f.kind), h("div", { class: "main" }, h("div", { class: "name", text: f.name }),
       h("div", { class: "meta", text: (f.kind === "link" ? "Link: " + webUrlLabel(f.url) : f.kind === "text" ? "Text (PDF-Download)" : fmtBytes(f.size)) + (f.source === "claude" ? " · von Claude" : f.source === "chat" ? " · aus dem Chat" : f.source === "vertretung" ? " · Vertretung" : f.source === "uebernommen" ? " · übernommen" : f.source === "notfall" ? " · Notfall-Feibeitsblatt (automatisch aus dem Feibeitsblatt " + formatCode(f.fbCode || "") + ")" : "") + " · " + fmtTime(f.createdAt) })), acts);
   }
@@ -708,11 +708,11 @@ export async function sessionPage(id) {
       await flushPortal();
       try { const r = await tapi("POST", "/api/teacher/lessons/" + id + "/fb-drafts/generate", { body: { wish: wish.value } }); st.drafts.unshift(r.draft); paintFb(); editDraft(r.draft); } catch (err) { errToast(err); }
     }, "Die KI entwirft …") }, "Feibeitsblatt-Entwurf aus dem Chat");
-    fbCard.append(h("h3", { style: { marginTop: "1rem" }, text: "Feibeitsblätter dieser Sitzung" }), sheetList,
+    fbCard.append(...nn(h("h3", { style: { marginTop: "1rem" }, text: "Feibeitsblätter dieser Sitzung" }), sheetList,
       st.sheets.some((x) => x.kind !== "escape") ? h("p", { class: "hint", text: "Zu jedem Feibeitsblatt legt Unterricks automatisch das Notfall-Feibeitsblatt – das analoge Arbeitsblatt als PDF, wie im Feibeitsblatt – unter „Material – Für Schüler:innen zugänglich“ ab (nicht beim Finale eines Escape-Rooms)." }) : null,
       linkBox,
       h("h3", { style: { marginTop: "1rem" }, text: "Entwürfe" }), drafts.length ? draftList : h("p", { class: "muted small", text: "Keine offenen Entwürfe. Die KI schlägt in der Planung bei passender Gelegenheit ein Feibeitsblatt vor; den Entwurf erzeugen Sie hier." }),
-      h("div", { class: "row" }, h("div", { class: "grow" }, wish), genBtn));
+      h("div", { class: "row" }, h("div", { class: "grow" }, wish), genBtn)));
   }
 
   function editDraft(dr, opt = {}) {

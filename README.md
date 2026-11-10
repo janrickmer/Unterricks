@@ -115,4 +115,7 @@ nicht von Hand geändert: Nach einer Änderung im Feibeitsblatt `node scripts/fb
 
 Der End-to-End-Test braucht Playwright mit Chromium (`require("playwright")`) und legt Screenshots in `test-results/` ab. Er prüft
 auch die GitHub-Pages-Fassung: `PAGES_API=<Worker-Adresse> npm run build` erzeugt `dist-pages/`, der Test liefert sie von einer
-zweiten Adresse aus (CORS, WebSocket, Links zum Worker, keine CSP-Fehler, Schutz gegen Einbetten).
+zweiten Adresse aus (CORS, WebSocket, Links zum Worker, keine CSP-Fehler, Schutz gegen Einbetten). Am Ende öffnet er alle Seiten und
+die wichtigsten Dialoge auf iPhone SE, iPhone 13 und iPad und prüft, dass man nur senkrecht scrollen muss (nichts ragt über den Rand,
+nichts scrollt seitlich – Fundstellen in `test-results/mobile-audit.json`); mit `MOBILE_SHOTS=1` legt er von jeder Seite ein
+Bildschirmfoto in `test-results/mobil/` ab.

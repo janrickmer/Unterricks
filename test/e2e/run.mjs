@@ -10,6 +10,7 @@ import { createRequire } from "node:module";
 import { PDFDocument, StandardFonts, rgb } from "pdf-lib";
 import { startMockAI, startMockFeibeitsblatt } from "./mocks.mjs";
 import { readZip } from "../../public/zip.js";
+import { horizontalIssues, strayTexts } from "./mobile-audit.mjs";
 
 const require = createRequire(import.meta.url);
 const { chromium, devices } = require("playwright");
@@ -1077,6 +1078,68 @@ async function main() {
     await xp.goto(BASE + "/");
     for (let i = 0; i < 10; i++) { await xp.fill("#spw", "nein" + i); await xp.getByRole("button", { name: "Weiter" }).click(); await xp.locator(".err").waitFor(); await sleep(60); }
     ok(await xp.locator(".err", { hasText: /warte/ }).isVisible(), "Schüler:innen: nach 10 Fehlversuchen 1 Minute gesperrt");
+
+    /* ---------- Mobil: nur senkrecht scrollen ---------- */
+    step("Handy und iPad: alles ohne seitliches Schieben (nur senkrecht scrollen)");
+    {
+      // Anmeldungen übernehmen – die Schüler:in ist zuletzt durch den Tunnel zum Feibeitsblatt gegangen: erst zurück zu Unterricks
+      await sp.goto(BASE + "/#/schueler"); await sp.locator(".item").first().waitFor({ timeout: 15000 });
+      await tp.goto(BASE + "/#/lk"); await tp.locator("main").first().waitFor();
+      const tStore = await tp.evaluate(() => JSON.stringify(localStorage)), sStore = await sp.evaluate(() => JSON.stringify(localStorage));
+      ok(JSON.parse(sStore)["u.stoken"] && JSON.parse(tStore)["u.ttoken"], "Mobil-Prüfung: Anmeldung von Lehrkraft und Schüler:in übernommen");
+      const tok = JSON.parse(tStore)["u.ttoken"];
+      const TT = (method, path, body) => fetch(BASE + path, { method, headers: { Authorization: "Bearer " + tok, ...(body ? { "Content-Type": "application/json" } : {}) }, body: body ? JSON.stringify(body) : undefined }).then((x) => x.json().catch(() => null));
+      const w = berlinAt(Date.now() - 30 * 60e3);   // Stunde läuft gerade: Hausaufgabe und KI-Begriffshilfe sichtbar
+      await TT("PATCH", "/api/teacher/lessons/" + lessonId, { date: w.date, startTime: w.time });
+      const report = [];
+      mkdirSync(join(OUT, "mobil"), { recursive: true });
+      const audit = async (dev, label, store, hash, prep) => {
+        const ctx = await browser.newContext({ ...devices[dev] });
+        if (store) await ctx.addInitScript((s) => { if (!sessionStorage.getItem("audit")) { for (const [k, v] of Object.entries(JSON.parse(s))) localStorage.setItem(k, v); sessionStorage.setItem("audit", "1"); } }, store);
+        const p = await ctx.newPage(); watch(p, "Mobil " + dev + " " + label);
+        try {
+          await p.goto(BASE + "/" + hash);
+          await p.locator("main").first().waitFor({ timeout: 15000 }).catch(() => {});
+          await p.waitForFunction(() => !document.querySelector(".skeleton"), null, { timeout: 15000 }).catch(() => {});
+          await p.waitForTimeout(800);
+          if (store && await p.locator("#spw, #tu").count()) throw new Error("Anmeldung fehlt – es erscheint die Passwortabfrage");
+          if (prep) await prep(p);
+          await p.waitForTimeout(300);
+          const r = await horizontalIssues(p), stray = await strayTexts(p);
+          report.push({ dev, label, hash, ...r, stray });
+          ok(r.issues.length === 0, dev + ": " + label + " – nur senkrecht scrollbar" + (r.issues.length ? " (" + r.issues.length + " Stellen, siehe mobile-audit.json)" : ""));
+          if (stray.length) ok(false, dev + ": " + label + " – Textrest „" + stray[0].text + "“ sichtbar (" + stray[0].sel + ")");
+          // Bildschirmfoto bei Fundstellen, mit MOBILE_SHOTS=1 von jeder Seite (zum Ansehen der Anpassungen)
+          if (r.issues.length || process.env.MOBILE_SHOTS) await p.screenshot({ path: join(OUT, "mobil", (dev + "-" + label).replace(/[^A-Za-z0-9äöüÄÖÜß]+/g, "-") + ".png"), fullPage: true }).catch(() => {});
+        } catch (e) { ok(false, dev + ": " + label + " – Prüfung nicht möglich: " + e.message.split("\n")[0]); }
+        await ctx.close();
+      };
+      const T_PAGES = [["Fächer", "#/lk"], ["Klassen PoWi", "#/lk/f/powi"], ["Kurse Ethik", "#/lk/f/ethik"], ["Sitzungen Q2 GK", "#/lk/f/powi/Q2-GK"], ["Unterrichtseinheit", "#/lk/u/" + unitId],
+        ["Sitzung", "#/lk/s/" + lessonId], ["Sitzung mit Vertretung", "#/lk/s/" + l2.id], ["Sitzung mit Escape-Room", "#/lk/s/" + l3.id], ["Planungsgrundlagen", "#/lk/grundlagen"],
+        ["Planungsgrundlagen PoWi", "#/lk/grundlagen/powi"], ["Einstellungen", "#/lk/einstellungen"], ["Escape-Room-Vorschau", "#/lk/escape/" + l3.id]];
+      const S_PAGES = [["Sitzungsliste", "#/schueler"], ["Sitzung (Schüler:in)", "#/schueler/s/" + lessonId], ["Vertretung (Schüler:in)", "#/schueler/s/" + l2.id], ["Escape-Room", "#/schueler/escape/" + l3.id]];
+      for (const dev of ["iPhone SE", "iPhone 13", "iPad (gen 7)"]) {
+        await audit(dev, "Startseite", null, "#/");
+        await audit(dev, "Fach und Klasse wählen", null, "#/", async (p) => { await p.fill("#spw", "Feindt"); await p.getByRole("button", { name: "Weiter" }).click(); await p.locator(".tiles .tile").first().waitFor(); await p.getByRole("button", { name: "Politik und Wirtschaft" }).click(); await p.locator(".class-btn").first().waitFor(); });
+        await audit(dev, "Anmeldung Lehrkraft", null, "#/lehrkraft");
+        for (const [label, hash] of T_PAGES) await audit(dev, label, tStore, hash);
+        for (const [label, hash] of S_PAGES) await audit(dev, label, sStore, hash);
+      }
+      for (const dev of ["iPhone SE", "iPhone 13"]) {
+        await audit(dev, "Dialog „Stunde mit Claude planen“", tStore, "#/lk/s/" + lessonId, async (p) => { await p.getByRole("button", { name: "Stunde mit Claude planen" }).first().click(); await p.locator(".modal").waitFor(); });
+        await audit(dev, "Dialog „Link hinzufügen“", tStore, "#/lk/s/" + lessonId, async (p) => { await p.getByRole("button", { name: "Link hinzufügen" }).first().click(); await p.locator(".modal").waitFor(); });
+        await audit(dev, "Beamer-Folie", tStore, "#/lk/s/" + lessonId, async (p) => { await p.getByRole("button", { name: "Für den Beamer zeigen" }).click(); await p.locator(".codeshow").waitFor(); });
+        await audit(dev, "Einwilligung KI-Begriffshilfe", sStore, "#/schueler/s/" + lessonId, async (p) => {
+          // die übernommene Anmeldung der Schüler:in hat schon eingewilligt: Einwilligung entfernen, damit der Dialog erscheint
+          await p.evaluate(() => { for (const k of Object.keys(localStorage)) if (k.startsWith("u.kihelp.")) localStorage.removeItem(k); });
+          await p.reload(); await p.locator("main").first().waitFor(); await p.waitForFunction(() => !document.querySelector(".skeleton"), null, { timeout: 15000 }).catch(() => {});
+          await p.getByRole("button", { name: "KI-Begriffshilfe nutzen" }).click(); await p.locator(".modal").waitFor(); });
+        await audit(dev, "Präsentationsmodus", tStore, "#/lk/s/" + lessonId, async (p) => {
+          await p.getByRole("button", { name: "Ich bin im Unterricht und starte die Präsentation für alle." }).click(); await p.locator(".presenter").waitFor();
+          await p.waitForTimeout(400); });
+      }
+      writeFileSync(join(OUT, "mobile-audit.json"), JSON.stringify(report, null, 1));
+    }
   } finally {
     await browser.close();
     ai.srv.close(); fbm.srv.close();

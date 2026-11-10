@@ -148,19 +148,19 @@ export async function unitPage(id) {
   const saveState = h("span", { class: "save-state" });
   function tableCard() {
     const steps = plan.schritte || [], lessonByRow = new Map(u.lessons.map((l) => [l.row, l]));
-    const tbody = h("tbody");
+    const tbody = h("tbody", { role: "rowgroup" });
     const paintRows = () => {
       clear(tbody);
       rows.forEach((r, i) => {
         const l = lessonByRow.get(r.uid);
-        tbody.append(h("tr", null,
-          h("td", { class: "small" }, h("strong", { text: String(i + 1) }), h("br"), h("input", { type: "date", value: r.date || "", "aria-label": "Datum Stunde " + (i + 1), style: { maxWidth: "10.5rem", fontSize: ".85rem" }, onchange: (e) => { r.date = e.target.value || null; markDirty(); } }),
+        tbody.append(h("tr", { role: "row" },
+          h("td", { class: "small", "data-label": "Stunde", role: "cell" }, h("strong", { text: String(i + 1) }), h("br"), h("input", { type: "date", value: r.date || "", "aria-label": "Datum Stunde " + (i + 1), style: { maxWidth: "10.5rem", fontSize: ".85rem" }, onchange: (e) => { r.date = e.target.value || null; markDirty(); } }),
             h("div", { class: "muted", text: r.minutes ? r.minutes + " min" : "" })),
-          h("td", null, h("textarea", { rows: "3", value: r.stundenfrage, "aria-label": "Stundenfrage " + (i + 1), oninput: (e) => { r.stundenfrage = e.target.value; markDirty(); } })),
-          h("td", null, h("textarea", { rows: "4", value: r.ablauf.map((a) => "- " + a).join("\n"), "aria-label": "Ablauf " + (i + 1), oninput: (e) => { r.ablauf = e.target.value.split("\n").map((x) => x.replace(/^\s*[-•*]\s*/, "").trim()).filter(Boolean); markDirty(); } })),
-          h("td", null, h("select", { "aria-label": "Lernschritt " + (i + 1), onchange: (e) => { r.schritt = e.target.value === "" ? null : Number(e.target.value); markDirty(); } },
+          h("td", { "data-label": "Stundenfrage", role: "cell" }, h("textarea", { rows: "3", value: r.stundenfrage, "aria-label": "Stundenfrage " + (i + 1), oninput: (e) => { r.stundenfrage = e.target.value; markDirty(); } })),
+          h("td", { "data-label": "Grober Stundenablauf", role: "cell" }, h("textarea", { rows: "4", value: r.ablauf.map((a) => "- " + a).join("\n"), "aria-label": "Ablauf " + (i + 1), oninput: (e) => { r.ablauf = e.target.value.split("\n").map((x) => x.replace(/^\s*[-•*]\s*/, "").trim()).filter(Boolean); markDirty(); } })),
+          h("td", { "data-label": "Lernschritt", role: "cell" }, h("select", { "aria-label": "Lernschritt " + (i + 1), onchange: (e) => { r.schritt = e.target.value === "" ? null : Number(e.target.value); markDirty(); } },
             h("option", { value: "" }, "–"), steps.map((s, k) => h("option", { value: k, selected: r.schritt === k ? true : null }, (k + 1) + ". " + (s.titel || "").slice(0, 40))))),
-          h("td", { class: "small" }, l ? h("a", { class: "btn small", href: "#/lk/s/" + l.id }, "Sitzung öffnen") : h("span", { class: "muted", text: "noch keine Sitzung" }),
+          h("td", { class: "small", "data-label": "Sitzung", role: "cell" }, l ? h("a", { class: "btn small", href: "#/lk/s/" + l.id }, "Sitzung öffnen") : h("span", { class: "muted", text: "noch keine Sitzung" }),
             h("div", { class: "row", style: { marginTop: ".3rem" } },
               h("button", { class: "btn small ghost iconbtn", type: "button", "aria-label": "Stunde " + (i + 1) + " nach oben", disabled: i === 0 ? true : null, onclick: () => { rows.splice(i - 1, 0, rows.splice(i, 1)[0]); markDirty(); paintRows(); } }, icon("up")),
               h("button", { class: "btn small ghost iconbtn", type: "button", "aria-label": "Stunde " + (i + 1) + " nach unten", disabled: i === rows.length - 1 ? true : null, onclick: () => { rows.splice(i + 1, 0, rows.splice(i, 1)[0]); markDirty(); paintRows(); } }, icon("down")),
@@ -169,7 +169,7 @@ export async function unitPage(id) {
     };
     paintRows();
     return h("section", { class: "card" }, h("div", { class: "section-title" }, h("h2", { text: "5. Ablauf der Unterrichtseinheit" }), saveState),
-      h("div", { class: "table-wrap" }, h("table", { class: "unit-table" }, h("thead", null, h("tr", null, h("th", { text: "Stunde" }), h("th", { text: "Stundenfrage" }), h("th", { text: "Grober Stundenablauf" }), h("th", { text: "Lernschritt" }), h("th", { text: "Sitzung" }))), tbody)),
+      h("div", { class: "table-wrap" }, h("table", { class: "unit-table", role: "table" }, h("thead", { role: "rowgroup" }, h("tr", { role: "row" }, ["Stunde", "Stundenfrage", "Grober Stundenablauf", "Lernschritt", "Sitzung"].map((t) => h("th", { text: t, role: "columnheader" })))), tbody)),
       h("div", { class: "row between", style: { marginTop: ".6rem" } },
         h("div", { class: "row" }, h("button", { class: "btn small", type: "button", onclick: () => { rows.push({ uid: "", stundenfrage: "", ablauf: [], schritt: null, date: null, minutes: null }); markDirty(); paintRows(); } }, "+ Stunde"),
           h("button", { class: "btn small", type: "button", title: "Termine der Rahmendaten der Reihe nach neu zuordnen", onclick: (e) => busy(e.currentTarget, () => save(true)) }, "Termine neu verteilen")),
