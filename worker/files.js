@@ -3,7 +3,7 @@
 import { HttpError, bad, json, readJson, randomId, cleanLine, cleanText, isId, requireSecret, signLink, checkLink, contentDisposition, INLINE_SAFE } from "./lib.js";
 import { requireTeacher } from "./auth.js";
 import { getLesson, fileOut, LIMITS, printProps } from "./lessons.js";
-import { normalizeCode, isValidCode, cleanWebUrl, slidesUpTo, printFileName, cleanCopies } from "../public/shared.js";
+import { normalizeCode, isValidCode, cleanWebUrl, slidesUpTo, printFileName, cleanCopies, isAnalogClass } from "../public/shared.js";
 
 export const MAX_FILE = 100 * 1024 * 1024;         // Grenze einer Anfrage im Cloudflare-Free-Plan
 export const MAX_SLIDE = 4 * 1024 * 1024;
@@ -83,9 +83,25 @@ export async function routeFileUpload(c, lessonId) {
  * Schüler:innen, zugeordnet über fb_code; eine neue PDF ersetzt die bisherige desselben Blattes (eine archivierte bleibt im Archiv). */
 export const MAX_NOTFALL = 40 * 1024 * 1024;
 export async function deleteNotfallFiles(c, lessonId, code, exceptId = "") {
-  const r = await c.db.prepare("SELECT * FROM files WHERE lesson_id=?1 AND fb_code=?2 AND id<>?3 AND area<>'archive'").bind(lessonId, code, exceptId).all();
+  // mit exceptId (neue PDF): nur ältere löschen – laden zwei Browser gleichzeitig hoch (Sitzungsseite und Nachholen im Hintergrund),
+  // bleibt so immer die zuletzt angelegte stehen (rowid wächst mit jedem Eintrag); sonst löschte jede Anfrage die der anderen
+  const r = exceptId
+    ? await c.db.prepare("SELECT * FROM files WHERE lesson_id=?1 AND fb_code=?2 AND id<>?3 AND area<>'archive' AND rowid < (SELECT rowid FROM files WHERE id=?3)").bind(lessonId, code, exceptId).all()
+    : await c.db.prepare("SELECT * FROM files WHERE lesson_id=?1 AND fb_code=?2 AND area<>'archive'").bind(lessonId, code).all();
   for (const f of r.results || []) await deleteFileObjects(c, f);
   return (r.results || []).length;
+}
+/* Alle verknüpften Feibeitsblätter mit dem Stand ihres Notfall-Feibeitsblatts – zum Nachholen für bestehende Sitzungen (der Browser der
+ * Lehrkraft erzeugt die fehlenden bzw. veralteten PDFs). Ohne Finale eines Escape-Rooms und ohne die analogen Jahrgänge 5 und 6. */
+export async function routeNotfallList(c) {
+  await requireTeacher(c);
+  const r = await c.db.prepare("SELECT s.lesson_id, s.code, s.title, l.title AS lesson_title, l.subject, l.klass, l.lesson_date, " +
+    "(SELECT f.id FROM files f WHERE f.lesson_id=s.lesson_id AND f.fb_code=s.code AND f.area<>'archive' ORDER BY f.rowid DESC LIMIT 1) AS file_id, " +
+    "(SELECT f.fb_sig FROM files f WHERE f.lesson_id=s.lesson_id AND f.fb_code=s.code AND f.area<>'archive' ORDER BY f.rowid DESC LIMIT 1) AS file_sig " +
+    "FROM fb_sheets s JOIN lessons l ON l.id = s.lesson_id WHERE s.kind<>'escape' ORDER BY COALESCE(l.lesson_date, '') DESC, s.created_at DESC LIMIT 3000").all();
+  const items = (r.results || []).filter((x) => !isAnalogClass(x.klass)).map((x) => ({ lessonId: x.lesson_id, code: x.code, title: x.title, lessonTitle: x.lesson_title,
+    subject: x.subject, klass: x.klass, date: x.lesson_date || null, fileId: x.file_id || null, sig: x.file_sig || null }));
+  return json({ ok: true, items });
 }
 export async function routeNotfallUpload(c, lessonId, codeRaw) {
   await requireTeacher(c);
@@ -100,11 +116,26 @@ export async function routeNotfallUpload(c, lessonId, codeRaw) {
   await checkStorage(c, len);
   const sig = cleanLine(new URL(c.request.url).searchParams.get("sig"), 60);
   const id = randomId(8), name = cleanLine("Notfall-Feibeitsblatt – " + (sh.title || "Feibeitsblatt"), 190) + ".pdf";
+  // hat die Lehrkraft das bisherige „nur für Lehrkräfte“ gestellt, bleibt auch das erneuerte dort (sonst für Schüler:innen)
+  const prev = await c.db.prepare("SELECT area FROM files WHERE lesson_id=?1 AND fb_code=?2 AND area<>'archive' ORDER BY rowid DESC LIMIT 1").bind(lessonId, code).first();
+  const area = prev && prev.area === "teacher" ? "teacher" : "student";
   await c.env.FILES.put(fileKey(lessonId, id), c.request.body, { httpMetadata: { contentType: "application/pdf" } });
   await c.db.prepare("INSERT INTO files(id, lesson_id, area, kind, name, mime, size, status, source, fb_code, fb_sig, created_at, updated_at) " +
-    "VALUES(?1, ?2, 'student', 'file', ?3, 'application/pdf', ?4, 'ready', 'notfall', ?5, ?6, ?7, ?7)").bind(id, lessonId, name, len, code, sig, c.now).run();
+    "VALUES(?1, ?2, ?8, 'file', ?3, 'application/pdf', ?4, 'ready', 'notfall', ?5, ?6, ?7, ?7)").bind(id, lessonId, name, len, code, sig, c.now, area).run();
+  // während des Hochladens entfernt? Dann gehört die PDF nicht mehr zur Sitzung (sonst stünde sie verwaist im Kästchen der Schüler:innen).
+  // Das Entfernen löscht erst die Verknüpfung, dann die PDFs – so sieht entweder diese Prüfung die fehlende Verknüpfung oder das Entfernen die neue PDF.
+  if (!(await c.db.prepare("SELECT 1 AS x FROM fb_sheets WHERE lesson_id=?1 AND code=?2").bind(lessonId, code).first())) {
+    await c.env.FILES.delete(fileKey(lessonId, id));
+    await c.db.prepare("DELETE FROM files WHERE id=?1").bind(id).run();
+    throw new HttpError(404, "not_found", "Dieses Feibeitsblatt ist mit der Sitzung nicht mehr verknüpft.");
+  }
   const replaced = await deleteNotfallFiles(c, lessonId, code, id);
-  return json({ ok: true, file: fileOut(await getFile(c.db, id)), replaced });
+  // kam gleichzeitig eine neuere PDF desselben Blattes an (zweites Gerät), hat sie diese ersetzt: dann gilt die neuere
+  const own = await c.db.prepare("SELECT * FROM files WHERE id=?1").bind(id).first();
+  if (own) return json({ ok: true, file: fileOut(own), replaced });
+  const newest = await c.db.prepare("SELECT * FROM files WHERE lesson_id=?1 AND fb_code=?2 AND area<>'archive' ORDER BY rowid DESC LIMIT 1").bind(lessonId, code).first();
+  if (!newest) throw new HttpError(404, "not_found", "Dieses Feibeitsblatt ist mit der Sitzung nicht mehr verknüpft.");
+  return json({ ok: true, file: fileOut(newest), replaced, superseded: true });
 }
 export async function insertTextMaterial(db, lessonId, area, title, text, source, now) {
   if (!AREAS.has(area)) throw bad("Bitte den Bereich wählen (für Schüler:innen oder nur für die Lehrkraft).");

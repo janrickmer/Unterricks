@@ -3,6 +3,7 @@
 // nötig: Blatt und Checkliste über die Lehrkraft-Schnittstelle, Bilder über die öffentliche) und als Material für die Schüler:innen
 // abgelegt. Nie Aufträge an die KI, Abgaben oder Checklistenpunkte – nur, was auch auf dem gedruckten Arbeitsblatt steht.
 import { makeAnalogPdf, pdfJpeg, cleanImages, cleanAnswer, checkUrlOf, setFeibeitsblattUrl } from "./fbanalog.js";
+import { upload } from "./ui.js";
 
 export const NOTFALL_VERSION = 1;
 // Stand der PDF: ändert er sich (Checkliste bestätigt → QR-Code; KI-Dienst eingerichtet → Satz zur KI-Rückmeldung), wird sie erneuert
@@ -37,4 +38,28 @@ export async function buildNotfallPdf(fb, code, info, fbUrl, onStep) {
     }
   }
   return makeAnalogPdf({ code, title: info.sheet.title || "", tasks, shows, aiNote: info.aiNote, checkUrl: info.hasPoints ? checkUrlOf(code) : "" });
+}
+
+/* Hochladen: ersetzt das bisherige Notfall-Feibeitsblatt dieses Blattes in der Sitzung (Server: das zuletzt angelegte bleibt) */
+export const uploadNotfall = (lessonId, code, sig, pdf, token) =>
+  upload("/api/teacher/lessons/" + lessonId + "/sheets/" + encodeURIComponent(code) + "/notfall?sig=" + encodeURIComponent(sig), new Blob([pdf], { type: "application/pdf" }), token, null, "application/pdf");
+
+/* Je Sitzung und Blatt nie zwei Erzeugungen gleichzeitig (Sitzungsseite und Nachholen im Hintergrund): läuft schon eine, wartet der
+ * zweite Aufruf darauf und bekommt deren Ergebnis mit joined: true ({ file } – bzw. ohne file, wenn sie scheiterte). */
+const inflight = new Map(), recent = new Map();
+export function notfallOnce(lessonId, code, fn) {
+  const k = lessonId + "|" + code, cur = inflight.get(k);
+  if (cur) return cur.then((res) => ({ ...(res || {}), joined: true }));
+  const p = Promise.resolve().then(fn);
+  const safe = p.then((r) => r, () => null);
+  inflight.set(k, safe);
+  safe.then((r) => { if (inflight.get(k) === safe) inflight.delete(k); if (r && r.file && r.file.fbSig) recent.set(k, { file: r.file, at: Date.now() }); });
+  return p.then((r) => ({ ...(r || {}), joined: false }));
+}
+/* zuletzt auf dieser Seite hochgeladen bzw. als aktuell erkannt (z. B. gerade von der Sitzungsseite), mit Zeitpunkt: das Nachholen im
+   Hintergrund arbeitet mit einer Liste vom Start des Laufs und überspringt nur, was diese Seite DANACH erledigt hat (ältere Einträge
+   können inzwischen von einem anderen Gerät ersetzt worden sein – dann gilt die Liste) */
+export function notfallRecent(lessonId, code, since) {
+  const r = recent.get(lessonId + "|" + code);
+  return r && r.at >= since ? r.file : null;
 }

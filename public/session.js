@@ -1,7 +1,7 @@
 // session.js – Sitzungsansicht der Lehrkraft: Planung im Chat, Schulportal-Eintrag, Claude-Prompts, Material, Präsentation, Feibeitsblatt.
 import { h, clear, toast, errToast, busy, modal, confirmDialog, copyText, fmtBytes, fmtDate, fmtTime, fileIcon, downloadUrl, downloadBlob, upload, api, apiUrl, nn, icon, pageHead, setFach, stateLine } from "./ui.js";
 import { render, go, onLeave } from "./app.js";
-import { T, tapi, teacherBar, fbAutoConnect, fbUnlock, fbStore, fbForget, askTeacherPassword } from "./teacher.js";
+import { T, tapi, teacherBar, fbAutoConnect, fbUnlock, fbStore, fbForget, askTeacherPassword, notfallBackfill } from "./teacher.js";
 import { subjectName, gradeInfo, formatCode, claudePresentationPrompt, PORTAL_RULES, portalForCopy, insertStop, removeStops, hasStop, isStopLine,
   fmtDay, classShort, gradeKey, isAnalogClass, ANALOG_RULE, isCourseClass, courseMembers, homeworkForPortal, PUBLIC_URL, cleanWebUrl, webUrlLabel,
   lessonTimes, fmtClockBerlin, fmtDayBerlin, HOMEWORK_BEFORE_END_MIN, PRESENTATION_AFTER_END_MIN, slidesUpTo, printFileName, subjectShort } from "./shared.js";
@@ -570,24 +570,34 @@ export async function sessionPage(id) {
     const run = notfallRun;
     for (const code of codes) notfallQueue = notfallQueue.then(() => notfallOne(code, run, force)).catch(() => {});
   }
-  async function notfallOne(code, run, force) {
+  async function notfallOne(code, run, force, again = false) {
     const s = st.sheets.find((x) => x.code === code);
     if (!s || s.kind === "escape" || run !== notfallRun || !fb.connected) return;
     const set = (state, msg) => { if (run === notfallRun) { notfall.set(code, { state, msg }); paintFb(); } };
     set("busy", "Notfall-Feibeitsblatt wird geprüft …");
     try {
       const N = await import("./notfall.js");
-      const info = await N.notfallInfo(fb, code);
-      if (info.escape) { s.kind = "escape"; notfall.delete(code); paintFb(); return; }
-      const have = notfallFile(code);
-      if (have && have.fbSig === info.sig && !force) { set("ok", ""); return; }
-      set("busy", "Notfall-Feibeitsblatt wird erstellt …");
-      const pdf = await N.buildNotfallPdf(fb, code, info, T.config.feibeitsblattUrl, (m) => set("busy", m));
+      // dieselbe Sitzung und dasselbe Blatt nur einmal gleichzeitig (das Nachholen für bestehende Sitzungen läuft womöglich gerade)
+      const res = await N.notfallOnce(id, code, async () => {
+        const info = await N.notfallInfo(fb, code);
+        if (info.escape) return { escape: true };
+        const have = notfallFile(code);
+        if (have && have.fbSig === info.sig && !force) return { file: have };
+        if (run !== notfallRun) return {};
+        set("busy", "Notfall-Feibeitsblatt wird erstellt …");
+        const pdf = await N.buildNotfallPdf(fb, code, info, T.config.feibeitsblattUrl, (m) => set("busy", m));
+        if (run !== notfallRun) return {};
+        return { file: (await N.uploadNotfall(id, code, info.sig, pdf, T.token)).file };
+      });
       if (run !== notfallRun) return;
-      const r = await upload("/api/teacher/lessons/" + id + "/sheets/" + code + "/notfall?sig=" + encodeURIComponent(info.sig), new Blob([pdf], { type: "application/pdf" }), T.token, null, "application/pdf");
-      if (run !== notfallRun) return;
-      st.files = st.files.filter((f) => !(f.fbCode === code && f.area !== "archive")).concat(r.file);
-      paintFiles(); set("ok", "");
+      if (res.escape) { s.kind = "escape"; notfall.delete(code); paintFb(); return; }
+      // auf einen anderen Lauf gewartet (Nachholen im Hintergrund): ohne Ergebnis – oder bei „Erneuern“ mit womöglich älterem Stand – selbst erzeugen
+      if (res.joined && (force || !res.file)) { if (!again) return notfallOne(code, run, force, true); if (!res.file) throw new Error("Bitte erneut versuchen."); }
+      if (res.file && res.file.id && !st.files.some((f) => f.id === res.file.id)) {
+        st.files = st.files.filter((f) => !(f.fbCode === code && f.area !== "archive")).concat(res.file);
+        paintFiles();
+      }
+      set("ok", "");
     } catch (e) { set("err", e && e.message ? e.message : String(e)); }
   }
   function notfallLine(s) {
@@ -596,12 +606,13 @@ export async function sessionPage(id) {
     if (st0 && st0.state === "busy") return h("div", { class: "small notfall" }, h("span", { class: "spin", "aria-hidden": "true" }), st0.msg);
     if (st0 && st0.state === "err") return h("div", { class: "small notfall warnc" }, "Notfall-Feibeitsblatt nicht erstellt: " + st0.msg + " ",
       h("button", { class: "btn small", type: "button", onclick: () => ensureNotfall([s.code], true) }, "Erneut versuchen"));
-    if (f) return h("div", { class: "small notfall" }, h("span", { class: "ok" }, icon("check"), "Notfall-Feibeitsblatt im Material für Schüler:innen" + (/-qr/.test(f.fbSig || "") ? " (mit QR-Code zur Checkliste)" : "")),
+    if (f) return h("div", { class: "small notfall" }, h("span", { class: "ok" }, icon("check"), (f.area === "teacher" ? "Notfall-Feibeitsblatt im Material nur für Lehrkräfte" : "Notfall-Feibeitsblatt im Material für Schüler:innen") + (/-qr/.test(f.fbSig || "") ? " (mit QR-Code zur Checkliste)" : "")),
       fb.connected ? [" ", h("button", { class: "btn small ghost", type: "button", onclick: () => ensureNotfall([s.code], true) }, "Erneuern")] : null);
     return h("div", { class: "small notfall muted", text: fb.connected ? "Notfall-Feibeitsblatt wird gleich erstellt …" : "Das Notfall-Feibeitsblatt entsteht automatisch, sobald Sie mit Feibeitsblatt verbunden sind." });
   }
   const storeLink = () => fbStore(() => askTeacherPassword("Zum Verschlüsseln der Feibeitsblatt-Verbindung braucht dieses Gerät einmal Ihr Unterricks-Passwort. Der Schlüssel entsteht nur in Ihrem Browser; der Server sieht ihn nie."));
-  const afterConnect = () => { paintFb(); if (fb.connected) ensureNotfall(st.sheets.map((x) => x.code)); };
+  // nach dem Verbinden: die Blätter dieser Sitzung sofort, danach die übrigen Sitzungen im Hintergrund (notfallBackfill, teacher.js)
+  const afterConnect = () => { paintFb(); if (fb.connected) { ensureNotfall(st.sheets.map((x) => x.code)); notfallBackfill({ retry: true }); } };
   function fbConnectUi(lk) {
     const door = h("input", { inputmode: "numeric", autocomplete: "off", placeholder: "Türcode", "aria-label": "Türcode des Feibeitsblatts", style: { maxWidth: "9rem" } });
     const pw = h("input", { type: "password", autocomplete: "off", placeholder: "Feibeitsblatt-Passwort", "aria-label": "Feibeitsblatt-Passwort" });

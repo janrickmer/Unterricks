@@ -463,8 +463,9 @@ export async function routeSheetUnlink(c, id, codeRaw) {
   await requireTeacher(c);
   let raw = codeRaw; try { raw = decodeURIComponent(codeRaw); } catch {}
   const code = normalizeCode(raw);
-  const removedFiles = await deleteNotfallFiles(c, id, code);   // sein Notfall-Feibeitsblatt gehört nicht mehr zur Sitzung
+  // erst die Verknüpfung, dann sein Notfall-Feibeitsblatt (ein gleichzeitiges Hochladen sieht so die fehlende Verknüpfung, siehe routeNotfallUpload)
   await c.db.prepare("DELETE FROM fb_sheets WHERE lesson_id=?1 AND code=?2").bind(id, code).run();
+  const removedFiles = await deleteNotfallFiles(c, id, code);
   return json({ ok: true, removedFiles });
 }
 export { isObj };

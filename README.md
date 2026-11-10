@@ -88,7 +88,13 @@ Feibeitsblatt braucht keine Änderung. Die Adressen stehen in `wrangler.jsonc` (
   zugänglich“ ab, sobald die Sitzung mit dem Feibeitsblatt verbunden ist. Nach dem Bestätigen der Checkliste wird es mit dem
   QR-Code zur Checkliste erneuert; entfernen Sie das Blatt aus der Sitzung, verschwindet auch sein Notfall-Feibeitsblatt. Zum
   Finale eines Escape-Rooms gibt es keines. Die Schüler:innen sehen die Notfall-Feibeitsblätter in einem eigenen Kästchen unter dem
-  Material mit dem roten Hinweis, dass sie nur bei technischen Problemen gedacht sind.
+  Material mit dem roten Hinweis, dass sie nur bei technischen Problemen gedacht sind. In den Jahrgängen 5 und 6 (nur analoges
+  Material) gibt es keine. **Bestehende Sitzungen**, deren Feibeitsblätter schon vorher verknüpft waren, bekommen ihr
+  Notfall-Feibeitsblatt automatisch nachgeholt: Sobald Sie als Lehrkraft angemeldet und mit Feibeitsblatt verbunden sind (gespeicherte
+  Verbindung), ergänzt Unterricks die fehlenden im Hintergrund – erzeugt werden sie in Ihrem Browser, lassen Sie Unterricks also
+  geöffnet, bis es fertig ist (ein unterbrochener Lauf geht beim nächsten Öffnen weiter). Den Stand sehen Sie unter
+  *Einstellungen → Feibeitsblatt*; dort erneuert „Alle prüfen und aktualisieren“ auch veraltete (z. B. nach dem Bestätigen einer
+  Checkliste). Haben Sie ein Notfall-Feibeitsblatt „nur für Lehrkräfte“ gestellt, bleibt auch das erneuerte dort.
 * **Kurse in Ev. Religion und Ethik (Jg. 5–10, E-Phase):** Je Jahrgang gibt es einen Kurs mit Schüler:innen aus mehreren
   Klassen. Fach wählen → beim Jahrgang **„Kurs anlegen“** → alle Klassen ankreuzen, die im Kurs vertreten sind (später über
   „Klassen ändern“ anpassbar). Sitzungen und Einheiten, die bisher in einer dieser Klassen lagen, ziehen dabei in den Kurs um.

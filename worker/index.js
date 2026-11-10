@@ -88,6 +88,7 @@ const ROUTES = [
   ["POST", "/api/teacher/lessons/" + ID + "/sheets", L.routeSheetLink],
   ["DELETE", "/api/teacher/lessons/" + ID + "/sheets/([A-Za-z0-9%-]{1,20})", L.routeSheetUnlink],
   ["POST", "/api/teacher/lessons/" + ID + "/sheets/([A-Za-z0-9%-]{1,20})/notfall", F.routeNotfallUpload],
+  ["GET", "/api/teacher/notfall", F.routeNotfallList],
   // Lehrkraft: Dateien und Präsentation
   ["POST", "/api/teacher/lessons/" + ID + "/files", F.routeFileUpload],
   ["POST", "/api/teacher/lessons/" + ID + "/texts", F.routeTextCreate],

@@ -583,6 +583,42 @@ async function main() {
     await tp.locator(".modal").getByRole("button", { name: "Entfernen" }).click();
     await fbSec.locator(".item", { hasText: "Blatt mit Bild" }).waitFor({ state: "detached" });
     ok((await notfallOf("MCKB23")).length === 0, "Blatt aus der Sitzung entfernt: sein Notfall-Feibeitsblatt ist auch weg");
+    // bestehende Sitzungen: Blatt verknüpft, bevor es Notfall-Feibeitsblätter gab (wie damals ohne PDF) → wird im Hintergrund nachgeholt
+    fbm.sheets.set("MCK7Q4", { code: "MCK7Q4", title: "Altes Blatt", createdAt: Date.now(), escape: null, tasks: [{ text: "Erkläre die Gewaltenteilung.", solution: "" }] });
+    const oldIds = [lessonId, byRow(3).id];
+    for (const lid of oldIds) await T("POST", "/api/teacher/lessons/" + lid + "/sheets", { code: "MCK7Q4", title: "Altes Blatt" });
+    const nfOld = async (lid) => ((await T("GET", "/api/teacher/lessons/" + lid)).data.files || []).filter((f) => f.source === "notfall" && f.fbCode === "MCK7Q4" && f.area !== "archive");
+    const nfMiss = (await T("GET", "/api/teacher/notfall")).data;
+    ok(nfMiss.ok && oldIds.every((lid) => nfMiss.items.some((x) => x.lessonId === lid && x.code === "MCK7Q4" && !x.fileId && !x.sig)) && nfMiss.items.some((x) => x.lessonId === lessonId && x.code === created.code && x.fileId && x.sig),
+      "Schnittstelle nennt alle verknüpften Blätter mit dem Stand ihres Notfall-Feibeitsblatts (fehlend / vorhanden)");
+    await tp.goto(BASE + "/#/lk"); await tp.reload();   // neuer Seitenaufruf: Nachholen im Hintergrund
+    await tp.locator(".toast", { hasText: /2 Notfall-Feibeitsblätter für bestehende Sitzungen ergänzt/ }).waitFor({ timeout: 30000 });
+    let nfA = await nfOld(oldIds[0]), nfB = await nfOld(oldIds[1]);
+    ok(nfA.length === 1 && nfB.length === 1 && nfA[0].area === "student" && nfA[0].name === "Notfall-Feibeitsblatt – Altes Blatt.pdf" && nfA[0].fbSig === nfB[0].fbSig && /^v\d/.test(nfA[0].fbSig || ""),
+      "bestehende Sitzungen: Notfall-Feibeitsblatt automatisch nachgeholt (je Sitzung eine PDF, Meldung)");
+    ok((await pdfOf(nfA[0])).includes("%PDF-"), "nachgeholtes Notfall-Feibeitsblatt ist eine PDF");
+    await tp.goto(BASE + "/#/lk/einstellungen");
+    const nfSet = tp.locator("#fbsettings");
+    await nfSet.locator("[role=status]", { hasText: "Alle verknüpften Feibeitsblätter haben ein Notfall-Feibeitsblatt." }).waitFor();
+    // veraltet (z. B. Checkliste inzwischen bestätigt): „Alle prüfen und aktualisieren“ erneuert es
+    ok((await T("PATCH", "/api/teacher/files/" + nfB[0].id, { area: "teacher" })).status === 200, "Notfall-Feibeitsblatt „nur für Lehrkräfte“ gestellt");
+    const oldPdf = Buffer.from("%PDF-1.4\n% veraltet\n");
+    const upOld = (sig) => fetch(BASE + "/api/teacher/lessons/" + oldIds[1] + "/sheets/MCK7Q4/notfall?sig=" + sig, { method: "POST", headers: { Authorization: "Bearer " + token, "Content-Type": "application/pdf" }, body: oldPdf });
+    const [ra, rb] = await Promise.all([upOld("v0-a"), upOld("v0-b")]);   // zwei gleichzeitig: nur eine bleibt (die zuletzt angelegte)
+    nfB = await nfOld(oldIds[1]);
+    ok(ra.ok && rb.ok && nfB.length === 1 && /^v0-/.test(nfB[0].fbSig), "zwei gleichzeitige Uploads desselben Notfall-Feibeitsblatts: genau eines bleibt");
+    await nfSet.getByRole("button", { name: "Alle prüfen und aktualisieren" }).click();
+    await nfSet.locator("[role=status]", { hasText: "1 Notfall-Feibeitsblatt aktualisiert. Alle Notfall-Feibeitsblätter sind aktuell." }).waitFor({ timeout: 30000 });
+    nfB = await nfOld(oldIds[1]); nfA = await nfOld(oldIds[0]);
+    ok(nfB.length === 1 && nfB[0].fbSig === nfA[0].fbSig && nfB[0].size > oldPdf.length, "„Alle prüfen und aktualisieren“ erneuert ein veraltetes Notfall-Feibeitsblatt");
+    ok(nfB[0].area === "teacher" && nfA[0].area === "student", "erneuert bleibt es „nur für Lehrkräfte“, wenn die Lehrkraft es dorthin gestellt hatte");
+    await tp.screenshot({ ...SHOT, path: join(OUT, "lehrkraft-notfall-nachholen.png") });
+    await sp.reload();
+    await sp.locator("section.notfallbox .item", { hasText: "Notfall-Feibeitsblatt – Altes Blatt.pdf" }).waitFor();
+    ok(true, "Schüler:innen sehen das nachgeholte Notfall-Feibeitsblatt im Kästchen mit dem roten Hinweis");
+    for (const lid of oldIds) await T("DELETE", "/api/teacher/lessons/" + lid + "/sheets/MCK7Q4");
+    ok((await nfOld(oldIds[0])).length === 0 && (await nfOld(oldIds[1])).length === 0, "Blatt entfernt: nachgeholte Notfall-Feibeitsblätter wieder weg");
+    await tp.goto(BASE + "/#/lk/s/" + lessonId); await fbSec.waitFor();
 
     /* ---------- Datum, Hausaufgabe, Zwischenstopp ---------- */
     step("Datum (änderbar, ohne Verschieben), Hausaufgabe, Zwischenstopp");
@@ -800,7 +836,8 @@ async function main() {
     ok(escSheet && escSheet.escape && /^unterricks-[a-f0-9]{8}-[a-f0-9]{6}$/.test(escSheet.escape.id) && escSheet.escape.name === "Mission Gewaltenteilung", "Finale-Feibeitsblatt mit Escape-Kennung angelegt");
     await sleep(1500);
     const nfEsc = await fetch(BASE + "/api/teacher/lessons/" + l3.id + "/sheets/" + escSheet.code + "/notfall?sig=v1", { method: "POST", headers: { Authorization: "Bearer " + token, "Content-Type": "application/pdf" }, body: Buffer.from("%PDF-1.4 test") });
-    ok(!(await T("GET", "/api/teacher/lessons/" + l3.id)).data.files.some((f) => f.fbCode === escSheet.code) && nfEsc.status === 400, "Finale eines Escape-Rooms: kein Notfall-Feibeitsblatt (auch nicht per Schnittstelle)");
+    ok(!(await T("GET", "/api/teacher/lessons/" + l3.id)).data.files.some((f) => f.fbCode === escSheet.code) && nfEsc.status === 400
+      && !(await T("GET", "/api/teacher/notfall")).data.items.some((x) => x.code === escSheet.code), "Finale eines Escape-Rooms: kein Notfall-Feibeitsblatt (auch nicht per Schnittstelle, nicht beim Nachholen)");
     await SA("POST", "/api/student/join", { code: l3.code });
     ok(!(await SA("GET", "/api/student/lessons/" + l3.id)).data.sheets.some((x) => x.code === escSheet.code), "Escape-Finale erscheint nicht als normales Feibeitsblatt (nur über den Tunnel)");
     await sp.goto(BASE + "/#/schueler/s/" + l3.id);

@@ -308,6 +308,22 @@ implementiert und im End-to-End-Test geprüft (Ausnahmen unten ausdrücklich gen
   sobald das Feibeitsblatt mit der Zielsitzung verknüpft ist.
 * **Inhalt:** nur, was auch auf dem gedruckten Arbeitsblatt des Feibeitsblatts steht – nie Aufträge an die KI, Länder der
   Weltkarte, Checklistenpunkte oder Abgaben.
+* **Nachholen für bestehende Sitzungen (Wunsch der Lehrkraft vom 10.11.2026):** Blätter, die verknüpft wurden, bevor es
+  Notfall-Feibeitsblätter gab (oder ohne Verbindung zum Feibeitsblatt), bekommen ihre PDF ohne dass jede Sitzung geöffnet werden muss.
+  `GET /api/teacher/notfall` nennt alle verknüpften Blätter (ohne Finale eines Escape-Rooms, ohne die analogen Jahrgänge 5 und 6) mit
+  dem Stand ihres Notfall-Feibeitsblatts (`fileId`, `sig`). Der Browser der Lehrkraft (`notfallBackfill` in `public/teacher.js`) startet
+  einmal je Seitenaufruf im Hintergrund, sobald die Verbindung zum Feibeitsblatt besteht (gespeicherte Verbindung, sonst nach dem
+  Verbinden bzw. Entsperren in einer Sitzung): Er erzeugt je Blatt **eine** PDF und lädt sie in jede Sitzung hoch, der sie fehlt;
+  Meldung am Ende, Stand und Fehler (z. B. Blatt im Feibeitsblatt gelöscht) unter *Einstellungen → Feibeitsblatt*. „Alle prüfen und
+  aktualisieren“ erneuert dort zusätzlich veraltete (anderer `sig`). Sitzungsseite und Hintergrundlauf arbeiten nie gleichzeitig an
+  derselben Sitzung und demselben Blatt (`notfallOnce` in `public/notfall.js`: der zweite wartet und übernimmt das Ergebnis); kommen
+  trotzdem zwei Uploads gleichzeitig an (zwei Geräte), löscht jeder nur ältere Einträge (`rowid`), so bleibt genau die zuletzt angelegte
+  PDF stehen; die ältere Anfrage bekommt diese als Antwort (`superseded: true`). Wurde das Blatt während des Hochladens aus der Sitzung
+  entfernt, verwirft der Server die neue PDF (404) – das Entfernen löscht dafür erst die Verknüpfung, dann die PDFs. Bleibt ein Blatt
+  dauerhaft ohne PDF (z. B. im Feibeitsblatt gelöscht), meldet der Hintergrundlauf das je Gerät nur einmal; die Einzelheiten stehen in den
+  Einstellungen. Ein abgebrochener Lauf (Abmelden, abgelaufene Anmeldung) beginnt beim nächsten Seitenaufruf neu; eine späte
+  401-Antwort aus der Zeit vor dem erneuten Anmelden meldet nicht ab (`tapi` vergleicht die Anmeldung, mit der die Anfrage lief).
+  Wurde ein Notfall-Feibeitsblatt „nur für Lehrkräfte“ gestellt, bleibt auch das erneuerte dort.
 
 ## 4g. Feibeitsblatt-Verbindung einmalig speichern (Ergänzung vom 10.11.2026)
 

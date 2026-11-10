@@ -16,8 +16,11 @@ export const T = {
   fbLink: { state: "checking" },   // checking | none | saved | locked | invalid | error – siehe fbAutoConnect
 };
 export async function tapi(method, path, o = {}) {
-  try { return await api(method, path, { ...o, token: T.token }); }
-  catch (e) { if (e.status === 401 && path !== "/api/teacher/login") { T.token = null; go("#/lehrkraft"); } throw e; }
+  const tok = T.token;
+  try { return await api(method, path, { ...o, token: tok }); }
+  // 401 meldet nur ab, wenn die Anfrage mit der jetzigen Anmeldung lief – eine späte Antwort aus der Zeit vor dem Ab- und wieder
+  // Anmelden (z. B. vom Nachholen der Notfall-Feibeitsblätter im Hintergrund) darf die neue Anmeldung nicht beenden
+  catch (e) { if (e.status === 401 && path !== "/api/teacher/login" && T.token === tok) { T.token = null; go("#/lehrkraft"); } throw e; }
 }
 export async function config() {
   if (!T.config) { try { T.config = await api("GET", "/api/config"); } catch { T.config = { feibeitsblattApi: "https://feibeitsblatt.feindt.workers.dev", feibeitsblattUrl: "https://feibeitsblatt.janrickmer.de/" }; } }
@@ -98,6 +101,108 @@ export function askTeacherPassword(text) {
   });
 }
 
+/* ---------- Notfall-Feibeitsblätter für bestehende Sitzungen nachholen ----------
+ * Sitzungen, deren Feibeitsblätter verknüpft wurden, bevor es Notfall-Feibeitsblätter gab (oder ohne Verbindung zum Feibeitsblatt),
+ * bekommen ihr Notfall-Feibeitsblatt im Hintergrund – einmal je Seitenaufruf, sobald die Verbindung zum Feibeitsblatt besteht. Erzeugt
+ * wird es im Browser der Lehrkraft (das Blatt ist nur mit ihrer Feibeitsblatt-Anmeldung lesbar): je Blatt einmal, hochgeladen in jede
+ * Sitzung, die es noch nicht hat. „Alle prüfen und aktualisieren“ (Einstellungen) erneuert auch veraltete, z. B. nach dem Bestätigen der
+ * Checkliste (dann mit QR-Code). Nie für das Finale eines Escape-Rooms und nie in den analogen Jahrgängen 5 und 6 (Server). */
+export const NF = { state: "idle", all: false, count: 0, missing: 0, total: 0, done: 0, made: 0, failed: [], step: "", msg: "" };
+const nfListeners = new Set();
+export function onNotfallProgress(fn) { nfListeners.add(fn); return () => nfListeners.delete(fn); }
+const nfPaint = () => { for (const fn of [...nfListeners]) { try { fn(NF); } catch {} } };
+let nfJob = null, nfRun = 0;
+const nfWord = (n) => n + (n === 1 ? " Notfall-Feibeitsblatt" : " Notfall-Feibeitsblätter");
+const nfVerb = (n, one, many) => (n === 1 ? one : many);
+/* „2 Notfall-Feibeitsblätter ließen sich nicht erstellen“ / „1 … ließ sich nicht aktualisieren – das bisherige bleibt im Material“ */
+function nfFailText(failed) {
+  const miss = failed.filter((x) => !x.had).length, upd = failed.length - miss, parts = [];
+  if (miss) parts.push(nfWord(miss) + " " + nfVerb(miss, "ließ", "ließen") + " sich nicht erstellen");
+  if (upd) parts.push(nfWord(upd) + " " + nfVerb(upd, "ließ", "ließen") + " sich nicht aktualisieren – " + nfVerb(upd, "das bisherige bleibt", "die bisherigen bleiben") + " im Material");
+  return parts.join("; ");
+}
+export function notfallBackfill(opt = {}) {
+  const all = !!opt.all;
+  if (nfJob && NF.state === "running") return nfJob;
+  // schon gelaufen: nur auf Wunsch erneut (Knopf „Alle prüfen“) oder nach dem Verbinden, wenn es damals keine Verbindung gab bzw. etwas scheiterte
+  if (nfJob && !all && (!opt.retry || (NF.state === "done" && !NF.failed.length))) return nfJob;
+  const run = ++nfRun, live = () => run === nfRun && !!T.token;
+  Object.assign(NF, { state: "running", all, count: 0, missing: 0, total: 0, done: 0, made: 0, failed: [], step: "Verknüpfte Feibeitsblätter werden gesucht …", msg: "" });
+  nfPaint();
+  const fail = (x, e) => NF.failed.push({ ...x, had: !!x.fileId, msg: (e && e.message) || String(e || "Bitte erneut versuchen.") });
+  const stop = (state, msg = "") => { if (live()) { Object.assign(NF, { state, step: "", msg }); nfPaint(); } };
+  nfJob = (async () => {
+    const listAt = Date.now();
+    let list;
+    try { list = (await tapi("GET", "/api/teacher/notfall")).items || []; }
+    catch (e) { return stop("error", e.message); }
+    if (!live()) return;
+    Object.assign(NF, { count: list.length, missing: list.filter((x) => !x.fileId).length });
+    await config();
+    // ausdrücklich gestartet und war Feibeitsblatt vorhin nicht erreichbar: erneut verbinden (sonst bliebe das alte Ergebnis)
+    await fbAutoConnect((all || opt.retry) && !T.fb.connected && T.fbLink.state === "error");
+    if (!live()) return;
+    if (!T.fb.connected) return stop("noconn");
+    const byCode = new Map();
+    for (const x of list) if (all || !x.fileId) { if (!byCode.has(x.code)) byCode.set(x.code, []); byCode.get(x.code).push(x); }
+    NF.total = [...byCode.values()].reduce((n, a) => n + a.length, 0); nfPaint();
+    const N = byCode.size ? await import("./notfall.js") : null;
+    for (const [code, items] of byCode) {
+      if (!live()) return;
+      if (!T.fb.connected) return stop("noconn");   // Verbindung unterwegs verloren: später erneut (nach dem Verbinden)
+      NF.step = "Feibeitsblatt " + formatCode(code) + " wird geprüft …"; nfPaint();
+      let info;
+      try { info = await N.notfallInfo(T.fb, code); }
+      catch (e) { if (!live()) return; for (const x of items) fail(x, e); NF.done += items.length; nfPaint(); continue; }
+      if (!live()) return;
+      if (info.escape) { NF.done += items.length; nfPaint(); continue; }   // Finale eines Escape-Rooms: kein Notfall-Feibeitsblatt
+      const todo = items.filter((x) => !x.fileId || x.sig !== info.sig);
+      NF.done += items.length - todo.length;
+      let pdf = null, buildErr = null;   // je Blatt höchstens einmal erzeugen – auch wenn es scheitert (z. B. ein Bild fehlt)
+      const make = async (x) => {
+        if (buildErr) throw buildErr;
+        if (!pdf) { try { pdf = await N.buildNotfallPdf(T.fb, code, info, T.config.feibeitsblattUrl); } catch (e) { buildErr = e; throw e; } }
+        if (!live()) return {};
+        return { file: (await N.uploadNotfall(x.lessonId, code, info.sig, pdf, T.token)).file };
+      };
+      for (const x of todo) {
+        if (!live()) return;
+        const rec = N.notfallRecent(x.lessonId, code, listAt);
+        if (rec && rec.fbSig === info.sig) { NF.done++; nfPaint(); continue; }   // inzwischen von der Sitzungsseite erstellt
+        NF.step = "„" + (x.title || "Feibeitsblatt") + "“ für „" + (x.lessonTitle || "Sitzung") + "“ …"; nfPaint();
+        try {
+          let res = await N.notfallOnce(x.lessonId, code, () => make(x));
+          // auf die Sitzungsseite gewartet, die aber nichts hochgeladen hat (verlassen, gescheitert): selbst erzeugen
+          if (res.joined && !res.file && live()) res = await N.notfallOnce(x.lessonId, code, () => make(x));
+          if (!live()) return;
+          if (res.file) { if (!res.joined) NF.made++; }
+          else if (!res.escape) fail(x, null);
+        } catch (e) {
+          if (!live()) return;
+          if (!(e && e.status === 404 && e.code === "not_found")) fail(x, e);   // inzwischen aus der Sitzung entfernt: nichts zu tun
+        }
+        NF.done++; nfPaint();
+      }
+    }
+    if (!live()) return;
+    Object.assign(NF, { state: "done", step: "" }); nfPaint();
+    // Meldungen nur, wenn der Stand nicht ohnehin zu sehen ist (Einstellungen → Feibeitsblatt zeigt ihn selbst an)
+    const quiet = nfListeners.size > 0;
+    if (NF.made && !quiet) toast(nfWord(NF.made) + " für bestehende Sitzungen " + (all ? "aktualisiert" : "ergänzt") + " (im Material für Schüler:innen).", "ok");
+    // Fehlschläge nur einmal je Gerät melden (ein im Feibeitsblatt gelöschtes Blatt schlüge sonst bei jedem Seitenaufruf an) – außer auf
+    // ausdrücklichen Wunsch („Alle prüfen“); der Stand mit allen Einzelheiten steht immer unter Einstellungen → Feibeitsblatt
+    const fkey = (x) => x.lessonId + "|" + x.code + "|" + x.msg;
+    let seen = []; try { seen = JSON.parse(store.get("u.nfFails") || "[]"); } catch {}
+    const fresh = NF.failed.filter((x) => !seen.includes(fkey(x)));
+    store.set("u.nfFails", JSON.stringify(NF.failed.map(fkey).slice(0, 200)));
+    if (fresh.length && !quiet) toast(nfFailText(NF.failed) + " – Einzelheiten unter Einstellungen → Feibeitsblatt.", "err");
+  })().catch((e) => stop("error", e && e.message ? e.message : String(e)))
+    .finally(() => { if (run === nfRun && NF.state === "running") { Object.assign(NF, { state: "idle", step: "" }); nfJob = null; nfPaint(); } });   // z. B. abgemeldet (401): beim nächsten Mal neu
+  return nfJob;
+}
+/* Abmelden bzw. neu anmelden: ein laufendes Nachholen endet, beim nächsten Seitenaufruf beginnt es neu */
+function nfReset() { nfRun++; nfJob = null; Object.assign(NF, { state: "idle", failed: [], step: "", msg: "" }); }
+
 export function teacherBar(active) {
   const link = (href, label, key) => h("a", { href, "aria-current": active === key ? "page" : null }, label);
   return topbar({ home: "#/lk" }, [link("#/lk", "Unterricht", "lessons"), link("#/lk/grundlagen", "Planungsgrundlagen", "bases"), link("#/lk/einstellungen", "Einstellungen", "settings"),
@@ -107,6 +212,7 @@ async function logout() {
   try { await tapi("POST", "/api/teacher/logout"); } catch {}
   T.token = null; if (T.fb) T.fb.disconnect();
   T.wrapKey = null; T.fbLink = { state: "checking" }; fbAuto = null; await forgetKey();   // dieses Gerät vergisst den Schlüssel
+  nfReset();   // ein laufendes Nachholen endet
   go("#/lehrkraft");
 }
 
@@ -140,12 +246,12 @@ async function loginPage() {
           const salt = b64u(crypto.getRandomValues(new Uint8Array(16)));
           const d = await deriveLogin(pw.value, salt, 600000);
           const r = await api("POST", "/api/teacher/setup", { body: { username: user.value, salt, iterations: 600000, authKey: d.authKey, deviceId: deviceId(), setupCode: sc.value || undefined } });
-          T.token = r.token; await useWrapKey(d.wrapKey); fbAuto = null; toast("Ihr Lehrkraft-Zugang ist eingerichtet.", "ok"); go("#/lk");
+          T.token = r.token; await useWrapKey(d.wrapKey); fbAuto = null; nfReset(); toast("Ihr Lehrkraft-Zugang ist eingerichtet.", "ok"); go("#/lk");
         } else {
           const s = await api("POST", "/api/teacher/salt", { body: { username: user.value } });
           const d = await deriveLogin(pw.value, s.salt, s.iterations);
           const r = await api("POST", "/api/teacher/login", { body: { username: user.value, authKey: d.authKey, deviceId: deviceId() } });
-          T.token = r.token; await useWrapKey(d.wrapKey); fbAuto = null; go("#/lk");
+          T.token = r.token; await useWrapKey(d.wrapKey); fbAuto = null; nfReset(); go("#/lk");
         }
       } catch (err) {
         if (err.status === 429 && err.data && err.data.retryAfter) { lock(err.data.retryAfter); msg.textContent = err.message; }
@@ -501,10 +607,49 @@ function fbSection() {
     clear(state).append(...nn(h("p", { class: "small " + line[0], text: line[1] }), lk.state !== "none" && lk.state !== "error" ? h("div", { class: "row" }, del) : null));
   };
   fbAutoConnect().then(paint, () => {});
-  return h("section", { class: "card" }, h("h2", { text: "Feibeitsblatt" }),
+  return h("section", { class: "card", id: "fbsettings" }, h("h2", { text: "Feibeitsblatt" }),
     h("p", { class: "small" }, "Schnittstelle: ", h("span", { class: "mono", text: T.config.feibeitsblattApi })), h("p", { class: "small" }, "Adresse für Schüler:innen: ", h("a", { href: T.config.feibeitsblattUrl, target: "_blank", rel: "noopener", text: T.config.feibeitsblattUrl })),
     state,
-    h("p", { class: "hint", text: "Die Verbindung (Türcode + Feibeitsblatt-Passwort) stellen Sie einmalig in einer Sitzung im Abschnitt „Feibeitsblatt“ her. Gespeichert wird sie Ende-zu-Ende verschlüsselt: mit einem Schlüssel, der in Ihrem Browser aus Ihrem Unterricks-Passwort entsteht und den der Server nie sieht – gespeichert ist nur der daraus abgeleitete Feibeitsblatt-Schlüssel, nie ein Passwort. Auf jedem Gerät, auf dem Sie sich mit Ihrem Passwort anmelden, verbindet sich Unterricks danach automatisch; beim Abmelden vergisst das Gerät den Schlüssel. Der KI-Anbieter für die Rückmeldungen im Feibeitsblatt wird im Feibeitsblatt selbst eingestellt." }));
+    h("p", { class: "hint", text: "Die Verbindung (Türcode + Feibeitsblatt-Passwort) stellen Sie einmalig in einer Sitzung im Abschnitt „Feibeitsblatt“ her. Gespeichert wird sie Ende-zu-Ende verschlüsselt: mit einem Schlüssel, der in Ihrem Browser aus Ihrem Unterricks-Passwort entsteht und den der Server nie sieht – gespeichert ist nur der daraus abgeleitete Feibeitsblatt-Schlüssel, nie ein Passwort. Auf jedem Gerät, auf dem Sie sich mit Ihrem Passwort anmelden, verbindet sich Unterricks danach automatisch; beim Abmelden vergisst das Gerät den Schlüssel. Der KI-Anbieter für die Rückmeldungen im Feibeitsblatt wird im Feibeitsblatt selbst eingestellt." }), notfallBox());
+}
+
+/* Einstellungen → Feibeitsblatt: Stand der Notfall-Feibeitsblätter bestehender Sitzungen (Nachholen im Hintergrund, notfallBackfill) */
+function notfallBox() {
+  const live = h("p", { class: "small", role: "status" }), prog = h("p", { class: "small muted notfall" }), fails = h("div");
+  // aria-disabled statt disabled: der Knopf behält beim Klicken den Fokus (Tastatur, Screenreader)
+  const btn = h("button", { class: "btn small", type: "button", onclick: () => { if (NF.state !== "running") notfallBackfill({ all: true }); } }, "Alle prüfen und aktualisieren");
+  let shown = "";
+  const paint = () => {
+    const n = NF, running = n.state === "running", lk = T.fbLink.state;
+    btn.setAttribute("aria-disabled", running ? "true" : "false");
+    btn.textContent = running ? "Wird geprüft …" : "Alle prüfen und aktualisieren";
+    const miss = n.failed.filter((x) => !x.had).length, upd = n.failed.length - miss, open = Math.max(0, n.missing - n.made);
+    const text = running ? (n.all ? "Alle Notfall-Feibeitsblätter werden geprüft …" : "Fehlende Notfall-Feibeitsblätter werden ergänzt …")
+      : n.state === "noconn" ? (n.made ? nfWord(n.made) + " ergänzt. " : "") + (open ? nfWord(open) + " für bestehende Sitzungen " + nfVerb(open, "fehlt", "fehlen") + " noch. " : "") +
+        "Notfall-Feibeitsblätter entstehen automatisch, sobald Unterricks mit Feibeitsblatt verbunden ist" +
+        (lk === "locked" ? " – dafür die gespeicherte Verbindung auf diesem Gerät einmal entsperren (in einer Sitzung im Abschnitt „Feibeitsblatt“)."
+          : lk === "none" || lk === "invalid" ? " – die Verbindung einmalig in einer Sitzung im Abschnitt „Feibeitsblatt“ herstellen und speichern."
+          : lk === "error" ? " – Feibeitsblatt war gerade nicht erreichbar; „Alle prüfen und aktualisieren“ versucht es erneut." : ".")
+      : n.state === "error" ? "Die Notfall-Feibeitsblätter ließen sich gerade nicht prüfen: " + n.msg
+      : n.state === "done" ? (!n.count ? "Keine Feibeitsblätter, die ein Notfall-Feibeitsblatt bekommen (das Finale eines Escape-Rooms und die Jahrgänge 5 und 6 sind ausgenommen)."
+        : (n.made ? nfWord(n.made) + (n.all ? " aktualisiert. " : " ergänzt. ") : "") +
+          (miss ? nfWord(miss) + " " + nfVerb(miss, "fehlt", "fehlen") + " noch (siehe unten). " : "") +
+          (upd ? nfWord(upd) + " " + nfVerb(upd, "ließ", "ließen") + " sich nicht aktualisieren – " + nfVerb(upd, "das bisherige bleibt", "die bisherigen bleiben") + " im Material (siehe unten). " : "") +
+          (n.failed.length ? "" : n.all ? "Alle Notfall-Feibeitsblätter sind aktuell." : "Alle verknüpften Feibeitsblätter haben ein Notfall-Feibeitsblatt."))
+      : "Notfall-Feibeitsblätter werden geprüft …";
+    if (text.trim() !== shown) { live.textContent = text.trim(); live.className = "small" + (n.state === "error" || (n.state === "done" && n.failed.length) ? " warnc" : n.state === "done" ? " ok" : ""); shown = text.trim(); }
+    clear(prog); prog.classList.toggle("hidden", !running);   // .notfall setzt display: flex – das hidden-Attribut wirkte nicht
+    if (running) prog.append(h("span", { class: "spin", "aria-hidden": "true" }), (n.total ? Math.min(n.done, n.total) + " von " + n.total + " · " : "") + (n.step || ""));
+    clear(fails);
+    if (!running && n.failed.length) fails.append(h("ul", { class: "small" }, n.failed.slice(0, 50).map((x) => h("li", null,
+      h("a", { href: "#/lk/s/" + x.lessonId, text: x.lessonTitle || "Sitzung" }), " (" + classShort(x.klass) + (x.date ? ", " + fmtDay(x.date) : "") + ") – „" + (x.title || "Feibeitsblatt") + "“ (" + formatCode(x.code) + ")" +
+        (x.had ? ", bisheriges bleibt" : "") + ": " + x.msg)).concat(n.failed.length > 50 ? [h("li", { text: "… und " + (n.failed.length - 50) + " weitere" })] : [])),
+      h("p", { class: "hint", text: "Wurde ein Feibeitsblatt im Feibeitsblatt gelöscht, entfernen Sie es in der Sitzung (Abschnitt „Feibeitsblatt“) – dann verschwindet auch der Eintrag hier." }));
+  };
+  onLeave(onNotfallProgress(paint));
+  paint();
+  return h("div", { class: "stack", style: { marginTop: "1rem" } }, h("h3", { text: "Notfall-Feibeitsblätter bestehender Sitzungen" }), live, prog, fails, h("div", { class: "row" }, btn),
+    h("p", { class: "hint", text: "Fehlende Notfall-Feibeitsblätter ergänzt Unterricks automatisch in Ihrem Browser, sobald Sie angemeldet und mit Feibeitsblatt verbunden sind – auch für Sitzungen, deren Feibeitsblätter schon vorher verknüpft waren. Lassen Sie Unterricks dafür geöffnet, bis hier „Alle verknüpften Feibeitsblätter haben ein Notfall-Feibeitsblatt.“ steht; ein unterbrochener Lauf geht beim nächsten Öffnen weiter. Die Schüler:innen finden sie im Kästchen „Notfall-Feibeitsblätter“ ganz unten. „Alle prüfen und aktualisieren“ erneuert zusätzlich veraltete, z. B. nach dem Bestätigen der Checkliste (dann mit QR-Code). Nicht für das Finale eines Escape-Rooms und nicht in den Jahrgängen 5 und 6." }));
 }
 
 /* ---------- Router der Lehrkräfteansicht ---------- */
@@ -512,6 +657,7 @@ export async function route(hash) {
   await config();
   if (hash === "#/lehrkraft") return loginPage();
   if (!T.token) return go("#/lehrkraft");
+  notfallBackfill();   // Notfall-Feibeitsblätter bestehender Sitzungen (einmal je Seitenaufruf, im Hintergrund)
   let m;
   if (hash === "#/lk" || hash === "#/lk/") return subjectsPage();
   if (hash === "#/lk/einstellungen") return settingsPage();
