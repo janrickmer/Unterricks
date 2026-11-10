@@ -169,9 +169,13 @@ export function substituteCards({ id, st, L, ctx, fb, analog, reload, openDraft,
       h("p", { class: "hint", text: "Feibeitsblätter der ursprünglichen Planung verknüpfen Sie in der Zielsitzung bei Bedarf selbst (Abschnitt „Feibeitsblatt“ → „Vorhandenes Feibeitsblatt verknüpfen“)." })),
       actions: [{ label: "Abbrechen" }, { label: "Übernehmen", class: "primary", onClick: async () => {
         try {
-          const r = await tapi("POST", "/api/teacher/lessons/" + id + "/substitute/transfer", { body: { targetLessonId: sel.value, portal: withPortal.checked } });
+          let copied = 0, offset = 0;
+          for (let k = 0; k < 30 && offset !== null; k++) {   // in Stücken (Grenzen des Free-Plans)
+            const r = await tapi("POST", "/api/teacher/lessons/" + id + "/substitute/transfer", { body: { targetLessonId: sel.value, portal: withPortal.checked, offset } });
+            copied += r.copied; offset = r.next;
+          }
           const t = lessons.find((x) => x.id === sel.value);
-          toast(r.copied + " Datei(en)" + (withPortal.checked ? " und der Schulportal-Eintrag" : "") + " wurden in „" + (t ? t.title : "die Sitzung") + "“ übernommen.", "ok", 7000);
+          toast(copied + " Datei(en)" + (withPortal.checked ? " und der Schulportal-Eintrag" : "") + " wurden in „" + (t ? t.title : "die Sitzung") + "“ übernommen.", "ok", 7000);
         } catch (e) { errToast(e); return false; }
       } }] });
   }

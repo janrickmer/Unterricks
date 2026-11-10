@@ -39,8 +39,10 @@ Feibeitsblatt braucht keine Änderung. Die Adressen stehen in `wrangler.jsonc` (
   kopieren“ → in claude.ai einfügen → die von Claude erzeugte **PDF** hochladen → im Unterricht „Ich bin im Unterricht und starte
   die Präsentation für alle.“ Den Sitzungscode zeigt „Für den Beamer zeigen“. Am Stundenende: Hausaufgabe eintragen und per
   Rechtsklick im Verlaufsplan „Zwischenstopp einfügen“, falls nicht alles geschafft wurde.
-  Bei Krankheit: „Lehrkraft ist zu dieser Sitzung krank – Alternative entwickeln“ → Claude entwickelt die Vertretung → prüfen und
-  bestätigen (die ursprüngliche Planung wird archiviert und bleibt wiederherstellbar).
+  Bei Krankheit: „Lehrkraft ist zu dieser Sitzung krank – Alternative entwickeln“ → Claude entwickelt die Vertretung (z. B. einen
+  Escape-Room nach dem bekannten Aufbau mit Feibeitsblatt-Finale) → Vorschau ansehen, prüfen und bestätigen (die ursprüngliche
+  Planung wird archiviert und bleibt wiederherstellbar). Für das Anlegen des Feibeitsblatts beim Bestätigen muss die Sitzung mit
+  dem Feibeitsblatt verbunden sein (Türcode + Passwort im Abschnitt „Feibeitsblatt“).
 
 ## Entwicklung
 

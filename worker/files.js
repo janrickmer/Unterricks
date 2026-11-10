@@ -27,7 +27,7 @@ export const fileKey = (lessonId, fileId) => "l/" + lessonId + "/f/" + fileId;
 export const slideKey = (lessonId, fileId, n) => "l/" + lessonId + "/p/" + fileId + "/" + n + ".img";
 
 const storageLimit = (env) => Number(env.STORAGE_LIMIT_BYTES) || 9 * 1024 ** 3;   // unter den 10 GB des kostenlosen R2-Kontingents bleiben
-async function checkStorage(c, add) {
+export async function checkStorage(c, add) {
   const r = await c.db.prepare("SELECT (SELECT COALESCE(SUM(size),0) FROM files) + (SELECT COALESCE(SUM(size),0) FROM slides) AS used").first();
   const used = Number((r || {}).used) || 0, lim = storageLimit(c.env);
   if (used + add > lim) throw new HttpError(507, "storage_full", "Der Speicher ist voll (" + Math.round(used / 1024 ** 2) + " MB von " + Math.round(lim / 1024 ** 2) +

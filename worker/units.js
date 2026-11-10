@@ -3,7 +3,7 @@
 // und bearbeitet hier. Erst eine festgelegte Einheit erzeugt die Sitzungen (je Zeile eine Sitzung mit Datum).
 import { HttpError, bad, json, readJson, randomId, cleanLine, isId, isObj } from "./lib.js";
 import { requireTeacher } from "./auth.js";
-import { createLesson, lessonOut } from "./lessons.js";
+import { createLessonsBulk, lessonOut } from "./lessons.js";
 import { loadSubjectConfigs } from "./bases.js";
 import { isValidSubject, isValidClass, classAllowed, subjectName, classShort } from "../public/shared.js";
 import { normalizeParams, computeSlots, normalizePlan, normalizeRows, assignDates, lessonSlots } from "../public/planning.js";
@@ -122,14 +122,9 @@ export async function routeUnitSessions(c, id) {
   const have = new Set((await linkedLessons(c.db, id)).map((l) => l.row));
   const missingDate = rows.filter((r) => !have.has(r.uid) && !r.date);
   if (missingDate.length) throw bad(missingDate.length + " Zeile(n) haben noch kein Datum. Bitte Termine berechnen oder Datum eintragen.");
-  let created = 0;
-  for (const r of rows) {
-    if (have.has(r.uid)) continue;
-    if (created >= 40) break;   // Anfrage-Grenzen des Free-Plans; Rest beim nächsten Klick
-    await createLesson(c.db, { subject: u.subject, klass: u.klass, title: r.stundenfrage || plan.titel || u.title, topic: u.title || plan.titel || "", date: r.date,
-      durationMin: r.minutes, unitId: u.id, unitRow: r.uid }, c.now);
-    created++;
-  }
+  const todo = rows.filter((r) => !have.has(r.uid)).slice(0, 150);
+  const created = await createLessonsBulk(c.db, { subject: u.subject, klass: u.klass, topic: u.title || plan.titel || "", unitId: u.id },
+    todo.map((r) => ({ title: r.stundenfrage || plan.titel || u.title, date: r.date, durationMin: r.minutes, unitRow: r.uid })), c.now);
   if (u.status !== "geplant") await c.db.prepare("UPDATE units SET status='geplant', updated_at=?2 WHERE id=?1").bind(id, c.now).run();
   return json({ ok: true, created, unit: await unitFull(c.db, await getUnit(c.db, id)) });
 }

@@ -47,6 +47,11 @@ export const COLUMNS = [
   ["fb_sheets", "kind", "TEXT NOT NULL DEFAULT ''"],   // 'escape' = Finale eines Escape-Rooms (Schüler:innen erreichen es über den Tunnel)
 ];
 
+// Indizes über nachträglich ergänzte Spalten (nach den Spalten angelegt; ein Fehler – z. B. alte Doppelungen – hält den Betrieb nicht auf)
+export const INDEXES = [
+  "CREATE UNIQUE INDEX IF NOT EXISTS lessons_unit_row ON lessons(unit_id, unit_row) WHERE unit_id IS NOT NULL AND unit_row IS NOT NULL",
+];
+
 let ready = null;
 export function ensureSchema(db) {
   if (!ready) ready = (async () => {
@@ -60,6 +65,7 @@ export function ensureSchema(db) {
         catch (e) { if (!/duplicate column/i.test(String(e && e.message))) throw e; }   // gleichzeitig von einer anderen Instanz angelegt
       }
     }
+    try { await db.batch(INDEXES.map((s) => db.prepare(s))); } catch (e) { console.warn("Index nicht angelegt:", e && e.message); }
   })().catch((e) => { ready = null; throw e; });
   return ready;
 }

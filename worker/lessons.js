@@ -93,6 +93,31 @@ export async function createLesson(db, body, now) {
   throw new Error("Kein freier Sitzungscode gefunden");
 }
 
+/* Viele Sitzungen auf einmal (aus einer Unterrichtseinheit): wenige Datenbankaufrufe statt zwei je Sitzung (Free-Plan: höchstens
+   50 Abfragen je Aufruf; ein db.batch zählt als eine). base = {subject, klass, topic, unitId}; items = [{title, date, durationMin, unitRow}] */
+export async function createLessonsBulk(db, base, items, now) {
+  let pending = items.map((it) => ({ ...it, id: randomId(8) }));
+  const done = [];
+  for (let attempt = 0; attempt < 4 && pending.length; attempt++) {
+    const rows = pending.map((it) => ({ id: it.id, code: generateCode(), title: cleanLine(it.title, LIMITS.title) || "Sitzung", date: it.date, min: it.durationMin ?? null, row: it.unitRow || null }));
+    const [, sel] = await db.batch([
+      db.prepare("INSERT INTO lessons(id, subject, klass, title, topic, duration_min, lesson_date, ideas, homework, code, unit_id, unit_row, created_at, updated_at) " +
+        "SELECT json_extract(value,'$.id'), ?1, ?2, json_extract(value,'$.title'), ?3, json_extract(value,'$.min'), json_extract(value,'$.date'), '', '', json_extract(value,'$.code'), ?4, json_extract(value,'$.row'), ?5, ?5 " +
+        "FROM json_each(?6) WHERE true ON CONFLICT DO NOTHING").bind(base.subject, base.klass, cleanLine(base.topic, LIMITS.topic), base.unitId || null, now, JSON.stringify(rows)),
+      db.prepare("SELECT id FROM lessons WHERE id IN (SELECT json_extract(value,'$.id') FROM json_each(?1))").bind(JSON.stringify(rows.map((r) => ({ id: r.id })))),
+    ]);
+    const ok = new Set((sel.results || []).map((r) => r.id));
+    done.push(...pending.filter((x) => ok.has(x.id)));
+    // nicht eingefügt: Code zufällig schon vergeben (neuer Versuch mit neuem Code) oder Zeile hat schon eine Sitzung (eindeutiger Index)
+    pending = pending.filter((x) => !ok.has(x.id)).map((x) => ({ ...x, id: randomId(8) }));
+  }
+  if (done.length) {
+    await db.prepare("INSERT INTO chat(lesson_id, role, content, model, created_at) SELECT json_extract(value,'$.id'), 'assistant', json_extract(value,'$.g'), 'begruessung', ?2 FROM json_each(?1)")
+      .bind(JSON.stringify(done.map((x) => ({ id: x.id, g: greetingText({ subject: base.subject, klass: base.klass, durationMin: x.durationMin ?? null }) }))), now).run();
+  }
+  return done.length;
+}
+
 export async function routeLessonsList(c) {
   await requireTeacher(c);
   const u = new URL(c.request.url);

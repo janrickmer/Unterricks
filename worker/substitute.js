@@ -6,7 +6,7 @@ import { requireTeacher } from "./auth.js";
 import { requireAccess } from "./student.js";
 import { normalizeEscapeRoom } from "../public/escape-data.js";
 import { getLesson, savePortal, insertDraft } from "./lessons.js";
-import { insertTextMaterial, fileKey, getFile } from "./files.js";
+import { insertTextMaterial, fileKey, checkStorage } from "./files.js";
 import { normalizeSubstitute } from "../public/planning.js";
 import { isAnalogClass, normalizeCode, isValidCode, subjectName, classShort } from "../public/shared.js";
 
@@ -132,24 +132,30 @@ export async function routeSubstituteTransfer(c, lessonId) {
   if (!isId(body.targetLessonId) || body.targetLessonId === lessonId) throw bad("Bitte eine andere Sitzung wählen.");
   const target = await getLesson(c.db, body.targetLessonId);
   const a = parseJ(s.archive, {});
-  let copied = 0;
-  for (const f0 of (a.files || []).slice(0, 20)) {
-    let f; try { f = await getFile(c.db, f0.id); } catch { continue; }
+  // in Stücken (höchstens 10 Dateien je Aufruf: Grenzen des Free-Plans für R2- und Datenbankaufrufe); der Browser ruft mit offset weiter auf
+  const all = a.files || [], from = Math.max(0, Math.min(all.length, Number(body.offset) || 0)), chunk = all.slice(from, from + 10);
+  const found = chunk.length ? await c.db.prepare("SELECT * FROM files WHERE lesson_id=?1 AND id IN (SELECT value FROM json_each(?2))").bind(lessonId, JSON.stringify(chunk.map((f) => f.id))).all() : { results: [] };
+  const byId = new Map((found.results || []).map((f) => [f.id, f]));
+  const files = chunk.map((f0) => ({ f0, f: byId.get(f0.id) })).filter((x) => x.f);
+  await checkStorage(c, files.reduce((n, x) => n + (x.f.kind === "file" ? x.f.size || 0 : 0), 0));
+  const ins = [];
+  for (const { f0, f } of files) {
     const id = randomId(8);
     if (f.kind === "file") {
       const obj = await c.env.FILES.get(fileKey(f.lesson_id, f.id));
       if (!obj) continue;
       await c.env.FILES.put(fileKey(target.id, id), obj.body, { httpMetadata: { contentType: f.mime } });
     }
-    await c.db.prepare("INSERT INTO files(id, lesson_id, area, kind, name, mime, size, text, status, source, created_at, updated_at) VALUES(?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, 'ready', 'uebernommen', ?9, ?9)")
-      .bind(id, target.id, f0.area === "teacher" ? "teacher" : "student", f.kind, f.name, f.mime, f.size, f.text, c.now).run();
-    copied++;
+    ins.push(c.db.prepare("INSERT INTO files(id, lesson_id, area, kind, name, mime, size, text, status, source, created_at, updated_at) VALUES(?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, 'ready', 'uebernommen', ?9, ?9)")
+      .bind(id, target.id, f0.area === "teacher" ? "teacher" : "student", f.kind, f.name, f.mime, f.size, f.text, c.now));
   }
-  if (a.portal && body.portal !== false) {
+  if (ins.length) await c.db.batch(ins);
+  if (from === 0 && a.portal && body.portal !== false) {
     const merged = target.portal ? target.portal + "\n\n" + a.portal : a.portal;
     await savePortal(c.db, target.id, merged, null, "lehrkraft", Date.now());
   }
-  return json({ ok: true, copied, target: target.id });
+  const next = from + chunk.length < all.length ? from + chunk.length : null;
+  return json({ ok: true, copied: ins.length, next, target: target.id });
 }
 
 export const substituteForStudents = (s) => {
