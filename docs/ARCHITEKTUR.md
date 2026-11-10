@@ -140,6 +140,12 @@ implementiert und im End-to-End-Test geprüft (Ausnahmen unten ausdrücklich gen
 5. **Präsentations-Prompt.** Der Knopf ist erst aktiv, wenn das Textfeld einen Eintrag enthält. Der Prompt wird beim Klick
    **aus dem aktuellen Inhalt des Textfelds** gebaut (einschließlich gerade getippter, noch nicht gespeicherter Änderungen),
    in die Zwischenablage kopiert und dieser Stand sofort gespeichert. Eine ältere Fassung kann so nicht hineingeraten.
+   Claude soll die Präsentation **nur als PDF** liefern (16:9, eine Seite je Folie, Text als Text) – keine PowerPoint-Datei; die PDF
+   wird in Unterricks hochgeladen. **Folie 1 ist immer die Einstiegsfolie:** Sitzungscode der Sitzung (groß, Festbreitenschrift) und
+   der QR-Code zu https://unterricks.janrickmer.de samt Adresse als Text, damit die Schüler:innen scannen und den Code eingeben. Den
+   QR-Code bekommt Claude als genaues Modulmuster (`QR_UNTERRICKS`, 29 × 29, dasselbe wie `public/qr-unterricks.svg`; Unit-Test
+   vergleicht mit `qrMatrix`, ausgelesen mit zxing geprüft) und soll ihn danach zeichnen statt ihn neu zu erzeugen. Hinweise für die
+   Lehrkraft (statt Sprechernotizen) gibt Claude im Chat bzw. auf Wunsch über `add_text_material` (nur für die Lehrkraft).
 6. **Präsentation und Live-Synchronisation.** Upload der PDF → der Browser der Lehrkraft rendert jede Seite mit PDF.js
    (1920 px) und lädt sie als Bild hoch. „Ich bin im Unterricht …“ öffnet das Vollbild und meldet die Folie an das Durable
    Object. Alle Schüler:innen der Sitzung bekommen per WebSocket die aktuelle Folie als **signierten Link nur für diese Folie** –
@@ -432,7 +438,7 @@ stattdessen der von Anthropic vorgesehene Weg in umgekehrter Richtung (Connector
 * **Einschränkungen.**
   - Der Connector wird in claude.ai je Chat aktiviert; Claude arbeitet dort, nicht in der Plattform (Wechsel der Seite bleibt nötig).
   - Über den Connector lassen sich Text, Struktur und Material als Text übertragen, **keine Binärdateien** (z. B. die in
-    claude.ai erzeugte PPTX/PDF): Diese laden Sie herunter und in der Plattform hoch.
+    claude.ai erzeugte PDF der Präsentation): Diese laden Sie herunter und in der Plattform hoch.
   - Die Connector-Adresse enthält einen geheimen Schlüssel (wer sie kennt, hat Zugriff auf alle Sitzungen). Sie wird nur einmal
     angezeigt und lässt sich in den Einstellungen widerrufen. Alternativ kann der Schlüssel als `Authorization: Bearer` gesendet werden.
   - Anthropic kann die Connector-Funktion und ihre Menüs ändern; maßgeblich ist die verlinkte Hilfeseite.

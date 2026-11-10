@@ -493,13 +493,30 @@ const connectorHint = (ctx) => ctx.lessonId
     " auf (dort stehen alle aktuellen Daten), und speichere deine Ergebnisse auf Wunsch der Lehrkraft direkt mit `save_schulportal_entry`, `add_text_material` bzw. `propose_feibeitsblatt` in der Plattform."
   : "";
 
+/* QR-Code zu PUBLIC_URL als Modulmuster (29 × 29, Version 3, Fehlerkorrektur M; 1 = schwarz) – dasselbe wie public/qr-unterricks.svg
+   (qrMatrix aus public/fbanalog.js, Unit-Test vergleicht). Steht im Präsentations-Prompt, damit Claude ihn exakt zeichnet statt neu zu erzeugen. */
+export const QR_UNTERRICKS = ["11111110111000011100001111111", "10000010101100001111101000001", "10111010100010011010101011101", "10111010011110001101101011101", "10111010100010111011001011101", "10000010010010011110101000001", "11111110101010101010101111111", "00000000001011011001100000000", "10011111100101000101010010111", "01110000110101001011010110110", "11001110001111011010110010100", "01111100111001001101000011001", "11010111000001011000101100001", "01101100110101101110011111111", "11100010111001001111011010101", "00101000011010010001000110101", "00111111000110100001100001000", "10011000101001101011000010110", "11010110100000010101010101001", "11011100000010101000110101100", "11010110110111111101111111110", "00000000100110110011100011000", "11111110110100110101101011000", "10000010101010100101100010001", "10111010110101111001111111011", "10111010101101011000010000001", "10111010001001011111110110111", "10000010010110010010001111101", "11111110100000000011101011000"];
+
 export function claudePresentationPrompt(ctx, portalText, messages) {
   const L = ctx.lesson || {};
   const developed = (messages || []).filter((m) => m.role === "assistant").slice(-3).map((m) => String(m.content || "").trim()).join("\n\n---\n\n");
+  const code = ctx.code ? formatCode(ctx.code) : "", host = PUBLIC_URL.replace(/^https?:\/\//, "");
   return [
-    "Erstelle eine vollständige PowerPoint-Präsentation (.pptx, 16:9) für die folgende Unterrichtsstunde. Die Präsentation läuft während des Unterrichts am Beamer und führt " +
-      "die Lehrkraft und die Schülerinnen und Schüler Schritt für Schritt durch die gesamte Stunde. Exportiere die fertige Präsentation zusätzlich als PDF-Datei " +
-      "(eine Seite je Folie, ohne Notizenseiten) – die PDF-Fassung wird in der Unterrichtsplattform live und synchron auf den Geräten der Schüler:innen angezeigt. Stelle mir beide Dateien zum Herunterladen bereit.",
+    "Erstelle eine vollständige Präsentation (16:9) für die folgende Unterrichtsstunde – direkt als **PDF-Datei**, eine Seite je Folie. Eine PowerPoint-Datei brauche ich nicht: " +
+      "Die PDF lade ich in der Unterrichtsplattform Unterricks hoch. Dort läuft sie während des Unterrichts am Beamer und gleichzeitig live und synchron auf den Geräten der Schüler:innen; " +
+      "sie führt die Lehrkraft und die Schülerinnen und Schüler Schritt für Schritt durch die gesamte Stunde. Stelle mir die PDF-Datei zum Herunterladen bereit " +
+      "(Text als echter Text, nicht als Bild; Querformat, z. B. 33,867 × 19,05 cm).",
+    "",
+    "## Erste Folie (immer): Sitzungscode und QR-Code zu Unterricks",
+    "Mit dieser Folie beginnt jede Stunde – die Schüler:innen scannen den QR-Code, öffnen so Unterricks und geben den Sitzungscode ein.",
+    "- Sehr groß und gut abschreibbar der Sitzungscode " + (code ? "„" + code + "“" : "der Sitzung (bitte bei der Lehrkraft erfragen)") + " (Festbreitenschrift, mindestens 96 pt, mit Bindestrich wie angegeben).",
+    "- Daneben der QR-Code zur Webseite " + PUBLIC_URL + ": mindestens ein Drittel der Folienhöhe groß, schwarz auf weiß, mit einem weißen Rand von 4 Modulen ringsum, scharfe Kanten (kein Weichzeichnen, keine Farbe, nichts darüber).",
+    "- Darunter die Adresse " + host + " als Text und der Satz „Scanne den QR-Code oder öffne " + host + " und gib den Sitzungscode ein.“; Thema, Fach und Klasse klein darüber.",
+    "- Zeichne den QR-Code genau nach diesem Muster und erzeuge ihn nicht neu (29 × 29 Module, Zeile für Zeile von oben nach unten; 1 = schwarzes Quadrat, 0 = weiß):",
+    "```",
+    ...QR_UNTERRICKS,
+    "```",
+    "  Prüfe danach, wenn möglich, mit einem QR-Leser, dass er sich zu " + PUBLIC_URL + " auslesen lässt.",
     "",
     "## Rahmendaten",
     "- Fach: " + subjectName(ctx.subject),
@@ -523,15 +540,16 @@ export function claudePresentationPrompt(ctx, portalText, messages) {
     developed ? clip(developed, 20000) : "(keine weiteren)",
     "",
     "## Anforderungen an die Präsentation",
-    "- Aufbau genau entlang des verbindlichen Stundenverlaufs: Titelfolie, kurze Stundenübersicht (Agenda), dann für jede Phase mindestens eine Folie in derselben Reihenfolge und Nummerierung; Phasen nach „--> Nächste Stunde“ als eigener, klar markierter Abschnitt am Ende.",
+    "- Aufbau genau entlang des verbindlichen Stundenverlaufs: Folie 1 wie oben (Sitzungscode und QR-Code), dann Titel und kurze Stundenübersicht (Agenda), dann für jede Phase mindestens eine Folie in derselben Reihenfolge und Nummerierung; Phasen nach „--> Nächste Stunde“ als eigener, klar markierter Abschnitt am Ende.",
     "- Jede Arbeitsphase bekommt eine Auftragsfolie: Arbeitsauftrag mit Operatoren, Sozialform (Einzel-, Partner-, Gruppenarbeit, Plenum) als Symbol und Wort, Zeitvorgabe in Minuten, benötigtes Material, erwartetes Ergebnis.",
     "- Leitfragen, Diskussionsfragen und Impulse groß und gut lesbar; Feibeitsblätter mit Titel und Code (groß, gut abschreibbar); Links als kurze Adresse und QR-Code.",
     "- Sicherungsfolien (Tafelbild/Ergebnis), die zunächst leer bzw. mit Platzhaltern beginnen und auf einer Folgefolie die Musterlösung zeigen – keine Lösungen vor den Arbeitsphasen.",
-    "- Gestaltung für den Beamer: hoher Kontrast, Schrift mindestens 24 pt (Fließtext) bzw. 36 pt (Überschriften), höchstens 6 Zeilen pro Folie, ruhiges einheitliches Layout, keine Animationen, die für den Inhalt nötig sind (die PDF-Fassung zeigt keine Animationen).",
+    "- Gestaltung für den Beamer: hoher Kontrast, Schrift mindestens 24 pt (Fließtext) bzw. 36 pt (Überschriften), höchstens 6 Zeilen pro Folie, ruhiges einheitliches Layout; keine Animationen oder Übergänge (PDF) – was nacheinander erscheinen soll, kommt auf aufeinanderfolgende Folien.",
     "- Altersgerechte Sprache für " + gradeInfo(ctx.klass).text + "; fachlich korrekt; keine erfundenen Quellen, Zitate oder Statistiken (wo nötig: Platzhalter mit Hinweis für die Lehrkraft).",
-    "- Sprechernotizen in jeder Folie mit Hinweisen für die Lehrkraft (Impulse, Zeit, Erwartungen).",
-    "- Benenne die Dateien sinnvoll, z. B. „" + (ctx.klass || "Klasse") + "_" + subjectName(ctx.subject).replace(/\s+/g, "-") + "_" + (L.topic || L.title || "Stunde").replace(/[^\wÄÖÜäöüß-]+/g, "-").slice(0, 40) + ".pptx“ und dieselbe Bezeichnung als .pdf." +
-      connectorHint(ctx).replace("speichere deine Ergebnisse auf Wunsch der Lehrkraft direkt mit `save_schulportal_entry`, `add_text_material` bzw. `propose_feibeitsblatt` in der Plattform", "verändere den Schulportal-Eintrag dabei nicht"),
+    "- Hinweise für die Lehrkraft (Impulse, Zeit, Erwartungen) je Folie gibst du mir zusätzlich hier im Chat als kurze Liste – eine PDF hat keine Sprechernotizen.",
+    "- Benenne die Datei sinnvoll, z. B. „" + (ctx.klass || "Klasse") + "_" + subjectName(ctx.subject).replace(/\s+/g, "-") + "_" + (L.topic || L.title || "Stunde").replace(/[^\wÄÖÜäöüß-]+/g, "-").slice(0, 40) + ".pdf“." +
+      connectorHint(ctx).replace("speichere deine Ergebnisse auf Wunsch der Lehrkraft direkt mit `save_schulportal_entry`, `add_text_material` bzw. `propose_feibeitsblatt` in der Plattform",
+        "verändere den Schulportal-Eintrag dabei nicht; die Hinweise für die Lehrkraft kannst du auf Wunsch mit `add_text_material` (bereich „lehrkraft“) in der Sitzung ablegen"),
   ].filter((l) => l !== null && l !== undefined).join("\n").replace(/\n{3,}/g, "\n\n");
 }
 

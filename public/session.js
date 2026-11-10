@@ -27,7 +27,7 @@ export async function sessionPage(id) {
   const analog = isAnalogClass(d.lesson.klass);
   let portalTA = null;
   const row = () => (st.unit && L().unitRow ? (st.unit.rows || []).find((r) => r.uid === L().unitRow) || null : null);
-  const ctx = () => ({ lessonId: id, subject: L().subject, klass: L().klass,
+  const ctx = () => ({ lessonId: id, code: L().code, subject: L().subject, klass: L().klass,
     lesson: { title: L().title, topic: L().topic, durationMin: L().durationMin, date: L().date, startTime: L().startTime, ideas: L().ideas, homework: L().homework },
     materials: st.files.filter((f) => f.area !== "archive").map((f) => ({ name: f.name, area: f.area, kind: f.kind, text: f.kind === "link" ? f.url || "" : f.text || "", pages: f.pages })), sheets: st.sheets,
     portal: portalTA ? portalTA.value : L().portal, unit: st.unit, row: row(), unitText: st.unit ? unitContext(st.unit, L().unitRow) : "",
@@ -348,7 +348,7 @@ export async function sessionPage(id) {
       "Beim Kopieren für das Schulportal setzt Unterricks die fette Überschrift „Hausaufgabe zum …:“ (Datum der nächsten Sitzung) davor, macht aus jeder Zeile einen Stichpunkt und ergänzt als letzten Stichpunkt „Unter " + PUBLIC_URL + " kannst du diese Sitzung mit dem Code " + formatCode(L().code) + " aufrufen …“ – in Unterricks sehen die Schüler:innen diesen Hinweis nicht." }));
 
   const presPromptCard = h("section", { class: "card" }, h("div", { class: "section-title" }, h("h2", { text: "Präsentation mit Claude erstellen" })),
-    h("p", { class: "small", text: "Erzeugt einen ausführlichen Prompt für Claude (claude.ai), der eine vollständige PowerPoint-Präsentation samt PDF-Fassung für diese Stunde anfordert – auf Grundlage des aktuellen Schulportal-Eintrags, der Materialien und Ihrer Planung." }),
+    h("p", { class: "small", text: "Erzeugt einen ausführlichen Prompt für Claude (claude.ai), der eine vollständige Präsentation für diese Stunde direkt als PDF anfordert – zum Hochladen hier in Unterricks, auf Grundlage des aktuellen Schulportal-Eintrags, der Materialien und Ihrer Planung. Die erste Folie zeigt immer den Sitzungscode und den QR-Code zu Unterricks." }),
     presPromptBtn, presPromptOut);
 
   /* ======================= Materialien ======================= */
@@ -475,7 +475,7 @@ export async function sessionPage(id) {
     const p = st.files.find((f) => f.area === "presentation");
     clear(presCard).append(h("div", { class: "section-title" }, h("h2", { text: "Präsentation für den Unterricht" })));
     const zone = dropZone(p ? "Andere Präsentation hochladen (ersetzt die bisherige)" : "PDF der Präsentation hier ablegen oder auswählen",
-      "Nur PDF: in PowerPoint „Datei → Exportieren/Speichern unter → PDF“ – Claude liefert die PDF laut Prompt gleich mit.", (fs) => uploadPres(fs[0]), "application/pdf,.pdf", false);
+      "Nur PDF – Claude liefert die Präsentation laut Prompt direkt als PDF (eigene PowerPoint-Dateien: „Datei → Exportieren → PDF“).", (fs) => uploadPres(fs[0]), "application/pdf,.pdf", false);
     if (!p) { presCard.append(zone); return; }
     if (p.status !== "ready") {
       presCard.append(h("div", { class: "notice warn" }, "Die Folienbilder von „" + p.name + "“ wurden noch nicht vollständig erzeugt. Bitte die PDF erneut hochladen."), zone);

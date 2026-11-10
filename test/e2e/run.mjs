@@ -276,7 +276,9 @@ async function main() {
     await tp.getByRole("button", { name: "Prompt für die Präsentation kopieren" }).click();
     const presPrompt = await tp.evaluate(() => navigator.clipboard.readText());
     ok(presPrompt.includes("Manuell ergänzt: Hausaufgabe S. 12") && presPrompt.includes("Noch nicht gespeichert"), "Präsentations-Prompt nutzt exakt den aktuellen Textfeld-Inhalt");
-    ok(/PowerPoint-Präsentation \(\.pptx/.test(presPrompt) && presPrompt.includes("Politik und Wirtschaft") && presPrompt.includes("90 Minuten"), "Prompt fordert PPTX + PDF mit allen Rahmendaten an");
+    ok(presPrompt.includes("direkt als **PDF-Datei**") && !presPrompt.includes(".pptx") && presPrompt.includes("Politik und Wirtschaft") && presPrompt.includes("90 Minuten"), "Prompt fordert nur die PDF (keine PowerPoint) mit allen Rahmendaten an");
+    ok(presPrompt.includes("Sitzungscode „" + lesson0.code.slice(0, 3) + "-" + lesson0.code.slice(3) + "“") && presPrompt.includes("11111110111000011100001111111") && presPrompt.includes("Scanne den QR-Code oder öffne unterricks.janrickmer.de"),
+      "erste Folie: Sitzungscode dieser Sitzung und QR-Code zu Unterricks");
     await tp.locator('.save-state[data-state="ok"]', { hasText: /^Gespeichert \d\d:\d\d/ }).waitFor({ timeout: 10000 });
     ok((await T("GET", "/api/teacher/lessons/" + lessonId)).data.lesson.portal.includes("Noch nicht gespeichert"), "… und speichert diesen Stand sofort");
 

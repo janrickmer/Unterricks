@@ -3,7 +3,7 @@ import assert from "node:assert/strict";
 import {
   SUBJECTS, ALL_CLASSES, isValidClass, gradeInfo, classShort, gradeKey, subjectConfig, classAllowed, classGroupsFor, isAnalogClass, ANALOG_RULE,
   COURSE_CLASSES, isCourseClass, courseMembers, courseOf, classLabel, homeworkForPortal, PUBLIC_URL, groupShort, fmtLongDay, normalizeCode, isValidCode, formatCode, renderPortalEntry, parsePortalMarkup, portalSafe,
-  validatePortalData, PORTAL_EXAMPLE, claudePresentationPrompt, planningSystemPrompt, SYSTEM_PROMPT_ROLE, extractJsonObject, normalizeFbDraft,
+  validatePortalData, PORTAL_EXAMPLE, claudePresentationPrompt, QR_UNTERRICKS, planningSystemPrompt, SYSTEM_PROMPT_ROLE, extractJsonObject, normalizeFbDraft,
 } from "../../public/shared.js";
 
 test("genau drei Fächer", () => {
@@ -112,7 +112,23 @@ test("Präsentations-Prompt basiert auf genau dem übergebenen Schulportal-Eintr
   const p = claudePresentationPrompt(ctx, edited, messages);
   assert.ok(p.includes(edited));
   assert.ok(!p.includes("**1) Einstieg**\n"), "ältere Fassung aus ctx.portal darf nicht vorkommen");
-  for (const s of ["PowerPoint", ".pptx", "PDF", "Q2 GK", "Politik und Wirtschaft", "90 Minuten", "AB BVerfG", "Erwartungshorizont.docx"]) assert.ok(p.includes(s), s);
+  for (const s of ["PDF-Datei", "PowerPoint-Datei brauche ich nicht", "Q2 GK", "Politik und Wirtschaft", "90 Minuten", "AB BVerfG", "Erwartungshorizont.docx"]) assert.ok(p.includes(s), s);
+  assert.ok(!/\.pptx|PowerPoint-Präsentation|Sprechernotizen in jeder Folie/.test(p), "keine PowerPoint-Datei mehr");
+});
+
+test("Präsentations-Prompt: erste Folie mit Sitzungscode und QR-Code zu Unterricks (genaues Modulmuster)", async () => {
+  const p = claudePresentationPrompt({ ...ctx, code: "AEH4VY" }, "**1) Einstieg**", []);
+  const first = p.slice(p.indexOf("## Erste Folie"), p.indexOf("## Rahmendaten"));
+  assert.ok(first.includes("„AEH-4VY“") && first.includes(PUBLIC_URL) && first.includes("unterricks.janrickmer.de und gib den Sitzungscode ein"));
+  assert.ok(first.includes(QR_UNTERRICKS.join("\n")), "das Muster steht vollständig und unverändert im Prompt");
+  assert.ok(p.indexOf("## Erste Folie") < p.indexOf("## Anforderungen") && p.includes("Folie 1 wie oben (Sitzungscode und QR-Code)"));
+  // dasselbe Muster wie qrMatrix(PUBLIC_URL) bzw. die Beamer-Folie public/qr-unterricks.svg
+  const { qrMatrix } = await import("../../public/fbanalog.js");
+  const q = qrMatrix(PUBLIC_URL);
+  assert.equal(QR_UNTERRICKS.length, q.size);
+  assert.deepEqual(QR_UNTERRICKS, Array.from({ length: q.size }, (_, y) => Array.from({ length: q.size }, (_, x) => (q.dark[y * q.size + x] ? "1" : "0")).join("")));
+  const noCode = claudePresentationPrompt(ctx, "**1) Einstieg**", []);
+  assert.ok(noCode.includes("bitte bei der Lehrkraft erfragen"), "ohne Code: Hinweis statt leerer Angabe");
 });
 
 test("Feibeitsblatt-Entwurf normalisieren", () => {
