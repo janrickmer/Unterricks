@@ -74,6 +74,8 @@ export class FbClient {
 
   /* Entwurf (Plattform-Format) → Feibeitsblatt anlegen */
   async createSheet(draft) {
+    if (draft.tasks.some((t) => t.answer && t.answer.type === "photo"))
+      throw new FbError("Die Antwortart „Foto“ kann das Feibeitsblatt noch nicht entgegennehmen. Bitte die Foto-Aufgabe vorerst als Textaufgabe formulieren (z. B. Beschreibung des Lernprodukts).", 400, "photo_unsupported");
     const tasks = draft.tasks.map((t) => {
       const task = { text: String(t.text || "").trim(), solution: String(t.solution || "").trim() };
       const mat = materialRuns(t.material || "");

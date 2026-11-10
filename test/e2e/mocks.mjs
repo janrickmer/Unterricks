@@ -33,6 +33,8 @@ export function startMockAI(port) {
         { text: "Erkläre zwei Aufgaben des Bundesverfassungsgerichts.", material: "Das BVerfG wacht über das **Grundgesetz**.", ki_auftrag: "Erwartet: Normenkontrolle, Verfassungsbeschwerde.", antwort: "text" },
         { text: "Sammle Pro und Contra.", ki_auftrag: "Je zwei Argumente.", antwort: { tabelle: ["Pro", "Contra"], zeilen: 3 } },
       ] }) + "\n```";
+    } else if (/Stundenfrage ändern/.test(body.messages[body.messages.length - 1].content)) {
+      text = "Ich schlage vor, die Stundenfrage zuzuspitzen.\n```einheit\n" + JSON.stringify({ stundenfrage: "Ist das Bundesverfassungsgericht ein Ersatzgesetzgeber?", ablauf: ["Karikatur deuten", "Urteil analysieren", "Positionslinie"], begruendung: "Die Lerngruppe kennt die Grundlagen schon." }) + "\n```";
     } else {
       const last = body.messages[body.messages.length - 1].content;
       text = "## Vorschlag\nGern! Für **" + (/Thema: (.*)/.exec(sys) || [, "die Stunde"])[1] + "** schlage ich vor:\n\n- Einstieg mit Karikatur (10 min)\n- Partnerarbeit (20 min)\n\nIhre Nachricht war: " + last.slice(0, 60);

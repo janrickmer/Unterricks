@@ -1,7 +1,8 @@
 // teacher.js – Lehrkräfteansicht: Anmeldung/Einrichtung, Fach- und Klassenauswahl, Sitzungslisten, Einstellungen.
-import { h, clear, store, deviceId, api, toast, errToast, busy, modal, confirmDialog, copyText, fmtDate, fmtTime, topbar } from "./ui.js";
+import { h, clear, store, deviceId, api, toast, errToast, busy, modal, confirmDialog, copyText, fmtDate, fmtTime, topbar, nn } from "./ui.js";
 import { render, go, onLeave } from "./app.js";
-import { SUBJECTS, CLASS_GROUPS, subjectName, gradeInfo, isValidClass, isValidSubject, formatCode, fmtDay } from "./shared.js";
+import { SUBJECTS, subjectName, gradeInfo, isValidClass, isValidSubject, formatCode, fmtDay, classGroupsFor, classAllowed, classShort, gradeKey, isAnalogClass, ANALOG_RULE } from "./shared.js";
+import { missingFor } from "./bases-detect.js";
 import { portalPreview } from "./portalview.js";
 import { FbClient } from "./fbclient.js";
 
@@ -30,7 +31,7 @@ async function deriveAuth(password, saltB64u, iterations) {
 
 export function teacherBar(active) {
   const link = (href, label, key) => h("a", { href, "aria-current": active === key ? "page" : null }, label);
-  return topbar({ home: "#/lk" }, [link("#/lk", "Sitzungen", "lessons"), link("#/lk/einstellungen", "Einstellungen", "settings"),
+  return topbar({ home: "#/lk" }, [link("#/lk", "Unterricht", "lessons"), link("#/lk/grundlagen", "Planungsgrundlagen", "bases"), link("#/lk/einstellungen", "Einstellungen", "settings"),
     h("button", { type: "button", onclick: logout }, "Abmelden")]);
 }
 async function logout() {
@@ -100,23 +101,31 @@ async function subjectsPage() {
   const main = h("main", null, h("div", { class: "skeleton", text: "Lade …" }));
   render(teacherBar("lessons"), main);
   let all; try { all = await loadLessons(); } catch (e) { clear(main).append(h("p", { class: "err", text: e.message })); return; }
-  clear(main).append(h("h1", { text: "Welches Fach unterrichten Sie?" }),
+  clear(main).append(...nn(h("h1", { text: "Welches Fach unterrichten Sie?" }),
     h("div", { class: "tiles" }, SUBJECTS.map((s) => {
       const n = all.filter((l) => l.subject === s.id).length;
       return h("a", { class: "tile", href: "#/lk/f/" + s.id }, h("div", { class: "t", text: s.name }), h("div", { class: "s", text: n ? n + " Sitzung" + (n === 1 ? "" : "en") : "Noch keine Sitzungen" }));
     })),
-    all.length ? h("div", { class: "card", style: { marginTop: "1.2rem" } }, h("h2", { text: "Zuletzt bearbeitet" }), lessonList(all.slice().sort((a, b) => b.updatedAt - a.updatedAt).slice(0, 6), true)) : null);
+    h("p", { class: "hint", style: { marginTop: ".8rem" } }, "Die Unterrichtsplanung beginnt mit der Unterrichtseinheit; Grundlage sind die ", h("a", { href: "#/lk/grundlagen" }, "Planungsgrundlagen"), " (Schulcurriculum, KCGO, Abiturerlass) – bitte einmal je Fach hochladen."),
+    all.length ? h("div", { class: "card", style: { marginTop: "1.2rem" } }, h("h2", { text: "Zuletzt bearbeitet" }), lessonList(all.slice().sort((a, b) => b.updatedAt - a.updatedAt).slice(0, 6), true)) : null));
 }
+
+export async function subjectConfigs() { return (await tapi("GET", "/api/teacher/subjects")).subjects; }
 
 async function classesPage(subject) {
   if (!isValidSubject(subject)) return go("#/lk");
   const main = h("main", null, h("div", { class: "skeleton", text: "Lade …" }));
   render(teacherBar("lessons"), main);
-  let all; try { all = (await loadLessons()).filter((l) => l.subject === subject); } catch (e) { clear(main).append(h("p", { class: "err", text: e.message })); return; }
+  let all, cfg;
+  try { [all, cfg] = await Promise.all([loadLessons().then((x) => x.filter((l) => l.subject === subject)), subjectConfigs().then((c) => c[subject])]); }
+  catch (e) { clear(main).append(h("p", { class: "err", text: e.message })); return; }
+  const notes = cfg.gradeNotes || {};
   clear(main).append(h("div", { class: "crumbs" }, h("a", { href: "#/lk" }, "Fächer"), "›", h("span", { text: subjectName(subject) })),
-    h("h1", { text: "In welcher Klasse unterrichten Sie " + subjectName(subject) + "?" }),
-    h("div", { class: "card" }, CLASS_GROUPS.map((g) => h("div", { class: "class-group" }, h("h3", { text: g.label }),
-      h("div", { class: "class-grid" }, g.classes.map((k) => { const n = all.filter((l) => l.klass === k).length; return h("a", { class: "class-btn", href: "#/lk/f/" + subject + "/" + k }, k, n ? h("span", { class: "n", text: String(n) }) : null); }))))));
+    h("h1", { text: "In welcher Klasse bzw. welchem Kurs unterrichten Sie " + subjectName(subject) + "?" }),
+    h("div", { class: "card" }, classGroupsFor(cfg).map((g) => h("div", { class: "class-group" }, h("h3", { text: g.label }),
+      notes[g.key] ? h("p", { class: "hint", text: notes[g.key] }) : null,
+      h("div", { class: "class-grid" + (g.key === "Q" ? " q" : "") }, g.classes.map((k) => { const n = all.filter((l) => l.klass === k).length; return h("a", { class: "class-btn", href: "#/lk/f/" + subject + "/" + k }, classShort(k), n ? h("span", { class: "n", text: String(n) }) : null); }))))),
+    h("p", { class: "hint" }, "Angezeigt werden die Jahrgänge, in denen " + subjectName(subject) + " laut Fach-Einstellungen unterrichtet wird (", h("a", { href: "#/lk/grundlagen/" + subject }, "ändern"), ")."));
 }
 
 function lessonList(lessons, showContext) {
@@ -124,8 +133,9 @@ function lessonList(lessons, showContext) {
   if (!lessons.length) list.append(h("p", { class: "muted", text: "Noch keine Sitzungen." }));
   for (const l of lessons) list.append(h("a", { class: "item", href: "#/lk/s/" + l.id },
     h("div", { class: "main" }, h("div", { class: "name", text: l.title }),
-      h("div", { class: "meta", text: [showContext ? subjectName(l.subject) + " · " + l.klass : null, l.date ? fmtDay(l.date) : "ohne Datum", l.topic || null, l.durationMin ? l.durationMin + " min" : null].filter(Boolean).join(" · ") })),
-    h("div", { class: "row" }, l.hasStop ? h("span", { class: "badge", style: { color: "var(--warn)" }, text: "⏸ Zwischenstopp" }) : null, l.hasHomework ? h("span", { class: "badge", text: "Hausaufgabe" }) : null,
+      h("div", { class: "meta", text: [showContext ? subjectName(l.subject) + " · " + classShort(l.klass) : null, l.date ? fmtDay(l.date) : "ohne Datum", showContext ? l.topic || null : null, l.durationMin ? l.durationMin + " min" : null].filter(Boolean).join(" · ") })),
+    h("div", { class: "row" }, l.substitute === "aktiv" ? h("span", { class: "badge", style: { color: "var(--warn)" }, text: "Vertretung aktiv" }) : l.substitute === "vorschlag" ? h("span", { class: "badge", text: "Vertretungsvorschlag" }) : null,
+      l.hasStop ? h("span", { class: "badge", style: { color: "var(--warn)" }, text: "⏸ Zwischenstopp" }) : null, l.hasHomework ? h("span", { class: "badge", text: "Hausaufgabe" }) : null,
       l.hasPortal ? h("span", { class: "badge ok", text: "Schulportal ✓" }) : null, h("span", { class: "badge", text: l.studentCount + " SuS" }), h("span", { class: "badge mono", text: formatCode(l.code) }))));
   return list;
 }
@@ -134,28 +144,57 @@ async function lessonsPage(subject, klass) {
   if (!isValidSubject(subject) || !isValidClass(klass)) return go("#/lk");
   const main = h("main", null, h("div", { class: "skeleton", text: "Lade …" }));
   render(teacherBar("lessons"), main);
-  let list; try { list = (await tapi("GET", "/api/teacher/lessons?subject=" + subject + "&klass=" + klass)).lessons; } catch (e) { clear(main).append(h("p", { class: "err", text: e.message })); return; }
-  const title = h("input", { id: "nt", required: true, maxlength: "200", placeholder: "z. B. Das Bundesverfassungsgericht" });
-  const topic = h("input", { id: "ntp", maxlength: "500", placeholder: "Thema der Stunde (optional)" });
-  const date = h("input", { id: "nd", type: "date", required: true, value: new Date().toISOString().slice(0, 10) });
-  const dur = h("input", { id: "ndu", type: "number", min: "5", max: "600", step: "5", placeholder: "z. B. 90" });
-  const btn = h("button", { class: "btn primary", type: "submit" }, "Sitzung anlegen");
-  const stopNote = h("div");
+  let list, units, cfg, bases;
+  try {
+    [list, units, cfg, bases] = await Promise.all([
+      tapi("GET", "/api/teacher/lessons?subject=" + subject + "&klass=" + klass).then((r) => r.lessons),
+      tapi("GET", "/api/teacher/units?subject=" + subject + "&klass=" + klass).then((r) => r.units),
+      subjectConfigs().then((c) => c[subject]),
+      tapi("GET", "/api/teacher/bases?subject=" + subject).then((r) => r.bases)]);
+  } catch (e) { clear(main).append(h("p", { class: "err", text: e.message })); return; }
+  const name = subjectName(subject), gk = gradeKey(klass);
+  if (!classAllowed(cfg, klass)) {
+    clear(main).append(h("div", { class: "card" }, h("p", { text: name + " wird in " + classShort(klass) + " laut Fach-Einstellungen nicht unterrichtet." }),
+      h("a", { class: "btn", href: "#/lk/grundlagen/" + subject }, "Fach-Einstellungen öffnen")));
+    return;
+  }
+  const missing = missingFor(bases, subject, name, klass);
+  // Neue Einheit
+  const title = h("input", { id: "ut", maxlength: "200", placeholder: "z. B. Wirtschaftspolitik in der Sozialen Marktwirtschaft" });
+  const btn = h("button", { class: "btn primary", type: "submit" }, "Einheit anlegen");
   const form = h("form", { class: "card", onsubmit: async (e) => {
     e.preventDefault();
     await busy(btn, async () => {
-      try {
-        if (!date.value) throw new Error("Bitte das Datum wählen, an dem die Sitzung stattfindet.");
-        const r = await tapi("POST", "/api/teacher/lessons", { body: { subject, klass, title: title.value, topic: topic.value, date: date.value, durationMin: dur.value ? Number(dur.value) : null } });
-        go("#/lk/s/" + r.lesson.id);
-      } catch (err) { errToast(err); }
+      try { const r = await tapi("POST", "/api/teacher/units", { body: { subject, klass, title: title.value } }); go("#/lk/u/" + r.unit.id); }
+      catch (err) { errToast(err); }
     }, "Lege an …");
-  } }, h("h2", { text: "Neue Unterrichtssitzung" }),
-    h("div", { class: "meta-grid" }, h("div", { class: "field full" }, h("label", { for: "nt" }, "Titel"), title), h("div", { class: "field full" }, h("label", { for: "ntp" }, "Thema"), topic),
-      h("div", { class: "field" }, h("label", { for: "nd" }, "Datum (Pflicht, später änderbar)"), date), h("div", { class: "field" }, h("label", { for: "ndu" }, "Dauer (Minuten)"), dur)), btn);
-  clear(main).append(h("div", { class: "crumbs" }, h("a", { href: "#/lk" }, "Fächer"), "›", h("a", { href: "#/lk/f/" + subject }, subjectName(subject)), "›", h("span", { text: klass })),
-    h("h1", { text: subjectName(subject) + " · " + klass }), h("p", { class: "muted", text: gradeInfo(klass).text }),
-    h("div", { class: "session-grid" }, h("div", { class: "card" }, h("h2", { text: "Sitzungen" }), lessonList(list, false)), h("div", { class: "side" }, stopNote, form)));
+  } }, h("h2", { text: "Neue Unterrichtseinheit planen" }),
+    h("p", { class: "small", text: "Zuerst wird die Einheit geplant: Rahmendaten (Sitzungen pro Woche, Länge, Klausur, Ende), dann mit Claude Planungsgrundlage, zentrale Lernaufgabe, Leupold-Schema und Ablauf. Aus der festgelegten Einheit entstehen die Sitzungen mit Datum – erst dann beginnt die Planung der einzelnen Stunden." }),
+    h("div", { class: "field" }, h("label", { for: "ut" }, "Thema / Arbeitstitel (optional, später änderbar)"), title), btn);
+  // Einheiten mit ihren Sitzungen (nach Datum)
+  const byDateAsc = (a, b) => (a.date === b.date ? a.createdAt - b.createdAt : (a.date || "") < (b.date || "") ? -1 : 1);
+  const unitBox = h("div", { class: "stack" });
+  if (!units.length) unitBox.append(h("p", { class: "muted", text: "Noch keine Unterrichtseinheit. Legen Sie rechts die erste an." }));
+  for (const u of units) {
+    const ls = list.filter((l) => l.unitId === u.id).sort(byDateAsc);
+    const dates = ls.map((l) => l.date).filter(Boolean);
+    unitBox.append(h("section", { class: "card unit-card" },
+      h("div", { class: "section-title" }, h("h2", null, h("a", { href: "#/lk/u/" + u.id, text: u.title || "Unterrichtseinheit ohne Titel" })),
+        h("span", { class: "badge " + (u.status === "geplant" ? "ok" : ""), text: u.status === "geplant" ? "festgelegt" : "in Planung" })),
+      h("p", { class: "small muted", text: [u.plan && u.plan.lernaufgabe ? "Lernaufgabe: " + u.plan.lernaufgabe.slice(0, 160) + (u.plan.lernaufgabe.length > 160 ? " …" : "") : "Lernaufgabe noch offen",
+        u.rows.length ? u.rows.length + " Stunden geplant" : null, dates.length ? fmtDay(dates[0]) + " – " + fmtDay(dates[dates.length - 1]) : null].filter(Boolean).join(" · ") }),
+      ls.length ? lessonList(ls, false) : h("p", { class: "small" }, u.status === "geplant" ? "Noch keine Sitzungen." : "Sitzungen entstehen, sobald die Einheit festgelegt ist. ", h("a", { href: "#/lk/u/" + u.id }, "Einheit öffnen"))));
+  }
+  const loose = list.filter((l) => !l.unitId || !units.some((u) => u.id === l.unitId)).sort(byDateAsc);
+  if (loose.length) unitBox.append(h("section", { class: "card" }, h("h2", { text: "Sitzungen ohne Einheit" }), lessonList(loose, false)));
+  const stopNote = h("div");
+  clear(main).append(...nn(h("div", { class: "crumbs" }, h("a", { href: "#/lk" }, "Fächer"), "›", h("a", { href: "#/lk/f/" + subject }, name), "›", h("span", { text: classShort(klass) })),
+    h("h1", { text: name + " · " + classShort(klass) }), h("p", { class: "muted", text: gradeInfo(klass).text }),
+    (cfg.gradeNotes || {})[gk] ? h("div", { class: "notice", style: { marginBottom: ".8rem" } }, h("strong", { text: "Hinweis: " }), cfg.gradeNotes[gk]) : null,
+    isAnalogClass(klass) ? h("div", { class: "notice warn", style: { marginBottom: ".8rem" } }, "Jahrgang " + gk + ": " + ANALOG_RULE) : null,
+    missing.length ? h("div", { class: "notice warn", style: { marginBottom: ".8rem" } }, "Für die Planung fehlt noch: " + missing.join("; ") + ". ", h("a", { href: "#/lk/grundlagen/" + subject }, "Planungsgrundlagen hochladen"))
+      : subject !== "powi" && !cfg.complete ? h("div", { class: "notice", style: { marginBottom: ".8rem" } }, "Bitte prüfen Sie, ob alle Vorgaben für " + name + " hochgeladen sind, und bestätigen Sie die Vollständigkeit. ", h("a", { href: "#/lk/grundlagen/" + subject }, "Planungsgrundlagen")) : null,
+    h("div", { class: "session-grid" }, unitBox, h("div", { class: "side" }, stopNote, form))));
   // Beginnt die Planung der nächsten Stunde: Hinweis, wenn die letzte Sitzung mit einem Zwischenstopp endete
   // maßgeblich ist die zuletzt gehaltene Sitzung (Datum bis heute); sind alle in der Zukunft, die neueste
   const today = new Date().toLocaleDateString("sv-SE");
@@ -328,7 +367,10 @@ export async function route(hash) {
   if (hash === "#/lk" || hash === "#/lk/") return subjectsPage();
   if (hash === "#/lk/einstellungen") return settingsPage();
   if ((m = /^#\/lk\/f\/([a-z]+)$/.exec(hash))) return classesPage(m[1]);
-  if ((m = /^#\/lk\/f\/([a-z]+)\/([A-Z0-9]{2,3})$/.exec(hash))) return lessonsPage(m[1], m[2]);
+  if ((m = /^#\/lk\/f\/([a-z]+)\/([A-Z0-9-]{2,5})$/.exec(hash))) return lessonsPage(m[1], m[2]);
   if ((m = /^#\/lk\/s\/([a-f0-9]{16})$/.exec(hash))) return (await import("./session.js")).sessionPage(m[1]);
+  if ((m = /^#\/lk\/u\/([a-f0-9]{16})$/.exec(hash))) return (await import("./units.js")).unitPage(m[1]);
+  if (hash === "#/lk/grundlagen") return (await import("./bases.js")).basesOverview();
+  if ((m = /^#\/lk\/grundlagen\/([a-z]+)$/.exec(hash))) return (await import("./bases.js")).basesPage(m[1]);
   go("#/lk");
 }

@@ -1,7 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import {
-  SUBJECTS, ALL_CLASSES, isValidClass, gradeInfo, normalizeCode, isValidCode, formatCode, renderPortalEntry, parsePortalMarkup, portalSafe,
+  SUBJECTS, ALL_CLASSES, isValidClass, gradeInfo, classShort, gradeKey, subjectConfig, classAllowed, classGroupsFor, isAnalogClass, ANALOG_RULE, normalizeCode, isValidCode, formatCode, renderPortalEntry, parsePortalMarkup, portalSafe,
   validatePortalData, PORTAL_EXAMPLE, claudeIdeaPrompt, claudePresentationPrompt, planningSystemPrompt, SYSTEM_PROMPT_ROLE, extractJsonObject, normalizeFbDraft,
 } from "../../public/shared.js";
 
@@ -9,14 +9,31 @@ test("genau drei Fächer", () => {
   assert.deepEqual(SUBJECTS.map((s) => s.name), ["Politik und Wirtschaft", "Evangelische Religion", "Ethik"]);
 });
 
-test("Klassen: 5A–10F, EA–EF, Q1–Q4 und sonst nichts", () => {
-  assert.equal(ALL_CLASSES.length, 6 * 6 + 6 + 4);
-  for (const k of ["5A", "5F", "7B", "10C", "10F", "EA", "EF", "Q1", "Q4"]) assert.ok(isValidClass(k), k);
-  for (const k of ["4A", "11A", "10G", "E1", "EG", "Q5", "Q", "12A", "5a"]) assert.ok(!isValidClass(k), k);
+test("Klassen: 5A–10F, EA–EF, Q1–Q4 je als Grund- und Leistungskurs – und sonst nichts", () => {
+  assert.equal(ALL_CLASSES.length, 6 * 6 + 6 + 8);
+  for (const k of ["5A", "5F", "7B", "10C", "10F", "EA", "EF", "Q1-GK", "Q1-LK", "Q4-GK", "Q4-LK"]) assert.ok(isValidClass(k), k);
+  for (const k of ["4A", "11A", "10G", "E1", "EG", "Q1", "Q4", "Q5-GK", "Q2-XK", "Q", "12A", "5a"]) assert.ok(!isValidClass(k), k);
   assert.equal(gradeInfo("7B").stufe, 7);
   assert.equal(gradeInfo("EC").stufe, 11);
-  assert.match(gradeInfo("Q2").text, /Jahrgangsstufe 12, 2\. Halbjahr/);
-  assert.match(gradeInfo("Q3").text, /Jahrgangsstufe 13, 1\. Halbjahr/);
+  assert.match(gradeInfo("Q2-GK").text, /Jahrgangsstufe 12, 2\. Halbjahr\), Grundkurs \(grundlegendes Niveau\)/);
+  assert.match(gradeInfo("Q3-LK").text, /Jahrgangsstufe 13, 1\. Halbjahr\), Leistungskurs \(erhöhtes Niveau\)/);
+  assert.equal(gradeInfo("Q3-LK").halfYear, "Q3");
+  assert.equal(classShort("Q3-LK"), "Q3 LK");
+  assert.equal(gradeKey("10C"), "10"); assert.equal(gradeKey("EB"), "E"); assert.equal(gradeKey("Q1-GK"), "Q");
+});
+
+test("Fach-Einstellungen: PoWi nur in 6, 8, 9, 10, E, Q; Jahrgang 5/6 analog", () => {
+  const powi = subjectConfig({}, "powi");
+  assert.deepEqual(powi.grades, ["6", "8", "9", "10", "E", "Q"]);
+  assert.ok(!classAllowed(powi, "7A") && !classAllowed(powi, "5B") && classAllowed(powi, "6C") && classAllowed(powi, "Q2-LK"));
+  assert.match(powi.gradeNotes["10"], /nur im ersten Schulhalbjahr/);
+  assert.match(powi.rules, /Jahrgangs 7 entfallen/);
+  assert.deepEqual(classGroupsFor(powi).map((g) => g.key), ["6", "8", "9", "10", "E", "Q"]);
+  assert.ok(classAllowed(subjectConfig({}, "ethik"), "7A"));
+  assert.deepEqual(subjectConfig({ ethik: { grades: ["E", "Q", "x"] } }, "ethik").grades, ["E", "Q"]);
+  assert.ok(isAnalogClass("5A") && isAnalogClass("6F") && !isAnalogClass("7A") && !isAnalogClass("Q1-GK"));
+  const p = planningSystemPrompt({ ...ctx, klass: "6B" });
+  assert.ok(p.includes(ANALOG_RULE) && !p.includes("Schlage bewusst auch vor, statt eines klassischen Arbeitsblatts ein Feibeitsblatt"));
 });
 
 test("Sitzungscodes", () => {
@@ -72,7 +89,7 @@ test("Schulportal: JSON der KI prüfen", () => {
 });
 
 const ctx = {
-  lessonId: "0123456789abcdef", subject: "powi", klass: "Q2",
+  lessonId: "0123456789abcdef", subject: "powi", klass: "Q2-GK",
   lesson: { title: "BVerfG", topic: "Das Bundesverfassungsgericht", durationMin: 90, date: "2026-11-12", ideas: "Mit Karikatur einsteigen" },
   materials: [{ name: "AB BVerfG", area: "student", kind: "text", text: "# AB\nText" }, { name: "Erwartungshorizont.docx", area: "teacher", kind: "file" }],
   sheets: [{ title: "Die wehrhafte Demokratie", code: "AEH4VY" }], portal: "**1) Einstieg**",
@@ -83,14 +100,14 @@ test("Chatbot-System-Prompt: feste Rolle wörtlich + Fach, Klasse, Sitzung", () 
   const p = planningSystemPrompt(ctx);
   assert.ok(p.startsWith(SYSTEM_PROMPT_ROLE));
   assert.match(p, /Unterrichtsfach: Politik und Wirtschaft/);
-  assert.match(p, /Klasse\/Kurs: Q2 – Qualifikationsphase/);
+  assert.match(p, /Klasse\/Kurs: Q2 GK – Qualifikationsphase Q2/);
   assert.match(p, /Unterrichtssitzung: BVerfG/);
   assert.match(p, /Feibeitsblatt/);
 });
 
 test("Claude-Prompt Unterrichtsidee enthält alle geforderten Angaben", () => {
   const p = claudeIdeaPrompt(ctx, messages);
-  for (const s of ["Q2", "Politik und Wirtschaft", "Das Bundesverfassungsgericht", "90 Minuten", "Mit Karikatur einsteigen", "Bitte mit Rollenspiel", "Vorschlag: Rollenspiel", "AB BVerfG", "AEH-4VY", "get_lesson"]) assert.ok(p.includes(s), s);
+  for (const s of ["Q2 GK", "Grundkurs", "Politik und Wirtschaft", "Das Bundesverfassungsgericht", "90 Minuten", "Mit Karikatur einsteigen", "Bitte mit Rollenspiel", "Vorschlag: Rollenspiel", "AB BVerfG", "AEH-4VY", "get_lesson"]) assert.ok(p.includes(s), s);
 });
 
 test("Präsentations-Prompt basiert auf genau dem übergebenen Schulportal-Eintrag", () => {
@@ -98,13 +115,14 @@ test("Präsentations-Prompt basiert auf genau dem übergebenen Schulportal-Eintr
   const p = claudePresentationPrompt(ctx, edited, messages);
   assert.ok(p.includes(edited));
   assert.ok(!p.includes("**1) Einstieg**\n"), "ältere Fassung aus ctx.portal darf nicht vorkommen");
-  for (const s of ["PowerPoint", ".pptx", "PDF", "Q2", "Politik und Wirtschaft", "90 Minuten", "AB BVerfG", "Erwartungshorizont.docx"]) assert.ok(p.includes(s), s);
+  for (const s of ["PowerPoint", ".pptx", "PDF", "Q2 GK", "Politik und Wirtschaft", "90 Minuten", "AB BVerfG", "Erwartungshorizont.docx"]) assert.ok(p.includes(s), s);
 });
 
 test("Feibeitsblatt-Entwurf normalisieren", () => {
-  const d = normalizeFbDraft({ titel: "T", aufgaben: [{ text: "A1", ki_auftrag: "K1" }, { text: "A2", ki_auftrag: "K2", antwort: { tabelle: ["Pro", "Contra"], zeilen: 4 } }, { text: "" }] });
+  const d = normalizeFbDraft({ titel: "T", aufgaben: [{ text: "A1", ki_auftrag: "K1" }, { text: "A2", ki_auftrag: "K2", antwort: { tabelle: ["Pro", "Contra"], zeilen: 4 } }, { text: "" }, { text: "Foto deines Plakats", antwort: "foto" }] });
   assert.equal(d.title, "T");
-  assert.equal(d.tasks.length, 2);
+  assert.equal(d.tasks.length, 3);
+  assert.deepEqual(d.tasks[2].answer, { type: "photo" });
   assert.deepEqual(d.tasks[1].answer, { type: "table", columns: ["Pro", "Contra"], rows: 4 });
   assert.equal(d.tasks[0].solution, "K1");
   assert.throws(() => normalizeFbDraft({ tasks: [] }), /keine Aufgabe/);

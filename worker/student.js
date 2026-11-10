@@ -4,6 +4,7 @@ import { HttpError, bad, json, readJson, isId, requireSecret, sha256Hex, LOCKS, 
 import { requireStudent } from "./auth.js";
 import { getFile, downloadUrl } from "./files.js";
 import { nextLessonDate } from "./lessons.js";
+import { getSubstitute, substituteForStudents } from "./substitute.js";
 import { liveTicket, liveState } from "./live.js";
 import { normalizeCode, isValidCode, subjectName } from "../public/shared.js";
 
@@ -66,6 +67,7 @@ export async function routeStudentLesson(c, lessonId) {
     sheets: (sheets.results || []).map((s) => ({ code: s.code, title: s.title })),
     presentation: p ? { name: p.name, pages: p.pages, unlockAt, unlocked: c.now >= unlockAt } : null,
     homework: hw ? { text: hw, dueDate: await nextLessonDate(c.db, lesson) } : null,
+    substitute: substituteForStudents(await getSubstitute(c.db, lessonId)),
     feibeitsblattUrl: c.env.FEIBEITSBLATT_URL || "https://feibeitsblatt.janrickmer.de/",
     now: c.now });
 }

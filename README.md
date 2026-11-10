@@ -32,12 +32,15 @@ Feibeitsblatt braucht keine Änderung. Die Adressen stehen in `wrangler.jsonc` (
 
 * **Schüler:innen:** Seite öffnen → Passwort „Feindt“ → Fach und Klasse → Sitzungscode. Danach merkt sich das Gerät die Sitzung.
   Oben läuft die Live-Präsentation, darunter Material (Download, z. B. für GoodNotes) und Feibeitsblätter.
-* **Lehrkraft:** Fach → Klasse → Sitzung mit Datum anlegen → im Chat planen → „Schulportal-Eintrag erstellen“ (bearbeiten, kopieren) →
-  „Prompt für die Präsentation kopieren“ → in claude.ai einfügen → die von Claude erzeugte **PDF** hochladen → im Unterricht
-  „Ich bin im Unterricht und starte die Präsentation für alle.“ Den Sitzungscode zeigt „Für den Beamer zeigen“.
-  Am Stundenende: Hausaufgabe eintragen und per Rechtsklick im Verlaufsplan „Zwischenstopp einfügen“, falls nicht alles
-  geschafft wurde – die nächste Sitzung der Klasse zeigt dann einen Hinweis. Bei Krankheit das Datum ändern (auf Wunsch rücken
-  alle folgenden Sitzungen der Klasse mit).
+* **Lehrkraft:** Einmalig unter **Planungsgrundlagen** je Fach Schulcurriculum, KCGO, E-Phasen-Curriculum und Abiturerlass
+  (je Q-Kurs) als PDF hochladen und die Fach-Einstellungen prüfen. Dann: Fach → Klasse/Kurs → **Unterrichtseinheit planen**
+  (Rahmendaten → „Einheit mit Claude planen“ → Leupold-Schema und Tabelle prüfen → „Einheit festlegen und Sitzungen anlegen“) →
+  Sitzung öffnen → im Chat planen → „Schulportal-Eintrag erstellen“ (bearbeiten, kopieren) → „Prompt für die Präsentation
+  kopieren“ → in claude.ai einfügen → die von Claude erzeugte **PDF** hochladen → im Unterricht „Ich bin im Unterricht und starte
+  die Präsentation für alle.“ Den Sitzungscode zeigt „Für den Beamer zeigen“. Am Stundenende: Hausaufgabe eintragen und per
+  Rechtsklick im Verlaufsplan „Zwischenstopp einfügen“, falls nicht alles geschafft wurde.
+  Bei Krankheit: „Lehrkraft ist zu dieser Sitzung krank – Alternative entwickeln“ → Claude entwickelt die Vertretung → prüfen und
+  bestätigen (die ursprüngliche Planung wird archiviert und bleibt wiederherstellbar).
 
 ## Entwicklung
 

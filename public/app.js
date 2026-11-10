@@ -1,6 +1,6 @@
 // app.js – Einstieg: Router und Schüleransicht. Die Lehrkräfteansicht wird erst bei Bedarf geladen (teacher.js).
 import { h, $, clear, store, deviceId, api, ApiError, toast, errToast, busy, copyText, fmtBytes, fmtDate, fmtClock, fileIcon, downloadUrl, downloadBlob, topbar } from "./ui.js";
-import { SUBJECTS, CLASS_GROUPS, subjectName, formatCode, normalizeCode, fmtDay } from "./shared.js";
+import { SUBJECTS, CLASS_GROUPS, subjectName, formatCode, normalizeCode, fmtDay, classShort, isAnalogClass } from "./shared.js";
 import { paintPortalPreview } from "./portalview.js";
 import { renderMarkdown } from "./markdown.js";
 
@@ -55,16 +55,25 @@ async function studentStart() {
 function studentBar() {
   return topbar({ home: "#/schueler" }, [h("a", { href: "#/schueler" }, "Meine Sitzungen")]);
 }
+// Fach und Klasse/Kurs: angeboten werden nur die Jahrgänge, in denen das Fach laut Einstellungen der Lehrkraft unterrichtet wird
 function chooser(profile, onSave) {
-  let subject = profile.subject, klass = profile.klass;
+  let subject = profile.subject, klass = profile.klass, grades = null;
   const save = h("button", { class: "btn primary big", type: "button", disabled: !(subject && klass) }, "Speichern und weiter");
+  const allowed = (k) => !grades || !subject || !grades[subject] || grades[subject].includes(/^\d+/.test(k) ? String(parseInt(k, 10)) : k[0]);
+  const classWrap = h("div");
+  const paintClasses = () => {
+    if (klass && !allowed(klass)) klass = null;
+    save.disabled = !(subject && klass);
+    clear(classWrap).append(...(subject ? CLASS_GROUPS.filter((g) => !grades || !grades[subject] || grades[subject].includes(g.key)).map((g) => h("div", { class: "class-group" }, h("h3", { text: g.label }),
+      h("div", { class: "class-grid" + (g.key === "Q" ? " q" : "") }, g.classes.map((k) => h("button", { class: "class-btn", type: "button", "aria-pressed": String(k === klass), onclick: (e) => {
+        klass = k; classWrap.querySelectorAll(".class-btn").forEach((t) => t.setAttribute("aria-pressed", "false")); e.currentTarget.setAttribute("aria-pressed", "true"); save.disabled = !(subject && klass);
+      } }, classShort(k)))))) : [h("p", { class: "muted", text: "Bitte zuerst dein Fach wählen." })]));
+  };
   const subjWrap = h("div", { class: "tiles", role: "group", "aria-label": "Fach" }, SUBJECTS.map((s) => h("button", { class: "tile", type: "button", "aria-pressed": String(s.id === subject), onclick: (e) => {
-    subject = s.id; subjWrap.querySelectorAll(".tile").forEach((t) => t.setAttribute("aria-pressed", "false")); e.currentTarget.setAttribute("aria-pressed", "true"); save.disabled = !(subject && klass);
+    subject = s.id; subjWrap.querySelectorAll(".tile").forEach((t) => t.setAttribute("aria-pressed", "false")); e.currentTarget.setAttribute("aria-pressed", "true"); paintClasses();
   } }, h("div", { class: "t", text: s.name }))));
-  const classWrap = h("div", null, CLASS_GROUPS.map((g) => h("div", { class: "class-group" }, h("h3", { text: g.label }),
-    h("div", { class: "class-grid" }, g.classes.map((k) => h("button", { class: "class-btn", type: "button", "aria-pressed": String(k === klass), onclick: (e) => {
-      klass = k; classWrap.querySelectorAll(".class-btn").forEach((t) => t.setAttribute("aria-pressed", "false")); e.currentTarget.setAttribute("aria-pressed", "true"); save.disabled = !(subject && klass);
-    } }, k))))));
+  paintClasses();
+  api("GET", "/api/subjects").then((r) => { grades = Object.fromEntries(Object.entries(r.subjects || {}).map(([k, v]) => [k, v.grades])); paintClasses(); }).catch(() => {});
   save.addEventListener("click", () => busy(save, async () => {
     try { const r = await sapi("PUT", "/api/student/profile", { body: { klass, subject } }); onSave(r.profile); } catch (e) { errToast(e); }
   }));
@@ -104,11 +113,11 @@ async function studentHome() {
     const lessons = me.lessons || [];
     if (!lessons.length) list.append(h("p", { class: "muted", text: "Noch keine Sitzung freigeschaltet." }));
     for (const l of lessons) list.append(h("a", { class: "item", href: "#/schueler/s/" + l.id },
-      h("div", { class: "main" }, h("div", { class: "name", text: l.title }), h("div", { class: "meta", text: l.subjectName + " · " + l.klass + (l.date ? " · " + fmtDay(l.date) : "") })),
+      h("div", { class: "main" }, h("div", { class: "name", text: l.title }), h("div", { class: "meta", text: l.subjectName + " · " + classShort(l.klass) + (l.date ? " · " + fmtDay(l.date) : "") })),
       l.hasHomework ? h("span", { class: "badge", style: { color: "var(--warn)" }, text: "Hausaufgabe" }) : null, h("span", { class: "btn small" }, "Öffnen")));
     main.append(
       h("div", { class: "row between", style: { marginBottom: ".8rem" } }, h("h1", { style: { margin: 0 }, text: "Hallo!" }),
-        h("div", { class: "row" }, h("span", { class: "badge", text: profile.klass + " · " + subjectName(profile.subject) }), h("button", { class: "btn small", type: "button", onclick: () => show(profile, true) }, "Klasse/Fach ändern"))),
+        h("div", { class: "row" }, h("span", { class: "badge", text: classShort(profile.klass) + " · " + subjectName(profile.subject) }), h("button", { class: "btn small", type: "button", onclick: () => show(profile, true) }, "Klasse/Fach ändern"))),
       form, h("div", { class: "card" }, h("h2", { text: "Deine Sitzungen" }), list));
     if (!lessons.length) setTimeout(() => code.focus(), 50);
   };
@@ -130,7 +139,20 @@ async function studentRoom(lessonId) {
   const offset = (d.now || Date.now()) - Date.now();
   clear(main);
   main.append(h("div", { class: "crumbs" }, h("a", { href: "#/schueler" }, "Meine Sitzungen"), "›", h("span", { text: d.lesson.title })),
-    h("h1", { text: d.lesson.title }), h("p", { class: "muted", text: d.lesson.subjectName + " · " + d.lesson.klass + (d.lesson.date ? " · " + fmtDay(d.lesson.date) : "") }));
+    h("h1", { text: d.lesson.title }), h("p", { class: "muted", text: d.lesson.subjectName + " · " + classShort(d.lesson.klass) + (d.lesson.date ? " · " + fmtDay(d.lesson.date) : "") }));
+
+  // 0) Vertretung: Hinweis auf die Abwesenheit der Lehrkraft und chronologische Anleitung ganz oben
+  if (d.substitute) {
+    const sub = d.substitute;
+    main.append(h("section", { class: "card substitute student", "aria-label": "Vertretungsstunde" },
+      h("h2", { text: "Heute ohne deine Lehrkraft" }), h("div", { class: "notice warn" }, sub.hinweis),
+      h("h3", { text: "So gehst du vor – Schritt für Schritt" }),
+      h("ol", { class: "sub-steps" }, (sub.schritte || []).map((x) => h("li", null,
+        h("div", { class: "row between" }, h("strong", { text: x.titel }), h("span", { class: "row" }, x.minuten ? h("span", { class: "badge", text: "ca. " + x.minuten + " Minuten" }) : null, x.abgabe ? h("span", { class: "badge ok", text: "Abgabe" }) : null)),
+        renderMarkdown(x.anleitung || "")))),
+      sub.abgabe ? h("p", null, h("strong", { text: "Was du abgibst: " }), sub.abgabe) : null,
+      h("p", { class: "hint", text: "Das Material zu den Schritten findest du unten unter „Material“." + (d.sheets.length ? " Die Abgabe machst du im Feibeitsblatt (Knopf „Code kopieren und Feibeitsblatt öffnen“)." : "") })));
+  }
 
   // 1) Live-Fenster ganz oben
   const img = h("img", { alt: "Aktuelle Folie der Lehrkraft", draggable: "false" });

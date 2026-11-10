@@ -28,6 +28,12 @@ async function waitTeacherHome(page, t0, label) {
   if (ms > 8000) console.log("    Hinweis: " + label + " dauerte " + ms + " ms");
 }
 
+// PDF mit echter Textebene (für die Planungsgrundlagen): pages = [[Zeile, …], …]
+async function textPdf(pages) {
+  const d = await PDFDocument.create(), f = await d.embedFont(StandardFonts.Helvetica);
+  for (const lines of pages) { const p = d.addPage([595, 842]); lines.forEach((l, i) => p.drawText(l, { x: 50, y: 780 - i * 22, size: 12, font: f })); }
+  return Buffer.from(await d.save());
+}
 async function pdf(pages, label) {
   const d = await PDFDocument.create(), f = await d.embedFont(StandardFonts.HelveticaBold);
   for (let i = 1; i <= pages; i++) { const p = d.addPage([960, 540]); p.drawRectangle({ x: 0, y: 0, width: 960, height: 540, color: rgb(0.12, 0.23, 0.37) }); p.drawText(label + " – Folie " + i, { x: 60, y: 260, size: 48, font: f, color: rgb(1, 1, 1) }); }
@@ -80,16 +86,112 @@ async function main() {
     r = await T("POST", "/api/teacher/ai/models", { provider: "custom" });
     ok(r.data && r.data.models.includes("mock-2"), "verfügbare Modelle abrufbar");
 
-    /* ---------- Sitzung anlegen und planen ---------- */
-    step("Fach → Klasse → neue Sitzung");
+    const { addDays, fmtDay } = await import("../../public/shared.js");
+    const today = new Date().toLocaleDateString("sv-SE");
+    // Connector früh einrichten: Claude (simuliert über MCP) plant Einheit und Vertretung
+    const mc = (await T("POST", "/api/teacher/mcp")).data;
+    const rpc = (body, url = mc.url) => fetch(url, { method: "POST", headers: { "Content-Type": "application/json", Accept: "application/json, text/event-stream" }, body: JSON.stringify(body) }).then(async (x) => ({ status: x.status, data: x.status === 202 ? null : await x.json() }));
+    const tool = (name, args) => rpc({ jsonrpc: "2.0", id: Date.now(), method: "tools/call", params: { name, arguments: args } }).then((x) => x.data.result);
+
+    /* ---------- Planungsgrundlagen ---------- */
+    step("Planungsgrundlagen: KCGO und Abiturerlass hochladen (Text per PDF.js im Browser, Abschnitte erkannt)");
+    await tp.getByRole("link", { name: "Planungsgrundlagen" }).first().click();
     await tp.getByRole("link", { name: /Politik und Wirtschaft/ }).click();
-    await tp.getByRole("link", { name: "Q2", exact: true }).click();
-    await tp.fill("#nt", "Das Bundesverfassungsgericht"); await tp.fill("#ntp", "Gewaltenteilung und BVerfG"); await tp.fill("#ndu", "90");
-    await tp.getByRole("button", { name: "Sitzung anlegen" }).click();
-    await tp.waitForURL(/#\/lk\/s\/[a-f0-9]{16}$/);
-    const lessonId = tp.url().split("/").pop();
+    await tp.locator("h1", { hasText: "Planungsgrundlagen · Politik und Wirtschaft" }).waitFor();
+    ok(await tp.locator(".unit-table tr", { hasText: "Q2 GK" }).locator(".warnc", { hasText: "KCGO Politik und Wirtschaft" }).count() === 1, "Status: für Q2 GK fehlt das KCGO");
+    const kcgo = await textPdf([["Kerncurriculum gymnasiale Oberstufe", "Politik und Wirtschaft"], ["2 Bildungsbeitrag und didaktische Grundsätze", "Didaktische Prinzipien: Kontroversität und Problemorientierung."],
+      ["3 Kompetenzorientierung", "Text"], ["3.2 Bildungsstandards", "Analysekompetenz und Urteilskompetenz"], ["3.3 Kurshalbjahre und Themenfelder", "In Q1 bis Q3 sind die Themenfelder 1 und 2 verbindlich."],
+      ["E1 Gesellschaft", "Themenfeld E1.1 Sozialisation"], ["E2 Wirtschaft", "Themenfeld E2.1 Markt"], ["Q1 Politische Strukturen", "Themenfeld Q1.1 Verfassung"],
+      ["Q2 Wirtschaftspolitik", "Themenfeld Q2.1 Konjunkturpolitik"], ["Q3 Internationale Beziehungen", "Themenfeld Q3.1"], ["Q4 Zukunftsfragen", "Themenfeld Q4.1"]]);
+    await tp.locator('select[aria-label="Art der Planungsgrundlage"]').selectOption("kcgo");
+    await tp.locator('input[aria-label="PDF-Datei"]').setInputFiles({ name: "KCGO_PoWi.pdf", mimeType: "application/pdf", buffer: kcgo });
+    await tp.locator(".small", { hasText: "11 Seiten" }).first().waitFor({ timeout: 30000 });
+    ok(await tp.locator('input[aria-label="Seiten für Q2"]').inputValue() === "9" && await tp.locator('input[aria-label="Seiten für Verbindliche Regelungen (3.3)"]').inputValue() === "5", "Kurshalbjahre und Regeln automatisch erkannt (korrigierbar)");
+    await tp.getByRole("button", { name: "Hochladen" }).click();
+    await tp.locator(".toast", { hasText: "(11 Seiten)" }).waitFor({ timeout: 20000 });
+    await tp.locator(".unit-table tr", { hasText: "Q2 GK" }).locator(".warnc", { hasText: "Abiturerlass für den Kurs Q2 GK" }).waitFor();
+    ok(true, "KCGO gespeichert; für Q2 GK fehlt jetzt nur noch der Abiturerlass");
+    const erlass = await textPdf([["Abiturerlass 2028", "Inhalt"], ["Ethik", "4.1 Kursart Grundkurs", "Text Ethik"], ["Politik und Wirtschaft", "5.1 Kursart Grundkurs", "Verbindlich: Themenfeld Q2.3 Europäische Wirtschaftspolitik"], ["Physik", "6.1 Kursart"]]);
+    await tp.locator('select[aria-label="Art der Planungsgrundlage"]').selectOption("abiturerlass");
+    await tp.getByLabel("Q2 GK", { exact: true }).check();
+    await tp.locator('input[aria-label="PDF-Datei"]').setInputFiles({ name: "Abiturerlass_2028.pdf", mimeType: "application/pdf", buffer: erlass });
+    await tp.locator(".small", { hasText: "4 Seiten" }).first().waitFor({ timeout: 30000 });
+    ok(await tp.locator('input[aria-label="Seiten für Fachteil"]').inputValue() === "3–4", "Fachteil „Politik und Wirtschaft“ im Erlass gefunden");
+    await tp.getByRole("button", { name: "Hochladen" }).click();
+    await tp.locator(".toast", { hasText: "(4 Seiten)" }).waitFor({ timeout: 20000 });
+    await tp.locator(".unit-table tr", { hasText: "Q2 GK" }).locator(".ok", { hasText: "✓" }).waitFor();
+    ok(await tp.locator(".unit-table tr", { hasText: "Q2 LK" }).locator(".warnc", { hasText: "Abiturerlass für den Kurs Q2 LK" }).count() === 1, "Erlass gilt nur für den zugeordneten Kurs (Q2 GK ✓, Q2 LK fehlt)");
+    await tp.screenshot({ path: join(OUT, "lehrkraft-planungsgrundlagen.png"), fullPage: true });
+    r = await T("GET", "/api/teacher/basis?subject=powi&klass=Q2-GK");
+    ok(r.data.docs.length === 2 && !r.data.missing.length, "Planungsgrundlagen für Q2 GK vollständig");
+
+    /* ---------- Unterrichtseinheit ---------- */
+    step("Fach → Kurs → Unterrichtseinheit: Rahmendaten, Planung mit Claude (Connector), Leupold-Schema, Tabelle");
+    await tp.getByRole("link", { name: "Unterricht" }).click();
+    await tp.getByRole("link", { name: /Politik und Wirtschaft/ }).click();
+    await tp.locator(".class-btn").first().waitFor();
+    ok(await tp.getByRole("link", { name: "7A", exact: true }).count() === 0 && await tp.getByRole("link", { name: "8A", exact: true }).count() === 1 && await tp.getByRole("link", { name: "6A", exact: true }).count() === 1, "PoWi: Jahrgänge laut Fach-Einstellungen (ohne Jahrgang 7)");
+    ok(await tp.getByRole("link", { name: "Q2 GK", exact: true }).count() === 1 && await tp.getByRole("link", { name: "Q2 LK", exact: true }).count() === 1, "Q-Phase: Grund- und Leistungskurs je Kurshalbjahr");
+    await tp.getByRole("link", { name: "Q2 GK", exact: true }).click();
+    ok(await tp.locator("#nt").count() === 0, "keine Sitzung ohne Einheit: zuerst wird die Einheit geplant");
+    await tp.fill("#ut", "Gewaltenteilung und BVerfG");
+    await tp.getByRole("button", { name: "Einheit anlegen" }).click();
+    await tp.waitForURL(/#\/lk\/u\/[a-f0-9]{16}$/);
+    const unitId = tp.url().split("/").pop();
+    await tp.locator('input[aria-label="Minuten"]').first().fill("90");
+    await tp.getByRole("button", { name: "+ Sitzung pro Woche" }).click();
+    await tp.locator('select[aria-label="Wochentag"]').nth(1).selectOption("3"); await tp.locator('input[aria-label="Minuten"]').nth(1).fill("90");
+    await tp.getByRole("button", { name: "+ Sitzung pro Woche" }).click();
+    await tp.locator('select[aria-label="Wochentag"]').nth(2).selectOption("5"); await tp.locator('input[aria-label="Minuten"]').nth(2).fill("90");
+    await tp.locator('input[aria-label="Beginn"]').fill(today); await tp.locator('input[aria-label="Ende"]').fill(addDays(today, 13));
+    await tp.getByRole("button", { name: "Speichern und Termine berechnen" }).click();
+    await tp.locator(".toast", { hasText: "6 Sitzungen verfügbar." }).waitFor({ timeout: 10000 });
+    ok(true, "Rahmendaten (Mo/Mi/Fr à 90 min, zwei Wochen) → 6 Termine");
+    await tp.getByRole("button", { name: "Einheit mit Claude planen" }).click();
+    const um = tp.locator(".modal", { hasText: "Welches Sprachmodell?" });
+    await um.waitFor();
+    await um.getByRole("button", { name: "Prompt kopieren" }).click();
+    const unitPrompt = await tp.evaluate(() => navigator.clipboard.readText());
+    ok(["get_planning_basis", unitId, "**priorisierten**", "**sekundären**", "**drei** zentrale Lernaufgaben", "Leupold-Schema", "genau 6 Zeilen", "save_unit_plan", "Q2 GK", "Grundkurs"].every((x) => unitPrompt.includes(x)), "Prompt: Planungsgrundlage priorisiert/sekundär, drei Lernaufgaben, Leupold-Schema, Tabelle mit 6 Stunden");
+    await um.getByRole("button", { name: "Schließen", exact: true }).getByText("Schließen").click();
+    r = await tool("get_planning_basis", { unit_id: unitId });
+    const basisText = r.content[0].text;
+    ok(basisText.includes("Konjunkturpolitik") && basisText.includes("Europäische Wirtschaftspolitik") && basisText.includes("Kontroversität") && !basisText.includes("Sozialisation"), "Claude liest KCGO (Q2, Regeln, Grundlagen) und Fachteil des Erlasses – nicht E1");
+    const stunden = [
+      { stundenfrage: "Wer kontrolliert die Macht?", ablauf: ["Karikatur", "Gewaltenteilung erarbeiten"], schritt: 0 },
+      { stundenfrage: "Wie arbeitet das Bundesverfassungsgericht?", ablauf: ["Verfahren"], schritt: 1 },
+      { stundenfrage: "Ist das BVerfG zu mächtig?", ablauf: ["Urteil analysieren"], schritt: 1 },
+      { stundenfrage: "Wie wehrhaft ist die Demokratie?", ablauf: ["Fallbeispiel"], schritt: 2 },
+      { stundenfrage: "Positionspapier planen", ablauf: ["Gliederung"], schritt: 2 },
+      { stundenfrage: "Positionspapier präsentieren", ablauf: ["Galeriegang"], schritt: 2 }];
+    r = await tool("save_unit_plan", { unit_id: unitId, plan: { titel: "Gewaltenteilung und BVerfG", planungsgrundlage: { name: "Problemstudie", begruendung: "Kontroverse um die Macht des Gerichts", alternative: { name: "Fallanalyse", begruendung: "Urteil als Fall" } },
+      lernaufgabe: "Positionspapier: Braucht Deutschland ein starkes Verfassungsgericht?", ausgangslage: "Grundkenntnisse über Verfassungsorgane",
+      schritte: [{ titel: "Problem erschließen", beschreibung: "Karikatur analysieren, Fragen sammeln" }, { titel: "Problemstudie: Akteure", beschreibung: "Verfahren erarbeiten und vergleichen" }, { titel: "Urteilen", beschreibung: "Positionen beurteilen und begründen" }] }, stunden });
+    ok(!r.isError, "Claude speichert Plan und Ablauf über den Connector (save_unit_plan)");
+    await tp.reload();
+    await tp.locator(".leupold").first().waitFor();
+    ok(await tp.locator(".leupold .lp-row").count() === 3 && (await tp.locator(".leupold").first().textContent()).includes("Positionspapier: Braucht Deutschland"), "Leupold-Schema: Ausgangslage → 3 Lernschritte → Lernaufgabe");
+    ok(await tp.locator(".unit-table tbody tr").count() === 6, "Tabelle mit 6 Stunden (Stundenfrage | grober Ablauf)");
+    await tp.locator('textarea[aria-label="Stundenfrage 1"]').fill("Das Bundesverfassungsgericht");
+    await tp.getByRole("button", { name: "Änderungen speichern" }).click();
+    await tp.locator(".toast", { hasText: "Einheit gespeichert." }).waitFor({ timeout: 10000 });
+    let unit = (await T("GET", "/api/teacher/units/" + unitId)).data.unit;
+    ok(unit.rows[0].stundenfrage === "Das Bundesverfassungsgericht" && unit.rows.every((x) => x.date), "Tabelle bearbeitet und gespeichert; alle Stunden mit Termin");
+    ok((await T("PATCH", "/api/teacher/units/" + unitId, { rows: unit.rows, baseVersion: 1 })).status === 409, "veraltete Fassung der Einheit überschreibt nie still (409)");
+    await tp.screenshot({ path: join(OUT, "lehrkraft-einheit.png"), fullPage: true });
+    await tp.getByRole("button", { name: "Einheit festlegen und Sitzungen anlegen" }).click();
+    await tp.locator(".toast", { hasText: "6 Sitzung(en) angelegt." }).waitFor({ timeout: 20000 });
+    ok(await tp.getByRole("link", { name: "Sitzung öffnen" }).count() === 6, "je Stunde eine Sitzung mit Datum");
+    unit = (await T("GET", "/api/teacher/units/" + unitId)).data.unit;
+    const byRow = (i) => unit.lessons.find((x) => x.row === unit.rows[i].uid);
+    const lessonId = byRow(0).id;
+    if (byRow(0).date !== today) await T("PATCH", "/api/teacher/lessons/" + lessonId, { date: today });   // erste Stunde = heute (für den Zwischenstopp-Hinweis)
+    await tp.goto(BASE + "/#/lk/s/" + lessonId);
+    await tp.locator(".unitbox").waitFor();
+    ok((await tp.locator(".unitbox").textContent()).includes("Stunde 1 von 6") && await tp.locator(".unitbox .lp-row.current").count() === 1, "Sitzung zeigt Einheit, Stunde 1 von 6 und den Lernschritt (fett im Leupold-Schema)");
     ok(await tp.locator(".msg.assistant").first().textContent().then((t) => /Wie viele Minuten|90 Minuten/.test(t)), "Chatbot fragt zu Beginn nach Dauer und Wünschen");
     const lesson0 = (await T("GET", "/api/teacher/lessons/" + lessonId)).data.lesson;
+    ok(lesson0.title === "Das Bundesverfassungsgericht" && lesson0.topic === "Gewaltenteilung und BVerfG" && lesson0.durationMin === 90 && lesson0.date === today, "Stundenfrage als Titel, Einheit als Thema, Dauer aus dem Stundenplan");
 
     step("Planung im Chat (gestreamte Antwort, gespeichert)");
     await tp.fill("#chatin", "Bitte plane eine Stunde mit Karikatur und Partnerarbeit.");
@@ -97,11 +199,18 @@ async function main() {
     await tp.locator(".msg.assistant", { hasText: "Ihre Nachricht war" }).waitFor({ timeout: 20000 });
     ok(true, "Antwort angezeigt");
     const sys = ai.calls[ai.calls.length - 1].messages[0].content;
-    ok(sys.startsWith("Du bist ein leistungsfähiger didaktischer Assistent") && sys.includes("Unterrichtsfach: Politik und Wirtschaft") && sys.includes("Klasse/Kurs: Q2") && sys.includes("Das Bundesverfassungsgericht"),
-      "System-Prompt: feste Rolle + Fach + Klasse + Sitzung automatisch übermittelt");
+    ok(sys.startsWith("Du bist ein leistungsfähiger didaktischer Assistent") && sys.includes("Unterrichtsfach: Politik und Wirtschaft") && sys.includes("Klasse/Kurs: Q2 GK") && sys.includes("Das Bundesverfassungsgericht"),
+      "System-Prompt: feste Rolle + Fach + Kurs + Sitzung automatisch übermittelt");
+    ok(sys.includes("Zentrale Lernaufgabe (Ziel der Einheit): Positionspapier") && sys.includes("Beziehe dich immer auf die in der Unterrichtseinheit festgelegten Aspekte"), "… und die Einheit (Lernaufgabe, Lernschritt; Ablauf nur als Inspiration)");
     await sleep(500);
     r = await T("GET", "/api/teacher/lessons/" + lessonId);
     ok(r.data.messages.filter((m) => m.role === "assistant").length === 2, "Antwort dauerhaft in der Sitzung gespeichert");
+    await tp.fill("#chatin", "Bitte die Stundenfrage ändern."); await tp.keyboard.press("Enter");
+    await tp.locator(".unit-change").waitFor({ timeout: 20000 });
+    await tp.locator(".unit-change").getByRole("button", { name: "In die Einheit übernehmen" }).click();
+    await tp.locator(".toast", { hasText: "In die Einheit übernommen" }).waitFor({ timeout: 10000 });
+    unit = (await T("GET", "/api/teacher/units/" + unitId)).data.unit;
+    ok(unit.rows[0].stundenfrage === "Ist das Bundesverfassungsgericht ein Ersatzgesetzgeber?" && unit.rows[0].ablauf.length === 3, "abgestimmte Abweichung mit einem Klick in der Tabelle der Einheit festgehalten");
 
     step("Schulportal-Eintrag erstellen, bearbeiten, speichern");
     await tp.getByRole("button", { name: "Schulportal-Eintrag erstellen" }).click();
@@ -159,12 +268,16 @@ async function main() {
     await sp.waitForURL(/#\/schueler$/);
     await sp.locator(".tiles .tile").first().waitFor();
     ok(await sp.getByRole("button", { name: "Politik und Wirtschaft" }).isVisible() && await sp.getByRole("button", { name: "Evangelische Religion" }).isVisible() && await sp.getByRole("button", { name: "Ethik" }).isVisible() && (await sp.locator(".tiles .tile").count()) === 3, "genau drei Fächer zur Auswahl");
-    await sp.getByRole("button", { name: "Ethik" }).click(); await sp.getByRole("button", { name: "Q2", exact: true }).click();
+    await sp.getByRole("button", { name: "Politik und Wirtschaft" }).click();
+    await sp.waitForFunction(() => document.querySelectorAll(".class-btn").length > 0 && ![...document.querySelectorAll(".class-btn")].some((b) => b.textContent === "7A"), null, { timeout: 10000 }).then(() => ok(true, "PoWi: Jahrgang 7 nicht wählbar"), () => ok(false, "PoWi: Jahrgang 7 nicht wählbar"));
+    await sp.getByRole("button", { name: "Ethik" }).click();
+    ok(await sp.getByRole("button", { name: "7A", exact: true }).count() === 1, "Ethik: Jahrgang 7 wählbar");
+    await sp.getByRole("button", { name: "Q2 GK", exact: true }).click();
     await sp.getByRole("button", { name: "Speichern und weiter" }).click();
     await sp.fill("#code", lesson0.code.toLowerCase()); await sp.getByRole("button", { name: "Sitzung öffnen" }).click();
     ok(await sp.locator(".err", { hasText: "anderen Klasse oder einem anderen Fach" }).waitFor({ timeout: 10000 }).then(() => true, () => false), "Code einer anderen Klasse/eines anderen Fachs öffnet nichts");
     await sp.getByRole("button", { name: "Klasse/Fach ändern" }).click();
-    await sp.getByRole("button", { name: "Politik und Wirtschaft" }).click(); await sp.getByRole("button", { name: "Q2", exact: true }).click();
+    await sp.getByRole("button", { name: "Politik und Wirtschaft" }).click(); await sp.getByRole("button", { name: "Q2 GK", exact: true }).click();
     await sp.getByRole("button", { name: "Speichern und weiter" }).click();
     await sp.fill("#code", lesson0.code.slice(0, 3) + "-" + lesson0.code.slice(3)); await sp.getByRole("button", { name: "Sitzung öffnen" }).click();
     await sp.waitForURL(/#\/schueler\/s\//);
@@ -214,8 +327,6 @@ async function main() {
 
     /* ---------- Claude-Connector (MCP) ---------- */
     step("Claude-Connector (MCP)");
-    const mc = (await T("POST", "/api/teacher/mcp")).data;
-    const rpc = (body, url = mc.url) => fetch(url, { method: "POST", headers: { "Content-Type": "application/json", Accept: "application/json, text/event-stream" }, body: JSON.stringify(body) }).then(async (x) => ({ status: x.status, data: x.status === 202 ? null : await x.json() }));
     r = await rpc({ jsonrpc: "2.0", id: 1, method: "initialize", params: { protocolVersion: "2025-06-18", capabilities: {}, clientInfo: { name: "test", version: "1" } } });
     ok(r.data.result.protocolVersion === "2025-06-18" && r.data.result.capabilities.tools, "älteres Protokoll: initialize");
     ok((await rpc({ jsonrpc: "2.0", method: "notifications/initialized" })).status === 202, "Benachrichtigung → 202");
@@ -225,7 +336,8 @@ async function main() {
     r = await rpc({ jsonrpc: "2.0", id: 3, method: "tools/list", params: { _meta: { ...meta, "io.modelcontextprotocol/protocolVersion": "1999-01-01" } } });
     ok(r.data.error && r.data.error.code === -32022, "unbekannte Version → UnsupportedProtocolVersion");
     r = await rpc({ jsonrpc: "2.0", id: 4, method: "tools/list", params: { _meta: meta } });
-    ok(["get_lesson", "save_schulportal_entry", "add_text_material", "propose_feibeitsblatt"].every((n) => r.data.result.tools.some((t) => t.name === n)), "Werkzeuge gelistet");
+    ok(["get_lesson", "save_schulportal_entry", "add_text_material", "propose_feibeitsblatt", "list_units", "get_unit", "get_planning_basis", "save_unit_plan", "update_unit_row", "save_substitute_plan"].every((n) => r.data.result.tools.some((t) => t.name === n)), "Werkzeuge gelistet");
+    ok(!r.data.result.tools.some((t) => t.name === "create_lesson"), "keine Sitzungen am Plan vorbei (kein create_lesson)");
     r = await rpc({ jsonrpc: "2.0", id: 5, method: "tools/call", params: { name: "get_lesson", arguments: { lesson_id: lessonId }, _meta: meta } });
     const dump = r.data.result.content[0].text;
     ok(dump.includes("Q2") && dump.includes("Manuell ergänzt") && dump.includes("Ablauf aus dem Chat"), "Claude liest die aktuelle Sitzung inkl. Schulportal-Eintrag");
@@ -282,22 +394,18 @@ async function main() {
     await tp.keyboard.press("Escape");
 
     /* ---------- Datum, Hausaufgabe, Zwischenstopp ---------- */
-    step("Datum (Pflicht, verschiebbar), Hausaufgabe, Zwischenstopp");
-    ok((await T("POST", "/api/teacher/lessons", { subject: "powi", klass: "Q2", title: "Ohne Datum" })).status === 400, "Sitzung ohne Datum wird abgelehnt");
-    const { addDays, fmtDay } = await import("../../public/shared.js");
-    const d0 = lesson0.date;
-    const l2 = (await T("POST", "/api/teacher/lessons", { subject: "powi", klass: "Q2", title: "Folgestunde", date: addDays(d0, 7) })).data.lesson;
-    const l3 = (await T("POST", "/api/teacher/lessons", { subject: "powi", klass: "Q2", title: "Übernächste Stunde", date: addDays(d0, 14) })).data.lesson;
-    await T("POST", "/api/teacher/lessons", { subject: "powi", klass: "EA", title: "Andere Klasse", date: addDays(d0, 9) });
+    step("Datum (änderbar, ohne Verschieben), Hausaufgabe, Zwischenstopp");
+    ok((await T("POST", "/api/teacher/lessons", { subject: "powi", klass: "Q2-GK", title: "Ohne Einheit", date: today })).status === 400, "Sitzung ohne Einheit wird abgelehnt");
+    const l2 = (await T("GET", "/api/teacher/lessons/" + byRow(1).id)).data.lesson, l3 = (await T("GET", "/api/teacher/lessons/" + byRow(2).id)).data.lesson;
     await tp.goto(BASE + "/#/lk/s/" + lessonId);
     await tp.locator("#hw").fill("Lies **M2** und beantworte Aufgabe 3.");
     await tp.locator(".homework .save-state", { hasText: "Gespeichert ✓" }).waitFor({ timeout: 10000 });
-    ok(await tp.locator(".homework", { hasText: "Fällig zur nächsten Sitzung am " + fmtDay(addDays(d0, 7)) }).count() === 1, "Hausaufgabe gespeichert, fällig zur nächsten Sitzung derselben Klasse");
+    ok(await tp.locator(".homework", { hasText: "Fällig zur nächsten Sitzung am " + fmtDay(l2.date) }).count() === 1, "Hausaufgabe gespeichert, fällig zur nächsten Sitzung derselben Klasse");
     await sp.reload();
     await sp.locator(".homework").waitFor();
     const hwTxt = await sp.locator(".homework").textContent();
     await sp.screenshot({ path: join(OUT, "schueler-hausaufgabe.png") });
-    ok(hwTxt.includes("Bis zur nächsten Sitzung am " + fmtDay(addDays(d0, 7))) && hwTxt.includes("M2") && await sp.locator(".homework strong", { hasText: "M2" }).count() === 1, "Schüler:innen sehen die Hausaufgabe mit Fälligkeit");
+    ok(hwTxt.includes("Bis zur nächsten Sitzung am " + fmtDay(l2.date)) && hwTxt.includes("M2") && await sp.locator(".homework strong", { hasText: "M2" }).count() === 1, "Schüler:innen sehen die Hausaufgabe mit Fälligkeit");
     await sp.goto(BASE + "/#/schueler");
     await sp.locator(".item", { hasText: "Das Bundesverfassungsgericht" }).waitFor();
     ok(await sp.locator(".item", { hasText: "Das Bundesverfassungsgericht" }).locator(".badge", { hasText: "Hausaufgabe" }).count() === 1, "… und in ihrer Sitzungsliste");
@@ -335,26 +443,96 @@ async function main() {
     await tp.goto(BASE + "/#/lk/s/" + l3.id);
     await tp.locator("#chatin").waitFor();
     ok(await tp.locator(".prevstop").count() === 0, "übernächste Sitzung: kein Hinweis (die direkt vorige Stunde endete normal)");
-    await tp.goto(BASE + "/#/lk/f/powi/Q2");
+    await tp.goto(BASE + "/#/lk/f/powi/Q2-GK");
     await tp.locator(".prevstop").waitFor({ timeout: 10000 });
     ok(await tp.locator(".prevstop .stopfield").count() === 1, "beim Planen einer neuen Stunde: Hinweis auf die zuletzt gehaltene Stunde");
 
-    await tp.goto(BASE + "/#/lk/s/" + lessonId);
-    await tp.locator('input[aria-label="Datum der Sitzung"]').fill(addDays(d0, 1));
-    await tp.locator(".modal", { hasText: "Datum verschieben" }).waitFor();
-    ok((await tp.locator(".modal").textContent()).includes(fmtDay(addDays(d0, 7)) + " → " + fmtDay(addDays(d0, 8))), "Vorschau der mitverschobenen Termine");
-    await tp.locator(".modal").screenshot({ path: join(OUT, "lehrkraft-verschieben.png") });
-    await tp.locator(".modal").getByRole("button", { name: "Alle folgenden mitverschieben" }).click();
-    await tp.locator(".toast", { hasText: "mitverschoben" }).waitFor({ timeout: 10000 });
-    const all = (await T("GET", "/api/teacher/lessons")).data.lessons;
-    const dateOf = (t) => all.find((x) => x.title === t).date;
-    ok(dateOf("Das Bundesverfassungsgericht") === addDays(d0, 1) && dateOf("Folgestunde") === addDays(d0, 8) && dateOf("Übernächste Stunde") === addDays(d0, 15), "Datum geändert, folgende Sitzungen derselben Klasse um 1 Tag verschoben");
-    ok(dateOf("Andere Klasse") === addDays(d0, 9), "andere Klassen bleiben unverändert");
-    ok(await tp.locator(".homework", { hasText: fmtDay(addDays(d0, 8)) }).count() === 1, "Fälligkeit der Hausaufgabe wandert mit");
-    await tp.locator('input[aria-label="Datum der Sitzung"]').fill(addDays(d0, 2));
-    await tp.locator(".modal").getByRole("button", { name: "Nur diese Sitzung" }).click();
-    await tp.locator(".toast", { hasText: "Datum geändert." }).waitFor({ timeout: 10000 });
-    ok((await T("GET", "/api/teacher/lessons/" + l2.id)).data.lesson.date === addDays(d0, 8), "„Nur diese Sitzung“ lässt die folgenden unverändert");
+    await tp.screenshot({ path: join(OUT, "lehrkraft-klasse.png"), fullPage: true });
+    await tp.goto(BASE + "/#/lk/s/" + l3.id);
+    await tp.locator('input[aria-label="Datum der Sitzung"]').fill(addDays(l3.date, 1));
+    await tp.locator(".toast", { hasText: "Datum geändert – auch in der Unterrichtseinheit." }).waitFor({ timeout: 10000 });
+    ok(await tp.locator(".modal").count() === 0, "kein Dialog zum Mitverschieben folgender Sitzungen");
+    unit = (await T("GET", "/api/teacher/units/" + unitId)).data.unit;
+    ok(unit.rows[2].date === addDays(l3.date, 1) && unit.rows[1].date === l2.date && (await T("GET", "/api/teacher/lessons/" + byRow(3).id)).data.lesson.date === byRow(3).date, "nur diese Sitzung geändert, Datum steht auch in der Einheit");
+
+    /* ---------- Krankheit: Vertretung ---------- */
+    step("Krankheit: Vertretungsstunde mit Claude, prüfen, bestätigen, Schüleransicht, übernehmen, wiederherstellen");
+    await T("POST", "/api/teacher/lessons/" + l2.id + "/texts", { area: "student", title: "Original-Arbeitsblatt", text: "# Original\nText", source: "chat" });
+    await tp.goto(BASE + "/#/lk/s/" + l2.id);
+    await tp.getByRole("button", { name: "Lehrkraft ist zu dieser Sitzung krank – Alternative entwickeln" }).click();
+    const hm = tp.locator(".modal", { hasText: "Welches Sprachmodell?" });
+    await hm.waitFor();
+    ok(await hm.getByLabel(/Claude Opus/).isChecked() && await hm.getByText("Mit welchem Aufwand?").isVisible(), "fragt vorher Sprachmodell und Aufwand ab (Vorgabe: Opus, gründlich)");
+    await hm.getByLabel(/^Maximal/).check();
+    await hm.getByRole("button", { name: "Prompt kopieren" }).click();
+    const subPrompt = await tp.evaluate(() => navigator.clipboard.readText());
+    ok(["Welche fachdidaktische Kompetenz", "Welche Stundenfrage", "Welche Lerninhalte", "ca. 72 Minuten", l2.id, "save_substitute_plan", "chronologische Anleitung"].every((x) => subPrompt.includes(x)), "Prompt: Analyse der geplanten Stunde, 80 % der Zeit, Abgabe, Anleitung");
+    await hm.getByRole("button", { name: "Schließen", exact: true }).getByText("Schließen").click();
+    ok(await tp.evaluate(() => localStorage.getItem("u.claude.effort")) === "max", "Wahl von Modell/Aufwand wird gemerkt");
+    const plan = { lesson_id: l2.id, analyse: { kompetenz: "Urteilskompetenz: die Rolle des BVerfG beurteilen", stundenfrage: "Wie arbeitet das Bundesverfassungsgericht?", inhalte: ["Verfahrensarten", "Normenkontrolle"] },
+      format: "Feibeitsblatt", bearbeitungszeit: 70, hinweis_schueler: "Eure Lehrkraft ist heute krank. Arbeitet bitte selbstständig.",
+      schritte: [{ titel: "Material lesen", anleitung: "Lies **M1** gründlich.", minuten: 20 }, { titel: "Feibeitsblatt bearbeiten", anleitung: "Öffne das Feibeitsblatt und bearbeite die Aufgabe.", minuten: 50, abgabe: true }],
+      abgabe: "Feibeitsblatt bis zum Ende der Stunde abgeben", schulportal: "**1) Vertretung**\n- Selbstlernphase mit Feibeitsblatt", materialien: [{ titel: "M1 Verfahren des BVerfG", bereich: "schueler", markdown: "# M1\nNormenkontrolle …" }],
+      hinweise_vertretung: "Bitte für eine ruhige Arbeitsatmosphäre sorgen." };
+    r = await tool("save_substitute_plan", plan);
+    ok(r.isError && /braucht eine Abgabe/.test(r.content[0].text), "ohne Abgabe (Feibeitsblatt) lehnt die Plattform den Vorschlag ab");
+    r = await tool("save_substitute_plan", { ...plan, feibeitsblatt: { titel: "Vertretung: Verfahren des BVerfG", aufgaben: [{ text: "Erkläre die Normenkontrolle.", ki_auftrag: "abstrakt und konkret unterscheiden" }] } });
+    ok(!r.isError, "Claude legt den Vertretungsvorschlag ab (save_substitute_plan)");
+    await tp.evaluate(() => document.dispatchEvent(new Event("visibilitychange")));
+    const prop = tp.locator(".substitute", { hasText: "Vertretungsvorschlag prüfen" });
+    await prop.waitFor({ timeout: 10000 });
+    const propTxt = await prop.textContent();
+    ok(propTxt.includes("Urteilskompetenz") && propTxt.includes("Material lesen") && propTxt.includes("Vertretung: Verfahren des BVerfG") && propTxt.includes("Ziel: ca. 72 Minuten"), "Vorschlag mit Analyse, Anleitung, Material und Feibeitsblatt zur Prüfung");
+    await SA("POST", "/api/student/join", { code: l2.code });
+    const before = (await SA("GET", "/api/student/lessons/" + l2.id)).data;
+    ok(!before.substitute && before.files.some((f) => f.name === "Original-Arbeitsblatt") && !(await tp.locator(".item", { hasText: "Anleitung zur Vertretungsstunde" }).count()), "vor der Bestätigung ändert sich nichts (auch nicht für Schüler:innen)");
+    await tp.screenshot({ path: join(OUT, "lehrkraft-vertretung-vorschlag.png"), fullPage: true });
+    if (await tp.locator("#fbcard .badge", { hasText: "nicht verbunden" }).count()) {
+      await tp.locator("#fbcard input[inputmode=numeric]").fill("1104"); await tp.locator("#fbcard input[type=password]").fill(FB_PW);
+      await tp.locator("#fbcard").getByRole("button", { name: "Verbinden" }).click(); await tp.locator("#fbcard .badge", { hasText: "verbunden" }).first().waitFor({ timeout: 20000 });
+    }
+    const sheetsBefore = fbm.sheets.size;
+    await prop.getByRole("button", { name: "Bestätigen: Sitzung auf Vertretung umstellen" }).click();
+    await tp.locator(".modal").getByRole("button", { name: "Bestätigen und umstellen" }).click();
+    await tp.locator(".substitute.active").waitFor({ timeout: 20000 });
+    ok(fbm.sheets.size === sheetsBefore + 1 && [...fbm.sheets.values()].some((x) => x.title === "Vertretung: Verfahren des BVerfG"), "Feibeitsblatt der Vertretung angelegt");
+    const tSub = (await T("GET", "/api/teacher/lessons/" + l2.id)).data;
+    ok(tSub.files.some((f) => f.area === "archive" && f.name === "Original-Arbeitsblatt") && tSub.files.some((f) => f.area === "student" && f.name === "Anleitung zur Vertretungsstunde") &&
+      tSub.files.some((f) => f.area === "teacher" && f.name === "Hinweise für die Vertretungslehrkraft") && tSub.lesson.portal.startsWith("**1) Vertretung**"), "ursprüngliche Planung archiviert, Material und Schulportal-Eintrag ausgetauscht");
+    await sp.goto(BASE + "/#/schueler/s/" + l2.id);
+    const sbox = sp.locator(".substitute.student");
+    await sbox.waitFor({ timeout: 10000 });
+    const sTxt = await sp.locator("main").textContent();
+    ok(sTxt.includes("Heute ohne deine Lehrkraft") && sTxt.includes("Eure Lehrkraft ist heute krank.") && (await sbox.locator(".sub-steps > li").count()) === 2, "Schüler:innen: Hinweis auf die Abwesenheit und chronologische Anleitung ganz oben");
+    ok(sTxt.includes("Anleitung zur Vertretungsstunde") && sTxt.includes("M1 Verfahren des BVerfG") && sTxt.includes("Vertretung: Verfahren des BVerfG") && !sTxt.includes("Original-Arbeitsblatt"), "… mit dem Vertretungsmaterial und Feibeitsblatt (ursprüngliches Material ausgeblendet)");
+    await sp.screenshot({ path: join(OUT, "schueler-vertretung.png"), fullPage: true });
+    await tp.locator(".substitute.active").getByRole("button", { name: "Ursprüngliche Planung in eine andere Sitzung übernehmen" }).click();
+    await tp.locator(".modal", { hasText: "Ursprüngliche Planung übernehmen" }).getByRole("button", { name: "Übernehmen" }).click();
+    await tp.locator(".toast", { hasText: "übernommen" }).waitFor({ timeout: 10000 });
+    ok((await T("GET", "/api/teacher/lessons/" + l3.id)).data.files.some((f) => f.name === "Original-Arbeitsblatt"), "ursprüngliche Planung in die nächste Sitzung übernommen");
+    await tp.locator(".substitute.active").getByRole("button", { name: "Ursprüngliche Planung wiederherstellen" }).click();
+    await tp.locator(".modal").getByRole("button", { name: "Wiederherstellen" }).click();
+    await tp.locator(".toast", { hasText: "wiederhergestellt" }).waitFor({ timeout: 20000 });
+    await sp.reload(); await sp.locator(".item", { hasText: "Original-Arbeitsblatt" }).waitFor({ timeout: 10000 });
+    ok(await sp.locator(".substitute.student").count() === 0 && !(await sp.locator("main").textContent()).includes("Anleitung zur Vertretungsstunde"), "wiederhergestellt: ursprüngliche Planung wieder sichtbar, Vertretung entfernt");
+
+    step("Jahrgang 6: analog (keine Feibeitsblätter, kein digitales Arbeiten); PoWi nicht in Jahrgang 7");
+    ok((await T("POST", "/api/teacher/units", { subject: "powi", klass: "7A" })).status === 400, "PoWi-Einheit in Jahrgang 7 abgelehnt");
+    const u6 = (await T("POST", "/api/teacher/units", { subject: "powi", klass: "6A", title: "Kinderrechte", params: { start: today, end: addDays(today, 6), weekdays: [1, 2, 3, 4, 5].map((day) => ({ day, minutes: 45 })) } })).data.unit;
+    await T("PATCH", "/api/teacher/units/" + u6.id, { plan: { lernaufgabe: "Plakat zu Kinderrechten", schritte: [{ titel: "Rechte kennen", beschreibung: "Bilder deuten" }] }, rows: [{ stundenfrage: "Welche Rechte haben Kinder?", ablauf: ["Bilder"] }], assignDates: true });
+    const l6 = (await T("POST", "/api/teacher/units/" + u6.id + "/sessions")).data.unit.lessons[0];
+    r = await tool("save_substitute_plan", { ...plan, lesson_id: l6.id, feibeitsblatt: { titel: "x", aufgaben: [{ text: "y" }] } });
+    ok(r.isError && /Jahrgängen 5 und 6/.test(r.content[0].text), "Vertretung in Jg. 6 mit Feibeitsblatt abgelehnt");
+    r = await tool("save_substitute_plan", { ...plan, lesson_id: l6.id, abgabe: "Arbeitsblatt bei der Vertretungslehrkraft abgeben" });
+    ok(!r.isError, "analoge Vertretung (ausdruckbares Material) möglich");
+    await tp.goto(BASE + "/#/lk/s/" + l6.id);
+    await tp.locator("#fbcard").waitFor();
+    ok((await tp.locator("#fbcard").textContent()).includes("keine iPads") && await tp.locator("#fbcard").getByRole("button", { name: "Verbinden" }).count() === 0, "Sitzungsansicht Jg. 6: kein Feibeitsblatt, Hinweis auf analoges Material");
+    ok((await tp.locator(".substitute").textContent()).includes("Abgabe auf Papier"), "Vertretungsvorschlag Jg. 6 ohne Feibeitsblatt");
+    const l6sys = ai.calls.length;
+    await tp.fill("#chatin", "Bitte ein Arbeitsblatt."); await tp.keyboard.press("Enter");
+    await tp.locator(".msg.assistant", { hasText: "Ihre Nachricht war: Bitte ein Arbeitsblatt" }).waitFor({ timeout: 20000 });
+    ok(ai.calls.length > l6sys && ai.calls[ai.calls.length - 1].messages[0].content.includes("keine iPads"), "Planungsassistent plant für Jg. 6 nur analoge Materialien");
 
     /* ---------- Sperren ---------- */
     step("Sperren");

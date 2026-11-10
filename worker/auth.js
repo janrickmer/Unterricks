@@ -6,7 +6,8 @@ import {
   cleanLine, clientIp, LOCKS, lockedFor, registerFail, clearFails, lockedError, fmtWait, requireSecret,
 } from "./lib.js";
 import { getSetting, setSetting } from "./db.js";
-import { isValidClass, isValidSubject } from "../public/shared.js";
+import { isValidClass, isValidSubject, classAllowed, subjectName, classShort } from "../public/shared.js";
+import { loadSubjectConfigs } from "./bases.js";
 
 export const TOKEN_TTL = 30 * 86400e3;
 const ITER = 600000;
@@ -198,6 +199,8 @@ export async function routeStudentProfile(c) {
   const body = await readJson(c.request, 10000);
   if (!isValidClass(body.klass)) throw bad("Bitte wähle eine gültige Klasse.");
   if (!isValidSubject(body.subject)) throw bad("Bitte wähle eines der drei Fächer.");
+  const cfg = (await loadSubjectConfigs(c.db))[body.subject];
+  if (!classAllowed(cfg, body.klass)) throw bad(subjectName(body.subject) + " gibt es in " + classShort(body.klass) + " nicht. Bitte prüfe deine Auswahl.");
   await c.db.prepare("UPDATE student_devices SET klass=?2, subject=?3 WHERE id=?1").bind(s.id, body.klass, body.subject).run();
   return json({ ok: true, profile: { klass: body.klass, subject: body.subject } });
 }

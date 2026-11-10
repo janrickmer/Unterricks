@@ -1,9 +1,12 @@
 // session.js – Sitzungsansicht der Lehrkraft: Planung im Chat, Schulportal-Eintrag, Claude-Prompts, Material, Präsentation, Feibeitsblatt.
-import { h, clear, toast, errToast, busy, modal, confirmDialog, copyText, fmtBytes, fmtDate, fmtTime, fileIcon, downloadUrl, downloadBlob, upload, api } from "./ui.js";
+import { h, clear, toast, errToast, busy, modal, confirmDialog, copyText, fmtBytes, fmtDate, fmtTime, fileIcon, downloadUrl, downloadBlob, upload, api, nn } from "./ui.js";
 import { render, go, onLeave } from "./app.js";
 import { T, tapi, teacherBar } from "./teacher.js";
 import { subjectName, gradeInfo, formatCode, claudeIdeaPrompt, claudePresentationPrompt, PORTAL_RULES, portalForCopy, insertStop, removeStops, hasStop, isStopLine,
-  fmtDay, addDays, daysBetween, isWeekend } from "./shared.js";
+  fmtDay, classShort, gradeKey, isAnalogClass, ANALOG_RULE } from "./shared.js";
+import { extractUnitChange, stripUnitBlock, unitContext } from "./planning.js";
+import { leupoldView } from "./units.js";
+import { substituteCards } from "./substitute.js";
 import { paintPortalPreview, portalPreview, contextMenu } from "./portalview.js";
 import { renderMarkdown } from "./markdown.js";
 import { personLabel, personKey } from "./fbclient.js";
@@ -13,25 +16,62 @@ const MODES = [["planning", "Planung"], ["ideas", "Ideen weiterentwickeln"], ["m
 export async function sessionPage(id) {
   const main = h("main", null, h("div", { class: "skeleton", text: "Lade die Sitzung …" }));
   render(teacherBar("lessons"), main);
-  let d;
-  try { d = await tapi("GET", "/api/teacher/lessons/" + id); }
+  let d, cfg = null;
+  try { [d, cfg] = await Promise.all([tapi("GET", "/api/teacher/lessons/" + id), tapi("GET", "/api/teacher/subjects").then((r) => r.subjects).catch(() => null)]); }
   catch (e) { clear(main).append(h("div", { class: "card" }, h("p", { class: "err", text: e.message }), h("a", { class: "btn", href: "#/lk" }, "Zur Übersicht"))); return; }
-  const st = { lesson: d.lesson, messages: d.messages, files: d.files, sheets: d.sheets, drafts: d.drafts, slides: null };
+  const st = { lesson: d.lesson, messages: d.messages, files: d.files, sheets: d.sheets, drafts: d.drafts, slides: null, unit: d.unit, sub: d.substitute };
   const L = () => st.lesson;
+  const analog = isAnalogClass(d.lesson.klass);
   let portalTA = null;
+  const row = () => (st.unit && L().unitRow ? (st.unit.rows || []).find((r) => r.uid === L().unitRow) || null : null);
   const ctx = () => ({ lessonId: id, subject: L().subject, klass: L().klass,
     lesson: { title: L().title, topic: L().topic, durationMin: L().durationMin, date: L().date, ideas: L().ideas, homework: L().homework },
-    materials: st.files.map((f) => ({ name: f.name, area: f.area, kind: f.kind, text: f.text || "", pages: f.pages })), sheets: st.sheets,
-    portal: portalTA ? portalTA.value : L().portal });
+    materials: st.files.filter((f) => f.area !== "archive").map((f) => ({ name: f.name, area: f.area, kind: f.kind, text: f.text || "", pages: f.pages })), sheets: st.sheets,
+    portal: portalTA ? portalTA.value : L().portal, unit: st.unit, row: row(), unitText: st.unit ? unitContext(st.unit, L().unitRow) : "",
+    gradeNote: cfg && cfg[L().subject] ? (cfg[L().subject].gradeNotes || {})[gradeKey(L().klass)] || "" : "" });
 
   const heading = h("h1", { text: L().title });
   const subline = h("p", { class: "muted" });
-  const paintSubline = () => { subline.textContent = subjectName(L().subject) + " · " + L().klass + " · " + gradeInfo(L().klass).text + (L().date ? " · " + fmtDay(L().date) : ""); };
+  const paintSubline = () => { subline.textContent = subjectName(L().subject) + " · " + classShort(L().klass) + " · " + gradeInfo(L().klass).text + (L().date ? " · " + fmtDay(L().date) : ""); };
   paintSubline();
   clear(main).append(
     h("div", { class: "crumbs" }, h("a", { href: "#/lk" }, "Fächer"), "›", h("a", { href: "#/lk/f/" + L().subject }, subjectName(L().subject)), "›",
-      h("a", { href: "#/lk/f/" + L().subject + "/" + L().klass }, L().klass), "›", h("span", { text: L().title })),
+      h("a", { href: "#/lk/f/" + L().subject + "/" + L().klass }, classShort(L().klass)), "›",
+      ...(st.unit ? [h("a", { href: "#/lk/u/" + st.unit.id }, st.unit.title || "Einheit"), "›"] : []), h("span", { text: L().title })),
     heading, subline);
+
+  /* ======================= Unterrichtseinheit ======================= */
+  const unitCard = h("section", { class: "card unitbox" });
+  function paintUnit() {
+    clear(unitCard);
+    if (!st.unit) {
+      unitCard.append(h("p", { class: "small muted", text: "Diese Sitzung gehört zu keiner Unterrichtseinheit (angelegt vor Einführung der Einheitenplanung)." }));
+      return;
+    }
+    const u = st.unit, r = row(), idx = r ? u.rows.indexOf(r) : -1, step = r && r.schritt != null ? (u.plan.schritte || [])[r.schritt] : null;
+    unitCard.append(...nn(h("div", { class: "section-title" }, h("h2", { text: "Unterrichtseinheit: " + (u.title || (u.plan && u.plan.titel) || "ohne Titel") }), h("a", { class: "btn small", href: "#/lk/u/" + u.id }, "Einheit öffnen")),
+      r ? h("p", { class: "small" }, h("strong", { text: "Stunde " + (idx + 1) + " von " + u.rows.length }), step ? " · Lernschritt " + (r.schritt + 1) + ": " + step.titel : "") : h("p", { class: "small warnc", text: "Die Zeile dieser Sitzung steht nicht mehr in der Einheit." }),
+      r ? h("div", { class: "unit-row" }, h("div", null, h("div", { class: "lp-cap", text: "STUNDENFRAGE" }), h("div", { text: r.stundenfrage || "(noch offen)" })),
+        h("div", null, h("div", { class: "lp-cap", text: "GROBER ABLAUF (INSPIRATION)" }), r.ablauf.length ? h("ul", null, r.ablauf.map((a) => h("li", { text: a }))) : h("div", { class: "muted", text: "–" }))) : null,
+      u.plan && u.plan.lernaufgabe ? h("p", { class: "small", style: { marginTop: ".5rem" } }, h("strong", { text: "Zentrale Lernaufgabe: " }), u.plan.lernaufgabe) : null,
+      h("details", { class: "box" }, h("summary", null, "Leupold-Schema der Einheit"), leupoldView(u, r ? r.schritt : null)),
+      h("p", { class: "hint", text: "Die Planungsassistenz bezieht sich auf die Einheit; der Ablauf dort ist nur Inspiration. Schlägt sie eine Änderung der Stundenfrage oder des Ablaufs vor, können Sie diese mit einem Klick in die Einheit übernehmen." })));
+  }
+  function unitChangeBox(ch) {
+    const box = h("div", { class: "unit-change" }, h("div", { class: "lp-cap", text: "VORGESCHLAGENE ÄNDERUNG DER EINHEIT" }),
+      ch.stundenfrage ? h("p", { class: "small" }, h("strong", { text: "Stundenfrage: " }), ch.stundenfrage) : null,
+      ch.ablauf.length ? h("ul", { class: "small" }, ch.ablauf.map((a) => h("li", { text: a }))) : null,
+      ch.begruendung ? h("p", { class: "small muted" }, h("strong", { text: "Begründung: " }), ch.begruendung) : null);
+    if (st.unit && row()) box.append(h("button", { class: "btn small primary", type: "button", onclick: (e) => busy(e.currentTarget, async () => {
+      try {
+        const r = await tapi("PUT", "/api/teacher/units/" + st.unit.id + "/rows/" + L().unitRow, { body: { stundenfrage: ch.stundenfrage, ablauf: ch.ablauf } });
+        st.unit = r.unit; paintUnit(); toast("In die Einheit übernommen (Stunde " + (st.unit.rows.findIndex((x) => x.uid === L().unitRow) + 1) + ").", "ok");
+      } catch (err) { errToast(err); }
+    }) }, "In die Einheit übernehmen"));
+    else box.append(h("p", { class: "small muted", text: "Diese Sitzung ist mit keiner Zeile einer Einheit verknüpft." }));
+    return box;
+  }
+  paintUnit();
 
   /* ======================= Chat ======================= */
   const msgsBox = h("div", { class: "msgs", "aria-live": "polite" });
@@ -41,7 +81,9 @@ export async function sessionPage(id) {
   const modelInfo = h("span", { class: "small muted" });
   function msgNode(m, pending) {
     const body = h("div", { class: "body" });
-    if (m.role === "assistant") body.append(renderMarkdown(m.content)); else body.textContent = m.content;
+    const change = m.role === "assistant" && !pending ? extractUnitChange(m.content) : null;
+    if (m.role === "assistant") body.append(renderMarkdown(change ? stripUnitBlock(m.content) : m.content)); else body.textContent = m.content;
+    if (change) body.append(unitChangeBox(change));
     const tools = h("div", { class: "tools" });
     if (m.role === "assistant" && !pending && m.model !== "begruessung") {
       tools.append(h("button", { class: "btn small", type: "button", onclick: () => adoptMaterial(m.content) }, "Als Material übernehmen"),
@@ -261,7 +303,7 @@ export async function sessionPage(id) {
   /* ======================= Hausaufgabe ======================= */
   const hwTA = h("textarea", { id: "hw", rows: "3", value: L().homework || "", placeholder: "z. B. Lies M2 und beantworte Aufgabe 3 schriftlich." });
   const hwState = h("span", { class: "save-state" }), hwDue = h("p", { class: "small" });
-  function paintDue() { hwDue.textContent = L().nextDate ? "Fällig zur nächsten Sitzung am " + fmtDay(L().nextDate) + " (ändert sich mit, wenn Sitzungen verschoben werden)." : "Noch keine spätere Sitzung dieser Klasse angelegt – Schüler:innen sehen „bis zur nächsten Sitzung“."; }
+  function paintDue() { hwDue.textContent = L().nextDate ? "Fällig zur nächsten Sitzung am " + fmtDay(L().nextDate) + " (richtet sich nach dem Datum der nächsten Sitzung dieser Klasse)." : "Noch keine spätere Sitzung dieser Klasse angelegt – Schüler:innen sehen „bis zur nächsten Sitzung“."; }
   let hwT = null;
   const saveHw = async () => {
     clearTimeout(hwT);
@@ -304,7 +346,7 @@ export async function sessionPage(id) {
         try { await tapi("DELETE", "/api/teacher/files/" + f.id); st.files = st.files.filter((x) => x !== f); paintFiles(); } catch (e) { errToast(e); }
       } }, "🗑"));
     return h("div", { class: "item" }, fileIcon(f.name, f.mime, f.kind), h("div", { class: "main" }, h("div", { class: "name", text: f.name }),
-      h("div", { class: "meta", text: (f.kind === "text" ? "Text (PDF-Download)" : fmtBytes(f.size)) + (f.source === "claude" ? " · von Claude" : f.source === "chat" ? " · aus dem Chat" : "") + " · " + fmtTime(f.createdAt) })), acts);
+      h("div", { class: "meta", text: (f.kind === "text" ? "Text (PDF-Download)" : fmtBytes(f.size)) + (f.source === "claude" ? " · von Claude" : f.source === "chat" ? " · aus dem Chat" : f.source === "vertretung" ? " · Vertretung" : f.source === "uebernommen" ? " · übernommen" : "") + " · " + fmtTime(f.createdAt) })), acts);
   }
   function paintFiles() {
     for (const area of ["student", "teacher"]) {
@@ -416,9 +458,14 @@ export async function sessionPage(id) {
   paintPres();
 
   /* ======================= Feibeitsblatt ======================= */
-  const fbCard = h("section", { class: "card" });
+  const fbCard = h("section", { class: "card", id: "fbcard" });
   const fb = T.fb;
   async function paintFb() {
+    if (analog) {
+      clear(fbCard).append(...nn(h("h2", { text: "Feibeitsblatt" }), h("div", { class: "notice" }, "Jahrgang " + gradeKey(L().klass) + ": " + ANALOG_RULE),
+        st.sheets.length ? h("p", { class: "small", text: "Verknüpfte Feibeitsblätter: " + st.sheets.map((x) => x.title + " (" + formatCode(x.code) + ")").join(", ") }) : null));
+      return;
+    }
     clear(fbCard).append(h("div", { class: "section-title" }, h("h2", { text: "Feibeitsblatt" }), fb.connected ? h("span", { class: "badge ok", text: "verbunden" }) : h("span", { class: "badge", text: "nicht verbunden" })));
     // Verbindung
     if (!fb.connected) {
@@ -465,7 +512,7 @@ export async function sessionPage(id) {
         h("button", { class: "btn primary", type: "button", onclick: (e) => busy(e.currentTarget, async () => { try { const r = await tapi("POST", "/api/teacher/lessons/" + id + "/sheets", { body: { code: code.value, title: title.value } }); st.sheets = st.sheets.filter((x) => x.code !== r.sheet.code).concat(r.sheet); paintFb(); } catch (err) { errToast(err); } }) }, "Verknüpfen"))));
     });
     // Entwürfe
-    const drafts = st.drafts.filter((x) => x.status === "draft" && x.data);
+    const drafts = st.drafts.filter((x) => x.status === "draft" && x.data && x.source !== "vertretung");
     const draftList = h("div", { class: "list" });
     for (const dr of drafts) draftList.append(h("div", { class: "item" }, h("div", { class: "main" }, h("div", { class: "name", text: dr.data.title }),
       h("div", { class: "meta", text: dr.data.tasks.length + " Aufgabe" + (dr.data.tasks.length === 1 ? "" : "n") + " · Entwurf " + (dr.source === "claude" ? "von Claude" : "aus dem Chat") + " · " + fmtTime(dr.updatedAt) })),
@@ -484,7 +531,7 @@ export async function sessionPage(id) {
       h("div", { class: "row" }, h("div", { class: "grow" }, wish), genBtn));
   }
 
-  function editDraft(dr) {
+  function editDraft(dr, opt = {}) {
     const data = JSON.parse(JSON.stringify(dr.data));
     const title = h("input", { value: data.title, maxlength: "200" });
     const tasksBox = h("div");
@@ -494,11 +541,12 @@ export async function sessionPage(id) {
         const text = h("textarea", { rows: "3", value: t.text, oninput: (e) => { t.text = e.target.value; } });
         const mat = h("textarea", { rows: "3", value: t.material || "", oninput: (e) => { t.material = e.target.value; } });
         const sol = h("textarea", { rows: "4", value: t.solution || "", oninput: (e) => { t.solution = e.target.value; } });
-        const typ = h("select", { style: { width: "auto" } }, h("option", { value: "text", selected: t.answer.type !== "table" ? true : null }, "Textfeld"), h("option", { value: "table", selected: t.answer.type === "table" ? true : null }, "Tabelle"));
+        const typ = h("select", { style: { width: "auto" } }, h("option", { value: "text", selected: t.answer.type === "text" ? true : null }, "Textfeld"), h("option", { value: "table", selected: t.answer.type === "table" ? true : null }, "Tabelle"),
+          h("option", { value: "photo", selected: t.answer.type === "photo" ? true : null }, "Foto (z. B. eines Lernprodukts)"));
         const cols = h("input", { value: (t.answer.columns || []).join(", "), placeholder: "Spalten, durch Komma getrennt" });
         const rows = h("input", { type: "number", min: "1", max: "30", value: t.answer.rows || 3, style: { maxWidth: "6rem" } });
         const tableBox = h("div", { class: "row" + (t.answer.type === "table" ? "" : " hidden") }, h("div", { class: "grow" }, cols), h("span", { class: "small", text: "Zeilen:" }), rows);
-        const syncAns = () => { t.answer = typ.value === "table" ? { type: "table", columns: cols.value.split(",").map((s) => s.trim()).filter(Boolean).slice(0, 8), rows: Math.min(30, Math.max(1, Number(rows.value) || 3)) } : { type: "text" }; tableBox.classList.toggle("hidden", typ.value !== "table"); };
+        const syncAns = () => { t.answer = typ.value === "table" ? { type: "table", columns: cols.value.split(",").map((s) => s.trim()).filter(Boolean).slice(0, 8), rows: Math.min(30, Math.max(1, Number(rows.value) || 3)) } : { type: typ.value === "photo" ? "photo" : "text" }; tableBox.classList.toggle("hidden", typ.value !== "table"); };
         typ.onchange = syncAns; cols.oninput = syncAns; rows.oninput = syncAns;
         tasksBox.append(h("div", { class: "task-edit" },
           h("div", { class: "row between" }, h("strong", { text: "Aufgabe " + (i + 1) }), h("div", { class: "row" },
@@ -518,14 +566,15 @@ export async function sessionPage(id) {
       const r = await tapi("PUT", "/api/teacher/fb-drafts/" + dr.id, { body: { data } });
       Object.assign(dr, r.draft); return r.draft;
     };
-    modal({ title: "Feibeitsblatt prüfen und anlegen", wide: true, body: (el) => el.append(
-      fb.connected ? null : h("div", { class: "notice warn" }, "Zum Anlegen bitte zuerst im Abschnitt „Feibeitsblatt“ verbinden (Türcode und Passwort). Speichern geht auch ohne."),
+    modal({ title: opt.substitute ? "Feibeitsblatt der Vertretung prüfen" : "Feibeitsblatt prüfen und anlegen", wide: true, onClose: opt.onClose, body: (el) => el.append(...nn(
+      opt.substitute ? h("div", { class: "notice" }, "Dieses Feibeitsblatt wird beim Bestätigen der Vertretung angelegt. Hier können Sie es vorher bearbeiten.")
+        : fb.connected ? null : h("div", { class: "notice warn" }, "Zum Anlegen bitte zuerst im Abschnitt „Feibeitsblatt“ verbinden (Türcode und Passwort). Speichern geht auch ohne."),
       h("div", { class: "field", style: { marginTop: ".6rem" } }, h("label", null, "Titel"), title), tasksBox,
-      h("button", { class: "btn small", type: "button", style: { marginTop: ".7rem" }, onclick: () => { data.tasks.push({ text: "", material: "", solution: "", answer: { type: "text" } }); paintTasks(); } }, "+ Aufgabe")),
+      h("button", { class: "btn small", type: "button", style: { marginTop: ".7rem" }, onclick: () => { data.tasks.push({ text: "", material: "", solution: "", answer: { type: "text" } }); paintTasks(); } }, "+ Aufgabe"))),
       actions: [
         { label: "Schließen" },
-        { label: "Entwurf speichern", onClick: async () => { try { await save(); paintFb(); toast("Entwurf gespeichert.", "ok"); } catch (e) { errToast(e); return false; } } },
-        { label: "Feibeitsblatt jetzt anlegen", class: "primary", onClick: async (e) => {
+        { label: "Entwurf speichern", class: opt.substitute ? "primary" : "", onClick: async () => { try { await save(); paintFb(); if (opt.onSaved) opt.onSaved(); toast("Entwurf gespeichert.", "ok"); } catch (e) { errToast(e); return false; } } },
+        ...(opt.substitute ? [] : [{ label: "Feibeitsblatt jetzt anlegen", class: "primary", onClick: async (e) => {
           if (!fb.connected) { toast("Bitte zuerst mit Feibeitsblatt verbinden.", "err"); return false; }
           if (!(await confirmDialog("Feibeitsblatt anlegen", "Das Blatt wird jetzt im Feibeitsblatt angelegt und erhält einen Code. Feibeitsblätter lassen sich danach nicht mehr ändern (nur neu anlegen).", "Anlegen"))) return false;
           try {
@@ -535,7 +584,7 @@ export async function sessionPage(id) {
             dr.status = "created"; st.sheets.push({ code: r.code, title: r.title, createdAt: Date.now() }); paintFb();
             afterCreate(r);
           } catch (err) { errToast(err); return false; }
-        } },
+        } }]),
       ] });
   }
 
@@ -591,7 +640,7 @@ export async function sessionPage(id) {
             const fin = (a && (a.final != null ? a.final : a.first)) || "";
             const fbk = (p.feedback || [])[i], fin2 = s.final && s.final.results ? s.final.results[i] : null;
             box.append(h("details", { open: rows.length <= 6 ? true : null }, h("summary", null, "Aufgabe " + (i + 1) + ": " + String(t.text || "").slice(0, 90)),
-              h("div", { class: "answer", text: fin || "(leer)" }),
+              photoOf(a) ? photoNode(photoOf(a)) : h("div", { class: "answer", text: typeof fin === "string" ? fin || "(leer)" : JSON.stringify(fin) }),
               a && a.first && a.final && a.first !== a.final ? h("details", { class: "small" }, h("summary", null, "Erste Fassung (vor dem KI-Feedback)"), h("div", { class: "answer", text: a.first })) : null,
               fbk ? fbBlock("KI-Feedback vor der Abgabe", fbk, "Gelingt schon", "Tipps") : null,
               fin2 ? fbBlock("Finale KI-Rückmeldung", fin2, "Gelingt schon", "Hat gefehlt") : null));
@@ -608,6 +657,16 @@ export async function sessionPage(id) {
       h("p", { class: "hint", text: "Entschlüsselt in Ihrem Browser. Tippzeit-Auswertung, PDF-Export und Löschen der Abgaben bleiben im Feibeitsblatt." })) });
     load();
   }
+  // Foto-Antwort (Feibeitsblatt: Bild als data:-URL im verschlüsselten Abgabepaket)
+  function photoOf(a) {
+    const v = a && (a.photo || (a.final && a.final.photo) || (typeof a.final === "object" && a.final && a.final.dataUrl ? a.final : null));
+    const url = v && (typeof v === "string" ? v : v.dataUrl);
+    return typeof url === "string" && /^data:image\/(jpeg|png|webp);base64,/.test(url) ? url : null;
+  }
+  function photoNode(url) {
+    const img = h("img", { src: url, alt: "Foto der Abgabe", class: "sub-photo" });
+    return h("div", { class: "answer" }, img, h("div", { class: "row", style: { marginTop: ".3rem" } }, h("a", { class: "btn small", href: url, download: "Foto.jpg" }, "Foto speichern")));
+  }
   function fbBlock(title, f, okLabel, missLabel) {
     const list = (arr) => h("ul", null, (Array.isArray(arr) ? arr : []).slice(0, 12).map((x) => h("li", { text: String(x).slice(0, 300) })));
     return h("div", { class: "fbk" }, h("div", { class: "k", text: title }),
@@ -621,7 +680,7 @@ export async function sessionPage(id) {
     h("div", { class: "row", style: { marginTop: ".6rem" } },
       h("button", { class: "btn small", type: "button", onclick: async () => toast((await copyText(formatCode(L().code))) ? "Code kopiert." : "Kopieren nicht möglich.", "ok") }, "Kopieren"),
       h("button", { class: "btn small", type: "button", onclick: async () => (await import("./presenter.js")).showCode(formatCode(L().code), L().title) }, "Für den Beamer zeigen")),
-    h("p", { class: "hint", text: "Der Code öffnet nur diese Sitzung – und nur für Schüler:innen, die " + L().klass + " und " + subjectName(L().subject) + " gewählt haben." }));
+    h("p", { class: "hint", text: "Der Code öffnet nur diese Sitzung – und nur für Schüler:innen, die " + classShort(L().klass) + " und " + subjectName(L().subject) + " gewählt haben." }));
 
   const fTitle = h("input", { value: L().title, maxlength: "200" }), fTopic = h("input", { value: L().topic, maxlength: "500" });
   const fDate = h("input", { type: "date", value: L().date || "", required: true, "aria-label": "Datum der Sitzung" }), fDur = h("input", { type: "number", min: "5", max: "600", step: "5", value: L().durationMin || "" });
@@ -637,39 +696,17 @@ export async function sessionPage(id) {
     } catch (e) { metaState.textContent = "⚠ " + e.message; }
   };
   for (const el of [fTitle, fTopic, fDur, fIdeas]) { el.addEventListener("input", () => { metaState.textContent = "…"; clearTimeout(metaT); metaT = setTimeout(saveMeta, 900); }); el.addEventListener("change", saveMeta); }
-  // Datum ändern (z. B. bei Krankheit): auf Wunsch alle späteren Sitzungen dieser Klasse im Fach um denselben Abstand mitverschieben
+  // Datum ändern: nur diese Sitzung (keine Verschiebung folgender Sitzungen); das neue Datum steht auch in der Zeile der Einheit
   fDate.addEventListener("change", async () => {
     const nd = fDate.value, od = L().date;
     if (!nd) { fDate.value = od || ""; toast("Jede Sitzung braucht ein Datum.", "err"); return; }
     if (nd === od) return;
-    const off = od ? daysBetween(od, nd) : 0;
-    let later = [];
-    if (od) { try { later = (await tapi("GET", "/api/teacher/lessons?subject=" + L().subject + "&klass=" + L().klass)).lessons.filter((x) => x.id !== id && x.date && x.date > od).sort((a, b) => (a.date < b.date ? -1 : 1)); } catch {} }
-    let shift = false;
-    if (later.length && off) {
-      const choice = await new Promise((resolve) => {
-        let picked = null;
-        const days = Math.abs(off) + " Tag" + (Math.abs(off) === 1 ? "" : "e") + (off > 0 ? " später" : " früher");
-        modal({ title: "Datum verschieben", wide: true, onClose: () => resolve(picked),
-          body: (el) => el.append(
-            h("p", null, "Diese Sitzung: ", h("strong", { text: fmtDay(od) }), " → ", h("strong", { text: fmtDay(nd) }), " (" + days + ")."),
-            h("p", { text: "Sollen die " + later.length + " späteren Sitzungen von " + L().klass + " in " + subjectName(L().subject) + " ebenfalls um " + days.replace(/ (später|früher)$/, "") + " verschoben werden?" }),
-            h("div", { class: "list" }, later.map((x) => { const n = addDays(x.date, off); return h("div", { class: "item" }, h("div", { class: "main" }, h("div", { class: "name", text: x.title }),
-              h("div", { class: "meta" }, fmtDay(x.date) + " → " + fmtDay(n) + " ", isWeekend(n) ? h("span", { class: "badge", style: { color: "var(--warn)" }, text: "⚠ Wochenende" }) : null))); }))),
-          actions: [
-            { label: "Abbrechen", onClick: () => { picked = "cancel"; } },
-            { label: "Nur diese Sitzung", onClick: () => { picked = "one"; } },
-            { label: "Alle folgenden mitverschieben", class: "primary", onClick: () => { picked = "all"; } },
-          ] });
-      });
-      if (!choice || choice === "cancel") { fDate.value = od; return; }
-      shift = choice === "all";
-    }
     try {
-      const r = await tapi("PATCH", "/api/teacher/lessons/" + id, { body: { date: nd, shiftFollowing: shift } });
+      const r = await tapi("PATCH", "/api/teacher/lessons/" + id, { body: { date: nd } });
       L().date = r.lesson.date; L().nextDate = r.lesson.nextDate; paintSubline(); paintDue();
+      if (st.unit) { const x = (st.unit.rows || []).find((y) => y.uid === L().unitRow); if (x) x.date = nd; }
       metaState.textContent = "Gespeichert ✓";
-      toast("Datum geändert" + (r.shifted ? " – " + r.shifted + " folgende Sitzung" + (r.shifted === 1 ? "" : "en") + " mitverschoben." : "."), "ok");
+      toast("Datum geändert" + (st.unit ? " – auch in der Unterrichtseinheit." : "."), "ok");
     } catch (e) { fDate.value = od || ""; errToast(e); }
   });
   const metaCard = h("section", { class: "card" }, h("div", { class: "section-title" }, h("h2", { text: "Sitzungsdaten" }), metaState),
@@ -705,9 +742,10 @@ export async function sessionPage(id) {
     portalPreview(ps.portal),
     h("div", { class: "row", style: { marginTop: ".6rem" } }, h("a", { class: "btn small", href: "#/lk/s/" + ps.id }, "Vorige Sitzung öffnen"),
       h("button", { class: "btn small ghost", type: "button", onclick: (e) => e.currentTarget.closest(".prevstop").remove() }, "Ausblenden"))) : null;
+  const sub = substituteCards({ id, st, L, ctx, fb, analog, reload: () => sessionPage(id), openDraft: (dr, o) => editDraft(dr, { substitute: true, ...o }), flushPortal });
   main.append(h("div", { class: "session-grid" },
-    h("div", { class: "stack" }, prevCard, chatCard, portalCard, hwCard, presPromptCard, filesCard, presCard, fbCard),
-    h("aside", { class: "side" }, codeCard, claudeCard, metaCard)));
+    h("div", { class: "stack" }, sub.main, prevCard, unitCard, chatCard, portalCard, hwCard, presPromptCard, filesCard, presCard, fbCard),
+    h("aside", { class: "side" }, sub.side, codeCard, claudeCard, metaCard)));
 
   // Änderungen von außen (z. B. Claude über den Connector) beim Zurückkehren übernehmen
   const onVis = async () => {
@@ -718,6 +756,9 @@ export async function sessionPage(id) {
       const known = new Set(st.files.map((f) => f.id));
       if (r.files.some((f) => !known.has(f.id)) || r.files.length !== st.files.length) { st.files = r.files; paintFiles(); }
       if (r.drafts.length !== st.drafts.length || r.sheets.length !== st.sheets.length) { st.drafts = r.drafts; st.sheets = r.sheets; paintFb(); }
+      const subKey = (x) => (x ? x.status + ":" + x.updatedAt : "");
+      if (subKey(r.substitute) !== subKey(st.sub)) { st.drafts = r.drafts; st.sub = r.substitute; sub.paint(); if (r.substitute && r.substitute.status === "vorschlag") toast("Claude hat einen Vertretungsvorschlag gespeichert – bitte prüfen.", "ok", 6000); }
+      if (r.unit && st.unit && r.unit.version !== st.unit.version) { st.unit = r.unit; paintUnit(); }
       if (r.lesson.portalVersion !== portal.version && !portal.dirty) {
         L().portal = r.lesson.portal; L().portalVersion = r.lesson.portalVersion; L().portalUpdatedAt = r.lesson.portalUpdatedAt; L().portalSource = r.lesson.portalSource;
         portal.version = r.lesson.portalVersion;

@@ -2,16 +2,19 @@
 import { HttpError, bad, json, readJson, randomId, generateCode, cleanText, cleanLine, isId, isDate, isObj } from "./lib.js";
 import { requireTeacher } from "./auth.js";
 import { callTask, PROVIDERS } from "./ai.js";
+import { getUnit, unitOut } from "./units.js";
+import { loadSubjectConfigs } from "./bases.js";
 import {
   isValidClass, isValidSubject, isValidCode, normalizeCode, greetingText, planningSystemPrompt, portalMessages, feibeitsblattMessages,
-  chatTranscript, extractJsonObject, validatePortalData, renderPortalEntry, normalizeFbDraft, isIsoDate, daysBetween, hasStop,
+  chatTranscript, extractJsonObject, validatePortalData, renderPortalEntry, normalizeFbDraft, isIsoDate, hasStop, gradeKey,
 } from "../public/shared.js";
+import { unitContext } from "../public/planning.js";
 
 export const LIMITS = { title: 200, topic: 500, ideas: 20000, homework: 10000, portal: 30000, message: 30000, answer: 100000, textMaterial: 200000 };
 
 export const lessonOut = (r, extra = {}) => ({
   id: r.id, subject: r.subject, klass: r.klass, title: r.title, topic: r.topic, durationMin: r.duration_min ?? null, date: r.lesson_date || null,
-  ideas: r.ideas, homework: r.homework || "", code: r.code, portal: r.portal, portalVersion: r.portal_version, portalUpdatedAt: r.portal_updated_at ?? null, portalSource: r.portal_source || null,
+  ideas: r.ideas, homework: r.homework || "", code: r.code, unitId: r.unit_id || null, unitRow: r.unit_row || null, portal: r.portal, portalVersion: r.portal_version, portalUpdatedAt: r.portal_updated_at ?? null, portalSource: r.portal_source || null,
   createdAt: r.created_at, updatedAt: r.updated_at, ...extra,
 });
 export const fileOut = (f, withText = true) => ({
@@ -34,11 +37,15 @@ export async function lessonCtx(db, lesson) {
     db.prepare("SELECT name, area, kind, pages, substr(text, 1, 6000) AS text FROM files WHERE lesson_id=?1 AND status='ready' ORDER BY created_at").bind(lesson.id),
     db.prepare("SELECT code, title FROM fb_sheets WHERE lesson_id=?1 ORDER BY created_at").bind(lesson.id),
   ]);
+  let unit = null;
+  if (lesson.unit_id) { try { unit = unitOut(await getUnit(db, lesson.unit_id)); } catch {} }
+  const cfg = (await loadSubjectConfigs(db))[lesson.subject];
   return {
     lessonId: lesson.id, subject: lesson.subject, klass: lesson.klass,
     lesson: { title: lesson.title, topic: lesson.topic, durationMin: lesson.duration_min, date: lesson.lesson_date, ideas: lesson.ideas, homework: lesson.homework || "" },
-    materials: (files.results || []).map((f) => ({ name: f.name, area: f.area, kind: f.kind, pages: f.pages, text: f.text || "" })),
+    materials: (files.results || []).filter((f) => f.area !== "archive").map((f) => ({ name: f.name, area: f.area, kind: f.kind, pages: f.pages, text: f.text || "" })),
     sheets: sheets.results || [], portal: lesson.portal,
+    unit, unitText: unit ? unitContext(unit, lesson.unit_row) : "", gradeNote: (cfg.gradeNotes || {})[gradeKey(lesson.klass)] || "",
   };
 }
 export async function chatMessages(db, lessonId, limit = 200) {
@@ -74,9 +81,9 @@ export async function createLesson(db, body, now) {
   const id = randomId(8);
   for (let i = 0; i < 8; i++) {
     const code = generateCode();
-    const r = await db.prepare("INSERT INTO lessons(id, subject, klass, title, topic, duration_min, lesson_date, ideas, homework, code, created_at, updated_at) " +
-      "VALUES(?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?11) ON CONFLICT(code) DO NOTHING")
-      .bind(id, body.subject, body.klass, f.title, f.topic, f.duration_min, f.lesson_date, f.ideas, f.homework, code, now).run();
+    const r = await db.prepare("INSERT INTO lessons(id, subject, klass, title, topic, duration_min, lesson_date, ideas, homework, code, unit_id, unit_row, created_at, updated_at) " +
+      "VALUES(?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?13) ON CONFLICT(code) DO NOTHING")
+      .bind(id, body.subject, body.klass, f.title, f.topic, f.duration_min, f.lesson_date, f.ideas, f.homework, code, body.unitId || null, body.unitRow || null, now).run();
     if (r.meta && r.meta.changes) {
       await db.prepare("INSERT INTO chat(lesson_id, role, content, model, created_at) VALUES(?1, 'assistant', ?2, 'begruessung', ?3)")
         .bind(id, greetingText({ subject: body.subject, klass: body.klass, durationMin: f.duration_min }), now).run();
@@ -90,7 +97,8 @@ export async function routeLessonsList(c) {
   await requireTeacher(c);
   const u = new URL(c.request.url);
   const subject = u.searchParams.get("subject"), klass = u.searchParams.get("klass");
-  let q = "SELECT l.id, l.subject, l.klass, l.title, l.topic, l.lesson_date, l.duration_min, l.code, l.created_at, l.updated_at, length(l.portal) > 0 AS has_portal, " +
+  let q = "SELECT l.id, l.subject, l.klass, l.title, l.topic, l.lesson_date, l.duration_min, l.code, l.unit_id, l.created_at, l.updated_at, length(l.portal) > 0 AS has_portal, " +
+    "(SELECT s.status FROM substitutes s WHERE s.lesson_id = l.id) AS sub_status, " +
     "(instr(l.portal, '⏸') > 0 AND instr(l.portal, 'Zwischenstopp') > 0) AS has_stop, length(l.homework) > 0 AS has_homework, " +
     "(SELECT COUNT(*) FROM student_access a WHERE a.lesson_id = l.id) AS students FROM lessons l";
   const args = [];
@@ -99,13 +107,22 @@ export async function routeLessonsList(c) {
   q += " ORDER BY COALESCE(l.lesson_date, '') DESC, l.created_at DESC LIMIT 2000";
   const r = await c.db.prepare(q).bind(...args).all();
   return json({ ok: true, lessons: (r.results || []).map((x) => ({ id: x.id, subject: x.subject, klass: x.klass, title: x.title, topic: x.topic, date: x.lesson_date, durationMin: x.duration_min,
-    code: x.code, createdAt: x.created_at, updatedAt: x.updated_at, hasPortal: !!x.has_portal,
+    code: x.code, unitId: x.unit_id || null, substitute: x.sub_status || null, createdAt: x.created_at, updatedAt: x.updated_at, hasPortal: !!x.has_portal,
     hasStop: !!x.has_stop, hasHomework: !!x.has_homework, studentCount: x.students || 0 })) });
 }
 
+// Sitzungen entstehen aus einer Unterrichtseinheit („Erst wenn die Einheit geplant ist, kann die Stundenplanung beginnen“)
 export async function routeLessonCreate(c) {
   await requireTeacher(c);
-  const l = await createLesson(c.db, await readJson(c.request, 50000), c.now);
+  const body = await readJson(c.request, 50000);
+  if (!body.unitId) throw bad("Bitte zuerst die Unterrichtseinheit planen; Sitzungen entstehen aus ihren Zeilen.");
+  const u = await getUnit(c.db, body.unitId);
+  const rows = JSON.parse(u.rows || "[]"), row = rows.find((r) => r.uid === body.unitRow);
+  if (!row) throw bad("Diese Zeile gibt es in der Einheit nicht (mehr).");
+  const dup = await c.db.prepare("SELECT id FROM lessons WHERE unit_id=?1 AND unit_row=?2").bind(u.id, row.uid).first();
+  if (dup) throw new HttpError(409, "exists", "Zu dieser Zeile gibt es schon eine Sitzung.");
+  const l = await createLesson(c.db, { subject: u.subject, klass: u.klass, title: body.title || row.stundenfrage || u.title, topic: u.title, date: body.date || row.date,
+    durationMin: body.durationMin ?? row.minutes, unitId: u.id, unitRow: row.uid }, c.now);
   return json({ ok: true, lesson: lessonOut(l) });
 }
 
@@ -121,7 +138,14 @@ export async function routeLessonGet(c, id) {
   const messages = await chatMessages(c.db, id);
   const [prev, nextDate] = await Promise.all([previousLesson(c.db, l), nextLessonDate(c.db, l)]);
   const previousStop = prev && hasStop(prev.portal) ? { id: prev.id, title: prev.title, date: prev.lesson_date, portal: prev.portal } : null;
-  return json({ ok: true, lesson: lessonOut(l, { studentCount: (students.results[0] || {}).n || 0, nextDate }), previousStop, messages: messages.map(msgOut),
+  let unit = null;
+  if (l.unit_id) { try { unit = unitOut(await getUnit(c.db, l.unit_id)); } catch {} }
+  const sub = await c.db.prepare("SELECT status, proposal, archive, created_at, updated_at, confirmed_at FROM substitutes WHERE lesson_id=?1").bind(id).first();
+  let proposal = null, archive = null;
+  if (sub) { try { proposal = JSON.parse(sub.proposal); } catch {} try { archive = sub.archive ? JSON.parse(sub.archive) : null; } catch {} }
+  const substitute = sub ? { status: sub.status, proposal, createdAt: sub.created_at, updatedAt: sub.updated_at, confirmedAt: sub.confirmed_at ?? null,
+    archive: archive ? { portal: archive.portal || "", homework: archive.homework || "", sheets: archive.sheets || [], files: (archive.files || []).map((f) => f.id), at: archive.at || null } : null } : null;
+  return json({ ok: true, lesson: lessonOut(l, { studentCount: (students.results[0] || {}).n || 0, nextDate }), previousStop, unit, substitute, messages: messages.map(msgOut),
     files: (files.results || []).map((f) => fileOut(f)), sheets: (sheets.results || []).map((s) => ({ code: s.code, title: s.title, createdAt: s.created_at })),
     drafts: (drafts.results || []).map(draftOut) });
 }
@@ -140,26 +164,30 @@ export async function nextLessonDate(db, l) {
   return r ? r.lesson_date : null;
 }
 
-/* Ändern; shiftFollowing: alle späteren Sitzungen derselben Klasse im Fach um denselben Abstand (Tage) mitverschieben */
-export async function updateLesson(db, id, body, now, shiftFollowing = false) {
+/* Ändern. Folgende Sitzungen werden nie mitverschoben (Entscheidung der Lehrkraft: bei Krankheit gibt es stattdessen die
+   Vertretungsalternative); ein neues Datum bzw. eine neue Dauer steht auch in der Zeile der Unterrichtseinheit. */
+export async function updateLesson(db, id, body, now) {
   const f = lessonFields(body, true), keys = Object.keys(f);
-  if (!keys.length) return { lesson: await getLesson(db, id), shifted: 0 };
+  if (!keys.length) return { lesson: await getLesson(db, id) };
   if (f.title !== undefined && !f.title) throw bad("Der Titel darf nicht leer sein.");
   const old = await getLesson(db, id);
   const sets = keys.map((k, i) => k + "=?" + (i + 2)).join(", ");
-  const stmts = [db.prepare("UPDATE lessons SET " + sets + ", updated_at=?" + (keys.length + 2) + " WHERE id=?1").bind(id, ...keys.map((k) => f[k]), now)];
-  const offset = shiftFollowing && f.lesson_date && old.lesson_date ? daysBetween(old.lesson_date, f.lesson_date) : 0;
-  if (offset) stmts.push(db.prepare("UPDATE lessons SET lesson_date=date(lesson_date, ?1), updated_at=?2 WHERE subject=?3 AND klass=?4 AND id<>?5 AND lesson_date > ?6")
-    .bind((offset > 0 ? "+" : "") + offset + " days", now, old.subject, old.klass, id, old.lesson_date));
-  const res = await db.batch(stmts);   // eine Transaktion: entweder alles oder nichts
-  return { lesson: await getLesson(db, id), shifted: offset ? (res[1].meta && res[1].meta.changes) || 0 : 0 };
+  await db.prepare("UPDATE lessons SET " + sets + ", updated_at=?" + (keys.length + 2) + " WHERE id=?1").bind(id, ...keys.map((k) => f[k]), now).run();
+  if (old.unit_id && old.unit_row && ((f.lesson_date && f.lesson_date !== old.lesson_date) || (f.duration_min !== undefined && f.duration_min !== old.duration_min))) {
+    try {
+      const u = await getUnit(db, old.unit_id);
+      const rows = JSON.parse(u.rows || "[]").map((r) => (r.uid === old.unit_row ? { ...r, ...(f.lesson_date ? { date: f.lesson_date } : {}), ...(f.duration_min ? { minutes: f.duration_min } : {}) } : r));
+      await db.prepare("UPDATE units SET rows=?2, version=version+1, updated_at=?3 WHERE id=?1").bind(u.id, JSON.stringify(rows), now).run();
+    } catch {}
+  }
+  return { lesson: await getLesson(db, id) };
 }
 export async function routeLessonPatch(c, id) {
   await requireTeacher(c);
   await getLesson(c.db, id);
   const body = await readJson(c.request, 100000);
-  const r = await updateLesson(c.db, id, body, c.now, body.shiftFollowing === true);
-  return json({ ok: true, lesson: lessonOut(r.lesson, { nextDate: await nextLessonDate(c.db, r.lesson) }), shifted: r.shifted });
+  const r = await updateLesson(c.db, id, body, c.now);
+  return json({ ok: true, lesson: lessonOut(r.lesson, { nextDate: await nextLessonDate(c.db, r.lesson) }) });
 }
 
 export async function routeLessonDelete(c, id) {
@@ -179,6 +207,7 @@ export async function routeLessonDelete(c, id) {
     c.db.prepare("DELETE FROM student_access WHERE lesson_id=?1").bind(id),
     c.db.prepare("DELETE FROM fb_sheets WHERE lesson_id=?1").bind(id),
     c.db.prepare("DELETE FROM fb_drafts WHERE lesson_id=?1").bind(id),
+    c.db.prepare("DELETE FROM substitutes WHERE lesson_id=?1").bind(id),
     c.db.prepare("DELETE FROM lessons WHERE id=?1").bind(id),
   ]);
   try { await c.env.LIVE.get(c.env.LIVE.idFromName(id)).fetch("https://live/reset", { method: "POST" }); } catch {}

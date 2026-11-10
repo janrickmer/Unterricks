@@ -12,26 +12,64 @@ export const isValidSubject = (id) => typeof id === "string" && SUBJECT_IDS.has(
 export const subjectName = (id) => (SUBJECTS.find((s) => s.id === id) || {}).name || "";
 
 const LETTERS = ["A", "B", "C", "D", "E", "F"];
+/* Qualifikationsphase: je Kurshalbjahr Grund- und Leistungskurs als eigene Kurse (KCGO/Abiturerlass unterscheiden die Niveaus) */
+export const KURSARTEN = { GK: "Grundkurs", LK: "Leistungskurs" };
+export const Q_COURSES = ["Q1", "Q2", "Q3", "Q4"].flatMap((q) => [q + "-GK", q + "-LK"]);
 export const CLASS_GROUPS = [
-  ...[5, 6, 7, 8, 9, 10].map((n) => ({ label: "Jahrgangsstufe " + n, classes: LETTERS.map((l) => n + l) })),
-  { label: "Einführungsphase (Jahrgangsstufe 11)", classes: LETTERS.map((l) => "E" + l) },
-  { label: "Qualifikationsphase (Jahrgangsstufen 12 und 13)", classes: ["Q1", "Q2", "Q3", "Q4"] },
+  ...[5, 6, 7, 8, 9, 10].map((n) => ({ key: String(n), label: "Jahrgangsstufe " + n, classes: LETTERS.map((l) => n + l) })),
+  { key: "E", label: "Einführungsphase (Jahrgangsstufe 11)", classes: LETTERS.map((l) => "E" + l) },
+  { key: "Q", label: "Qualifikationsphase (Jahrgangsstufen 12 und 13)", classes: Q_COURSES },
 ];
 export const ALL_CLASSES = CLASS_GROUPS.flatMap((g) => g.classes);
 const CLASS_SET = new Set(ALL_CLASSES);
 export const isValidClass = (k) => typeof k === "string" && CLASS_SET.has(k);
+export const GRADE_KEYS = CLASS_GROUPS.map((g) => g.key);
+export const gradeKey = (k) => (/^\d+/.test(k) ? String(parseInt(k, 10)) : k ? k[0] : "");
+/* Anzeige: „7B“, „EA“, „Q3 LK“ */
+export const classShort = (k) => String(k || "").replace("-", " ");
 
 /* Jahrgangsstufe zu einer Klasse – für die KI und die Prompts */
 export function gradeInfo(k) {
-  if (!isValidClass(k)) return { stufe: null, text: "" };
+  if (!isValidClass(k)) return { stufe: null, text: "", level: null, halfYear: null };
   const m = /^(\d+)[A-F]$/.exec(k);
-  if (m) return { stufe: Number(m[1]), text: "Jahrgangsstufe " + m[1] + " (Sekundarstufe I)" };
-  if (k[0] === "E") return { stufe: 11, text: "Einführungsphase der gymnasialen Oberstufe (Jahrgangsstufe 11)" };
-  const q = Number(k[1]);
+  if (m) return { stufe: Number(m[1]), text: "Jahrgangsstufe " + m[1] + " (Sekundarstufe I)", level: null, halfYear: null };
+  if (k[0] === "E") return { stufe: 11, text: "Einführungsphase der gymnasialen Oberstufe (Jahrgangsstufe 11)", level: null, halfYear: "E" };
+  const q = Number(k[1]), lvl = k.slice(3);
   const jg = q <= 2 ? 12 : 13, hj = q % 2 === 1 ? 1 : 2;
-  return { stufe: jg, text: "Qualifikationsphase " + k + " der gymnasialen Oberstufe (Jahrgangsstufe " + jg + ", " + hj + ". Halbjahr)" };
+  return { stufe: jg, level: lvl, halfYear: "Q" + q,
+    text: "Qualifikationsphase Q" + q + " der gymnasialen Oberstufe (Jahrgangsstufe " + jg + ", " + hj + ". Halbjahr), " + KURSARTEN[lvl] + " (" + (lvl === "LK" ? "erhöhtes" : "grundlegendes") + " Niveau)" };
 }
-export const classLabel = (k) => (isValidClass(k) ? "Klasse/Kurs " + k + " – " + gradeInfo(k).text : "");
+export const classLabel = (k) => (isValidClass(k) ? "Klasse/Kurs " + classShort(k) + " – " + gradeInfo(k).text : "");
+/* Jahrgänge 5 und 6 haben keine iPads: nur analoge, ausdruckbare Materialien (keine Feibeitsblätter, keine Escape-Rooms) */
+export const isAnalogClass = (k) => { const s = gradeInfo(k).stufe; return s === 5 || s === 6; };
+export const ANALOG_RULE = "In den Jahrgängen 5 und 6 haben die Schüler:innen an dieser Schule keine iPads und können nicht digital lernen: Entwickle KEINE digitalen Arbeitsformate " +
+  "(keine Feibeitsblätter, keine Escape-Rooms, keine Online-Aufgaben), sondern analoges Arbeitsmaterial als ausdruckbare PDF-Arbeitsblätter.";
+
+/* Fach-Einstellungen: in welchen Jahrgängen ein Fach unterrichtet wird, Hinweise je Jahrgang, Planungsregeln für die KI */
+const ALL_GRADES = ["5", "6", "7", "8", "9", "10", "E", "Q"];
+export const DEFAULT_SUBJECT_CONFIG = {
+  powi: {
+    grades: ["6", "8", "9", "10", "E", "Q"],
+    gradeNotes: { "10": "In Jahrgang 10 wird Politik und Wirtschaft nur im ersten Schulhalbjahr unterrichtet; im zweiten Halbjahr tritt ein anderes Fach an seine Stelle." },
+    rules: [
+      "Klassen 5–10: Grundlage ist das Schulcurriculum des Fachs. Alles, was dort unter „Formate, Methoden, Medien“ steht, sind nur Ideen und Vorschläge, keine verpflichtenden Methoden – hier darf frei und kreativ geplant werden.",
+      "Das Schulcurriculum (G9) ist nicht mehr ganz aktuell: Politik und Wirtschaft wird an dieser Schule nur in den Jahrgängen 6, 8, 9, 10 (nur 1. Halbjahr), 11, 12 und 13 unterrichtet. Die Inhalte des Jahrgangs 7 entfallen; maßgeblich sind die Inhalte ab Jahrgang 8. Für Jahrgang 6 gilt das eigene Fachcurriculum.",
+      "E-Phase (Jahrgang 11): Grundlage sind das KCGO mit den dort vorgegebenen Schwerpunkten und das schulinterne E-Phasen-Curriculum.",
+      "Q1–Q4 (Jahrgänge 12 und 13): Grundlage sind das KCGO für das jeweilige Kurshalbjahr und der geltende Abiturerlass des Kurses (Kursart Grund- oder Leistungskurs beachten).",
+      "Ab der E-Phase müssen nicht alle Themen des KCGO verpflichtend unterrichtet werden; verbindlich sind die im KCGO bzw. im Abiturerlass festgelegten Themenfelder.",
+    ].join("\n"),
+  },
+  evrel: { grades: ALL_GRADES, gradeNotes: {}, rules: "" },
+  ethik: { grades: ALL_GRADES, gradeNotes: {}, rules: "" },
+};
+export function subjectConfig(all, subject) {
+  const d = DEFAULT_SUBJECT_CONFIG[subject] || { grades: ALL_GRADES, gradeNotes: {}, rules: "" };
+  const c = (all && all[subject]) || {};
+  return { grades: Array.isArray(c.grades) && c.grades.length ? c.grades.filter((g) => ALL_GRADES.includes(g)) : d.grades,
+    gradeNotes: c.gradeNotes && typeof c.gradeNotes === "object" ? c.gradeNotes : d.gradeNotes, rules: typeof c.rules === "string" ? c.rules : d.rules, complete: !!c.complete };
+}
+export const classGroupsFor = (cfg) => CLASS_GROUPS.filter((g) => cfg.grades.includes(g.key));
+export const classAllowed = (cfg, k) => isValidClass(k) && cfg.grades.includes(gradeKey(k));
 
 /* ---------- Datum (JJJJ-MM-TT, ohne Zeitzonen-Verschiebung) ---------- */
 const WD = ["So", "Mo", "Di", "Mi", "Do", "Fr", "Sa"];
@@ -206,7 +244,7 @@ export const SYSTEM_PROMPT_ROLE = "Du bist ein leistungsfähiger didaktischer As
 /* Erste Nachricht jeder neuen Sitzung (ohne KI-Aufruf, damit die Planung immer mit diesen Fragen beginnt) */
 export function greetingText(ctx) {
   const dauer = ctx && ctx.durationMin ? "Eingetragen sind " + ctx.durationMin + " Minuten – stimmt das? " : "Wie viele Minuten dauert die Unterrichtssitzung? ";
-  return "Hallo! Ich unterstütze Sie bei der Planung dieser Sitzung (" + subjectName(ctx && ctx.subject) + ", " + ((ctx && ctx.klass) || "") + ").\n\n" +
+  return "Hallo! Ich unterstütze Sie bei der Planung dieser Sitzung (" + subjectName(ctx && ctx.subject) + ", " + classShort((ctx && ctx.klass) || "") + ").\n\n" +
     "1. " + dauer + "\n2. Sollen bestimmte Ideen, Themen, Materialien oder didaktische Wünsche berücksichtigt werden?";
 }
 
@@ -224,7 +262,7 @@ export function lessonContext(ctx, opt = {}) {
   const L = ctx.lesson || {};
   const lines = [
     "Unterrichtsfach: " + subjectName(ctx.subject),
-    "Klasse/Kurs: " + ctx.klass + " – " + gradeInfo(ctx.klass).text,
+    "Klasse/Kurs: " + classShort(ctx.klass) + " – " + gradeInfo(ctx.klass).text,
     "Unterrichtssitzung: " + (L.title || "(noch ohne Titel)"),
     "Thema: " + (L.topic || "(noch nicht festgelegt)"),
     "Dauer: " + (L.durationMin ? L.durationMin + " Minuten" : "(noch nicht angegeben – bitte erfragen)"),
@@ -245,11 +283,20 @@ export function lessonContext(ctx, opt = {}) {
     lines.push("Feibeitsblätter dieser Sitzung:");
     for (const s of ctx.sheets) lines.push("- „" + s.title + "“ mit dem Code " + formatCode(s.code));
   }
+  if (ctx.gradeNote) lines.push("Hinweis zum Jahrgang: " + ctx.gradeNote);
+  if (ctx.unitText) lines.push(ctx.unitText);
   if (L.homework) lines.push("Hausaufgabe aus dieser Sitzung (bis zur nächsten Sitzung): " + clip(L.homework, 3000));
   if (opt.portal !== false && ctx.portal) lines.push("Aktueller Schulportal-Eintrag (Stundenverlauf):\n" + clip(ctx.portal, 6000) +
     (hasStop(ctx.portal) ? "\n(„" + STOP_LINE + "“ markiert, bis wohin die Stunde tatsächlich gekommen ist; alles danach ist noch offen.)" : ""));
   return lines.join("\n");
 }
+
+/* Regel für Stunden, die zu einer Unterrichtseinheit gehören (Vorgabe der Lehrkraft) */
+export const UNIT_RULE = "Beziehe dich immer auf die in der Unterrichtseinheit festgelegten Aspekte (Lernaufgabe, Lernschritt, Stundenfrage). Die Stichpunkte zum Ablauf dienen nur als Inspiration: " +
+  "Liegt inzwischen ein besserer Vorschlag vor, darfst du abweichen und erläuterst, warum er besser passt. Schlägst du eine geänderte Stundenfrage oder einen geänderten groben Ablauf für diese Stunde vor, " +
+  "gib am Ende deiner Antwort zusätzlich genau diesen Block aus, damit die Lehrkraft die Änderung mit einem Klick in die Tabelle der Einheit übernehmen kann:\n" +
+  "```einheit\n{\"stundenfrage\": \"…\", \"ablauf\": [\"…\", \"…\"], \"begruendung\": \"…\"}\n```";
+
 
 /* System-Prompt des Chatbots: feste Rolle + Werkzeug-Hinweise + Sitzungskontext */
 export function planningSystemPrompt(ctx) {
@@ -258,8 +305,10 @@ export function planningSystemPrompt(ctx) {
     "- Antworte auf Deutsch, siezend, klar gegliedert (Markdown erlaubt: Überschriften, Listen, Tabellen, **fett**).\n" +
     "- Plane mit Minutenangaben je Phase, die zusammen die Dauer der Sitzung ergeben, und nenne Methode und Sozialform.\n" +
     "- Formuliere Materialien (Arbeitsaufträge, Texte, Tafelbilder) vollständig aus, wenn die Lehrkraft das möchte, damit sie direkt übernommen werden können.\n" +
+    (isAnalogClass(ctx.klass) ? "- " + ANALOG_RULE + "\n" :
     "- Schlage bewusst auch vor, statt eines klassischen Arbeitsblatts ein Feibeitsblatt zu erstellen, wenn es didaktisch passt. " + FEIBEITSBLATT_INFO + " " +
-    "Stimmt die Lehrkraft zu, entwirf die Aufgaben samt „Auftrag an die KI“; die Lehrkraft kann daraus in der Plattform mit „Feibeitsblatt-Entwurf aus dem Chat“ einen Entwurf erzeugen, prüfen und anlegen.\n" +
+    "Stimmt die Lehrkraft zu, entwirf die Aufgaben samt „Auftrag an die KI“; die Lehrkraft kann daraus in der Plattform mit „Feibeitsblatt-Entwurf aus dem Chat“ einen Entwurf erzeugen, prüfen und anlegen.\n") +
+    (ctx.unitText ? "- " + UNIT_RULE + "\n" : "") +
     "- Erfinde keine Quellen, Links oder Videos; kennzeichne Vorschläge, die die Lehrkraft prüfen sollte.\n\n" +
     "Aktuelle Unterrichtssitzung (automatisch übermittelt):\n" + lessonContext(ctx, { materialText: true, materialMax: 1500 });
 }
@@ -327,11 +376,13 @@ export function claudeIdeaPrompt(ctx, messages) {
     "",
     "## Rahmendaten",
     "- Fach: " + subjectName(ctx.subject),
-    "- Klasse/Kurs: " + ctx.klass + " – " + gradeInfo(ctx.klass).text,
+    "- Klasse/Kurs: " + classShort(ctx.klass) + " – " + gradeInfo(ctx.klass).text,
     "- Thema: " + (L.topic || L.title || "(bitte aus den Ideen ableiten)"),
     "- Dauer der Unterrichtssitzung: " + (L.durationMin ? L.durationMin + " Minuten" : "(nicht angegeben – bitte nachfragen oder 45 Minuten annehmen und das kennzeichnen)"),
     L.date ? "- Datum: " + fmtDay(L.date) : "",
     L.homework ? "- Bereits eingetragene Hausaufgabe bis zur nächsten Sitzung: " + clip(L.homework, 2000) : "",
+    "",
+    ctx.unitText ? "\n## Einordnung in die Unterrichtseinheit\n" + ctx.unitText + "\n(" + UNIT_RULE.split(":")[0] + ".)" : "",
     "",
     "## Bisherige Ideen und Wünsche der Lehrkraft",
     (L.ideas ? L.ideas.trim() + "\n" : "") + (teacherWishes(messages) || "(keine weiteren Angaben)"),
@@ -368,7 +419,7 @@ export function claudePresentationPrompt(ctx, portalText, messages) {
     "",
     "## Rahmendaten",
     "- Fach: " + subjectName(ctx.subject),
-    "- Klasse/Kurs: " + ctx.klass + " – " + gradeInfo(ctx.klass).text,
+    "- Klasse/Kurs: " + classShort(ctx.klass) + " – " + gradeInfo(ctx.klass).text,
     "- Thema: " + (L.topic || L.title || "(siehe Stundenverlauf)"),
     "- Dauer: " + (L.durationMin ? L.durationMin + " Minuten" : "(nicht angegeben)"),
     L.date ? "- Datum: " + fmtDay(L.date) : "",
@@ -383,6 +434,7 @@ export function claudePresentationPrompt(ctx, portalText, messages) {
     "## Materialien und weitere Informationen",
     lessonContext(ctx, { portal: false, materialText: true, materialMax: 5000 }).split("\n").filter((l) => /^(- |  |Vorhandene|Feibeitsbl|Ideen|Präsentation)/.test(l)).join("\n") || "(keine)",
     "",
+    ctx.unitText ? "## Einordnung in die Unterrichtseinheit\n" + ctx.unitText + "\n" : "",
     "## Didaktische und methodische Überlegungen aus der Planung",
     developed ? clip(developed, 20000) : "(keine weiteren)",
     "",
@@ -423,7 +475,8 @@ export function normalizeFbDraft(obj) {
   const tasks = (Array.isArray(obj.tasks) ? obj.tasks : Array.isArray(obj.aufgaben) ? obj.aufgaben : []).slice(0, 20).map((t) => {
     const ans = t && (t.antwort || t.answer);
     let answer = { type: "text" };
-    if (ans && typeof ans === "object") {
+    if (ans === "foto" || ans === "photo" || (ans && typeof ans === "object" && (ans.type === "photo" || ans.foto === true))) answer = { type: "photo" };
+    else if (ans && typeof ans === "object") {
       const cols = (ans.tabelle || ans.columns || []).map((c) => String(c || "").slice(0, 60)).filter(Boolean).slice(0, 8);
       const rows = Math.min(30, Math.max(1, Number(ans.zeilen || ans.rows) || 3));
       if (cols.length) answer = { type: "table", columns: cols, rows };
@@ -431,7 +484,7 @@ export function normalizeFbDraft(obj) {
     return {
       text: String((t && (t.text || t.aufgabe)) || "").slice(0, 4000),
       material: String((t && t.material) || "").slice(0, 20000),
-      solution: String((t && (t.ki_auftrag || t.solution || t.auftrag)) || "").slice(0, 4000),
+      solution: answer.type === "photo" ? "" : String((t && (t.ki_auftrag || t.solution || t.auftrag)) || "").slice(0, 4000),   // Fotos ohne KI-Feedback
       answer,
     };
   }).filter((t) => t.text.trim());

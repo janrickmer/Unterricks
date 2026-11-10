@@ -8,6 +8,9 @@ import * as S from "./student.js";
 import * as LV from "./live.js";
 import * as AI from "./ai.js";
 import * as M from "./mcp.js";
+import * as B from "./bases.js";
+import * as U from "./units.js";
+import * as SUB from "./substitute.js";
 
 export { LiveRoom } from "./live.js";
 
@@ -37,6 +40,30 @@ const ROUTES = [
   ["GET", "/api/teacher/mcp", M.routeMcpGet],
   ["POST", "/api/teacher/mcp", M.routeMcpCreate],
   ["DELETE", "/api/teacher/mcp", M.routeMcpDelete],
+  // Fach-Einstellungen und Planungsgrundlagen
+  ["GET", "/api/subjects", B.routeSubjectsPublic],
+  ["GET", "/api/teacher/subjects", B.routeSubjectsGet],
+  ["PUT", "/api/teacher/subjects/(powi|evrel|ethik)", B.routeSubjectPut],
+  ["GET", "/api/teacher/bases", B.routeBasesList],
+  ["POST", "/api/teacher/bases", B.routeBaseCreate],
+  ["PUT", "/api/teacher/bases/" + ID + "/pages", B.routeBasePages],
+  ["PATCH", "/api/teacher/bases/" + ID, B.routeBasePatch],
+  ["DELETE", "/api/teacher/bases/" + ID, B.routeBaseDelete],
+  ["GET", "/api/teacher/bases/" + ID + "/text", B.routeBaseText],
+  ["GET", "/api/teacher/basis", B.routeBasisPreview],
+  // Unterrichtseinheiten
+  ["GET", "/api/teacher/units", U.routeUnitsList],
+  ["POST", "/api/teacher/units", U.routeUnitCreate],
+  ["GET", "/api/teacher/units/" + ID, U.routeUnitGet],
+  ["PATCH", "/api/teacher/units/" + ID, U.routeUnitPatch],
+  ["DELETE", "/api/teacher/units/" + ID, U.routeUnitDelete],
+  ["POST", "/api/teacher/units/" + ID + "/sessions", U.routeUnitSessions],
+  ["PUT", "/api/teacher/units/" + ID + "/rows/([a-f0-9]{8})", U.routeUnitRowPut],
+  // Krankheitsvertretung
+  ["POST", "/api/teacher/lessons/" + ID + "/substitute/confirm", SUB.routeSubstituteConfirm],
+  ["POST", "/api/teacher/lessons/" + ID + "/substitute/discard", SUB.routeSubstituteDiscard],
+  ["POST", "/api/teacher/lessons/" + ID + "/substitute/restore", SUB.routeSubstituteRestore],
+  ["POST", "/api/teacher/lessons/" + ID + "/substitute/transfer", SUB.routeSubstituteTransfer],
   // Lehrkraft: Sitzungen
   ["GET", "/api/teacher/lessons", L.routeLessonsList],
   ["POST", "/api/teacher/lessons", L.routeLessonCreate],

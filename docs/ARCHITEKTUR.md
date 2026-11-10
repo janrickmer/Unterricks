@@ -16,9 +16,15 @@ implementiert und im End-to-End-Test geprüft (Ausnahmen unten ausdrücklich gen
 | Schulportal-Format | Formatierung laut Schulportal Hessen, Artikel 664; Struktur nach dem Beispiel der Lehrkraft |
 | Feibeitsblatt-Passwort | **Bei jeder Anmeldung** neu eingeben (Schlüssel nur im Arbeitsspeicher) |
 | Schülerzugang | **Gerätegebunden**, ohne Konten und ohne Personendaten |
-| Datum (Ergänzung) | **Pflicht** beim Anlegen, jederzeit änderbar; beim Ändern auf Wunsch **alle späteren Sitzungen** derselben Klasse im Fach um denselben Abstand mitverschieben |
+| Datum (Ergänzung) | **Pflicht**, jederzeit änderbar – es wird **nur diese Sitzung** geändert (das Mitverschieben folgender Sitzungen entfällt seit der Ergänzung vom 10.11.2026; bei Krankheit gibt es stattdessen die Vertretungsalternative) |
 | Hausaufgabe (Ergänzung) | eigenes Feld je Sitzung; Schüler:innen sehen sie „bis zur nächsten Sitzung“ (Datum automatisch) |
 | Zwischenstopp (Ergänzung) | per Rechtsklick **vor** der angeklickten Zeile, **nur intern** (nicht im Schulportal); **nur Markierung** – beim Planen der nächsten Stunde ein Hinweis mit dem Eintrag der letzten Stunde |
+| KI für Einheitenplanung und Vertretung | **Claude mit dem Pro-Abo über den Connector**; vorher fragt die Plattform Sprachmodell und Aufwand ab (Einstellung erfolgt in claude.ai) |
+| Sitzungen aus der Einheit | **Automatisch mit Datum**: die festgelegte Einheit erzeugt je Zeile eine Sitzung (Termine aus Stundenplan, Zeitraum, Ferien, Klausur) |
+| Oberstufe | **Grund- und Leistungskurs parallel** je Kurshalbjahr (Q1 GK … Q4 LK) |
+| Ursprüngliche Planung bei Krankheit | **Archivieren** (wiederherstellbar, in eine andere Sitzung übertragbar) |
+| Escape-Rooms | **Die Plattform hostet sie** (Vorlage mit dem bekannten Aufbau, Finale im Feibeitsblatt) – noch nicht freigeschaltet, siehe 4b |
+| Foto-Abgabe | **Feibeitsblatt wird erweitert** (Antwortart „Foto“) – noch nicht freigeschaltet, siehe 4b |
 
 ## 2. Gesamtarchitektur
 
@@ -57,7 +63,9 @@ implementiert und im End-to-End-Test geprüft (Ausnahmen unten ausdrücklich gen
 
 | Bereich | Datei | Inhalt |
 |---|---|---|
-| Gemeinsam | `public/shared.js` | Fächer, Klassen, Codes, Schulportal-Format, fester System-Prompt, Claude-Prompts |
+| Gemeinsam | `public/shared.js` | Fächer, Klassen/Kurse, Fach-Einstellungen, Codes, Schulportal-Format, fester System-Prompt, Claude-Prompts |
+| | `public/planning.js` | Einheiten: Termine, Plan/Leupold-Schema, Zeilen, Claude-Prompts für Einheit und Vertretung |
+| | `public/bases-detect.js` | Planungsgrundlagen: Abschnitte erkennen, welche Seiten für welche Klasse gelten, was fehlt |
 | Server | `worker/index.js` | Routing, Fehler, Sicherheitskopfzeilen |
 | | `worker/auth.js` | Lehrkraft (PBKDF2 im Browser, Token), Schüler:innen (gemeinsames Passwort), Sperren |
 | | `worker/lessons.js` | Sitzungen, Chat, Schulportal (mit Versionsschutz), Feibeitsblatt-Entwürfe/-Verknüpfungen |
@@ -66,8 +74,13 @@ implementiert und im End-to-End-Test geprüft (Ausnahmen unten ausdrücklich gen
 | | `worker/live.js` | Durable Object `LiveRoom`, Live-Tickets |
 | | `worker/ai.js` | kostenlose KI-Anbieter, Modell je Aufgabe, Ausweichliste |
 | | `worker/mcp.js` | Connector für claude.ai (MCP) |
+| | `worker/bases.js` | Fach-Einstellungen, Planungsgrundlagen (Seitentexte), Zusammenstellung je Klasse/Kurs |
+| | `worker/units.js` | Unterrichtseinheiten (Versionsschutz), Sitzungen aus der Einheit |
+| | `worker/substitute.js` | Krankheitsvertretung: Vorschlag, Bestätigen (Archiv), Wiederherstellen, Übertragen |
 | Oberfläche | `public/app.js` | Router, Startseite, Schüleransicht |
-| | `public/teacher.js`, `public/session.js` | Lehrkräfteansicht, Sitzungsansicht |
+| | `public/teacher.js`, `public/session.js` | Lehrkräfteansicht (Fach → Klasse/Kurs → Einheiten), Sitzungsansicht |
+| | `public/units.js`, `public/bases.js` | Seite der Unterrichtseinheit (Leupold-Schema, Tabelle), Planungsgrundlagen |
+| | `public/substitute.js`, `public/claude.js` | Krankheitsvertretung in der Sitzung; Übergabe an Claude (Modell/Aufwand) |
 | | `public/fbclient.js` | Feibeitsblatt-Client (Schlüsselableitung, Anlegen, Entschlüsseln) |
 | | `public/presenter.js` | PDF → Folienbilder, Präsentationsmodus, Beamer-Code |
 | | `public/pdfmaker.js`, `public/markdown.js` | Textmaterial als PDF, sicheres Markdown |
@@ -79,7 +92,7 @@ implementiert und im End-to-End-Test geprüft (Ausnahmen unten ausdrücklich gen
    Ein Sitzungscode wird nur angenommen, wenn er zu genau dieser Klasse und diesem Fach gehört. Danach steht die Freischaltung
    (mit dem Zeitpunkt des **ersten** Betretens) dauerhaft in `student_access`. Bei späteren Besuchen ist das Gerät angemeldet und
    die Sitzung steht in der Liste – ohne erneute Code-Eingabe. Jede Schüler-Abfrage prüft serverseitig diese Freischaltung.
-2. **Sitzungen.** Fach → Klasse → Sitzung (Titel, Thema, Datum, Dauer, Ideen). Jede Sitzung hat einen eigenen 6-stelligen Code.
+2. **Sitzungen.** Fach → Klasse/Kurs → Unterrichtseinheit → Sitzungen (siehe 4b). Jede Sitzung hat einen eigenen 6-stelligen Code.
 3. **KI-gestützte Planung.** Der Chat schickt bei jeder Nachricht den festen System-Prompt (wörtlich nach Vorgabe) + Fach,
    Klasse/Jahrgang und alle Sitzungsdaten (inkl. Materialtexten und aktuellem Schulportal-Eintrag). Die Antwort wird gestreamt
    (der Worker reicht den Datenstrom nur durch, der Browser setzt die Antwort zusammen und speichert sie). Drei Modi: Planung,
@@ -105,14 +118,11 @@ implementiert und im End-to-End-Test geprüft (Ausnahmen unten ausdrücklich gen
 
 ## 4a. Datum, Hausaufgabe und Zwischenstopp (Ergänzung vom 10.11.2026)
 
-* **Datum.** Ohne Datum lässt sich keine Sitzung anlegen (auch nicht über den Connector). Ändern Sie das Datum (z. B. bei
-  Krankheit) und es gibt spätere Sitzungen derselben Klasse im selben Fach, zeigt ein Dialog die neuen Termine (mit Warnung, falls
-  einer auf ein Wochenende fällt) und bietet „Nur diese Sitzung“, „Alle folgenden mitverschieben“ oder „Abbrechen“. Das
-  Mitverschieben geschieht in einer Datenbank-Transaktion; andere Klassen und Fächer bleiben unberührt. Verschoben wird um
-  Kalendertage (z. B. Di → Mi = alle folgenden einen Tag später).
+* **Datum.** Jede Sitzung hat ein Datum (es kommt aus der Einheit). Ändern Sie es, wird nur diese Sitzung geändert; das neue
+  Datum steht auch in der Zeile der Unterrichtseinheit. Folgende Sitzungen werden nicht mehr mitverschoben (Vorgabe vom 10.11.2026).
 * **Hausaufgabe.** Feld „Hausaufgabe bis zur nächsten Sitzung“ in jeder Sitzung (automatisch gespeichert, Schulportal-Zeichen
   erlaubt, eigener Knopf zum Kopieren in das Hausaufgaben-Feld des Schulportals). Fällig ist sie zur zeitlich nächsten Sitzung
-  derselben Klasse im selben Fach; das Datum wird bei jeder Anzeige neu bestimmt und wandert deshalb beim Verschieben mit.
+  derselben Klasse im selben Fach; das Datum wird bei jeder Anzeige neu bestimmt.
   Schüler:innen sehen sie im Sitzungsraum direkt unter dem Live-Fenster („Bis zur nächsten Sitzung am Di, 17.11.2026:“) und als
   Markierung in ihrer Sitzungsliste. Sie geht außerdem in den KI-Kontext, den Connector und den Präsentations-Prompt (letzte Folie).
 * **Zwischenstopp.** Rechtsklick auf eine Zeile des Verlaufsplans – im Textfeld oder in der Vorschau – → „⏸ Zwischenstopp
@@ -126,6 +136,54 @@ implementiert und im End-to-End-Test geprüft (Ausnahmen unten ausdrücklich gen
   eine neue an, erscheint der Hinweis „Die letzte Stunde wurde nicht vollständig beendet“ mit dem Schulportal-Eintrag der letzten
   Sitzung samt markiertem Zwischenstopp. Inhalte werden nicht automatisch übernommen (Entscheidung der Lehrkraft). Maßgeblich für
   den Hinweis beim Anlegen ist die zuletzt gehaltene Sitzung (Datum bis heute).
+
+## 4b. Unterrichtseinheiten, Planungsgrundlagen, Krankheitsvertretung (Ergänzung vom 10.11.2026)
+
+* **Fächer und Jahrgänge.** Unter *Planungsgrundlagen → Fach → Fach-Einstellungen* steht, in welchen Jahrgängen ein Fach
+  unterrichtet wird. Vorgabe für Politik und Wirtschaft: Jahrgänge 6, 8, 9, 10 (Hinweis: nur 1. Halbjahr), E-Phase und Q-Phase;
+  Jahrgang 7 entfällt. Lehrkraft und Schüler:innen sehen bei der Klassenwahl nur diese Jahrgänge; der Server lehnt andere ab.
+  Die Q-Phase hat je Kurshalbjahr einen **Grund- und einen Leistungskurs** (Q1 GK … Q4 LK) – KCGO und Abiturerlass unterscheiden
+  grundlegendes und erhöhtes Niveau. Die „Planungsregeln für die KI“ (Vorgabe: die Hinweise der Lehrkraft zu Schulcurriculum,
+  KCGO, Abiturerlass und G9) gehen in jeden Planungs-Prompt.
+* **Jahrgänge 5 und 6 (keine iPads).** Die KI plant dort nur analoges, ausdruckbares Material (PDF); die Sitzungsansicht bietet
+  kein Feibeitsblatt an, Vertretungen ohne digitale Formate. Der Sitzungscode funktioniert trotzdem (z. B. für Materialdownload).
+* **Planungsgrundlagen.** Die Lehrkraft lädt je Fach die Vorgaben als PDF hoch: Schulcurriculum (Sek I), KCGO, schulinternes
+  E-Phasen-Curriculum, Abiturerlass (je Abiturjahrgang, den Q-Kursen zugeordnet), Sonstiges. Der **Browser** liest den Text jeder
+  Seite (PDF.js), die PDF selbst wird nicht gespeichert – schulinterne Dokumente liegen also nur als Text in der eigenen Datenbank,
+  nicht im öffentlichen Repository. Die Plattform erkennt die Abschnitte (geprüft an den echten Dokumenten: KCGO-Kapitel 2,
+  3.2, 3.3 und Kurshalbjahre E1–Q4; Fachteil im Abiturerlass; Jahrgänge im Schulcurriculum „(8_1)“ bzw. „Jahrgang 6“;
+  E1/E2 im E-Phasen-Curriculum); die Lehrkraft kann jede Seitenangabe korrigieren. Für jede Klasse bzw. jeden Kurs stellt die
+  Plattform daraus die geltenden Seiten zusammen (Vorrang: Fachteil des Erlasses, Kurshalbjahr/Jahrgang, verbindliche Regeln,
+  Grundlagen) und zeigt, was fehlt. Für Ev. Religion und Ethik kennt die Plattform die schulischen Vorgaben nicht: Sie fordert zum
+  Hochladen auf, die Vollständigkeit bestätigt die Lehrkraft (Häkchen in den Fach-Einstellungen).
+  Grenze: Eingescannte PDFs ohne Textebene lehnt die Plattform ab (keine Texterkennung im Browser).
+* **Unterrichtseinheit.** Nach der Klassenwahl wird zuerst die Einheit geplant: (1) Rahmendaten – Sitzungen pro Woche mit Länge,
+  Beginn, Ende, Klausurtermin, Ferien/Ausfälle → die Plattform berechnet die Termine; (2) Planungsgrundlagen-Status;
+  (3) „Einheit mit Claude planen“: Modell/Aufwand wählen, Prompt kopieren, in claude.ai einfügen. Claude liest die Grundlagen
+  mit `get_planning_basis`, fragt in Politik und Wirtschaft nach der Planungsgrundlage (priorisierter und sekundärer Vorschlag mit
+  Begründung), schlägt drei zentrale Lernaufgaben vor, entwickelt nach Ihrer Entscheidung das Leupold-Schema und die Tabelle und
+  speichert mit `save_unit_plan`; (4) Leupold-Schema (links Ausgangslage, Mitte Lernschritte als Tätigkeitsbeschreibung mit
+  Operatoren + Titel, rechts Lernaufgabe) und (5) Tabelle (Spalte 1 Stundenfrage, Spalte 2 grober Ablauf) sind bearbeitbar und
+  bleiben das ganze Schuljahr änderbar; Claude und die Lehrkraft können sich nicht still überschreiben (Versionsschutz).
+  (6) „Einheit festlegen und Sitzungen anlegen“ erzeugt je Zeile eine Sitzung mit Datum und Dauer; die Stundenfrage wird zum Titel.
+  Eine freie Sitzung ohne Einheit gibt es nicht mehr (auch nicht über den Connector).
+* **Stundenplanung mit Bezug zur Einheit.** Die Sitzung zeigt Einheit, Stunde x von n, Stundenfrage, groben Ablauf und das
+  Leupold-Schema (Lernschritt der Stunde fett). Der Planungsassistent bekommt die Einheit mit und die feste Regel, sich auf
+  Lernaufgabe, Lernschritt und Stundenfrage zu beziehen; der Ablauf ist nur Inspiration. Weicht er begründet ab, schlägt er die
+  Änderung in einem Block vor, den die Lehrkraft mit „In die Einheit übernehmen“ in die Tabelle schreibt (Claude über den
+  Connector: `update_unit_row`, nur nach Zustimmung).
+* **Krankheit.** Jede Sitzung hat den Knopf „Lehrkraft ist zu dieser Sitzung krank – Alternative entwickeln“. Die Plattform fragt
+  Modell und Aufwand ab und kopiert einen Prompt: Claude liest die geplante Stunde, untersucht Kompetenz, Stundenfrage und
+  Lerninhalte und entwickelt eine Vertretung für ca. 80 % der Zeit mit chronologischer Anleitung, Material, Schulportal-Eintrag,
+  Hinweisen für die Vertretungslehrkraft und einer **Abgabe** (ab Jahrgang 7 Pflicht: Feibeitsblatt; Jahrgang 5/6: Papier) und
+  speichert sie mit `save_substitute_plan` als Vorschlag. Die Lehrkraft prüft ihn (das Feibeitsblatt im bekannten Editor) und
+  bestätigt: Dann legt der Browser das Feibeitsblatt an, die ursprüngliche Planung (Schulportal-Eintrag, Hausaufgabe, Material,
+  Feibeitsblatt-Verknüpfungen) wird **archiviert**, das Vertretungsmaterial eingesetzt, und die Schüler:innen sehen ganz oben
+  „Heute ohne deine Lehrkraft“ mit der Schritt-für-Schritt-Anleitung. Wiederherstellen und Übertragen der archivierten Planung in
+  eine andere Sitzung sind jederzeit möglich.
+* **Noch nicht freigeschaltet (ehrlich gekennzeichnet):** Escape-Rooms (die Vorlage nach dem bekannten Aufbau wird in der Plattform
+  gehostet; bis dahin bietet der Prompt sie nicht an und der Server lehnt sie ab) und die Antwortart „Foto“ (setzt die Erweiterung
+  des Feibeitsblatts voraus; bis dahin verweigert die Plattform das Anlegen eines Blattes mit Foto-Aufgabe mit klarer Meldung).
 
 ## 5. Prüfung der direkten Claude-Integration
 

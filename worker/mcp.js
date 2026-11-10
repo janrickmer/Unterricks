@@ -5,14 +5,20 @@
 import { HttpError, json, readJson, sha256Hex, timingSafeEqual, randomToken, LOCKS, lockedFor, registerFail, cleanText, cleanLine } from "./lib.js";
 import { getSetting, setSetting } from "./db.js";
 import { requireTeacher } from "./auth.js";
-import { getLesson, lessonCtx, chatMessages, createLesson, updateLesson, savePortal, insertDraft, lessonOut, LIMITS } from "./lessons.js";
+import { getLesson, lessonCtx, chatMessages, updateLesson, savePortal, insertDraft, lessonOut, LIMITS } from "./lessons.js";
+import { getUnit, unitFull, applyPlan, updateRow } from "./units.js";
+import { planningBasis } from "./bases.js";
+import { saveProposal, getSubstitute } from "./substitute.js";
+import { paramsText, lessonSlots } from "../public/planning.js";
 import { insertTextMaterial } from "./files.js";
-import { SUBJECTS, ALL_CLASSES, subjectName, gradeInfo, formatCode, lessonContext, chatTranscript, PORTAL_RULES, PORTAL_EXAMPLE, SYSTEM_PROMPT_ROLE, FEIBEITSBLATT_INFO } from "../public/shared.js";
+import { SUBJECTS, ALL_CLASSES, subjectName, gradeInfo, formatCode, lessonContext, chatTranscript, PORTAL_RULES, PORTAL_EXAMPLE, SYSTEM_PROMPT_ROLE, FEIBEITSBLATT_INFO, classShort, fmtDay } from "../public/shared.js";
 
 const MODERN = "2026-07-28";
 const LEGACY = ["2025-11-25", "2025-06-18", "2025-03-26", "2024-11-05"];
 const SERVER_INFO = { name: "unterricks", title: "Unterricks – Unterrichtsplattform", version: "1.0.0" };
-const INSTRUCTIONS = "Unterricks ist die Unterrichtsplattform der Lehrkraft (Fächer: Politik und Wirtschaft, Evangelische Religion, Ethik; Klassen 5A–10F, EA–EF, Q1–Q4). " +
+const INSTRUCTIONS = "Unterricks ist die Unterrichtsplattform der Lehrkraft (Fächer: Politik und Wirtschaft, Evangelische Religion, Ethik; Klassen 5A–10F, EA–EF und in der Qualifikationsphase je Kurshalbjahr Grund- und Leistungskurs, z. B. Q3-LK). " +
+  "Geplant wird in Unterrichtseinheiten (Leupold-Schema: Ausgangslage → Lernschritte → zentrale Lernaufgabe; Ablauf als Tabelle mit Stundenfrage und grobem Stundenablauf); jede Sitzung gehört zu einer Zeile ihrer Einheit. " +
+  "Planungsgrundlagen (Schulcurriculum, KCGO, E-Phasen-Curriculum, Abiturerlass je Kurs) liefert get_planning_basis. In den Jahrgängen 5 und 6 gibt es keine iPads: dort nur analoges, ausdruckbares Material. " +
   "Jede Unterrichtssitzung hat Fach, Klasse, Thema, Dauer, Ideen der Lehrkraft, einen Planungsverlauf (Chat), Materialien, Feibeitsblätter und einen Schulportal-Eintrag. " +
   "Lies vor dem Planen immer zuerst die Sitzung mit get_lesson. Speichere Ergebnisse nur, wenn die Lehrkraft das möchte. " +
   "Eine Zeile „⏸ Zwischenstopp“ im Schulportal-Eintrag ist eine interne Markierung der Lehrkraft: Bis dorthin wurde die Stunde geschafft, ab dort ist der Inhalt offen (sie wird beim Kopieren ins Schulportal entfernt). " +
@@ -20,6 +26,7 @@ const INSTRUCTIONS = "Unterricks ist die Unterrichtsplattform der Lehrkraft (Fä
 
 const SUBJECT_ARG = { type: "string", description: "Fach: powi (Politik und Wirtschaft), evrel (Evangelische Religion) oder ethik", enum: SUBJECTS.map((s) => s.id) };
 const CLASS_ARG = { type: "string", description: "Klasse/Kurs, z. B. 7B, EA oder Q2", enum: ALL_CLASSES };
+const UNIT_ID = { type: "string", description: "ID der Unterrichtseinheit (16 Hex-Zeichen, aus list_units)", pattern: "^[a-f0-9]{16}$" };
 const ID_ARG = { type: "string", description: "Sitzungs-ID (16 Hex-Zeichen, aus list_lessons)", pattern: "^[a-f0-9]{16}$" };
 const ro = { readOnlyHint: true, destructiveHint: false, openWorldHint: false };
 const wr = { readOnlyHint: false, destructiveHint: false, openWorldHint: false };
@@ -31,10 +38,6 @@ const TOOLS = [
   { name: "get_lesson", title: "Sitzung lesen", annotations: ro,
     description: "Liefert alle aktuellen Daten einer Sitzung: Fach, Klasse/Jahrgang, Thema, Dauer, Ideen, Planungsverlauf, Schulportal-Eintrag (mit Version), Materialien (Textmaterial im Wortlaut), Feibeitsblätter und Entwürfe.",
     inputSchema: { type: "object", properties: { lesson_id: ID_ARG }, required: ["lesson_id"], additionalProperties: false } },
-  { name: "create_lesson", title: "Neue Sitzung anlegen", annotations: wr,
-    description: "Legt eine neue Unterrichtssitzung an und liefert ihre ID und den Sitzungscode für die Schüler:innen.",
-    inputSchema: { type: "object", properties: { fach: SUBJECT_ARG, klasse: CLASS_ARG, titel: { type: "string", maxLength: 200 }, thema: { type: "string", maxLength: 500 },
-      dauer_minuten: { type: "integer", minimum: 5, maximum: 600 }, datum: { type: "string", description: "Datum der Sitzung, JJJJ-MM-TT (Pflicht)", pattern: "^\\d{4}-\\d{2}-\\d{2}$" } }, required: ["fach", "klasse", "titel", "datum"], additionalProperties: false } },
   { name: "update_lesson", title: "Sitzungsdaten ändern", annotations: wr,
     description: "Ändert Titel, Thema, Dauer, Datum, das Notizfeld „Ideen und Wünsche“ oder die Hausaufgabe (bis zur nächsten Sitzung, für Schüler:innen sichtbar) einer Sitzung (nur übergebene Felder).",
     inputSchema: { type: "object", properties: { lesson_id: ID_ARG, titel: { type: "string", maxLength: 200 }, thema: { type: "string", maxLength: 500 },
@@ -60,6 +63,42 @@ const TOOLS = [
         ki_auftrag: { type: "string", description: "Auftrag an die KI: worauf sie beim Feedback achten soll", maxLength: 8000 },
         antwort: { description: "\"text\" oder Tabelle", oneOf: [{ type: "string", enum: ["text"] }, { type: "object", properties: { tabelle: { type: "array", items: { type: "string", maxLength: 60 }, minItems: 1, maxItems: 8 }, zeilen: { type: "integer", minimum: 1, maximum: 30 } }, required: ["tabelle"] }] } },
         required: ["text", "ki_auftrag"] } } }, required: ["lesson_id", "titel", "aufgaben"], additionalProperties: false } },
+  { name: "list_units", title: "Unterrichtseinheiten auflisten", annotations: ro,
+    description: "Listet die Unterrichtseinheiten, optional nach Fach und Klasse/Kurs.",
+    inputSchema: { type: "object", properties: { fach: SUBJECT_ARG, klasse: CLASS_ARG }, additionalProperties: false } },
+  { name: "get_unit", title: "Unterrichtseinheit lesen", annotations: ro,
+    description: "Liefert eine Unterrichtseinheit: Rahmendaten, verfügbare Termine, Plan (Planungsgrundlage, Lernaufgabe, Ausgangslage, Lernschritte), Ablauf-Zeilen und die angelegten Sitzungen.",
+    inputSchema: { type: "object", properties: { unit_id: UNIT_ID }, required: ["unit_id"], additionalProperties: false } },
+  { name: "get_planning_basis", title: "Planungsgrundlagen lesen", annotations: ro,
+    description: "Liefert die für Fach und Klasse/Kurs einer Einheit (oder einer Sitzung) geltenden Planungsgrundlagen im Wortlaut: Schulcurriculum (Sek I), KCGO (Regeln, Kurshalbjahr, didaktische Grundlagen), schulinternes E-Phasen-Curriculum, Fachteil des Abiturerlasses des Kurses, dazu die Planungsregeln der Lehrkraft und fehlende Dokumente.",
+    inputSchema: { type: "object", properties: { unit_id: UNIT_ID, lesson_id: ID_ARG, max_zeichen: { type: "integer", minimum: 10000, maximum: 400000 } }, additionalProperties: false } },
+  { name: "save_unit_plan", title: "Plan der Unterrichtseinheit speichern", annotations: { ...wr, destructiveHint: true },
+    description: "Speichert den mit der Lehrkraft abgestimmten Plan einer Einheit: Planungsgrundlage (gewählt + Begründung, optional Alternative), zentrale Lernaufgabe, Ausgangslage, Lernschritte des Leupold-Schemas (je Titel + Tätigkeitsbeschreibung mit Operatoren) und die Stunden in zeitlicher Reihenfolge (Stundenfrage, grober Ablauf in Stichpunkten, Nummer des Lernschritts ab 0). Termine verteilt die Plattform automatisch. Erst aufrufen, wenn die Lehrkraft zugestimmt hat.",
+    inputSchema: { type: "object", properties: { unit_id: UNIT_ID, base_version: { type: "integer", minimum: 0 },
+      plan: { type: "object", properties: { titel: { type: "string", maxLength: 200 }, thema: { type: "string", maxLength: 500 },
+        planungsgrundlage: { type: "object", properties: { name: { type: "string" }, begruendung: { type: "string" }, alternative: { type: "object", properties: { name: { type: "string" }, begruendung: { type: "string" } } } }, required: ["name"] },
+        lernaufgabe: { type: "string", maxLength: 4000 }, ausgangslage: { type: "string", maxLength: 4000 },
+        schritte: { type: "array", maxItems: 15, items: { type: "object", properties: { titel: { type: "string", maxLength: 160 }, beschreibung: { type: "string", maxLength: 600 } }, required: ["titel", "beschreibung"] } } },
+        required: ["lernaufgabe", "schritte"] },
+      stunden: { type: "array", minItems: 1, maxItems: 150, items: { type: "object", properties: { stundenfrage: { type: "string", maxLength: 400 }, ablauf: { type: "array", items: { type: "string", maxLength: 400 }, maxItems: 15 }, schritt: { type: "integer", minimum: 0, maximum: 14 } }, required: ["stundenfrage", "ablauf"] } } },
+      required: ["unit_id", "plan", "stunden"], additionalProperties: false } },
+  { name: "update_unit_row", title: "Stunde in der Einheit anpassen", annotations: wr,
+    description: "Hält eine mit der Lehrkraft abgestimmte Abweichung in der Tabelle der Einheit fest: neue Stundenfrage und/oder neuer grober Ablauf für die Stunde, zu der die Sitzung gehört. Nur nach Zustimmung der Lehrkraft aufrufen.",
+    inputSchema: { type: "object", properties: { lesson_id: ID_ARG, stundenfrage: { type: "string", maxLength: 400 }, ablauf: { type: "array", items: { type: "string", maxLength: 400 }, maxItems: 15 }, begruendung: { type: "string", maxLength: 1000 } }, required: ["lesson_id"], additionalProperties: false } },
+  { name: "save_substitute_plan", title: "Vertretungsstunde (Lehrkraft krank) vorschlagen", annotations: wr,
+    description: "Legt für eine Sitzung, die wegen Krankheit der Lehrkraft ohne sie stattfindet, einen Vertretungsvorschlag ab. Die Lehrkraft prüft ihn in der Plattform; erst nach ihrer Bestätigung wird das Material ausgetauscht und den Schüler:innen der Vertretungshinweis gezeigt. " +
+      "Pflicht: Analyse (Kompetenz, Stundenfrage, Inhalte), chronologische Schritte für die Schüler:innen, Abgabe. Ab Jahrgang 7 ist ein Feibeitsblatt Pflicht (bei Lernprodukten mit einer Aufgabe der Antwortart \"foto\" für das Foto des Produkts); in den Jahrgängen 5/6 nur analoge Materialien.",
+    inputSchema: { type: "object", properties: { lesson_id: ID_ARG,
+      analyse: { type: "object", properties: { kompetenz: { type: "string" }, stundenfrage: { type: "string" }, inhalte: { type: "array", items: { type: "string" } } }, required: ["kompetenz", "stundenfrage", "inhalte"] },
+      format: { type: "string", description: "z. B. Feibeitsblatt, Lernprodukt, Escape-Room, analog" }, bearbeitungszeit: { type: "integer", description: "Minuten (ca. 80 % der Stunde)" },
+      hinweis_schueler: { type: "string", maxLength: 1000, description: "Hinweis für die Schüler:innen, dass die Lehrkraft nicht da ist" },
+      schritte: { type: "array", minItems: 1, maxItems: 20, items: { type: "object", properties: { titel: { type: "string" }, anleitung: { type: "string" }, minuten: { type: "integer" }, abgabe: { type: "boolean" } }, required: ["titel", "anleitung"] } },
+      abgabe: { type: "string", description: "Was wird wie abgegeben?" }, schulportal: { type: "string", description: "Schulportal-Eintrag der Vertretungsstunde (Schulportal-Zeichen)" },
+      materialien: { type: "array", maxItems: 12, items: { type: "object", properties: { titel: { type: "string" }, bereich: { type: "string", enum: ["schueler", "lehrkraft"] }, markdown: { type: "string" } }, required: ["titel", "bereich", "markdown"] } },
+      feibeitsblatt: { type: "object", properties: { titel: { type: "string" }, aufgaben: { type: "array", items: { type: "object", properties: { text: { type: "string" }, material: { type: "string" }, ki_auftrag: { type: "string" },
+        antwort: { description: "\"text\", \"foto\" oder Tabelle {tabelle: [...], zeilen}" } }, required: ["text"] } } }, required: ["titel", "aufgaben"] },
+      hinweise_vertretung: { type: "string", description: "kurze Hinweise für die Vertretungslehrkraft" } },
+      required: ["lesson_id", "analyse", "schritte", "abgabe"], additionalProperties: false } },
 ];
 
 const toolText = (text, structured) => ({ content: [{ type: "text", text }], ...(structured ? { structuredContent: structured } : {}) });
@@ -79,6 +118,9 @@ async function lessonDump(db, l) {
     parts.push("", "## Feibeitsblatt-Entwürfe");
     for (const d of ds) parts.push("- " + d.id + " (" + d.status + (d.sheet_code ? ", Code " + formatCode(d.sheet_code) : "") + "): " + d.data.slice(0, 4000));
   }
+  const sub = await getSubstitute(db, l.id);
+  if (sub) parts.push("", "## Krankheitsvertretung", "Status: " + sub.status + (sub.status === "aktiv" ? " (die ursprüngliche Planung ist archiviert)" : " (Vorschlag liegt der Lehrkraft vor)"));
+  if (l.unit_id) parts.push("", "Unterrichtseinheit: " + l.unit_id + " (Details mit get_unit; Planungsgrundlagen mit get_planning_basis)");
   parts.push("", "## Rolle des Planungsassistenten der Plattform (zur Orientierung)", SYSTEM_PROMPT_ROLE);
   return parts.join("\n");
 }
@@ -98,9 +140,52 @@ async function callTool(c, name, a) {
       const l = await getLesson(c.db, a.lesson_id);
       return toolText(await lessonDump(c.db, l), { lesson_id: l.id, portal_version: l.portal_version });
     }
-    case "create_lesson": {
-      const l = await createLesson(c.db, { subject: a.fach, klass: a.klasse, title: a.titel, topic: a.thema, durationMin: a.dauer_minuten ?? null, date: a.datum || null }, c.now);
-      return toolText("Sitzung angelegt: " + l.id + " – Sitzungscode " + formatCode(l.code), { lesson: lessonOut(l) });
+    case "list_units": {
+      let q = "SELECT id, subject, klass, title, status, rows FROM units", args = [];
+      if (a.fach) { args.push(a.fach); q += " WHERE subject=?1"; }
+      if (a.klasse) { args.push(a.klasse); q += (args.length > 1 ? " AND" : " WHERE") + " klass=?" + args.length; }
+      const r = await c.db.prepare(q + " ORDER BY updated_at DESC LIMIT 100").bind(...args).all();
+      const rows = (r.results || []).map((x) => ({ id: x.id, fach: subjectName(x.subject), klasse: classShort(x.klass), titel: x.title, status: x.status, stunden: JSON.parse(x.rows || "[]").length }));
+      return toolText(rows.length ? rows.map((x) => "- " + x.id + ": " + (x.titel || "(ohne Titel)") + " (" + x.fach + ", " + x.klasse + ", " + x.status + ", " + x.stunden + " Stunden)").join("\n") : "Keine Einheiten gefunden.", { units: rows });
+    }
+    case "get_unit": {
+      const u = await unitFull(c.db, await getUnit(c.db, a.unit_id));
+      const lines = ["# Unterrichtseinheit " + u.id + " (" + subjectName(u.subject) + ", " + classShort(u.klass) + " – " + gradeInfo(u.klass).text + ", Status: " + u.status + ", Version " + u.version + ")",
+        "Titel: " + (u.title || "(offen)"), paramsText(u.params), "Verfügbare Sitzungen: " + lessonSlots(u.slots).length, ...lessonSlots(u.slots).map((x, i) => "  " + (i + 1) + ". " + fmtDay(x.date) + " (" + x.minutes + " min)"),
+        "", "## Plan", JSON.stringify(u.plan, null, 1), "", "## Ablauf (Zeilen)", ...u.rows.map((r, i) => (i + 1) + ". " + (r.date ? fmtDay(r.date) + ": " : "") + r.stundenfrage + (r.schritt != null ? " [Lernschritt " + (r.schritt + 1) + "]" : "") + "\n   - " + r.ablauf.join("\n   - ")),
+        "", "## Sitzungen", ...(u.lessons.length ? u.lessons.map((l) => "- " + l.id + " " + (l.date ? fmtDay(l.date) : "") + ": " + l.title) : ["(noch keine)"])];
+      return toolText(lines.join("\n"), { unit_id: u.id, version: u.version });
+    }
+    case "get_planning_basis": {
+      let subject, klass;
+      if (a.unit_id) { const u = await getUnit(c.db, a.unit_id); subject = u.subject; klass = u.klass; }
+      else if (a.lesson_id) { const l = await getLesson(c.db, a.lesson_id); subject = l.subject; klass = l.klass; }
+      else return toolError("Bitte unit_id oder lesson_id angeben.");
+      const b = await planningBasis(c.db, subject, klass, a.max_zeichen || 180000);
+      const head = ["# Planungsgrundlagen für " + subjectName(subject) + ", " + classShort(klass) + " – " + gradeInfo(klass).text,
+        b.rules ? "## Planungsregeln der Lehrkraft\n" + b.rules : "", b.gradeNote ? "Hinweis zum Jahrgang: " + b.gradeNote : "",
+        b.missing.length ? "## Fehlende Planungsgrundlagen\n- " + b.missing.join("\n- ") : "", b.truncated ? "(Gekürzt – weitere Seiten über max_zeichen anfordern.)" : ""].filter(Boolean);
+      return toolText(head.join("\n\n") + "\n\n" + (b.text || "(Es sind noch keine passenden Dokumente hochgeladen.)"), { docs: b.docs, missing: b.missing });
+    }
+    case "save_unit_plan": {
+      const u = await getUnit(c.db, a.unit_id);
+      try {
+        const v = await applyPlan(c.db, u, a.plan, a.stunden, Number.isInteger(a.base_version) ? a.base_version : null, "claude", c.now);
+        return toolText("Plan gespeichert (Version " + v + ", " + a.stunden.length + " Stunden). Die Lehrkraft prüft ihn in der Plattform und legt dort die Sitzungen an.", { version: v });
+      } catch (e) {
+        if (e instanceof HttpError && e.code === "unit_conflict") return toolError("Die Einheit wurde inzwischen geändert (Version " + e.extra.version + "). Bitte get_unit erneut aufrufen.");
+        throw e;
+      }
+    }
+    case "update_unit_row": {
+      const l = await getLesson(c.db, a.lesson_id);
+      if (!l.unit_id || !l.unit_row) return toolError("Diese Sitzung gehört zu keiner Unterrichtseinheit.");
+      const row = await updateRow(c.db, l.unit_id, l.unit_row, { stundenfrage: a.stundenfrage, ablauf: a.ablauf }, "claude", c.now);
+      return toolText("In der Einheit festgehalten: " + row.stundenfrage);
+    }
+    case "save_substitute_plan": {
+      const p = await saveProposal(c.db, a.lesson_id, a, c.now);
+      return toolText("Vertretungsvorschlag gespeichert (" + p.schritte.length + " Schritte" + (p.draftId ? ", Feibeitsblatt-Entwurf" : "") + "). Die Lehrkraft prüft und bestätigt ihn in der Plattform.");
     }
     case "update_lesson": {
       await getLesson(c.db, a.lesson_id);

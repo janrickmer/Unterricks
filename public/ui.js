@@ -21,6 +21,8 @@ export function h(tag, attrs, ...kids) {
   return el;
 }
 export const $ = (sel, root = document) => root.querySelector(sel);
+/* für el.append(...nn(a, b, …)): leere Teile (null/undefined/false) weglassen – das native append schriebe sonst „null“ */
+export const nn = (...kids) => kids.flat(Infinity).filter((k) => k !== null && k !== undefined && k !== false);
 export const clear = (el) => { while (el.firstChild) el.firstChild.remove(); return el; };
 
 /* ---------- Speicher (kann im privaten Modus fehlen) ---------- */

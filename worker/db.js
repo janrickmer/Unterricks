@@ -26,11 +26,24 @@ export const SCHEMA = [
   "CREATE TABLE IF NOT EXISTS fb_sheets (lesson_id TEXT NOT NULL, code TEXT NOT NULL, title TEXT NOT NULL, created_at INTEGER NOT NULL, PRIMARY KEY (lesson_id, code))",
   "CREATE TABLE IF NOT EXISTS fb_drafts (id TEXT PRIMARY KEY, lesson_id TEXT NOT NULL, data TEXT NOT NULL, source TEXT NOT NULL, status TEXT NOT NULL DEFAULT 'draft', sheet_code TEXT, created_at INTEGER NOT NULL, updated_at INTEGER NOT NULL)",
   "CREATE INDEX IF NOT EXISTS drafts_lesson ON fb_drafts(lesson_id, created_at)",
+  // Planungsgrundlagen (Schulcurriculum, KCGO, E-Phasen-Curriculum, Abiturerlass …): Text je Seite, im Browser aus der PDF gezogen
+  "CREATE TABLE IF NOT EXISTS bases (id TEXT PRIMARY KEY, subject TEXT NOT NULL, kind TEXT NOT NULL, title TEXT NOT NULL, scope TEXT NOT NULL DEFAULT '[]', " +
+    "note TEXT NOT NULL DEFAULT '', file_name TEXT, pages INTEGER NOT NULL DEFAULT 0, sections TEXT NOT NULL DEFAULT '{}', created_at INTEGER NOT NULL, updated_at INTEGER NOT NULL)",
+  "CREATE INDEX IF NOT EXISTS bases_subject ON bases(subject, kind)",
+  "CREATE TABLE IF NOT EXISTS base_pages (base_id TEXT NOT NULL, n INTEGER NOT NULL, text TEXT NOT NULL, PRIMARY KEY (base_id, n))",
+  // Unterrichtseinheiten: Rahmendaten, Plan (Leupold-Schema) und Zeilen des Ablaufs (Stundenfrage, Ablauf, Lernschritt, Datum)
+  "CREATE TABLE IF NOT EXISTS units (id TEXT PRIMARY KEY, subject TEXT NOT NULL, klass TEXT NOT NULL, title TEXT NOT NULL DEFAULT '', status TEXT NOT NULL DEFAULT 'entwurf', " +
+    "params TEXT NOT NULL DEFAULT '{}', plan TEXT NOT NULL DEFAULT '{}', rows TEXT NOT NULL DEFAULT '[]', version INTEGER NOT NULL DEFAULT 0, source TEXT, created_at INTEGER NOT NULL, updated_at INTEGER NOT NULL)",
+  "CREATE INDEX IF NOT EXISTS units_sk ON units(subject, klass, created_at)",
+  // Krankheitsvertretung: Vorschlag (von Claude über den Connector), nach Bestätigung aktiv; archive = ursprüngliche Planung
+  "CREATE TABLE IF NOT EXISTS substitutes (lesson_id TEXT PRIMARY KEY, status TEXT NOT NULL, proposal TEXT NOT NULL, archive TEXT, created_at INTEGER NOT NULL, updated_at INTEGER NOT NULL, confirmed_at INTEGER)",
 ];
 
 // Nachträglich ergänzte Spalten (bestehende Datenbanken bekommen sie per ALTER TABLE, nur additiv)
 export const COLUMNS = [
   ["lessons", "homework", "TEXT NOT NULL DEFAULT ''"],
+  ["lessons", "unit_id", "TEXT"],
+  ["lessons", "unit_row", "TEXT"],
 ];
 
 let ready = null;
