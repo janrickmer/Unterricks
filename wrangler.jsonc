@@ -1,0 +1,34 @@
+// Unterricks – Cloudflare-Worker-Konfiguration (wrangler 4.145.0, siehe package.json)
+// Datenbank (D1) und Dateiablage (R2) werden per Name gefunden; der Deploy-Workflow legt beide in der EU an.
+// Tabellen legt der Worker beim ersten Request selbst an (CREATE TABLE IF NOT EXISTS) – keine Migrationen.
+{
+  "$schema": "./node_modules/wrangler/config-schema.json",
+  "name": "unterricks",
+  "main": "worker/index.js",
+  "compatibility_date": "2026-09-25",
+  "workers_dev": true,
+  // Statische Seite aus ./dist (npm run build); /api/* und /mcp gehen immer zuerst an den Worker
+  "assets": { "directory": "./dist", "binding": "ASSETS", "run_worker_first": ["/api/*", "/mcp", "/mcp/*"], "not_found_handling": "single-page-application" },
+  "d1_databases": [{ "binding": "DB", "database_name": "unterricks-db" }],
+  // R2: muss im Cloudflare-Konto einmal aktiviert sein (Dashboard → R2); kostenlos bis 10 GB, der Worker begrenzt auf 9 GB
+  "r2_buckets": [{ "binding": "FILES", "bucket_name": "unterricks-files", "jurisdiction": "eu" }],
+  // Live-Präsentation: ein Durable Object je Sitzung (SQLite-Backend – im Free-Plan nur so verfügbar)
+  "durable_objects": { "bindings": [{ "name": "LIVE", "class_name": "LiveRoom" }] },
+  "migrations": [{ "tag": "v1", "new_sqlite_classes": ["LiveRoom"] }],
+  // Cloudflare Workers AI als kostenloser Rückfall ohne Schlüssel (kein AI Gateway)
+  "ai": { "binding": "AI", "remote": true },
+  "vars": {
+    "FEIBEITSBLATT_API": "https://feibeitsblatt.feindt.workers.dev",
+    "FEIBEITSBLATT_URL": "https://feibeitsblatt.janrickmer.de/"
+  },
+  // Kein Cron Trigger (das Free-Kontingent von 5 je Konto teilt sich die Plattform mit Feibeitsblatt): aufgeräumt wird
+  // gelegentlich bei normalen Anfragen (siehe worker/index.js).
+  // Keine Protokolle bei Cloudflare speichern (URLs enthalten signierte Links und den Connector-Schlüssel)
+  "observability": {
+    "enabled": false,
+    "logs": { "enabled": false, "invocation_logs": false },
+    "traces": { "enabled": false }
+  }
+  // Secrets (Dashboard oder `wrangler secret put`): SETTINGS_SECRET (Pflicht: signiert Links, verschlüsselt KI-Schlüssel – der
+  // Deploy-Workflow legt es einmalig an), optional SETUP_CODE (schützt die Ersteinrichtung des Lehrkraft-Zugangs).
+}

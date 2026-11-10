@@ -1,0 +1,21 @@
+{
+  "name": "unterricks",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "description": "Unterricks – digitale Unterrichtsplattform (Cloudflare Worker + D1 + R2 + Durable Objects)",
+  "engines": {
+    "node": ">=22"
+  },
+  "scripts": {
+    "build": "node scripts/build.mjs",
+    "dev": "node scripts/build.mjs && wrangler dev --local --var SETTINGS_SECRET:nur-lokal-entwicklung",
+    "test": "node --test \"test/unit/*.test.mjs\"",
+    "test:e2e": "node test/e2e/run.mjs"
+  },
+  "devDependencies": {
+    "pdf-lib": "1.17.1",
+    "pdfjs-dist": "5.7.284",
+    "wrangler": "4.145.0"
+  }
+}
