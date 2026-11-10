@@ -1,9 +1,10 @@
 // session.js – Sitzungsansicht der Lehrkraft: Planung im Chat, Schulportal-Eintrag, Claude-Prompts, Material, Präsentation, Feibeitsblatt.
 import { h, clear, toast, errToast, busy, modal, confirmDialog, copyText, fmtBytes, fmtDate, fmtTime, fileIcon, downloadUrl, downloadBlob, upload, api, apiUrl, nn, icon, pageHead, setFach, stateLine } from "./ui.js";
 import { render, go, onLeave } from "./app.js";
-import { T, tapi, teacherBar } from "./teacher.js";
+import { T, tapi, teacherBar, fbAutoConnect, fbUnlock, fbStore, fbForget, askTeacherPassword } from "./teacher.js";
 import { subjectName, gradeInfo, formatCode, claudePresentationPrompt, PORTAL_RULES, portalForCopy, insertStop, removeStops, hasStop, isStopLine,
-  fmtDay, classShort, gradeKey, isAnalogClass, ANALOG_RULE, isCourseClass, courseMembers, homeworkForPortal, PUBLIC_URL } from "./shared.js";
+  fmtDay, classShort, gradeKey, isAnalogClass, ANALOG_RULE, isCourseClass, courseMembers, homeworkForPortal, PUBLIC_URL, cleanWebUrl, webUrlLabel,
+  lessonTimes, fmtClockBerlin, fmtDayBerlin, HOMEWORK_BEFORE_END_MIN, PRESENTATION_AFTER_END_MIN, slidesUpTo, printFileName, subjectShort } from "./shared.js";
 import { extractUnitChange, stripUnitBlock, unitContext, claudeLessonPrompt, lessonChatName } from "./planning.js";
 import { claudeHandoff } from "./claude.js";
 import { leupoldView } from "./units.js";
@@ -26,8 +27,8 @@ export async function sessionPage(id) {
   let portalTA = null;
   const row = () => (st.unit && L().unitRow ? (st.unit.rows || []).find((r) => r.uid === L().unitRow) || null : null);
   const ctx = () => ({ lessonId: id, subject: L().subject, klass: L().klass,
-    lesson: { title: L().title, topic: L().topic, durationMin: L().durationMin, date: L().date, ideas: L().ideas, homework: L().homework },
-    materials: st.files.filter((f) => f.area !== "archive").map((f) => ({ name: f.name, area: f.area, kind: f.kind, text: f.text || "", pages: f.pages })), sheets: st.sheets,
+    lesson: { title: L().title, topic: L().topic, durationMin: L().durationMin, date: L().date, startTime: L().startTime, ideas: L().ideas, homework: L().homework },
+    materials: st.files.filter((f) => f.area !== "archive").map((f) => ({ name: f.name, area: f.area, kind: f.kind, text: f.kind === "link" ? f.url || "" : f.text || "", pages: f.pages })), sheets: st.sheets,
     portal: portalTA ? portalTA.value : L().portal, unit: st.unit, row: row(), unitText: st.unit ? unitContext(st.unit, L().unitRow) : "",
     gradeNote: cfg && cfg[L().subject] ? (cfg[L().subject].gradeNotes || {})[gradeKey(L().klass)] || "" : "" });
 
@@ -41,6 +42,13 @@ export async function sessionPage(id) {
       L().date ? h("span", { class: "chip", text: fmtDay(L().date) }) : null, L().durationMin ? h("span", { class: "chip", text: L().durationMin + " Minuten" }) : null));
   };
   paintSubline();
+  // Zeitpunkte der Sitzung (Beginn + Dauer): Hausaufgabe und Präsentation für Schüler:innen
+  const timesNow = () => lessonTimes({ date: L().date, startTime: L().startTime, durationMin: L().durationMin });
+  const missingTimes = () => [!L().startTime ? "der Beginn (Uhrzeit)" : null, !L().durationMin ? "die Dauer" : null].filter(Boolean).join(" und ") || "eine Angabe";
+  const sameDay = (ms) => fmtDayBerlin(ms) === fmtDayBerlin(timesNow() ? timesNow().start : ms);
+  const whenText = (ms) => (sameDay(ms) ? "" : fmtDayBerlin(ms) + ", ") + fmtClockBerlin(ms) + " Uhr";
+  const onTimes = [];   // Teile der Seite, die von Beginn/Dauer abhängen (Hausaufgabe, Präsentation, Sitzungsdaten)
+  const paintTimes = () => { for (const f of onTimes) f(); };
   clear(main).append(pageHead({ fach: L().subject, title: heading, sub: subline,
     crumbs: [["#/lk", "Fächer"], ["#/lk/f/" + L().subject, subjectName(L().subject)], ["#/lk/f/" + L().subject + "/" + L().klass, classShort(L().klass)],
       ...(st.unit ? [["#/lk/u/" + st.unit.id, st.unit.title || "Einheit"]] : []), L().title] }));
@@ -315,8 +323,13 @@ export async function sessionPage(id) {
   setPresBtn();
   /* ======================= Hausaufgabe ======================= */
   const hwTA = h("textarea", { id: "hw", rows: "3", value: L().homework || "", placeholder: "z. B. Lies M2 und beantworte Aufgabe 3 schriftlich." });
-  const hwState = h("span", { class: "save-state" }), hwDue = h("p", { class: "small" });
-  function paintDue() { hwDue.textContent = L().nextDate ? "Fällig zur nächsten Sitzung am " + fmtDay(L().nextDate) + " (richtet sich nach dem Datum der nächsten Sitzung dieser Klasse)." : "Noch keine spätere Sitzung dieser Klasse angelegt – Schüler:innen sehen „bis zur nächsten Sitzung“."; }
+  const hwState = h("span", { class: "save-state" }), hwDue = h("p", { class: "small" }), hwWhen = h("p", { class: "small hwwhen" });
+  function paintDue() {
+    hwDue.textContent = L().nextDate ? "Fällig zur nächsten Sitzung am " + fmtDay(L().nextDate) + " (richtet sich nach dem Datum der nächsten Sitzung dieser Klasse)." : "Noch keine spätere Sitzung dieser Klasse angelegt – Schüler:innen sehen „bis zur nächsten Sitzung“.";
+    const t = timesNow();
+    clear(hwWhen).append(t ? "Schüler:innen sehen die Hausaufgabe ab " + whenText(t.homeworkAt) + " (" + HOMEWORK_BEFORE_END_MIN + " Minuten vor dem Ende der Sitzung)."
+      : h("span", { class: "warnc", text: "Schüler:innen sehen die Hausaufgabe erst " + HOMEWORK_BEFORE_END_MIN + " Minuten vor dem Ende der Sitzung – dafür fehlt " + missingTimes() + " (bei den Sitzungsdaten)." }));
+  }
   let hwT = null;
   const saveHw = async () => {
     clearTimeout(hwT); hwT = null;
@@ -325,12 +338,12 @@ export async function sessionPage(id) {
   };
   hwTA.addEventListener("input", () => { stateLine(hwState, "…"); clearTimeout(hwT); hwT = setTimeout(saveHw, 900); });
   hwTA.addEventListener("blur", () => { if (hwTA.value !== (L().homework || "")) saveHw(); });
-  paintDue();
+  paintDue(); onTimes.push(paintDue);
   const hwCard = h("section", { class: "card homework" }, h("div", { class: "section-title" }, h("h2", { text: "Hausaufgabe bis zur nächsten Sitzung" }), hwState),
-    h("label", { for: "hw" }, "Hausaufgabe (für Schüler:innen sichtbar)"), hwTA, hwDue,
+    h("label", { for: "hw" }, "Hausaufgabe (für Schüler:innen sichtbar ab " + HOMEWORK_BEFORE_END_MIN + " Minuten vor dem Ende der Sitzung)"), hwTA, hwDue, hwWhen,
     h("div", { class: "row" }, h("button", { class: "btn small", type: "button", onclick: async () => toast((await copyText(homeworkForPortal(hwTA.value, L().code, L().nextDate)))
       ? (hwTA.value.trim() ? "Hausaufgabe kopiert" : "Keine Hausaufgabe eingetragen – nur der Hinweis auf die Sitzung kopiert") + " – im Schulportal in das Feld „Hausaufgabe“ einfügen." : "Bitte manuell kopieren.", "ok", 6000) }, "Für das Schulportal kopieren")),
-    h("p", { class: "hint", text: "Schüler:innen sehen sie in dieser Sitzung direkt unter der Live-Präsentation und in ihrer Sitzungsliste. Schulportal-Zeichen (**fett**, ~~kursiv~~) sind erlaubt. " +
+    h("p", { class: "hint", text: "Schüler:innen sehen sie ab " + HOMEWORK_BEFORE_END_MIN + " Minuten vor dem Ende der Sitzung direkt unter der Live-Präsentation und in ihrer Sitzungsliste. Schulportal-Zeichen (**fett**, ~~kursiv~~) sind erlaubt. " +
       "Beim Kopieren für das Schulportal setzt Unterricks die fette Überschrift „Hausaufgabe zum …:“ (Datum der nächsten Sitzung) davor, macht aus jeder Zeile einen Stichpunkt und ergänzt als letzten Stichpunkt „Unter " + PUBLIC_URL + " kannst du diese Sitzung mit dem Code " + formatCode(L().code) + " aufrufen …“ – in Unterricks sehen die Schüler:innen diesen Hinweis nicht." }));
 
   const presPromptCard = h("section", { class: "card" }, h("div", { class: "section-title" }, h("h2", { text: "Präsentation mit Claude erstellen" })),
@@ -342,7 +355,10 @@ export async function sessionPage(id) {
   function fileRow(f) {
     const other = f.area === "student" ? "teacher" : "student";
     const acts = h("div", { class: "acts" });
-    if (f.kind === "text") {
+    if (f.kind === "link") {
+      acts.append(h("a", { class: "btn small", href: f.url, target: "_blank", rel: "noopener noreferrer" }, "Öffnen", h("span", { class: "sr-only", text: " (öffnet in neuem Tab)" })),
+        h("button", { class: "btn small", type: "button", onclick: () => editLink(f) }, "Bearbeiten"));
+    } else if (f.kind === "text") {
       acts.append(h("button", { class: "btn small", type: "button", onclick: () => editText(f) }, "Ansehen/Bearbeiten"),
         h("button", { class: "btn small", type: "button", onclick: (e) => busy(e.currentTarget, async () => { try { const { markdownToPdf, pdfName } = await import("./pdfmaker.js"); downloadBlob(await markdownToPdf(f.name, f.text, { subtitle: subjectName(L().subject) + " · " + L().klass }), pdfName(f.name)); } catch (err) { errToast(err); } }) }, "PDF"));
     } else {
@@ -352,7 +368,7 @@ export async function sessionPage(id) {
       h("button", { class: "btn small", type: "button", title: "In den anderen Bereich verschieben", onclick: async () => {
         try { const r = await tapi("PATCH", "/api/teacher/files/" + f.id, { body: { area: other } }); Object.assign(f, r.file); paintFiles(); toast(other === "student" ? "Jetzt für Schüler:innen sichtbar." : "Jetzt nur noch für Lehrkräfte.", "ok"); } catch (e) { errToast(e); }
       } }, icon("right"), other === "student" ? "Für Schüler:innen" : "Nur für Lehrkraft"),
-      h("button", { class: "btn small ghost", type: "button", "aria-label": "Umbenennen", onclick: async () => {
+      f.kind === "link" ? null : h("button", { class: "btn small ghost", type: "button", "aria-label": "Umbenennen", onclick: async () => {
         const n = prompt("Neuer Name:", f.name); if (!n) return;
         try { const r = await tapi("PATCH", "/api/teacher/files/" + f.id, { body: { name: n } }); Object.assign(f, r.file); paintFiles(); } catch (e) { errToast(e); }
       } }, icon("edit")),
@@ -361,13 +377,33 @@ export async function sessionPage(id) {
         try { await tapi("DELETE", "/api/teacher/files/" + f.id); st.files = st.files.filter((x) => x !== f); paintFiles(); } catch (e) { errToast(e); }
       } }, icon("trash")));
     return h("div", { class: "item" }, fileIcon(f.name, f.mime, f.kind), h("div", { class: "main" }, h("div", { class: "name", text: f.name }),
-      h("div", { class: "meta", text: (f.kind === "text" ? "Text (PDF-Download)" : fmtBytes(f.size)) + (f.source === "claude" ? " · von Claude" : f.source === "chat" ? " · aus dem Chat" : f.source === "vertretung" ? " · Vertretung" : f.source === "uebernommen" ? " · übernommen" : f.source === "notfall" ? " · Notfall-Feibeitsblatt (automatisch aus dem Feibeitsblatt " + formatCode(f.fbCode || "") + ")" : "") + " · " + fmtTime(f.createdAt) })), acts);
+      h("div", { class: "meta", text: (f.kind === "link" ? "Link: " + webUrlLabel(f.url) : f.kind === "text" ? "Text (PDF-Download)" : fmtBytes(f.size)) + (f.source === "claude" ? " · von Claude" : f.source === "chat" ? " · aus dem Chat" : f.source === "vertretung" ? " · Vertretung" : f.source === "uebernommen" ? " · übernommen" : f.source === "notfall" ? " · Notfall-Feibeitsblatt (automatisch aus dem Feibeitsblatt " + formatCode(f.fbCode || "") + ")" : "") + " · " + fmtTime(f.createdAt) })), acts);
   }
   function paintFiles() {
     for (const area of ["student", "teacher"]) {
       const fs = st.files.filter((f) => f.area === area);
       clear(lists[area]).append(...(fs.length ? fs.map(fileRow) : [h("p", { class: "muted small", text: "Noch nichts hochgeladen." })]));
     }
+  }
+  /* Link zu einer Internetseite: Titel und Adresse (neu anlegen, wenn f fehlt) */
+  function editLink(f, area) {
+    const t = h("input", { id: "lk-t", value: f ? f.name : "", maxlength: "200", placeholder: "z. B. Erklärvideo der bpb" });
+    const u = h("input", { id: "lk-u", value: f ? f.url : "", inputmode: "url", autocomplete: "off", spellcheck: "false", placeholder: "https://…" });
+    const msg = h("p", { class: "err", role: "alert" });
+    modal({ title: f ? "Link bearbeiten" : "Link hinzufügen", body: (el) => el.append(
+      h("div", { class: "field" }, h("label", { for: "lk-t" }, "Titel"), t),
+      h("div", { class: "field" }, h("label", { for: "lk-u" }, "Internetadresse"), u),
+      h("p", { class: "hint", text: (f ? f.area : area) === "student" ? "Schüler:innen sehen den Titel und öffnen die Seite in einem neuen Tab." : "Nur für Sie sichtbar." }), msg),
+      actions: [{ label: "Abbrechen" }, { label: f ? "Speichern" : "Hinzufügen", class: "primary", onClick: async () => {
+        msg.textContent = "";
+        const url = cleanWebUrl(u.value);
+        if (!url) { msg.textContent = "Bitte eine gültige Internetadresse eingeben (beginnend mit https://)."; u.focus(); return false; }
+        try {
+          if (f) { const r = await tapi("PATCH", "/api/teacher/files/" + f.id, { body: { name: t.value.trim() || new URL(url).hostname, url } }); Object.assign(f, r.file); }
+          else { const r = await tapi("POST", "/api/teacher/lessons/" + id + "/links", { body: { area, title: t.value, url } }); st.files.push(r.file); }
+          paintFiles(); toast(f ? "Link gespeichert." : "Link hinzugefügt.", "ok");
+        } catch (e) { msg.textContent = e.message; return false; }
+      } }] });
   }
   function editText(f) {
     const ta = h("textarea", { rows: "16", value: f.text, class: "mono", style: { fontSize: ".88rem" } });
@@ -405,14 +441,35 @@ export async function sessionPage(id) {
   const progS = h("div", { class: "stack" }), progT = h("div", { class: "stack" });
   const filesCard = h("section", { class: "card" }, h("div", { class: "section-title" }, h("h2", { text: "Material" })),
     h("div", { class: "zones" },
-      h("div", { class: "stack" }, h("h3", { text: "Für Schüler:innen zugänglich" }), dropZone("Dateien hier ablegen oder auswählen", "PDF, Bilder, Word, PowerPoint, Excel u. a. – bis 100 MB je Datei", uploadInto("student", progS)), progS, lists.student),
-      h("div", { class: "stack" }, h("h3", { text: "Nur für Lehrkräfte" }), dropZone("Dateien hier ablegen oder auswählen", "Wird Schüler:innen nie angezeigt", uploadInto("teacher", progT)), progT, lists.teacher)),
+      h("div", { class: "stack" }, h("h3", { text: "Für Schüler:innen zugänglich" }), dropZone("Dateien hier ablegen oder auswählen", "PDF, Bilder, Word, PowerPoint, Excel u. a. – bis 100 MB je Datei", uploadInto("student", progS)),
+        h("div", { class: "row" }, h("button", { class: "btn small", type: "button", onclick: () => editLink(null, "student") }, icon("plus"), "Link hinzufügen")), progS, lists.student),
+      h("div", { class: "stack" }, h("h3", { text: "Nur für Lehrkräfte" }), dropZone("Dateien hier ablegen oder auswählen", "Wird Schüler:innen nie angezeigt", uploadInto("teacher", progT)),
+        h("div", { class: "row" }, h("button", { class: "btn small", type: "button", onclick: () => editLink(null, "teacher") }, icon("plus"), "Link hinzufügen")), progT, lists.teacher)),
     h("p", { class: "hint", text: "Materialien aus dem Chat übernehmen Sie mit „Als Material übernehmen“ unter einer Antwort; Claude kann über den Connector ebenfalls Material ablegen." }));
   paintFiles();
 
   /* ======================= Präsentation ======================= */
   const presCard = h("section", { class: "card" });
   let pendingPdf = null;
+  // Freigabe für Schüler:innen (5 Minuten nach dem Ende der Sitzung) – bleibt stehen, wenn sich Beginn oder Dauer ändern
+  const presRel = h("p", { class: "small presrel" });
+  const curPres = () => st.files.find((f) => f.area === "presentation" && f.status === "ready") || null;
+  const shownOf = (p) => (p && p.shownUntil && p.shownUntil < p.pages ? p.shownUntil : null);
+  function paintPresRel() {
+    const p = curPres(), t = timesNow(), n = shownOf(p);
+    clear(presRel).append(t ? h("span", null, "Schüler:innen können " + (n ? (n === 1 ? "die Folie 1" : "die Folien 1–" + n) : "die ganze Präsentation") + " ab ", h("strong", { text: whenText(t.presentationAt) }),
+      " selbst öffnen (" + PRESENTATION_AFTER_END_MIN + " Minuten nach dem Ende der Sitzung); vorher sehen sie nur die Folie, die Sie live zeigen.")
+      : h("span", { class: "warnc", text: "Ohne " + missingTimes() + " der Sitzung bleibt die Präsentation für Schüler:innen gesperrt – bitte bei den Sitzungsdaten eintragen." }));
+  }
+  onTimes.push(paintPresRel);
+  // letzte im Unterricht gezeigte Folie markieren (n) bzw. aufheben (null): gekürzte PDF im Browser erzeugen und hochladen (pdfcut.js)
+  async function setShown(n, onStep) {
+    const p = curPres(); if (!p) return false;
+    const { markShown } = await import("./pdfcut.js");
+    const r = await markShown(p, n, T.token, onStep);
+    Object.assign(p, r.file);
+    return true;
+  }
   async function paintPres() {
     const p = st.files.find((f) => f.area === "presentation");
     clear(presCard).append(h("div", { class: "section-title" }, h("h2", { text: "Präsentation für den Unterricht" })));
@@ -424,13 +481,39 @@ export async function sessionPage(id) {
       return;
     }
     if (!st.slides) { try { st.slides = await tapi("GET", "/api/teacher/files/" + p.id + "/slides"); } catch (e) { errToast(e); } }
-    const thumbs = h("div", { class: "thumbs" }, st.slides ? st.slides.urls.slice(0, 8).map((u, i) => h("img", { src: apiUrl(u), alt: "Folie " + (i + 1), loading: "lazy" })) : null);
+    const shown = shownOf(p), shownState = h("span", { class: "save-state" });
+    const applyShown = async (n) => {
+      stateLine(shownState, n ? "Kürze die Präsentation …" : "…");
+      try {
+        await setShown(n, (m) => stateLine(shownState, m));
+        toast(n ? "Schüler:innen sehen nach der Freigabe nur " + slidesUpTo(n) + "." : "Markierung aufgehoben – nach der Freigabe sehen Schüler:innen alle Folien.", "ok", 6000);
+      } catch (e) { errToast(e); }
+      paintPres();
+    };
+    const slideMenu = (x, y, n) => contextMenu(x, y, [
+      { label: n === p.pages ? "Letzte Folie: alle Folien freigeben" : "Bis hier gezeigt (Folie " + n + " als letzte gezeigte Folie markieren)", onClick: () => applyShown(n === p.pages ? null : n) },
+      ...(shown ? [{ label: "Markierung aufheben (alle Folien)", onClick: () => applyShown(null) }] : [])]);
+    const thumbs = h("div", { class: "thumbs", role: "list", "aria-label": "Folien der Präsentation" }, st.slides ? st.slides.urls.map((u, i) => {
+      const n = i + 1, after = !!shown && n > shown;
+      return h("figure", { class: "thumb" + (after ? " after" : "") + (shown === n ? " mark" : ""), role: "listitem", tabindex: "0",
+        "aria-label": "Folie " + n + (shown === n ? " – letzte gezeigte Folie" : after ? " – für Schüler:innen nicht freigegeben" : "") + ". Kontextmenü: als letzte gezeigte Folie markieren",
+        oncontextmenu: (e) => { e.preventDefault(); slideMenu(e.clientX, e.clientY, n); },
+        onkeydown: (e) => { if (e.key === "ContextMenu" || (e.shiftKey && e.key === "F10")) { e.preventDefault(); const r = e.currentTarget.getBoundingClientRect(); slideMenu(r.left + 8, r.bottom - 8, n); } } },
+        h("img", { src: apiUrl(u), alt: "", loading: "lazy" }), h("figcaption", null, String(n), shown === n ? h("span", { class: "badge ink", text: "bis hier" }) : null));
+    }) : null);
+    const shownSel = h("select", { id: "shown-sel", "aria-describedby": "shown-hint" }, h("option", { value: "" }, "Keine Markierung – nach der Freigabe alle Folien"),
+      Array.from({ length: Math.max(0, p.pages - 1) }, (_, i) => h("option", { value: String(i + 1), selected: shown === i + 1 ? true : null }, "Folie " + (i + 1))));
+    shownSel.addEventListener("change", () => applyShown(shownSel.value ? Number(shownSel.value) : null));
+    const shownBox = h("div", { class: "shownbox" }, h("label", { for: "shown-sel" }, "Letzte im Unterricht gezeigte Folie"), h("div", { class: "row" }, shownSel, shownState),
+      h("p", { class: "hint", id: "shown-hint", text: "Am Ende der Stunde markieren – hier, per Rechtsklick auf eine Folie oder im Vollbild mit „Bis hier gezeigt“. Schüler:innen bekommen nach der Freigabe nur die Folien bis hier; Folien für die nächste Sitzung oder mit Musterlösungen sehen sie nicht." }));
+    paintPresRel();
     const liveLine = h("div", { class: "small" });
     const startBtn = h("button", { class: "btn onair big", type: "button" }, "Ich bin im Unterricht und starte die Präsentation für alle.");
     startBtn.addEventListener("click", async () => {
       try {
         const { startPresenter } = await import("./presenter.js");
-        await startPresenter({ lessonId: id, file: p, token: T.token, slides: st.slides, startSlide: liveState && liveState.active ? liveState.slide : 1, onEnd: () => refreshLive() });
+        await startPresenter({ lessonId: id, file: p, token: T.token, slides: st.slides, startSlide: liveState && liveState.active ? liveState.slide : 1, onEnd: () => { refreshLive(); paintPres(); },
+          shownUntil: shown, onMark: (n, onStep) => setShown(n >= p.pages ? null : n, onStep) });
       } catch (e) { errToast(e); }
     });
     let liveState = null;
@@ -449,8 +532,8 @@ export async function sessionPage(id) {
             if (!(await confirmDialog("Präsentation löschen", "Präsentation und Folienbilder löschen? Eine laufende Live-Anzeige endet.", "Löschen", true))) return;
             try { await tapi("DELETE", "/api/teacher/files/" + p.id); st.files = st.files.filter((x) => x !== p); st.slides = null; paintPres(); } catch (e) { errToast(e); }
           } }, icon("trash")))),
-      thumbs, startBtn, liveLine,
-      h("p", { class: "hint", text: "Startet das Vollbild hier und zeigt dieselbe Folie oben in der Schüleransicht aller freigeschalteten Schüler:innen. Weiter mit →, Leertaste, Bildtaste (Presenter) oder Tippen; Schüler:innen können nicht selbst blättern. Die ganze PDF können sie erst 90 Minuten nach ihrem ersten Betreten selbst öffnen." }),
+      thumbs, shownBox, presRel, startBtn, liveLine,
+      h("p", { class: "hint", text: "Startet das Vollbild hier und zeigt dieselbe Folie oben in der Schüleransicht aller freigeschalteten Schüler:innen. Weiter mit →, Leertaste, Bildtaste (Presenter) oder Tippen; Schüler:innen können nicht selbst blättern. Selbst öffnen können sie die Präsentation erst " + PRESENTATION_AFTER_END_MIN + " Minuten nach dem Ende der Sitzung – bei markierter letzter Folie nur bis dorthin." }),
       h("details", { class: "box" }, h("summary", null, "Andere Präsentation hochladen"), zone));
   }
   async function uploadPres(file) {
@@ -517,23 +600,65 @@ export async function sessionPage(id) {
       fb.connected ? [" ", h("button", { class: "btn small ghost", type: "button", onclick: () => ensureNotfall([s.code], true) }, "Erneuern")] : null);
     return h("div", { class: "small notfall muted", text: fb.connected ? "Notfall-Feibeitsblatt wird gleich erstellt …" : "Das Notfall-Feibeitsblatt entsteht automatisch, sobald Sie mit Feibeitsblatt verbunden sind." });
   }
+  const storeLink = () => fbStore(() => askTeacherPassword("Zum Verschlüsseln der Feibeitsblatt-Verbindung braucht dieses Gerät einmal Ihr Unterricks-Passwort. Der Schlüssel entsteht nur in Ihrem Browser; der Server sieht ihn nie."));
+  const afterConnect = () => { paintFb(); if (fb.connected) ensureNotfall(st.sheets.map((x) => x.code)); };
+  function fbConnectUi(lk) {
+    const door = h("input", { inputmode: "numeric", autocomplete: "off", placeholder: "Türcode", "aria-label": "Türcode des Feibeitsblatts", style: { maxWidth: "9rem" } });
+    const pw = h("input", { type: "password", autocomplete: "off", placeholder: "Feibeitsblatt-Passwort", "aria-label": "Feibeitsblatt-Passwort" });
+    const btn = h("button", { class: "btn primary", type: "submit" }, "Verbinden");
+    const save = h("input", { type: "checkbox", checked: true, "aria-describedby": "fbsave-hint" });
+    const form = h("form", { class: "stack", onsubmit: (e) => { e.preventDefault(); busy(btn, async () => {
+      try {
+        await fb.connect(door.value, pw.value);
+        let saved = false;
+        if (save.checked) { try { saved = await storeLink(); } catch (err) { errToast(err); } }
+        toast(saved ? "Mit Feibeitsblatt verbunden – die Verbindung ist verschlüsselt in Ihrem Benutzerkonto gespeichert." : "Mit Feibeitsblatt verbunden.", "ok", 6000);
+        afterConnect();
+      } catch (err) { errToast(err); }
+    }, "Verbinde …"); } },
+      h("div", { class: "row" }, door, h("div", { class: "grow" }, pw), btn),
+      h("label", { class: "checkrow small" }, save, h("span", { text: lk.state === "none" ? "Verbindung verschlüsselt in meinem Benutzerkonto speichern – dann muss ich sie nicht erneut eingeben" : "Gespeicherte Verbindung durch diese ersetzen" })),
+      h("p", { class: "hint", id: "fbsave-hint", text: "Nötig zum Anlegen von Feibeitsblättern und zum Lesen der verschlüsselten Abgaben. Das Feibeitsblatt-Passwort verlässt Ihren Browser nie. Gespeichert wird – wenn Sie es wünschen – nur der daraus abgeleitete Schlüssel, verschlüsselt mit einem Schlüssel aus Ihrem Unterricks-Passwort, den der Server nie sieht." }));
+    if (lk.state === "locked") {
+      const upw = h("input", { type: "password", autocomplete: "current-password", placeholder: "Unterricks-Passwort", "aria-label": "Ihr Unterricks-Passwort" });
+      const ubtn = h("button", { class: "btn primary", type: "submit" }, "Entsperren"), umsg = h("p", { class: "err", role: "alert" });
+      return [h("div", { class: "notice" }, "Ihre Feibeitsblatt-Verbindung ist verschlüsselt in Ihrem Benutzerkonto gespeichert. Entsperren Sie sie auf diesem Gerät einmal mit Ihrem Unterricks-Passwort – danach verbindet sich Unterricks hier automatisch."),
+        h("form", { class: "row", onsubmit: (e) => { e.preventDefault(); umsg.textContent = ""; busy(ubtn, async () => {
+          try { await fbUnlock(upw.value); } catch (err) { umsg.textContent = err.message; return; }
+          await fbAutoConnect(true); if (fb.connected) toast("Mit Feibeitsblatt verbunden.", "ok"); afterConnect();
+        }, "Entsperre …"); } }, h("div", { class: "grow" }, upw), ubtn), umsg,
+        h("details", { class: "box" }, h("summary", null, "Stattdessen mit Türcode und Feibeitsblatt-Passwort verbinden"), form)];
+    }
+    const note = lk.state === "invalid" ? h("div", { class: "notice warn" }, lk.other ? "Die gespeicherte Verbindung gehört zu einem anderen Feibeitsblatt. Bitte verbinden Sie sich neu; die gespeicherte Verbindung wird dabei ersetzt."
+      : "Die gespeicherte Feibeitsblatt-Verbindung gilt nicht mehr – vermutlich wurde das Feibeitsblatt-Passwort geändert. Bitte verbinden Sie sich neu; die gespeicherte Verbindung wird dabei ersetzt.")
+      : lk.state === "error" ? h("div", { class: "notice warn" }, "Die gespeicherte Verbindung ließ sich gerade nicht herstellen: " + (lk.msg || "") + " ",
+        h("button", { class: "btn small", type: "button", onclick: () => { fbAutoConnect(true).then(afterConnect); paintFb(); } }, "Erneut versuchen")) : null;
+    return [note, form].filter(Boolean);
+  }
   async function paintFb() {
     if (analog) {
       clear(fbCard).append(...nn(h("h2", { text: "Feibeitsblatt" }), h("div", { class: "notice" }, "Jahrgang " + gradeKey(L().klass) + ": " + ANALOG_RULE),
         st.sheets.length ? h("p", { class: "small", text: "Verknüpfte Feibeitsblätter: " + st.sheets.map((x) => x.title + " (" + formatCode(x.code) + ")").join(", ") }) : null));
       return;
     }
-    clear(fbCard).append(h("div", { class: "section-title" }, h("h2", { text: "Feibeitsblatt" }), fb.connected ? h("span", { class: "badge ok", text: "verbunden" }) : h("span", { class: "badge", text: "nicht verbunden" })));
-    // Verbindung
-    if (!fb.connected) {
-      const door = h("input", { inputmode: "numeric", autocomplete: "off", placeholder: "Türcode", "aria-label": "Türcode des Feibeitsblatts", style: { maxWidth: "9rem" } });
-      const pw = h("input", { type: "password", autocomplete: "off", placeholder: "Feibeitsblatt-Passwort", "aria-label": "Feibeitsblatt-Passwort" });
-      const btn = h("button", { class: "btn primary", type: "submit" }, "Verbinden");
-      fbCard.append(h("form", { class: "row", onsubmit: (e) => { e.preventDefault(); busy(btn, async () => { try { await fb.connect(door.value, pw.value); toast("Mit Feibeitsblatt verbunden.", "ok"); paintFb(); ensureNotfall(st.sheets.map((x) => x.code)); } catch (err) { errToast(err); } }, "Verbinde …"); } }, door, h("div", { class: "grow" }, pw), btn),
-        h("p", { class: "hint", text: "Nötig zum Anlegen von Feibeitsblättern und zum Lesen der verschlüsselten Abgaben. Passwort und Schlüssel bleiben nur in diesem Browserfenster (bis zum Neuladen/Abmelden)." }));
-    } else {
+    const lk = T.fbLink, checking = !fb.connected && lk.state === "checking";
+    clear(fbCard).append(h("div", { class: "section-title" }, h("h2", { text: "Feibeitsblatt" }), fb.connected ? h("span", { class: "badge ok", text: "verbunden" }) : h("span", { class: "badge", text: checking ? "verbinde …" : "nicht verbunden" })));
+    // Verbindung (einmalig eingeben; auf Wunsch Ende-zu-Ende verschlüsselt im Benutzerkonto gespeichert, siehe fblink.js)
+    if (checking) fbCard.append(h("p", { class: "small notfall" }, h("span", { class: "spin", "aria-hidden": "true" }), "Verbinde mit der gespeicherten Feibeitsblatt-Verbindung …"));
+    else if (!fb.connected) fbCard.append(...fbConnectUi(lk));
+    else {
       const set = h("div", { class: "small muted", text: "Lade Einstellungen …" });
-      fbCard.append(h("div", { class: "row between" }, set, h("button", { class: "btn small", type: "button", onclick: () => { fb.disconnect(); paintFb(); } }, "Verbindung trennen")));
+      const linkRow = lk.state === "saved"
+        ? h("div", { class: "row small fblink" }, h("span", { class: "ok" }, icon("check"), "Verbindung verschlüsselt in Ihrem Benutzerkonto gespeichert – Unterricks verbindet sich automatisch."),
+          h("button", { class: "btn small ghost danger", type: "button", onclick: async (e) => {
+            const btn = e.currentTarget;   // nach einem await ist currentTarget leer
+            if (!(await confirmDialog("Gespeicherte Verbindung löschen", "Danach müssen Sie Türcode und Feibeitsblatt-Passwort wieder eingeben – auf allen Geräten.", "Löschen", true))) return;
+            await busy(btn, async () => { try { await fbForget(); toast("Gespeicherte Feibeitsblatt-Verbindung gelöscht.", "ok"); paintFb(); } catch (err) { errToast(err); } });
+          } }, "Gespeicherte Verbindung löschen"))
+        : h("div", { class: "row small fblink" }, h("span", { class: "muted", text: "Die Verbindung gilt nur in diesem Fenster." }),
+          h("button", { class: "btn small", type: "button", onclick: (e) => busy(e.currentTarget, async () => { try { if (await storeLink()) { toast("Die Verbindung ist verschlüsselt in Ihrem Benutzerkonto gespeichert.", "ok"); paintFb(); } } catch (err) { errToast(err); } }) }, "Verbindung speichern"),
+          h("button", { class: "btn small ghost", type: "button", onclick: () => { fb.disconnect(); paintFb(); } }, "Verbindung trennen"));
+      fbCard.append(set, linkRow);
       fb.aiStatus().then((ai) => {
         const sel = h("select", { style: { width: "auto" }, "aria-label": "Wartezeit auf die finale KI-Rückmeldung" }, [30, 60, 90].map((s) => h("option", { value: s, selected: ai.finalWaitSec === s ? true : null }, s + " Sekunden")));
         sel.addEventListener("change", async () => { try { await fb.setFinalWait(Number(sel.value)); toast("Wartezeit gespeichert.", "ok"); } catch (e) { errToast(e); } });
@@ -754,6 +879,8 @@ export async function sessionPage(id) {
   }
   paintFb();
   ensureNotfall(st.sheets.map((x) => x.code));   // nur, wenn die Verbindung zum Feibeitsblatt schon besteht (z. B. nach einer Vertretung)
+  // gespeicherte Feibeitsblatt-Verbindung: automatisch verbinden (einmal je Seitenaufruf; nach einem Netzfehler neu versuchen)
+  if (!analog && !fb.connected) { const run = notfallRun; fbAutoConnect(T.fbLink.state === "error" || T.fbLink.state === "saved").then(() => { if (run === notfallRun) afterConnect(); }); }
 
   /* ======================= Seitenleiste ======================= */
   const codeCard = h("section", { class: "card" }, h("h2", { text: "Sitzungscode" }),
@@ -767,6 +894,34 @@ export async function sessionPage(id) {
 
   const fTitle = h("input", { value: L().title, maxlength: "200" }), fTopic = h("input", { value: L().topic, maxlength: "500" });
   const fDate = h("input", { type: "date", value: L().date || "", required: true, "aria-label": "Datum der Sitzung" }), fDur = h("input", { type: "number", min: "5", max: "600", step: "5", value: L().durationMin || "" });
+  const fStart = h("input", { type: "time", step: "300", value: L().startTime || "", "aria-label": "Beginn der Sitzung (Uhrzeit)" });
+  const timesLine = h("div", { class: "small timesline", "aria-live": "polite" });
+  const paintTimesLine = () => {
+    const t = timesNow();
+    clear(timesLine).append(t
+      ? h("span", null, "Für Schüler:innen: Hausaufgabe ab ", h("strong", { text: whenText(t.homeworkAt) }), " (" + HOMEWORK_BEFORE_END_MIN + " Minuten vor dem Ende), ganze Präsentation zum Selbstöffnen ab ",
+        h("strong", { text: whenText(t.presentationAt) }), " (" + PRESENTATION_AFTER_END_MIN + " Minuten nach dem Ende " + fmtClockBerlin(t.end) + " Uhr).")
+      : h("span", { class: "warnc", text: "Bitte " + missingTimes() + " eintragen – ohne " + (missingTimes().includes(" und ") ? "diese Angaben" : "diese Angabe") + " sehen Schüler:innen weder die Hausaufgabe noch die ganze Präsentation." }));
+  };
+  paintTimesLine(); onTimes.push(paintTimesLine);
+  // KI-Begriffshilfe für Schüler:innen (während der Stunde, nach ihrer Einwilligung) – je Sitzung abschaltbar
+  const fAi = h("input", { type: "checkbox", id: "fai", checked: L().studentAi !== false ? true : null, "aria-describedby": "fai-hint" });
+  fAi.addEventListener("change", async () => {
+    try { const r = await tapi("PATCH", "/api/teacher/lessons/" + id, { body: { studentAi: fAi.checked } }); L().studentAi = r.lesson.studentAi; stateLine(metaState, "Gespeichert", "ok"); }
+    catch (e) { fAi.checked = !fAi.checked; errToast(e); }
+  });
+  const aiRow = h("div", { class: "field" }, h("label", { class: "checkrow" }, fAi, h("span", { text: "KI-Begriffshilfe für Schüler:innen während der Stunde anbieten" })),
+    h("p", { class: "hint", id: "fai-hint", text: "Unter der Live-Präsentation erklärt eine kostenlose KI (Einstellungen → KI-Begriffshilfe) Fachbegriffe kurz und einfach – nur zwischen Beginn und Ende der Sitzung, nur nach Einwilligung der Schüler:innen; Unterricks speichert die Fragen nicht." }));
+  fStart.addEventListener("change", async () => {
+    const nv = fStart.value || null, ov = L().startTime || null;
+    if (nv === ov) return;
+    try {
+      const r = await tapi("PATCH", "/api/teacher/lessons/" + id, { body: { startTime: nv } });
+      L().startTime = r.lesson.startTime; paintTimes();
+      if (st.unit) { const x = (st.unit.rows || []).find((y) => y.uid === L().unitRow); if (x) x.time = L().startTime; }
+      stateLine(metaState, "Gespeichert", "ok");
+    } catch (e) { fStart.value = ov || ""; errToast(e); }
+  });
   const fIdeas = h("textarea", { rows: "4", value: L().ideas, placeholder: "Ideen, Wünsche, Materialhinweise …" });
   const metaState = h("span", { class: "save-state" });
   let metaT = null;
@@ -775,7 +930,7 @@ export async function sessionPage(id) {
     try {
       const r = await tapi("PATCH", "/api/teacher/lessons/" + id, { body: { title: fTitle.value, topic: fTopic.value, durationMin: fDur.value ? Number(fDur.value) : null, ideas: fIdeas.value } });
       Object.assign(st.lesson, { title: r.lesson.title, topic: r.lesson.topic, durationMin: r.lesson.durationMin, ideas: r.lesson.ideas });
-      heading.textContent = r.lesson.title; paintSubline(); stateLine(metaState, "Gespeichert", "ok");
+      heading.textContent = r.lesson.title; paintSubline(); paintTimes(); stateLine(metaState, "Gespeichert", "ok");
     } catch (e) { stateLine(metaState, e.message, "err"); }
   };
   for (const el of [fTitle, fTopic, fDur, fIdeas]) { el.addEventListener("input", () => { stateLine(metaState, "…"); clearTimeout(metaT); metaT = setTimeout(saveMeta, 900); }); el.addEventListener("change", saveMeta); }
@@ -786,7 +941,7 @@ export async function sessionPage(id) {
     if (nd === od) return;
     try {
       const r = await tapi("PATCH", "/api/teacher/lessons/" + id, { body: { date: nd } });
-      L().date = r.lesson.date; L().nextDate = r.lesson.nextDate; paintSubline(); paintDue();
+      L().date = r.lesson.date; L().nextDate = r.lesson.nextDate; paintSubline(); paintTimes();
       if (st.unit) { const x = (st.unit.rows || []).find((y) => y.uid === L().unitRow); if (x) x.date = nd; }
       stateLine(metaState, "Gespeichert", "ok");
       toast("Datum geändert" + (st.unit ? " – auch in der Unterrichtseinheit." : "."), "ok");
@@ -794,7 +949,9 @@ export async function sessionPage(id) {
   });
   const metaCard = h("section", { class: "card" }, h("div", { class: "section-title" }, h("h2", { text: "Sitzungsdaten" }), metaState),
     h("div", { class: "field" }, h("label", null, "Titel"), fTitle), h("div", { class: "field" }, h("label", null, "Thema"), fTopic),
-    h("div", { class: "meta-grid" }, h("div", { class: "field" }, h("label", null, "Datum"), fDate), h("div", { class: "field" }, h("label", null, "Dauer (Minuten)"), fDur)),
+    h("div", { class: "meta-grid" }, h("div", { class: "field" }, h("label", null, "Datum"), fDate), h("div", { class: "field" }, h("label", null, "Beginn (Uhrzeit)"), fStart),
+      h("div", { class: "field" }, h("label", null, "Dauer (Minuten)"), fDur)),
+    timesLine, aiRow,
     h("div", { class: "field" }, h("label", null, "Ideen und Wünsche"), fIdeas),
     h("button", { class: "btn small danger", type: "button", onclick: async () => {
       if (!(await confirmDialog("Sitzung löschen", "Die Sitzung mit Planung, Schulportal-Eintrag, allen Dateien und Freischaltungen endgültig löschen?", "Endgültig löschen", true))) return;
@@ -828,9 +985,230 @@ export async function sessionPage(id) {
     h("div", { class: "row", style: { marginTop: ".6rem" } }, h("a", { class: "btn small", href: "#/lk/s/" + ps.id }, "Vorige Sitzung öffnen"),
       h("button", { class: "btn small ghost", type: "button", onclick: (e) => e.currentTarget.closest(".prevstop").remove() }, "Ausblenden"))) : null;
   const sub = substituteCards({ id, st, L, ctx, fb, analog, reload: () => sessionPage(id), openDraft: (dr, o) => editDraft(dr, { substitute: true, ...o }), flushPortal });
+  /* ======================= Von der Lehrkraft auszudrucken (ganz unten) ======================= */
+  // nur PDF, gedruckt wird nur A4 (andere Formate rechnet a4.js beim Hochladen um); Dateiname „28x - beidseitig - sw - Name.pdf“
+  const printList = h("div", { class: "list" }), printProg = h("div", { class: "stack" });
+  const printFiles = () => st.files.filter((f) => f.area === "print");
+  const pdfLib = () => import("/vendor/pdf-lib.esm.min.js");
+  async function printBytes(f) {
+    if (f.kind === "text") {
+      const { markdownToPdf } = await import("./pdfmaker.js");
+      return new Uint8Array(await (await markdownToPdf(f.name, f.text, { subtitle: subjectName(L().subject) + " · " + classShort(L().klass) })).arrayBuffer());
+    }
+    const r = await tapi("POST", "/api/teacher/files/" + f.id + "/link", { body: {} });
+    const res = await fetch(apiUrl(r.url), { credentials: "omit", cache: "no-store" });
+    if (!res.ok) throw new Error("„" + f.name + "“ ließ sich nicht laden (Fehler " + res.status + ").");
+    return new Uint8Array(await res.arrayBuffer());
+  }
+  function printRow(f) {
+    const p = f.print || { copies: 1, duplex: true, color: false };
+    const nameEl = h("div", { class: "name", text: f.printName || f.name });
+    const save = async (body) => {
+      try { const r = await tapi("PATCH", "/api/teacher/files/" + f.id, { body }); Object.assign(f, r.file); nameEl.textContent = f.printName; }
+      catch (e) { errToast(e); paintPrint(); }
+    };
+    const copies = h("input", { type: "number", min: "1", max: "500", step: "1", value: String(p.copies), class: "pcopies", "aria-label": "Anzahl der Exemplare – " + f.name });
+    copies.addEventListener("change", () => {
+      const n = Number(copies.value);
+      if (!Number.isInteger(n) || n < 1 || n > 500) { copies.value = String((f.print || p).copies); toast("Bitte eine Anzahl zwischen 1 und 500 eingeben.", "err"); return; }
+      save({ copies: n });
+    });
+    const duplex = h("select", { "aria-label": "Beidseitig oder einseitig – " + f.name },
+      h("option", { value: "1", selected: p.duplex ? true : null }, "beidseitig"), h("option", { value: "0", selected: p.duplex ? null : true }, "einseitig (z. B. zum Ausschneiden)"));
+    duplex.addEventListener("change", () => save({ duplex: duplex.value === "1" }));
+    const color = h("select", { "aria-label": "Schwarz-weiß oder Farbe – " + f.name },
+      h("option", { value: "0", selected: p.color ? null : true }, "schwarz-weiß"), h("option", { value: "1", selected: p.color ? true : null }, "Farbe (nur wenn nötig)"));
+    color.addEventListener("change", () => save({ color: color.value === "1" }));
+    const acts = h("div", { class: "acts" },
+      h("button", { class: "btn small primary", type: "button", onclick: (e) => busy(e.currentTarget, async () => {
+        try {
+          if (f.kind === "text") downloadBlob(new Blob([await printBytes(f)], { type: "application/pdf" }), f.printName);
+          else { const r = await tapi("POST", "/api/teacher/files/" + f.id + "/link", { body: {} }); downloadUrl(r.url, f.printName); }
+        } catch (err) { errToast(err); }
+      }) }, icon("download"), "Herunterladen"),
+      h("button", { class: "btn small ghost", type: "button", "aria-label": "Umbenennen – " + f.name, onclick: async () => {
+        const n = prompt("Name der Druckvorlage (ohne Anzahl und Druckart):", f.name.replace(/\.pdf$/i, ""));
+        if (!n || !n.trim()) return;
+        await save({ name: n.trim() + (f.kind === "file" ? ".pdf" : "") }); paintPrint();
+      } }, icon("edit")),
+      h("button", { class: "btn small ghost danger", type: "button", "aria-label": "Löschen – " + f.name, onclick: async () => {
+        if (!(await confirmDialog("Druckvorlage löschen", "„" + (f.printName || f.name) + "“ endgültig löschen?", "Löschen", true))) return;
+        try { await tapi("DELETE", "/api/teacher/files/" + f.id); st.files = st.files.filter((x) => x !== f); paintPrint(); } catch (e) { errToast(e); }
+      } }, icon("trash")));
+    return h("div", { class: "item printrow" }, fileIcon(f.name, "application/pdf", "file"), h("div", { class: "main" }, nameEl,
+      h("div", { class: "pset" }, h("label", { class: "small pcount" }, copies, h("span", { text: "Exemplare" })), duplex, color),
+      h("div", { class: "meta", text: (f.kind === "text" ? "Text (als A4-PDF)" : fmtBytes(f.size)) + (f.source === "claude" ? " · von Claude" : f.source === "uebernommen" ? " · übernommen" : "") })), acts);
+  }
+  async function uploadPrint(files) {
+    for (const file of files) {
+      const bar = h("i"), row = h("div", { class: "small" }, h("div", { text: file.name + " (" + fmtBytes(file.size) + ")" }), h("div", { class: "progress" }, bar));
+      printProg.append(row);
+      try {
+        const buf = new Uint8Array(await file.arrayBuffer());
+        if (!(buf[0] === 0x25 && buf[1] === 0x50 && buf[2] === 0x44 && buf[3] === 0x46 && buf[4] === 0x2d)) throw new Error("„" + file.name + "“ ist keine PDF-Datei. Zum Ausdrucken sind nur PDF-Dateien erlaubt.");
+        const { toA4 } = await import("./a4.js");
+        const a4 = await toA4(buf, await pdfLib());
+        const name = /\.pdf$/i.test(file.name) ? file.name : file.name + ".pdf";
+        const r = await upload("/api/teacher/lessons/" + id + "/print?name=" + encodeURIComponent(name), new Blob([a4.bytes], { type: "application/pdf" }), T.token, (q) => { bar.style.width = Math.round(q * 100) + "%"; }, "application/pdf");
+        st.files.push(r.file); paintPrint();
+        if (a4.changed) toast("„" + file.name + "“: " + (a4.changed === a4.total ? (a4.total === 1 ? "Die Seite war" : "Alle " + a4.total + " Seiten waren") : a4.changed + " von " + a4.total + " Seiten waren") +
+          " nicht im Format A4 und " + (a4.changed === 1 ? "wurde" : "wurden") + " auf A4 umgerechnet.", "ok", 9000);
+      } catch (e) { errToast(e); }
+      row.remove();
+    }
+  }
+  const zipName = () => "Von der Lehrkraft auszudrucken - " + subjectShort(L().subject) + " - " + classShort(L().klass) + (L().date ? " - " + L().date : "") + ".zip";
+  const zipBtn = h("button", { class: "btn", type: "button", onclick: (e) => busy(e.currentTarget, async () => {
+    try {
+      const fs = printFiles(); if (!fs.length) return;
+      const entries = [];
+      for (const f of fs) entries.push({ name: f.printName || printFileName({ name: f.name, ...(f.print || {}) }), data: await printBytes(f) });
+      const { makeZip } = await import("./zip.js");
+      downloadBlob(new Blob([makeZip(entries)], { type: "application/zip" }), zipName());
+      toast(fs.length === 1 ? "Die Datei ist als ZIP-Datei heruntergeladen." : "Alle " + fs.length + " Dateien sind als eine ZIP-Datei heruntergeladen.", "ok");
+    } catch (err) { errToast(err); }
+  }, "Packe die Dateien …") }, icon("download"), "Alle herunterladen (ZIP)");
+  function paintPrint() {
+    const fs = printFiles();
+    clear(printList).append(...(fs.length ? fs.map(printRow) : [h("p", { class: "muted small", text: "Noch nichts zum Ausdrucken." })]));
+    zipBtn.disabled = !fs.length;
+  }
+  const printCard = h("section", { class: "card printcard", id: "printcard" }, h("div", { class: "section-title" }, h("h2", { text: "Von der Lehrkraft auszudrucken" })),
+    h("p", { class: "small", text: "PDF-Dateien, die Sie vor der Stunde ausdrucken – z. B. Arbeitsblätter, Karten oder Schaubilder für die Tafel. Gedruckt wird nur A4: Andere Formate rechnet Unterricks beim Hochladen auf A4 um. Der Dateiname nennt Anzahl, beidseitig/einseitig und schwarz-weiß/Farbe." }),
+    dropZone("PDF-Dateien zum Ausdrucken hier ablegen oder auswählen", "Nur PDF · Farbe bitte nur, wenn sie unbedingt nötig ist", uploadPrint, "application/pdf,.pdf"),
+    printProg, printList, h("div", { class: "row", style: { marginTop: ".6rem" } }, zipBtn),
+    h("p", { class: "hint", text: "Claude kann über den Connector ebenfalls Druckvorlagen ablegen (mit Vorschlag für Anzahl, beidseitig und Farbe) – Sie prüfen sie hier." }));
+  paintPrint();
+
+  /* ======================= Sitzung als Datei (ganz unten): herunterladen und – in einer anderen Sitzung – wieder laden ======================= */
+  const te = new TextEncoder();
+  const safeName = (n) => String(n || "Datei").replace(/[\\/:*?"<>|\u0000-\u001f]+/g, " ").replace(/\s+/g, " ").trim().slice(0, 120) || "Datei";
+  async function fetchFile(f) {
+    const r = await tapi("POST", "/api/teacher/files/" + f.id + "/link", { body: {} });
+    const res = await fetch(apiUrl(r.url), { credentials: "omit", cache: "no-store" });
+    if (!res.ok) throw new Error("„" + f.name + "“ ließ sich nicht laden (Fehler " + res.status + ").");
+    return new Uint8Array(await res.arrayBuffer());
+  }
+  async function exportSession(onStep) {
+    flushPortal();
+    const N = await import("./sessionfile.js"), { makeZip } = await import("./zip.js");
+    const rows = st.unit ? st.unit.rows || [] : [], idx = rows.findIndex((r) => r.uid === L().unitRow);
+    const entries = [], files = [], drafts = [], notes = [];
+    let k = 0;
+    for (const f of st.files) {
+      if (f.area === "archive" || f.source === "notfall" || f.status !== "ready") continue;   // Notfall-Feibeitsblätter entstehen neu
+      const base = { area: f.area, kind: f.kind, name: f.name, mime: f.mime, ...(f.print ? { print: f.print } : {}) };
+      if (f.kind === "text") files.push({ ...base, text: f.text || "" });
+      else if (f.kind === "link") files.push({ ...base, url: f.url });
+      else { onStep("Lade „" + f.name + "“ …"); const path = "dateien/" + (++k) + " - " + safeName(f.name); entries.push({ name: path, data: await fetchFile(f) }); files.push({ ...base, path }); }
+    }
+    for (const d of st.drafts) if (d.status === "draft" && d.data) drafts.push(d.data);
+    const sheets = [];
+    for (const s of st.sheets) {
+      if (s.kind === "escape") continue;
+      sheets.push({ code: s.code, title: s.title });
+      if (!fb.connected) { notes.push("Feibeitsblatt „" + s.title + "“ (" + formatCode(s.code) + "): nur der Code – ohne Verbindung zum Feibeitsblatt ließ sich der Inhalt nicht mitnehmen."); continue; }
+      try { onStep("Lade das Feibeitsblatt „" + s.title + "“ …"); const c = N.sheetToDraft((await fb.getSheet(s.code)).sheet); if (c.draft) drafts.push(c.draft); notes.push(...c.notes.map((x) => "„" + s.title + "“: " + x)); }
+      catch (e) { notes.push("Feibeitsblatt „" + s.title + "“ (" + formatCode(s.code) + "): Inhalt nicht geladen – " + e.message); }
+    }
+    const data = { kind: N.SESSION_FILE.kind, v: N.SESSION_FILE.v, exportedAt: Date.now(),
+      source: { subject: L().subject, klass: L().klass, unitTitle: st.unit ? st.unit.title || "" : "", sessionNo: idx >= 0 ? idx + 1 : null, date: L().date, nextDate: L().nextDate || null,
+        startTime: L().startTime || null, durationMin: L().durationMin || null, title: L().title },
+      lesson: { title: L().title, topic: L().topic, ideas: L().ideas || "", homework: hwTA.value || "", portal: portalTA ? portalTA.value : L().portal || "" },
+      chat: st.messages.filter((m) => (m.role === "user" || m.role === "assistant") && m.model !== "begruessung").map((m) => ({ role: m.role, content: m.content, model: m.model || null, mode: m.mode || null })),
+      files, drafts, sheets, notes };
+    entries.unshift({ name: N.SESSION_FILE.json, data: te.encode(JSON.stringify(data, null, 1)) });
+    const name = N.sessionFileName({ subject: L().subject, klass: L().klass, unitTitle: data.source.unitTitle, sessionNo: data.source.sessionNo });
+    downloadBlob(new Blob([makeZip(entries)], { type: "application/zip" }), name);
+    return { name, files: files.length, notes };
+  }
+  async function importSession(file, onStep) {
+    const N = await import("./sessionfile.js"), { readZip } = await import("./zip.js");
+    let entries;
+    try { entries = await readZip(new Uint8Array(await file.arrayBuffer())); } catch { throw new Error("Diese Datei ist keine Unterrickssitzung (keine ZIP-Datei)."); }
+    const j = entries.find((x) => x.name === N.SESSION_FILE.json);
+    if (!j) throw new Error("In dieser Datei steckt keine Unterrickssitzung.");
+    let raw; try { raw = JSON.parse(new TextDecoder().decode(j.data)); } catch { throw new Error("Die Unterrickssitzung in dieser Datei ist beschädigt."); }
+    const data = N.cleanSessionFile(raw), src = data.source, byPath = new Map(entries.map((x) => [x.name, x.data]));
+    // Datumsangaben: Datum der Sitzung und der nächsten Sitzung → die dieser Sitzung
+    const pairs = [[src.date, L().date], [src.nextDate, L().nextDate]].filter(([a, b]) => a && b && a !== b);
+    const replaced = [], unknown = [];
+    const fix = (t, where) => { const r = N.adaptDates(t, pairs); replaced.push(...r.replaced); unknown.push(...r.unknown.map((u) => where + ": „" + u + "“")); return r.text; };
+    const lesson = { title: data.lesson.title, topic: data.lesson.topic, ideas: fix(data.lesson.ideas, "Ideen und Wünsche"), homework: fix(data.lesson.homework, "Hausaufgabe"), portal: fix(data.lesson.portal, "Schulportal-Eintrag") };
+    const texts = [], links = [], prints = [], bins = [];
+    for (const f of data.files) {
+      if (f.kind === "link") links.push({ area: f.area, title: f.name, url: f.url });
+      else if (f.kind === "text" && f.area === "print") prints.push({ title: f.name, text: fix(f.text, "„" + f.name + "“"), ...f.print });
+      else if (f.kind === "text") texts.push({ area: f.area, title: f.name, text: fix(f.text, "„" + f.name + "“") });
+      else bins.push(f);
+    }
+    const pres = bins.find((f) => f.area === "presentation");
+    const cur = { date: L().date ? fmtDay(L().date) : "ohne Datum", time: L().startTime ? L().startTime + " Uhr" : "ohne Beginn", dur: L().durationMin ? L().durationMin + " Minuten" : "ohne Dauer" };
+    const warn = [src.subject && src.subject !== L().subject ? "Die Datei stammt aus " + subjectName(src.subject) + ", diese Sitzung ist " + subjectName(L().subject) + "." : null,
+      src.durationMin && L().durationMin && src.durationMin !== L().durationMin ? "Die Datei wurde für " + src.durationMin + " Minuten geplant, diese Sitzung dauert " + L().durationMin + " Minuten." : null].filter(Boolean);
+    const ok = await new Promise((resolve) => {
+      let done = false;
+      modal({ title: "Sitzung aus Datei laden?", wide: true, onClose: () => { if (!done) resolve(false); }, body: (el) => el.append(
+        h("p", null, "Aus „", h("strong", { text: file.name }), "“: " + (src.title || "Sitzung") + (src.sessionNo ? " – Sitzung Nr. " + src.sessionNo : "") + (src.unitTitle ? " der Einheit „" + src.unitTitle + "“" : "") +
+          (src.klass ? " (" + (subjectShort(src.subject) || "") + " " + classShort(src.klass) + (src.date ? ", " + fmtDay(src.date) : "") + ")" : "") + "."),
+        h("ul", { class: "small" },
+          h("li", { text: "Titel, Thema, Ideen und Wünsche, Hausaufgabe, Schulportal-Eintrag und Planungsverlauf ersetzen den bisherigen Stand dieser Sitzung." }),
+          h("li", { text: "Dazu kommen: " + [texts.length + links.length + bins.filter((f) => f.area === "student" || f.area === "teacher").length + " Materialien", prints.length + bins.filter((f) => f.area === "print").length + " Druckvorlagen",
+            pres ? "die Präsentation" + (curPres() ? " (ersetzt die bisherige)" : "") : null, data.drafts.length + " Feibeitsblatt-Entwürfe"].filter(Boolean).join(", ") + "." }),
+          h("li", { text: "Datum, Beginn und Dauer bleiben die dieser Sitzung (" + cur.date + ", " + cur.time + ", " + cur.dur + "); die Fälligkeit der Hausaufgabe richtet sich nach der nächsten Sitzung dieser Lerngruppe." +
+            (pairs.length ? " Datumsangaben in den Texten werden angepasst: " + pairs.map(([a, b]) => fmtDay(a) + " → " + fmtDay(b)).join(", ") + "." : "") })),
+        ...warn.map((w) => h("div", { class: "notice warn", text: w }))),
+        actions: [{ label: "Abbrechen", onClick: () => { done = true; resolve(false); } }, { label: "Übernehmen", class: "primary", onClick: () => { done = true; resolve(true); } }] });
+    });
+    if (!ok) return null;
+    onStep("Übernehme Planung, Texte und Entwürfe …");
+    await tapi("POST", "/api/teacher/lessons/" + id + "/import", { body: { lesson, chat: data.chat, texts, links, prints, drafts: data.drafts } });
+    const missing = [];
+    for (const f of bins) {
+      const bytes = byPath.get(f.path);
+      if (!bytes) { missing.push(f.name); continue; }
+      onStep("Lade „" + f.name + "“ hoch …");
+      try {
+        if (f.area === "presentation") await uploadPres(new File([bytes], f.name, { type: "application/pdf" }));
+        else if (f.area === "print") await upload("/api/teacher/lessons/" + id + "/print?name=" + encodeURIComponent(f.name) + "&copies=" + f.print.copies + "&duplex=" + (f.print.duplex ? 1 : 0) + "&color=" + (f.print.color ? 1 : 0) + "&source=uebernommen", new Blob([bytes], { type: "application/pdf" }), T.token, null, "application/pdf");
+        else await upload("/api/teacher/lessons/" + id + "/files?area=" + f.area + "&name=" + encodeURIComponent(f.name) + "&source=uebernommen", new Blob([bytes], { type: f.mime || "application/octet-stream" }), T.token, null, f.mime || "application/octet-stream");
+      } catch (e) { missing.push(f.name + " (" + e.message + ")"); }
+    }
+    return { replaced, unknown, missing, notes: data.notes, sheets: data.sheets, drafts: data.drafts.length };
+  }
+  const ioState = h("span", { class: "save-state" });
+  const exportBtn = h("button", { class: "btn", type: "button", onclick: (e) => busy(e.currentTarget, async () => {
+    try { const r = await exportSession((m) => stateLine(ioState, m)); stateLine(ioState, "Heruntergeladen: " + r.name, "ok"); if (r.notes.length) toast(r.notes.join(" "), "", 9000); }
+    catch (err) { stateLine(ioState, ""); errToast(err); }
+  }, "Stelle die Datei zusammen …") }, icon("download"), "Sitzung als Datei herunterladen");
+  const importInput = h("input", { type: "file", class: "hidden", accept: ".zip,application/zip", "aria-label": "Unterrickssitzung (ZIP-Datei) auswählen" });
+  const importBtn = h("button", { class: "btn", type: "button", onclick: () => importInput.click() }, icon("up"), "Sitzung aus Datei laden");
+  importInput.addEventListener("change", async () => {
+    const file = importInput.files[0]; importInput.value = ""; if (!file) return;
+    importBtn.disabled = true;
+    try {
+      const r = await importSession(file, (m) => stateLine(ioState, m));
+      if (!r) { stateLine(ioState, ""); return; }
+      const list = (title, xs) => (xs.length ? [h("h3", { text: title }), h("ul", { class: "small" }, xs.slice(0, 20).map((x) => h("li", { text: x })))] : []);
+      await sessionPage(id);
+      modal({ title: "Sitzung übernommen", wide: true, body: (el) => el.append(
+        h("p", { class: "small", text: "Die Inhalte stehen jetzt in dieser Sitzung. " + (r.drafts ? r.drafts + " Feibeitsblatt-Entwurf" + (r.drafts === 1 ? "" : "e") + " – mit „Feibeitsblatt jetzt anlegen“ bekommt jedes Blatt einen neuen Code für diese Lerngruppe." : "") }),
+        ...list("Angepasste Datumsangaben", r.replaced.map(([a, b]) => a + " → " + b)),
+        ...list("Bitte prüfen: weitere Datumsangaben", r.unknown),
+        ...list("Feibeitsblätter der ursprünglichen Sitzung", r.sheets.map((s) => "„" + s.title + "“ (Code " + formatCode(s.code) + ") – alter Code lässt sich unter „Vorhandenes Feibeitsblatt verknüpfen“ wieder verknüpfen")),
+        ...list("Hinweise", r.notes), ...list("Nicht übernommen", r.missing)),
+        actions: [{ label: "Fertig", class: "primary" }] });
+    } catch (err) { stateLine(ioState, ""); errToast(err); }
+    importBtn.disabled = false;
+  });
+  const ioCard = h("section", { class: "card sessionio" }, h("div", { class: "section-title" }, h("h2", { text: "Sitzung als Datei" }), ioState),
+    h("p", { class: "small", text: "Eine Datei mit allem, was Unterricks für diese Sitzung braucht: Planung, Schulportal-Eintrag, Hausaufgabe, Planungsverlauf, Materialien, Links, Präsentation, Druckliste und Feibeitsblätter (als Entwürfe). So lässt sich eine schon gehaltene Sitzung in einer anderen Lerngruppe erneut durchführen oder leicht abändern." }),
+    h("div", { class: "row" }, exportBtn, importBtn, importInput),
+    h("p", { class: "hint", text: "Beim Laden einer Datei bleiben Datum, Beginn und Dauer dieser Sitzung; Datumsangaben in den Texten passt Unterricks an diese Sitzung an. Notfall-Feibeitsblätter entstehen neu, sobald die Feibeitsblätter angelegt sind." }));
+
   main.append(h("div", { class: "session-grid" },
-    h("div", { class: "stack" }, sub.main, prevCard, planCard, unitCard, chatCard, portalCard, hwCard, presPromptCard, filesCard, presCard, fbCard),
-    h("aside", { class: "side" }, codeCard, metaCard, sub.side)));
+    h("div", { class: "stack" }, sub.main, prevCard, planCard, unitCard, chatCard, portalCard, hwCard, presPromptCard, filesCard, presCard, fbCard, printCard),
+    h("aside", { class: "side" }, codeCard, metaCard, sub.side)), ioCard);
 
   // Änderungen von außen (z. B. Claude über den Connector) beim Zurückkehren übernehmen
   const onVis = async () => {
@@ -839,7 +1217,7 @@ export async function sessionPage(id) {
       const r = await tapi("GET", "/api/teacher/lessons/" + id);
       if (r.messages.length !== st.messages.length && !sendBtn.disabled) { st.messages = r.messages; paintMsgs(); }
       const known = new Set(st.files.map((f) => f.id));
-      if (r.files.some((f) => !known.has(f.id)) || r.files.length !== st.files.length) { st.files = r.files; paintFiles(); }
+      if (r.files.some((f) => !known.has(f.id)) || r.files.length !== st.files.length) { st.files = r.files; paintFiles(); paintPrint(); }
       if (r.drafts.length !== st.drafts.length || r.sheets.length !== st.sheets.length) { st.drafts = r.drafts; st.sheets = r.sheets; paintFb(); ensureNotfall(st.sheets.filter((x) => !notfallFile(x.code)).map((x) => x.code)); }
       const subKey = (x) => (x ? x.status + ":" + x.updatedAt : "");
       if (subKey(r.substitute) !== subKey(st.sub)) { st.drafts = r.drafts; st.sub = r.substitute; sub.paint(); if (r.substitute && r.substitute.status === "vorschlag") toast("Claude hat einen Vertretungsvorschlag gespeichert – bitte prüfen.", "ok", 6000); }
@@ -856,7 +1234,9 @@ export async function sessionPage(id) {
           const cur = String(L()[k] ?? ""), nv = String(r.lesson[k] ?? "");
           if (nv !== cur && el.value === cur) { L()[k] = r.lesson[k]; el.value = nv; changed = true; }   // nur Felder ohne ungespeicherte eigene Änderung
         }
-        if (r.lesson.date && r.lesson.date !== L().date) { L().date = r.lesson.date; L().nextDate = r.lesson.nextDate; fDate.value = r.lesson.date; paintDue(); changed = true; }
+        if (r.lesson.date && r.lesson.date !== L().date) { L().date = r.lesson.date; L().nextDate = r.lesson.nextDate; fDate.value = r.lesson.date; changed = true; }
+        if ((r.lesson.startTime || null) !== (L().startTime || null) && !busyField(fStart)) { L().startTime = r.lesson.startTime; fStart.value = r.lesson.startTime || ""; changed = true; }
+        if (changed) paintTimes();
         if (changed) { heading.textContent = L().title; paintSubline(); stateLine(metaState, "Aktualisiert"); }
       }
       if (r.lesson.portalVersion !== portal.version && !portal.dirty) {

@@ -1,5 +1,6 @@
 // presenter.js – Präsentation (PDF) in Folienbilder umwandeln und im Vollbild live für alle zeigen.
 import { h, clear, api, apiUrl, wsUrl, toast, errToast, icon } from "./ui.js";
+import { PUBLIC_URL } from "./shared.js";
 
 let pdfjsP = null;
 async function pdfjs() {
@@ -77,14 +78,28 @@ export async function fetchSlides(fileId, token) {
   return api("GET", "/api/teacher/files/" + fileId + "/slides", { token });
 }
 // slides vorab laden (fetchSlides), damit das Vollbild ohne Wartezeit direkt aus dem Klick angefordert werden kann
-export async function startPresenter({ lessonId, file, token, startSlide = 1, onEnd, slides }) {
+export async function startPresenter({ lessonId, file, token, startSlide = 1, onEnd, slides, onMark, shownUntil = null }) {
   const s = slides || (await fetchSlides(file.id, token));
-  const urls = (s.urls || []).map(apiUrl), n = s.pages;
+  const urls = (s.urls || []).map(apiUrl), n = s.pages, pages = n;
   let cur = Math.min(Math.max(1, startSlide), n), students = 0, connOk = true;
   const img = h("img", { alt: "", draggable: "false" });
   const counter = h("span", { class: "counter" });
   const info = h("span", { class: "small" });
   const fsBtn = h("button", { class: "btn small", type: "button", onclick: () => toggleFs() }, "Vollbild");
+  // „Bis hier gezeigt“: aktuelle Folie als letzte im Unterricht gezeigte Folie markieren (Schüler:innen bekommen nach der Freigabe nur bis hier)
+  let marked = shownUntil, marking = false;
+  const markState = h("span", { class: "small markstate", "aria-live": "polite" });
+  const markBtn = onMark ? h("button", { class: "btn small", type: "button", onclick: async () => {
+    if (marking) return; marking = true; markBtn.disabled = true;
+    const n = cur;
+    try {
+      await onMark(n, (m) => { markState.textContent = m; });
+      marked = n >= pages ? null : n;
+      markState.textContent = marked ? "Bis Folie " + n + " markiert" : "Letzte Folie: alle Folien freigegeben";
+    } catch (e) { markState.textContent = "Nicht markiert: " + (e && e.message ? e.message : e); }
+    marking = false; markBtn.disabled = false; paintMark();
+  } }, "Bis hier gezeigt") : null;
+  function paintMark() { if (markBtn) markBtn.setAttribute("aria-label", "Folie " + cur + " als letzte im Unterricht gezeigte Folie markieren" + (marked ? " (bisher: Folie " + marked + ")" : "")); }
   const root = h("div", { class: "presenter", role: "dialog", "aria-label": "Präsentation läuft" },
     h("div", { class: "stage" }, img),
     h("div", { class: "bar" },
@@ -92,7 +107,7 @@ export async function startPresenter({ lessonId, file, token, startSlide = 1, on
       counter,
       h("button", { class: "btn small", type: "button", onclick: () => goto(cur + 1), "aria-label": "Nächste Folie" }, icon("right")),
       h("span", { class: "badge onair" }, h("span", { class: "dot" }), "LIVE für alle"), info,
-      h("span", { class: "grow" }),
+      h("span", { class: "grow" }), markBtn, markState,
       fsBtn,
       h("button", { class: "btn small onair", type: "button", onclick: () => end(true) }, "Präsentation für alle beenden"),
       h("button", { class: "btn small", type: "button", onclick: () => end(false), title: "Fenster schließen, Live-Anzeige läuft weiter" }, "Schließen")));
@@ -105,7 +120,7 @@ export async function startPresenter({ lessonId, file, token, startSlide = 1, on
     paintInfo();
   });
   function paintInfo() { clear(info).append(...(connOk ? [] : [icon("alert"), "Verbindung wird wiederhergestellt … · "]), students + " Schüler:in" + (students === 1 ? "" : "nen") + " verbunden"); }
-  function paint() { img.src = urls[cur - 1]; counter.textContent = cur + " / " + n; preload(cur + 1); preload(cur + 2); preload(cur - 1); }
+  function paint() { img.src = urls[cur - 1]; counter.textContent = cur + " / " + n; preload(cur + 1); preload(cur + 2); preload(cur - 1); paintMark(); }
   function goto(k) { k = Math.min(Math.max(1, k), n); if (k === cur) return; cur = k; paint(); live.send({ t: "goto", slide: cur }); }
   const isFs = () => !!(document.fullscreenElement || document.webkitFullscreenElement);
   function toggleFs() {
@@ -144,11 +159,15 @@ export async function startPresenter({ lessonId, file, token, startSlide = 1, on
   return { end };
 }
 
-/* Sitzungscode groß für den Beamer */
+/* Sitzungscode groß für den Beamer – mit QR-Code zu Unterricks (public/qr-unterricks.svg, erzeugt von scripts/qr-unterricks.mjs) */
 export function showCode(code, title) {
+  const site = PUBLIC_URL.replace(/^https:\/\//, "");
   const root = h("div", { class: "codeshow", role: "dialog", "aria-label": "Sitzungscode" },
-    h("div", null, h("div", { style: { fontSize: "1.4rem", opacity: .85 }, text: title || "Sitzungscode" }), h("div", { class: "c", text: code }),
-      h("p", { style: { fontSize: "1.2rem", opacity: .85 }, text: "Unterricks öffnen → Passwort → Klasse und Fach → Code eingeben" }),
+    h("div", null, h("div", { style: { fontSize: "1.4rem", opacity: .85 }, text: title || "Sitzungscode" }),
+      h("div", { class: "cs-grid" },
+        h("div", { class: "c", text: code }),
+        h("figure", { class: "qrbox" }, h("img", { class: "qr", src: "qr-unterricks.svg", alt: "QR-Code zu " + PUBLIC_URL, width: "296", height: "296" }), h("figcaption", { text: site }))),
+      h("p", { style: { fontSize: "1.2rem", opacity: .85 }, text: "QR-Code scannen oder " + site + " öffnen → Passwort → Klasse und Fach → Code eingeben" }),
       h("button", { class: "btn", type: "button", onclick: () => close() }, "Schließen")));
   const close = () => { root.remove(); document.removeEventListener("keydown", onKey); if (document.fullscreenElement) document.exitFullscreen().catch(() => {}); };
   const onKey = (e) => { if (e.key === "Escape") close(); };

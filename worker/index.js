@@ -30,6 +30,9 @@ const ROUTES = [
   ["GET", "/api/teacher/me", A.routeTeacherMe],
   ["POST", "/api/teacher/password", A.routeTeacherPassword],
   ["POST", "/api/teacher/devices/forget", A.routeTeacherForgetDevices],
+  ["GET", "/api/teacher/fb-link", A.routeFbLinkGet],
+  ["PUT", "/api/teacher/fb-link", A.routeFbLinkPut],
+  ["DELETE", "/api/teacher/fb-link", A.routeFbLinkDelete],
   ["GET", "/api/teacher/student-settings", A.routeStudentSettingsGet],
   ["PUT", "/api/teacher/student-settings", A.routeStudentSettingsPut],
   // Lehrkraft: KI und Connector
@@ -88,6 +91,9 @@ const ROUTES = [
   // Lehrkraft: Dateien und Präsentation
   ["POST", "/api/teacher/lessons/" + ID + "/files", F.routeFileUpload],
   ["POST", "/api/teacher/lessons/" + ID + "/texts", F.routeTextCreate],
+  ["POST", "/api/teacher/lessons/" + ID + "/links", F.routeLinkCreate],
+  ["POST", "/api/teacher/lessons/" + ID + "/print", F.routePrintUpload],
+  ["POST", "/api/teacher/lessons/" + ID + "/import", L.routeLessonImport],
   ["PATCH", "/api/teacher/files/" + ID, F.routeFilePatch],
   ["DELETE", "/api/teacher/files/" + ID, F.routeFileDelete],
   ["POST", "/api/teacher/files/" + ID + "/link", F.routeTeacherFileLink],
@@ -95,6 +101,8 @@ const ROUTES = [
   ["PUT", "/api/teacher/files/" + ID + "/slides/(\\d{1,3})", F.routeSlideUpload],
   ["POST", "/api/teacher/files/" + ID + "/ready", F.routePresentationReady],
   ["GET", "/api/teacher/files/" + ID + "/slides", F.routeTeacherSlides],
+  ["PUT", "/api/teacher/files/" + ID + "/shown", F.routeShownPut],
+  ["DELETE", "/api/teacher/files/" + ID + "/shown", F.routeShownDelete],
   ["POST", "/api/teacher/lessons/" + ID + "/live-ticket", LV.routeTeacherLiveTicket],
   ["GET", "/api/teacher/lessons/" + ID + "/live", LV.routeTeacherLiveState],
   ["POST", "/api/teacher/lessons/" + ID + "/live/stop", LV.routeTeacherLiveStop],
@@ -106,6 +114,7 @@ const ROUTES = [
   ["GET", "/api/student/lessons/" + ID, S.routeStudentLesson],
   ["POST", "/api/student/files/" + ID + "/link", S.routeStudentFileLink],
   ["POST", "/api/student/lessons/" + ID + "/presentation-link", S.routeStudentPresentationLink],
+  ["POST", "/api/student/lessons/" + ID + "/ask", S.routeStudentAsk],
   ["POST", "/api/student/lessons/" + ID + "/live-ticket", S.routeStudentLiveTicket],
   ["GET", "/api/student/lessons/" + ID + "/live", S.routeStudentLiveState],
   // Ausliefern über signierte Links und Live-Verbindung

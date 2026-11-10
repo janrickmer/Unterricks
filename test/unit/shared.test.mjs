@@ -10,11 +10,11 @@ test("genau drei Fächer", () => {
   assert.deepEqual(SUBJECTS.map((s) => s.name), ["Politik und Wirtschaft", "Evangelische Religion", "Ethik"]);
 });
 
-test("Klassen: 5A–10F, EA–EF, Q1–Q4 je als Grund- und Leistungskurs, Kurse 5-K–10-K und E-K – und sonst nichts", () => {
-  assert.equal(ALL_CLASSES.length, 6 * 6 + 6 + 8 + 7);
+test("Klassen: 5A–10H, EA–EH (acht je Jahrgang), Q1–Q4 je als Grund- und Leistungskurs, Kurse 5-K–10-K und E-K – und sonst nichts", () => {
+  assert.equal(ALL_CLASSES.length, 6 * 8 + 8 + 8 + 7);
   assert.deepEqual(COURSE_CLASSES, ["5-K", "6-K", "7-K", "8-K", "9-K", "10-K", "E-K"]);
-  for (const k of ["5A", "5F", "7B", "10C", "10F", "EA", "EF", "Q1-GK", "Q1-LK", "Q4-GK", "Q4-LK"]) assert.ok(isValidClass(k), k);
-  for (const k of ["4A", "11A", "10G", "E1", "EG", "Q1", "Q4", "Q5-GK", "Q2-XK", "Q", "12A", "5a", "Q-K", "4-K", "11-K", "8-k", "8K"]) assert.ok(!isValidClass(k), k);
+  for (const k of ["5A", "5F", "5H", "7B", "7G", "10C", "10F", "10H", "EA", "EF", "EG", "EH", "Q1-GK", "Q1-LK", "Q4-GK", "Q4-LK"]) assert.ok(isValidClass(k), k);
+  for (const k of ["4A", "11A", "10I", "5I", "E1", "EI", "Q1", "Q4", "Q5-GK", "Q2-XK", "Q", "12A", "5a", "Q-K", "4-K", "11-K", "8-k", "8K"]) assert.ok(!isValidClass(k), k);
   assert.equal(gradeInfo("7B").stufe, 7);
   assert.equal(gradeInfo("EC").stufe, 11);
   assert.match(gradeInfo("Q2-GK").text, /Jahrgangsstufe 12, 2\. Halbjahr\), Grundkurs \(grundlegendes Niveau\)/);
@@ -178,6 +178,8 @@ test("Kurse in Ev. Religion und Ethik: ein Kurs je Jahrgang (5–10, E-Phase) mi
   assert.deepEqual(courseMembers(ethik, "8-K"), ["8A", "8D"]); assert.deepEqual(courseMembers(ethik, "9-K"), []); assert.deepEqual(courseMembers(ethik, "8A"), []);
   assert.equal(courseOf(ethik, "8D"), "8-K"); assert.equal(courseOf(ethik, "8B"), null); assert.equal(courseOf(powi, "8A"), null);
   assert.ok(isCourseClass("E-K") && !isCourseClass("EA") && !isCourseClass("Q2-GK"));
+  // acht Klassen je Jahrgang: auch 8G, 8H und EH gehören in einen Kurs, 8I gibt es nicht
+  assert.deepEqual(subjectConfig({ ethik: { courses: { "8": ["8H", "8G", "8I", "7H"], E: ["EH", "EI"] } } }, "ethik").courses, { "8": ["8G", "8H"], E: ["EH"] });
 });
 
 test("Hausaufgabe fürs Schulportal: fette Überschrift mit Datum, Stichpunkte, zuletzt der Weg zur Sitzung (Code kursiv)", () => {
@@ -198,4 +200,36 @@ test("Hausaufgabe fürs Schulportal: fette Überschrift mit Datum, Stichpunkte, 
   assert.equal(li.type, "li");
   assert.ok(li.runs.some((r) => r.href === "https://unterricks.janrickmer.de") && li.runs.some((r) => r.text === "K45-7A4" && r.i && !r.s));
   assert.equal(groupShort("8B"), "Jg. 8"); assert.equal(groupShort("8-K"), "Jg. 8"); assert.equal(groupShort("EA"), "E-Phase"); assert.equal(groupShort("Q2-GK"), "Q2 GK"); assert.equal(groupShort("x"), "");
+});
+
+test("Beamer-Folie: QR-Code-Datei passt zur Adresse von Unterricks (sonst node scripts/qr-unterricks.mjs)", async () => {
+  const { readFileSync } = await import("node:fs");
+  const { qrSvg, QR_FILE } = await import("../../scripts/qr-unterricks.mjs");
+  const svg = readFileSync(QR_FILE, "utf8");
+  assert.equal(svg, qrSvg(PUBLIC_URL));
+  assert.match(svg, /^<svg xmlns="http:\/\/www\.w3\.org\/2000\/svg" viewBox="0 0 37 37"/);
+  assert.ok(!/<script|on\w+=/i.test(svg), "reines SVG ohne Skript");
+});
+
+test("Zeitpunkte der Sitzung (Europe/Berlin): Hausaufgabe 15 min vor dem Ende, Präsentation 5 min nach dem Ende, ohne Beginn/Dauer gesperrt", async () => {
+  const { berlinTime, lessonTimes, isClockTime, fmtClockBerlin } = await import("../../public/shared.js");
+  assert.equal(new Date(berlinTime("2026-11-10", "07:45")).toISOString(), "2026-11-10T06:45:00.000Z", "Winterzeit (MEZ)");
+  assert.equal(new Date(berlinTime("2026-07-01", "07:45")).toISOString(), "2026-07-01T05:45:00.000Z", "Sommerzeit (MESZ)");
+  assert.equal(new Date(berlinTime("2026-10-25", "01:30")).toISOString(), "2026-10-24T23:30:00.000Z", "Tag der Zeitumstellung");
+  const t = lessonTimes({ date: "2026-11-10", startTime: "10:00", durationMin: 90 });
+  assert.equal(fmtClockBerlin(t.homeworkAt), "11:15"); assert.equal(fmtClockBerlin(t.end), "11:30"); assert.equal(fmtClockBerlin(t.presentationAt), "11:35");
+  assert.equal(lessonTimes({ date: "2026-11-10", startTime: null, durationMin: 90 }), null);
+  assert.equal(lessonTimes({ date: "2026-11-10", startTime: "10:00", durationMin: null }), null);
+  assert.equal(lessonTimes({ date: null, startTime: "10:00", durationMin: 45 }), null);
+  assert.ok(isClockTime("07:45") && isClockTime("23:59") && !isClockTime("7:45") && !isClockTime("24:00") && !isClockTime("07:45:00"));
+});
+
+test("Links als Material: nur http(s) ohne Zugangsdaten, ohne Schema wird https ergänzt; im Kontext für die KI mit Adresse", async () => {
+  const { cleanWebUrl, webUrlLabel, lessonContext } = await import("../../public/shared.js");
+  assert.equal(cleanWebUrl("www.bpb.de/themen"), "https://www.bpb.de/themen");
+  assert.equal(cleanWebUrl(" https://de.wikipedia.org/wiki/Bundesverfassungsgericht_(Deutschland) "), "https://de.wikipedia.org/wiki/Bundesverfassungsgericht_(Deutschland)");
+  for (const bad of ["javascript:alert(1)", "data:text/html,x", "ftp://x.de", "https://user:pw@x.de", "https://x .de", "intranet", "", null, "https://" + "a".repeat(2000) + ".de"]) assert.equal(cleanWebUrl(bad), null, String(bad));
+  assert.equal(webUrlLabel("https://www.bpb.de/themen/"), "www.bpb.de/themen");
+  const txt = lessonContext({ subject: "powi", klass: "8A", lesson: { title: "T" }, materials: [{ name: "Erklärvideo", area: "student", kind: "link", text: "https://www.bpb.de/x" }] });
+  assert.match(txt, /- Erklärvideo \(für Schüler:innen, Link: https:\/\/www\.bpb\.de\/x\)/);
 });

@@ -5,7 +5,7 @@ import {
   HttpError, bad, json, readJson, sha256Hex, timingSafeEqual, hmac, randomToken, randomId, unb64u, isDeviceId,
   cleanLine, clientIp, LOCKS, lockedFor, registerFail, clearFails, lockedError, fmtWait, requireSecret,
 } from "./lib.js";
-import { getSetting, setSetting } from "./db.js";
+import { getSetting, setSetting, setSettingStmt } from "./db.js";
 import { isValidClass, isValidSubject, classAllowed, subjectName, classShort } from "../public/shared.js";
 import { loadSubjectConfigs } from "./bases.js";
 
@@ -135,18 +135,47 @@ export async function routeTeacherForgetDevices(c) {
 
 export async function routeTeacherPassword(c) {
   const me = await requireTeacher(c);
-  const body = await readJson(c.request);
+  const body = await readJson(c.request, 20000);
   const t = await teacherRow(c.db);
   if (!isAuthKey(body.oldAuthKey) || !timingSafeEqual(await authHash(body.oldAuthKey), t.auth_hash))
     throw new HttpError(403, "wrong_credentials", "Das bisherige Passwort ist falsch.");
   if (!isSalt(body.salt) || !isAuthKey(body.authKey)) throw bad("Ungültige Anmeldedaten.");
   const user = body.username != null ? normUser(body.username) : t.username;
   if (user.length < 3) throw bad("Bitte einen Benutzernamen mit mindestens 3 Zeichen wählen.");
+  // gespeicherte Feibeitsblatt-Verbindung: der Browser hat sie mit dem Schlüssel aus dem neuen Passwort neu verschlüsselt (fbLink);
+  // ohne neuen Umschlag ließe sie sich nicht mehr öffnen und wird gelöscht
+  const link = cleanFbLink(body.fbLink);
   await c.db.batch([
     c.db.prepare("UPDATE teacher SET username=?1, salt=?2, auth_hash=?3, updated_at=?4 WHERE id=1").bind(user, body.salt, await authHash(body.authKey), c.now),
     c.db.prepare("DELETE FROM teacher_tokens WHERE token_hash<>?1").bind(me.tokenHash),
+    link ? setSettingStmt(c.db, FB_LINK_KEY, { ...link, at: c.now }) : c.db.prepare("DELETE FROM settings WHERE key=?1").bind(FB_LINK_KEY),
   ]);
-  return json({ ok: true, username: user });
+  return json({ ok: true, username: user, fbLink: !!link });
+}
+
+/* ---------- Gespeicherte Feibeitsblatt-Verbindung (Ende-zu-Ende verschlüsselt, public/fblink.js) ----------
+ * Der Browser verschlüsselt den Feibeitsblatt-Schlüssel mit einem Schlüssel aus dem Unterricks-Passwort, den der Server nie sieht
+ * (zweiter PBKDF2-Block). Hier liegt nur der Umschlag {v, iv, ct}; öffnen kann ihn nur der Browser der Lehrkraft. */
+export const FB_LINK_KEY = "fb_link";
+const isB64 = (s, min, max) => typeof s === "string" && s.length >= min && s.length <= max && s.length % 4 === 0 && /^[A-Za-z0-9+/]+={0,2}$/.test(s);
+export const cleanFbLink = (x) => (x && typeof x === "object" && x.v === 1 && isB64(x.iv, 16, 16) && isB64(x.ct, 24, 4000) ? { v: 1, iv: x.iv, ct: x.ct } : null);
+export async function routeFbLinkGet(c) {
+  await requireTeacher(c);
+  const l = await getSetting(c.db, FB_LINK_KEY), link = cleanFbLink(l);
+  return json({ ok: true, link: link ? { ...link, at: Number(l.at) || null } : null });
+}
+export async function routeFbLinkPut(c) {
+  await requireTeacher(c);
+  const body = await readJson(c.request, 10000);
+  const link = cleanFbLink(body.link);
+  if (!link) throw bad("Ungültige Verbindungsdaten.");
+  await setSetting(c.db, FB_LINK_KEY, { ...link, at: c.now });
+  return json({ ok: true, at: c.now });
+}
+export async function routeFbLinkDelete(c) {
+  await requireTeacher(c);
+  await c.db.prepare("DELETE FROM settings WHERE key=?1").bind(FB_LINK_KEY).run();
+  return json({ ok: true });
 }
 
 /* ---------- Schüler:innen ---------- */

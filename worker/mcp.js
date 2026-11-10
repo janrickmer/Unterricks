@@ -5,19 +5,19 @@
 import { HttpError, json, readJson, sha256Hex, timingSafeEqual, randomToken, LOCKS, lockedFor, registerFail, cleanText, cleanLine } from "./lib.js";
 import { getSetting, setSetting } from "./db.js";
 import { requireTeacher } from "./auth.js";
-import { getLesson, lessonCtx, chatMessages, updateLesson, savePortal, insertDraft, lessonOut, LIMITS } from "./lessons.js";
+import { getLesson, lessonCtx, chatMessages, updateLesson, savePortal, insertDraft, lessonOut, fileOut, LIMITS } from "./lessons.js";
 import { getUnit, unitFull, applyPlan, updateRow } from "./units.js";
 import { planningBasis } from "./bases.js";
 import { saveProposal, getSubstitute } from "./substitute.js";
 import { paramsText, lessonSlots } from "../public/planning.js";
-import { insertTextMaterial } from "./files.js";
+import { insertTextMaterial, insertPrintText } from "./files.js";
 import { ESCAPE_FORMAT_HINT, PART_TYPES } from "../public/escape-data.js";
 import { SUBJECTS, ALL_CLASSES, subjectName, gradeInfo, formatCode, lessonContext, chatTranscript, PORTAL_RULES, PORTAL_EXAMPLE, SYSTEM_PROMPT_ROLE, FEIBEITSBLATT_INFO, classShort, fmtDay } from "../public/shared.js";
 
 const MODERN = "2026-07-28";
 const LEGACY = ["2025-11-25", "2025-06-18", "2025-03-26", "2024-11-05"];
 const SERVER_INFO = { name: "unterricks", title: "Unterricks – Unterrichtsplattform", version: "1.0.0" };
-const INSTRUCTIONS = "Unterricks ist die Unterrichtsplattform der Lehrkraft (Fächer: Politik und Wirtschaft, Evangelische Religion, Ethik; Klassen 5A–10F, EA–EF und in der Qualifikationsphase je Kurshalbjahr Grund- und Leistungskurs, z. B. Q3-LK; in Ev. Religion und Ethik gibt es in den Jahrgängen 5–10 und in der E-Phase je Jahrgang einen Kurs mit Schüler:innen aus mehreren Klassen, z. B. 8-K oder E-K). " +
+const INSTRUCTIONS = "Unterricks ist die Unterrichtsplattform der Lehrkraft (Fächer: Politik und Wirtschaft, Evangelische Religion, Ethik; Klassen 5A–10H, EA–EH (acht Klassen a–h je Jahrgang) und in der Qualifikationsphase je Kurshalbjahr Grund- und Leistungskurs, z. B. Q3-LK; in Ev. Religion und Ethik gibt es in den Jahrgängen 5–10 und in der E-Phase je Jahrgang einen Kurs mit Schüler:innen aus mehreren Klassen, z. B. 8-K oder E-K). " +
   "Geplant wird in Unterrichtseinheiten (Leupold-Schema: Ausgangslage → Lernschritte → zentrale Lernaufgabe; Ablauf als Tabelle mit Stundenfrage und grobem Stundenablauf); jede Sitzung gehört zu einer Zeile ihrer Einheit. " +
   "Planungsgrundlagen (Schulcurriculum, KCGO, E-Phasen-Curriculum, Abiturerlass je Kurs) liefert get_planning_basis. In den Jahrgängen 5 und 6 gibt es keine iPads: dort nur analoges, ausdruckbares Material. " +
   "Jede Unterrichtssitzung hat Fach, Klasse, Thema, Dauer, Ideen der Lehrkraft, einen Planungsverlauf (Chat), Materialien, Feibeitsblätter und einen Schulportal-Eintrag. " +
@@ -64,9 +64,10 @@ const TOOLS = [
     description: "Liefert alle aktuellen Daten einer Sitzung: Fach, Klasse/Jahrgang, Thema, Dauer, Ideen, Planungsverlauf, Schulportal-Eintrag (mit Version), Materialien (Textmaterial im Wortlaut), Feibeitsblätter und Entwürfe.",
     inputSchema: { type: "object", properties: { lesson_id: ID_ARG }, required: ["lesson_id"], additionalProperties: false } },
   { name: "update_lesson", title: "Sitzungsdaten ändern", annotations: wr,
-    description: "Ändert Titel, Thema, Dauer, Datum, das Notizfeld „Ideen und Wünsche“ oder die Hausaufgabe (bis zur nächsten Sitzung, für Schüler:innen sichtbar) einer Sitzung (nur übergebene Felder).",
+    description: "Ändert Titel, Thema, Dauer, Datum, Beginn (Uhrzeit), das Notizfeld „Ideen und Wünsche“ oder die Hausaufgabe (bis zur nächsten Sitzung; Schüler:innen sehen sie ab 15 Minuten vor dem Ende der Sitzung) einer Sitzung (nur übergebene Felder).",
     inputSchema: { type: "object", properties: { lesson_id: ID_ARG, titel: { type: "string", maxLength: 200 }, thema: { type: "string", maxLength: 500 },
-      dauer_minuten: { type: "integer", minimum: 5, maximum: 600 }, datum: { type: "string", pattern: "^\\d{4}-\\d{2}-\\d{2}$" }, ideen: { type: "string", maxLength: 20000 },
+      dauer_minuten: { type: "integer", minimum: 5, maximum: 600 }, datum: { type: "string", pattern: "^\\d{4}-\\d{2}-\\d{2}$" },
+      beginn: { type: "string", pattern: "^([01]\\d|2[0-3]):[0-5]\\d$", description: "Uhrzeit des Unterrichtsbeginns, z. B. 07:45" }, ideen: { type: "string", maxLength: 20000 },
       hausaufgabe: { type: "string", maxLength: 10000, description: "Schulportal-Zeichen erlaubt; leer = keine Hausaufgabe" } }, required: ["lesson_id"], additionalProperties: false } },
   { name: "save_planning_result", title: "Planungsergebnis in der Sitzung speichern", annotations: wr,
     description: "Speichert ein Planungsergebnis (z. B. den ausgearbeiteten Stundenentwurf) als Nachricht „Claude“ im Planungsverlauf der Sitzung, damit Schulportal-Eintrag und Präsentations-Prompt der Plattform darauf aufbauen.",
@@ -80,6 +81,14 @@ const TOOLS = [
       "bereich: \"schueler\" (für Schüler:innen sichtbar) oder \"lehrkraft\" (nur für die Lehrkraft, z. B. Erwartungshorizont).",
     inputSchema: { type: "object", properties: { lesson_id: ID_ARG, bereich: { type: "string", enum: ["schueler", "lehrkraft"] }, titel: { type: "string", maxLength: 200 }, markdown: { type: "string", maxLength: 200000 } },
       required: ["lesson_id", "bereich", "titel", "markdown"], additionalProperties: false } },
+  { name: "add_print_material", title: "Druckvorlage für die Lehrkraft hinzufügen", annotations: wr,
+    description: "Legt eine Vorlage in die Liste „Von der Lehrkraft auszudrucken“ der Sitzung (Markdown; die Plattform erzeugt daraus eine A4-PDF – gedruckt wird nur A4). Für alles, was vor der Stunde ausgedruckt " +
+      "werden muss: Arbeitsblätter in Jg. 5/6, Karten, Schaubilder oder Kärtchen für die Tafel. anzahl: wie oft (z. B. Zahl der Schüler:innen – frag die Lehrkraft, wenn du sie nicht kennst); " +
+      "beidseitig: false, wenn geschnitten wird oder Rückseiten stören; farbe: nur true, wenn Farbe unbedingt nötig ist (an der Schule wird fast immer schwarz-weiß gedruckt). " +
+      "Der Dateiname entsteht automatisch, z. B. „28x - beidseitig - sw - Titel.pdf“.",
+    inputSchema: { type: "object", properties: { lesson_id: ID_ARG, titel: { type: "string", maxLength: 160 }, markdown: { type: "string", maxLength: 200000 },
+      anzahl: { type: "integer", minimum: 1, maximum: 500 }, beidseitig: { type: "boolean" }, farbe: { type: "boolean" } },
+      required: ["lesson_id", "titel", "markdown", "anzahl", "beidseitig", "farbe"], additionalProperties: false } },
   { name: "propose_feibeitsblatt", title: "Feibeitsblatt vorschlagen", annotations: wr,
     description: "Legt einen Feibeitsblatt-ENTWURF in der Sitzung ab. " + FEIBEITSBLATT_INFO + " Die Lehrkraft prüft und ändert den Entwurf in der Plattform und legt das Blatt dort selbst an (das Anlegen braucht ihr Feibeitsblatt-Passwort im Browser).",
     inputSchema: { type: "object", properties: { lesson_id: ID_ARG, titel: { type: "string", maxLength: 120 },
@@ -221,6 +230,7 @@ async function callTool(c, name, a) {
       if (a.thema !== undefined) b.topic = a.thema;
       if (a.dauer_minuten !== undefined) b.durationMin = a.dauer_minuten;
       if (a.datum !== undefined) b.date = a.datum;
+      if (a.beginn !== undefined) b.startTime = a.beginn;
       if (a.ideen !== undefined) b.ideas = a.ideen;
       if (a.hausaufgabe !== undefined) b.homework = a.hausaufgabe;
       const { lesson: l } = await updateLesson(c.db, a.lesson_id, b, c.now);
@@ -252,6 +262,12 @@ async function callTool(c, name, a) {
       const area = a.bereich === "schueler" ? "student" : a.bereich === "lehrkraft" ? "teacher" : "";
       const f = await insertTextMaterial(c.db, a.lesson_id, area, a.titel, a.markdown, "claude", c.now);
       return toolText("Material „" + f.name + "“ gespeichert (" + (area === "student" ? "für Schüler:innen sichtbar" : "nur für die Lehrkraft") + ").", { file_id: f.id });
+    }
+    case "add_print_material": {
+      await getLesson(c.db, a.lesson_id);
+      const f = await insertPrintText(c.db, a.lesson_id, a.titel, a.markdown, { copies: a.anzahl, duplex: a.beidseitig !== false, color: a.farbe === true }, "claude", c.now);
+      const o = fileOut(f);
+      return toolText("Druckvorlage gespeichert: „" + o.printName + "“ (Liste „Von der Lehrkraft auszudrucken“).", { file_id: f.id, file_name: o.printName });
     }
     case "propose_feibeitsblatt": {
       await getLesson(c.db, a.lesson_id);

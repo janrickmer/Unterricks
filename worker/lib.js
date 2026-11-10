@@ -143,6 +143,8 @@ export const LOCKS = {
   joinDevice: { max: 15, windowMs: 10 * 60e3, lockMs: 5 * 60e3 },               // falsche Sitzungscodes
   joinIp: { max: 300, windowMs: 10 * 60e3, lockMs: 10 * 60e3 },
   mcp: { max: 30, windowMs: 10 * 60e3, lockMs: 10 * 60e3 },
+  askDevice: { max: 12, windowMs: 10 * 60e3, lockMs: 10 * 60e3 },               // KI-Begriffshilfe: je Gerät 12 Fragen je 10 Minuten
+  askLesson: { max: 300, windowMs: 3600e3, lockMs: 15 * 60e3 },                // … je Sitzung 300 Fragen je Stunde (Kontingent der kostenlosen KI)
   setup: { max: 10, windowMs: 3600e3, lockMs: 3600e3 },
 };
 export async function lockedFor(db, key, now = Date.now()) {

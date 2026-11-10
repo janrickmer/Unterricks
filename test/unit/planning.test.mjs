@@ -17,8 +17,13 @@ test("Termine: Stundenplan im Zeitraum, ohne Ferien, Klausurtag markiert", () =>
   assert.equal(slots[0].minutes, 90);
   assert.deepEqual(computeSlots({ start: "2026-11-09" }), []);
   const p = normalizeParams({ weekdays: [{ day: 6, minutes: 45 }, { day: 2, minutes: 10 }, { day: 3, minutes: 60 }], start: "2026-02-30" });
-  assert.deepEqual(p.weekdays, [{ day: 3, minutes: 60 }]);
+  assert.deepEqual(p.weekdays, [{ day: 3, minutes: 60, time: null }]);
   assert.equal(p.start, null);
+  // Beginn je Wochentag (freiwillig): geht in die Termine und von dort in die Zeilen/Sitzungen
+  const withTime = computeSlots({ start: "2026-11-09", end: "2026-11-12", weekdays: [{ day: 1, minutes: 90, time: "07:45" }, { day: 4, minutes: 45, time: "25:00" }] });
+  assert.deepEqual(withTime.map((s) => s.date + " " + s.time), ["2026-11-09 07:45", "2026-11-12 null"]);
+  const rows = assignDates([{ uid: "a", stundenfrage: "x", ablauf: [], date: null, minutes: null, time: null }], withTime);
+  assert.equal(rows[0].time, "07:45");
 });
 
 test("Zeilen und Termine: Lernschritt bleibt leer, gesetzte Daten bleiben, Rest der Reihe nach", () => {

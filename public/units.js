@@ -49,6 +49,7 @@ export async function unitPage(id) {
     const brs = p.breaks.map((b) => ({ ...b }));
     const paintWd = () => clear(wdBox).append(...wds.map((w, i) => h("div", { class: "row" },
       h("select", { style: { width: "auto" }, "aria-label": "Wochentag", onchange: (e) => { w.day = Number(e.target.value); } }, WEEKDAYS.map((d) => h("option", { value: d.d, selected: d.d === w.day ? true : null }, d.n))),
+      h("input", { type: "time", step: "300", value: w.time || "", style: { maxWidth: "8.5rem" }, "aria-label": "Uhrzeit (Beginn)", oninput: (e) => { w.time = e.target.value || null; } }), h("span", { class: "small", text: "Uhr," }),
       h("input", { type: "number", min: "20", max: "240", step: "5", value: w.minutes, style: { maxWidth: "7rem" }, "aria-label": "Minuten", oninput: (e) => { w.minutes = Number(e.target.value); } }), h("span", { class: "small", text: "Minuten" }),
       h("button", { class: "btn small ghost", type: "button", "aria-label": "Entfernen", onclick: () => { wds.splice(i, 1); paintWd(); } }, icon("x")))),
       h("button", { class: "btn small", type: "button", onclick: () => { wds.push({ day: 4, minutes: 45 }); paintWd(); } }, "+ Sitzung pro Woche"));
@@ -67,7 +68,7 @@ export async function unitPage(id) {
     return h("section", { class: "card" }, h("h2", { text: "1. Rahmendaten der Einheit" }),
       h("div", { class: "field" }, h("label", null, "Thema / Arbeitstitel"), title),
       h("div", { class: "meta-grid" },
-        h("div", { class: "field" }, h("label", null, "Sitzungen pro Woche (Wochentag und Länge)"), wdBox),
+        h("div", { class: "field" }, h("label", null, "Sitzungen pro Woche (Wochentag, Beginn und Länge)"), wdBox),
         h("div", { class: "field" }, h("label", null, "Ferien und bekannte Ausfälle im Zeitraum"), brBox),
         h("div", { class: "field" }, h("label", null, "Beginn der Einheit"), start),
         h("div", { class: "field" }, h("label", null, "Abgeschlossen sein bis"), end),

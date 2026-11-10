@@ -1,7 +1,8 @@
 // fbclient.js – Anbindung an das bestehende Feibeitsblatt (Lehrkraft-API) direkt aus dem Browser der Lehrkraft.
 // Das Feibeitsblatt-Passwort verlässt den Browser nie: daraus werden wie im Feibeitsblatt selbst per PBKDF2 (600 000 Iterationen)
 // und HKDF der Anmeldeschlüssel und der Schlüssel zum Öffnen des privaten RSA-Schlüssels abgeleitet. Abgaben werden hier entschlüsselt.
-// Schlüssel liegen nur im Arbeitsspeicher (Wunsch der Lehrkraft: bei jeder Anmeldung neu eingeben).
+// Schlüssel liegen im Arbeitsspeicher; auf Wunsch speichert Unterricks den Feibeitsblatt-Schlüssel Ende-zu-Ende verschlüsselt im
+// Benutzerkonto (fblink.js), dann verbindet connectMaster ohne erneute Eingabe.
 const subtle = crypto.subtle, te = new TextEncoder(), td = new TextDecoder();
 const b64 = (buf) => { const b = buf instanceof Uint8Array ? buf : new Uint8Array(buf); let s = ""; for (let i = 0; i < b.length; i += 0x8000) s += String.fromCharCode.apply(null, b.subarray(i, i + 0x8000)); return btoa(s); };
 const unb64 = (s) => { const bin = atob(String(s)); const out = new Uint8Array(bin.length); for (let i = 0; i < bin.length; i++) out[i] = bin.charCodeAt(i); return out; };
@@ -17,9 +18,9 @@ export function cleanPhoto(v) {
 export class FbError extends Error { constructor(m, status, code) { super(m); this.status = status; this.code = code; } }
 
 export class FbClient {
-  constructor(apiBase) { this.base = String(apiBase || "").replace(/\/+$/, ""); this.authKey = null; this.priv = null; }
+  constructor(apiBase) { this.base = String(apiBase || "").replace(/\/+$/, ""); this.authKey = null; this.priv = null; this.master = null; }
   get connected() { return !!(this.authKey && this.priv); }
-  disconnect() { this.authKey = null; this.priv = null; }
+  disconnect() { this.authKey = null; this.priv = null; if (this.master) this.master.fill(0); this.master = null; }
 
   async call(method, path, body, auth = true) {
     const headers = {};
@@ -41,25 +42,38 @@ export class FbClient {
     if (!Number.isInteger(it) || it < 100000 || it > 10000000) throw new FbError("Unerwartete Schlüsselparameter von Feibeitsblatt.");
     const base = await subtle.importKey("raw", te.encode(password), "PBKDF2", false, ["deriveBits"]);
     const bits = await subtle.deriveBits({ name: "PBKDF2", hash: "SHA-256", salt: unb64(kdf.salt), iterations: it }, base, 256);
+    return this.keysOf(new Uint8Array(bits));
+  }
+  /* Feibeitsblatt-Schlüssel (PBKDF2-Ergebnis, 32 Byte) → Anmeldeschlüssel und Schlüssel zum Öffnen des privaten Schlüssels (HKDF wie im Feibeitsblatt) */
+  async keysOf(bits) {
     const master = await subtle.importKey("raw", bits, "HKDF", false, ["deriveKey", "deriveBits"]);
     const encKey = await subtle.deriveKey({ name: "HKDF", hash: "SHA-256", salt: new Uint8Array(0), info: te.encode("feibeitsblatt/enc/v1") }, master, { name: "AES-GCM", length: 256 }, false, ["decrypt"]);
     const auth = await subtle.deriveBits({ name: "HKDF", hash: "SHA-256", salt: new Uint8Array(0), info: te.encode("feibeitsblatt/auth/v1") }, master, 256);
-    return { encKey, authKey: b64(auth) };
+    return { encKey, authKey: b64(auth), master: bits };
   }
 
   /* Türcode + Passwort → angemeldet, privater Schlüssel entschlüsselt (nicht exportierbar) */
   async connect(doorCode, password) {
     const door = await this.call("POST", "/api/teacher/door", { doorCode: String(doorCode || "").trim() }, false);
     if (!door.setup) throw new FbError("Im Feibeitsblatt ist noch kein Lehrkraft-Zugang eingerichtet. Bitte dort zuerst ein Passwort festlegen.");
-    const keys = await this.derive(password, door.kdf);
+    return this.login(await this.derive(password, door.kdf), "Das Feibeitsblatt-Passwort ist falsch.");
+  }
+  /* mit dem gespeicherten Feibeitsblatt-Schlüssel (ohne Türcode und Passwort) */
+  async connectMaster(bits) {
+    if (!(bits instanceof Uint8Array) || bits.length !== 32) throw new FbError("Die gespeicherte Feibeitsblatt-Verbindung ist unvollständig.");
+    return this.login(await this.keysOf(new Uint8Array(bits)), "Die gespeicherte Feibeitsblatt-Verbindung gilt nicht mehr – vermutlich wurde das Feibeitsblatt-Passwort geändert.");
+  }
+  async login(keys, wrongMsg) {
+    this.disconnect();
     this.authKey = keys.authKey;
     let r;
     try { r = await this.call("POST", "/api/teacher/login"); }
-    catch (e) { this.disconnect(); if (e.status === 401) throw new FbError("Das Feibeitsblatt-Passwort ist falsch.", 401); throw e; }
+    catch (e) { this.disconnect(); if (e.status === 401) throw new FbError(wrongMsg, 401); throw e; }
     try {
       const pkcs8 = await subtle.decrypt({ name: "AES-GCM", iv: unb64(r.encPrivateKey.iv) }, keys.encKey, unb64(r.encPrivateKey.ct));
       this.priv = await subtle.importKey("pkcs8", pkcs8, { name: "RSA-OAEP", hash: "SHA-256" }, false, ["decrypt"]);
     } catch { this.disconnect(); throw new FbError("Der Schlüssel für die Abgaben ließ sich nicht öffnen."); }
+    this.master = keys.master;   // für „Verbindung speichern“ (nur im Arbeitsspeicher, beim Trennen überschrieben)
     return true;
   }
 

@@ -60,13 +60,13 @@ export async function routeSubstituteConfirm(c, lessonId) {
   const sheet = body.sheet && isValidCode(normalizeCode(body.sheet.code)) ? { code: normalizeCode(body.sheet.code), title: String(body.sheet.title || "Feibeitsblatt").slice(0, 200) } : null;
   if (p.draftId && !sheet && !isAnalogClass(l.klass)) throw bad("Bitte zuerst das Feibeitsblatt der Vertretung anlegen (Verbindung zu Feibeitsblatt nötig).");
   const [files, sheets] = await c.db.batch([
-    c.db.prepare("SELECT id, area FROM files WHERE lesson_id=?1 AND area IN ('student','teacher')").bind(lessonId),
+    c.db.prepare("SELECT id, area FROM files WHERE lesson_id=?1 AND area IN ('student','teacher','print')").bind(lessonId),
     c.db.prepare("SELECT code, title FROM fb_sheets WHERE lesson_id=?1").bind(lessonId),
   ]);
   const archive = { portal: l.portal, homework: l.homework || "", files: (files.results || []).map((f) => ({ id: f.id, area: f.area })), sheets: sheets.results || [], at: c.now };
   // 1) ursprüngliche Dateien ins Archiv (für Schüler:innen unsichtbar), Feibeitsblatt-Verknüpfungen lösen, Hausaufgabe leeren
   await c.db.batch([
-    c.db.prepare("UPDATE files SET area='archive', updated_at=?2 WHERE lesson_id=?1 AND area IN ('student','teacher')").bind(lessonId, c.now),
+    c.db.prepare("UPDATE files SET area='archive', updated_at=?2 WHERE lesson_id=?1 AND area IN ('student','teacher','print')").bind(lessonId, c.now),
     c.db.prepare("DELETE FROM fb_sheets WHERE lesson_id=?1").bind(lessonId),
     c.db.prepare("UPDATE lessons SET homework='', updated_at=?2 WHERE id=?1").bind(lessonId, c.now),
   ]);
@@ -112,7 +112,8 @@ export async function routeSubstituteRestore(c, lessonId) {
     c.db.prepare("UPDATE lessons SET homework=?2, updated_at=?3 WHERE id=?1").bind(lessonId, a.homework || "", c.now),
     c.db.prepare("DELETE FROM substitutes WHERE lesson_id=?1").bind(lessonId),
   ];
-  for (const f of (a.files || []).slice(0, 30)) stmts.push(c.db.prepare("UPDATE files SET area=?3 WHERE id=?1 AND lesson_id=?2 AND area='archive'").bind(f.id, lessonId, f.area === "teacher" ? "teacher" : "student"));
+  const back = (a0) => (a0 === "teacher" || a0 === "print" ? a0 : "student");
+  for (const f of (a.files || []).slice(0, 40)) stmts.push(c.db.prepare("UPDATE files SET area=?3 WHERE id=?1 AND lesson_id=?2 AND area='archive'").bind(f.id, lessonId, back(f.area)));
   await c.db.batch(stmts);
   const curSheets = await c.db.prepare("SELECT code FROM fb_sheets WHERE lesson_id=?1").bind(lessonId).all();
   const subCodes = (curSheets.results || []).map((x) => x.code);
@@ -149,8 +150,9 @@ export async function routeSubstituteTransfer(c, lessonId) {
       if (!obj) continue;
       await c.env.FILES.put(fileKey(target.id, id), obj.body, { httpMetadata: { contentType: f.mime } });
     }
-    ins.push(c.db.prepare("INSERT INTO files(id, lesson_id, area, kind, name, mime, size, text, status, source, created_at, updated_at) VALUES(?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, 'ready', 'uebernommen', ?9, ?9)")
-      .bind(id, target.id, f0.area === "teacher" ? "teacher" : "student", f.kind, f.name, f.mime, f.size, f.text, c.now));
+    ins.push(c.db.prepare("INSERT INTO files(id, lesson_id, area, kind, name, mime, size, text, status, source, print_copies, print_duplex, print_color, created_at, updated_at) " +
+      "VALUES(?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, 'ready', 'uebernommen', ?9, ?10, ?11, ?12, ?12)")
+      .bind(id, target.id, f0.area === "teacher" || f0.area === "print" ? f0.area : "student", f.kind, f.name, f.mime, f.size, f.text, f.print_copies ?? null, f.print_duplex ?? null, f.print_color ?? null, c.now));
   }
   if (ins.length) await c.db.batch(ins);
   if (from === 0 && a.portal && body.portal !== false) {

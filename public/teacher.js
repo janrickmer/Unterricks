@@ -6,11 +6,14 @@ import { SUBJECTS, subjectName, gradeInfo, isValidClass, isValidSubject, formatC
 import { missingFor } from "./bases-detect.js";
 import { portalPreview } from "./portalview.js";
 import { FbClient } from "./fbclient.js";
+import { deriveLogin, rememberKey, recallKey, forgetKey, sealLink, openLink, linkData, sameApi } from "./fblink.js";
 
 export const T = {
   get token() { return store.get("u.ttoken"); },
   set token(v) { if (v) store.set("u.ttoken", v); else store.del("u.ttoken"); },
   config: null, fb: null,
+  wrapKey: null,              // Schlüssel für die gespeicherte Feibeitsblatt-Verbindung (aus dem Unterricks-Passwort, nur im Browser)
+  fbLink: { state: "checking" },   // checking | none | saved | locked | invalid | error – siehe fbAutoConnect
 };
 export async function tapi(method, path, o = {}) {
   try { return await api(method, path, { ...o, token: T.token }); }
@@ -22,12 +25,77 @@ export async function config() {
   return T.config;
 }
 
-/* PBKDF2 im Browser (600 000 Iterationen): der Server sieht nie das Passwort */
+/* PBKDF2 im Browser (600 000 Iterationen): der Server sieht nie das Passwort – und nie den zweiten Teil der Ableitung (fblink.js) */
 const b64u = (b) => btoa(String.fromCharCode(...new Uint8Array(b))).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
-const unb64u = (s) => { const t = s.replace(/-/g, "+").replace(/_/g, "/"); const bin = atob(t + "===".slice((t.length + 3) % 4)); return Uint8Array.from(bin, (c) => c.charCodeAt(0)); };
-async function deriveAuth(password, saltB64u, iterations) {
-  const key = await crypto.subtle.importKey("raw", new TextEncoder().encode(password), "PBKDF2", false, ["deriveBits"]);
-  return b64u(await crypto.subtle.deriveBits({ name: "PBKDF2", hash: "SHA-256", salt: unb64u(saltB64u), iterations }, key, 256));
+async function useWrapKey(key) { T.wrapKey = key; await rememberKey(key); }
+
+/* ---------- Gespeicherte Feibeitsblatt-Verbindung (Ende-zu-Ende verschlüsselt, fblink.js) ----------
+ * T.fbLink.state: checking = wird geprüft; none = nichts gespeichert; saved = gespeichert und auf diesem Gerät nutzbar;
+ * locked = gespeichert, aber auf diesem Gerät fehlt der Schlüssel (einmal mit dem Unterricks-Passwort entsperren);
+ * invalid = das Feibeitsblatt lehnt sie ab (Passwort dort geändert) bzw. sie gehört zu einem anderen Feibeitsblatt; error = gerade nicht erreichbar */
+let fbAuto = null;
+export function fbAutoConnect(force = false) {
+  if (fbAuto && !force) return fbAuto;
+  T.fbLink = { state: "checking" };
+  fbAuto = (async () => {
+    let r;
+    try { r = await tapi("GET", "/api/teacher/fb-link"); } catch (e) { return (T.fbLink = { state: "error", msg: e.message }); }
+    if (!r.link) return (T.fbLink = { state: "none" });
+    const at = r.link.at || null, key = T.wrapKey || (await recallKey());
+    let d = null;
+    if (key) { try { d = await openLink(key, r.link); T.wrapKey = key; } catch {} }
+    if (!d) return (T.fbLink = { state: "locked", at });
+    if (!sameApi(d.api, T.config.feibeitsblattApi)) return (T.fbLink = { state: "invalid", at, other: true });
+    if (!T.fb.connected) {
+      try { await T.fb.connectMaster(d.master); }
+      catch (e) { return (T.fbLink = e.status === 401 ? { state: "invalid", at } : { state: "error", msg: e.message, at }); }
+      finally { d.master.fill(0); }
+    }
+    return (T.fbLink = { state: "saved", at });
+  })();
+  return fbAuto;
+}
+/* Mit dem Unterricks-Passwort bestätigen (erneute Anmeldung auf diesem Gerät: prüft das Passwort mit denselben Sperren wie die
+   Anmeldung und legt den Schlüssel für die gespeicherte Verbindung ab) */
+export async function fbUnlock(password) {
+  const me = await tapi("GET", "/api/teacher/me");
+  const s = await api("POST", "/api/teacher/salt", { body: { username: me.username } });
+  const d = await deriveLogin(password, s.salt, s.iterations);
+  const r = await api("POST", "/api/teacher/login", { body: { username: me.username, authKey: d.authKey, deviceId: deviceId() } });
+  const old = T.token; T.token = r.token;
+  if (old && old !== r.token) api("POST", "/api/teacher/logout", { token: old }).catch(() => {});
+  await useWrapKey(d.wrapKey);
+  return d.wrapKey;
+}
+/* Verbindung speichern (nach dem Verbinden): askPassword() fragt das Unterricks-Passwort ab, falls dieses Gerät den Schlüssel noch nicht hat */
+export async function fbStore(askPassword) {
+  if (!T.fb.connected || !T.fb.master) throw new Error("Bitte zuerst mit Feibeitsblatt verbinden.");
+  const key = T.wrapKey || (await recallKey()) || (await askPassword());
+  if (!key) return false;
+  const r = await tapi("PUT", "/api/teacher/fb-link", { body: { link: await sealLink(key, linkData(T.config.feibeitsblattApi, T.fb.master)) } });
+  T.wrapKey = key; T.fbLink = { state: "saved", at: r.at }; fbAuto = Promise.resolve(T.fbLink);
+  return true;
+}
+/* Gespeicherte Verbindung löschen (auf allen Geräten) und hier trennen */
+export async function fbForget() {
+  await tapi("DELETE", "/api/teacher/fb-link");
+  T.fb.disconnect(); T.fbLink = { state: "none" }; fbAuto = Promise.resolve(T.fbLink);
+}
+/* Dialog: Unterricks-Passwort abfragen → Schlüssel (oder null bei Abbruch) */
+export function askTeacherPassword(text) {
+  return new Promise((resolve) => {
+    let done = false;
+    const pw = h("input", { id: "fbu-pw", type: "password", autocomplete: "current-password" }), msg = h("p", { class: "err", role: "alert" });
+    modal({ title: "Mit Ihrem Unterricks-Passwort bestätigen", onClose: () => { if (!done) resolve(null); },
+      body: (el) => el.append(h("p", { class: "small", text }), h("div", { class: "field" }, h("label", { for: "fbu-pw" }, "Unterricks-Passwort"), pw), msg),
+      actions: [{ label: "Abbrechen", onClick: () => { done = true; resolve(null); } },
+        { label: "Bestätigen", class: "primary", onClick: async (e) => {
+          msg.textContent = "";
+          const btn = e.currentTarget; btn.disabled = true;
+          try { const key = await fbUnlock(pw.value); done = true; resolve(key); }
+          catch (err) { msg.textContent = err.message; btn.disabled = false; return false; }
+        } }] });
+  });
 }
 
 export function teacherBar(active) {
@@ -37,7 +105,9 @@ export function teacherBar(active) {
 }
 async function logout() {
   try { await tapi("POST", "/api/teacher/logout"); } catch {}
-  T.token = null; if (T.fb) T.fb.disconnect(); go("#/lehrkraft");
+  T.token = null; if (T.fb) T.fb.disconnect();
+  T.wrapKey = null; T.fbLink = { state: "checking" }; fbAuto = null; await forgetKey();   // dieses Gerät vergisst den Schlüssel
+  go("#/lehrkraft");
 }
 
 /* ---------- Anmeldung / Einrichtung ---------- */
@@ -68,14 +138,14 @@ async function loginPage() {
           if (pw.value.length < 10) throw new Error("Bitte ein Passwort mit mindestens 10 Zeichen wählen.");
           if (pw.value !== pw2.value) throw new Error("Die beiden Passwörter stimmen nicht überein.");
           const salt = b64u(crypto.getRandomValues(new Uint8Array(16)));
-          const authKey = await deriveAuth(pw.value, salt, 600000);
-          const r = await api("POST", "/api/teacher/setup", { body: { username: user.value, salt, iterations: 600000, authKey, deviceId: deviceId(), setupCode: sc.value || undefined } });
-          T.token = r.token; toast("Ihr Lehrkraft-Zugang ist eingerichtet.", "ok"); go("#/lk");
+          const d = await deriveLogin(pw.value, salt, 600000);
+          const r = await api("POST", "/api/teacher/setup", { body: { username: user.value, salt, iterations: 600000, authKey: d.authKey, deviceId: deviceId(), setupCode: sc.value || undefined } });
+          T.token = r.token; await useWrapKey(d.wrapKey); fbAuto = null; toast("Ihr Lehrkraft-Zugang ist eingerichtet.", "ok"); go("#/lk");
         } else {
           const s = await api("POST", "/api/teacher/salt", { body: { username: user.value } });
-          const authKey = await deriveAuth(pw.value, s.salt, s.iterations);
-          const r = await api("POST", "/api/teacher/login", { body: { username: user.value, authKey, deviceId: deviceId() } });
-          T.token = r.token; go("#/lk");
+          const d = await deriveLogin(pw.value, s.salt, s.iterations);
+          const r = await api("POST", "/api/teacher/login", { body: { username: user.value, authKey: d.authKey, deviceId: deviceId() } });
+          T.token = r.token; await useWrapKey(d.wrapKey); fbAuto = null; go("#/lk");
         }
       } catch (err) {
         if (err.status === 429 && err.data && err.data.retryAfter) { lock(err.data.retryAfter); msg.textContent = err.message; }
@@ -342,8 +412,9 @@ function connectorSection(mcp) {
       m.active ? h("p", null, h("span", { class: "badge ok", text: "Aktiv" }), " seit " + fmtTime(m.createdAt)) : h("p", { class: "muted", text: "Noch kein Connector eingerichtet." }),
       h("div", { class: "row" },
         h("button", { class: "btn primary", type: "button", onclick: async (e) => {
+          const btn = e.currentTarget;   // nach einem await ist currentTarget leer
           if (m.active && !(await confirmDialog("Neue Connector-Adresse", "Die bisherige Adresse funktioniert danach nicht mehr. Sie müssen den Connector in claude.ai neu eintragen.", "Neue Adresse erzeugen"))) return;
-          await busy(e.currentTarget, async () => {
+          await busy(btn, async () => {
             try {
               const r = await tapi("POST", "/api/teacher/mcp");
               modal({ title: "Connector in claude.ai einrichten", body: (el) => el.append(
@@ -362,8 +433,9 @@ function connectorSection(mcp) {
           });
         } }, m.active ? "Neue Adresse erzeugen" : "Connector-Adresse erzeugen"),
         m.active ? h("button", { class: "btn danger", type: "button", onclick: async (e) => {
+          const btn = e.currentTarget;   // nach einem await ist currentTarget leer
           if (!(await confirmDialog("Connector widerrufen", "Claude kann danach nicht mehr auf die Plattform zugreifen.", "Widerrufen", true))) return;
-          await busy(e.currentTarget, async () => { try { await tapi("DELETE", "/api/teacher/mcp"); paint({ active: false }); } catch (err) { errToast(err); } });
+          await busy(btn, async () => { try { await tapi("DELETE", "/api/teacher/mcp"); paint({ active: false }); } catch (err) { errToast(err); } });
         } }, "Widerrufen") : null));
   };
   paint(mcp);
@@ -389,23 +461,50 @@ function accountSection(me) {
         if (n1.value.length < 10) throw new Error("Bitte ein neues Passwort mit mindestens 10 Zeichen wählen.");
         if (n1.value !== n2.value) throw new Error("Die neuen Passwörter stimmen nicht überein.");
         const s = await api("POST", "/api/teacher/salt", { body: { username: me.username } });
-        const oldAuthKey = await deriveAuth(o.value, s.salt, s.iterations);
+        const old = await deriveLogin(o.value, s.salt, s.iterations);
         const salt = b64u(crypto.getRandomValues(new Uint8Array(16)));
-        await tapi("POST", "/api/teacher/password", { body: { oldAuthKey, salt, authKey: await deriveAuth(n1.value, salt, 600000), username: u.value } });
-        o.value = n1.value = n2.value = ""; toast("Zugangsdaten geändert. Andere Geräte wurden abgemeldet.", "ok");
+        const nw = await deriveLogin(n1.value, salt, 600000);
+        // gespeicherte Feibeitsblatt-Verbindung mit dem Schlüssel aus dem neuen Passwort neu verschlüsseln (sonst ließe sie sich nicht mehr öffnen)
+        let fbLink = null, hadLink = false;
+        try { const l = await tapi("GET", "/api/teacher/fb-link"); if (l.link) { hadLink = true; const dd = await openLink(old.wrapKey, l.link); fbLink = await sealLink(nw.wrapKey, linkData(dd.api, dd.master)); dd.master.fill(0); } } catch {}
+        const r = await tapi("POST", "/api/teacher/password", { body: { oldAuthKey: old.authKey, salt, authKey: nw.authKey, username: u.value, fbLink } });
+        await useWrapKey(nw.wrapKey); fbAuto = null;
+        o.value = n1.value = n2.value = "";
+        toast("Zugangsdaten geändert. Andere Geräte wurden abgemeldet." + (r.fbLink ? " Die gespeicherte Feibeitsblatt-Verbindung bleibt erhalten." : hadLink ? " Die gespeicherte Feibeitsblatt-Verbindung ließ sich nicht übernehmen – bitte in einer Sitzung neu verbinden." : ""), "ok", 8000);
       } catch (err) { errToast(err); }
     }, "Speichere …") }, "Zugangsdaten ändern"),
     h("h3", { style: { marginTop: "1.2rem" }, text: "Bekannte Geräte" }), h("p", { class: "hint", text: "Auf diesen Geräten bleibt die Anmeldung möglich, auch wenn von fremden Geräten viele Fehlversuche kommen." }), devs,
     h("div", { class: "row", style: { marginTop: ".7rem" } }, h("button", { class: "btn danger", type: "button", onclick: async (e) => {
+      const btn = e.currentTarget;   // nach einem await ist currentTarget leer
       if (!(await confirmDialog("Andere Geräte vergessen", "Alle anderen Geräte werden abgemeldet und gelten wieder als unbekannt.", "Vergessen", true))) return;
-      await busy(e.currentTarget, async () => { try { await tapi("POST", "/api/teacher/devices/forget"); toast("Erledigt.", "ok"); settingsPage(); } catch (err) { errToast(err); } });
+      await busy(btn, async () => { try { await tapi("POST", "/api/teacher/devices/forget"); toast("Erledigt.", "ok"); settingsPage(); } catch (err) { errToast(err); } });
     } }, "Alle anderen Geräte abmelden und vergessen")));
 }
 
 function fbSection() {
+  const state = h("div", { class: "stack" }, h("p", { class: "small muted", text: "Prüfe die gespeicherte Verbindung …" }));
+  const paint = () => {
+    const lk = T.fbLink, at = lk.at ? " (gespeichert am " + fmtTime(lk.at) + ")" : "";
+    const del = h("button", { class: "btn danger small", type: "button", onclick: async (e) => {
+      const btn = e.currentTarget;   // nach einem await ist currentTarget leer
+      if (!(await confirmDialog("Gespeicherte Verbindung löschen", "Danach müssen Sie Türcode und Feibeitsblatt-Passwort wieder eingeben – auf allen Geräten.", "Löschen", true))) return;
+      await busy(btn, async () => { try { await fbForget(); toast("Gespeicherte Feibeitsblatt-Verbindung gelöscht.", "ok"); paint(); } catch (err) { errToast(err); } });
+    } }, "Gespeicherte Verbindung löschen");
+    const line = {
+      saved: ["ok", "Verbindung verschlüsselt in Ihrem Benutzerkonto gespeichert" + at + " – Unterricks verbindet sich automatisch."],
+      locked: ["warnc", "Verbindung gespeichert" + at + ", auf diesem Gerät aber noch nicht entsperrt – in einer Sitzung im Abschnitt „Feibeitsblatt“ einmal mit Ihrem Unterricks-Passwort entsperren."],
+      invalid: ["warnc", lk.other ? "Die gespeicherte Verbindung gehört zu einem anderen Feibeitsblatt." : "Die gespeicherte Verbindung gilt nicht mehr (Feibeitsblatt-Passwort geändert?) – in einer Sitzung neu verbinden und speichern."],
+      error: ["warnc", "Die gespeicherte Verbindung ließ sich gerade nicht prüfen: " + (lk.msg || "")],
+      none: ["muted", "Keine Verbindung gespeichert."],
+    }[lk.state];
+    if (!line) return;
+    clear(state).append(h("p", { class: "small " + line[0], text: line[1] }), lk.state !== "none" && lk.state !== "error" ? h("div", { class: "row" }, del) : null);
+  };
+  fbAutoConnect().then(paint, () => {});
   return h("section", { class: "card" }, h("h2", { text: "Feibeitsblatt" }),
     h("p", { class: "small" }, "Schnittstelle: ", h("span", { class: "mono", text: T.config.feibeitsblattApi })), h("p", { class: "small" }, "Adresse für Schüler:innen: ", h("a", { href: T.config.feibeitsblattUrl, target: "_blank", rel: "noopener", text: T.config.feibeitsblattUrl })),
-    h("p", { class: "hint", text: "Die Verbindung (Türcode + Feibeitsblatt-Passwort) stellen Sie in einer Sitzung im Abschnitt „Feibeitsblatt“ her; sie gilt bis zum Abmelden bzw. Neuladen der Seite. Der KI-Anbieter für die Rückmeldungen im Feibeitsblatt wird im Feibeitsblatt selbst eingestellt." }));
+    state,
+    h("p", { class: "hint", text: "Die Verbindung (Türcode + Feibeitsblatt-Passwort) stellen Sie einmalig in einer Sitzung im Abschnitt „Feibeitsblatt“ her. Gespeichert wird sie Ende-zu-Ende verschlüsselt: mit einem Schlüssel, der in Ihrem Browser aus Ihrem Unterricks-Passwort entsteht und den der Server nie sieht – gespeichert ist nur der daraus abgeleitete Feibeitsblatt-Schlüssel, nie ein Passwort. Auf jedem Gerät, auf dem Sie sich mit Ihrem Passwort anmelden, verbindet sich Unterricks danach automatisch; beim Abmelden vergisst das Gerät den Schlüssel. Der KI-Anbieter für die Rückmeldungen im Feibeitsblatt wird im Feibeitsblatt selbst eingestellt." }));
 }
 
 /* ---------- Router der Lehrkräfteansicht ---------- */

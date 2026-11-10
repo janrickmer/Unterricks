@@ -1,6 +1,6 @@
 // app.js – Einstieg: Router und Schüleransicht. Die Lehrkräfteansicht wird erst bei Bedarf geladen (teacher.js).
-import { h, $, clear, store, deviceId, api, apiUrl, wsUrl, ApiError, toast, errToast, busy, copyText, fmtBytes, fmtDate, fmtClock, fileIcon, downloadUrl, downloadBlob, topbar, icon, setFach, pageHead } from "./ui.js";
-import { SUBJECTS, CLASS_GROUPS, subjectName, formatCode, normalizeCode, fmtDay, classShort, isAnalogClass } from "./shared.js";
+import { h, $, clear, store, deviceId, api, apiUrl, wsUrl, ApiError, toast, errToast, busy, copyText, fmtBytes, fmtDate, fmtClock, fileIcon, downloadUrl, downloadBlob, topbar, icon, setFach, pageHead, modal } from "./ui.js";
+import { SUBJECTS, CLASS_GROUPS, subjectName, formatCode, normalizeCode, fmtDay, classShort, isAnalogClass, webUrlLabel, fmtClockBerlin, fmtDayBerlin, slidesUpTo } from "./shared.js";
 import { paintPortalPreview } from "./portalview.js";
 import { renderMarkdown } from "./markdown.js";
 
@@ -175,14 +175,68 @@ async function studentRoom(lessonId) {
     else live.classList.toggle("max");
   });
   const presRow = h("div", { class: "row", style: { margin: ".6rem 0 1.2rem" } });
-  main.append(live, presRow);
-  // Hausaufgabe aus dieser Sitzung bis zur nächsten Sitzung
-  if (d.homework) {
-    main.append(h("section", { class: "card homework", style: { marginBottom: "1rem" }, "aria-label": "Hausaufgabe" },
+  // Hausaufgabe aus dieser Sitzung bis zur nächsten Sitzung – der Server liefert sie erst ab 15 Minuten vor dem Ende der Sitzung
+  const hwBox = h("div");
+  const paintHomework = (hw) => {
+    clear(hwBox);
+    if (hw) hwBox.append(h("section", { class: "card homework", style: { marginBottom: "1rem" }, "aria-label": "Hausaufgabe" },
       h("h2", { text: "Deine Hausaufgabe" }),
-      h("p", { class: "due", text: d.homework.dueDate ? "Bis zur nächsten Sitzung am " + fmtDay(d.homework.dueDate) + ":" : "Bis zur nächsten Sitzung:" }),
-      paintPortalPreview(h("div", { class: "hwtext" }), d.homework.text)));
+      h("p", { class: "due", text: hw.dueDate ? "Bis zur nächsten Sitzung am " + fmtDay(hw.dueDate) + ":" : "Bis zur nächsten Sitzung:" }),
+      paintPortalPreview(h("div", { class: "hwtext" }), hw.text)));
+  };
+  paintHomework(d.homework);
+  // KI-Begriffshilfe unter der Live-Präsentation: nur während der Stunde, nur nach Einwilligung; Fragen und Antworten nur im Arbeitsspeicher
+  const kiBox = h("div"), KI_KEY = "u.kihelp." + lessonId;
+  let aiHelp = d.aiHelp, kiChat = [], kiCard = null;
+  const kiOpen = () => { const n = Date.now() + offset; return !!aiHelp && n >= aiHelp.start && n <= aiHelp.end; };
+  function paintKi() {
+    if (!kiOpen()) { clear(kiBox); kiCard = null; return; }
+    if (kiCard && kiCard.dataset.consent === String(store.get(KI_KEY) === "1")) return;   // schon passend gezeichnet (Eingabe bleibt erhalten)
+    const consented = store.get(KI_KEY) === "1";
+    kiCard = h("section", { class: "card kihelp", "aria-labelledby": "ki-h", dataset: { consent: String(consented) } }, h("h2", { id: "ki-h", text: "KI-Begriffshilfe" }));
+    if (!consented) {
+      kiCard.append(h("p", { class: "small", text: "Ein Fachbegriff ist dir unklar? Die KI erklärt ihn dir kurz und einfach – nur, wenn du das möchtest." }),
+        h("button", { class: "btn small", type: "button", onclick: () => askKiConsent() }, "KI-Begriffshilfe nutzen"));
+    } else {
+      const log = h("div", { class: "kilog", role: "log", "aria-live": "polite", "aria-label": "Fragen und Antworten" });
+      const inp = h("input", { id: "ki-q", maxlength: "300", autocomplete: "off", enterkeyhint: "send", placeholder: "z. B. Was bedeutet „Gewaltenteilung“?" });
+      const btn = h("button", { class: "btn primary small", type: "submit" }, "Fragen");
+      const paintLog = () => clear(log).append(...kiChat.map((x) => h("div", { class: "kiq" }, h("p", { class: "q" }, h("span", { class: "sr-only", text: "Deine Frage: " }), x.q),
+        x.a ? h("p", { class: "a" }, h("span", { class: "sr-only", text: "Antwort: " }), x.a) : x.err ? h("p", { class: "a err", text: x.err }) : h("p", { class: "a muted", text: "Die KI denkt nach …" }))));
+      paintLog();
+      const form = h("form", { class: "row", onsubmit: async (e) => {
+        e.preventDefault();
+        const q = inp.value.trim(); if (q.length < 2 || btn.disabled) return;
+        const history = kiChat.filter((x) => x.a).slice(-3).map((x) => ({ q: x.q, a: x.a }));
+        const item = { q }; kiChat.push(item); inp.value = ""; paintLog();
+        btn.disabled = true;
+        try { item.a = (await sapi("POST", "/api/student/lessons/" + lessonId + "/ask", { body: { question: q, history, consent: true } })).answer; }
+        catch (err) { item.err = err.message; }
+        btn.disabled = false; paintLog(); inp.focus();
+      } }, h("label", { class: "sr-only", for: "ki-q" }, "Deine Frage an die KI-Begriffshilfe"), h("div", { class: "grow" }, inp), btn);
+      kiCard.append(log, form, h("p", { class: "hint" }, "KI-Antworten können falsch sein – frag im Zweifel deine Lehrkraft. Gib keine persönlichen Daten ein. ",
+        h("button", { class: "linkbtn", type: "button", onclick: () => { store.del(KI_KEY); kiChat = []; paintKi(); } }, "Einwilligung zurücknehmen")));
+    }
+    clear(kiBox).append(kiCard);
   }
+  function askKiConsent() {
+    const box = h("input", { type: "checkbox", id: "ki-ok" });
+    const providers = (aiHelp && aiHelp.providers && aiHelp.providers.length ? aiHelp.providers : ["einen kostenlosen KI-Dienst"]).join(", ");
+    modal({ title: "KI-Begriffshilfe nutzen?", body: (el) => el.append(
+      h("p", { text: "Die KI-Begriffshilfe beantwortet dir während der Stunde kurz und einfach Fragen zu Fachbegriffen und zum Unterrichtsthema." }),
+      h("ul", { class: "kiconsent" },
+        h("li", { text: "Deine Fragen gehen an einen kostenlosen KI-Dienst: " + providers + ". Dein Name wird nicht übertragen – aber alles, was du eintippst. Gib deshalb keine persönlichen Daten ein (z. B. Namen, Adresse, Gesundheit)." }),
+        h("li", { text: "Unterricks speichert deine Fragen und die Antworten nicht; sie verschwinden, wenn du die Seite neu lädst oder verlässt. Was der KI-Dienst damit macht, regeln seine eigenen Bedingungen." }),
+        h("li", { text: "Diese KI-Begriffshilfe ist datenschutzrechtlich nicht für die Schule vorgesehen. Du nutzt sie freiwillig und nur, wenn du das ausdrücklich möchtest – ohne sie entsteht dir kein Nachteil." }),
+        h("li", { text: "KI-Antworten können falsch sein. Sie ersetzen nicht deine Lehrkraft." })),
+      h("label", { class: "checkrow" }, box, h("span", { text: "Ich habe das gelesen und möchte die KI-Begriffshilfe freiwillig nutzen." }))),
+      actions: [{ label: "Abbrechen" }, { label: "Einwilligen und starten", class: "primary", onClick: () => {
+        if (!box.checked) { toast("Bitte setze zuerst den Haken, wenn du die KI-Begriffshilfe nutzen möchtest.", "err"); return false; }
+        store.set(KI_KEY, "1"); paintKi(); setTimeout(() => { const i = document.getElementById("ki-q"); if (i) i.focus(); }, 60);
+      } }] });
+  }
+  paintKi();
+  main.append(live, presRow, kiBox, hwBox);
   let lastV = -1;
   function showState(st) {
     if (!st || typeof st !== "object") return;
@@ -217,18 +271,33 @@ async function studentRoom(lessonId) {
   document.addEventListener("visibilitychange", onVis);
   onLeave(() => { closed = true; clearInterval(pollT); clearInterval(pingT); clearTimeout(reT); document.removeEventListener("visibilitychange", onVis); try { ws && ws.close(); } catch {} });
 
-  // Präsentationsdatei nach 90 Minuten selbst öffnen
-  const pres = d.presentation;
+  // Präsentation selbst öffnen: erst 5 Minuten nach dem Ende der Sitzung; ist die letzte gezeigte Folie markiert, nur bis dorthin
+  let pres = d.presentation;
   const renderPres = () => {
     clear(presRow);
     if (!pres) return;
-    const unlocked = Date.now() + offset >= pres.unlockAt;
+    const unlocked = pres.unlockAt !== null && Date.now() + offset >= pres.unlockAt;
     if (unlocked) {
-      presRow.append(h("button", { class: "btn primary", type: "button", onclick: (e) => openPresentation(e.currentTarget) }, "Präsentation selbst öffnen und durchklicken"));
+      presRow.append(h("button", { class: "btn primary", type: "button", onclick: (e) => openPresentation(e.currentTarget) }, pres.upTo ? "Präsentation (" + slidesUpTo(pres.upTo) + ") selbst öffnen" : "Präsentation selbst öffnen und durchklicken"),
+        pres.upTo ? h("span", { class: "muted small", text: "So weit, wie ihr im Unterricht gekommen seid." }) : null);
+    } else if (pres.unlockAt === null) {
+      presRow.append(h("span", { class: "muted small", text: "Die Präsentation kannst du nach dem Unterricht selbst öffnen." }));
     } else {
-      presRow.append(h("span", { class: "muted small", text: "Die vollständige Präsentation kannst du ab " + fmtClock(pres.unlockAt - offset) + " Uhr selbst öffnen (90 Minuten nach deinem ersten Betreten dieser Sitzung)." }));
+      const day = fmtDayBerlin(pres.unlockAt) === fmtDayBerlin(Date.now() + offset) ? "" : fmtDayBerlin(pres.unlockAt) + ", ";
+      presRow.append(h("span", { class: "muted small", text: "Die Präsentation kannst du ab " + day + fmtClockBerlin(pres.unlockAt) + " Uhr selbst öffnen (5 Minuten nach dem Unterricht)." }));
     }
   };
+  // Hausaufgabe erscheint bzw. Präsentation wird frei: zu diesen Zeitpunkten neu laden (auch nach dem Aufwachen des iPads)
+  const pending = (d.changesAt || []).slice();
+  const refresh = async () => {
+    try { const r = await sapi("GET", "/api/student/lessons/" + lessonId); pres = r.presentation; renderPres(); paintHomework(r.homework); aiHelp = r.aiHelp; paintKi(); pending.splice(0, pending.length, ...(r.changesAt || [])); plan(); } catch {}
+  };
+  let chT = null;
+  const plan = () => { clearTimeout(chT); const next = Math.min(...pending); if (Number.isFinite(next)) chT = setTimeout(refresh, Math.max(1000, Math.min(next - (Date.now() + offset) + 1500, 6 * 3600e3))); };
+  plan();
+  const onVisCh = () => { if (document.visibilityState === "visible" && pending.some((t) => Date.now() + offset >= t)) refresh(); };
+  document.addEventListener("visibilitychange", onVisCh);
+  onLeave(() => { clearTimeout(chT); document.removeEventListener("visibilitychange", onVisCh); });
   async function openPresentation(btn) {
     const w = window.open("about:blank", "_blank");
     await busy(btn, async () => {
@@ -237,7 +306,6 @@ async function studentRoom(lessonId) {
     }, "Öffne …");
   }
   renderPres();
-  if (pres && !pres.unlocked) { const t = setInterval(() => { if (Date.now() + offset >= pres.unlockAt) { clearInterval(t); renderPres(); } }, 20000); onLeave(() => clearInterval(t)); }
 
   // 2) Materialien und Feibeitsblätter
   const mats = h("div", { class: "list" });
@@ -250,10 +318,14 @@ async function studentRoom(lessonId) {
         toast(ok ? "Code " + formatCode(s.code) + " kopiert – füge ihn im Feibeitsblatt ein." : "Bitte den Code " + formatCode(s.code) + " im Feibeitsblatt eintippen.", "ok", 6000);
       } }, "Code kopieren und Feibeitsblatt öffnen"))));
   }
-  for (const f of d.files) {
+  const notfallFiles = d.files.filter((f) => f.notfall), matFiles = d.files.filter((f) => !f.notfall);
+  const fileRow = (f) => {
     const acts = h("div", { class: "acts" });
-    const row = h("div", { class: "item" }, fileIcon(f.name, f.mime, f.kind), h("div", { class: "main" }, h("div", { class: "name", text: f.name }), h("div", { class: "meta", text: f.kind === "text" ? "Text · als PDF herunterladen" : fmtBytes(f.size) })), acts);
-    if (f.kind === "text") {
+    const meta = f.kind === "link" ? "Link · " + webUrlLabel(f.url) : f.kind === "text" ? "Text · als PDF herunterladen" : fmtBytes(f.size);
+    const row = h("div", { class: "item" }, fileIcon(f.name, f.mime, f.kind), h("div", { class: "main" }, h("div", { class: "name", text: f.name }), h("div", { class: "meta", text: meta })), acts);
+    if (f.kind === "link") {
+      if (f.url) acts.append(h("a", { class: "btn primary small", href: f.url, target: "_blank", rel: "noopener noreferrer" }, "Öffnen", h("span", { class: "sr-only", text: " (öffnet in neuem Tab)" })));
+    } else if (f.kind === "text") {
       let shown = null;
       acts.append(h("button", { class: "btn small", type: "button", onclick: () => { if (shown) { shown.remove(); shown = null; } else { shown = h("div", { class: "card", style: { marginTop: ".4rem" } }, renderMarkdown(f.text)); row.after(shown); } } }, "Lesen"),
         h("button", { class: "btn primary small", type: "button", onclick: (e) => busy(e.currentTarget, async () => {
@@ -265,12 +337,20 @@ async function studentRoom(lessonId) {
         try { const r = await sapi("POST", "/api/student/files/" + f.id + "/link"); downloadUrl(r.url, f.name); } catch (err) { errToast(err); }
       }, "Lade …") }, "Herunterladen"));
     }
-    mats.append(row);
-  }
-  if (!d.sheets.length && !d.files.length) mats.append(h("p", { class: "muted", text: "Deine Lehrkraft hat für diese Sitzung noch kein Material freigegeben." }));
+    return row;
+  };
+  mats.append(...matFiles.map(fileRow));
+  if (!d.sheets.length && !matFiles.length) mats.append(h("p", { class: "muted", text: "Deine Lehrkraft hat für diese Sitzung noch kein Material freigegeben." }));
   main.append(h("section", { class: "card" }, h("h2", { text: "Material" }), mats,
-    d.files.length ? h("p", { class: "hint", text: "Tipp fürs iPad: Nach dem Herunterladen über „Teilen“ → „GoodNotes“ öffnen und dort bearbeiten." }) : null));
+    matFiles.some((f) => f.kind !== "link") ? h("p", { class: "hint", text: "Tipp fürs iPad: Nach dem Herunterladen über „Teilen“ → „GoodNotes“ öffnen und dort bearbeiten." }) : null));
+  // 3) Notfall-Feibeitsblätter (das analoge Arbeitsblatt zu jedem Feibeitsblatt): eigenes Kästchen weiter unten, nur für technische Probleme
+  if (notfallFiles.length) main.append(h("section", { class: "card notfallbox", "aria-labelledby": "nf-h" },
+    h("p", { class: "alarm", role: "note" }, icon("alert"), h("span", null, h("strong", { text: "Achtung! " }), NOTFALL_NOTE)),
+    h("h2", { id: "nf-h", text: "Notfall-Feibeitsblätter" }), h("div", { class: "list" }, notfallFiles.map(fileRow))));
 }
+// Wortlaut der Lehrkraft (Komma vor „soll“ entfernt)
+export const NOTFALL_NOTE = "Eigentlich sollst du mit den digitalen Feibeitsblättern arbeiten, die du in dieser Sitzung aufrufen kannst. Die hier verfügbaren PDF-Dateien sind nur für diejenigen Schülerinnen und Schüler gedacht, " +
+  "die technische Probleme beim Aufrufen von Feibeitsblättern haben. Nur in diesen Ausnahmefällen soll mit einem Notfall-Feibeitsblatt gearbeitet werden.";
 
 /* ---------- Router ---------- */
 const ROUTES = [

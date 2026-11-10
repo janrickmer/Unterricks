@@ -1,5 +1,6 @@
 // lessons.js – Unterrichtssitzungen (Lehrkraft): anlegen, planen (Chat), Schulportal-Eintrag, Feibeitsblatt-Entwürfe und -Verknüpfungen.
 import { HttpError, bad, json, readJson, randomId, generateCode, cleanText, cleanLine, isId, isDate, isObj } from "./lib.js";
+import { cleanWebUrl, cleanCopies } from "../public/shared.js";
 import { requireTeacher } from "./auth.js";
 import { callTask, PROVIDERS } from "./ai.js";
 import { getUnit, unitOut } from "./units.js";
@@ -7,21 +8,23 @@ import { loadSubjectConfigs } from "./bases.js";
 import { deleteNotfallFiles } from "./files.js";
 import {
   isValidClass, isValidSubject, isValidCode, normalizeCode, greetingText, planningSystemPrompt, portalMessages, feibeitsblattMessages,
-  chatTranscript, extractJsonObject, validatePortalData, renderPortalEntry, normalizeFbDraft, isIsoDate, hasStop, gradeKey,
+  chatTranscript, extractJsonObject, validatePortalData, renderPortalEntry, normalizeFbDraft, isIsoDate, hasStop, gradeKey, isClockTime, printFileName,
 } from "../public/shared.js";
 import { unitContext } from "../public/planning.js";
 
 export const LIMITS = { title: 200, topic: 500, ideas: 20000, homework: 10000, portal: 30000, message: 30000, answer: 100000, textMaterial: 200000 };
 
 export const lessonOut = (r, extra = {}) => ({
-  id: r.id, subject: r.subject, klass: r.klass, title: r.title, topic: r.topic, durationMin: r.duration_min ?? null, date: r.lesson_date || null,
+  id: r.id, subject: r.subject, klass: r.klass, title: r.title, topic: r.topic, durationMin: r.duration_min ?? null, date: r.lesson_date || null, startTime: r.start_time || null, studentAi: r.student_ai === undefined || r.student_ai === null ? true : !!r.student_ai,
   ideas: r.ideas, homework: r.homework || "", code: r.code, unitId: r.unit_id || null, unitRow: r.unit_row || null, portal: r.portal, portalVersion: r.portal_version, portalUpdatedAt: r.portal_updated_at ?? null, portalSource: r.portal_source || null,
   createdAt: r.created_at, updatedAt: r.updated_at, ...extra,
 });
+export const printProps = (f) => ({ copies: f.print_copies || 1, duplex: f.print_duplex !== 0, color: f.print_color === 1 });
 export const fileOut = (f, withText = true) => ({
   id: f.id, area: f.area, kind: f.kind, name: f.name, mime: f.mime, size: f.size, pages: f.pages ?? null, status: f.status, source: f.source || null,
-  fbCode: f.fb_code || null, fbSig: f.fb_sig || null,
-  createdAt: f.created_at, ...(withText && f.kind === "text" ? { text: f.text || "" } : {}),
+  fbCode: f.fb_code || null, fbSig: f.fb_sig || null, ...(f.area === "presentation" ? { shownUntil: f.shown_until ?? null, cut: !!f.cut_size } : {}),
+  ...(f.area === "print" ? { print: printProps(f), printName: printFileName({ name: f.name, ...printProps(f) }) } : {}),
+  createdAt: f.created_at, ...(withText && f.kind === "text" ? { text: f.text || "" } : {}), ...(f.kind === "link" ? { url: f.text || "" } : {}),
 });
 const msgOut = (m) => ({ id: m.id, role: m.role, content: m.content, model: m.model || null, mode: m.mode || null, createdAt: m.created_at });
 const draftOut = (d) => { let data = null; try { data = JSON.parse(d.data); } catch {} return { id: d.id, data, source: d.source, status: d.status, sheetCode: d.sheet_code || null, createdAt: d.created_at, updatedAt: d.updated_at }; };
@@ -44,7 +47,7 @@ export async function lessonCtx(db, lesson) {
   const cfg = (await loadSubjectConfigs(db))[lesson.subject];
   return {
     lessonId: lesson.id, subject: lesson.subject, klass: lesson.klass,
-    lesson: { title: lesson.title, topic: lesson.topic, durationMin: lesson.duration_min, date: lesson.lesson_date, ideas: lesson.ideas, homework: lesson.homework || "" },
+    lesson: { title: lesson.title, topic: lesson.topic, durationMin: lesson.duration_min, date: lesson.lesson_date, startTime: lesson.start_time || null, ideas: lesson.ideas, homework: lesson.homework || "" },
     materials: (files.results || []).filter((f) => f.area !== "archive").map((f) => ({ name: f.name, area: f.area, kind: f.kind, pages: f.pages, text: f.text || "" })),
     sheets: sheets.results || [], portal: lesson.portal,
     unit, unitText: unit ? unitContext(unit, lesson.unit_row) : "", gradeNote: (cfg.gradeNotes || {})[gradeKey(lesson.klass)] || "",
@@ -66,6 +69,13 @@ function lessonFields(body, partial) {
     if (d !== null && (!Number.isInteger(d) || d < 5 || d > 600)) throw bad("Die Dauer muss zwischen 5 und 600 Minuten liegen.");
     f.duration_min = d;
   }
+  if (partial && body.studentAi !== undefined) f.student_ai = body.studentAi ? 1 : 0;
+  // Beginn (Uhrzeit, freiwillig): ohne ihn sehen Schüler:innen weder Hausaufgabe noch Präsentation (siehe lessonTimes)
+  if (!partial || body.startTime !== undefined) {
+    const t = body.startTime === undefined || body.startTime === null ? "" : String(body.startTime).trim();
+    if (t && !isClockTime(t)) throw bad("Bitte die Uhrzeit im Format 07:45 angeben.");
+    f.start_time = t || null;
+  }
   // Datum ist Pflicht (Vorgabe der Lehrkraft) und bleibt änderbar, z. B. bei Krankheit
   if (!partial || body.date !== undefined) {
     if (!body.date) throw bad("Bitte das Datum wählen, an dem die Sitzung stattfindet.");
@@ -83,9 +93,9 @@ export async function createLesson(db, body, now) {
   const id = randomId(8);
   for (let i = 0; i < 8; i++) {
     const code = generateCode();
-    const r = await db.prepare("INSERT INTO lessons(id, subject, klass, title, topic, duration_min, lesson_date, ideas, homework, code, unit_id, unit_row, created_at, updated_at) " +
-      "VALUES(?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?13) ON CONFLICT(code) DO NOTHING")
-      .bind(id, body.subject, body.klass, f.title, f.topic, f.duration_min, f.lesson_date, f.ideas, f.homework, code, body.unitId || null, body.unitRow || null, now).run();
+    const r = await db.prepare("INSERT INTO lessons(id, subject, klass, title, topic, duration_min, lesson_date, ideas, homework, code, unit_id, unit_row, created_at, updated_at, start_time) " +
+      "VALUES(?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?13, ?14) ON CONFLICT(code) DO NOTHING")
+      .bind(id, body.subject, body.klass, f.title, f.topic, f.duration_min, f.lesson_date, f.ideas, f.homework, code, body.unitId || null, body.unitRow || null, now, f.start_time).run();
     if (r.meta && r.meta.changes) {
       await db.prepare("INSERT INTO chat(lesson_id, role, content, model, created_at) VALUES(?1, 'assistant', ?2, 'begruessung', ?3)")
         .bind(id, greetingText({ subject: body.subject, klass: body.klass, durationMin: f.duration_min }), now).run();
@@ -96,15 +106,15 @@ export async function createLesson(db, body, now) {
 }
 
 /* Viele Sitzungen auf einmal (aus einer Unterrichtseinheit): wenige Datenbankaufrufe statt zwei je Sitzung (Free-Plan: höchstens
-   50 Abfragen je Aufruf; ein db.batch zählt als eine). base = {subject, klass, topic, unitId}; items = [{title, date, durationMin, unitRow}] */
+   50 Abfragen je Aufruf; ein db.batch zählt als eine). base = {subject, klass, topic, unitId}; items = [{title, date, durationMin, startTime, unitRow}] */
 export async function createLessonsBulk(db, base, items, now) {
   let pending = items.map((it) => ({ ...it, id: randomId(8) }));
   const done = [];
   for (let attempt = 0; attempt < 4 && pending.length; attempt++) {
-    const rows = pending.map((it) => ({ id: it.id, code: generateCode(), title: cleanLine(it.title, LIMITS.title) || "Sitzung", date: it.date, min: it.durationMin ?? null, row: it.unitRow || null }));
+    const rows = pending.map((it) => ({ id: it.id, code: generateCode(), title: cleanLine(it.title, LIMITS.title) || "Sitzung", date: it.date, min: it.durationMin ?? null, row: it.unitRow || null, time: isClockTime(it.startTime) ? it.startTime : null }));
     const [, sel] = await db.batch([
-      db.prepare("INSERT INTO lessons(id, subject, klass, title, topic, duration_min, lesson_date, ideas, homework, code, unit_id, unit_row, created_at, updated_at) " +
-        "SELECT json_extract(value,'$.id'), ?1, ?2, json_extract(value,'$.title'), ?3, json_extract(value,'$.min'), json_extract(value,'$.date'), '', '', json_extract(value,'$.code'), ?4, json_extract(value,'$.row'), ?5, ?5 " +
+      db.prepare("INSERT INTO lessons(id, subject, klass, title, topic, duration_min, lesson_date, ideas, homework, code, unit_id, unit_row, created_at, updated_at, start_time) " +
+        "SELECT json_extract(value,'$.id'), ?1, ?2, json_extract(value,'$.title'), ?3, json_extract(value,'$.min'), json_extract(value,'$.date'), '', '', json_extract(value,'$.code'), ?4, json_extract(value,'$.row'), ?5, ?5, json_extract(value,'$.time') " +
         "FROM json_each(?6) WHERE true ON CONFLICT DO NOTHING").bind(base.subject, base.klass, cleanLine(base.topic, LIMITS.topic), base.unitId || null, now, JSON.stringify(rows)),
       db.prepare("SELECT id FROM lessons WHERE id IN (SELECT json_extract(value,'$.id') FROM json_each(?1))").bind(JSON.stringify(rows.map((r) => ({ id: r.id })))),
     ]);
@@ -149,7 +159,7 @@ export async function routeLessonCreate(c) {
   const dup = await c.db.prepare("SELECT id FROM lessons WHERE unit_id=?1 AND unit_row=?2").bind(u.id, row.uid).first();
   if (dup) throw new HttpError(409, "exists", "Zu dieser Zeile gibt es schon eine Sitzung.");
   const l = await createLesson(c.db, { subject: u.subject, klass: u.klass, title: body.title || row.stundenfrage || u.title, topic: u.title, date: body.date || row.date,
-    durationMin: body.durationMin ?? row.minutes, unitId: u.id, unitRow: row.uid }, c.now);
+    durationMin: body.durationMin ?? row.minutes, startTime: body.startTime ?? row.time ?? null, unitId: u.id, unitRow: row.uid }, c.now);
   return json({ ok: true, lesson: lessonOut(l) });
 }
 
@@ -200,10 +210,12 @@ export async function updateLesson(db, id, body, now) {
   const old = await getLesson(db, id);
   const sets = keys.map((k, i) => k + "=?" + (i + 2)).join(", ");
   await db.prepare("UPDATE lessons SET " + sets + ", updated_at=?" + (keys.length + 2) + " WHERE id=?1").bind(id, ...keys.map((k) => f[k]), now).run();
-  if (old.unit_id && old.unit_row && ((f.lesson_date && f.lesson_date !== old.lesson_date) || (f.duration_min !== undefined && f.duration_min !== old.duration_min))) {
+  if (old.unit_id && old.unit_row && ((f.lesson_date && f.lesson_date !== old.lesson_date) || (f.duration_min !== undefined && f.duration_min !== old.duration_min) ||
+      (f.start_time !== undefined && f.start_time !== (old.start_time || null)))) {
     try {
       const u = await getUnit(db, old.unit_id);
-      const rows = JSON.parse(u.rows || "[]").map((r) => (r.uid === old.unit_row ? { ...r, ...(f.lesson_date ? { date: f.lesson_date } : {}), ...(f.duration_min ? { minutes: f.duration_min } : {}) } : r));
+      const rows = JSON.parse(u.rows || "[]").map((r) => (r.uid === old.unit_row ? { ...r, ...(f.lesson_date ? { date: f.lesson_date } : {}), ...(f.duration_min ? { minutes: f.duration_min } : {}),
+        ...(f.start_time !== undefined ? { time: f.start_time } : {}) } : r));
       await db.prepare("UPDATE units SET rows=?2, version=version+1, updated_at=?3 WHERE id=?1").bind(u.id, JSON.stringify(rows), now).run();
     } catch {}
   }
@@ -239,6 +251,50 @@ export async function routeLessonDelete(c, id) {
   ]);
   try { await c.env.LIVE.get(c.env.LIVE.idFromName(id)).fetch("https://live/reset", { method: "POST" }); } catch {}
   return json({ ok: true });
+}
+
+/* ---------- Sitzung aus einer Datei übernehmen (public/sessionfile.js) ----------
+ * Der Browser hat die Datei gelesen und die Datumsangaben in den Texten schon an diese Sitzung angepasst. Hier: Titel, Thema, Ideen,
+ * Hausaufgabe, Schulportal-Eintrag und Planungsverlauf ersetzen; Textmaterial, Links, Druckvorlagen (Text) und Feibeitsblatt-Entwürfe
+ * kommen dazu. Datum, Beginn, Dauer, Klasse und Code dieser Sitzung bleiben. Dateien lädt der Browser danach einzeln hoch. */
+export async function routeLessonImport(c, id) {
+  await requireTeacher(c);
+  const l = await getLesson(c.db, id);
+  const body = await readJson(c.request, 4_000_000);
+  const les = isObj(body.lesson) ? body.lesson : {}, f = {};
+  if (cleanLine(les.title, LIMITS.title)) f.title = cleanLine(les.title, LIMITS.title);
+  if (typeof les.topic === "string") f.topic = cleanLine(les.topic, LIMITS.topic);
+  if (typeof les.ideas === "string") f.ideas = cleanText(les.ideas, LIMITS.ideas);
+  if (typeof les.homework === "string") f.homework = cleanText(les.homework, LIMITS.homework).trim();
+  const keys = Object.keys(f), stmts = [];
+  if (keys.length) stmts.push(c.db.prepare("UPDATE lessons SET " + keys.map((k, i) => k + "=?" + (i + 2)).join(", ") + ", updated_at=?" + (keys.length + 2) + " WHERE id=?1").bind(id, ...keys.map((k) => f[k]), c.now));
+  // Planungsverlauf ersetzen (Reihenfolge bleibt: json_each in der Reihenfolge der Liste)
+  const chat = (Array.isArray(body.chat) ? body.chat : []).slice(-200).filter((m) => m && (m.role === "user" || m.role === "assistant") && typeof m.content === "string" && m.content.trim())
+    .map((m) => ({ r: m.role, c: cleanText(m.content, LIMITS.answer), m: cleanLine(m.model, 200) || null, o: MODE_HINT[m.mode] !== undefined ? m.mode : null }));
+  stmts.push(c.db.prepare("DELETE FROM chat WHERE lesson_id=?1").bind(id));
+  if (chat.length) stmts.push(c.db.prepare("INSERT INTO chat(lesson_id, role, content, model, mode, created_at) SELECT ?1, json_extract(value,'$.r'), json_extract(value,'$.c'), json_extract(value,'$.m'), json_extract(value,'$.o'), ?2 FROM json_each(?3)")
+    .bind(id, c.now, JSON.stringify(chat)));
+  else stmts.push(c.db.prepare("INSERT INTO chat(lesson_id, role, content, model, created_at) VALUES(?1, 'assistant', ?2, 'begruessung', ?3)").bind(id, greetingText({ subject: l.subject, klass: l.klass, durationMin: l.duration_min }), c.now));
+  const area = (a) => (a === "teacher" ? "teacher" : "student"), list = (x, n) => (Array.isArray(x) ? x : []).slice(0, n);
+  const texts = list(body.texts, 60).map((t) => ({ a: area(t && t.area), n: cleanLine(t && t.title, 200) || "Material", t: cleanText(t && t.text, LIMITS.textMaterial).trim() })).filter((t) => t.t)
+    .map((t) => ({ ...t, s: new TextEncoder().encode(t.t).length }));
+  const links = list(body.links, 60).map((t) => ({ a: area(t && t.area), n: cleanLine(t && t.title, 200), u: cleanWebUrl(t && t.url) })).filter((t) => t.u).map((t) => ({ ...t, n: t.n || new URL(t.u).hostname }));
+  const prints = list(body.prints, 60).map((t) => ({ n: cleanLine(t && t.title, 200) || "Druckvorlage", t: cleanText(t && t.text, LIMITS.textMaterial).trim(), k: cleanCopies(t && t.copies) || 1, d: t && t.duplex === false ? 0 : 1, co: t && t.color === true ? 1 : 0 }))
+    .filter((t) => t.t).map((t) => ({ ...t, s: new TextEncoder().encode(t.t).length }));
+  const drafts = [];
+  for (const d of list(body.drafts, 20)) { try { drafts.push({ d: JSON.stringify(normalizeFbDraft(d)) }); } catch {} }
+  const ins = "INSERT INTO files(id, lesson_id, area, kind, name, mime, size, text, status, source, print_copies, print_duplex, print_color, created_at, updated_at) ";
+  if (texts.length) stmts.push(c.db.prepare(ins + "SELECT lower(hex(randomblob(8))), ?1, json_extract(value,'$.a'), 'text', json_extract(value,'$.n'), 'text/markdown', json_extract(value,'$.s'), json_extract(value,'$.t'), 'ready', 'uebernommen', NULL, NULL, NULL, ?2, ?2 FROM json_each(?3)")
+    .bind(id, c.now, JSON.stringify(texts)));
+  if (links.length) stmts.push(c.db.prepare(ins + "SELECT lower(hex(randomblob(8))), ?1, json_extract(value,'$.a'), 'link', json_extract(value,'$.n'), 'text/uri-list', 0, json_extract(value,'$.u'), 'ready', 'uebernommen', NULL, NULL, NULL, ?2, ?2 FROM json_each(?3)")
+    .bind(id, c.now, JSON.stringify(links)));
+  if (prints.length) stmts.push(c.db.prepare(ins + "SELECT lower(hex(randomblob(8))), ?1, 'print', 'text', json_extract(value,'$.n'), 'text/markdown', json_extract(value,'$.s'), json_extract(value,'$.t'), 'ready', 'uebernommen', json_extract(value,'$.k'), json_extract(value,'$.d'), json_extract(value,'$.co'), ?2, ?2 FROM json_each(?3)")
+    .bind(id, c.now, JSON.stringify(prints)));
+  if (drafts.length) stmts.push(c.db.prepare("INSERT INTO fb_drafts(id, lesson_id, data, source, status, created_at, updated_at) SELECT lower(hex(randomblob(8))), ?1, json_extract(value,'$.d'), 'uebernommen', 'draft', ?2, ?2 FROM json_each(?3)")
+    .bind(id, c.now, JSON.stringify(drafts)));
+  await c.db.batch(stmts);
+  if (typeof les.portal === "string") await savePortal(c.db, id, les.portal, null, "lehrkraft", c.now);
+  return json({ ok: true, lesson: lessonOut(await getLesson(c.db, id)), counts: { chat: chat.length, texts: texts.length, links: links.length, prints: prints.length, drafts: drafts.length } });
 }
 
 /* ---------- Schulportal-Eintrag ---------- */

@@ -1,6 +1,6 @@
 // planning.js – Unterrichtseinheiten (Leupold-Schema + Ablaufplan), Terminberechnung, Krankheitsvertretung, Claude-Prompts.
 // Gemeinsam für Browser und Worker (keine DOM-Zugriffe).
-import { subjectName, gradeInfo, classShort, isAnalogClass, ANALOG_RULE, fmtDay, addDays, isIsoDate, PORTAL_RULES, PORTAL_EXAMPLE, FEIBEITSBLATT_INFO,
+import { subjectName, gradeInfo, classShort, isAnalogClass, ANALOG_RULE, fmtDay, addDays, isIsoDate, isClockTime, PORTAL_RULES, PORTAL_EXAMPLE, FEIBEITSBLATT_INFO,
   SYSTEM_PROMPT_ROLE, UNIT_RULE_BASE, STOP_LINE, lessonContext, teacherWishes, groupShort, subjectShort } from "./shared.js";
 import { ESCAPE_FORMAT_HINT } from "./escape-data.js";
 export { UNIT_RULE } from "./shared.js";
@@ -11,12 +11,12 @@ const str = (v, max) => { const s = typeof v === "string" ? v : v == null ? "" :
 const clip = (s, n) => { s = str(s); return s.length > n ? s.slice(0, n) + " […gekürzt]" : s; };
 
 /* ---------- Rahmendaten und Termine ---------- */
-// params = { start, end, exam, weekdays: [{day 1–5, minutes}], breaks: [{from, to, label}], notes }
+// params = { start, end, exam, weekdays: [{day 1–5, minutes, time? „HH:MM“}], breaks: [{from, to, label}], notes }
 export function normalizeParams(raw) {
   const p = raw && typeof raw === "object" ? raw : {};
   const date = (v) => (isIsoDate(v) ? v : null);
   const weekdays = (Array.isArray(p.weekdays) ? p.weekdays : []).slice(0, 10)
-    .map((w) => ({ day: Number(w && w.day), minutes: Number(w && w.minutes) }))
+    .map((w) => ({ day: Number(w && w.day), minutes: Number(w && w.minutes), time: isClockTime(w && w.time) ? w.time : null }))
     .filter((w) => Number.isInteger(w.day) && w.day >= 1 && w.day <= 5 && Number.isInteger(w.minutes) && w.minutes >= 20 && w.minutes <= 240);
   const breaks = (Array.isArray(p.breaks) ? p.breaks : []).slice(0, 30)
     .map((b) => ({ from: date(b && b.from), to: date(b && (b.to || b.from)), label: str(b && b.label, 80) }))
@@ -31,7 +31,7 @@ export function computeSlots(raw) {
     const wd = new Date(d + "T12:00:00Z").getUTCDay();
     const hits = p.weekdays.filter((w) => w.day === wd);
     if (!hits.length || p.breaks.some((b) => d >= b.from && d <= b.to)) continue;
-    for (const w of hits) out.push({ date: d, minutes: w.minutes, kind: d === p.exam ? "klausur" : "stunde" });
+    for (const w of hits) out.push({ date: d, minutes: w.minutes, time: w.time || null, kind: d === p.exam ? "klausur" : "stunde" });
   }
   return out;
 }
@@ -39,7 +39,7 @@ export const lessonSlots = (slots) => slots.filter((s) => s.kind === "stunde");
 export function paramsText(raw) {
   const p = normalizeParams(raw);
   const lines = [];
-  if (p.weekdays.length) lines.push("Stundenplan: " + p.weekdays.map((w) => wdName(w.day) + " (" + w.minutes + " Minuten)").join(", "));
+  if (p.weekdays.length) lines.push("Stundenplan: " + p.weekdays.map((w) => wdName(w.day) + (w.time ? " ab " + w.time + " Uhr" : "") + " (" + w.minutes + " Minuten)").join(", "));
   if (p.start || p.end) lines.push("Zeitraum der Einheit: " + (p.start ? fmtDay(p.start) : "?") + " bis " + (p.end ? fmtDay(p.end) : "?") + " (bis dahin soll die Einheit abgeschlossen sein)");
   lines.push("Klausurtermin: " + (p.exam ? fmtDay(p.exam) : "keiner angegeben"));
   if (p.breaks.length) lines.push("Ferien/Ausfälle: " + p.breaks.map((b) => (b.label ? b.label + " " : "") + fmtDay(b.from) + (b.to !== b.from ? "–" + fmtDay(b.to) : "")).join("; "));
@@ -72,6 +72,7 @@ export function normalizeRows(raw, newUid) {
       schritt: Number.isInteger(sch) && sch >= 0 && sch < 15 ? sch : null,
       date: isIsoDate(r && r.date) ? r.date : null,
       minutes: Number.isInteger(Number(r && r.minutes)) && Number(r.minutes) >= 20 && Number(r.minutes) <= 240 ? Number(r.minutes) : null,
+      time: isClockTime(r && r.time) ? r.time : null,
     };
   }).filter((r) => r.stundenfrage || r.ablauf.length);
 }
@@ -79,7 +80,7 @@ export function normalizeRows(raw, newUid) {
 export function assignDates(rows, slots) {
   const free = lessonSlots(slots).filter((s) => !rows.some((r) => r.date === s.date));
   let k = 0;
-  return rows.map((r) => { if (r.date) return r; const sl = free[k++]; return sl ? { ...r, date: sl.date, minutes: r.minutes || sl.minutes } : r; });
+  return rows.map((r) => { if (r.date) return r; const sl = free[k++]; return sl ? { ...r, date: sl.date, minutes: r.minutes || sl.minutes, time: r.time || sl.time || null } : r; });
 }
 
 /* ```einheit {…}``` in einer Antwort des Planungsassistenten: vorgeschlagene Änderung der Zeile dieser Stunde */
@@ -178,6 +179,7 @@ export function claudeLessonPrompt(ctx) {
     "   - Stundenverlauf → `save_schulportal_entry` (Schulportal-Zeichen: " + PORTAL_RULES.join("; ") + "; Aufbau genau wie in der Vorlage unten; übergib `base_version` aus `get_lesson` – meldet die Plattform eine neuere Fassung, rufe `get_lesson` erneut auf und berücksichtige meine Änderungen).",
     "   - Ausgearbeiteter Stundenentwurf (Verlauf mit Minuten, Begründung, Erwartungen) → `save_planning_result` (erscheint im Planungsverlauf der Sitzung; darauf bauen der Präsentations-Prompt und spätere Planungen auf).",
     "   - Materialien → `add_text_material` (`bereich` \"schueler\": für die Schüler:innen, als PDF herunterladbar" + (analog ? " bzw. von mir ausgedruckt" : "") + "; \"lehrkraft\": nur für mich, z. B. Erwartungshorizont oder Tafelbild).",
+    "   - Alles, was ich vor der Stunde ausdrucken muss (z. B. Arbeitsblätter" + (analog ? " – in dieser Jahrgangsstufe alles Material für die Schüler:innen" : "") + ", Karten, Schaubilder oder Kärtchen für die Tafel) → `add_print_material` mit `anzahl` (frag mich nach der Klassengröße, wenn du sie nicht kennst), `beidseitig` (false, wenn geschnitten wird) und `farbe` (nur, wenn Farbe unbedingt nötig ist – an der Schule wird fast immer schwarz-weiß gedruckt). Gedruckt wird nur A4.",
     analog ? null : "   - Feibeitsblatt → `propose_feibeitsblatt` (nur ein Entwurf: Ich prüfe ihn in der Plattform und lege das Blatt dort an).",
     "   - Hausaufgabe bis zur nächsten Sitzung → `update_lesson` mit `hausaufgabe` (für die Schüler:innen sichtbar; Schulportal-Zeichen erlaubt). Geänderte Sitzungsdaten (Titel, Thema, Dauer) ebenfalls mit `update_lesson`.",
     unit ? "   - Abgestimmte Abweichung von der Einheit (Stundenfrage, grober Ablauf) → `update_unit_row`." : null,

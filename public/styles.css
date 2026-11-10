@@ -370,7 +370,18 @@ main.narrow .homework { background: var(--gelb-t); border-color: color-mix(in sr
 .progress { height: 8px; border-radius: 99px; background: var(--surface-2); overflow: hidden; }
 .progress > i { display: block; height: 100%; width: 0; background: var(--fach); transition: width .2s var(--ease); }
 .thumbs { display: flex; gap: .5rem; overflow-x: auto; padding: .3rem 0 .5rem; }
-.thumbs img { height: 74px; border-radius: 8px; border: 1px solid var(--line); background: #fff; flex: 0 0 auto; }
+.thumbs img { height: 74px; border-radius: 8px; border: 1px solid var(--line); background: #fff; flex: 0 0 auto; display: block; }
+/* Folien: letzte gezeigte Folie markiert, Folien danach blass (für Schüler:innen nicht freigegeben) */
+.thumbs .thumb { margin: 0; flex: 0 0 auto; display: grid; gap: .2rem; justify-items: center; border-radius: 10px; padding: 3px; cursor: context-menu; }
+.thumbs .thumb:focus-visible { outline: 3px solid var(--fach); outline-offset: 1px; }
+.thumbs .thumb figcaption { font-size: .78rem; font-weight: 700; color: var(--muted); display: flex; gap: .3rem; align-items: center; }
+.thumbs .thumb.mark { box-shadow: 0 0 0 3px var(--fach); }
+.thumbs .thumb.after img { opacity: .35; filter: grayscale(1); }
+.shownbox { margin: .4rem 0 .2rem; display: grid; gap: .3rem; }
+.shownbox label { font-weight: 700; font-size: .95rem; }
+.shownbox select { width: auto; max-width: 100%; }
+.presrel { margin: .3rem 0 .6rem; }
+.presenter .markstate { color: #e8edf6; }
 
 /* ---------- Live-Fenster der Schüler:innen: die Projektionsfläche ---------- */
 .live { background: #0b111e; border-radius: var(--radius); overflow: hidden; position: relative; aspect-ratio: 16 / 9; display: grid; place-items: center; color: #cfd8e6; box-shadow: var(--shadow-lift); }
@@ -400,6 +411,10 @@ main.narrow .homework { background: var(--gelb-t); border-color: color-mix(in sr
 .codeshow::after { content: ""; position: absolute; z-index: -1; width: 70vmax; height: 46vmax; right: -16vmax; top: -12vmax; border-radius: 48px; background: var(--foil); mix-blend-mode: multiply; transform: rotate(-8deg); }
 .codeshow .c { font-family: var(--mono); font-weight: 800; font-size: clamp(3.5rem, 15vw, 12rem); letter-spacing: .1em; line-height: 1; }
 .codeshow .btn { background: rgba(10, 16, 30, .25); border-color: rgba(255, 255, 255, .6); color: #fff; }
+.codeshow .cs-grid { display: flex; flex-wrap: wrap; align-items: center; justify-content: center; gap: 2rem 5vmin; margin: 1.2rem 0 1rem; }
+.codeshow .qrbox { margin: 0; background: #fff; color: #13213b; border-radius: 18px; padding: clamp(.7rem, 1.6vmin, 1.2rem); display: grid; gap: .35rem; justify-items: center; box-shadow: 0 10px 30px rgba(10, 16, 30, .25); }
+.codeshow .qr { width: clamp(160px, 30vmin, 340px); height: auto; display: block; image-rendering: pixelated; }
+.codeshow .qrbox figcaption { font-weight: 800; font-size: clamp(.95rem, 1.8vmin, 1.25rem); letter-spacing: .01em; }
 
 /* ---------- Dialoge und Hinweise ---------- */
 .modal-back { position: fixed; inset: 0; z-index: 80; background: rgba(11, 17, 30, .55); display: grid; place-items: center; padding: 1rem; }
@@ -423,6 +438,37 @@ main.narrow .homework { background: var(--gelb-t); border-color: color-mix(in sr
 .sub .answer { white-space: pre-wrap; background: var(--surface-2); border-radius: 10px; padding: .55rem .75rem; margin: .3rem 0 .55rem; font-size: .96rem; }
 .sub details summary { cursor: pointer; font-weight: 700; }
 .fbk { font-size: .92rem; } .fbk .k { font-weight: 800; }
+/* nur für Screenreader (sichtbar unsichtbar) */
+.sr-only { position: absolute !important; width: 1px; height: 1px; padding: 0; margin: -1px; overflow: hidden; clip: rect(0 0 0 0); clip-path: inset(50%); white-space: nowrap; border: 0; }
+/* Knopf, der wie ein Link aussieht */
+.linkbtn { background: none; border: 0; padding: 0; font: inherit; color: var(--fach-text); text-decoration: underline; text-underline-offset: .15em; cursor: pointer; }
+.linkbtn:hover { color: var(--text); }
+/* KI-Begriffshilfe der Schüler:innen (unter der Live-Präsentation) */
+.kihelp { margin-bottom: 1rem; }
+.kihelp h2 { font-size: 1.1rem; }
+.kilog { display: grid; gap: .55rem; margin: .4rem 0 .7rem; max-height: 22rem; overflow-y: auto; }
+.kilog:empty { display: none; }
+.kiq .q { margin: 0; font-weight: 700; }
+.kiq .a { margin: .15rem 0 0; padding: .55rem .75rem; border-radius: 10px; background: var(--paper); border: 1px solid var(--line); }
+.kiconsent { margin: .5rem 0 .9rem; padding-left: 1.2rem; display: grid; gap: .4rem; }
+/* Schüler:innen: Notfall-Feibeitsblätter in eigenem Kästchen unter dem Material – kleinere Schrift, beginnt mit einem roten Hinweis */
+.notfallbox { font-size: .9rem; }
+.notfallbox h2 { font-size: 1.05rem; margin-top: .9rem; }
+.notfallbox .item .name { font-size: .95rem; }
+.alarm { display: flex; gap: .6rem; align-items: flex-start; margin: 0; background: var(--rot); color: #fff; border-radius: var(--radius-s); padding: .8rem 1rem;
+  font-size: .95rem; font-weight: 600; line-height: 1.45; box-shadow: 0 0 0 3px color-mix(in srgb, var(--rot) 30%, transparent); }
+.alarm strong { font-weight: 800; text-transform: none; }
+.alarm .ico { width: 1.5em; height: 1.5em; flex: none; stroke: #fff; }
+/* Druckliste „Von der Lehrkraft auszudrucken“: je Datei Anzahl, beidseitig/einseitig, schwarz-weiß/Farbe */
+.printrow .pset { display: flex; flex-wrap: wrap; gap: .4rem .6rem; align-items: center; margin: .3rem 0 .15rem; }
+.printrow .pset select { width: auto; max-width: 100%; }
+.printrow .pcount { display: inline-flex; align-items: center; gap: .35rem; font-weight: 700; }
+.printrow .pcopies { width: 5.2rem; }
+/* Feibeitsblatt-Verbindung: Kästchen „speichern“, Zeile mit dem Stand der gespeicherten Verbindung */
+.checkrow { display: flex; align-items: flex-start; gap: .5rem; cursor: pointer; }
+.checkrow input { margin-top: .18rem; flex: none; }
+.fblink { gap: .45rem .8rem; margin-top: .45rem; }
+.fblink .ok { display: inline-flex; align-items: center; gap: .3rem; font-weight: 700; }
 /* Notfall-Feibeitsblatt je verknüpftem Blatt: eine Zeile unter dem Titel */
 .notfall { display: flex; align-items: center; gap: .4rem; flex-wrap: wrap; margin: .15rem 0 .1rem; }
 .notfall .spin { width: .9em; height: .9em; border: 2px solid currentColor; border-right-color: transparent; border-radius: 50%; animation: spin .8s linear infinite; display: inline-block; flex: none; }

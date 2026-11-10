@@ -21,8 +21,8 @@ export async function getUnit(db, id) {
   return u;
 }
 async function linkedLessons(db, unitId) {
-  const r = await db.prepare("SELECT id, title, lesson_date, unit_row, code FROM lessons WHERE unit_id=?1").bind(unitId).all();
-  return (r.results || []).map((l) => ({ id: l.id, title: l.title, date: l.lesson_date, row: l.unit_row, code: l.code }));
+  const r = await db.prepare("SELECT id, title, lesson_date, start_time, unit_row, code FROM lessons WHERE unit_id=?1").bind(unitId).all();
+  return (r.results || []).map((l) => ({ id: l.id, title: l.title, date: l.lesson_date, time: l.start_time || null, row: l.unit_row, code: l.code }));
 }
 export async function unitFull(db, u) {
   const lessons = await linkedLessons(db, u.id);
@@ -51,7 +51,7 @@ export async function applyPlan(db, u, planRaw, rowsRaw, baseVersion, source, no
   const plan = normalizePlan(planRaw), oldRows = parseJ(u.rows, []);
   let rows = normalizeRows(rowsRaw, newUid);
   // bestehende Zeilen mit Sitzung behalten ihre Kennung (gleiche Position), damit die Verknüpfung erhalten bleibt
-  rows = rows.map((r, i) => (oldRows[i] && !rowsRaw[i]?.uid ? { ...r, uid: oldRows[i].uid, date: r.date || oldRows[i].date, minutes: r.minutes || oldRows[i].minutes } : r));
+  rows = rows.map((r, i) => (oldRows[i] && !rowsRaw[i]?.uid ? { ...r, uid: oldRows[i].uid, date: r.date || oldRows[i].date, minutes: r.minutes || oldRows[i].minutes, time: r.time || oldRows[i].time || null } : r));
   rows = assignDates(rows, computeSlots(parseJ(u.params, {})));
   const fields = { plan: JSON.stringify(plan), rows: JSON.stringify(rows) };
   if (plan.titel && !u.title) fields.title = plan.titel;
@@ -90,7 +90,7 @@ export async function routeUnitPatch(c, id) {
   if (body.plan !== undefined) fields.plan = JSON.stringify(normalizePlan(body.plan));
   if (body.rows !== undefined) {
     let rows = normalizeRows(body.rows, newUid);
-    if (body.assignDates) rows = assignDates(rows.map((r) => ({ ...r, date: null })), computeSlots(body.params !== undefined ? normalizeParams(body.params) : parseJ(u.params, {})));
+    if (body.assignDates) rows = assignDates(rows.map((r) => ({ ...r, date: null, time: null })), computeSlots(body.params !== undefined ? normalizeParams(body.params) : parseJ(u.params, {})));
     fields.rows = JSON.stringify(rows);
     // Datum/Dauer verknüpfter Sitzungen mitführen
     const lessons = await linkedLessons(c.db, id);
@@ -98,6 +98,7 @@ export async function routeUnitPatch(c, id) {
     for (const l of lessons) {
       const r = rows.find((x) => x.uid === l.row);
       if (r && r.date && r.date !== l.date) stmts.push(c.db.prepare("UPDATE lessons SET lesson_date=?2, updated_at=?3 WHERE id=?1").bind(l.id, r.date, c.now));
+      if (r && r.time && r.time !== l.time) stmts.push(c.db.prepare("UPDATE lessons SET start_time=?2, updated_at=?3 WHERE id=?1").bind(l.id, r.time, c.now));
     }
     if (stmts.length) await c.db.batch(stmts.slice(0, 40));
   }
@@ -124,7 +125,7 @@ export async function routeUnitSessions(c, id) {
   if (missingDate.length) throw bad(missingDate.length + " Zeile(n) haben noch kein Datum. Bitte Termine berechnen oder Datum eintragen.");
   const todo = rows.filter((r) => !have.has(r.uid)).slice(0, 150);
   const created = await createLessonsBulk(c.db, { subject: u.subject, klass: u.klass, topic: u.title || plan.titel || "", unitId: u.id },
-    todo.map((r) => ({ title: r.stundenfrage || plan.titel || u.title, date: r.date, durationMin: r.minutes, unitRow: r.uid })), c.now);
+    todo.map((r) => ({ title: r.stundenfrage || plan.titel || u.title, date: r.date, durationMin: r.minutes, startTime: r.time || null, unitRow: r.uid })), c.now);
   if (u.status !== "geplant") await c.db.prepare("UPDATE units SET status='geplant', updated_at=?2 WHERE id=?1").bind(id, c.now).run();
   return json({ ok: true, created, unit: await unitFull(c.db, await getUnit(c.db, id)) });
 }

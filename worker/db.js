@@ -47,6 +47,14 @@ export const COLUMNS = [
   ["fb_sheets", "kind", "TEXT NOT NULL DEFAULT ''"],   // 'escape' = Finale eines Escape-Rooms (Schüler:innen erreichen es über den Tunnel)
   ["files", "fb_code", "TEXT"],   // Notfall-Feibeitsblatt: Code des Feibeitsblatts, dessen analoges Arbeitsblatt diese PDF ist
   ["files", "fb_sig", "TEXT"],    // … und ihr Stand (mit/ohne QR-Code zur Checkliste, mit/ohne KI-Satz) – ändert er sich, wird sie erneuert
+  ["lessons", "start_time", "TEXT"],   // Beginn der Sitzung „HH:MM“ (Ortszeit): Hausaufgabe ab 15 min vor dem Ende, Präsentation ab 5 min nach dem Ende
+  ["files", "shown_until", "INTEGER"], // Präsentation: letzte im Unterricht gezeigte Folie (Schüler:innen bekommen nur Folie 1 bis hier)
+  ["files", "cut_size", "INTEGER"],    // … Größe der gekürzten PDF (in R2 unter fileKey + "-bis"), NULL = keine
+  ["lessons", "student_ai", "INTEGER NOT NULL DEFAULT 1"],   // KI-Begriffshilfe für Schüler:innen während der Stunde (1 = angeboten)
+  // Druckliste „Von der Lehrkraft auszudrucken“ (area = 'print'): Anzahl, beidseitig (1) / einseitig (0), Farbe (1) / schwarz-weiß (0)
+  ["files", "print_copies", "INTEGER"],
+  ["files", "print_duplex", "INTEGER"],
+  ["files", "print_color", "INTEGER"],
 ];
 
 // Indizes über nachträglich ergänzte Spalten (nach den Spalten angelegt; ein Fehler – z. B. alte Doppelungen – hält den Betrieb nicht auf)

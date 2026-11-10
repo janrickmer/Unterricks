@@ -9,6 +9,7 @@ import { join, extname } from "node:path";
 import { createRequire } from "node:module";
 import { PDFDocument, StandardFonts, rgb } from "pdf-lib";
 import { startMockAI, startMockFeibeitsblatt } from "./mocks.mjs";
+import { readZip } from "../../public/zip.js";
 
 const require = createRequire(import.meta.url);
 const { chromium, devices } = require("playwright");
@@ -24,6 +25,8 @@ let failures = 0;
 const ok = (cond, label) => { if (cond) console.log("  ✓ " + label); else { failures++; console.log("  ✗ " + label); } };
 const step = (s) => console.log("\n▶ " + s);
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+// Ortszeit der Schule (Europe/Berlin) zu einem Zeitpunkt: { date: "JJJJ-MM-TT", time: "HH:MM" }
+const berlinAt = (ms) => { const p = Object.fromEntries(new Intl.DateTimeFormat("en-CA", { timeZone: "Europe/Berlin", year: "numeric", month: "2-digit", day: "2-digit", hour: "2-digit", minute: "2-digit", hourCycle: "h23" }).formatToParts(new Date(ms)).map((x) => [x.type, x.value])); return { date: p.year + "-" + p.month + "-" + p.day, time: p.hour + ":" + p.minute }; };
 // Nach Anmeldung/Einrichtung: auf die Übersicht warten (Zustand der Seite statt Navigationsereignis) und die Dauer melden
 async function waitTeacherHome(page, t0, label) {
   try { await page.waitForFunction(() => location.hash === "#/lk" && !!document.querySelector(".tiles .tile"), null, { timeout: 60000 }); }
@@ -127,7 +130,7 @@ async function main() {
     r = await T("POST", "/api/teacher/ai/models", { provider: "custom" });
     ok(r.data && r.data.models.includes("mock-2"), "verfügbare Modelle abrufbar");
 
-    const { addDays, fmtDay } = await import("../../public/shared.js");
+    const { addDays, fmtDay, lessonTimes, fmtClockBerlin } = await import("../../public/shared.js");
     const today = new Date().toLocaleDateString("sv-SE");
     // Connector früh einrichten: Claude (simuliert über MCP) plant Einheit und Vertretung
     const mc = (await T("POST", "/api/teacher/mcp")).data;
@@ -290,7 +293,11 @@ async function main() {
       await mq.goto(BASE + "/"); await mq.locator("#spw").waitFor(); await mq.screenshot({ ...SHOT, path: join(OUT, "mobil-start.png") }); await mctx.close();
     }
     await tp.getByRole("button", { name: "Für den Beamer zeigen" }).click();
-    await tp.locator(".codeshow").waitFor(); await tp.waitForTimeout(300); await tp.screenshot({ ...SHOT, path: join(OUT, "beamer-code.png") });
+    await tp.locator(".codeshow").waitFor();
+    await tp.waitForFunction(() => { const i = document.querySelector(".codeshow img.qr"); return !!i && i.complete && i.naturalWidth > 0; }, null, { timeout: 10000 }).catch(() => {});
+    ok(await tp.locator(".codeshow img.qr").evaluate((i) => i.complete && i.naturalWidth > 0 && i.getAttribute("alt") === "QR-Code zu https://unterricks.janrickmer.de") && (await tp.locator(".codeshow figcaption").textContent()) === "unterricks.janrickmer.de",
+      "Beamer-Folie mit QR-Code zu https://unterricks.janrickmer.de");
+    await tp.waitForTimeout(300); await tp.screenshot({ ...SHOT, path: join(OUT, "beamer-code.png") });
     await tp.locator(".codeshow").getByRole("button", { name: "Schließen" }).click();
     await tp.getByRole("button", { name: "Stunde mit Claude planen" }).click();
     const lm = tp.locator(".modal", { hasText: "Welches Sprachmodell?" });
@@ -326,6 +333,54 @@ async function main() {
     await tp.locator(".modal").getByRole("button", { name: "Speichern" }).click();
     await tp.locator(".item", { hasText: "Ablauf aus dem Chat" }).waitFor();
     ok(true, "KI-Material mit einem Klick als Material (Schülerbereich) übernommen");
+    await tp.locator(".zones > .stack").nth(0).getByRole("button", { name: "Link hinzufügen" }).click();
+    await tp.locator(".modal #lk-t").fill("Erklärvideo der bpb"); await tp.locator(".modal #lk-u").fill("www.bpb.de/mediathek/video/bverfg");
+    await tp.locator(".modal").getByRole("button", { name: "Hinzufügen" }).click();
+    await tp.locator(".item", { hasText: "Erklärvideo der bpb" }).waitFor();
+    await tp.locator(".zones > .stack").nth(1).getByRole("button", { name: "Link hinzufügen" }).click();
+    await tp.locator(".modal #lk-t").fill("Interne Linkliste GEHEIM"); await tp.locator(".modal #lk-u").fill("javascript:alert(1)");
+    await tp.locator(".modal").getByRole("button", { name: "Hinzufügen" }).click();
+    ok(await tp.locator(".modal .err", { hasText: "gültige Internetadresse" }).count() === 1, "Link: unsichere Adresse (javascript:) wird abgelehnt");
+    await tp.locator(".modal #lk-u").fill("https://example.org/linkliste");
+    await tp.locator(".modal").getByRole("button", { name: "Hinzufügen" }).click();
+    await tp.locator(".item", { hasText: "Interne Linkliste GEHEIM" }).waitFor();
+    ok(await tp.locator(".item", { hasText: "Erklärvideo der bpb" }).getByRole("link", { name: /Öffnen/ }).getAttribute("href") === "https://www.bpb.de/mediathek/video/bverfg", "Links mit Titel in beiden Bereichen (ohne „https://“ eingegeben → ergänzt)");
+
+    step("Von der Lehrkraft auszudrucken: nur PDF, A4, Name mit Anzahl/Druckart, einzeln und als ZIP");
+    {
+      const pc = tp.locator("#printcard");
+      const letter = await (async () => { const d = await PDFDocument.create(); d.addPage([612, 792]).drawText("US Letter", { x: 50, y: 700, size: 20 }); return Buffer.from(await d.save()); })();
+      const a4doc = await (async () => { const d = await PDFDocument.create(); d.addPage([595.28, 841.89]); d.addPage([595.28, 841.89]); return Buffer.from(await d.save()); })();
+      await pc.locator("input[type=file]").setInputFiles([{ name: "Kein PDF.docx", mimeType: "application/vnd.openxmlformats-officedocument.wordprocessingml.document", buffer: Buffer.from("PK nicht pdf") }]);
+      await tp.locator(".toast", { hasText: "ist keine PDF-Datei" }).waitFor({ timeout: 10000 });
+      ok(true, "Druckliste: Word-Datei abgelehnt (nur PDF)");
+      await pc.locator("input[type=file]").setInputFiles([{ name: "Arbeitsblatt Letter.pdf", mimeType: "application/pdf", buffer: letter }]);
+      await tp.locator(".toast", { hasText: "nicht im Format A4 und wurde auf A4 umgerechnet" }).waitFor({ timeout: 20000 });
+      await pc.locator(".printrow", { hasText: "1x - beidseitig - sw - Arbeitsblatt Letter.pdf" }).waitFor({ timeout: 10000 });
+      ok(true, "US-Letter-PDF auf A4 umgerechnet (mit Hinweis), Name „1x - beidseitig - sw - …“ (Vorgabe: beidseitig, schwarz-weiß)");
+      const row = pc.locator(".printrow", { hasText: "Arbeitsblatt Letter" });
+      await row.locator("input.pcopies").fill("28"); await row.locator("input.pcopies").press("Tab");
+      await pc.locator(".printrow .name", { hasText: "28x - beidseitig - sw - Arbeitsblatt Letter.pdf" }).waitFor({ timeout: 10000 });
+      await row.locator('select[aria-label^="Beidseitig oder einseitig"]').selectOption("0");
+      await row.locator('select[aria-label^="Schwarz-weiß oder Farbe"]').selectOption("1");
+      await pc.locator(".printrow .name", { hasText: "28x - einseitig - Farbe - Arbeitsblatt Letter.pdf" }).waitFor({ timeout: 10000 });
+      ok(true, "Anzahl, einseitig und Farbe ändern den Dateinamen („28x - einseitig - Farbe - …“)");
+      await pc.locator("input[type=file]").setInputFiles([{ name: "Tafelbild.pdf", mimeType: "application/pdf", buffer: a4doc }]);
+      await pc.locator(".printrow .name", { hasText: "28x - beidseitig - sw - Tafelbild.pdf" }).waitFor({ timeout: 10000 });
+      ok(true, "neue Druckvorlage übernimmt die zuletzt verwendete Anzahl der Klasse (28)");
+      const pfs = (await T("GET", "/api/teacher/lessons/" + lessonId)).data.files.filter((f) => f.area === "print");
+      const lt = pfs.find((f) => f.name === "Arbeitsblatt Letter.pdf"), lres = await fetch(BASE + (await T("POST", "/api/teacher/files/" + lt.id + "/link", {})).data.url);
+      const ldoc = await PDFDocument.load(new Uint8Array(await lres.arrayBuffer()));
+      ok(ldoc.getPages().every((pg) => Math.round(pg.getWidth()) === 595 && Math.round(pg.getHeight()) === 842) && /28x%20-%20einseitig%20-%20Farbe%20-%20Arbeitsblatt%20Letter\.pdf|28x - einseitig - Farbe - Arbeitsblatt Letter\.pdf/.test(lres.headers.get("content-disposition") || ""),
+        "gespeicherte Datei ist A4; Download heißt „28x - einseitig - Farbe - Arbeitsblatt Letter.pdf“");
+      const fake = await fetch(BASE + "/api/teacher/lessons/" + lessonId + "/print?name=" + encodeURIComponent("Tarnung.pdf"), { method: "POST", headers: { Authorization: "Bearer " + token, "Content-Type": "application/pdf" }, body: Buffer.from("kein pdf, nur Text") });
+      ok(fake.status === 400, "Server prüft den Inhalt: eine als PDF getarnte Datei wird abgelehnt");
+      const [zdl] = await Promise.all([tp.waitForEvent("download", { timeout: 30000 }), pc.getByRole("button", { name: "Alle herunterladen (ZIP)" }).click()]);
+      const zipEntries = await readZip(new Uint8Array(readFileSync(await zdl.path())));
+      ok(/^Von der Lehrkraft auszudrucken - PoWi - Q2 GK - \d{4}-\d{2}-\d{2}\.zip$/.test(zdl.suggestedFilename()) && zipEntries.map((e) => e.name).sort().join(" | ") === "28x - beidseitig - sw - Tafelbild.pdf | 28x - einseitig - Farbe - Arbeitsblatt Letter.pdf"
+        && zipEntries.every((e) => new TextDecoder().decode(e.data.subarray(0, 5)) === "%PDF-"), "„Alle herunterladen“: eine ZIP-Datei mit allen PDFs unter ihren Druck-Namen");
+      await pc.screenshot({ ...SHOT, path: join(OUT, "lehrkraft-druckliste.png") });
+    }
 
     step("Präsentation (PDF) hochladen → Folienbilder");
     await tp.locator("section.card", { hasText: "Präsentation für den Unterricht" }).locator("input[type=file]").first().setInputFiles({ name: "BVerfG.pdf", mimeType: "application/pdf", buffer: await pdf(3, "BVerfG") });
@@ -348,6 +403,7 @@ async function main() {
     ok(await sp.getByRole("button", { name: "Politik und Wirtschaft" }).isVisible() && await sp.getByRole("button", { name: "Evangelische Religion" }).isVisible() && await sp.getByRole("button", { name: "Ethik" }).isVisible() && (await sp.locator(".tiles .tile").count()) === 3, "genau drei Fächer zur Auswahl");
     await sp.getByRole("button", { name: "Politik und Wirtschaft" }).click();
     await sp.waitForFunction(() => document.querySelectorAll(".class-btn").length > 0 && ![...document.querySelectorAll(".class-btn")].some((b) => b.textContent === "7A"), null, { timeout: 10000 }).then(() => ok(true, "PoWi: Jahrgang 7 nicht wählbar"), () => ok(false, "PoWi: Jahrgang 7 nicht wählbar"));
+    ok(await sp.getByRole("button", { name: "8H", exact: true }).count() === 1 && await sp.getByRole("button", { name: "EH", exact: true }).count() === 1 && await sp.getByRole("button", { name: "8I", exact: true }).count() === 0, "acht Klassen je Jahrgang (a–h), auch in der E-Phase");
     await sp.getByRole("button", { name: "Ethik" }).click();
     ok(await sp.getByRole("button", { name: "7A", exact: true }).count() === 1, "Ethik: Jahrgang 7 wählbar");
     await sp.getByRole("button", { name: "Q2 GK", exact: true }).click();
@@ -365,6 +421,9 @@ async function main() {
     const sbody = await sp.locator("main").textContent();
     ok(sbody.includes("Arbeitsblatt BVerfG.pdf") && sbody.includes("Ablauf aus dem Chat"), "freigegebenes Material sichtbar");
     ok(!sbody.includes("Erwartungshorizont GEHEIM"), "Material „nur für Lehrkräfte“ ist nicht sichtbar");
+    const slk = sp.locator(".item", { hasText: "Erklärvideo der bpb" }).getByRole("link", { name: /Öffnen/ });
+    ok(await slk.getAttribute("href") === "https://www.bpb.de/mediathek/video/bverfg" && await slk.getAttribute("target") === "_blank" && /noopener/.test(await slk.getAttribute("rel") || "") && !sbody.includes("Interne Linkliste GEHEIM"),
+      "Schüler:innen öffnen den Link in neuem Tab; der Link „nur für Lehrkräfte“ ist unsichtbar");
     const stoken = await sp.evaluate(() => localStorage.getItem("u.stoken"));
     const SA = (method, path, body) => fetch(BASE + path, { method, headers: { Authorization: "Bearer " + stoken, ...(body ? { "Content-Type": "application/json" } : {}) }, body: body ? JSON.stringify(body) : undefined }).then(async (x) => ({ status: x.status, data: await x.json().catch(() => null) }));
     const tfiles = (await T("GET", "/api/teacher/lessons/" + lessonId)).data.files;
@@ -380,7 +439,7 @@ async function main() {
     await sp.locator(".item", { hasText: "Das Bundesverfassungsgericht" }).click();
     await sp.locator(".live .placeholder").waitFor();
     ok(await sp.locator(".live .placeholder").isVisible(), "Live-Fenster ganz oben (wartet auf die Lehrkraft)");
-    ok(await sp.locator("text=selbst öffnen (90 Minuten").count() === 1, "Präsentationsdatei erst 90 Minuten nach dem Betreten");
+    ok(await sp.locator("text=Die Präsentation kannst du nach dem Unterricht selbst öffnen.").count() === 1, "ohne Beginn der Sitzung: Präsentation nicht selbst zu öffnen (erst nach dem Unterricht)");
     ok((await SA("POST", "/api/student/lessons/" + lessonId + "/presentation-link", {})).status === 403, "… auch serverseitig gesperrt");
 
     step("Live-Präsentation: Lehrkraft startet, Schüler:in folgt");
@@ -393,6 +452,10 @@ async function main() {
     await tp.keyboard.press("ArrowRight");
     await sp.locator(".live .badge", { hasText: "Folie 2 / 3" }).waitFor({ timeout: 10000 });
     ok(true, "Folienwechsel kommt an (" + (Date.now() - t0) + " ms)");
+    await tp.locator(".presenter").getByRole("button", { name: /als letzte im Unterricht gezeigte Folie markieren/ }).click();
+    await tp.locator(".presenter .markstate", { hasText: "Bis Folie 2 markiert" }).waitFor({ timeout: 20000 });
+    const presF = (await T("GET", "/api/teacher/lessons/" + lessonId)).data.files.find((f) => f.area === "presentation");
+    ok(presF.shownUntil === 2 && presF.cut === true, "Vollbild „Bis hier gezeigt“: Folie 2 als letzte gezeigte Folie markiert, gekürzte PDF gespeichert");
     await tp.locator(".presenter .small", { hasText: "1 Schüler:in verbunden" }).waitFor({ timeout: 10000 });
     ok(true, "Lehrkraft sieht die Zahl der verbundenen Schüler:innen");
     await sp.waitForFunction(() => /\/2\?/.test((document.querySelector(".live img") || {}).src || ""), null, { timeout: 10000 });
@@ -403,6 +466,8 @@ async function main() {
     await tp.getByRole("button", { name: "Präsentation für alle beenden" }).click();
     await sp.locator(".live .placeholder").waitFor({ timeout: 10000 });
     ok(true, "Beenden kommt bei allen an");
+    await tp.locator(".thumbs .thumb.mark").waitFor({ timeout: 10000 });
+    ok(await tp.locator("#shown-sel").inputValue() === "2" && await tp.locator(".thumbs .thumb.after").count() === 1, "Sitzung zeigt die Markierung (Folie 3 für Schüler:innen nicht freigegeben)");
 
     /* ---------- Claude-Connector (MCP) ---------- */
     step("Claude-Connector (MCP)");
@@ -430,6 +495,12 @@ async function main() {
     ok((await rpc({ jsonrpc: "2.0", id: 9, method: "tools/list" }, BASE + "/mcp/falsch")).status === 401, "falscher Connector-Schlüssel → 401");
     await sp.reload(); await sp.locator(".item", { hasText: "Von Claude: Arbeitsauftrag" }).waitFor();
     ok(true, "Material von Claude erscheint bei den Schüler:innen");
+    r = await rpc({ jsonrpc: "2.0", id: 10, method: "tools/call", params: { name: "add_print_material", arguments: { lesson_id: lessonId, titel: "Kärtchen Gewaltenteilung", markdown: "# Kärtchen\n\n- Legislative\n- Exekutive\n- Judikative", anzahl: 14, beidseitig: false, farbe: false } } });
+    ok(!r.data.result.isError && r.data.result.content[0].text.includes("14x - einseitig - sw - Kärtchen Gewaltenteilung.pdf"), "Claude legt eine Druckvorlage ab (add_print_material) mit Anzahl und Druckart");
+    ok(!(await SA("GET", "/api/student/lessons/" + lessonId)).data.files.some((f) => /Kärtchen|Tafelbild|Arbeitsblatt Letter/.test(f.name)), "Druckvorlagen sind für Schüler:innen nie sichtbar");
+    await tp.evaluate(() => document.dispatchEvent(new Event("visibilitychange")));
+    await tp.locator("#printcard .printrow .name", { hasText: "14x - einseitig - sw - Kärtchen Gewaltenteilung.pdf" }).waitFor({ timeout: 10000 });
+    ok(true, "… erscheint beim Zurückkehren in der Druckliste der Sitzung");
 
     /* ---------- Feibeitsblatt ---------- */
     step("Feibeitsblatt: verbinden, Entwurf prüfen, anlegen, Abgaben einsehen");
@@ -438,8 +509,13 @@ async function main() {
     await fbSec.locator("input[inputmode=numeric]").fill("1104");
     await fbSec.locator("input[type=password]").fill(FB_PW);
     await fbSec.getByRole("button", { name: "Verbinden" }).click();
-    await fbSec.locator(".badge", { hasText: "verbunden" }).first().waitFor({ timeout: 20000 });
+    await fbSec.locator(".badge.ok", { hasText: "verbunden" }).first().waitFor({ timeout: 20000 });
     ok(true, "mit Feibeitsblatt verbunden (Schlüssel im Browser abgeleitet)");
+    const fl = await T("GET", "/api/teacher/fb-link");
+    ok(!!fl.data.link && Object.keys(fl.data.link).sort().join() === "at,ct,iv,v" && !JSON.stringify(fl.data).includes(FB_PW), "Verbindung Ende-zu-Ende verschlüsselt im Benutzerkonto gespeichert (nur Umschlag, kein Passwort)");
+    await tp.reload();
+    await fbSec.locator(".badge.ok", { hasText: "verbunden" }).waitFor({ timeout: 20000 });
+    ok(await fbSec.locator('input[aria-label="Feibeitsblatt-Passwort"]').count() === 0 && await fbSec.locator(".fblink", { hasText: "verschlüsselt in Ihrem Benutzerkonto gespeichert" }).count() === 1, "nach dem Neuladen automatisch verbunden – ohne erneute Eingabe");
     await fbSec.getByRole("button", { name: "Feibeitsblatt-Entwurf aus dem Chat" }).click();
     await tp.locator(".modal", { hasText: "Feibeitsblatt prüfen und anlegen" }).waitFor({ timeout: 20000 });
     ok(await tp.locator(".modal textarea").nth(2).inputValue().then((v) => v.includes("Normenkontrolle")), "Entwurf mit „Auftrag an die KI“ zum Prüfen");
@@ -469,8 +545,15 @@ async function main() {
     await tp.locator(".modal").getByRole("button", { name: "Fertig" }).click();
     ok(await fbSec.locator(".notfall", { hasText: "Notfall-Feibeitsblatt im Material für Schüler:innen (mit QR-Code zur Checkliste)" }).count() === 1, "Feibeitsblatt-Abschnitt zeigt den Stand des Notfall-Feibeitsblatts");
     await sp.reload();
-    await sp.locator(".item", { hasText: "Notfall-Feibeitsblatt – Mock-Blatt BVerfG.pdf" }).waitFor();
-    ok(await sp.locator(".item", { hasText: "Notfall-Feibeitsblatt – Mock-Blatt BVerfG.pdf" }).getByRole("button", { name: "Herunterladen" }).count() === 1, "Schüler:innen finden das Notfall-Feibeitsblatt im Material");
+    const nfBox = sp.locator("section.notfallbox");
+    await nfBox.locator(".item", { hasText: "Notfall-Feibeitsblatt – Mock-Blatt BVerfG.pdf" }).waitFor();
+    ok(await nfBox.locator(".item", { hasText: "Notfall-Feibeitsblatt – Mock-Blatt BVerfG.pdf" }).getByRole("button", { name: "Herunterladen" }).count() === 1
+      && (await nfBox.locator(".alarm").textContent()).startsWith("Achtung! Eigentlich sollst du mit den digitalen Feibeitsblättern arbeiten, die du in dieser Sitzung aufrufen kannst.")
+      && await nfBox.locator(".alarm").evaluate((el) => getComputedStyle(el).backgroundColor) === "rgb(200, 40, 30)"
+      && await sp.locator("section.card:not(.notfallbox) .item", { hasText: "Notfall-Feibeitsblatt" }).count() === 0, "Schüler:innen: Notfall-Feibeitsblatt in eigenem Kästchen mit rotem Hinweis (nicht unter Material)");
+    ok(await sp.evaluate(() => { const box = document.querySelector(".notfallbox"), mat = [...document.querySelectorAll("section.card")].find((s) => s.querySelector("h2") && s.querySelector("h2").textContent === "Material");
+      return !!mat && parseFloat(getComputedStyle(box).fontSize) < parseFloat(getComputedStyle(mat).fontSize) && !!(mat.compareDocumentPosition(box) & Node.DOCUMENT_POSITION_FOLLOWING); }), "… unter dem Material und mit kleinerer Schrift");
+    await nfBox.screenshot({ ...SHOT, path: join(OUT, "schueler-notfall.png") });
     const fbCard = sp.locator(".item", { hasText: "Feibeitsblatt · Code" }).filter({ hasText: "Mock-Blatt BVerfG" });
     await fbCard.waitFor();
     ok((await fbCard.textContent()).includes(created.code.slice(0, 3) + "-" + created.code.slice(3)), "Schüleransicht: Titel + Code des Feibeitsblatts (kein PDF)");
@@ -514,12 +597,43 @@ async function main() {
     await tp.locator("#hw").fill("Lies **M2** und beantworte Aufgabe 3.");
     await tp.locator('.homework .save-state[data-state="ok"]', { hasText: /^Gespeichert$/ }).waitFor({ timeout: 10000 });
     ok(await tp.locator(".homework", { hasText: "Fällig zur nächsten Sitzung am " + fmtDay(l2.date) }).count() === 1, "Hausaufgabe gespeichert, fällig zur nächsten Sitzung derselben Klasse");
+    ok(await tp.locator(".homework .hwwhen .warnc", { hasText: "dafür fehlt der Beginn (Uhrzeit)" }).count() === 1, "ohne Beginn der Sitzung: Hinweis, dass Schüler:innen die Hausaufgabe noch nicht sehen");
+    await sp.reload(); await sp.locator(".live").waitFor(); await sleep(400);
+    ok(await sp.locator(".homework").count() === 0 && (await SA("GET", "/api/student/lessons/" + lessonId)).data.homework === null, "… Schüler:innen sehen sie dann nicht (auch nicht per Schnittstelle)");
+    // Beginn so, dass die Sitzung in 10 Minuten endet: Hausaufgabe (ab 15 Minuten vor dem Ende) sichtbar, Präsentation noch gesperrt
+    const setWhen = async (ms) => {
+      const w = berlinAt(ms), dIn = tp.locator('input[aria-label="Datum der Sitzung"]');
+      if (await dIn.inputValue() !== w.date) { await dIn.fill(w.date); await tp.locator(".toast", { hasText: "Datum geändert" }).last().waitFor({ timeout: 10000 }); }
+      await tp.locator('input[aria-label="Beginn der Sitzung (Uhrzeit)"]').fill(w.time);
+      const t = lessonTimes({ date: w.date, startTime: w.time, durationMin: 90 });
+      await tp.locator(".timesline", { hasText: fmtClockBerlin(t.homeworkAt) + " Uhr" }).waitFor({ timeout: 10000 });
+      return t;
+    };
+    await setWhen(Date.now() - 80 * 60e3);
     await sp.reload();
     await sp.locator(".homework").waitFor();
     const hwTxt = await sp.locator(".homework").textContent();
     await sp.screenshot({ ...SHOT, path: join(OUT, "schueler-hausaufgabe.png") });
     ok(hwTxt.includes("Bis zur nächsten Sitzung am " + fmtDay(l2.date)) && hwTxt.includes("M2") && await sp.locator(".homework strong", { hasText: "M2" }).count() === 1, "Schüler:innen sehen die Hausaufgabe mit Fälligkeit");
     ok(!hwTxt.includes("unterricks.janrickmer.de"), "der Schulportal-Hinweis erscheint in Unterricks nicht");
+    ok(/Die Präsentation kannst du ab (\S+ \S+, )?\d\d:\d\d Uhr selbst öffnen \(5 Minuten nach dem Unterricht\)\./.test(await sp.locator("main").textContent()) && (await SA("POST", "/api/student/lessons/" + lessonId + "/presentation-link", {})).status === 403,
+      "während der Stunde: Hausaufgabe ab 15 Minuten vor dem Ende sichtbar, Präsentation erst 5 Minuten nach dem Ende (serverseitig gesperrt)");
+    // KI-Begriffshilfe während der Stunde: Einwilligung, dann nur die Frage an die KI
+    await sp.getByRole("button", { name: "KI-Begriffshilfe nutzen" }).click();
+    const km = sp.locator(".modal", { hasText: "KI-Begriffshilfe nutzen?" });
+    await km.waitFor();
+    const kmTxt = await km.textContent();
+    ok(kmTxt.includes("datenschutzrechtlich nicht für die Schule vorgesehen") && kmTxt.includes("freiwillig") && kmTxt.includes("Cloudflare (USA)") && kmTxt.includes("keine persönlichen Daten"), "Einwilligung: freiwillig, nicht für die Schule vorgesehen, Dienste genannt, keine persönlichen Daten");
+    await km.getByRole("button", { name: "Einwilligen und starten" }).click();
+    ok(await km.isVisible(), "ohne Haken keine Einwilligung");
+    await km.locator("#ki-ok").check(); await km.getByRole("button", { name: "Einwilligen und starten" }).click();
+    await sp.locator("#ki-q").fill("Was bedeutet Normenkontrolle?"); await sp.locator(".kihelp").getByRole("button", { name: "Fragen" }).click();
+    await sp.locator(".kihelp .kiq .a", { hasText: "Normenkontrolle heißt" }).waitFor({ timeout: 20000 });
+    const kcall = ai.calls[ai.calls.length - 1], ksys = kcall.messages[0].content;
+    ok(ksys.includes("Du bist die KI-Begriffshilfe") && ksys.includes("Jahrgangsstufe 12") && kcall.messages[kcall.messages.length - 1].content === "Was bedeutet Normenkontrolle?" && !JSON.stringify(kcall).includes(stoken),
+      "KI-Begriffshilfe antwortet; an die KI gehen nur Regeln, Fach, Lerngruppe, Thema und die Frage");
+    ok((await SA("POST", "/api/student/lessons/" + lessonId + "/ask", { question: "Was ist das?" })).status === 400, "ohne Einwilligung beantwortet der Server nichts");
+    await sp.locator(".kihelp").screenshot({ ...SHOT, path: join(OUT, "schueler-ki-begriffshilfe.png") });
     await tp.locator(".homework").getByRole("button", { name: "Für das Schulportal kopieren" }).click();
     const hwCopy = await tp.evaluate(() => navigator.clipboard.readText());
     const code0 = lesson0.code.slice(0, 3) + "-" + lesson0.code.slice(3);
@@ -529,6 +643,24 @@ async function main() {
     await sp.goto(BASE + "/#/schueler");
     await sp.locator(".item", { hasText: "Das Bundesverfassungsgericht" }).waitFor();
     ok(await sp.locator(".item", { hasText: "Das Bundesverfassungsgericht" }).locator(".badge", { hasText: "Hausaufgabe" }).count() === 1, "… und in ihrer Sitzungsliste");
+    // Sitzung vorbei (Beginn vor zwei Stunden): Präsentation frei – wegen der Markierung nur Folie 1–2; keine Begriffshilfe mehr
+    await setWhen(Date.now() - 120 * 60e3);
+    await sp.goto(BASE + "/#/schueler/s/" + lessonId);
+    await sp.getByRole("button", { name: "Präsentation (Folie 1–2) selbst öffnen" }).waitFor({ timeout: 10000 });
+    ok(await sp.locator(".kihelp").count() === 0 && (await SA("POST", "/api/student/lessons/" + lessonId + "/ask", { question: "Und jetzt?", consent: true })).status === 403, "nach der Stunde: keine KI-Begriffshilfe mehr (auch serverseitig)");
+    const pl = await SA("POST", "/api/student/lessons/" + lessonId + "/presentation-link", { inline: false });
+    const cutRes = await fetch(BASE + pl.data.url), cutDoc = await PDFDocument.load(new Uint8Array(await cutRes.arrayBuffer()));
+    ok(pl.data.url.includes("p=cut") && cutRes.status === 200 && cutDoc.getPageCount() === 2 && /Folie%201%E2%80%932|Folie 1–2/.test(cutRes.headers.get("content-disposition") || ""), "5 Minuten nach dem Ende: Schüler:innen bekommen nur Folie 1–2 (gekürzte PDF)");
+    ok((await fetch(BASE + pl.data.url.replace("&p=cut", ""))).status === 403, "… die vollständige PDF bleibt auch mit verändertem Link gesperrt");
+    await tp.locator(".thumbs .thumb").first().click({ button: "right" });
+    await tp.locator(".ctxmenu").getByRole("menuitem", { name: "Markierung aufheben (alle Folien)" }).click();
+    await tp.locator(".toast", { hasText: "Markierung aufgehoben" }).waitFor({ timeout: 15000 });
+    const pl2 = await SA("POST", "/api/student/lessons/" + lessonId + "/presentation-link", { inline: false });
+    ok(!pl2.data.url.includes("p=cut") && (await PDFDocument.load(new Uint8Array(await (await fetch(BASE + pl2.data.url)).arrayBuffer()))).getPageCount() === 3, "Markierung aufgehoben (Rechtsklick auf eine Folie): alle 3 Folien");
+    await tp.locator("#shown-sel").selectOption("1");
+    await tp.locator(".toast", { hasText: "nur Folie 1." }).waitFor({ timeout: 15000 });
+    await sp.reload(); await sp.getByRole("button", { name: "Präsentation (Folie 1) selbst öffnen" }).waitFor({ timeout: 10000 });
+    ok(true, "Auswahl „Folie 1“: Schüler:innen bekommen nur die erste Folie");
 
     await tp.locator(".portal-preview p", { hasText: "3) Partnerarbeit" }).click({ button: "right" });
     await tp.locator(".ctxmenu").getByRole("menuitem", { name: "Zwischenstopp einfügen" }).click();
@@ -608,10 +740,7 @@ async function main() {
     const before = (await SA("GET", "/api/student/lessons/" + l2.id)).data;
     ok(!before.substitute && before.files.some((f) => f.name === "Original-Arbeitsblatt") && !(await tp.locator(".item", { hasText: "Anleitung zur Vertretungsstunde" }).count()), "vor der Bestätigung ändert sich nichts (auch nicht für Schüler:innen)");
     await tp.screenshot({ ...SHOT, path: join(OUT, "lehrkraft-vertretung-vorschlag.png"), fullPage: true });
-    if (await tp.locator("#fbcard .badge", { hasText: "nicht verbunden" }).count()) {
-      await tp.locator("#fbcard input[inputmode=numeric]").fill("1104"); await tp.locator("#fbcard input[type=password]").fill(FB_PW);
-      await tp.locator("#fbcard").getByRole("button", { name: "Verbinden" }).click(); await tp.locator("#fbcard .badge", { hasText: "verbunden" }).first().waitFor({ timeout: 20000 });
-    }
+    await tp.locator("#fbcard .badge.ok", { hasText: "verbunden" }).first().waitFor({ timeout: 20000 });   // gespeicherte Verbindung (automatisch)
     const sheetsBefore = fbm.sheets.size;
     await prop.getByRole("button", { name: "Bestätigen: Sitzung auf Vertretung umstellen" }).click();
     await tp.locator(".modal").getByRole("button", { name: "Bestätigen und umstellen" }).click();
@@ -662,11 +791,15 @@ async function main() {
     ok(await tp.locator(".er-gate").isDisabled() && (await tp.locator(".er-gate").textContent()).includes("Vorschau"), "Vorschau der Lehrkraft: alle Stationen ansehen, Tunnel gesperrt");
     await tp.screenshot({ ...SHOT, path: join(OUT, "lehrkraft-escape-vorschau.png"), fullPage: true });
     await tp.getByRole("button", { name: "Vorschau schließen" }).click();
+    await tp.locator("#fbcard .badge.ok", { hasText: "verbunden" }).first().waitFor({ timeout: 20000 });
     await tp.locator(".substitute", { hasText: "Vertretungsvorschlag prüfen" }).getByRole("button", { name: "Bestätigen: Sitzung auf Vertretung umstellen" }).click();
     await tp.locator(".modal").getByRole("button", { name: "Bestätigen und umstellen" }).click();
     await tp.locator(".substitute.active").waitFor({ timeout: 20000 });
     const escSheet = [...fbm.sheets.values()].find((x) => x.title === "Finale: Mission Gewaltenteilung");
     ok(escSheet && escSheet.escape && /^unterricks-[a-f0-9]{8}-[a-f0-9]{6}$/.test(escSheet.escape.id) && escSheet.escape.name === "Mission Gewaltenteilung", "Finale-Feibeitsblatt mit Escape-Kennung angelegt");
+    await sleep(1500);
+    const nfEsc = await fetch(BASE + "/api/teacher/lessons/" + l3.id + "/sheets/" + escSheet.code + "/notfall?sig=v1", { method: "POST", headers: { Authorization: "Bearer " + token, "Content-Type": "application/pdf" }, body: Buffer.from("%PDF-1.4 test") });
+    ok(!(await T("GET", "/api/teacher/lessons/" + l3.id)).data.files.some((f) => f.fbCode === escSheet.code) && nfEsc.status === 400, "Finale eines Escape-Rooms: kein Notfall-Feibeitsblatt (auch nicht per Schnittstelle)");
     await SA("POST", "/api/student/join", { code: l3.code });
     ok(!(await SA("GET", "/api/student/lessons/" + l3.id)).data.sheets.some((x) => x.code === escSheet.code), "Escape-Finale erscheint nicht als normales Feibeitsblatt (nur über den Tunnel)");
     await sp.goto(BASE + "/#/schueler/s/" + l3.id);
@@ -845,6 +978,86 @@ async function main() {
       ok(hidden === true, "eingebettet in eine fremde Seite: Unterricks zeigt nichts");
       await fctx.close(); await ptc.close(); await pctx.close();
     } finally { pagesSrv.close(); }
+
+    /* ---------- Sitzung als Datei ---------- */
+    step("Sitzung als Datei herunterladen und in einer anderen Sitzung laden (Daten angepasst)");
+    {
+      const num = (iso) => iso.slice(8, 10) + "." + iso.slice(5, 7) + "." + iso.slice(0, 4);
+      let srcL = (await T("GET", "/api/teacher/lessons/" + lessonId)).data.lesson;
+      await T("PATCH", "/api/teacher/lessons/" + lessonId, { homework: "Lies M2 bis " + num(srcL.nextDate) + ".", ideas: "Test am " + num(srcL.date) + ", Projekttag am 24.12.2030." });
+      await tp.goto(BASE + "/#/lk/s/" + lessonId); await tp.reload();
+      await tp.locator("#fbcard .badge.ok", { hasText: "verbunden" }).first().waitFor({ timeout: 20000 });
+      const [sdl] = await Promise.all([tp.waitForEvent("download", { timeout: 60000 }), tp.locator(".sessionio").getByRole("button", { name: "Sitzung als Datei herunterladen" }).click()]);
+      const sfile = await sdl.path(), sz = await readZip(new Uint8Array(readFileSync(sfile)));
+      const sj = JSON.parse(new TextDecoder().decode(sz.find((x) => x.name === "sitzung.json").data));
+      ok(/^Unterrickssitzung - PoWi - Q2 GK - .+ - Sitzung Nr\. 1\.zip$/.test(sdl.suggestedFilename()), "Dateiname „Unterrickssitzung - PoWi - Q2 GK - <Einheit> - Sitzung Nr. 1.zip“ (" + sdl.suggestedFilename() + ")");
+      const okFiles = sj.kind === "unterricks-sitzung" && sj.lesson.homework.includes(num(srcL.nextDate)) && sj.files.some((f) => f.area === "presentation" && f.path) && sj.files.some((f) => f.kind === "link")
+        && sj.files.some((f) => f.area === "print" && f.kind === "text") && !sj.files.some((f) => /Notfall-Feibeitsblatt/.test(f.name)) && sj.files.filter((f) => f.path).every((f) => sz.some((x) => x.name === f.path));
+      if (!okFiles) console.log("    Inhalt:", JSON.stringify(sj.files.map((f) => f.area + ":" + f.kind + ":" + (f.path || f.name))), sz.map((x) => x.name).join(" | "));
+      ok(okFiles, "Datei enthält Planung, Materialien, Links, Präsentation und Druckliste (ohne Notfall-Feibeitsblatt)");
+      if (!sj.drafts.some((d) => d.title === "Mock-Blatt BVerfG")) console.log("    Entwürfe:", JSON.stringify(sj.drafts.map((d) => d.title)), "Hinweise:", JSON.stringify(sj.notes));
+      ok(sj.drafts.some((d) => d.title === "Mock-Blatt BVerfG" && d.tasks.length === 2), "… und das verknüpfte Feibeitsblatt als Entwurf (Inhalt aus dem Feibeitsblatt)");
+      const target = (await T("GET", "/api/teacher/lessons/" + byRow(4).id)).data.lesson;   // hat eine nächste Sitzung (Fälligkeit)
+      await tp.goto(BASE + "/#/lk/s/" + target.id); await tp.locator(".sessionio").waitFor();
+      await tp.locator(".sessionio input[type=file]").setInputFiles(sfile);
+      const im = tp.locator(".modal", { hasText: "Sitzung aus Datei laden?" });
+      await im.waitFor({ timeout: 20000 });
+      ok((await im.textContent()).includes("Datum, Beginn und Dauer bleiben die dieser Sitzung"), "vor dem Übernehmen: Übersicht, was ersetzt wird und was bleibt");
+      await im.getByRole("button", { name: "Übernehmen" }).click();
+      await tp.locator(".modal", { hasText: "Sitzung übernommen" }).waitFor({ timeout: 120000 });
+      ok((await tp.locator(".modal", { hasText: "Sitzung übernommen" }).textContent()).includes("24.12.2030"), "nicht zuordenbare Datumsangabe wird zum Prüfen genannt");
+      await tp.locator(".modal").getByRole("button", { name: "Fertig" }).click();
+      const tl = (await T("GET", "/api/teacher/lessons/" + target.id)).data;
+      ok(tl.lesson.title === srcL.title && tl.lesson.date === target.date && tl.lesson.durationMin === target.durationMin && (tl.lesson.startTime || null) === (target.startTime || null), "Inhalte übernommen; Datum, Beginn und Dauer der geöffneten Sitzung bleiben");
+      ok(!tl.lesson.homework.includes(num(srcL.nextDate)) && (!tl.lesson.nextDate || tl.lesson.homework.includes(num(tl.lesson.nextDate))) && tl.lesson.ideas.includes(num(target.date)) && tl.lesson.ideas.includes("24.12.2030"),
+        "Datumsangaben an die neue Sitzung angepasst (Hausaufgabe bis zur nächsten Sitzung, Datum der Sitzung)");
+      ok(tl.files.some((f) => f.area === "presentation" && f.status === "ready" && f.pages === 3) && tl.files.some((f) => f.kind === "link" && f.url === "https://www.bpb.de/mediathek/video/bverfg")
+        && tl.files.filter((f) => f.area === "print").length === 3 && tl.files.some((f) => f.name === "Erwartungshorizont GEHEIM.docx" && f.area === "teacher") && tl.drafts.some((d) => d.data && d.data.title === "Mock-Blatt BVerfG"),
+        "Präsentation (mit Folien), Links, Druckliste, Lehrkraft-Material und Feibeitsblatt-Entwurf übernommen");
+    }
+
+    /* ---------- Gespeicherte Feibeitsblatt-Verbindung auf weiteren Geräten ---------- */
+    step("Feibeitsblatt-Verbindung einmalig gespeichert: zweites Gerät, Gerät ohne Schlüssel, Passwortwechsel, löschen");
+    {
+      const d2 = await browser.newContext({ viewport: { width: 1280, height: 900 } }); const p2 = await d2.newPage(); watch(p2, "Lehrkraft Gerät 2");
+      await p2.goto(BASE + "/#/lehrkraft"); await p2.fill("#tu", "feindt"); await p2.fill("#tp", T_PW);
+      const t2 = Date.now(); await p2.getByRole("button", { name: "Anmelden" }).click(); await waitTeacherHome(p2, t2, "Anmeldung Gerät 2");
+      await p2.goto(BASE + "/#/lk/s/" + lessonId);
+      await p2.locator("#fbcard .badge.ok", { hasText: "verbunden" }).waitFor({ timeout: 20000 });
+      ok(true, "zweites Gerät: nach der Anmeldung mit dem Unterricks-Passwort automatisch mit Feibeitsblatt verbunden");
+      await p2.evaluate(() => new Promise((res) => { const r = indexedDB.deleteDatabase("unterricks"); r.onsuccess = r.onerror = r.onblocked = () => res(); }));
+      await p2.reload();
+      const upw = p2.locator("#fbcard").getByLabel("Ihr Unterricks-Passwort");
+      await upw.waitFor({ timeout: 20000 });
+      ok((await p2.locator("#fbcard").textContent()).includes("Entsperren Sie sie auf diesem Gerät einmal mit Ihrem Unterricks-Passwort"), "Gerät ohne Schlüssel (z. B. schon vorher angemeldet): Hinweis zum Entsperren");
+      await upw.fill("falsches-passwort-1"); await p2.locator("#fbcard").getByRole("button", { name: "Entsperren" }).click();
+      await p2.locator("#fbcard .err", { hasText: "falsch" }).waitFor({ timeout: 30000 });
+      await upw.fill(T_PW); await p2.locator("#fbcard").getByRole("button", { name: "Entsperren" }).click();
+      await p2.locator("#fbcard .badge.ok", { hasText: "verbunden" }).waitFor({ timeout: 30000 });
+      await p2.reload(); await p2.locator("#fbcard .badge.ok", { hasText: "verbunden" }).waitFor({ timeout: 20000 });
+      ok(true, "… falsches Passwort abgelehnt, mit dem richtigen entsperrt – danach auch nach dem Neuladen verbunden");
+      const T_PW2 = T_PW + "-neu";
+      const changePw = async (from, to) => {
+        await p2.goto(BASE + "/#/lk/einstellungen"); await p2.locator("#co").waitFor();
+        await p2.fill("#co", from); await p2.fill("#cn1", to); await p2.fill("#cn2", to);
+        await p2.getByRole("button", { name: "Zugangsdaten ändern" }).click();
+        await p2.locator(".toast", { hasText: "Die gespeicherte Feibeitsblatt-Verbindung bleibt erhalten" }).waitFor({ timeout: 40000 });
+      };
+      await changePw(T_PW, T_PW2);
+      await p2.goto(BASE + "/#/lk/s/" + lessonId); await p2.reload();
+      await p2.locator("#fbcard .badge.ok", { hasText: "verbunden" }).waitFor({ timeout: 20000 });
+      ok(true, "Passwortwechsel: gespeicherte Verbindung neu verschlüsselt – Unterricks verbindet sich weiter automatisch");
+      await changePw(T_PW2, T_PW);
+      await p2.goto(BASE + "/#/lk/s/" + lessonId); await p2.reload(); await p2.locator("#fbcard .badge.ok", { hasText: "verbunden" }).waitFor({ timeout: 20000 });
+      await p2.locator("#fbcard").getByRole("button", { name: "Gespeicherte Verbindung löschen" }).click();
+      await p2.locator(".modal").getByRole("button", { name: "Löschen" }).click();
+      await p2.locator("#fbcard .badge", { hasText: "nicht verbunden" }).waitFor({ timeout: 10000 });
+      const tok2 = await p2.evaluate(() => localStorage.getItem("u.ttoken"));
+      const gone = await (await fetch(BASE + "/api/teacher/fb-link", { headers: { Authorization: "Bearer " + tok2 } })).json();
+      await p2.reload(); await p2.locator('#fbcard input[aria-label="Feibeitsblatt-Passwort"]').waitFor({ timeout: 20000 });
+      ok(gone.link === null, "gespeicherte Verbindung gelöscht – danach sind Türcode und Feibeitsblatt-Passwort wieder nötig");
+      await d2.close();
+    }
 
     /* ---------- Sperren ---------- */
     step("Sperren");

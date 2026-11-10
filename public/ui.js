@@ -155,6 +155,7 @@ export const fmtTime = (ms) => new Date(ms).toLocaleString("de-DE", { day: "2-di
 export const fmtClock = (ms) => new Date(ms).toLocaleTimeString("de-DE", { hour: "2-digit", minute: "2-digit" });
 export function fileIcon(name, mime, kind) {
   if (kind === "text") return h("div", { class: "ficon txt", "aria-hidden": "true", text: "TEXT" });
+  if (kind === "link") return h("div", { class: "ficon lnk", "aria-hidden": "true", text: "LINK" });
   const ext = ((/\.([a-z0-9]+)$/i.exec(name || "") || [])[1] || "").toLowerCase();
   const m = String(mime || "");
   let cls = "", label = (ext || "DATEI").slice(0, 4).toUpperCase();
@@ -191,6 +192,9 @@ const ICONS = {
   up: "M12 19V5M6 11l6-6 6 6",
   down: "M12 5v14M6 13l6 6 6-6",
   alert: "M12 3.8 2.8 19.6h18.4L12 3.8zM12 9.6v4.6M12 17.2h.01",
+  plus: "M12 5v14M5 12h14",
+  link: "M10 14a4.5 4.5 0 0 0 6.4 0l3-3a4.5 4.5 0 0 0-6.4-6.4l-1 1M14 10a4.5 4.5 0 0 0-6.4 0l-3 3a4.5 4.5 0 0 0 6.4 6.4l1-1",
+  download: "M12 4v11M7 10l5 5 5-5M5 20h14",
 };
 const SVGNS = "http://www.w3.org/2000/svg";
 export function icon(name) {

@@ -11,7 +11,8 @@ const SUBJECT_IDS = new Set(SUBJECTS.map((s) => s.id));
 export const isValidSubject = (id) => typeof id === "string" && SUBJECT_IDS.has(id);
 export const subjectName = (id) => (SUBJECTS.find((s) => s.id === id) || {}).name || "";
 
-const LETTERS = ["A", "B", "C", "D", "E", "F"];
+/* je Jahrgang (5–10 und E-Phase = Jahrgang 11) acht Klassen: a bis h */
+const LETTERS = ["A", "B", "C", "D", "E", "F", "G", "H"];
 /* Qualifikationsphase: je Kurshalbjahr Grund- und Leistungskurs als eigene Kurse (KCGO/Abiturerlass unterscheiden die Niveaus) */
 export const KURSARTEN = { GK: "Grundkurs", LK: "Leistungskurs" };
 export const Q_COURSES = ["Q1", "Q2", "Q3", "Q4"].flatMap((q) => [q + "-GK", q + "-LK"]);
@@ -45,7 +46,7 @@ export function gradeInfo(k) {
     return k[0] === "E" ? { stufe: 11, text: "Einführungsphase der gymnasialen Oberstufe (Jahrgangsstufe 11)" + multi, level: null, halfYear: "E", course: true }
       : { stufe: parseInt(k, 10), text: "Jahrgangsstufe " + parseInt(k, 10) + " (Sekundarstufe I)" + multi, level: null, halfYear: null, course: true };
   }
-  const m = /^(\d+)[A-F]$/.exec(k);
+  const m = /^(\d+)[A-H]$/.exec(k);
   if (m) return { stufe: Number(m[1]), text: "Jahrgangsstufe " + m[1] + " (Sekundarstufe I)", level: null, halfYear: null };
   if (k[0] === "E") return { stufe: 11, text: "Einführungsphase der gymnasialen Oberstufe (Jahrgangsstufe 11)", level: null, halfYear: "E" };
   const q = Number(k[1]), lvl = k.slice(3);
@@ -77,7 +78,7 @@ export const DEFAULT_SUBJECT_CONFIG = {
   ethik: { grades: ALL_GRADES, gradeNotes: {}, rules: "" },
 };
 /* Klassen eines Kurses: nur echte Klassen genau dieses Jahrgangs, ohne Doppelte, sortiert */
-export const courseMembersClean = (g, list) => [...new Set((Array.isArray(list) ? list : []).filter((k) => typeof k === "string" && /^(\d+|E)[A-F]$/.test(k) && isValidClass(k) && gradeKey(k) === g))].sort();
+export const courseMembersClean = (g, list) => [...new Set((Array.isArray(list) ? list : []).filter((k) => typeof k === "string" && /^(\d+|E)[A-H]$/.test(k) && isValidClass(k) && gradeKey(k) === g))].sort();
 export function subjectConfig(all, subject) {
   const d = DEFAULT_SUBJECT_CONFIG[subject] || { grades: ALL_GRADES, gradeNotes: {}, rules: "" };
   const c = (all && all[subject]) || {};
@@ -102,12 +103,76 @@ export function addDays(iso, n) { const d = new Date(utcNoon(iso)); d.setUTCDate
 export const daysBetween = (a, b) => Math.round((utcNoon(b) - utcNoon(a)) / 86400e3);
 export const weekday = (iso) => WD[new Date(utcNoon(iso)).getUTCDay()];
 export const isWeekend = (iso) => { const d = new Date(utcNoon(iso)).getUTCDay(); return d === 0 || d === 6; };
+/* Uhrzeit „HH:MM“ (24 Stunden) */
+export const isClockTime = (s) => typeof s === "string" && /^([01]\d|2[0-3]):[0-5]\d$/.test(s);
+/* Ortszeit der Schule (Europe/Berlin, mit Sommerzeit) → Zeitpunkt in ms */
+const tzOffset = (ms) => {
+  const parts = new Intl.DateTimeFormat("en-US", { timeZone: "Europe/Berlin", hourCycle: "h23", year: "numeric", month: "2-digit", day: "2-digit", hour: "2-digit", minute: "2-digit", second: "2-digit" }).formatToParts(new Date(ms));
+  const g = (t) => Number((parts.find((x) => x.type === t) || {}).value);
+  return Date.UTC(g("year"), g("month") - 1, g("day"), g("hour") % 24, g("minute"), g("second")) - Math.floor(ms / 1000) * 1000;
+};
+export function berlinTime(iso, hhmm) {
+  if (!isIsoDate(iso) || !isClockTime(hhmm)) return null;
+  const [y, m, d] = iso.split("-").map(Number), [hh, mm] = hhmm.split(":").map(Number), wall = Date.UTC(y, m - 1, d, hh, mm);
+  let t = wall - tzOffset(wall);
+  t = wall - tzOffset(t);   // zweiter Schritt: richtig auch an den Tagen der Zeitumstellung
+  return t;
+}
+/* Zeitpunkte einer Sitzung: Beginn, Ende, ab wann Schüler:innen die Hausaufgabe sehen (15 Minuten vor dem Ende) und die Präsentation
+   selbst öffnen können (5 Minuten nach dem Ende). Ohne Datum, Startzeit oder Dauer: null (dann bleibt beides gesperrt). */
+export const HOMEWORK_BEFORE_END_MIN = 15, PRESENTATION_AFTER_END_MIN = 5;
+export function lessonTimes(l) {
+  const start = l ? berlinTime(l.date, l.startTime) : null, dur = l ? Number(l.durationMin) : NaN;
+  if (start === null || !Number.isInteger(dur) || dur < 1) return null;
+  const end = start + dur * 60e3;
+  return { start, end, homeworkAt: end - HOMEWORK_BEFORE_END_MIN * 60e3, presentationAt: end + PRESENTATION_AFTER_END_MIN * 60e3 };
+}
+/* KI-Begriffshilfe für Schüler:innen (während der Stunde): feste Regeln, Fach, Lerngruppe, Thema und – zur Orientierung – der Stundenverlauf */
+export const STUDENT_HELP_LIMITS = { question: 300, answer: 1200, history: 3 };
+export function studentHelpPrompt(l) {
+  const portal = removeStops(String(l.portal || "")).trim();
+  return [
+    "Du bist die KI-Begriffshilfe der Unterrichtsplattform Unterricks. Du beantwortest Fragen von Schüler:innen während einer Unterrichtsstunde.",
+    "Fach: " + subjectName(l.subject) + ". Lerngruppe: " + gradeInfo(l.klass).text + ". Thema der Stunde: " + (l.title || "(ohne Titel)") + (l.topic && l.topic !== l.title ? " – " + l.topic : "") + ".",
+    ...(portal ? ["Geplanter Stundenverlauf (nur zur Orientierung, nicht vorlesen):\n" + clip(portal, 1500)] : []),
+    "Regeln:",
+    "1. Beantworte nur Fragen zu Fachbegriffen und zum Inhalt dieser Unterrichtsstunde bzw. dieses Fachs.",
+    "2. Antworte kurz: höchstens vier kurze Sätze (etwa 80 Wörter), gern mit einem einfachen Beispiel.",
+    "3. Verwende eine Sprache, die Schüler:innen dieser Jahrgangsstufe leicht verstehen: kurze Sätze, wenige Fremdwörter – erkläre sie, wenn du sie brauchst. Sprich die Person mit „du“ an.",
+    "4. Löse keine Arbeitsaufträge, Aufgaben oder Feibeitsblätter und schreibe keine fertigen Antworten oder Texte zum Abgeben – erkläre nur Begriffe und Zusammenhänge, damit die Person selbst weiterarbeiten kann.",
+    "5. Gehört eine Frage nicht zum Unterricht (z. B. Privates, andere Themen, Spiele) oder ist sie unangemessen, antworte in einem freundlichen Satz, dass du nur Fragen zum Unterrichtsthema und zu Fachbegriffen beantwortest.",
+    "6. Frag nie nach persönlichen Daten und wiederhole keine. Bei persönlichen Sorgen oder Problemen empfiehl, mit der Lehrkraft oder einer Vertrauensperson zu sprechen.",
+    "7. Bist du unsicher oder ist eine Frage umstritten, sag das ehrlich und empfiehl, die Lehrkraft zu fragen. Erfinde nichts.",
+    "8. Antworte nur mit der Erklärung als Fließtext, ohne Überschriften.",
+  ].join("\n");
+}
+/* Druckliste „Von der Lehrkraft auszudrucken“ (nur PDF, A4): Dateiname „28x - beidseitig - sw - Name.pdf“ (Vorgabe der Lehrkraft) */
+export const PRINT_LIMITS = { copies: 500, name: 160 };
+export const printBase = (name) => String(name == null ? "" : name).replace(/\.pdf$/i, "").replace(/[\\/:*?"<>|\u0000-\u001f]+/g, " ").replace(/\s+/g, " ").trim().replace(/[.\s-]+$/, "").slice(0, PRINT_LIMITS.name) || "Druckvorlage";
+export const printFileName = (p) => (Number(p.copies) || 1) + "x - " + (p.duplex ? "beidseitig" : "einseitig") + " - " + (p.color ? "Farbe" : "sw") + " - " + printBase(p.name) + ".pdf";
+export const cleanCopies = (v) => { const n = Number(v); return Number.isInteger(n) && n >= 1 && n <= PRINT_LIMITS.copies ? n : null; };
+/* „Folie 1–12“ bzw. „Folie 1“ (Präsentation bis zur letzten gezeigten Folie) */
+export const slidesUpTo = (n) => (n === 1 ? "Folie 1" : "Folie 1–" + n);
+export const fmtClockBerlin = (ms) => new Date(ms).toLocaleTimeString("de-DE", { hour: "2-digit", minute: "2-digit", timeZone: "Europe/Berlin" });
+export const fmtDayBerlin = (ms) => new Date(ms).toLocaleDateString("de-DE", { weekday: "short", day: "2-digit", month: "2-digit", year: "numeric", timeZone: "Europe/Berlin" });
 export const fmtDay = (iso) => (isIsoDate(iso) ? weekday(iso) + ", " + iso.slice(8, 10) + "." + iso.slice(5, 7) + "." + iso.slice(0, 4) : "");
 
 /* ---------- Sitzungscodes (wie bei Feibeitsblatt: 6 Zeichen ohne I, L, O, 0, 1; Anzeige ABC-123) ---------- */
 export const CODE_ALPHABET = "ABCDEFGHJKMNPQRSTUVWXYZ23456789";
 export const normalizeCode = (s) => String(s == null ? "" : s).toUpperCase().replace(/[^A-Z0-9]/g, "");
 export const isValidCode = (c) => typeof c === "string" && /^[ABCDEFGHJKMNPQRSTUVWXYZ23456789]{6}$/.test(c) && /[A-Z]/.test(c) && /[0-9]/.test(c);
+/* Links als Material: nur http(s)-Adressen ohne Zugangsdaten; ohne Schema wird https:// ergänzt. Liefert die normalisierte Adresse oder null. */
+export function cleanWebUrl(raw) {
+  const s = String(raw == null ? "" : raw).trim();
+  if (!s || s.length > 2000 || /[\s<>"]/.test(s)) return null;
+  let u;
+  try { u = new URL(/^[a-z][a-z0-9+.-]*:/i.test(s) ? s : "https://" + s); } catch { return null; }
+  if ((u.protocol !== "https:" && u.protocol !== "http:") || u.username || u.password || !u.hostname) return null;
+  if (!u.hostname.includes(".") && u.hostname !== "localhost") return null;
+  return u.href.length > 2000 ? null : u.href;
+}
+/* Anzeige einer Adresse: Host und Pfad ohne Schema, gekürzt */
+export const webUrlLabel = (url) => { const s = String(url || "").replace(/^https?:\/\//, "").replace(/\/$/, ""); return s.length > 70 ? s.slice(0, 67) + "…" : s; };
 export const formatCode = (c) => (c && c.length === 6 ? c.slice(0, 3) + "-" + c.slice(3) : String(c || ""));
 
 /* Öffentliche Adresse der Oberfläche (GitHub Pages mit eigener Domain) – für Hinweise im Schulportal */
@@ -305,7 +370,7 @@ export const FEIBEITSBLATT_INFO = "Feibeitsblatt ist das digitale Arbeitsblatt-W
   "die Lehrkraft sieht alle Abgaben. Ein Feibeitsblatt ersetzt ein klassisches Arbeitsblatt, besonders bei Schreib-, Analyse- und Urteilsaufgaben.";
 
 const clip = (s, n) => { s = String(s == null ? "" : s); return s.length > n ? s.slice(0, n) + " […gekürzt]" : s; };
-const areaLabel = (a) => (a === "student" ? "für Schüler:innen" : a === "teacher" ? "nur Lehrkraft" : a === "presentation" ? "Präsentation" : a);
+const areaLabel = (a) => (a === "student" ? "für Schüler:innen" : a === "teacher" ? "nur Lehrkraft" : a === "presentation" ? "Präsentation" : a === "print" ? "von der Lehrkraft auszudrucken" : a);
 
 /* Kontextblock zur aktuellen Sitzung (für Chatbot, Schulportal-Prompt und Claude-Prompts)
  * ctx = { subject, klass, lesson: {title, topic, durationMin, date, ideas}, materials: [{name, area, kind, text?}], portal, sheets: [{title, code}], drafts } */
@@ -317,14 +382,14 @@ export function lessonContext(ctx, opt = {}) {
     "Unterrichtssitzung: " + (L.title || "(noch ohne Titel)"),
     "Thema: " + (L.topic || "(noch nicht festgelegt)"),
     "Dauer: " + (L.durationMin ? L.durationMin + " Minuten" : "(noch nicht angegeben – bitte erfragen)"),
-    ...(L.date ? ["Datum: " + fmtDay(L.date)] : []),
+    ...(L.date ? ["Datum: " + fmtDay(L.date) + (L.startTime ? ", Beginn " + L.startTime + " Uhr" : "")] : []),
   ];
   if (L.ideas) lines.push("Ideen und Wünsche der Lehrkraft (Notizfeld):\n" + clip(L.ideas, opt.ideasMax || 4000));
   const mats = (ctx.materials || []).filter((m) => m.area !== "presentation");
   if (mats.length) {
     lines.push("Vorhandene Materialien:");
     for (const m of mats) {
-      lines.push("- " + m.name + " (" + areaLabel(m.area) + (m.kind === "text" ? ", Text" : "") + ")");
+      lines.push("- " + m.name + " (" + areaLabel(m.area) + (m.kind === "text" ? ", Text" : m.kind === "link" ? ", Link: " + clip(m.text, 300) : "") + ")");
       if (opt.materialText && m.kind === "text" && m.text) lines.push("  Inhalt:\n" + clip(m.text, opt.materialMax || 3000).replace(/^/gm, "  "));
     }
   }

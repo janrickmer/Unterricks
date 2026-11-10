@@ -32,7 +32,15 @@ export const TASKS = {
   material: { label: "Erstellung von Unterrichtsmaterialien", maxTokens: 8000 },
   portal: { label: "Schulportal-Eintrag", maxTokens: 3000 },
   feibeitsblatt: { label: "Feibeitsblatt-Entwurf", maxTokens: 6000 },
+  erklaeren: { label: "KI-Begriffshilfe für Schüler:innen (während der Stunde)", maxTokens: 700 },
 };
+/* Wer die Fragen der Schüler:innen bekommt (Einwilligungstext der KI-Begriffshilfe) */
+export const PROVIDER_WHO = { gemini: "Google (USA)", groq: "Groq (USA)", cerebras: "Cerebras (USA)", openrouter: "OpenRouter (USA) und der jeweilige Modellanbieter",
+  cloudflare: "Cloudflare (USA)", custom: "ein weiterer KI-Dienst, den deine Lehrkraft eingerichtet hat" };
+export async function taskProviders(db, task) {
+  const route = routeFor(await loadAiConfig(db), task);
+  return [...new Set(route.map((x) => PROVIDER_WHO[x.provider] || x.provider))];
+}
 const TASK_IDS = Object.keys(TASKS);
 
 const str = (v) => (typeof v === "string" ? v : v == null ? "" : String(v));
@@ -53,8 +61,11 @@ function defaultChoice(cfg) {
   for (const p of DEFAULT_ORDER) if (usable(cfg, p)) return { provider: p, model: PROVIDERS[p].defaultModel || "" };
   return { provider: "cloudflare", model: PROVIDERS.cloudflare.defaultModel };
 }
+// Aufgaben ohne eigene Einstellung übernehmen die einer verwandten Aufgabe (z. B. hat ein eigener Dienst kein Standardmodell)
+const TASK_LIKE = { erklaeren: "planning" };
 export function routeFor(cfg, task) {
-  const first = isObj(cfg.tasks[task]) && usable(cfg, cfg.tasks[task].provider) ? cfg.tasks[task] : defaultChoice(cfg);
+  const saved = (t) => (t && isObj(cfg.tasks[t]) && usable(cfg, cfg.tasks[t].provider) ? cfg.tasks[t] : null);
+  const first = saved(task) || saved(TASK_LIKE[task]) || defaultChoice(cfg);
   const list = [first, ...cfg.fallbacks.filter((f) => isObj(f) && usable(cfg, f.provider))];
   if (!list.some((x) => x.provider === "cloudflare")) list.push({ provider: "cloudflare", model: PROVIDERS.cloudflare.defaultModel });   // letzter Rückfall ohne Schlüssel
   const seen = new Set();

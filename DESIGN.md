@@ -597,14 +597,17 @@ Der Kopf jeder Seite: Fach, Kurs und Stand auf einen Blick.
 
 ### Sitzungscode
 - **Codekasten (`.code-box`):** `--fach-t`, Radius 12px, zentriert, Innenabstand .9rem .6rem .8rem; der Code in `.code-big`, darunter die Zahl der freigeschalteten Geräte (klein, `--muted`). Erste Karte der Seitenleiste, mit „Kopieren“ und „Für den Beamer zeigen“.
-- **Beamer (`.codeshow`, `showCode()`):** Vollbild in der Fachfarbe mit großer Folie, der Code in Display-Größe; Knöpfe `rgba(10, 16, 30, .25)` mit Kante `rgba(255, 255, 255, .6)`.
+- **Beamer (`.codeshow`, `showCode()`):** Vollbild in der Fachfarbe mit großer Folie, der Code in Display-Größe; Knöpfe `rgba(10, 16, 30, .25)` mit Kante `rgba(255, 255, 255, .6)`. Neben dem Code (umbrechend darunter) der QR-Code zu unterricks.janrickmer.de auf einer weißen Karte (`.qrbox`, Radius 18px, Schatten `0 10px 30px rgba(10, 16, 30, .25)`, `clamp(160px, 30vmin, 340px)`, `image-rendering: pixelated`), darunter die Adresse in 800.
 
 ### Live-Fenster der Schüler:innen (`.live`)
 - **Ruhend (`.live.idle`):** ein helles, kompaktes Feld in `--fach-t` mit Kante `color-mix(in srgb, var(--fach) 22%, transparent)`, Radius 16px, ohne Schatten; Titel „Noch keine Live-Präsentation“ in 800/1.08rem und `--fach-text`.
 - **Live:** erst wenn eine Folie läuft, wird es zur Projektionsfläche – `stage`, 16:9, Radius 16px, `--shadow-lift`, das Bild mit `object-fit: contain` auf #000. Oben links die Abzeichen „LIVE“ und „Folie n / m“, unten rechts „Groß“ mit Erweitern-Symbol in `rgba(255, 255, 255, .14)` (Kante `rgba(255, 255, 255, .35)`, Hover `rgba(255, 255, 255, .24)`); im Vollbild ohne Radius.
 
 ### Präsentationsmodus (`.presenter`)
-- Vollbild auf #000; unten eine Leiste in `rgba(11, 17, 30, .94)` mit Schrift #e8edf6 und Knöpfen in #1d2840 mit Kante #34405a; die Foliennummer in 800 mit tabellarischen Ziffern; „Präsentation für alle beenden“ als Live-Knopf. Nach kurzer Ruhe blendet die Leiste aus (.3s), der Mauszeiger verschwindet.
+- Vollbild auf #000; unten eine Leiste in `rgba(11, 17, 30, .94)` mit Schrift #e8edf6 und Knöpfen in #1d2840 mit Kante #34405a; die Foliennummer in 800 mit tabellarischen Ziffern; „Präsentation für alle beenden“ als Live-Knopf. Nach kurzer Ruhe blendet die Leiste aus (.3s), der Mauszeiger verschwindet. „Bis hier gezeigt“ ist ein normaler Leistenknopf; seine Rückmeldung steht daneben als Text (`.markstate`), weil Toasts im Vollbild nicht zu sehen sind.
+
+### Folienleiste der Präsentation (`.thumbs .thumb`)
+- Waagerecht scrollende Leiste aller Folien (Höhe 74px, Radius 8px); die letzte gezeigte Folie trägt einen 3px-Ring in `--fach` und das Abzeichen „bis hier“ (`.badge.ink`), Folien danach erscheinen blass (Deckkraft .35, graustufig). Rechtsklick bzw. Kontextmenü-Taste öffnet das Kontextmenü; darunter die Auswahl „Letzte im Unterricht gezeigte Folie“ (`.shownbox`) und die Zeile zur Freigabe (`.presrel`).
 
 ### Fachkacheln (`.tile`)
 - **Stil:** jedes Fach als eigene Folie – weiße Karte (Radius 16px, `--shadow`, Innenabstand 1.15rem 4.4rem 1.15rem 1.2rem), oben rechts eine Ecke der Fachfolie (92px, Radius 18px, 14deg gedreht, Deckkraft .92) hinter dem Text; Titel in 800/1.15rem, Unterzeile .92rem in `--muted`.
@@ -621,6 +624,15 @@ Der Kopf jeder Seite: Fach, Kurs und Stand auf einen Blick.
 - **Dialog (`modal()`):** Abdunklung `rgba(11, 17, 30, .55)`; Fläche `--surface`, Radius 18px, höchstens 760px breit (`.wide` 1100px); Kopf mit `h2` (1.2rem) und Schließen-Knopf mit dem Symbol x; Fuß mit Haarlinie und Aktionen rechts. Bewegung `auflegen-modal`, .32s aus `translateY(10px) scale(.99)`.
 - **Kontextmenü (`.ctxmenu`):** `--surface`, 1px `--line`, Radius 12px, `--shadow-lift`; Einträge in 700 mit Radius 8px, Hover und Fokus `--surface-2`.
 - **Aufklapper (`details.box`):** Haarlinie oben, Titel in 700 mit gezeichnetem Winkel, der sich beim Öffnen um 90° dreht (.2s).
+
+### Roter Hinweis (`.alarm`) – nur für die Notfall-Feibeitsblätter
+- Volle Fläche `--rot` mit weißer Schrift in 600/.95rem (Kontrast 5,6 : 1), Radius 10px, Innenabstand .8rem 1rem, Ring `0 0 0 3px color-mix(in srgb, var(--rot) 30%, transparent)`, Warnsymbol in Weiß; „Achtung!“ in 800. Er eröffnet das eigene Kästchen `.notfallbox` unter dem Material (Schrift .9rem, also kleiner als das Material). Kein weiterer Einsatz: Rot als Fläche bleibt dieser einen Warnung (und dem Live-Knopf) vorbehalten.
+
+### KI-Begriffshilfe (`.kihelp`)
+- Eine normale Karte unter der Live-Präsentation (h2 1.1rem); Fragen in 700, Antworten auf `--paper` mit 1px `--line`, Radius 10px; der Verlauf scrollt ab 22rem. Die Einwilligung ist ein Dialog mit Liste (`.kiconsent`) und Kästchen (`.checkrow`); „Einwilligung zurücknehmen“ als Textknopf (`.linkbtn`, unterstrichen in `--fach-text`).
+
+### Druckliste (`.printcard`, `.printrow`)
+- Karte ganz unten in der Sitzung; je Datei der vollständige Druckname in 700, darunter in einer umbrechenden Zeile (`.pset`) Anzahl (Zahlfeld 5.2rem, „Exemplare“ in 700), beidseitig/einseitig und schwarz-weiß/Farbe als Auswahlfelder; Aktionen wie bei den übrigen Dateien. Darunter „Alle herunterladen (ZIP)“ und, als letzte Karte der Seite über die volle Breite, „Sitzung als Datei“ (`.sessionio`).
 
 ### Leupold-Schema und Einheit
 - **Leupold-Schema (`.lp-grid`):** drei Spalten – Ausgangslage (`--fach-t`), Lernschritte (Zeilen Beschreibung | Titel, 1px `--line`, Radius 8px, `--surface`) und Lernaufgabe (`--gelb-t`); der Lernschritt der aktuellen Stunde als volle Fachfläche mit weißer Schrift in 800. Beschriftungen `.lp-cap` in 800/.85rem und `--fach-text`.

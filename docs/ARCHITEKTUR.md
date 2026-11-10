@@ -14,7 +14,7 @@ implementiert und im End-to-End-Test geprüft (Ausnahmen unten ausdrücklich gen
 | Lehrkräfte | **Nur eine Lehrkraft** (wie Feibeitsblatt) |
 | Lehrkraft-Sperre | 2 Fehlversuche → 30 min **je Gerät**; eigene, bekannte Geräte bleiben nutzbar; unbekannte Geräte zusammen höchstens 20 Fehlversuche je Stunde |
 | Schulportal-Format | Formatierung laut Schulportal Hessen, Artikel 664; Struktur nach dem Beispiel der Lehrkraft |
-| Feibeitsblatt-Passwort | **Bei jeder Anmeldung** neu eingeben (Schlüssel nur im Arbeitsspeicher) |
+| Feibeitsblatt-Passwort | ursprünglich bei jeder Anmeldung neu; **seit dem 10.11.2026 einmalig eingeben und Ende-zu-Ende verschlüsselt im Benutzerkonto speichern** (abwählbar), siehe 4g |
 | Schülerzugang | **Gerätegebunden**, ohne Konten und ohne Personendaten |
 | Datum (Ergänzung) | **Pflicht**, jederzeit änderbar – es wird **nur diese Sitzung** geändert (das Mitverschieben folgender Sitzungen entfällt seit der Ergänzung vom 10.11.2026; bei Krankheit gibt es stattdessen die Vertretungsalternative) |
 | Hausaufgabe (Ergänzung) | eigenes Feld je Sitzung; Schüler:innen sehen sie „bis zur nächsten Sitzung“ (Datum automatisch) |
@@ -29,6 +29,16 @@ implementiert und im End-to-End-Test geprüft (Ausnahmen unten ausdrücklich gen
 | Eigene Adresse (Ergänzung) | **Oberfläche über GitHub Pages** unter `unterricks.janrickmer.de`, Server bleibt der Worker (keine Änderung an den übrigen Subdomains und an den Proton-Mail-Einträgen), siehe 4e |
 | Kurse in Ev. Religion/Ethik (Ergänzung) | **Jg. 5–10 und E-Phase: ein Kurs je Jahrgang** mit Schüler:innen aus mehreren Klassen; die Lehrkraft wählt die Klassen, Schüler:innen wählen **wie bisher ihre Klasse**, siehe 4d |
 | Chat-Name (Ergänzung) | Prompt „Stunde mit Claude planen“ beginnt mit „Jg. 8 - PoWi - Sitzung 1 - Titel“: **Titel der Sitzung**, **Stunde in der Einheit**, **nur der Jahrgang**, Oberstufe als „E-Phase“ bzw. „Q2 GK“ |
+| Klassen je Jahrgang (Ergänzung) | **Acht Klassen a–h** in den Jahrgängen 5–10 und in der E-Phase (Jg. 11): 5A–10H, EA–EH (`public/shared.js`, `LETTERS`); Q-Phase unverändert GK/LK je Kurshalbjahr |
+| Präsentation für Schüler:innen (Ergänzung) | Selbst öffnen erst **5 Minuten nach dem Ende der Sitzung** (Beginn + Dauer, statt 90 Minuten nach dem ersten Betreten); ohne Beginn **gesperrt**; die Lehrkraft markiert die **letzte gezeigte Folie** (Vollbild „Bis hier gezeigt“ oder in der Sitzung, auch per Rechtsklick) – Schüler:innen bekommen dann eine **gekürzte PDF** nur bis dorthin, siehe 4h. (Diese vier Einzelfragen blieben unbeantwortet; umgesetzt sind die empfohlenen Antworten.) |
+| Hausaufgabe für Schüler:innen (Ergänzung) | erst **15 Minuten vor dem Ende der Sitzung** sichtbar (auch serverseitig), ohne Beginn verborgen, siehe 4h |
+| Beginn der Sitzung (Ergänzung) | Uhrzeit **im Stundenplan der Einheit** je Wochentag (neue Sitzungen bekommen sie) und **in jeder Sitzung änderbar** |
+| Notfall-Feibeitsblätter bei Schüler:innen (Ergänzung) | **eigenes Kästchen unter dem Material**, kleinere Schrift, beginnt mit dem roten Hinweis „Achtung! Eigentlich sollst du …“ (Wortlaut der Lehrkraft; nur das Komma vor „soll“ entfernt) |
+| Beamer-Folie (Ergänzung) | Sitzungscode **mit QR-Code** zu https://unterricks.janrickmer.de |
+| Links als Material (Ergänzung) | in **beiden Bereichen** (Schüler:innen / nur Lehrkraft) Links mit **Titel** und Internetadresse (nur http/https) |
+| Druckliste (Ergänzung) | Karte **„Von der Lehrkraft auszudrucken“** ganz unten: **nur PDF**, alles **A4** (andere Formate beim Hochladen umgerechnet, mit Hinweis), Name **„28x - beidseitig - sw - Name.pdf“**, einzeln oder **als ZIP**; Claude legt Vorlagen über den Connector ab (`add_print_material`), siehe 4i |
+| Sitzung als Datei (Ergänzung) | ganz unten **„Sitzung als Datei herunterladen“** („Unterrickssitzung - Fach - Jahrgang - Einheit - Sitzung Nr. n.zip“) und daneben **„Sitzung aus Datei laden“**; beim Laden bleiben Datum, Beginn und Dauer der geöffneten Sitzung, Datumsangaben in den Texten werden angepasst, siehe 4j |
+| KI-Begriffshilfe (Ergänzung) | kleiner KI-Chat **unter der Live-Präsentation**, nur während der Stunde, nur Fachbegriffe/Unterrichtsinhalt in einer Sprache passend zur Jahrgangsstufe, **nur nach Einwilligung** („datenschutzrechtlich nicht für die Schule vorgesehen“), kostenlose KI; je Sitzung abschaltbar, siehe 4k |
 | Notfall-Feibeitsblatt (Ergänzung) | Zu jedem Feibeitsblatt einer Sitzung **automatisch** das analoge Arbeitsblatt des Feibeitsblatts als PDF unter „Material – Für Schüler:innen zugänglich“ (dieselbe Datei wie im Feibeitsblatt), siehe 4f |
 | Hausaufgabe im Schulportal (Ergänzung) | Kopie im Format „**Hausaufgabe zum 25. November 2026:**“, Leerzeile, Stichpunkte; zuletzt „Unter https://unterricks.janrickmer.de … mit dem Code ~~ABC-123~~ …“ (nur im Schulportal); ohne Hausaufgabe nur dieser Hinweis |
 
@@ -77,7 +87,7 @@ implementiert und im End-to-End-Test geprüft (Ausnahmen unten ausdrücklich gen
 | | `worker/auth.js` | Lehrkraft (PBKDF2 im Browser, Token), Schüler:innen (gemeinsames Passwort), Sperren |
 | | `worker/lessons.js` | Sitzungen, Chat, Schulportal (mit Versionsschutz), Feibeitsblatt-Entwürfe/-Verknüpfungen |
 | | `worker/files.js` | Uploads, Textmaterial, Präsentation + Folienbilder, signierte Download-Links |
-| | `worker/student.js` | Sitzungscode einlösen, Schüleransicht, 90-Minuten-Freigabe |
+| | `worker/student.js` | Sitzungscode einlösen, Schüleransicht, zeitgesteuerte Freigabe (Präsentation, Hausaufgabe), KI-Begriffshilfe |
 | | `worker/live.js` | Durable Object `LiveRoom`, Live-Tickets |
 | | `worker/ai.js` | kostenlose KI-Anbieter, Modell je Aufgabe, Ausweichliste |
 | | `worker/mcp.js` | Connector für claude.ai (MCP) |
@@ -90,6 +100,9 @@ implementiert und im End-to-End-Test geprüft (Ausnahmen unten ausdrücklich gen
 | | `public/substitute.js`, `public/claude.js` | Krankheitsvertretung in der Sitzung; Übergabe an Claude (Modell/Aufwand) |
 | | `public/escape.js`, `public/escape-data.js` | Escape-Room-Vorlage (Oberfläche, Überblick-PDF); Prüfen/Bewerten, Zwischenstand, Feibeitsblatt-Datensatz |
 | | `public/fbclient.js` | Feibeitsblatt-Client (Schlüsselableitung, Anlegen, Entschlüsseln) |
+| | `public/fblink.js` | gespeicherte Feibeitsblatt-Verbindung (Schlüssel aus dem Unterricks-Passwort, IndexedDB) |
+| | `public/pdfcut.js`, `public/a4.js`, `public/zip.js` | Präsentation kürzen, Druckvorlagen auf A4, ZIP schreiben/lesen |
+| | `public/sessionfile.js` | Sitzung als Datei: Name, Datumsanpassung, Feibeitsblatt → Entwurf, Prüfung |
 | | `public/notfall.js`, `public/fbanalog.js` | Notfall-Feibeitsblatt: Blatt, Checkliste und Bilder laden; das analoge Arbeitsblatt (aus dem Feibeitsblatt übernommen per `scripts/fbanalog-sync.mjs`) |
 | | `public/presenter.js` | PDF → Folienbilder, Präsentationsmodus, Beamer-Code |
 | | `public/pdfmaker.js`, `public/markdown.js` | Textmaterial als PDF, sicheres Markdown |
@@ -117,7 +130,8 @@ implementiert und im End-to-End-Test geprüft (Ausnahmen unten ausdrücklich gen
 6. **Präsentation und Live-Synchronisation.** Upload der PDF → der Browser der Lehrkraft rendert jede Seite mit PDF.js
    (1920 px) und lädt sie als Bild hoch. „Ich bin im Unterricht …“ öffnet das Vollbild und meldet die Folie an das Durable
    Object. Alle Schüler:innen der Sitzung bekommen per WebSocket die aktuelle Folie als **signierten Link nur für diese Folie** –
-   sie können nicht vorblättern. Die vollständige PDF gibt der Server erst 90 Minuten nach dem ersten Betreten frei.
+   sie können nicht vorblättern. Die PDF zum Selbstöffnen gibt der Server erst 5 Minuten nach dem Ende der Sitzung frei – bei markierter
+   letzter Folie nur gekürzt (siehe 4h).
 7. **Material.** Zwei Bereiche (Schüler:innen / nur Lehrkraft). Jede Schüler-Abfrage filtert serverseitig auf den
    Schülerbereich; Downloads laufen über kurzlebige signierte Links. KI-Material wird mit „Als Material übernehmen“ als
    Textmaterial gespeichert; Schüler:innen laden es als PDF (mit Namens-/Datumszeile) herunter, z. B. für GoodNotes.
@@ -294,6 +308,69 @@ implementiert und im End-to-End-Test geprüft (Ausnahmen unten ausdrücklich gen
 * **Inhalt:** nur, was auch auf dem gedruckten Arbeitsblatt des Feibeitsblatts steht – nie Aufträge an die KI, Länder der
   Weltkarte, Checklistenpunkte oder Abgaben.
 
+## 4g. Feibeitsblatt-Verbindung einmalig speichern (Ergänzung vom 10.11.2026)
+
+* **Ende-zu-Ende verschlüsselt:** Aus dem Unterricks-Passwort leitet der Browser per PBKDF2-SHA-256 (600 000 Iterationen) 64 Byte ab.
+  Die ersten 32 sind wie bisher der Anmeldeschlüssel (bestehende Zugänge gelten weiter), die zweiten 32 verlassen den Browser nie und
+  ergeben per HKDF (`unterricks/fb-link/v1`) einen AES-GCM-Schlüssel. Damit verschlüsselt der Browser den **Feibeitsblatt-Schlüssel**
+  (das PBKDF2-Ergebnis des Feibeitsblatt-Passworts, nie das Passwort selbst) und die Adresse der Schnittstelle. Der Server bewahrt nur
+  den Umschlag `{v, iv, ct}` auf (`settings.fb_link`, `GET`/`PUT`/`DELETE /api/teacher/fb-link`).
+* **Je Gerät:** Nach der Anmeldung mit dem Passwort liegt der Schlüssel **nicht exportierbar** in IndexedDB; Unterricks verbindet sich
+  danach bei jedem Öffnen einer Sitzung automatisch. Abmelden löscht ihn auf dem Gerät. Geräte, die schon vorher angemeldet waren (oder
+  ohne IndexedDB), entsperren die Verbindung einmal mit dem Unterricks-Passwort (eine erneute Anmeldung mit denselben Sperren).
+* **Passwortwechsel:** Der Browser entschlüsselt den Umschlag mit dem alten und verschlüsselt ihn mit dem neuen Schlüssel; der Server
+  speichert ihn im selben Batch wie das neue Passwort (ohne neuen Umschlag wird er gelöscht). Ändert sich das Feibeitsblatt-Passwort,
+  meldet die Sitzung „gilt nicht mehr“ – neu verbinden ersetzt sie. „Gespeicherte Verbindung löschen“ (Sitzung, Einstellungen) gilt für
+  alle Geräte.
+
+## 4h. Beginn der Sitzung: Hausaufgabe, Präsentation, letzte gezeigte Folie (Ergänzung vom 10.11.2026)
+
+* **Beginn:** `lessons.start_time` („HH:MM“), im Stundenplan der Einheit je Wochentag vorbelegt (`params.weekdays[].time` → Termine →
+  Zeilen → Sitzungen) und in der Sitzung änderbar (auch `update_lesson` mit `beginn`). `lessonTimes` (`public/shared.js`) rechnet mit
+  Europe/Berlin samt Sommerzeit: Hausaufgabe ab Ende − 15 min, Präsentation ab Ende + 5 min. Ohne Beginn oder Dauer bleiben beide für
+  Schüler:innen verborgen – auch in der Sitzungsliste und per Schnittstelle. Die Schüleransicht lädt sich zu diesen Zeitpunkten neu.
+* **Letzte gezeigte Folie:** im Vollbild „Bis hier gezeigt“ (aktuelle Folie), in der Sitzung per Auswahl oder Rechtsklick auf eine
+  Folie. Der Browser der Lehrkraft kürzt die PDF mit pdf-lib (`public/pdfcut.js`, Seiten unverändert kopiert) und lädt sie hoch
+  (`PUT /api/teacher/files/:id/shown?until=n`, R2 `…-bis`, `files.shown_until`/`cut_size`). Schüler:innen bekommen danach nur diese
+  Datei („… (Folie 1–n).pdf“, eigener signierter Link); fehlt sie, gibt es nichts (nie die vollständige). Die Live-Anzeige bleibt
+  unberührt.
+
+## 4i. Druckliste „Von der Lehrkraft auszudrucken“ (Ergänzung vom 10.11.2026)
+
+* Bereich `print` (für Schüler:innen nie sichtbar) mit `files.print_copies`, `print_duplex`, `print_color`. Nur PDF (Kennung `%PDF-`
+  im Browser und auf dem Server geprüft). Vor dem Hochladen rechnet `public/a4.js` jede Seite, die nicht A4 ist, auf A4 um (Hoch- bzw.
+  Querformat wie die Seite, auch gedrehte Seiten) und meldet, wie viele Seiten betroffen waren.
+* Name beim Herunterladen `printFileName`: „28x - beidseitig - sw - Name.pdf“; neue Vorlagen übernehmen die zuletzt verwendete Anzahl
+  der Klasse, sonst 1, beidseitig, schwarz-weiß. „Alle herunterladen (ZIP)“ packt im Browser (`public/zip.js`, ohne Kompression).
+* Claude legt Vorlagen mit `add_print_material` an (Markdown → A4-PDF beim Herunterladen, mit Anzahl, beidseitig und Farbe); der
+  Prompt „Stunde mit Claude planen“ nennt das Werkzeug. Bei einer Vertretung kommt die Druckliste mit ins Archiv.
+
+## 4j. Sitzung als Datei (Ergänzung vom 10.11.2026)
+
+* **Herunterladen:** ZIP mit `sitzung.json` (Titel, Thema, Ideen, Hausaufgabe, Schulportal-Eintrag, Planungsverlauf, Materialien,
+  Links, Druckliste, Feibeitsblätter als Entwürfe – ihr Inhalt kommt bei bestehender Verbindung aus dem Feibeitsblatt, ohne Bilder und
+  Weltkarten) und den Dateien unter `dateien/`. Notfall-Feibeitsblätter, Archiv und Vertretung bleiben draußen.
+* **Laden:** in der geöffneten Sitzung nach einer Übersicht; Titel, Thema, Ideen, Hausaufgabe, Schulportal-Eintrag und Planungsverlauf
+  ersetzen den bisherigen Stand (`POST /api/teacher/lessons/:id/import`, ein Batch), Materialien, Links, Druckvorlagen, Präsentation
+  und Entwürfe kommen dazu. **Datum, Beginn und Dauer bleiben die der geöffneten Sitzung.** `adaptDates` ersetzt in den Texten das
+  Datum der ursprünglichen Sitzung und das ihrer nächsten Sitzung durch die der neuen (Schreibweisen 25.11.2026, 25.11., 2026-11-25,
+  25. November, mit Wochentag); andere Datumsangaben bleiben und werden zum Prüfen genannt. Feibeitsblätter kommen als Entwürfe – mit
+  „Feibeitsblatt jetzt anlegen“ bekommt jedes einen neuen Code für die neue Lerngruppe.
+
+## 4k. KI-Begriffshilfe für Schüler:innen (Ergänzung vom 10.11.2026)
+
+* Unter der Live-Präsentation, **nur zwischen Beginn und Ende** der Sitzung, je Sitzung abschaltbar (`lessons.student_ai`).
+* **Einwilligung** vor der ersten Frage (je Sitzung und Gerät gemerkt): freiwillig, „datenschutzrechtlich nicht für die Schule
+  vorgesehen“, welche Dienste die Fragen bekommen (`PROVIDER_WHO`), keine persönlichen Daten eingeben, Antworten können falsch sein.
+* `POST /api/student/lessons/:id/ask`: kostenlose KI über die Aufgabe `erklaeren` (ohne eigene Einstellung die der Unterrichtsplanung,
+  zuletzt Workers AI); System-Prompt `studentHelpPrompt` (nur Fachbegriffe und Unterrichtsinhalt, kurz, Sprache der Jahrgangsstufe,
+  keine Lösungen von Aufgaben, keine persönlichen Daten). An die KI gehen nur Regeln, Fach, Lerngruppe, Thema, Stundenverlauf und die
+  Frage samt den letzten drei Fragen/Antworten aus dem Browser – keine Kennung des Geräts. Nichts wird gespeichert oder protokolliert.
+  Grenzen: 12 Fragen je Gerät und 10 Minuten, 300 je Sitzung und Stunde.
+* **Vom Betreiber zu prüfen:** Ob die Einwilligung von Schüler:innen unter 16 Jahren trägt (Art. 8 DSGVO, in Deutschland 16 Jahre),
+  ob die Nutzungsbedingungen der KI-Dienste die Nutzung durch Minderjährige erlauben und ob die Schule bzw. das Land (Hessen) solche
+  Dienste im Unterricht zulässt. Unterricks hat bisher keinen eigenen Datenschutzhinweis.
+
 ## 5. Prüfung der direkten Claude-Integration
 
 **Ergebnis: Die Verbindung des persönlichen Claude-Pro-Kontos mit einer eigenen Plattform ist nicht erlaubt. Umgesetzt ist
@@ -385,7 +462,11 @@ stattdessen der von Anthropic vorgesehene Weg in umgekehrter Richtung (Connector
 * **Seite:** strikte CSP (keine fremden Skripte), keine `innerHTML`-Übernahme fremder Daten, keine Protokolle bei Cloudflare. Auf
   GitHub Pages steht die CSP als `<meta>`; CORS nur für `PAGES_ORIGINS` (Abschnitt 4e).
 * **Grenzen des Schülerzugangs:** Das gemeinsame Passwort ist keine echte Authentifizierung – wer Passwort und Code kennt,
-  kommt in die Sitzung. Die 90-Minuten-Frist gilt je Gerät; ein Gerätewechsel startet sie neu (später, nie früher).
+  kommt in die Sitzung. Die Freigaben (Hausaufgabe, Präsentation, Begriffshilfe) richten sich nach Datum, Beginn und Dauer der Sitzung
+  (Ortszeit Europe/Berlin), nicht mehr nach dem Gerät.
+* **Gespeicherte Feibeitsblatt-Verbindung:** Ende-zu-Ende verschlüsselt (Abschnitt 4g). Der Server kann sie nicht öffnen; wer nur ein
+  Anmelde-Token der Lehrkraft hätte (ohne das Gerät), könnte den Umschlag abrufen und das Unterricks-Passwort offline durchprobieren
+  (600 000 PBKDF2-Runden je Versuch) – deshalb ein langes Passwort wählen. „Alle anderen Geräte abmelden“ entzieht verlorenen Geräten den Zugang.
 
 ## 8. Kosten und Kontingente (kostenlos betreibbar)
 
@@ -404,5 +485,6 @@ stattdessen der von Anthropic vorgesehene Weg in umgekehrter Richtung (Connector
 
 * Schüler:innen bleiben nach der ersten Passworteingabe auf ihrem Gerät angemeldet (wie ihre Sitzungscodes).
 * Das Schülerpasswort ist in den Einstellungen änderbar (Vorgabe „Feindt“), Groß-/Kleinschreibung spielt keine Rolle.
-* Die 90 Minuten zählen ab dem **ersten** Betreten der Sitzung auf dem Gerät.
+* Ohne eingetragenen Beginn bleiben Hausaufgabe, Präsentation und KI-Begriffshilfe für Schüler:innen verborgen (die Sitzung weist darauf hin).
+* Ohne Markierung der letzten gezeigten Folie bekommen Schüler:innen nach der Freigabe die ganze Präsentation.
 * Ein Sitzungscode gilt nur für die Klasse und das Fach der Sitzung.

@@ -33,6 +33,8 @@ export function startMockAI(port) {
         { text: "Erkläre zwei Aufgaben des Bundesverfassungsgerichts.", material: "Das BVerfG wacht über das **Grundgesetz**.", ki_auftrag: "Erwartet: Normenkontrolle, Verfassungsbeschwerde.", antwort: "text" },
         { text: "Sammle Pro und Contra.", ki_auftrag: "Je zwei Argumente.", antwort: { tabelle: ["Pro", "Contra"], zeilen: 3 } },
       ] }) + "\n```";
+    } else if (sys.includes("Du bist die KI-Begriffshilfe")) {
+      text = "Normenkontrolle heißt: Das Gericht prüft, ob ein Gesetz zum Grundgesetz passt. (Mock-Antwort auf: " + body.messages[body.messages.length - 1].content.slice(0, 40) + ")";
     } else if (/Stundenfrage ändern/.test(body.messages[body.messages.length - 1].content)) {
       text = "Ich schlage vor, die Stundenfrage zuzuspitzen.\n```einheit\n" + JSON.stringify({ stundenfrage: "Ist das Bundesverfassungsgericht ein Ersatzgesetzgeber?", ablauf: ["Karikatur deuten", "Urteil analysieren", "Positionslinie"], begruendung: "Die Lerngruppe kennt die Grundlagen schon." }) + "\n```";
     } else {

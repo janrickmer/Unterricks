@@ -2,8 +2,8 @@
 // Downloads und Folienbilder laufen über kurzlebige signierte Links (funktionieren auch beim direkten Öffnen auf dem iPad).
 import { HttpError, bad, json, readJson, randomId, cleanLine, cleanText, isId, requireSecret, signLink, checkLink, contentDisposition, INLINE_SAFE } from "./lib.js";
 import { requireTeacher } from "./auth.js";
-import { getLesson, fileOut, LIMITS } from "./lessons.js";
-import { normalizeCode, isValidCode } from "../public/shared.js";
+import { getLesson, fileOut, LIMITS, printProps } from "./lessons.js";
+import { normalizeCode, isValidCode, cleanWebUrl, slidesUpTo, printFileName, cleanCopies } from "../public/shared.js";
 
 export const MAX_FILE = 100 * 1024 * 1024;         // Grenze einer Anfrage im Cloudflare-Free-Plan
 export const MAX_SLIDE = 4 * 1024 * 1024;
@@ -25,11 +25,12 @@ export function mimeFor(name, given) {
   return (ext && EXT_MIME[ext.toLowerCase()]) || "application/octet-stream";
 }
 export const fileKey = (lessonId, fileId) => "l/" + lessonId + "/f/" + fileId;
+export const cutKey = (lessonId, fileId) => fileKey(lessonId, fileId) + "-bis";   // Präsentation gekürzt bis zur letzten gezeigten Folie
 export const slideKey = (lessonId, fileId, n) => "l/" + lessonId + "/p/" + fileId + "/" + n + ".img";
 
 const storageLimit = (env) => Number(env.STORAGE_LIMIT_BYTES) || 9 * 1024 ** 3;   // unter den 10 GB des kostenlosen R2-Kontingents bleiben
 export async function checkStorage(c, add) {
-  const r = await c.db.prepare("SELECT (SELECT COALESCE(SUM(size),0) FROM files) + (SELECT COALESCE(SUM(size),0) FROM slides) AS used").first();
+  const r = await c.db.prepare("SELECT (SELECT COALESCE(SUM(size),0) + COALESCE(SUM(cut_size),0) FROM files) + (SELECT COALESCE(SUM(size),0) FROM slides) AS used").first();
   const used = Number((r || {}).used) || 0, lim = storageLimit(c.env);
   if (used + add > lim) throw new HttpError(507, "storage_full", "Der Speicher ist voll (" + Math.round(used / 1024 ** 2) + " MB von " + Math.round(lim / 1024 ** 2) +
     " MB belegt). Bitte alte Dateien oder Sitzungen löschen – so bleibt die Ablage im kostenlosen Kontingent.");
@@ -50,6 +51,7 @@ export async function deleteFileObjects(c, f) {
   const keys = [];
   if (f.kind === "file") keys.push(fileKey(f.lesson_id, f.id));
   if (f.area === "presentation") {
+    keys.push(cutKey(f.lesson_id, f.id));
     const s = await c.db.prepare("SELECT n FROM slides WHERE file_id=?1").bind(f.id).all();
     for (const x of s.results || []) keys.push(slideKey(f.lesson_id, f.id, x.n));
   }
@@ -113,6 +115,60 @@ export async function insertTextMaterial(db, lessonId, area, title, text, source
     .bind(id, lessonId, area, name, new TextEncoder().encode(t).length, t, source, now).run();
   return getFile(db, id);
 }
+/* ---------- Druckliste „Von der Lehrkraft auszudrucken“ (area = 'print'): nur PDF in A4 (der Browser rechnet andere Formate vorher um) ----------
+ * Name beim Herunterladen „28x - beidseitig - sw - Name.pdf“; ohne Angabe gilt die zuletzt verwendete Anzahl dieser Klasse (sonst 1), beidseitig, schwarz-weiß. */
+async function lastCopies(db, lessonId) {
+  const r = await db.prepare("SELECT f.print_copies AS n FROM files f JOIN lessons l ON l.id = f.lesson_id WHERE f.area='print' AND f.print_copies IS NOT NULL " +
+    "AND l.klass = (SELECT klass FROM lessons WHERE id=?1) ORDER BY f.created_at DESC LIMIT 1").bind(lessonId).first();
+  return (r && r.n) || 1;
+}
+const boolParam = (v, dflt) => (v === "1" || v === "true" ? 1 : v === "0" || v === "false" ? 0 : dflt);
+export async function routePrintUpload(c, lessonId) {
+  await requireTeacher(c);
+  await getLesson(c.db, lessonId);
+  const u = new URL(c.request.url), name = cleanLine(u.searchParams.get("name"), 200) || "Druckvorlage.pdf";
+  if (mimeFor(name, c.request.headers.get("content-type")) !== "application/pdf") throw bad("Zum Ausdrucken sind nur PDF-Dateien erlaubt.");
+  const len = uploadLength(c, MAX_FILE);
+  await checkStorage(c, len);
+  const id = randomId(8), key = fileKey(lessonId, id);
+  await c.env.FILES.put(key, c.request.body, { httpMetadata: { contentType: "application/pdf" } });
+  // wirklich eine PDF? (die ersten Bytes) – sonst gleich wieder weg
+  const head = await c.env.FILES.get(key, { range: { offset: 0, length: 5 } });
+  if (!head || (await head.text()) !== "%PDF-") { await c.env.FILES.delete(key); throw bad("Diese Datei ist keine PDF-Datei. Zum Ausdrucken sind nur PDF-Dateien erlaubt."); }
+  const copies = cleanCopies(u.searchParams.get("copies")) || (await lastCopies(c.db, lessonId));
+  await c.db.prepare("INSERT INTO files(id, lesson_id, area, kind, name, mime, size, status, source, print_copies, print_duplex, print_color, created_at, updated_at) " +
+    "VALUES(?1, ?2, 'print', 'file', ?3, 'application/pdf', ?4, 'ready', ?5, ?6, ?7, ?8, ?9, ?9)")
+    .bind(id, lessonId, name, len, cleanLine(u.searchParams.get("source"), 40) || "upload", copies, boolParam(u.searchParams.get("duplex"), 1), boolParam(u.searchParams.get("color"), 0), c.now).run();
+  return json({ ok: true, file: fileOut(await getFile(c.db, id)) });
+}
+/* Druckvorlage als Text (Markdown; z. B. von Claude über den Connector) – der Browser erzeugt daraus die A4-PDF */
+export async function insertPrintText(db, lessonId, title, text, p, source, now) {
+  const t = cleanText(text, LIMITS.textMaterial).trim();
+  if (!t) throw bad("Die Druckvorlage ist leer.");
+  const id = randomId(8), name = cleanLine(title, 200) || "Druckvorlage";
+  const copies = cleanCopies(p.copies) || (await lastCopies(db, lessonId));
+  await db.prepare("INSERT INTO files(id, lesson_id, area, kind, name, mime, size, text, status, source, print_copies, print_duplex, print_color, created_at, updated_at) " +
+    "VALUES(?1, ?2, 'print', 'text', ?3, 'text/markdown', ?4, ?5, 'ready', ?6, ?7, ?8, ?9, ?10, ?10)")
+    .bind(id, lessonId, name, new TextEncoder().encode(t).length, t, source, copies, p.duplex === false ? 0 : 1, p.color === true ? 1 : 0, now).run();
+  return getFile(db, id);
+}
+
+/* ---------- Links zu Internetseiten als Material (kind = 'link': Titel in name, Adresse in text) ---------- */
+export async function insertLink(db, lessonId, area, title, url, source, now) {
+  if (!AREAS.has(area)) throw bad("Bitte den Bereich wählen (für Schüler:innen oder nur für die Lehrkraft).");
+  const href = cleanWebUrl(url);
+  if (!href) throw bad("Bitte eine gültige Internetadresse eingeben (beginnend mit https://).");
+  const id = randomId(8), name = cleanLine(title, 200) || new URL(href).hostname;
+  await db.prepare("INSERT INTO files(id, lesson_id, area, kind, name, mime, size, text, status, source, created_at, updated_at) VALUES(?1, ?2, ?3, 'link', ?4, 'text/uri-list', 0, ?5, 'ready', ?6, ?7, ?7)")
+    .bind(id, lessonId, area, name, href, source, now).run();
+  return getFile(db, id);
+}
+export async function routeLinkCreate(c, lessonId) {
+  await requireTeacher(c);
+  await getLesson(c.db, lessonId);
+  const body = await readJson(c.request, 10000);
+  return json({ ok: true, file: fileOut(await insertLink(c.db, lessonId, body.area, body.title, body.url, cleanLine(body.source, 40) || "lehrkraft", c.now)) });
+}
 export async function routeTextCreate(c, lessonId) {
   await requireTeacher(c);
   await getLesson(c.db, lessonId);
@@ -126,10 +182,21 @@ export async function routeFilePatch(c, fileId) {
   const body = await readJson(c.request, 600000);
   const sets = [], args = [];
   if (body.area !== undefined) {
-    if (f.area === "presentation" || !AREAS.has(body.area)) throw bad("Ungültiger Bereich.");
+    if (f.area === "presentation" || f.area === "print" || !AREAS.has(body.area)) throw bad("Ungültiger Bereich.");
     args.push(body.area); sets.push("area=?" + (args.length + 1));
   }
   if (body.name !== undefined) { const n = cleanLine(body.name, 200); if (!n) throw bad("Der Name darf nicht leer sein."); args.push(n); sets.push("name=?" + (args.length + 1)); }
+  if (body.copies !== undefined || body.duplex !== undefined || body.color !== undefined) {
+    if (f.area !== "print") throw bad("Anzahl, beidseitig und Farbe gibt es nur bei Dateien zum Ausdrucken.");
+    if (body.copies !== undefined) { const n = cleanCopies(body.copies); if (!n) throw bad("Bitte eine Anzahl zwischen 1 und 500 angeben."); args.push(n); sets.push("print_copies=?" + (args.length + 1)); }
+    if (body.duplex !== undefined) { args.push(body.duplex ? 1 : 0); sets.push("print_duplex=?" + (args.length + 1)); }
+    if (body.color !== undefined) { args.push(body.color ? 1 : 0); sets.push("print_color=?" + (args.length + 1)); }
+  }
+  if (body.url !== undefined) {
+    if (f.kind !== "link") throw bad("Nur bei Links lässt sich die Adresse ändern.");
+    const href = cleanWebUrl(body.url); if (!href) throw bad("Bitte eine gültige Internetadresse eingeben (beginnend mit https://).");
+    args.push(href); sets.push("text=?" + (args.length + 1));
+  }
   if (body.text !== undefined) {
     if (f.kind !== "text") throw bad("Nur Text-Material lässt sich bearbeiten.");
     const t = cleanText(body.text, LIMITS.textMaterial).trim(); if (!t) throw bad("Das Material ist leer.");
@@ -196,6 +263,28 @@ export async function routePresentationReady(c, fileId) {
   await c.db.prepare("UPDATE files SET pages=?2, status='ready', updated_at=?3 WHERE id=?1").bind(f.id, pages, c.now).run();
   return json({ ok: true, file: fileOut(await getFile(c.db, f.id)) });
 }
+/* Letzte im Unterricht gezeigte Folie: Schüler:innen bekommen nach der Freigabe nur Folie 1 bis hier. Die gekürzte PDF erzeugt der Browser
+   der Lehrkraft (pdf-lib, public/pdfcut.js) und lädt sie hier hoch (?until=N); DELETE hebt die Markierung auf. */
+export async function routeShownPut(c, fileId) {
+  await requireTeacher(c);
+  const f = await getFile(c.db, fileId), n = Number(new URL(c.request.url).searchParams.get("until"));
+  if (f.area !== "presentation" || f.status !== "ready") throw bad("Die Präsentation ist noch nicht bereit.");
+  if (!Number.isInteger(n) || n < 1 || n >= f.pages) throw bad("Bitte eine Folie zwischen 1 und " + Math.max(1, f.pages - 1) + " wählen (bei der letzten Folie sehen Schüler:innen ohnehin alles).");
+  if (String(c.request.headers.get("content-type") || "").split(";")[0].trim().toLowerCase() !== "application/pdf") throw bad("Die gekürzte Präsentation muss eine PDF-Datei sein.");
+  const len = uploadLength(c, MAX_FILE);
+  await checkStorage(c, Math.max(0, len - (f.cut_size || 0)));
+  await c.env.FILES.put(cutKey(f.lesson_id, f.id), c.request.body, { httpMetadata: { contentType: "application/pdf" } });
+  await c.db.prepare("UPDATE files SET shown_until=?2, cut_size=?3, updated_at=?4 WHERE id=?1").bind(f.id, n, len, c.now).run();
+  return json({ ok: true, file: fileOut(await getFile(c.db, f.id)) });
+}
+export async function routeShownDelete(c, fileId) {
+  await requireTeacher(c);
+  const f = await getFile(c.db, fileId);
+  if (f.area !== "presentation") throw bad("Keine Präsentation.");
+  await c.env.FILES.delete(cutKey(f.lesson_id, f.id));
+  await c.db.prepare("UPDATE files SET shown_until=NULL, cut_size=NULL, updated_at=?2 WHERE id=?1").bind(f.id, c.now).run();
+  return json({ ok: true, file: fileOut(await getFile(c.db, f.id)) });
+}
 export async function routeTeacherSlides(c, fileId) {
   await requireTeacher(c);
   const f = await getFile(c.db, fileId);
@@ -208,30 +297,34 @@ export async function slideUrl(secret, fileId, n, ttl, now = Date.now()) {
   const { e, s } = await signLink(secret, ["slide", fileId, n], ttl, now);
   return "/api/slide/" + fileId + "/" + n + "?e=" + e + "&s=" + encodeURIComponent(s);
 }
-export async function downloadUrl(secret, f, inline, ttl = 10 * 60e3, now = Date.now()) {
+export async function downloadUrl(secret, f, inline, ttl = 10 * 60e3, now = Date.now(), cut = false) {
   const disp = inline && INLINE_SAFE.test(f.mime) ? "i" : "a";
-  const { e, s } = await signLink(secret, ["dl", f.id, disp], ttl, now);
-  return "/api/dl/" + f.id + "?d=" + disp + "&e=" + e + "&s=" + encodeURIComponent(s);
+  const { e, s } = await signLink(secret, cut ? ["dl", f.id, disp, "cut"] : ["dl", f.id, disp], ttl, now);
+  return "/api/dl/" + f.id + "?d=" + disp + (cut ? "&p=cut" : "") + "&e=" + e + "&s=" + encodeURIComponent(s);
 }
+// Name der gekürzten Präsentation: „BVerfG (Folie 1–12).pdf“
+export const cutName = (f) => String(f.name || "Präsentation.pdf").replace(/\.pdf$/i, "") + " (" + slidesUpTo(f.shown_until) + ").pdf";
 export async function routeTeacherFileLink(c, fileId) {
   await requireTeacher(c);
   const f = await getFile(c.db, fileId);
-  if (f.kind !== "file") throw bad("Text-Material wird im Browser als PDF erzeugt.");
+  if (f.kind !== "file") throw bad(f.kind === "link" ? "Ein Link wird direkt geöffnet." : "Text-Material wird im Browser als PDF erzeugt.");
   const body = await readJson(c.request, 1000);
   return json({ ok: true, url: await downloadUrl(requireSecret(c.env), f, !!body.inline, 10 * 60e3, c.now) });
 }
 
 /* ---------- Ausliefern (signierte Links, ohne Anmeldung im Kopf der Anfrage) ---------- */
 export async function routeDownload(c, fileId) {
-  const u = new URL(c.request.url), d = u.searchParams.get("d") === "i" ? "i" : "a";
-  if (!(await checkLink(requireSecret(c.env), ["dl", fileId, d], u.searchParams.get("e"), u.searchParams.get("s"), c.now)))
+  const u = new URL(c.request.url), d = u.searchParams.get("d") === "i" ? "i" : "a", cut = u.searchParams.get("p") === "cut";
+  if (!(await checkLink(requireSecret(c.env), cut ? ["dl", fileId, d, "cut"] : ["dl", fileId, d], u.searchParams.get("e"), u.searchParams.get("s"), c.now)))
     throw new HttpError(403, "link_expired", "Der Link ist abgelaufen. Bitte noch einmal auf „Herunterladen“ tippen.");
   const f = await getFile(c.db, fileId);
-  const obj = await c.env.FILES.get(fileKey(f.lesson_id, f.id));
+  if (cut && !(f.area === "presentation" && f.shown_until && f.cut_size)) throw new HttpError(404, "not_found", "Die gekürzte Präsentation gibt es nicht (mehr).");
+  const obj = await c.env.FILES.get(cut ? cutKey(f.lesson_id, f.id) : fileKey(f.lesson_id, f.id));
   if (!obj) throw new HttpError(404, "not_found", "Die Datei fehlt im Speicher.");
   const inline = d === "i" && INLINE_SAFE.test(f.mime);
   return new Response(obj.body, { headers: {
-    "Content-Type": f.mime || "application/octet-stream", "Content-Length": String(obj.size), "Content-Disposition": contentDisposition(f.name, !inline),
+    "Content-Type": f.mime || "application/octet-stream", "Content-Length": String(obj.size),
+    "Content-Disposition": contentDisposition(cut ? cutName(f) : f.area === "print" ? printFileName({ name: f.name, ...printProps(f) }) : f.name, !inline),
     "Cache-Control": "private, max-age=300", "X-Content-Type-Options": "nosniff", "Content-Security-Policy": "sandbox; default-src 'none'; style-src 'unsafe-inline'; img-src data:",
     "Referrer-Policy": "no-referrer",
   } });
