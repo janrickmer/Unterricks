@@ -502,17 +502,22 @@ export function claudePresentationPrompt(ctx, portalText, messages) {
   const developed = (messages || []).filter((m) => m.role === "assistant").slice(-3).map((m) => String(m.content || "").trim()).join("\n\n---\n\n");
   const code = ctx.code ? formatCode(ctx.code) : "", host = PUBLIC_URL.replace(/^https?:\/\//, "");
   const codeText = code ? "„" + code + "“" : "der Sitzung (bitte bei der Lehrkraft erfragen)";
-  // Beispiel für den Materialtitel: möglichst ein echtes Material dieser Sitzung (Feibeitsblatt bzw. Material für Schüler:innen, kein Notfall-Feibeitsblatt)
-  const stuMat = (ctx.materials || []).find((m) => m.area === "student" && !/^Notfall-Feibeitsblatt/.test(String(m.name || "")));
-  const exTitle = (ctx.sheets || [])[0] ? "Feibeitsblatt: " + ctx.sheets[0].title : stuMat ? String(stuMat.name) : "Arbeitsblatt: <Titel des Arbeitsblatts>";
+  // Jahrgang 5/6: im Unterricht keine iPads – Material kommt auf Papier (ANALOG_RULE); Folie 1 bleibt trotzdem (Sitzung zu Hause finden)
+  const analog = isAnalogClass(ctx.klass);
+  // Beispiel für den Materialtitel: möglichst ein echtes Material dieser Sitzung (kein Notfall-Feibeitsblatt), ohne Dateiendung
+  const matName = (area) => { const m = (ctx.materials || []).find((x) => x.area === area && !/^Notfall-Feibeitsblatt/.test(String(x.name || ""))); return m ? String(m.name).replace(/\.[a-z0-9]{2,4}$/i, "") : ""; };
+  const exTitle = analog ? (matName("print") || matName("student") || "Arbeitsblatt: <Titel des Arbeitsblatts>") + " (auf Papier)"
+    : (ctx.sheets || [])[0] ? "Feibeitsblatt: " + ctx.sheets[0].title : matName("student") || "Arbeitsblatt: <Titel des Arbeitsblatts>";
   return [
     "Erstelle eine vollständige Präsentation (16:9) für die folgende Unterrichtsstunde – direkt als **PDF-Datei**, eine Seite je Folie. Eine PowerPoint-Datei brauche ich nicht: " +
-      "Die PDF lade ich in der Unterrichtsplattform Unterricks hoch. Dort läuft sie während des Unterrichts am Beamer und gleichzeitig live und synchron auf den Geräten der Schüler:innen; " +
+      "Die PDF lade ich in der Unterrichtsplattform Unterricks hoch. Dort läuft sie während des Unterrichts am Beamer" +
+      (analog ? " (die Schüler:innen dieser Jahrgangsstufe haben im Unterricht keine iPads)" : " und gleichzeitig live und synchron auf den Geräten der Schüler:innen") + "; " +
       "sie führt die Lehrkraft und die Schülerinnen und Schüler Schritt für Schritt durch die gesamte Stunde. Stelle mir die PDF-Datei zum Herunterladen bereit " +
       "(Text als echter Text, nicht als Bild; Querformat, z. B. 33,867 × 19,05 cm).",
     "",
     "## Erste Folie (immer): Sitzungscode und QR-Code zu Unterricks",
-    "Mit dieser Folie beginnt jede Stunde – die Schüler:innen scannen den QR-Code, öffnen so Unterricks und geben den Sitzungscode ein.",
+    "Mit dieser Folie beginnt jede Stunde – die Schüler:innen scannen den QR-Code, öffnen so Unterricks und geben den Sitzungscode ein" +
+      (analog ? " (in dieser Jahrgangsstufe ohne iPads z. B. zu Hause, um Material und Hausaufgabe der Sitzung zu finden)." : "."),
     "- Sehr groß und gut abschreibbar der Sitzungscode " + codeText + " (Festbreitenschrift, mindestens 96 pt, mit Bindestrich wie angegeben).",
     "- Daneben der QR-Code zur Webseite " + PUBLIC_URL + ": mindestens ein Drittel der Folienhöhe groß, schwarz auf weiß, mit einem weißen Rand von 4 Modulen ringsum, scharfe Kanten (kein Weichzeichnen, keine Farbe, nichts darüber).",
     "- Darunter die Adresse " + host + " als Text und der Satz „Scanne den QR-Code oder öffne " + host + " und gib den Sitzungscode ein.“; Thema, Fach und Klasse klein darüber.",
@@ -522,18 +527,25 @@ export function claudePresentationPrompt(ctx, portalText, messages) {
     "```",
     "  Prüfe danach, wenn möglich, mit einem QR-Leser, dass er sich zu " + PUBLIC_URL + " auslesen lässt.",
     "",
-    "## Materialfolien: Aufforderung, Titel des Materials, QR-Code und Sitzungscode",
+    "## Materialfolien: Aufforderung, Titel des Materials" + (analog ? "" : ", QR-Code und Sitzungscode"),
     "Immer wenn die Schüler:innen laut Stundenverlauf mit einem Material arbeiten sollen (Feibeitsblatt, Arbeitsblatt, Text, Link o. Ä.), bekommt dieser Schritt eine Materialfolie. " +
-      "Das Material finden die Schüler:innen in Unterricks – die Folie zeigt deshalb nur:",
+      (analog ? "In dieser Jahrgangsstufe haben die Schüler:innen im Unterricht keine iPads und bekommen das Material auf Papier – die Folie zeigt deshalb nur:"
+        : "Das Material finden die Schüler:innen in Unterricks – die Folie zeigt deshalb nur:"),
     "- die Aufforderung, mit dem Material zu arbeiten, in ein bis zwei kurzen Sätzen an die Schüler:innen gerichtet (mit Sozialform und – wenn der Stundenverlauf sie nennt – den Aufgaben und der Zeit), " +
       "z. B. „Bearbeitet in Partnerarbeit die Aufgaben 1 bis 3.“;",
-    "- den Titel des Materials groß und genau so, wie das Material in Unterricks heißt (siehe „Materialien und weitere Informationen“ unten), mit der Art davor, z. B. „" + exTitle + "“;",
-    "- denselben QR-Code zu Unterricks wie auf Folie 1 (dasselbe Muster, unverändert; mindestens ein Drittel der Folienhöhe groß, schwarz auf weiß mit weißem Rand) und daneben gut lesbar den Sitzungscode " +
-      codeText + " (Festbreitenschrift, mindestens 48 pt) mit dem Satz „Du findest das Material in Unterricks: QR-Code scannen oder " + host + " öffnen und den Sitzungscode eingeben.“",
-    "Nicht auf die Materialfolie gehören die Aufgaben, Texte und Inhalte des Materials (sie stehen im Material selbst), Lösungen und der Code eines Feibeitsblatts – auch wenn der Stundenverlauf ihn nennt: " +
+    "- den Titel des Materials groß und genau so, wie das Material in Unterricks heißt (siehe „Materialien und weitere Informationen“ unten; ohne Dateiendung wie „.pdf“), mit der Art davor, z. B. „" + exTitle + "“" +
+      (analog ? " – ohne QR-Code, ohne Sitzungscode und ohne Hinweis auf Unterricks." : ";"),
+    ...(analog ? [] : [
+      "- denselben QR-Code zu Unterricks wie auf Folie 1 (dasselbe Muster, unverändert; mindestens ein Drittel der Folienhöhe groß, schwarz auf weiß mit weißem Rand) und daneben gut lesbar den Sitzungscode " +
+        codeText + " (Festbreitenschrift, mindestens 48 pt) mit dem Satz „Du findest das Material in Unterricks: QR-Code scannen oder " + host + " öffnen und den Sitzungscode eingeben.“",
+      "Material, das unten als „von der Lehrkraft auszudrucken“ steht, teilt die Lehrkraft auf Papier aus – in Unterricks sehen die Schüler:innen es nicht. Arbeiten sie in einem Schritt nur mit solchem Material, " +
+        "steht hinter dem Titel „(auf Papier)“, und QR-Code, Sitzungscode und der Satz zu Unterricks entfallen; kommt in Unterricks bereitgestelltes Material dazu, bleiben sie, und nur beim ausgedruckten Material steht „(auf Papier)“.",
+    ]),
+    "Nicht auf die Materialfolie gehören die Aufgaben, Texte und Inhalte des Materials (sie stehen im Material selbst) und Lösungen" + (analog ? "." : " – und auch nicht der Code eines Feibeitsblatts, auch wenn der Stundenverlauf ihn nennt: " +
       "Die Schüler:innen öffnen das Feibeitsblatt in Unterricks, das den Code dabei selbst kopiert; zwei Codes auf einer Folie würden sie leicht verwechseln. " +
-      "Notfall-Feibeitsblätter (nur für technische Probleme) nennst du nicht als Material – gemeint ist immer das Feibeitsblatt selbst.",
-    "Steht ein Material, mit dem die Schüler:innen arbeiten sollen, unten weder als Feibeitsblatt dieser Sitzung noch als Material „für Schüler:innen“, nenne es mir zusätzlich im Chat – dann stelle ich es in Unterricks bereit.",
+      "Notfall-Feibeitsblätter (nur für technische Probleme) nennst du nicht als Material – gemeint ist immer das Feibeitsblatt selbst."),
+    "Steht ein Material, mit dem die Schüler:innen arbeiten sollen, unten gar nicht oder nur als Material „nur Lehrkraft“, nenne es mir zusätzlich im Chat – dann " +
+      (analog ? "lege ich es zum Ausdrucken an." : "stelle ich es in Unterricks bereit."),
     "",
     "## Rahmendaten",
     "- Fach: " + subjectName(ctx.subject),

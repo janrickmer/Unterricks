@@ -139,15 +139,28 @@ test("Präsentations-Prompt: Materialfolien mit Aufforderung, Titel des Material
   for (const s of ["Feibeitsblatt, Arbeitsblatt", "die Aufforderung, mit dem Material zu arbeiten", "den Titel des Materials", "genau so, wie das Material in Unterricks heißt",
     "„Feibeitsblatt: Die wehrhafte Demokratie“", "denselben QR-Code zu Unterricks wie auf Folie 1", "Sitzungscode „K7Q-M4X“",
     "Du findest das Material in Unterricks: QR-Code scannen oder unterricks.janrickmer.de öffnen und den Sitzungscode eingeben.",
-    "Inhalte des Materials", "der Code eines Feibeitsblatts – auch wenn der Stundenverlauf ihn nennt", "Notfall-Feibeitsblätter"]) assert.ok(mat.includes(s), s);
+    "Inhalte des Materials", "auch nicht der Code eines Feibeitsblatts, auch wenn der Stundenverlauf ihn nennt", "Notfall-Feibeitsblätter"]) assert.ok(mat.includes(s), s);
   assert.equal(p.split(QR_UNTERRICKS[0]).length, 2, "das Muster steht nur einmal im Prompt (die Materialfolien verweisen auf Folie 1)");
   assert.ok(p.includes("Arbeiten die Schüler:innen dabei mit Material, ist das die Materialfolie"), "Arbeitsphasen mit Material: Materialfolie statt ausführlicher Auftragsfolie");
   assert.ok(!p.includes("Feibeitsblätter mit Titel und Code"), "der Code eines Feibeitsblatts kommt nicht mehr auf Folien");
   // Beispieltitel: ohne Feibeitsblatt ein Material für Schüler:innen (nie ein Notfall-Feibeitsblatt), sonst ein Platzhalter
   const nf = { name: "Notfall-Feibeitsblatt – X.pdf", area: "student", kind: "file" };
-  assert.ok(claudePresentationPrompt({ ...ctx, sheets: [], materials: [nf, ...ctx.materials] }, portal, []).includes("z. B. „AB BVerfG“"));
+  assert.ok(claudePresentationPrompt({ ...ctx, sheets: [], materials: [nf, { name: "M1 Karikatur.pdf", area: "student", kind: "file" }] }, portal, []).includes("z. B. „M1 Karikatur“"), "Beispiel ohne Dateiendung");
   assert.ok(claudePresentationPrompt({ ...ctx, sheets: [], materials: [nf] }, portal, []).includes("z. B. „Arbeitsblatt: <Titel des Arbeitsblatts>“"));
   assert.ok(claudePresentationPrompt(ctx, portal, []).includes("den Sitzungscode der Sitzung (bitte bei der Lehrkraft erfragen) (Festbreitenschrift, mindestens 48 pt)"), "ohne Code: Hinweis auch auf der Materialfolie");
+  // Druckmaterial („von der Lehrkraft auszudrucken“) sehen die Schüler:innen in Unterricks nicht: „(auf Papier)“, ohne QR-Code und ohne den Satz zu Unterricks
+  assert.ok(mat.includes("„von der Lehrkraft auszudrucken“") && mat.includes("„(auf Papier)“, und QR-Code, Sitzungscode und der Satz zu Unterricks entfallen"));
+  assert.ok(mat.includes("unten gar nicht oder nur als Material „nur Lehrkraft“"), "Druckmaterial gilt nicht als fehlend");
+});
+
+test("Präsentations-Prompt Jahrgang 5/6 (keine iPads): Materialfolien nur mit Aufforderung und Titel, Folie 1 bleibt", () => {
+  const p = claudePresentationPrompt({ ...ctx, klass: "6B", code: "K7QM4X", sheets: [], materials: [{ name: "AB Kinderrechte.pdf", area: "print", kind: "file" }] }, "**1) Einstieg**", []);
+  const mat = p.slice(p.indexOf("## Materialfolien"), p.indexOf("## Rahmendaten"));
+  assert.ok(mat.includes("keine iPads und bekommen das Material auf Papier") && mat.includes("z. B. „AB Kinderrechte (auf Papier)“ – ohne QR-Code, ohne Sitzungscode und ohne Hinweis auf Unterricks"));
+  assert.ok(!mat.includes("denselben QR-Code") && !mat.includes("Du findest das Material in Unterricks") && !mat.includes("K7Q-M4X") && mat.includes("lege ich es zum Ausdrucken an"));
+  assert.ok(!p.includes("synchron auf den Geräten der Schüler:innen") && p.includes("die Schüler:innen dieser Jahrgangsstufe haben im Unterricht keine iPads"));
+  const first = p.slice(p.indexOf("## Erste Folie"), p.indexOf("## Materialfolien"));
+  assert.ok(first.includes("„K7Q-M4X“") && first.includes(QR_UNTERRICKS.join("\n")) && first.includes("z. B. zu Hause"), "Folie 1 bleibt immer: Code und QR-Code");
 });
 
 test("Feibeitsblatt-Entwurf normalisieren", () => {

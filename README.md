@@ -61,7 +61,8 @@ Feibeitsblatt braucht keine Änderung. Die Adressen stehen in `wrangler.jsonc` (
   erscheinen sie) → Schulportal-Eintrag prüfen und kopieren → „Prompt für die Präsentation kopieren“ → in claude.ai einfügen →
   die von Claude erzeugte **PDF** hochladen (Claude liefert nur die PDF, keine PowerPoint-Datei; Folie 1 zeigt immer den
   Sitzungscode und den QR-Code zu Unterricks, ebenso jede Materialfolie – dort stehen nur die Aufforderung, mit dem Material zu
-  arbeiten, und sein Titel, z. B. der Name des Feibeitsblatts) → im Unterricht „Ich bin im Unterricht und starte
+  arbeiten, und sein Titel, z. B. der Name des Feibeitsblatts; ausgedrucktes Material und Jahrgang 5/6 ohne iPads: „(auf Papier)“,
+  ohne QR-Code) → im Unterricht „Ich bin im Unterricht und starte
   die Präsentation für alle.“ Den Sitzungscode zeigt „Für den Beamer zeigen“. Am Stundenende: Hausaufgabe eintragen und per
   Rechtsklick im Verlaufsplan „Zwischenstopp einfügen“, falls nicht alles geschafft wurde. „Für das Schulportal kopieren“ bei der
   Hausaufgabe liefert sie im Format der Lehrkraft: **Hausaufgabe zum 25. November 2026:** (Datum der nächsten Sitzung), eine
