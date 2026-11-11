@@ -1322,7 +1322,7 @@ async function main() {
     await browser.close();
     ai.srv.close(); fbm.srv.close();
     stopWrangler();
-    if (failures) writeFileSync(join(OUT, "wrangler.log"), wlog);
+    writeFileSync(join(OUT, "wrangler.log"), wlog);   // immer (auch bei einem Abbruch durch eine Ausnahme)
   }
   ok(pageErrors.length === 0, "keine JavaScript-Fehler in den Seiten" + (pageErrors.length ? ": " + pageErrors.join(" | ") : ""));
   console.log("\n" + (failures ? "✗ " + failures + " Prüfung(en) fehlgeschlagen" : "✓ alle Prüfungen bestanden"));
