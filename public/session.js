@@ -517,7 +517,8 @@ export async function sessionPage(id) {
         // neu starten → Codefolie (0) vor Folie 1; läuft diese Präsentation schon, geht es an der laufenden Stelle weiter
         const running = liveState && liveState.active && liveState.fileId === p.id;
         await startPresenter({ lessonId: id, file: p, token: T.token, slides: st.slides, startSlide: running ? liveState.slide : 0, code: L().code, title: L().title,
-          onEnd: () => { refreshLive(); paintPres(); }, shownUntil: shown, onMark: (n, onStep) => setShown(n >= p.pages ? null : n, onStep) });
+          onEnd: () => { const lost = !document.activeElement || document.activeElement === document.body; refreshLive(); paintPres();
+            if (lost) { const b = presCard.querySelector("button.onair.big"); if (b) b.focus({ preventScroll: true }); } }, shownUntil: shown, onMark: (n, onStep) => setShown(n >= p.pages ? null : n, onStep) });
       } catch (e) { errToast(e); }
     });
     let liveState = null;

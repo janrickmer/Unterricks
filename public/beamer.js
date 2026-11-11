@@ -22,7 +22,7 @@ export function beamerPage() {
   const isFs = () => !!(document.fullscreenElement || document.webkitFullscreenElement);
   const note = h("p", { class: "bm-note", role: "status" });
   const fsLabel = () => (isFs() ? "Vollbild beenden" : multi ? "Vollbild auf dem Beamer" : "Vollbild");
-  const fsBtn = h("button", { class: "btn small", type: "button", onclick: (e) => { if (e.detail > 0) e.currentTarget.blur(); toggleFs(); } }, fsLabel());
+  const fsBtn = h("button", { class: "btn small", type: "button", onclick: (e) => { e.currentTarget.blur(); toggleFs(); } }, fsLabel());   // ohne Fokus: Leertaste blättert, die Leiste blendet sich aus
   const hint = h("p", { class: "bm-hint", text: (multi ? "„Vollbild auf dem Beamer“ zeigt dieses Fenster im Vollbild auf dem zweiten Bildschirm – oder ziehen Sie es auf den Beamer und klicken Sie dort auf „Vollbild“."
     : "Ziehen Sie dieses Fenster auf den Beamer (als erweiterten Bildschirm eingerichtet) und klicken Sie dort auf „Vollbild“.") +
     " Gesteuert wird im Präsentationsfenster – Pfeiltasten und Presenter funktionieren auch hier." });
@@ -52,7 +52,8 @@ export function beamerPage() {
     if (m.t === "end") {
       if (before && !before.ended) {
         setFach(null); wait(m.why === "stop" ? BEAMER_STOPPED : BEAMER_CLOSED); tell();
-        ch.postMessage({ t: "hello", bid });   // läuft noch eine andere Präsentation (z. B. in einem zweiten Tab), übernimmt das Fenster sie
+        // nur geschlossen (nicht für alle beendet): läuft noch eine andere Präsentation (z. B. in einem zweiten Tab), übernimmt das Fenster sie
+        if (m.why !== "stop") ch.postMessage({ t: "hello", bid });
       }
       return;
     }
@@ -76,7 +77,7 @@ export function beamerPage() {
       catch { note.textContent = "Das Vollbild ließ sich nicht öffnen – bitte noch einmal auf „" + fsLabel() + "“ klicken."; wake(); }
     }
   }
-  const onFs = () => { fsBtn.textContent = fsLabel(); };
+  const onFs = () => { fsBtn.textContent = fsLabel(); if (isFs()) note.textContent = ""; };
   const onControl = (t) => !!(t && t.closest && t.closest("button, a[href], input, select, textarea"));
   const onKey = (e) => {
     const a = presenterKey(e, onControl(e.target));   // Enter/Leertaste auf „Vollbild“ bzw. „Fenster schließen“ lösen den Knopf aus

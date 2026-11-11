@@ -357,9 +357,9 @@ export async function startPresenter({ lessonId, file, token, startSlide = 0, on
     setTimeout(() => live.close(), stopForAll ? 400 : 0);
     if (isFs()) (document.exitFullscreen || document.webkitExitFullscreen).call(document).catch(() => {});
     root.remove();
-    if (back && back.isConnected && typeof back.focus === "function") try { back.focus({ preventScroll: true }); } catch {}
     if (stopForAll) toast("Die Live-Präsentation wurde für alle beendet.", "ok");
-    if (onEnd) onEnd(stopForAll);
+    if (onEnd) onEnd(stopForAll);   // baut die Seite dahinter evtl. neu (und setzt den Fokus dann selbst)
+    if (back && back.isConnected && typeof back.focus === "function" && (!document.activeElement || document.activeElement === document.body)) try { back.focus({ preventScroll: true }); } catch {}
   }
   // Fokus in den Präsentationsmodus (Dialog) – nicht auf dem Knopf dahinter, sonst löste die Leertaste ihn erneut aus; danach zurück
   const back = document.activeElement;

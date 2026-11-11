@@ -588,6 +588,7 @@ async function main() {
     ok(await sp.locator(".live .codeslide .c", { hasText: codeF }).count() === 1 && await tp.locator(".presenter").getByRole("button", { name: "Zurück zu Folie 2" }).count() === 1
       && (await tp.locator(".presenter .counter").textContent()) === "Sitzungscode" && await markB.isDisabled(), "„Sitzungscode zeigen“ blendet die Codefolie live bei allen ein");
     ok(await npHead() === "Als Nächstes Zurück zu Folie 2 / 3" && /\/2\?/.test(await tp.locator(".presenter .nextpane .np-frame > img").getAttribute("src")), "… die Vorschau zeigt die Folie darunter (Rückkehr)");
+    ok(await tp.evaluate(() => !(document.activeElement && document.activeElement.closest(".presenter .bar"))), "nach dem Mausklick behält der Knopf den Fokus nicht (Leertaste und Presenter blättern weiter)");
     await tp.keyboard.press("Space");   // nach dem Mausklick auf den Knopf blättert die Leertaste (z. B. eines Presenters) weiter
     await sp.locator(".live .badge", { hasText: "Folie 2 / 3" }).waitFor({ timeout: 10000 });
     await sp.waitForFunction(() => !document.querySelector(".live .codeslide") && /\/2\?/.test((document.querySelector(".live > img") || {}).src || ""), null, { timeout: 10000 });
@@ -634,7 +635,8 @@ async function main() {
     ok((await tp.locator(".presenter .counter").textContent()) === "2 / 3" && await bw.locator(".beamer .codeslide").count() === 0, "Taste im Beamerfenster (z. B. Presenter) blättert die Präsentation – bei allen");
     const bwFs = bw.locator(".beamer .bm-bar button").first();
     await bwFs.focus(); await bw.keyboard.press("Enter"); await tp.waitForTimeout(500);
-    ok((await tp.locator(".presenter .counter").textContent()) === "2 / 3" && /Vollbild/.test(await bwFs.textContent()), "Enter auf „Vollbild“ im Beamerfenster blättert nicht weiter");
+    ok((await tp.locator(".presenter .counter").textContent()) === "2 / 3" && /Vollbild/.test(await bwFs.textContent()) && await bw.evaluate(() => !(document.activeElement && document.activeElement.closest(".bm-bar"))),
+      "Enter auf „Vollbild“ im Beamerfenster blättert nicht weiter; danach hat die Leiste keinen Fokus mehr (blendet sich über der Folie aus)");
     if (await bw.evaluate(() => !!document.fullscreenElement)) await bw.evaluate(() => document.exitFullscreen().catch(() => {}));
     await bw.mouse.move(300, 300);
     await bw.screenshot({ ...SHOT, path: join(OUT, "beamerfenster.png") });
@@ -645,6 +647,7 @@ async function main() {
     // Fenster schließen, Live-Anzeige läuft weiter; erneut öffnen → weiter an der laufenden Stelle (nicht wieder die Codefolie davor)
     await tp.locator(".presenter").getByRole("button", { name: "Schließen", exact: true }).click();
     await bw.locator(".beamer .bm-wait", { hasText: "Die Präsentation ist gerade nicht geöffnet." }).waitFor({ timeout: 10000 });
+    ok(await tp.evaluate(() => (document.activeElement || {}).textContent) === "Ich bin im Unterricht und starte die Präsentation für alle.", "nach dem Schließen steht der Fokus wieder auf dem Start-Knopf");
     ok(await bw.locator(".beamer .codeslide, .beamer .bm-stage > img").count() === 0, "Präsentationsfenster geschlossen: das Beamerfenster zeigt keine Folie mehr");
     await tp.locator("section.card", { hasText: "Präsentation für den Unterricht" }).locator(".small", { hasText: "Folie 3 / 3" }).waitFor({ timeout: 10000 });
     await tp.getByRole("button", { name: "Ich bin im Unterricht und starte die Präsentation für alle." }).click();
