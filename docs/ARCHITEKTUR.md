@@ -156,7 +156,12 @@ implementiert und im End-to-End-Test geprüft (Ausnahmen unten ausdrücklich gen
    Druckliste steht), nennt Claude es im Chat. **Zeitlos:** Die Präsentation soll in ein paar Jahren in einer anderen Klasse desselben
    Jahrgangs noch passen – keine Daten der Lerngruppe (das Datum der Stunde steht gar nicht mehr im Prompt; Hausaufgabe „bis zur nächsten
    Unterrichtssitzung“), keine Klasse und keine Namen (höchstens `groupShort`, z. B. „Jg. 8“, auch im Dateinamen), Zeitgebundenes mit
-   Jahreszahl statt „aktuell“; einzige Ausnahme ist der Sitzungscode. Hinweise für die
+   Jahreszahl statt „aktuell“; einzige Ausnahme ist der Sitzungscode. **Alter Sitzungscode auf den Folien:** Wird eine Präsentation in einer
+   anderen Sitzung hochgeladen (auch per Sitzungsdatei), sucht `rasterizeAndUpload` (`public/presenter.js`, Option `code`) mit der Textebene
+   von PDF.js den größten Code auf Folie 1 (`slideCodeBoxes`/`slideSessionCode` in `shared.js`, Form wie `formatCode`) und ersetzt ihn auf allen
+   Folienbildern durch den Code der aktuellen Sitzung: Hintergrund = häufigste Randfarbe des Kastens, Schrift = die davon am weitesten entfernte
+   Farbe, gleiche Größe (notfalls schmaler), Festbreitenschrift, wenn das PDF eine hatte. Die hochgeladene PDF selbst (Schüler:innen öffnen sie
+   nach der Stunde) bleibt unverändert; die Lehrkraft sieht eine Meldung, auf welchen Folien ersetzt wurde. Hinweise für die
    Lehrkraft (statt Sprechernotizen) gibt Claude im Chat bzw. auf Wunsch über `add_text_material` (nur für die Lehrkraft).
 6. **Präsentation und Live-Synchronisation.** Upload der PDF → der Browser der Lehrkraft rendert jede Seite mit PDF.js
    (1920 px) und lädt sie als Bild hoch. „Ich bin im Unterricht …“ öffnet das Vollbild und meldet die Folie an das Durable

@@ -174,6 +174,41 @@ export function cleanWebUrl(raw) {
 /* Anzeige einer Adresse: Host und Pfad ohne Schema, gekürzt */
 export const webUrlLabel = (url) => { const s = String(url || "").replace(/^https?:\/\//, "").replace(/\/$/, ""); return s.length > 70 ? s.slice(0, 67) + "…" : s; };
 export const formatCode = (c) => (c && c.length === 6 ? c.slice(0, 3) + "-" + c.slice(3) : String(c || ""));
+/* ---------- Sitzungscode auf den Folien einer Präsentation (Wunsch der Lehrkraft vom 11.11.2026) ----------
+ * Präsentationen sind zeitlos und werden in späteren Sitzungen wiederverwendet; Folie 1 und die Materialfolien zeigen aber den Sitzungscode.
+ * Beim Erzeugen der Folienbilder (presenter.js) findet Unterricks den Code auf Folie 1 (den größten dort) und ersetzt ihn auf allen Folien
+ * durch den Code der aktuellen Sitzung. codesInText: Codes wie formatCode („AEH-4VY“, Bindestrich oder Gedankenstrich), nicht mitten in Wörtern. */
+const CODE_IN_TEXT = /(^|[^A-Za-z0-9])([A-Z0-9]{3})[-\u2010\u2011\u2013\u2014]([A-Z0-9]{3})(?![A-Za-z0-9])/g;
+export function codesInText(s) {
+  const out = [];
+  for (const m of String(s == null ? "" : s).matchAll(CODE_IN_TEXT)) {
+    const code = m[2] + m[3], start = m.index + m[1].length;
+    if (isValidCode(code)) out.push({ start, end: start + 7, code });
+  }
+  return out;
+}
+/* Textstücke einer Seite in Gerätekoordinaten ({str, x, base, w, h, eol, family}; Reihenfolge wie im PDF) → Zeilen → je Code ein Kasten
+   {code, x0, x1, base, h, family}. Stücke auf derselben Grundlinie werden verbunden (ein Code kann in mehreren Stücken stehen). */
+export function slideCodeBoxes(items) {
+  const lines = []; let cur = null;
+  for (const it of items || []) {
+    if (!it || !it.str || !(it.h > 0) || !Number.isFinite(it.x) || !Number.isFinite(it.base) || !(it.w >= 0)) { if (!it || it.eol || !it.str) cur = null; continue; }
+    if (!cur || Math.abs(it.base - cur.base) > it.h * 0.25 || it.x < cur.end - it.h * 0.5) { cur = { base: it.base, end: it.x, text: "", map: [] }; lines.push(cur); }
+    else if (it.x - cur.end > it.h * 0.2) { cur.text += " "; cur.map.push(null); }
+    const n = it.str.length;
+    for (let i = 0; i < n; i++) { cur.text += it.str[i]; cur.map.push({ x0: it.x + (it.w * i) / n, x1: it.x + (it.w * (i + 1)) / n, h: it.h, base: it.base, family: it.family || "" }); }
+    cur.end = it.x + it.w;
+    if (it.eol) cur = null;
+  }
+  const out = [];
+  for (const l of lines) for (const c of codesInText(l.text)) {
+    const cs = l.map.slice(c.start, c.end).filter(Boolean);
+    if (cs.length) out.push({ code: c.code, x0: Math.min(...cs.map((q) => q.x0)), x1: Math.max(...cs.map((q) => q.x1)), base: cs[0].base, h: Math.max(...cs.map((q) => q.h)), family: cs[0].family });
+  }
+  return out;
+}
+/* der Sitzungscode einer Präsentation: der größte Code auf Folie 1 (laut Prompt die Einstiegsfolie); "" = keiner */
+export const slideSessionCode = (boxes) => { let b = null; for (const x of boxes || []) if (!b || x.h > b.h) b = x; return b ? b.code : ""; };
 
 /* Öffentliche Adresse der Oberfläche (GitHub Pages mit eigener Domain) – für Hinweise im Schulportal */
 export const PUBLIC_URL = "https://unterricks.janrickmer.de";
@@ -554,7 +589,8 @@ export function claudePresentationPrompt(ctx, portalText, messages) {
       "Termine nur bezogen auf den Unterricht: Die Hausaufgabe ist „bis zur nächsten Unterrichtssitzung“ zu erledigen, auch wenn im Stundenverlauf oder bei der Hausaufgabe ein Datum steht;",
     "- nicht die Klasse (z. B. „" + (classShort(ctx.klass) || "8c") + "“) und keine Namen von Schüler:innen oder Lehrkräften – wo eine Angabe nötig ist, nur die Lerngruppe allgemein („" + (groupShort(ctx.klass) || "Jg. 8") + "“);",
     "- Zeitgebundenes (z. B. wer gerade regiert, neueste Zahlen) nicht als „aktuell“ oder „derzeit“, sondern mit Jahreszahl und Quelle („Stand " + new Date().getFullYear() + ": …“); fachliche Jahreszahlen und Daten (z. B. historische Ereignisse) bleiben selbstverständlich.",
-    "Einzige Ausnahme ist der Sitzungscode auf Folie 1 und den Materialfolien: Er gehört zu dieser Sitzung.",
+    "Einzige Ausnahme ist der Sitzungscode auf Folie 1 und den Materialfolien: Er gehört zu dieser Sitzung – wird die Präsentation später in einer anderen Sitzung hochgeladen, " +
+      "setzt Unterricks auf den Folien automatisch deren Code ein. Schreibe ihn dafür überall genau wie angegeben (mit Bindestrich, waagerecht, als echten Text in einem Stück) und auf Folie 1 größer als alles andere.",
     "",
     "## Rahmendaten",
     "- Fach: " + subjectName(ctx.subject),

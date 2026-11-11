@@ -224,12 +224,16 @@ async function logout() {
 }
 
 /* ---------- Anmeldung / Einrichtung ---------- */
+let loginShown = null;   // die gerade angezeigte Anmeldeseite
 async function loginPage() {
+  // schon zu sehen (ohne Anmeldung): nicht neu aufbauen – sonst wäre Getipptes weg, egal wer den zweiten Aufruf auslöst
+  if (!T.token && loginShown && loginShown.isConnected) return;
   if (T.token) { try { await tapi("GET", "/api/teacher/me"); return go("#/lk"); } catch {} }
   const wrap = h("div", { class: "login-wrap" });
+  loginShown = wrap;
   render(wrap, h("footer", { class: "footer" }, h("a", { href: "#/" }, "Zur Schüleransicht")));
   let st;
-  try { st = await api("POST", "/api/teacher/status"); } catch (e) { wrap.append(h("p", { class: "err", text: e.message })); return; }
+  try { st = await api("POST", "/api/teacher/status"); } catch (e) { loginShown = null; wrap.append(h("p", { class: "err", text: e.message })); return; }   // ohne Formular: ein neuer Aufruf darf es erneut versuchen
   const user = h("input", { id: "tu", autocomplete: "username", autocapitalize: "off", spellcheck: "false", required: true });
   const pw = h("input", { id: "tp", type: "password", autocomplete: st.setup ? "current-password" : "new-password", required: true });
   const pw2 = h("input", { id: "tp2", type: "password", autocomplete: "new-password", required: true });

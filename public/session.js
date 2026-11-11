@@ -475,7 +475,7 @@ export async function sessionPage(id) {
     const p = st.files.find((f) => f.area === "presentation");
     clear(presCard).append(h("div", { class: "section-title" }, h("h2", { text: "Präsentation für den Unterricht" })));
     const zone = dropZone(p ? "Andere Präsentation hochladen (ersetzt die bisherige)" : "PDF der Präsentation hier ablegen oder auswählen",
-      "Nur PDF – Claude liefert die Präsentation laut Prompt direkt als PDF (eigene PowerPoint-Dateien: „Datei → Exportieren → PDF“).", (fs) => uploadPres(fs[0]), "application/pdf,.pdf", false);
+      "Nur PDF – Claude liefert die Präsentation laut Prompt direkt als PDF (eigene PowerPoint-Dateien: „Datei → Exportieren → PDF“). Steht auf Folie 1 der Sitzungscode einer früheren Sitzung, setzt Unterricks auf den Folien den Code dieser Sitzung ein.", (fs) => uploadPres(fs[0]), "application/pdf,.pdf", false);
     if (!p) { presCard.append(zone); return; }
     if (p.status !== "ready") {
       presCard.append(h("div", { class: "notice warn" }, "Die Folienbilder von „" + p.name + "“ wurden noch nicht vollständig erzeugt. Bitte die PDF erneut hochladen."), zone);
@@ -548,9 +548,11 @@ export async function sessionPage(id) {
       const r = await upload("/api/teacher/lessons/" + id + "/presentation?name=" + encodeURIComponent(file.name), file, T.token, (p) => { bar.style.width = Math.round(p * 30) + "%"; }, "application/pdf");
       st.files = st.files.filter((f) => f.area !== "presentation"); st.files.push(r.file); st.slides = null;
       const { rasterizeAndUpload } = await import("./presenter.js");
-      const out = await rasterizeAndUpload(pendingPdf, r.file.id, T.token, (i, n) => { label.textContent = "Erzeuge Folie " + i + " von " + n + " …"; bar.style.width = (30 + Math.round((i / n) * 70)) + "%"; });
+      const out = await rasterizeAndUpload(pendingPdf, r.file.id, T.token, (i, n) => { label.textContent = "Erzeuge Folie " + i + " von " + n + " …"; bar.style.width = (30 + Math.round((i / n) * 70)) + "%"; }, { code: L().code });
       Object.assign(r.file, out.file);
-      toast("Präsentation bereit (" + out.pages + " Folien).", "ok");
+      const sw = out.swapped;   // Präsentation aus einer früheren Sitzung: alter Code auf den Folien durch den dieser Sitzung ersetzt
+      toast("Präsentation bereit (" + out.pages + " Folien)." + (sw ? " Den Sitzungscode " + formatCode(sw.from) + " einer früheren Sitzung hat Unterricks auf " +
+        (sw.slides.length === 1 ? "Folie " + sw.slides[0] : sw.slides.length + " Folien") + " durch den Code dieser Sitzung " + formatCode(sw.to) + " ersetzt." : ""), "ok", sw ? 12000 : undefined);
     } catch (e) { errToast(e); }
     pendingPdf = null; paintPres();
   }

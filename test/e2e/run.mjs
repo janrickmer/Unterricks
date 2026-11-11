@@ -66,9 +66,14 @@ function escapeFixture() {
     finale: { ueberschrift: "Das Archiv ist gerettet", text: "Du hast alle Räume gelöst.", warum: "GERICH steht für das Gericht, das die Verfassung hütet.", rueckblick: ["Gewaltenteilung", "Organe", "Verfahren", "Grundgesetz", "Karlsruhe", "Schutz"], schluss: "Weiter zum Finale!" },
     feibeitsblatt: { titel: "Finale: Mission Gewaltenteilung", aufgaben: [{ text: "Beurteile, ob das BVerfG zu mächtig ist.", ki_auftrag: "Pro/Contra, eigenes Urteil" }] } };
 }
-async function pdf(pages, label) {
-  const d = await PDFDocument.create(), f = await d.embedFont(StandardFonts.HelveticaBold);
-  for (let i = 1; i <= pages; i++) { const p = d.addPage([960, 540]); p.drawRectangle({ x: 0, y: 0, width: 960, height: 540, color: rgb(0.12, 0.23, 0.37) }); p.drawText(label + " – Folie " + i, { x: 60, y: 260, size: 48, font: f, color: rgb(1, 1, 1) }); }
+async function pdf(pages, label, oldCode) {
+  const d = await PDFDocument.create(), f = await d.embedFont(StandardFonts.HelveticaBold), mono = await d.embedFont(StandardFonts.CourierBold);
+  for (let i = 1; i <= pages; i++) {
+    const p = d.addPage([960, 540]); p.drawRectangle({ x: 0, y: 0, width: 960, height: 540, color: rgb(0.12, 0.23, 0.37) }); p.drawText(label + " – Folie " + i, { x: 60, y: 260, size: 48, font: f, color: rgb(1, 1, 1) });
+    // Präsentation aus einer früheren Sitzung: Folie 1 mit großem Sitzungscode, Folie 2 als Materialfolie mit kleinem
+    if (oldCode && i === 1) p.drawText(oldCode, { x: 60, y: 100, size: 96, font: mono, color: rgb(1, 0.85, 0.3) });
+    if (oldCode && i === 2) p.drawText("Sitzungscode " + oldCode, { x: 60, y: 120, size: 32, font: f, color: rgb(1, 1, 1) });
+  }
   return Buffer.from(await d.save());
 }
 
@@ -391,9 +396,17 @@ async function main() {
     }
 
     step("Präsentation (PDF) hochladen → Folienbilder");
-    await tp.locator("section.card", { hasText: "Präsentation für den Unterricht" }).locator("input[type=file]").first().setInputFiles({ name: "BVerfG.pdf", mimeType: "application/pdf", buffer: await pdf(3, "BVerfG") });
+    // eine Präsentation aus einer früheren Sitzung (Sitzungscode ABC-234 auf Folie 1 und 2): Unterricks setzt den Code dieser Sitzung ein
+    await tp.locator("section.card", { hasText: "Präsentation für den Unterricht" }).locator("input[type=file]").first().setInputFiles({ name: "BVerfG.pdf", mimeType: "application/pdf", buffer: await pdf(3, "BVerfG", "ABC-234") });
     await tp.getByRole("button", { name: "Ich bin im Unterricht und starte die Präsentation für alle." }).waitFor({ timeout: 40000 });
     ok(await tp.locator(".item", { hasText: "3 Folien" }).count() === 1, "3 Folien erzeugt, Start-Knopf unter der Präsentation");
+    const swapToast = tp.locator(".toast", { hasText: "Den Sitzungscode ABC-234 einer früheren Sitzung hat Unterricks auf 2 Folien durch den Code dieser Sitzung " + lesson0.code.slice(0, 3) + "-" + lesson0.code.slice(3) + " ersetzt." });
+    ok(await swapToast.waitFor({ timeout: 10000 }).then(() => true, () => false), "Präsentation aus einer früheren Sitzung: alter Sitzungscode auf Folie 1 und 2 durch den Code dieser Sitzung ersetzt");
+    { // Folienbilder 1 und 2 zum Ansehen ablegen (die Textebene der hochgeladenen PDF bleibt unverändert)
+      const presFile = (await T("GET", "/api/teacher/lessons/" + lessonId)).data.files.find((f) => f.area === "presentation");
+      const sl = await T("GET", "/api/teacher/files/" + presFile.id + "/slides");
+      for (const k of [0, 1]) { const u = sl.data.urls[k]; const r = await fetch(/^https?:/.test(u) ? u : BASE + u); writeFileSync(join(OUT, "folie-code-" + (k + 1) + ".jpg"), Buffer.from(await r.arrayBuffer())); }
+    }
     await tp.screenshot({ ...SHOT, path: join(OUT, "lehrkraft-sitzung.png"), fullPage: true });
 
     /* ---------- Schüler:in am iPad ---------- */

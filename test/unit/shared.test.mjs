@@ -296,3 +296,27 @@ test("Links als Material: nur http(s) ohne Zugangsdaten, ohne Schema wird https 
   const txt = lessonContext({ subject: "powi", klass: "8A", lesson: { title: "T" }, materials: [{ name: "Erklärvideo", area: "student", kind: "link", text: "https://www.bpb.de/x" }] });
   assert.match(txt, /- Erklärvideo \(für Schüler:innen, Link: https:\/\/www\.bpb\.de\/x\)/);
 });
+
+import { codesInText, slideCodeBoxes, slideSessionCode } from "../../public/shared.js";
+
+test("Sitzungscode auf Folien: Codes im Text finden (mit Bindestrich, nicht mitten in Wörtern, nur gültige Codes)", () => {
+  assert.deepEqual(codesInText("AEH-4VY"), [{ start: 0, end: 7, code: "AEH4VY" }]);
+  assert.deepEqual(codesInText("Sitzungscode: K7Q–M4X.").map((c) => c.code), ["K7QM4X"]);   // Gedankenstrich
+  assert.deepEqual(codesInText("AAA-222 BBB-333").map((c) => c.code), ["AAA222", "BBB333"]);
+  for (const t of ["AEH4VY", "AEH 4VY", "XAEH-4VY", "AEH-4VYZ", "ABC-DEF", "234-567", "ABI-123", "aeh-4vy"]) assert.equal(codesInText(t).length, 0, t);
+});
+
+test("Sitzungscode auf Folien: Kästen aus Textstücken (auch über mehrere Stücke) und der Code von Folie 1", () => {
+  const big = { str: "AEH-4VY", x: 100, base: 300, w: 700, h: 120, eol: true, family: "monospace" };
+  const small = [{ str: "Sitzungscode ", x: 50, base: 900, w: 260, h: 40 }, { str: "AEH-", x: 312, base: 900, w: 80, h: 40 }, { str: "4VY", x: 392, base: 900, w: 60, h: 40, eol: true }];
+  const fb = { str: "Feibeitsblatt K7Q-M4X", x: 50, base: 600, w: 420, h: 40, eol: true };
+  const boxes = slideCodeBoxes([fb, ...small, big]);
+  assert.deepEqual(boxes.map((b) => b.code), ["K7QM4X", "AEH4VY", "AEH4VY"]);
+  const s = boxes[1];
+  assert.ok(Math.abs(s.x0 - 312) < 0.01 && Math.abs(s.x1 - 452) < 0.01 && s.base === 900 && s.h === 40, "Kasten über zwei Stücke");
+  assert.equal(boxes[2].family, "monospace");
+  assert.equal(slideSessionCode(boxes), "AEH4VY", "der größte Code auf Folie 1 ist der Sitzungscode");
+  assert.equal(slideSessionCode([]), "");
+  // andere Zeile (andere Grundlinie) wird nicht verbunden; ungültige Stücke stören nicht
+  assert.deepEqual(slideCodeBoxes([{ str: "AEH-", x: 0, base: 100, w: 80, h: 40 }, { str: "4VY", x: 80, base: 200, w: 60, h: 40 }, null, { str: "x" }]), []);
+});
