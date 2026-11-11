@@ -102,6 +102,22 @@ Feibeitsblatt braucht keine Änderung. Die Adressen stehen in `wrangler.jsonc` (
   einzeln oder alle als ZIP; Claude kann Druckvorlagen über den Connector ablegen. Darunter **„Sitzung als Datei herunterladen“** und
   **„Sitzung aus Datei laden“**, um eine gehaltene Sitzung in einer anderen Lerngruppe erneut durchzuführen (Datum, Beginn und Dauer
   bleiben, Datumsangaben in den Texten werden angepasst, Feibeitsblätter kommen als Entwürfe).
+* **Einheit als Datei:** Auf der Planungsseite einer Einheit, Karte **„Einheit als Datei“**, gibt es zwei Knöpfe.
+  * **„Einheit als Datei herunterladen“** erzeugt eine ZIP-Datei. Darin liegt die Einheitsdatei mit Rahmendaten, Leupold-Schema und
+    Ablauf. Dazu kommt je Sitzung ein Ordner, chronologisch nummeriert („01 - 12.11.2026 - …“), mit der Sitzungsdatei.
+  * **„Einheit aus Datei laden“** geht nur in eine Einheit, zu der es noch keine Sitzungen gibt (auch über „Gesicherte Einheit laden“ in
+    „Planung mit Claude“). Titel, Leupold-Schema und Ablauf kommen aus der Datei. Die Rahmendaten bleiben, die Termine werden neu
+    verteilt. Die gesicherten Sitzungen warten auf diesem Gerät. Bei „Einheit festlegen und Sitzungen anlegen“ bekommt jede Sitzung
+    ihren Inhalt (Materialien, Präsentation, Planungsverlauf, Hausaufgabe, Feibeitsblatt-Entwürfe), mit angepassten Datumsangaben.
+  * Geladen werden kann auch nur die Einheitsdatei (.json) aus einer Sicherung. Dann kommt nur die Planung.
+* **Unterricks zurücksetzen** (Einstellungen, ganz unten): **„Alle Unterrichtsinhalte löschen und Unterricks zurücksetzen“**.
+  * Gelöscht werden alle Unterrichtseinheiten und Sitzungen mit allem, was dazugehört.
+  * Es bleiben: Zugang, Planungsgrundlagen, Fach-Einstellungen mit Kursen, KI, Connector, Feibeitsblatt-Verbindung, Schülerpasswort
+    und Schülergeräte. Die Feibeitsblätter und ihre Abgaben bleiben im Feibeitsblatt.
+  * Zuerst fragt Unterricks Ihr Passwort ab (zwei Fehlversuche sperren wie bei der Anmeldung 30 Minuten). Dann bietet es eine
+    Sicherung als ZIP-Datei an: 1. Ebene Fächer, 2. Ebene Einheiten mit der Einheitsdatei, 3. Ebene die Sitzungen, chronologisch
+    nummeriert, je als Sitzungsdatei. Sitzungen ohne Einheit liegen in „… - Sitzungen ohne Einheit“.
+  * Gelöscht wird erst nach einer letzten Bestätigung.
 * **KI-Begriffshilfe:** Während der Stunde können Schüler:innen unter der Live-Präsentation Fachbegriffe kurz und einfach erklären
   lassen – nur nach ihrer Einwilligung, mit der kostenlosen KI; in den Sitzungsdaten abschaltbar. Bitte vor dem Einsatz prüfen, ob
   das an Ihrer Schule zulässig ist (siehe docs/ARCHITEKTUR.md, 4k).

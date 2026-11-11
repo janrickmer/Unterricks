@@ -172,10 +172,10 @@ export function downloadUrl(url, name) {
   const a = h("a", { href: apiUrl(url), download: name || "", rel: "noopener" });
   document.body.append(a); a.click(); a.remove();
 }
-export function downloadBlob(blob, name) {
+export function downloadBlob(blob, name, keepMs = 60000) {   // keepMs: große Dateien (Sicherung) länger bereithalten
   const url = URL.createObjectURL(blob);
   downloadUrl(url, name);
-  setTimeout(() => URL.revokeObjectURL(url), 60000);
+  setTimeout(() => URL.revokeObjectURL(url), keepMs);
 }
 
 /* ---------- Symbole: eigene SVG-Strichzeichnungen (24er-Raster, Strich 2) statt Sonderzeichen ---------- */

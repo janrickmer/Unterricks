@@ -97,6 +97,28 @@ export async function routeTeacherLogin(c) {
   return json({ ok: true, username: t.username, ...(await issueToken(c, body.deviceId)) });
 }
 
+/* Passwort einer angemeldeten Lehrkraft noch einmal prüfen (z. B. vor dem Zurücksetzen): dieselben Sperren wie bei der Anmeldung –
+   zwei Fehlversuche sperren dieses Gerät für 30 Minuten. authKey = im Browser per PBKDF2 abgeleitet (wie bei der Anmeldung). */
+export async function checkTeacherPassword(c, authKey) {
+  const me = c.teacher || (await requireTeacher(c)), devKey = "t:dev:" + me.deviceHash;
+  const ms = await lockedFor(c.db, devKey, c.now);
+  if (ms) throw lockedError(ms, "Nach zwei Fehlversuchen ist die Passwortabfrage auf diesem Gerät gesperrt. Bitte warten Sie noch " + fmtWait(ms) + ".");
+  const t = await teacherRow(c.db);
+  if (!t || !isAuthKey(authKey) || !timingSafeEqual(await authHash(authKey), t.auth_hash)) {
+    const r = await registerFail(c.db, devKey, LOCKS.teacherDevice, c.now);
+    if (r.locked) throw lockedError(r.lockMs, "Das Passwort ist falsch. Die Passwortabfrage ist auf diesem Gerät jetzt für 30 Minuten gesperrt.");
+    throw new HttpError(403, "wrong_credentials", "Das Passwort ist falsch. Noch " + r.left + " Versuch" + (r.left === 1 ? "" : "e") + ", dann wird dieses Gerät für 30 Minuten gesperrt.", { left: r.left });
+  }
+  await clearFails(c.db, devKey);
+  return true;
+}
+export async function routeTeacherVerify(c) {
+  await requireTeacher(c);
+  const body = await readJson(c.request, 2000);
+  await checkTeacherPassword(c, body.authKey);
+  return json({ ok: true });
+}
+
 export async function requireTeacher(c) {
   const tok = bearer(c.request);
   if (!tok || tok.length > 100) throw new HttpError(401, "unauthorized", "Bitte melden Sie sich an.");

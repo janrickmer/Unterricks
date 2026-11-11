@@ -1,5 +1,5 @@
 // teacher.js – Lehrkräfteansicht: Anmeldung/Einrichtung, Fach- und Klassenauswahl, Sitzungslisten, Einstellungen.
-import { h, clear, store, deviceId, api, toast, errToast, busy, modal, confirmDialog, copyText, fmtDate, fmtTime, topbar, nn, pageHead, setFach, icon } from "./ui.js";
+import { h, clear, store, deviceId, api, toast, errToast, busy, modal, confirmDialog, copyText, fmtDate, fmtTime, topbar, nn, pageHead, setFach, icon, downloadBlob, fmtBytes, stateLine } from "./ui.js";
 import { render, go, onLeave } from "./app.js";
 import { SUBJECTS, subjectName, gradeInfo, isValidClass, isValidSubject, formatCode, fmtDay, classGroupsFor, classAllowed, classShort, gradeKey, isAnalogClass, ANALOG_RULE,
   COURSE_GRADES, courseKey, isCourseClass, courseMembers } from "./shared.js";
@@ -450,7 +450,133 @@ async function settingsPage() {
   try { [ai, mcp, me, sp] = await Promise.all([tapi("GET", "/api/teacher/ai"), tapi("GET", "/api/teacher/mcp"), tapi("GET", "/api/teacher/me"), tapi("GET", "/api/teacher/student-settings"), config()]); }
   catch (e) { clear(main).append(h("p", { class: "err", text: e.message })); return; }
   clear(main).append(pageHead({ title: "Einstellungen" }));
-  main.append(aiSection(ai), connectorSection(mcp), studentSection(sp), accountSection(me), fbSection());
+  main.append(aiSection(ai), connectorSection(mcp), studentSection(sp), accountSection(me), fbSection(), resetSection());
+}
+
+/* ---------- Unterricks zurücksetzen (Einstellungen, ganz unten) ----------
+ * Erst das Passwort (geprüft vom Server, Sperren wie bei der Anmeldung), dann das Angebot einer Sicherung (ZIP: Fach / Einheit / Sitzungen,
+ * backup.js), eine letzte Bestätigung und das Löschen (worker/reset.js: Datenbank in einem Schritt, Dateien in Runden). */
+export const RESET_LABEL = "Alle Unterrichtsinhalte löschen und Unterricks zurücksetzen";
+const DELETED_TEXT = "Gelöscht werden alle Unterrichtseinheiten und Unterrichtssitzungen mit allem, was dazugehört: Rahmendaten, Leupold-Schema und Ablauf, Planung der Sitzungen, " +
+  "Materialien, Präsentationen, Planungsverläufe, Schulportal-Einträge, Hausaufgaben, Drucklisten, Verknüpfungen und Entwürfe von Feibeitsblättern, Vertretungspläne und die Freischaltungen der Schüler:innen.";
+const KEPT_TEXT = "Es bleiben: Ihr Zugang und Ihr Passwort, die Planungsgrundlagen, die Fach-Einstellungen mit den Kursen, die KI-Einstellungen, der Claude-Connector, die Feibeitsblatt-Verbindung, " +
+  "das Schülerpasswort und die angemeldeten Schülergeräte. Die Feibeitsblätter selbst und die Abgaben darin bleiben im Feibeitsblatt.";
+function resetSection() {
+  const status = h("p", { class: "small", role: "status" });
+  const btn = h("button", { class: "btn danger", type: "button", onclick: () => startReset(btn, status) }, RESET_LABEL);
+  // ein unterbrochenes Zurücksetzen (Seite geschlossen): die restlichen Dateien jetzt löschen
+  tapi("GET", "/api/teacher/reset").then((r) => { if (r.pending) finishCleanup(status, r.pending); }).catch(() => {});
+  return h("section", { class: "card dangerzone", id: "resetcard" }, h("h2", { text: "Unterricks zurücksetzen" }),
+    h("p", { class: "small", text: DELETED_TEXT }), h("p", { class: "small", text: KEPT_TEXT }),
+    h("p", { class: "small", text: "Vor dem Löschen fragt Unterricks Ihr Passwort ab und bietet eine Sicherung als ZIP-Datei an: je Fach die Unterrichtseinheiten, darin die Einheitsdatei und die Sitzungen (chronologisch nummeriert) als Sitzungsdateien – zum Wiederverwenden über „Einheit aus Datei laden“ bzw. „Sitzung aus Datei laden“." }),
+    h("div", { class: "row" }, btn), status);
+}
+/* Passwort abfragen und prüfen → authKey (oder null) */
+function askResetPassword(info) {
+  return new Promise((resolve) => {
+    let done = false;
+    const pw = h("input", { id: "rs-pw", type: "password", autocomplete: "current-password" }), msg = h("p", { class: "err", role: "alert" });
+    modal({ title: "Zurücksetzen: Passwort bestätigen", onClose: () => { if (!done) resolve(null); },
+      body: (el) => el.append(h("p", { class: "small", text: "Gelöscht werden " + info.units + " Unterrichtseinheit" + (info.units === 1 ? "" : "en") + " und " + info.lessons + " Sitzung" + (info.lessons === 1 ? "" : "en") +
+          (info.files ? " mit " + info.files + " Materialien und Dateien" + (info.bytes ? " (" + fmtBytes(info.bytes) + ")" : "") : "") + ". Bitte bestätigen Sie mit Ihrem Unterricks-Passwort – danach können Sie vor dem Löschen noch eine Sicherung herunterladen." }),
+        h("div", { class: "field" }, h("label", { for: "rs-pw" }, "Unterricks-Passwort"), pw), msg),
+      actions: [{ label: "Abbrechen", onClick: () => { done = true; resolve(null); } },
+        { label: "Weiter", class: "primary", onClick: async (e) => {
+          msg.textContent = "";
+          const b = e.currentTarget; b.disabled = true;
+          try {
+            const me = await tapi("GET", "/api/teacher/me");
+            const s = await api("POST", "/api/teacher/salt", { body: { username: me.username } });
+            const d = await deriveLogin(pw.value, s.salt, s.iterations);
+            await tapi("POST", "/api/teacher/verify-password", { body: { authKey: d.authKey } });
+            done = true; resolve(d.authKey);
+          } catch (err) { msg.textContent = err.message; b.disabled = false; return false; }
+        } }] });
+    pw.addEventListener("keydown", (e) => { if (e.key === "Enter") { e.preventDefault(); const p = pw.closest(".modal"); const b = p && p.querySelector("footer .btn.primary"); if (b && !b.disabled) b.click(); } });
+  });
+}
+/* Sicherung ja/nein → "backup" | "skip" | null */
+function askBackup() {
+  return new Promise((resolve) => {
+    let done = false;
+    const pick = (v) => () => { done = true; resolve(v); };
+    modal({ title: "Vorher eine Sicherung herunterladen?", wide: true, onClose: () => { if (!done) resolve(null); },
+      body: (el) => el.append(
+        h("p", { class: "small", text: "Die Sicherung ist eine ZIP-Datei mit allen Unterrichtsinhalten. Aufbau: 1. Ebene die Fächer, 2. Ebene die Unterrichtseinheiten (mit der Einheitsdatei), 3. Ebene die Sitzungen – chronologisch nummeriert, jede als Sitzungsdatei. So lassen sich Einheiten und Sitzungen später wieder in Unterricks laden." }),
+        h("p", { class: "small", text: "Je nach Menge der Präsentationen und Materialien kann die Datei groß werden und das Zusammenstellen einige Minuten dauern. Die Inhalte der Feibeitsblätter kommen als Entwürfe mit, wenn Unterricks mit Feibeitsblatt verbunden ist; sonst nur ihre Codes." })),
+      actions: [{ label: "Abbrechen", onClick: pick(null) }, { label: "Ohne Sicherung fortfahren", class: "danger", onClick: pick("skip") }, { label: "Sicherung herunterladen", class: "primary", onClick: pick("backup") }] });
+  });
+}
+/* Sicherung erstellen und herunterladen (Fortschritt im Dialog, abbrechbar) → Zusammenfassung oder null */
+async function runBackup() {
+  let stop = false, closed = false;
+  const status = h("p", { role: "status", text: "Bereite vor …" }), bar = h("i");
+  const dlg = modal({ title: "Sicherung wird erstellt", onClose: () => { closed = true; stop = true; },
+    body: (el) => el.append(status, h("div", { class: "progress" }, bar), h("p", { class: "hint", text: "Bitte lassen Sie diese Seite geöffnet. Gelöscht wird erst nach Ihrer Bestätigung." })),
+    actions: [{ label: "Abbrechen", onClick: () => { stop = true; } }] });
+  try {
+    const B = await import("./backup.js");
+    const r = await B.buildBackup({ onStep: (m) => { status.textContent = m; }, onProgress: (d, n) => { bar.style.width = (n ? Math.round((d / n) * 100) : 100) + "%"; }, cancelled: () => stop });
+    if (!closed) dlg.close();
+    downloadBlob(r.blob, r.name, 30 * 60e3);
+    return { ...r, size: r.blob.size };
+  } catch (e) {
+    if (!closed) dlg.close();
+    if (!(e && e.cancelled)) toast("Die Sicherung ließ sich nicht erstellen: " + (e && e.message ? e.message : e) + " Es wurde nichts gelöscht.", "err", 12000);
+    else toast("Sicherung abgebrochen – es wurde nichts gelöscht.", "", 6000);
+    return null;
+  }
+}
+/* letzte Bestätigung (mit Ergebnis der Sicherung) */
+function confirmReset(info, backup) {
+  return new Promise((resolve) => {
+    let done = false;
+    const list = (title, xs) => (xs.length ? [h("h3", { text: title }), h("ul", { class: "small" }, xs.slice(0, 15).map((x) => h("li", { text: x })), xs.length > 15 ? h("li", { text: "… und " + (xs.length - 15) + " weitere" }) : null)] : []);
+    modal({ title: backup ? "Sicherung heruntergeladen – jetzt löschen?" : "Ohne Sicherung endgültig löschen?", wide: true, onClose: () => { if (!done) resolve(false); },
+      body: (el) => el.append(...nn(
+        backup ? h("p", null, "Die Sicherung „", h("strong", { text: backup.name }), "“ (" + fmtBytes(backup.size) + ", " + backup.counts.units + " Einheiten, " + backup.counts.lessons + " Sitzungen) wird heruntergeladen. Bitte prüfen Sie im Download-Ordner, ob sie vollständig gespeichert ist, bevor Sie löschen.")
+          : h("p", { class: "err", text: "Ohne Sicherung lassen sich die Unterrichtsinhalte danach nicht wiederherstellen." }),
+        ...(backup ? list("Diese Dateien fehlen in der Sicherung – sie gingen beim Löschen verloren", backup.missing) : []),
+        ...(backup ? list("Hinweise zur Sicherung", backup.notes) : []),
+        h("p", { class: "small", text: DELETED_TEXT }),
+        h("p", { class: "small", text: "Endgültig gelöscht werden " + info.units + " Unterrichtseinheit" + (info.units === 1 ? "" : "en") + " und " + info.lessons + " Sitzung" + (info.lessons === 1 ? "" : "en") + ". Das lässt sich nicht rückgängig machen." }))),
+      actions: [{ label: "Abbrechen – nichts löschen", onClick: () => { done = true; resolve(false); } }, { label: "Jetzt endgültig löschen", class: "danger", onClick: () => { done = true; resolve(true); } }] });
+  });
+}
+async function startReset(btn, status) {
+  if (btn.disabled) return;
+  let info;
+  try { info = await tapi("GET", "/api/teacher/reset"); } catch (e) { errToast(e); return; }
+  if (!info.units && !info.lessons) { toast("Es gibt keine Unterrichtseinheiten und Sitzungen – nichts zu löschen.", "", 6000); if (info.pending) finishCleanup(status, info.pending); return; }
+  const authKey = await askResetPassword(info);
+  if (!authKey) return;
+  const choice = await askBackup();
+  if (!choice) return;
+  let backup = null;
+  if (choice === "backup") { backup = await runBackup(); if (!backup) return; }
+  if (!(await confirmReset(info, backup))) return;
+  await busy(btn, async () => {
+    try {
+      stateLine(status, "Lösche die Unterrichtsinhalte …");
+      const r = await tapi("POST", "/api/teacher/reset", { body: { authKey } });
+      store.del("u.nfFails");
+      try { const B = await import("./backup.js"); await B.clearAllPending(); } catch {}
+      if (r.pending) await finishCleanup(status, r.pending);
+      else stateLine(status, "Alle Unterrichtsinhalte sind gelöscht.", "ok");
+      toast("Unterricks wurde zurückgesetzt: " + r.deleted.units + " Einheiten und " + r.deleted.lessons + " Sitzungen gelöscht.", "ok", 9000);
+    } catch (e) { stateLine(status, ""); errToast(e); }
+  }, "Lösche …");
+}
+/* restliche Dateien gelöschter Sitzungen löschen (in Runden) */
+async function finishCleanup(status, pending) {
+  const total = pending;
+  for (let i = 0; i < 400 && pending > 0; i++) {
+    stateLine(status, "Lösche die Dateien der gelöschten Sitzungen … (" + (total - pending) + " von " + total + ")");
+    try { pending = (await tapi("POST", "/api/teacher/reset/cleanup")).pending; }
+    catch (e) { stateLine(status, "Die Dateien ließen sich noch nicht alle löschen (" + e.message + ") – beim nächsten Öffnen der Einstellungen geht es weiter.", "err"); return; }
+  }
+  if (pending > 0) stateLine(status, "Es sind noch Dateien zu löschen – beim nächsten Öffnen der Einstellungen geht es weiter.", "err");
+  else stateLine(status, "Alle Unterrichtsinhalte sind gelöscht.", "ok");
 }
 
 function providerOptions(providers, selected) {

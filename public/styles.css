@@ -375,6 +375,10 @@ main.narrow .homework { background: var(--gelb-t); border-color: color-mix(in sr
 .drop strong { display: block; margin-bottom: .2rem; }
 .progress { height: 8px; border-radius: 99px; background: var(--surface-2); overflow: hidden; }
 .progress > i { display: block; height: 100%; width: 0; background: var(--fach); transition: width .2s var(--ease); }
+/* Einstellungen → Unterricks zurücksetzen: deutlich abgesetzt (Rand und Kopf in Rot) */
+.card.dangerzone { border-color: color-mix(in srgb, var(--rot) 45%, var(--line)); box-shadow: inset 4px 0 0 var(--rot), var(--shadow); }
+.card.dangerzone h2 { color: var(--err); }
+.modal .progress { margin: .6rem 0; }
 .thumbs { display: flex; flex-wrap: wrap; gap: .5rem; padding: .3rem 0 .5rem; max-height: 21rem; overflow-y: auto; }
 .thumbs img { height: 74px; border-radius: 8px; border: 1px solid var(--line); background: #fff; flex: 0 0 auto; display: block; }
 /* Folien: letzte gezeigte Folie markiert, Folien danach blass (für Schüler:innen nicht freigegeben) */

@@ -37,6 +37,8 @@ export const SCHEMA = [
   "CREATE INDEX IF NOT EXISTS units_sk ON units(subject, klass, created_at)",
   // Krankheitsvertretung: Vorschlag (von Claude über den Connector), nach Bestätigung aktiv; archive = ursprüngliche Planung
   "CREATE TABLE IF NOT EXISTS substitutes (lesson_id TEXT PRIMARY KEY, status TEXT NOT NULL, proposal TEXT NOT NULL, archive TEXT, created_at INTEGER NOT NULL, updated_at INTEGER NOT NULL, confirmed_at INTEGER)",
+  // Zurücksetzen (reset.js): Kennungen gelöschter Sitzungen, deren Dateien in R2 und Live-Zustand noch zu löschen sind
+  "CREATE TABLE IF NOT EXISTS reset_queue (lesson_id TEXT PRIMARY KEY, queued_at INTEGER NOT NULL)",
 ];
 
 // Nachträglich ergänzte Spalten (bestehende Datenbanken bekommen sie per ALTER TABLE, nur additiv)

@@ -1,0 +1,117 @@
+// sessionio.js – Unterrickssitzung als Datei zusammenstellen und in eine Sitzung übernehmen, ohne dass deren Seite offen sein muss:
+// für die Sitzungsseite („Sitzung als Datei“), die Einheit als Datei und die große Sicherung (backup.js). Format: sessionfile.js.
+import { apiUrl, upload } from "./ui.js";
+import { T, tapi } from "./teacher.js";
+import { formatCode } from "./shared.js";
+import { SESSION_FILE, sessionFileName, sheetToDraft, cleanSessionFile, adaptDates } from "./sessionfile.js";
+import { makeZip, readZip } from "./zip.js";
+
+const te = new TextEncoder();
+export const safeName = (n) => String(n || "Datei").replace(/[\\/:*?"<>|\u0000-\u001f]+/g, " ").replace(/\s+/g, " ").trim().slice(0, 120) || "Datei";
+
+/* Bytes einer Datei (kind "file") über einen kurz gültigen, signierten Link */
+export async function fetchFileBytes(f) {
+  const r = await tapi("POST", "/api/teacher/files/" + f.id + "/link", { body: {} });
+  const res = await fetch(apiUrl(r.url), { credentials: "omit", cache: "no-store" });
+  if (!res.ok) throw new Error("„" + f.name + "“ ließ sich nicht laden (Fehler " + res.status + ").");
+  return new Uint8Array(await res.arrayBuffer());
+}
+
+/* detail = Antwort von GET /api/teacher/lessons/:id; homework/portal: Stand der offenen Seite (sonst der gespeicherte).
+   skipBroken: eine Datei, die sich nicht laden lässt, fehlt dann (missing) statt abzubrechen – für die große Sicherung.
+   → {name, bytes (ZIP), files, notes, missing} */
+export async function buildSessionZip(detail, { fb = T.fb, onStep = () => {}, homework, portal, skipBroken = false } = {}) {
+  const L = detail.lesson, unit = detail.unit || null;
+  const rows = unit ? unit.rows || [] : [], idx = rows.findIndex((r) => r.uid === L.unitRow);
+  const entries = [], files = [], drafts = [], notes = [], missing = [];
+  let k = 0;
+  for (const f of detail.files || []) {
+    if (f.area === "archive" || f.source === "notfall" || f.status !== "ready") continue;   // Notfall-Feibeitsblätter entstehen neu
+    const base = { area: f.area, kind: f.kind, name: f.name, mime: f.mime, ...(f.print ? { print: f.print } : {}) };
+    if (f.kind === "text") files.push({ ...base, text: f.text || "" });
+    else if (f.kind === "link") files.push({ ...base, url: f.url });
+    else {
+      onStep("Lade „" + f.name + "“ …");
+      let data;
+      try { data = await fetchFileBytes(f); }
+      catch (e) { if (!skipBroken) throw e; missing.push("„" + f.name + "“: " + e.message); continue; }
+      const path = "dateien/" + (++k) + " - " + safeName(f.name);
+      entries.push({ name: path, data }); files.push({ ...base, path });
+    }
+  }
+  for (const d of detail.drafts || []) if (d.status === "draft" && d.data) drafts.push(d.data);
+  const sheets = [];
+  for (const s of detail.sheets || []) {
+    if (s.kind === "escape") continue;
+    sheets.push({ code: s.code, title: s.title });
+    if (!fb || !fb.connected) { notes.push("Feibeitsblatt „" + s.title + "“ (" + formatCode(s.code) + "): nur der Code – ohne Verbindung zum Feibeitsblatt ließ sich der Inhalt nicht mitnehmen."); continue; }
+    try { onStep("Lade das Feibeitsblatt „" + s.title + "“ …"); const c = sheetToDraft((await fb.getSheet(s.code)).sheet); if (c.draft) drafts.push(c.draft); notes.push(...c.notes.map((x) => "„" + s.title + "“: " + x)); }
+    catch (e) { notes.push("Feibeitsblatt „" + s.title + "“ (" + formatCode(s.code) + "): Inhalt nicht geladen – " + e.message); }
+  }
+  const data = { kind: SESSION_FILE.kind, v: SESSION_FILE.v, exportedAt: Date.now(),
+    source: { subject: L.subject, klass: L.klass, unitTitle: unit ? unit.title || "" : "", sessionNo: idx >= 0 ? idx + 1 : null, date: L.date, nextDate: L.nextDate || null,
+      startTime: L.startTime || null, durationMin: L.durationMin || null, title: L.title },
+    lesson: { title: L.title, topic: L.topic, ideas: L.ideas || "", homework: homework !== undefined ? homework : L.homework || "", portal: portal !== undefined ? portal : L.portal || "" },
+    chat: (detail.messages || []).filter((m) => (m.role === "user" || m.role === "assistant") && m.model !== "begruessung").map((m) => ({ role: m.role, content: m.content, model: m.model || null, mode: m.mode || null })),
+    files, drafts, sheets, notes };
+  entries.unshift({ name: SESSION_FILE.json, data: te.encode(JSON.stringify(data, null, 1)) });
+  const name = sessionFileName({ subject: L.subject, klass: L.klass, unitTitle: data.source.unitTitle, sessionNo: data.source.sessionNo });
+  return { name, bytes: makeZip(entries), files: files.length, notes, missing };
+}
+
+/* Sitzungsdatei lesen → {data (geprüft), byPath}; sitzung.json liegt oben in der Datei */
+export async function readSessionZip(bytes) {
+  let entries;
+  try { entries = await readZip(bytes instanceof Uint8Array ? bytes : new Uint8Array(bytes)); } catch { throw new Error("Diese Datei ist keine Unterrickssitzung (keine ZIP-Datei)."); }
+  const j = entries.find((x) => x.name === SESSION_FILE.json);
+  if (!j) throw new Error("In dieser Datei steckt keine Unterrickssitzung.");
+  let raw; try { raw = JSON.parse(new TextDecoder().decode(j.data)); } catch { throw new Error("Die Unterrickssitzung in dieser Datei ist beschädigt."); }
+  return { data: cleanSessionFile(raw), byPath: new Map(entries.map((x) => [x.name, x.data])) };
+}
+
+/* Was in die Zielsitzung kommt: Datumsangaben der Texte auf deren Datum und nächste Sitzung angepasst (target = lesson mit date, nextDate) */
+export function planSessionImport(data, target) {
+  const src = data.source;
+  const pairs = [[src.date, target.date], [src.nextDate, target.nextDate]].filter(([a, b]) => a && b && a !== b);
+  const replaced = [], unknown = [];
+  const fix = (t, where) => { const r = adaptDates(t, pairs); replaced.push(...r.replaced); unknown.push(...r.unknown.map((u) => where + ": „" + u + "“")); return r.text; };
+  const lesson = { title: data.lesson.title, topic: data.lesson.topic, ideas: fix(data.lesson.ideas, "Ideen und Wünsche"), homework: fix(data.lesson.homework, "Hausaufgabe"), portal: fix(data.lesson.portal, "Schulportal-Eintrag") };
+  const texts = [], links = [], prints = [], bins = [];
+  for (const f of data.files) {
+    if (f.kind === "link") links.push({ area: f.area, title: f.name, url: f.url });
+    else if (f.kind === "text" && f.area === "print") prints.push({ title: f.name, text: fix(f.text, "„" + f.name + "“"), ...f.print });
+    else if (f.kind === "text") texts.push({ area: f.area, title: f.name, text: fix(f.text, "„" + f.name + "“") });
+    else bins.push(f);
+  }
+  return { lesson, texts, links, prints, bins, pres: bins.find((f) => f.area === "presentation") || null, pairs, replaced, unknown };
+}
+
+/* Präsentation in eine Sitzung hochladen und in Folienbilder umwandeln (ohne Sitzungsseite) */
+export async function uploadPresentationTo(lessonId, file, { code, exclude = [], onProgress } = {}) {
+  const r = await upload("/api/teacher/lessons/" + lessonId + "/presentation?name=" + encodeURIComponent(file.name), file, T.token, null, "application/pdf");
+  const { rasterizeAndUpload } = await import("./presenter.js");
+  return rasterizeAndUpload(file, r.file.id, T.token, onProgress, { code, exclude });
+}
+
+/* In die Sitzung lessonId übernehmen: Texte, Chat, Links, Druck-Texte, Entwürfe in einem Aufruf, danach jede Datei einzeln.
+   uploadPres(file, sheetCodes) = eigene Übernahme der Präsentation (Sitzungsseite); sonst uploadPresentationTo mit target.code.
+   → {missing} (Dateien, die fehlen oder sich nicht hochladen ließen) */
+export async function applySessionImport(lessonId, plan, data, byPath, { onStep = () => {}, uploadPres = null, target = null } = {}) {
+  onStep("Übernehme Planung, Texte und Entwürfe …");
+  await tapi("POST", "/api/teacher/lessons/" + lessonId + "/import", { body: { lesson: plan.lesson, chat: data.chat, texts: plan.texts, links: plan.links, prints: plan.prints, drafts: data.drafts } });
+  const missing = [], sheetCodes = data.sheets.map((s) => s.code);
+  for (const f of plan.bins) {
+    const bytes = byPath.get(f.path);
+    if (!bytes) { missing.push(f.name); continue; }
+    onStep("Lade „" + f.name + "“ hoch …");
+    try {
+      if (f.area === "presentation") {
+        const file = new File([bytes], f.name, { type: "application/pdf" });
+        if (uploadPres) await uploadPres(file, sheetCodes);
+        else await uploadPresentationTo(lessonId, file, { code: target && target.code, exclude: sheetCodes, onProgress: (i, n) => onStep("„" + f.name + "“: Folie " + i + " von " + n + " …") });
+      } else if (f.area === "print") await upload("/api/teacher/lessons/" + lessonId + "/print?name=" + encodeURIComponent(f.name) + "&copies=" + f.print.copies + "&duplex=" + (f.print.duplex ? 1 : 0) + "&color=" + (f.print.color ? 1 : 0) + "&source=uebernommen", new Blob([bytes], { type: "application/pdf" }), T.token, null, "application/pdf");
+      else await upload("/api/teacher/lessons/" + lessonId + "/files?area=" + f.area + "&name=" + encodeURIComponent(f.name) + "&source=uebernommen", new Blob([bytes], { type: f.mime || "application/octet-stream" }), T.token, null, f.mime || "application/octet-stream");
+    } catch (e) { missing.push(f.name + " (" + e.message + ")"); }
+  }
+  return { missing };
+}

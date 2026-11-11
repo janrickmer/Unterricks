@@ -1,6 +1,6 @@
 // units.js – Seite einer Unterrichtseinheit: Rahmendaten → Termine, Planungsgrundlagen, Planung mit Claude, Leupold-Schema, Ablauf-Tabelle,
 // Sitzungen anlegen. Außerdem: Darstellung des Leupold-Schemas (auch in der Sitzungsansicht, aktuelle Stunde fett).
-import { h, clear, toast, errToast, busy, confirmDialog, fmtTime, nn, icon, pageHead } from "./ui.js";
+import { h, clear, toast, errToast, busy, confirmDialog, fmtTime, nn, icon, pageHead, modal, stateLine, downloadBlob, fmtBytes } from "./ui.js";
 import { render, go, onLeave } from "./app.js";
 import { T, tapi, teacherBar } from "./teacher.js";
 import { subjectName, gradeInfo, classShort, fmtDay, isAnalogClass } from "./shared.js";
@@ -30,6 +30,13 @@ export async function unitPage(id) {
   catch (e) { clear(main).append(h("div", { class: "card" }, h("p", { class: "err", text: e.message }), h("a", { class: "btn", href: "#/lk" }, "Zur Übersicht"))); return; }
   let rows = u.rows.map((r) => ({ ...r })), plan = JSON.parse(JSON.stringify(u.plan || {}));
   let dirty = false;
+  // gesicherte Sitzungen aus „Einheit aus Datei laden“, bis die Sitzungen angelegt sind (backup.js, IndexedDB dieses Geräts)
+  let pend = null, filling = false;
+  const pendFor = (uid) => !!(pend && pend.rows && pend.rows[uid]);
+  const pendOpen = () => (pend ? u.lessons.filter((l) => pendFor(l.row)) : []);
+  import("./backup.js").then((B) => B.loadPending(id)).then((p) => { if (p && Object.keys(p.rows || {}).length) { pend = p; paint(); } }).catch(() => {});
+  const unitInput = h("input", { type: "file", class: "hidden", accept: ".zip,.json,application/zip,application/json", "aria-label": "Gesicherte Unterrichtseinheit (ZIP- oder JSON-Datei) auswählen" });
+  unitInput.addEventListener("change", () => { const f = unitInput.files[0]; unitInput.value = ""; if (f) importUnit(f); });
   const markDirty = () => { dirty = true; saveState.textContent = "Ungespeicherte Änderungen"; };
 
   const paint = () => {
@@ -37,7 +44,7 @@ export async function unitPage(id) {
     main.append(pageHead({ fach: u.subject, crumbs: [["#/lk", "Fächer"], ["#/lk/f/" + u.subject, subjectName(u.subject)], ["#/lk/f/" + u.subject + "/" + u.klass, classShort(u.klass)], u.title || "Neue Einheit"],
         title: u.title || "Neue Unterrichtseinheit", aside: h("span", { class: "badge " + (u.status === "geplant" ? "ok" : ""), text: u.status === "geplant" ? "festgelegt · Sitzungen angelegt" : "Entwurf" }),
         sub: subjectName(u.subject) + " · " + classShort(u.klass) + " · " + gradeInfo(u.klass).text }),
-      paramsCard(), basisCard(), claudeCard(), schemaCard(), tableCard(), finishCard());
+      paramsCard(), basisCard(), claudeCard(), schemaCard(), tableCard(), finishCard(), ioCard());
   };
 
   /* 1) Rahmendaten */
@@ -114,6 +121,8 @@ export async function unitPage(id) {
     return h("section", { class: "card claudeplan" }, h("div", { class: "section-title" }, h("h2", { text: "3. Planung mit Claude" }), h("span", { class: "badge", text: "Hauptweg" })),
       h("p", { class: "small", text: "Die Planung der Einheit übernimmt Claude mit Ihrem Pro-Abo in claude.ai. Claude liest die Planungsgrundlagen über den Connector, stimmt Planungsgrundlage und Lernaufgabe mit Ihnen ab und speichert Leupold-Schema und Ablauf direkt hier." }),
       ls.length ? null : h("p", { class: "warnc small", text: "Bitte zuerst die Rahmendaten eintragen und Termine berechnen." }), btn,
+      u.lessons.length ? null : h("p", { class: "small" }, "Schon einmal geplant? ", h("button", { class: "btn small", type: "button", onclick: () => unitInput.click() }, icon("up"), "Gesicherte Einheit laden"),
+        " – Leupold-Schema, Ablauf und Sitzungen aus einer Datei übernehmen (siehe „Einheit als Datei“ unten)."),
       u.source === "claude" ? h("p", { class: "ok small", text: "Zuletzt von Claude gespeichert: " + fmtTime(u.updatedAt) }) : null);
   }
 
@@ -161,6 +170,7 @@ export async function unitPage(id) {
           h("td", { "data-label": "Lernschritt", role: "cell" }, h("select", { "aria-label": "Lernschritt " + (i + 1), onchange: (e) => { r.schritt = e.target.value === "" ? null : Number(e.target.value); markDirty(); } },
             h("option", { value: "" }, "–"), steps.map((s, k) => h("option", { value: k, selected: r.schritt === k ? true : null }, (k + 1) + ". " + (s.titel || "").slice(0, 40))))),
           h("td", { class: "small", "data-label": "Sitzung", role: "cell" }, l ? h("a", { class: "btn small", href: "#/lk/s/" + l.id }, "Sitzung öffnen") : h("span", { class: "muted", text: "noch keine Sitzung" }),
+            pendFor(r.uid) ? h("div", null, h("span", { class: "badge", title: "Den Inhalt bekommt die Sitzung beim Anlegen (aus der geladenen Datei)", text: l ? "Inhalt aus Datei steht aus" : "Inhalt aus Datei" })) : null,
             h("div", { class: "row", style: { marginTop: ".3rem" } },
               h("button", { class: "btn small ghost iconbtn", type: "button", "aria-label": "Stunde " + (i + 1) + " nach oben", disabled: i === 0 ? true : null, onclick: () => { rows.splice(i - 1, 0, rows.splice(i, 1)[0]); markDirty(); paintRows(); } }, icon("up")),
               h("button", { class: "btn small ghost iconbtn", type: "button", "aria-label": "Stunde " + (i + 1) + " nach unten", disabled: i === rows.length - 1 ? true : null, onclick: () => { rows.splice(i + 1, 0, rows.splice(i, 1)[0]); markDirty(); paintRows(); } }, icon("down")),
@@ -189,19 +199,121 @@ export async function unitPage(id) {
 
   /* 6) Festlegen und Sitzungen anlegen */
   function finishCard() {
-    const open = rows.filter((r) => !u.lessons.some((l) => l.row === r.uid)).length;
+    const open = rows.filter((r) => !u.lessons.some((l) => l.row === r.uid)).length, waiting = pendOpen().length;
+    const fromFile = rows.filter((r) => !u.lessons.some((l) => l.row === r.uid) && pendFor(r.uid)).length;
     return h("section", { class: "card" }, h("h2", { text: "6. Einheit festlegen und Sitzungen anlegen" }),
-      h("p", { class: "small", text: open ? "Legt für " + open + " Stunde(n) eine Sitzung mit Datum und Dauer an. Erst danach beginnt die Planung der einzelnen Stunden; die Stundenfrage wird zum Titel der Sitzung." : "Zu allen Stunden gibt es eine Sitzung." }),
+      h("p", { class: "small", text: open ? "Legt für " + open + " Stunde(n) eine Sitzung mit Datum und Dauer an. Erst danach beginnt die Planung der einzelnen Stunden; die Stundenfrage wird zum Titel der Sitzung." +
+        (fromFile ? " " + fromFile + " davon bekommen gleich ihren Inhalt aus der geladenen Datei (Materialien, Präsentation, Planungsverlauf, Hausaufgabe – Datumsangaben angepasst)." : "") : "Zu allen Stunden gibt es eine Sitzung." }),
       h("div", { class: "row" },
-        h("button", { class: "btn primary", type: "button", disabled: open ? null : true, onclick: (e) => busy(e.currentTarget, async () => {
+        h("button", { class: "btn primary", type: "button", disabled: open && !filling ? null : true, onclick: (e) => busy(e.currentTarget, async () => {
           if (dirty) await save(false);
-          try { const r = await tapi("POST", "/api/teacher/units/" + id + "/sessions"); u = r.unit; rows = u.rows.map((x) => ({ ...x })); toast(r.created + " Sitzung(en) angelegt.", "ok"); paint(); }
-          catch (err) { errToast(err); }
+          let r;
+          try { r = await tapi("POST", "/api/teacher/units/" + id + "/sessions"); u = r.unit; rows = u.rows.map((x) => ({ ...x })); toast(r.created + " Sitzung(en) angelegt.", "ok"); paint(); }
+          catch (err) { errToast(err); return; }
+          if (pendOpen().length) await fillSessions();
         }) }, "Einheit festlegen und Sitzungen anlegen"),
+        waiting && !open ? h("button", { class: "btn", type: "button", disabled: filling ? true : null, onclick: () => fillSessions() }, "Gesicherte Inhalte in " + waiting + " Sitzung" + (waiting === 1 ? "" : "en") + " übernehmen") : null,
         u.lessons.length ? null : h("button", { class: "btn danger", type: "button", onclick: async () => {
           if (!(await confirmDialog("Einheit löschen", "Diese Einheit mit Plan und Tabelle löschen?", "Löschen", true))) return;
           try { await tapi("DELETE", "/api/teacher/units/" + id); go("#/lk/f/" + u.subject + "/" + u.klass); } catch (e) { errToast(e); }
         } }, "Einheit löschen")));
+  }
+
+  /* 7) Einheit als Datei: herunterladen (Einheit + Sitzungen) und in eine Einheit ohne Sitzungen laden */
+  function ioCard() {
+    const state = h("span", { class: "save-state", role: "status" }), locked = u.lessons.length > 0;
+    const dl = h("button", { class: "btn", type: "button", onclick: (e) => busy(e.currentTarget, () => exportUnit(state), "Stelle die Datei zusammen …") }, icon("download"), "Einheit als Datei herunterladen");
+    const ld = h("button", { class: "btn", type: "button", disabled: locked || filling ? true : null, "aria-describedby": "uio-hint", onclick: () => unitInput.click() }, icon("up"), "Einheit aus Datei laden");
+    return h("section", { class: "card sessionio unitio", id: "unitio" }, h("div", { class: "section-title" }, h("h2", { text: "Einheit als Datei" }), state),
+      h("p", { class: "small", text: "Eine Datei mit der ganzen Einheit: Leupold-Schema und Ablauf und – je Sitzung ein Ordner, chronologisch nummeriert – die Sitzungsdateien mit Planung, Schulportal-Eintrag, Hausaufgabe, Planungsverlauf, Materialien, Präsentation, Druckliste und Feibeitsblättern (als Entwürfe). So lässt sich eine Einheit in einer anderen Lerngruppe oder im nächsten Schuljahr wiederverwenden und leicht abändern." }),
+      h("div", { class: "row" }, dl, ld, unitInput),
+      h("p", { class: "hint", id: "uio-hint", text: locked
+        ? "Laden geht nur in eine Einheit, zu der es noch keine Sitzungen gibt – legen Sie dafür auf der Seite der Klasse eine neue Einheit an („Neue Unterrichtseinheit planen“)."
+        : "Beim Laden bleiben die Rahmendaten dieser Einheit, die Termine verteilt Unterricks neu. Die gesicherten Sitzungen warten auf diesem Gerät, bis Sie „Einheit festlegen und Sitzungen anlegen“ wählen – dann bekommt jede Sitzung ihren Inhalt, mit angepassten Datumsangaben. Geladen werden kann auch nur die Einheitsdatei (.json) aus einer Sicherung." }));
+  }
+  async function exportUnit(state) {
+    if (dirty) {
+      if (!(await confirmDialog("Ungespeicherte Änderungen", "Die Datei enthält den gespeicherten Stand der Einheit. Ihre Änderungen jetzt zuerst speichern?", "Speichern"))) return;
+      await save(false);
+      if (dirty) return;
+    }
+    try {
+      const B = await import("./backup.js"), full = (await tapi("GET", "/api/teacher/units/" + id)).unit;
+      const r = await B.buildUnitZip(full, { onStep: (m) => stateLine(state, m) });
+      downloadBlob(r.blob, r.name, 10 * 60e3);
+      stateLine(state, "Heruntergeladen: " + r.name + " (" + fmtBytes(r.blob.size) + ", " + r.sessions + " Sitzung" + (r.sessions === 1 ? "" : "en") + ")", "ok");
+      if (r.notes.length) toast(r.notes.slice(0, 6).join(" "), "", 9000);
+    } catch (e) { stateLine(state, ""); errToast(e); }
+  }
+  async function importUnit(file) {
+    if (u.lessons.length) { toast("Zu dieser Einheit gibt es schon Sitzungen – bitte eine neue Einheit anlegen und die Datei dort laden.", "err"); return; }
+    let B, r;
+    try { B = await import("./backup.js"); r = await B.readUnitFile(file); } catch (e) { errToast(e); return; }
+    const x = r.unit, n = x.rows.length, withS = r.sessions.filter(Boolean).length, ls = lessonSlots(computeSlots(u.params));
+    const had = rows.length || (plan.lernaufgabe || "").trim() || (plan.schritte || []).length;
+    const warn = [x.source.subject && x.source.subject !== u.subject ? "Die Einheit stammt aus " + subjectName(x.source.subject) + ", diese Einheit gehört zu " + subjectName(u.subject) + "." : null,
+      r.missing ? r.missing + " Sitzungsdatei" + (r.missing === 1 ? " fehlt" : "en fehlen") + " in der ZIP-Datei – diese Sitzungen bleiben leer." : null,
+      !ls.length ? "Für diese Einheit gibt es noch keine Termine: Tragen Sie danach die Rahmendaten ein und wählen Sie „Termine neu verteilen“." : ls.length < n ? "Es gibt nur " + ls.length + " Termine für " + n + " Stunden – die übrigen Stunden bekommen noch kein Datum." : null].filter(Boolean);
+    const ok = await new Promise((resolve) => {
+      let done = false;
+      modal({ title: "Einheit aus Datei laden?", wide: true, onClose: () => { if (!done) resolve(false); }, body: (el) => el.append(
+        h("p", null, "Aus „", h("strong", { text: file.name }), "“: Einheit „" + (x.title || "ohne Titel") + "“" + (x.source.klass ? " (" + classShort(x.source.klass) + ")" : "") + " mit " + n + " Stunde" + (n === 1 ? "" : "n") + "."),
+        h("ul", { class: "small" },
+          h("li", { text: "Titel, Leupold-Schema und Ablauf ersetzen den bisherigen Stand dieser Einheit" + (had ? " – Ihr bisheriger Plan geht dabei verloren." : ".") }),
+          h("li", { text: "Die Rahmendaten dieser Einheit bleiben (" + classShort(u.klass) + "); Unterricks verteilt die Termine neu" + (ls.length ? " (" + ls.length + " Termine verfügbar)." : ".") }),
+          h("li", { text: withS ? withS + " gesicherte Sitzung" + (withS === 1 ? "" : "en") + ": Ihren Inhalt (Planung, Materialien, Präsentation, Planungsverlauf, Hausaufgabe, Feibeitsblatt-Entwürfe) bekommen die Sitzungen beim „Einheit festlegen und Sitzungen anlegen“, Datumsangaben angepasst. Bis dahin liegen die Inhalte nur auf diesem Gerät."
+            : r.fromZip ? "Die Datei enthält keine Sitzungen – nur die Planung der Einheit." : "Nur die Einheitsdatei: die Sitzungen lassen sich später einzeln mit „Sitzung aus Datei laden“ übernehmen." })),
+        ...warn.map((w) => h("div", { class: "notice warn", text: w }))),
+        actions: [{ label: "Abbrechen", onClick: () => { done = true; resolve(false); } }, { label: "Übernehmen", class: "primary", onClick: () => { done = true; resolve(true); } }] });
+    });
+    if (!ok) return;
+    try {
+      const res = await tapi("PATCH", "/api/teacher/units/" + id, { body: { title: x.title || u.title, plan: x.plan, rows: x.rows, assignDates: true, baseVersion: u.version } });
+      u = res.unit; rows = u.rows.map((y) => ({ ...y })); plan = JSON.parse(JSON.stringify(u.plan || {})); dirty = false;
+    } catch (e) {
+      if (e.status === 409) toast("Die Einheit wurde inzwischen an anderer Stelle geändert. Bitte die Seite neu laden und die Datei erneut wählen.", "err");
+      else errToast(e);
+      return;
+    }
+    let note = "";
+    if (withS) {
+      const rec = { unitId: id, file: file.name, at: Date.now(), rows: {} };
+      if (u.rows.length === n) r.sessions.forEach((b, i) => { if (b) rec.rows[u.rows[i].uid] = new Blob([b], { type: "application/zip" }); });
+      if (Object.keys(rec.rows).length) {
+        try { await B.savePending(rec); } catch { note = " Die Sitzungsinhalte ließen sich auf diesem Gerät nicht zwischenspeichern – bitte die Seite nicht neu laden, bevor die Sitzungen angelegt sind."; }
+        pend = rec;
+      }
+    }
+    paint();
+    toast("Einheit „" + (u.title || "ohne Titel") + "“ übernommen." + (pend ? " Die gesicherten Sitzungen bekommen ihren Inhalt beim Anlegen der Sitzungen." : "") + note, note ? "err" : "ok", note ? 12000 : 6000);
+  }
+  /* Gesicherte Inhalte in die angelegten Sitzungen übernehmen (Fortschritt im Dialog; Seite bitte offen lassen) */
+  async function fillSessions() {
+    if (filling || !pend) return;
+    const todo = pendOpen();
+    if (!todo.length) return;
+    filling = true; paint();
+    const status = h("p", { role: "status", text: "Bereite vor …" }), bar = h("i");
+    const dlg = modal({ title: "Inhalte werden übernommen", body: (el) => el.append(status, h("div", { class: "progress" }, bar), h("p", { class: "hint", text: "Bitte lassen Sie diese Seite geöffnet – Präsentationen werden dabei neu in Folien umgewandelt." })) });
+    const guard = (e) => { e.preventDefault(); e.returnValue = ""; };
+    window.addEventListener("beforeunload", guard);
+    let report = null;
+    try {
+      const B = await import("./backup.js");
+      let k = 0;
+      report = await B.applyPending(id, todo, pend, { onStep: (m) => { status.textContent = m; const n = Number((/^Sitzung (\d+) von/.exec(m) || [])[1]); if (n && n !== k) { k = n; bar.style.width = Math.round(((n - 1) / todo.length) * 100) + "%"; } } });
+      pend = await B.loadPending(id);
+    } catch (e) { errToast(e); }
+    finally { window.removeEventListener("beforeunload", guard); filling = false; dlg.close(); }
+    try { u = (await tapi("GET", "/api/teacher/units/" + id)).unit; rows = u.rows.map((y) => ({ ...y })); } catch {}
+    paint();
+    if (!report) return;
+    const list = (title, xs) => (xs.length ? [h("h3", { text: title }), h("ul", { class: "small" }, xs.slice(0, 30).map((x) => h("li", { text: x })))] : []);
+    modal({ title: "Sitzungen gefüllt", wide: true, body: (el) => el.append(
+      h("p", { class: "small", text: report.done + " von " + todo.length + " Sitzungen haben ihren gesicherten Inhalt bekommen." + (report.drafts ? " " + report.drafts + " Feibeitsblatt-Entwürfe – mit „Feibeitsblatt jetzt anlegen“ bekommt jedes Blatt in seiner Sitzung einen neuen Code für diese Lerngruppe." : "") }),
+      ...list("Nicht übernommen", report.failed), ...list("Angepasste Datumsangaben", report.replaced), ...list("Bitte prüfen: weitere Datumsangaben", report.unknown),
+      ...list("Dateien, die fehlen", report.missing), ...list("Hinweise", report.notes)),
+      actions: [{ label: "Fertig", class: "primary" }] });
   }
 
   paint();

@@ -11,6 +11,7 @@ import * as M from "./mcp.js";
 import * as B from "./bases.js";
 import * as U from "./units.js";
 import * as SUB from "./substitute.js";
+import * as R from "./reset.js";
 
 export { LiveRoom } from "./live.js";
 
@@ -29,6 +30,12 @@ const ROUTES = [
   ["POST", "/api/teacher/logout", A.routeTeacherLogout],
   ["GET", "/api/teacher/me", A.routeTeacherMe],
   ["POST", "/api/teacher/password", A.routeTeacherPassword],
+  ["POST", "/api/teacher/verify-password", A.routeTeacherVerify],
+  // Zurücksetzen (Einstellungen) und Übersicht für die Sicherung
+  ["GET", "/api/teacher/reset", R.routeResetStatus],
+  ["POST", "/api/teacher/reset", R.routeReset],
+  ["POST", "/api/teacher/reset/cleanup", R.routeResetCleanup],
+  ["GET", "/api/teacher/backup", R.routeBackupIndex],
   ["POST", "/api/teacher/devices/forget", A.routeTeacherForgetDevices],
   ["GET", "/api/teacher/fb-link", A.routeFbLinkGet],
   ["PUT", "/api/teacher/fb-link", A.routeFbLinkPut],

@@ -1272,6 +1272,56 @@ async function main() {
         "Präsentation (mit Folien und erkannter Codefolie), Links, Druckliste, Lehrkraft-Material und Feibeitsblatt-Entwurf übernommen");
     }
 
+    /* ---------- Einheit als Datei ---------- */
+    step("Einheit als Datei: herunterladen (Einheit + Sitzungen) und in eine neue Einheit laden – die Sitzungen bekommen beim Anlegen ihren Inhalt");
+    {
+      const num = (iso) => iso.slice(8, 10) + "." + iso.slice(5, 7) + "." + iso.slice(0, 4);
+      const srcU = (await T("GET", "/api/teacher/units/" + unitId)).data.unit;
+      await tp.goto(BASE + "/#/lk/u/" + unitId); await tp.locator("#unitio").waitFor({ timeout: 15000 });
+      ok(await tp.locator("#unitio").getByRole("button", { name: "Einheit aus Datei laden" }).isDisabled(), "eine Einheit mit Sitzungen nimmt keine Datei an (nur herunterladen)");
+      const [udl] = await Promise.all([tp.waitForEvent("download", { timeout: 120000 }), tp.locator("#unitio").getByRole("button", { name: "Einheit als Datei herunterladen" }).click()]);
+      const ufile = await udl.path(), uz = await readZip(new Uint8Array(readFileSync(ufile)));
+      const uj = uz.find((x) => /^Unterrichtseinheit - PoWi - Q2 GK - .+\.json$/.test(x.name)), ud = uj && JSON.parse(new TextDecoder().decode(uj.data));
+      const folders = uz.filter((x) => /\.zip$/.test(x.name)).map((x) => x.name.split("/")[0]);
+      const chrono = [...srcU.lessons].sort((a, b) => (a.date || "").localeCompare(b.date || ""));
+      ok(udl.suggestedFilename() === "Unterrichtseinheit - PoWi - Q2 GK - Gewaltenteilung und BVerfG.zip" && ud && ud.kind === "unterricks-einheit" && ud.unit.rows.length === srcU.rows.length,
+        "Dateiname und Einheitsdatei („" + udl.suggestedFilename() + "“)");
+      ok(folders.length === srcU.lessons.length && folders.every((f, i) => f.startsWith(String(i + 1).padStart(2, "0") + " - " + num(chrono[i].date))),
+        "je Sitzung ein Ordner, chronologisch nummeriert: " + folders.slice(0, 2).join(" | ") + " …");
+      ok(ud.unit.rows.every((r) => r.session && uz.some((x) => x.name === r.session)), "jede Zeile der Einheitsdatei verweist auf ihre Sitzungsdatei");
+      const row0 = srcU.rows[0], s0id = srcU.lessons.find((l) => l.row === row0.uid).id;
+      const inner = await readZip(uz.find((x) => x.name === ud.unit.rows[0].session).data);
+      const ij = JSON.parse(new TextDecoder().decode(inner.find((x) => x.name === "sitzung.json").data));
+      ok(ij.kind === "unterricks-sitzung" && ij.files.some((f) => f.area === "presentation" && inner.some((x) => x.name === f.path)), "die Sitzungsdatei darin ist eine vollständige Unterrickssitzung (mit Präsentation)");
+      // neue Einheit mit anderen Terminen → Datei laden
+      const start = berlinAt(Date.now() + 70 * 86400e3).date, end = berlinAt(Date.now() + 160 * 86400e3).date;
+      const nu = (await T("POST", "/api/teacher/units", { subject: "powi", klass: "Q2-GK", title: "Wiederverwendet", params: { weekdays: [{ day: 3, minutes: 90, time: "09:45" }], start, end } })).data.unit;
+      await tp.goto(BASE + "/#/lk/u/" + nu.id); await tp.locator("#unitio").waitFor({ timeout: 15000 });
+      ok(await tp.getByRole("button", { name: "Gesicherte Einheit laden" }).count() === 1, "neue Einheit: in „Planung mit Claude“ auch „Gesicherte Einheit laden“");
+      await tp.locator("#unitio input[type=file]").setInputFiles(ufile);
+      const um = tp.locator(".modal", { hasText: "Einheit aus Datei laden?" }); await um.waitFor({ timeout: 20000 });
+      ok((await um.textContent()).includes(srcU.lessons.length + " gesicherte Sitzungen") && (await um.textContent()).includes("Die Rahmendaten dieser Einheit bleiben"), "Übersicht vor dem Laden: Planung ersetzt, Rahmendaten bleiben, " + srcU.lessons.length + " gesicherte Sitzungen");
+      await um.getByRole("button", { name: "Übernehmen" }).click();
+      await tp.locator(".unit-table .badge", { hasText: "Inhalt aus Datei" }).first().waitFor({ timeout: 20000 });
+      const lu = (await T("GET", "/api/teacher/units/" + nu.id)).data.unit;
+      ok(lu.title === srcU.title && lu.plan.lernaufgabe === srcU.plan.lernaufgabe && lu.rows.length === srcU.rows.length && lu.rows.every((r, i) => r.stundenfrage === srcU.rows[i].stundenfrage && r.date && r.date >= start && r.minutes === 90)
+        && JSON.stringify(lu.params.weekdays) === JSON.stringify([{ day: 3, minutes: 90, time: "09:45" }]) && await tp.locator(".unit-table .badge", { hasText: "Inhalt aus Datei" }).count() === srcU.rows.length,
+        "Titel, Leupold-Schema und Ablauf übernommen; Rahmendaten bleiben, Termine neu verteilt; jede Stunde „Inhalt aus Datei“");
+      await tp.reload(); await tp.locator(".unit-table .badge", { hasText: "Inhalt aus Datei" }).first().waitFor({ timeout: 20000 });
+      ok(await tp.locator(".unit-table .badge", { hasText: "Inhalt aus Datei" }).count() === srcU.rows.length, "die gesicherten Sitzungen bleiben auf diesem Gerät auch nach dem Neuladen bereit");
+      await tp.getByRole("button", { name: "Einheit festlegen und Sitzungen anlegen" }).click();
+      const fm = tp.locator(".modal", { hasText: "Sitzungen gefüllt" }); await fm.waitFor({ timeout: 300000 });
+      ok((await fm.textContent()).includes(srcU.lessons.length + " von " + srcU.lessons.length + " Sitzungen"), "Sitzungen angelegt und mit ihrem gesicherten Inhalt gefüllt");
+      await fm.getByRole("button", { name: "Fertig" }).click();
+      const nl = (await T("GET", "/api/teacher/units/" + nu.id)).data.unit, l0 = nl.lessons.find((l) => l.row === nl.rows[0].uid);
+      const d0 = (await T("GET", "/api/teacher/lessons/" + l0.id)).data, s0 = (await T("GET", "/api/teacher/lessons/" + s0id)).data;
+      const mat = (d) => d.files.filter((f) => f.area !== "archive" && f.source !== "notfall").map((f) => f.area + ":" + f.kind + ":" + f.name).sort().join("|");
+      ok(d0.lesson.date === nl.rows[0].date && d0.lesson.title === s0.lesson.title && d0.files.some((f) => f.area === "presentation" && f.status === "ready" && f.pages === 3) && mat(d0) === mat(s0) && d0.lesson.code !== s0.lesson.code,
+        "Sitzung 1 der neuen Einheit: Titel, Materialien und Präsentation (in Folien umgewandelt) aus der Datei, eigenes Datum und eigener Code");
+      ok(!d0.lesson.nextDate || d0.lesson.homework.includes(num(d0.lesson.nextDate)), "Hausaufgabe: Datum an die nächste Sitzung der neuen Einheit angepasst (" + d0.lesson.homework + ")");
+      ok(await tp.locator(".unit-table .badge", { hasText: "Inhalt aus Datei" }).count() === 0, "danach wartet nichts mehr auf diesem Gerät");
+    }
+
     /* ---------- Gespeicherte Feibeitsblatt-Verbindung auf weiteren Geräten ---------- */
     step("Feibeitsblatt-Verbindung einmalig gespeichert: zweites Gerät, Gerät ohne Schlüssel, Passwortwechsel, löschen");
     {
@@ -1447,6 +1497,50 @@ async function main() {
           await p.waitForTimeout(400); });
       }
       writeFileSync(join(OUT, "mobile-audit.json"), JSON.stringify(report, null, 1));
+    }
+
+    /* ---------- Zurücksetzen (ganz am Ende: löscht alle Unterrichtsinhalte) ---------- */
+    step("Einstellungen: „Alle Unterrichtsinhalte löschen und Unterricks zurücksetzen“ – Passwort, Sicherung (Fach / Einheit / Sitzungen), Löschen");
+    {
+      const tok = await tp.evaluate(() => localStorage.getItem("u.ttoken"));
+      const TR = (method, path, body) => fetch(BASE + path, { method, headers: { Authorization: "Bearer " + tok, ...(body ? { "Content-Type": "application/json" } : {}) }, body: body ? JSON.stringify(body) : undefined }).then(async (r) => ({ status: r.status, data: await r.json().catch(() => null) }));
+      const before = (await TR("GET", "/api/teacher/reset")).data, basesN = ((await TR("GET", "/api/teacher/bases")).data.bases || []).length;
+      const subjBefore = JSON.stringify((await TR("GET", "/api/teacher/subjects")).data.subjects), spwBefore = (await TR("GET", "/api/teacher/student-settings")).data.password;
+      ok(before.units > 2 && before.lessons > 5, "vorher: " + before.units + " Einheiten, " + before.lessons + " Sitzungen");
+      await tp.goto(BASE + "/#/lk/einstellungen"); await tp.locator("#resetcard").waitFor({ timeout: 15000 });
+      await tp.getByRole("button", { name: "Alle Unterrichtsinhalte löschen und Unterricks zurücksetzen" }).click();
+      const pm = tp.locator(".modal", { hasText: "Zurücksetzen: Passwort bestätigen" }); await pm.waitFor();
+      ok((await pm.textContent()).includes(before.units + " Unterrichtseinheiten und " + before.lessons + " Sitzungen"), "zuerst das Passwort – der Dialog nennt, was gelöscht wird");
+      await pm.locator("#rs-pw").fill("ganz-falsch"); await pm.getByRole("button", { name: "Weiter" }).click();
+      await pm.locator(".err", { hasText: "Das Passwort ist falsch. Noch 1 Versuch" }).waitFor({ timeout: 60000 });
+      ok(await tp.locator(".modal", { hasText: "Vorher eine Sicherung herunterladen?" }).count() === 0, "falsches Passwort: nicht weiter, Hinweis auf die Sperre wie bei der Anmeldung");
+      await pm.locator("#rs-pw").fill(T_PW); await pm.getByRole("button", { name: "Weiter" }).click();
+      const bm = tp.locator(".modal", { hasText: "Vorher eine Sicherung herunterladen?" }); await bm.waitFor({ timeout: 60000 });
+      const [bdl] = await Promise.all([tp.waitForEvent("download", { timeout: 300000 }), bm.getByRole("button", { name: "Sicherung herunterladen" }).click()]);
+      const bz = await readZip(new Uint8Array(readFileSync(await bdl.path()))), names = bz.map((x) => x.name);
+      const unitJsons = names.filter((n) => /\/Unterrichtseinheit - .+\.json$/.test(n)), sess = names.filter((n) => /\.zip$/.test(n));
+      ok(/^Unterricks-Sicherung - \d{4}-\d{2}-\d{2}\.zip$/.test(bdl.suggestedFilename()) && names.includes("Lies mich.txt"), "Sicherung „" + bdl.suggestedFilename() + "“ mit „Lies mich.txt“");
+      if (!(unitJsons.length === before.units && sess.length === before.lessons)) console.log("    Inhalt:", names.join(" | "));
+      ok(unitJsons.length === before.units && unitJsons.every((n) => n.split("/").length === 3) && sess.length === before.lessons
+        && sess.every((n) => n.split("/").length === 4 && /^\d{2,} - /.test(n.split("/")[2])),
+        "1. Ebene Fächer, 2. Ebene Einheiten mit Einheitsdatei, 3. Ebene Sitzungen (chronologisch nummeriert, je eine Sitzungsdatei)");
+      ok(names.some((n) => n.startsWith("Politik und Wirtschaft/Q2 GK - Gewaltenteilung und BVerfG/01 - ")) && names.some((n) => n.startsWith("Politik und Wirtschaft/Q2 GK - Gewaltenteilung und BVerfG (2)/") || n.startsWith("Politik und Wirtschaft/Q2 GK - Gewaltenteilung und BVerfG/"))
+        && names.some((n) => n.startsWith("Ethik/")), "Ordner je Fach und Einheit, gleichnamige Einheiten getrennt (z. B. „Politik und Wirtschaft/Q2 GK - Gewaltenteilung und BVerfG/01 - …“)");
+      const anyS = await readZip(bz.find((x) => x.name === sess[0]).data);
+      ok(anyS.some((x) => x.name === "sitzung.json"), "jede Sitzung ist eine Sitzungsdatei, die sich mit „Sitzung aus Datei laden“ wieder laden lässt");
+      const cm = tp.locator(".modal", { hasText: "Sicherung heruntergeladen – jetzt löschen?" }); await cm.waitFor({ timeout: 60000 });
+      ok((await cm.textContent()).includes(bdl.suggestedFilename()), "vor dem Löschen: Name der Sicherung und letzte Bestätigung");
+      await cm.getByRole("button", { name: "Jetzt endgültig löschen" }).click();
+      await tp.locator("#resetcard [role=status]", { hasText: "Alle Unterrichtsinhalte sind gelöscht." }).waitFor({ timeout: 180000 });
+      const after = (await TR("GET", "/api/teacher/reset")).data, all = (await TR("GET", "/api/teacher/lessons")).data;
+      ok(after.units === 0 && after.lessons === 0 && after.files === 0 && after.pending === 0 && all.lessons.length === 0, "alle Einheiten, Sitzungen und Dateien gelöscht (keine offenen Aufräumrunden)");
+      const slide = await fetch(new URL(src, BASE).href);
+      ok(slide.status === 404 || slide.status === 410, "Folienbilder gelöscht (Link einer Folie: " + slide.status + ")");
+      ok(((await TR("GET", "/api/teacher/bases")).data.bases || []).length === basesN && JSON.stringify((await TR("GET", "/api/teacher/subjects")).data.subjects) === subjBefore
+        && (await TR("GET", "/api/teacher/student-settings")).data.password === spwBefore && (await TR("GET", "/api/teacher/me")).status === 200,
+        "es bleiben: Zugang (weiter angemeldet), Planungsgrundlagen, Fach-Einstellungen mit Kursen, Schülerpasswort");
+      await tp.goto(BASE + "/#/lk"); await tp.locator("main").first().waitFor();
+      ok((await TR("POST", "/api/teacher/reset", { authKey: "x".repeat(43) })).status === 403, "der Server verlangt das Passwort auch selbst (ohne richtiges Passwort kein Zurücksetzen)");
     }
   } finally {
     await browser.close();

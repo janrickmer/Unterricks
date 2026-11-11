@@ -40,6 +40,7 @@ implementiert und im End-to-End-Test geprüft (Ausnahmen unten ausdrücklich gen
 | Vorschau der nächsten Folie (Ergänzung vom 11.11.2026) | Im Präsentationsmodus der Lehrkraft **groß die aktuelle Folie, kleiner daneben die nächste** (hochkant darunter), per **„Vorschau“ / Taste V** aus- und einblendbar (gemerkt); dazu **„Beamerfenster öffnen“**: ein zweites Fenster **nur mit der aktuellen Folie** für den Beamer als erweiterten Bildschirm – bei gespiegeltem Bildschirm sähe die Klasse sonst die Vorschau mit (Rückfrage beantwortet: Beamerfenster + Vorschau) |
 | Links als Material (Ergänzung) | in **beiden Bereichen** (Schüler:innen / nur Lehrkraft) Links mit **Titel** und Internetadresse (nur http/https) |
 | Druckliste (Ergänzung) | Karte **„Von der Lehrkraft auszudrucken“** ganz unten: **nur PDF**, alles **A4** (andere Formate beim Hochladen umgerechnet, mit Hinweis), Name **„28x - beidseitig - sw - Name.pdf“**, einzeln oder **als ZIP**; Claude legt Vorlagen über den Connector ab (`add_print_material`), siehe 4i |
+| Zurücksetzen und Einheit als Datei (Ergänzung vom 11.11.2026) | Einstellungen: **„Alle Unterrichtsinhalte löschen und Unterricks zurücksetzen“** – erst das **Passwort**, dann das Angebot einer **Sicherung** (ZIP: 1. Fächer, 2. Einheiten mit Einheitsdatei, 3. Sitzungen chronologisch nummeriert, je als Sitzungsdatei), letzte Bestätigung, Löschen. Gelöscht: Einheiten und Sitzungen mit allem Zugehörigen; es bleiben Zugang, Planungsgrundlagen, Fach-Einstellungen, KI, Connector, Feibeitsblatt-Verbindung, Schülerpasswort, Schülergeräte; die Feibeitsblätter bleiben im Feibeitsblatt. Planungsseite einer Einheit: **„Einheit als Datei herunterladen“** und **„Einheit aus Datei laden“** (Planung + Sitzungen; die Sitzungen bekommen ihren Inhalt beim Anlegen), siehe 4l (Rückfragen beantwortet: Umfang, Feibeitsblätter behalten, Planung + Sitzungen, Sitzungsdatei im Ordner) |
 | Sitzung als Datei (Ergänzung) | ganz unten **„Sitzung als Datei herunterladen“** („Unterrickssitzung - Fach - Jahrgang - Einheit - Sitzung Nr. n.zip“) und daneben **„Sitzung aus Datei laden“**; beim Laden bleiben Datum, Beginn und Dauer der geöffneten Sitzung, Datumsangaben in den Texten werden angepasst, siehe 4j |
 | KI-Begriffshilfe (Ergänzung) | kleiner KI-Chat **unter der Live-Präsentation**, nur während der Stunde, nur Fachbegriffe/Unterrichtsinhalt in einer Sprache passend zur Jahrgangsstufe, **nur nach Einwilligung** („datenschutzrechtlich nicht für die Schule vorgesehen“), kostenlose KI; je Sitzung abschaltbar, siehe 4k |
 | Notfall-Feibeitsblatt (Ergänzung) | Zu jedem Feibeitsblatt einer Sitzung **automatisch** das analoge Arbeitsblatt des Feibeitsblatts als PDF unter „Material – Für Schüler:innen zugänglich“ (dieselbe Datei wie im Feibeitsblatt), siehe 4f |
@@ -108,6 +109,9 @@ implementiert und im End-to-End-Test geprüft (Ausnahmen unten ausdrücklich gen
 | | `public/fblink.js` | gespeicherte Feibeitsblatt-Verbindung (Schlüssel aus dem Unterricks-Passwort, IndexedDB) |
 | | `public/pdfcut.js`, `public/a4.js`, `public/zip.js` | Präsentation kürzen, Druckvorlagen auf A4, ZIP schreiben/lesen |
 | | `public/sessionfile.js` | Sitzung als Datei: Name, Datumsanpassung, Feibeitsblatt → Entwurf, Prüfung |
+| | `public/sessionio.js` | Sitzungsdatei zusammenstellen und in eine Sitzung übernehmen – ohne geöffnete Sitzungsseite (Sitzung, Einheit, Sicherung) |
+| | `public/unitfile.js`, `public/backup.js` | Einheit als Datei (Format, Ordnernamen, chronologische Ordnung) und große Sicherung; gesicherte Sitzungen bis zum Anlegen in IndexedDB |
+| | `worker/reset.js` | Zurücksetzen (Passwort, ein Batch für D1, Dateien in Runden über `reset_queue`) und Übersicht für die Sicherung |
 | | `public/notfall.js`, `public/fbanalog.js` | Notfall-Feibeitsblatt: Blatt, Checkliste und Bilder laden; das analoge Arbeitsblatt (aus dem Feibeitsblatt übernommen per `scripts/fbanalog-sync.mjs`) |
 | | `public/presenter.js` | PDF → Folienbilder (Codefolien erkennen), Präsentationsmodus mit Codefolie und Vorschau der nächsten Folie, Beamer-Code |
 | | `public/beamer.js` | Beamerfenster (`#/beamer`): nur die aktuelle Folie, verbunden mit dem Präsentationsfenster per `BroadcastChannel` |
@@ -470,6 +474,37 @@ implementiert und im End-to-End-Test geprüft (Ausnahmen unten ausdrücklich gen
   Datum der ursprünglichen Sitzung und das ihrer nächsten Sitzung durch die der neuen (Schreibweisen 25.11.2026, 25.11., 2026-11-25,
   25. November, mit Wochentag); andere Datumsangaben bleiben und werden zum Prüfen genannt. Feibeitsblätter kommen als Entwürfe – mit
   „Feibeitsblatt jetzt anlegen“ bekommt jedes einen neuen Code für die neue Lerngruppe.
+
+## 4l. Zurücksetzen, Sicherung und Einheit als Datei (Ergänzung vom 11.11.2026)
+
+* **Einheitsdatei** (`unitfile.js`): JSON `{kind: "unterricks-einheit", v: 1, source: {subject, klass, title, status, params},
+  unit: {title, plan, rows: [{stundenfrage, ablauf, schritt, date, minutes, time, session}]}}`. `session` ist der Pfad der
+  Sitzungsdatei relativ zur Einheitsdatei oder `null`.
+* **Einheit als Datei**: ZIP mit der Einheitsdatei und je Sitzung einem Ordner „01 - TT.MM.JJJJ - Stundenfrage/“ mit der
+  Sitzungsdatei. Die Ordner sind chronologisch nummeriert (`chronoLessons`: Datum, ohne Datum zuletzt, dann Lage der Zeile).
+* **Laden** (nur in eine Einheit ohne Sitzungen):
+  * `cleanUnitFile` übernimmt Zeilen ohne Kennung, Datum, Dauer und Beginn.
+  * `PATCH /api/teacher/units/:id` mit `assignDates: true` verteilt die Termine aus den Rahmendaten der geöffneten Einheit.
+  * Die Sitzungsdateien warten je neuer Zeilen-Kennung in IndexedDB (Datenbank `unterricks-einheiten`). Nach
+    `POST …/sessions` übernimmt `applyPending` sie in die neuen Sitzungen, über denselben Weg wie „Sitzung aus Datei laden“
+    (`sessionio.js`: `POST …/import`, danach Dateien einzeln, Präsentationen neu in Folien umgewandelt, Datumsangaben per `adaptDates`).
+  * Eine unterbrochene Übernahme bietet die Seite danach an („Gesicherte Inhalte … übernehmen“).
+* **Große Sicherung** (`backup.js`, Übersicht `GET /api/teacher/backup`):
+  * Aufbau `Fach/Klasse - Einheit/` mit denselben Einheitsordnern. Sitzungen ohne Einheit liegen in `Fach/Klasse - Sitzungen ohne Einheit/`.
+  * Dazu kommen „Lies mich.txt“ und `unterricks-sicherung.json`.
+  * `ZipBlob` (`zip.js`) fügt die Sitzungsdateien nacheinander als Blob-Teile an, damit nie alles zugleich im Arbeitsspeicher liegt. Ab
+    4 GiB bzw. 65 535 Einträgen schreibt es ZIP64, und `readZip` liest ZIP64.
+  * Dateien, die sich nicht laden lassen, fehlen und werden vor dem Löschen genannt.
+* **Zurücksetzen** (`reset.js`):
+  * `POST /api/teacher/verify-password` und `POST /api/teacher/reset` prüfen das Passwort mit `checkTeacherPassword`: dieselben Sperren
+    wie bei der Anmeldung (`t:dev:<Gerät>`, 2 Fehlversuche → 30 min), 403 statt 401, damit die Seite nicht abmeldet.
+  * Dann löscht **ein Batch** alle Zeilen in `slides`, `files`, `chat`, `student_access`, `fb_sheets`, `fb_drafts`, `substitutes`,
+    `lessons` und `units`. Vorher merkt er die Kennungen der Sitzungen in `reset_queue`.
+  * Die Dateien in R2 (Präfix `l/<Sitzung>/`) und den Live-Zustand je Sitzung löscht `cleanupRound` in Runden, höchstens 36
+    R2-/Durable-Object-Aufrufe je Anfrage. Der Browser ruft `POST /api/teacher/reset/cleanup`, bis nichts mehr offen ist. Nach einer
+    Unterbrechung setzt die Seite Einstellungen das fort.
+  * Neue Sitzungen sind nie betroffen (nur gemerkte Kennungen).
+  * Nicht gelöscht: `teacher`, `teacher_tokens`, `trusted_devices`, `locks`, `settings`, `bases`, `base_pages`, `student_devices`.
 
 ## 4k. KI-Begriffshilfe für Schüler:innen (Ergänzung vom 10.11.2026)
 

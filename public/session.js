@@ -1135,68 +1135,18 @@ export async function sessionPage(id) {
   paintPrint();
 
   /* ======================= Sitzung als Datei (ganz unten): herunterladen und – in einer anderen Sitzung – wieder laden ======================= */
-  const te = new TextEncoder();
-  const safeName = (n) => String(n || "Datei").replace(/[\\/:*?"<>|\u0000-\u001f]+/g, " ").replace(/\s+/g, " ").trim().slice(0, 120) || "Datei";
-  async function fetchFile(f) {
-    const r = await tapi("POST", "/api/teacher/files/" + f.id + "/link", { body: {} });
-    const res = await fetch(apiUrl(r.url), { credentials: "omit", cache: "no-store" });
-    if (!res.ok) throw new Error("„" + f.name + "“ ließ sich nicht laden (Fehler " + res.status + ").");
-    return new Uint8Array(await res.arrayBuffer());
-  }
   async function exportSession(onStep) {
     flushPortal();
-    const N = await import("./sessionfile.js"), { makeZip } = await import("./zip.js");
-    const rows = st.unit ? st.unit.rows || [] : [], idx = rows.findIndex((r) => r.uid === L().unitRow);
-    const entries = [], files = [], drafts = [], notes = [];
-    let k = 0;
-    for (const f of st.files) {
-      if (f.area === "archive" || f.source === "notfall" || f.status !== "ready") continue;   // Notfall-Feibeitsblätter entstehen neu
-      const base = { area: f.area, kind: f.kind, name: f.name, mime: f.mime, ...(f.print ? { print: f.print } : {}) };
-      if (f.kind === "text") files.push({ ...base, text: f.text || "" });
-      else if (f.kind === "link") files.push({ ...base, url: f.url });
-      else { onStep("Lade „" + f.name + "“ …"); const path = "dateien/" + (++k) + " - " + safeName(f.name); entries.push({ name: path, data: await fetchFile(f) }); files.push({ ...base, path }); }
-    }
-    for (const d of st.drafts) if (d.status === "draft" && d.data) drafts.push(d.data);
-    const sheets = [];
-    for (const s of st.sheets) {
-      if (s.kind === "escape") continue;
-      sheets.push({ code: s.code, title: s.title });
-      if (!fb.connected) { notes.push("Feibeitsblatt „" + s.title + "“ (" + formatCode(s.code) + "): nur der Code – ohne Verbindung zum Feibeitsblatt ließ sich der Inhalt nicht mitnehmen."); continue; }
-      try { onStep("Lade das Feibeitsblatt „" + s.title + "“ …"); const c = N.sheetToDraft((await fb.getSheet(s.code)).sheet); if (c.draft) drafts.push(c.draft); notes.push(...c.notes.map((x) => "„" + s.title + "“: " + x)); }
-      catch (e) { notes.push("Feibeitsblatt „" + s.title + "“ (" + formatCode(s.code) + "): Inhalt nicht geladen – " + e.message); }
-    }
-    const data = { kind: N.SESSION_FILE.kind, v: N.SESSION_FILE.v, exportedAt: Date.now(),
-      source: { subject: L().subject, klass: L().klass, unitTitle: st.unit ? st.unit.title || "" : "", sessionNo: idx >= 0 ? idx + 1 : null, date: L().date, nextDate: L().nextDate || null,
-        startTime: L().startTime || null, durationMin: L().durationMin || null, title: L().title },
-      lesson: { title: L().title, topic: L().topic, ideas: L().ideas || "", homework: hwTA.value || "", portal: portalTA ? portalTA.value : L().portal || "" },
-      chat: st.messages.filter((m) => (m.role === "user" || m.role === "assistant") && m.model !== "begruessung").map((m) => ({ role: m.role, content: m.content, model: m.model || null, mode: m.mode || null })),
-      files, drafts, sheets, notes };
-    entries.unshift({ name: N.SESSION_FILE.json, data: te.encode(JSON.stringify(data, null, 1)) });
-    const name = N.sessionFileName({ subject: L().subject, klass: L().klass, unitTitle: data.source.unitTitle, sessionNo: data.source.sessionNo });
-    downloadBlob(new Blob([makeZip(entries)], { type: "application/zip" }), name);
-    return { name, files: files.length, notes };
+    const { buildSessionZip } = await import("./sessionio.js");
+    const r = await buildSessionZip(st, { fb, onStep, homework: hwTA.value || "", portal: portalTA ? portalTA.value : L().portal || "" });
+    downloadBlob(new Blob([r.bytes], { type: "application/zip" }), r.name);
+    return { name: r.name, files: r.files, notes: r.notes };
   }
   async function importSession(file, onStep) {
-    const N = await import("./sessionfile.js"), { readZip } = await import("./zip.js");
-    let entries;
-    try { entries = await readZip(new Uint8Array(await file.arrayBuffer())); } catch { throw new Error("Diese Datei ist keine Unterrickssitzung (keine ZIP-Datei)."); }
-    const j = entries.find((x) => x.name === N.SESSION_FILE.json);
-    if (!j) throw new Error("In dieser Datei steckt keine Unterrickssitzung.");
-    let raw; try { raw = JSON.parse(new TextDecoder().decode(j.data)); } catch { throw new Error("Die Unterrickssitzung in dieser Datei ist beschädigt."); }
-    const data = N.cleanSessionFile(raw), src = data.source, byPath = new Map(entries.map((x) => [x.name, x.data]));
-    // Datumsangaben: Datum der Sitzung und der nächsten Sitzung → die dieser Sitzung
-    const pairs = [[src.date, L().date], [src.nextDate, L().nextDate]].filter(([a, b]) => a && b && a !== b);
-    const replaced = [], unknown = [];
-    const fix = (t, where) => { const r = N.adaptDates(t, pairs); replaced.push(...r.replaced); unknown.push(...r.unknown.map((u) => where + ": „" + u + "“")); return r.text; };
-    const lesson = { title: data.lesson.title, topic: data.lesson.topic, ideas: fix(data.lesson.ideas, "Ideen und Wünsche"), homework: fix(data.lesson.homework, "Hausaufgabe"), portal: fix(data.lesson.portal, "Schulportal-Eintrag") };
-    const texts = [], links = [], prints = [], bins = [];
-    for (const f of data.files) {
-      if (f.kind === "link") links.push({ area: f.area, title: f.name, url: f.url });
-      else if (f.kind === "text" && f.area === "print") prints.push({ title: f.name, text: fix(f.text, "„" + f.name + "“"), ...f.print });
-      else if (f.kind === "text") texts.push({ area: f.area, title: f.name, text: fix(f.text, "„" + f.name + "“") });
-      else bins.push(f);
-    }
-    const pres = bins.find((f) => f.area === "presentation");
+    const IO = await import("./sessionio.js");
+    const { data, byPath } = await IO.readSessionZip(new Uint8Array(await file.arrayBuffer()));
+    const src = data.source, plan = IO.planSessionImport(data, L());
+    const { texts, links, prints, bins, pres, pairs } = plan;
     const cur = { date: L().date ? fmtDay(L().date) : "ohne Datum", time: L().startTime ? L().startTime + " Uhr" : "ohne Beginn", dur: L().durationMin ? L().durationMin + " Minuten" : "ohne Dauer" };
     const warn = [src.subject && src.subject !== L().subject ? "Die Datei stammt aus " + subjectName(src.subject) + ", diese Sitzung ist " + subjectName(L().subject) + "." : null,
       src.durationMin && L().durationMin && src.durationMin !== L().durationMin ? "Die Datei wurde für " + src.durationMin + " Minuten geplant, diese Sitzung dauert " + L().durationMin + " Minuten." : null].filter(Boolean);
@@ -1215,20 +1165,8 @@ export async function sessionPage(id) {
         actions: [{ label: "Abbrechen", onClick: () => { done = true; resolve(false); } }, { label: "Übernehmen", class: "primary", onClick: () => { done = true; resolve(true); } }] });
     });
     if (!ok) return null;
-    onStep("Übernehme Planung, Texte und Entwürfe …");
-    await tapi("POST", "/api/teacher/lessons/" + id + "/import", { body: { lesson, chat: data.chat, texts, links, prints, drafts: data.drafts } });
-    const missing = [];
-    for (const f of bins) {
-      const bytes = byPath.get(f.path);
-      if (!bytes) { missing.push(f.name); continue; }
-      onStep("Lade „" + f.name + "“ hoch …");
-      try {
-        if (f.area === "presentation") await uploadPres(new File([bytes], f.name, { type: "application/pdf" }), data.sheets.map((s) => s.code));
-        else if (f.area === "print") await upload("/api/teacher/lessons/" + id + "/print?name=" + encodeURIComponent(f.name) + "&copies=" + f.print.copies + "&duplex=" + (f.print.duplex ? 1 : 0) + "&color=" + (f.print.color ? 1 : 0) + "&source=uebernommen", new Blob([bytes], { type: "application/pdf" }), T.token, null, "application/pdf");
-        else await upload("/api/teacher/lessons/" + id + "/files?area=" + f.area + "&name=" + encodeURIComponent(f.name) + "&source=uebernommen", new Blob([bytes], { type: f.mime || "application/octet-stream" }), T.token, null, f.mime || "application/octet-stream");
-      } catch (e) { missing.push(f.name + " (" + e.message + ")"); }
-    }
-    return { replaced, unknown, missing, notes: data.notes, sheets: data.sheets, drafts: data.drafts.length };
+    const { missing } = await IO.applySessionImport(id, plan, data, byPath, { onStep, uploadPres });
+    return { replaced: plan.replaced, unknown: plan.unknown, missing, notes: data.notes, sheets: data.sheets, drafts: data.drafts.length };
   }
   const ioState = h("span", { class: "save-state" });
   const exportBtn = h("button", { class: "btn", type: "button", onclick: (e) => busy(e.currentTarget, async () => {
