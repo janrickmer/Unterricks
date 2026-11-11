@@ -144,7 +144,12 @@ implementiert und im End-to-End-Test geprüft (Ausnahmen unten ausdrücklich gen
    wird in Unterricks hochgeladen. **Folie 1 ist immer die Einstiegsfolie:** Sitzungscode der Sitzung (groß, Festbreitenschrift) und
    der QR-Code zu https://unterricks.janrickmer.de samt Adresse als Text, damit die Schüler:innen scannen und den Code eingeben. Den
    QR-Code bekommt Claude als genaues Modulmuster (`QR_UNTERRICKS`, 29 × 29, dasselbe wie `public/qr-unterricks.svg`; Unit-Test
-   vergleicht mit `qrMatrix`, ausgelesen mit zxing geprüft) und soll ihn danach zeichnen statt ihn neu zu erzeugen. Hinweise für die
+   vergleicht mit `qrMatrix`, ausgelesen mit zxing geprüft) und soll ihn danach zeichnen statt ihn neu zu erzeugen. **Materialfolien:**
+   Sollen die Schüler:innen mit Material arbeiten (Feibeitsblatt, Arbeitsblatt, Text, Link …), zeigt die Folie nur die Aufforderung
+   (Sozialform, ggf. Aufgaben und Zeit), den Titel des Materials genau wie in Unterricks (Beispiel aus den Materialien der Sitzung) und
+   wieder denselben QR-Code samt Sitzungscode – keine Inhalte oder Lösungen des Materials, keinen Code eines Feibeitsblatts (den kopiert
+   Unterricks beim Öffnen selbst; zwei Codes auf einer Folie verwechseln Schüler:innen leicht), keine Notfall-Feibeitsblätter. Fehlt ein
+   Material in Unterricks, nennt Claude es im Chat. Hinweise für die
    Lehrkraft (statt Sprechernotizen) gibt Claude im Chat bzw. auf Wunsch über `add_text_material` (nur für die Lehrkraft).
 6. **Präsentation und Live-Synchronisation.** Upload der PDF → der Browser der Lehrkraft rendert jede Seite mit PDF.js
    (1920 px) und lädt sie als Bild hoch. „Ich bin im Unterricht …“ öffnet das Vollbild und meldet die Folie an das Durable

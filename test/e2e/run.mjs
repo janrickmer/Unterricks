@@ -279,6 +279,10 @@ async function main() {
     ok(presPrompt.includes("direkt als **PDF-Datei**") && !presPrompt.includes(".pptx") && presPrompt.includes("Politik und Wirtschaft") && presPrompt.includes("90 Minuten"), "Prompt fordert nur die PDF (keine PowerPoint) mit allen Rahmendaten an");
     ok(presPrompt.includes("Sitzungscode „" + lesson0.code.slice(0, 3) + "-" + lesson0.code.slice(3) + "“") && presPrompt.includes("11111110111000011100001111111") && presPrompt.includes("Scanne den QR-Code oder öffne unterricks.janrickmer.de"),
       "erste Folie: Sitzungscode dieser Sitzung und QR-Code zu Unterricks");
+    const matPart = presPrompt.slice(presPrompt.indexOf("## Materialfolien"), presPrompt.indexOf("## Rahmendaten"));
+    ok(matPart.includes("die Aufforderung, mit dem Material zu arbeiten") && matPart.includes("den Titel des Materials") && matPart.includes("denselben QR-Code zu Unterricks wie auf Folie 1") &&
+      matPart.includes("Sitzungscode „" + lesson0.code.slice(0, 3) + "-" + lesson0.code.slice(3) + "“") && presPrompt.split("11111110111000011100001111111").length === 2,
+      "Materialfolien: nur Aufforderung und Titel des Materials, dazu wieder QR-Code und Sitzungscode (Muster nur einmal im Prompt)");
     await tp.locator('.save-state[data-state="ok"]', { hasText: /^Gespeichert \d\d:\d\d/ }).waitFor({ timeout: 10000 });
     ok((await T("GET", "/api/teacher/lessons/" + lessonId)).data.lesson.portal.includes("Noch nicht gespeichert"), "… und speichert diesen Stand sofort");
 

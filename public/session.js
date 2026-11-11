@@ -348,7 +348,7 @@ export async function sessionPage(id) {
       "Beim Kopieren für das Schulportal setzt Unterricks die fette Überschrift „Hausaufgabe zum …:“ (Datum der nächsten Sitzung) davor, macht aus jeder Zeile einen Stichpunkt und ergänzt als letzten Stichpunkt „Unter " + PUBLIC_URL + " kannst du diese Sitzung mit dem Code " + formatCode(L().code) + " aufrufen …“ – in Unterricks sehen die Schüler:innen diesen Hinweis nicht." }));
 
   const presPromptCard = h("section", { class: "card" }, h("div", { class: "section-title" }, h("h2", { text: "Präsentation mit Claude erstellen" })),
-    h("p", { class: "small", text: "Erzeugt einen ausführlichen Prompt für Claude (claude.ai), der eine vollständige Präsentation für diese Stunde direkt als PDF anfordert – zum Hochladen hier in Unterricks, auf Grundlage des aktuellen Schulportal-Eintrags, der Materialien und Ihrer Planung. Die erste Folie zeigt immer den Sitzungscode und den QR-Code zu Unterricks." }),
+    h("p", { class: "small", text: "Erzeugt einen ausführlichen Prompt für Claude (claude.ai), der eine vollständige Präsentation für diese Stunde direkt als PDF anfordert – zum Hochladen hier in Unterricks, auf Grundlage des aktuellen Schulportal-Eintrags, der Materialien und Ihrer Planung. Die erste Folie zeigt immer den Sitzungscode und den QR-Code zu Unterricks – ebenso jede Folie, auf der die Schüler:innen mit Material arbeiten (dort nur die Aufforderung und der Titel des Materials)." }),
     presPromptBtn, presPromptOut);
 
   /* ======================= Materialien ======================= */

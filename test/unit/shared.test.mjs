@@ -131,6 +131,25 @@ test("Präsentations-Prompt: erste Folie mit Sitzungscode und QR-Code zu Unterri
   assert.ok(noCode.includes("bitte bei der Lehrkraft erfragen"), "ohne Code: Hinweis statt leerer Angabe");
 });
 
+test("Präsentations-Prompt: Materialfolien mit Aufforderung, Titel des Materials, QR-Code und Sitzungscode", () => {
+  const portal = "**3) Partnerarbeit**\n- Feibeitsblatt ~~Die wehrhafte Demokratie~~ mit dem Code ~~AEH-4VY~~";
+  const p = claudePresentationPrompt({ ...ctx, code: "K7QM4X" }, portal, []);
+  const mat = p.slice(p.indexOf("## Materialfolien"), p.indexOf("## Rahmendaten"));
+  assert.ok(p.indexOf("## Erste Folie") < p.indexOf("## Materialfolien") && p.indexOf("## Materialfolien") < p.indexOf("## Rahmendaten"));
+  for (const s of ["Feibeitsblatt, Arbeitsblatt", "die Aufforderung, mit dem Material zu arbeiten", "den Titel des Materials", "genau so, wie das Material in Unterricks heißt",
+    "„Feibeitsblatt: Die wehrhafte Demokratie“", "denselben QR-Code zu Unterricks wie auf Folie 1", "Sitzungscode „K7Q-M4X“",
+    "Du findest das Material in Unterricks: QR-Code scannen oder unterricks.janrickmer.de öffnen und den Sitzungscode eingeben.",
+    "Inhalte des Materials", "der Code eines Feibeitsblatts – auch wenn der Stundenverlauf ihn nennt", "Notfall-Feibeitsblätter"]) assert.ok(mat.includes(s), s);
+  assert.equal(p.split(QR_UNTERRICKS[0]).length, 2, "das Muster steht nur einmal im Prompt (die Materialfolien verweisen auf Folie 1)");
+  assert.ok(p.includes("Arbeiten die Schüler:innen dabei mit Material, ist das die Materialfolie"), "Arbeitsphasen mit Material: Materialfolie statt ausführlicher Auftragsfolie");
+  assert.ok(!p.includes("Feibeitsblätter mit Titel und Code"), "der Code eines Feibeitsblatts kommt nicht mehr auf Folien");
+  // Beispieltitel: ohne Feibeitsblatt ein Material für Schüler:innen (nie ein Notfall-Feibeitsblatt), sonst ein Platzhalter
+  const nf = { name: "Notfall-Feibeitsblatt – X.pdf", area: "student", kind: "file" };
+  assert.ok(claudePresentationPrompt({ ...ctx, sheets: [], materials: [nf, ...ctx.materials] }, portal, []).includes("z. B. „AB BVerfG“"));
+  assert.ok(claudePresentationPrompt({ ...ctx, sheets: [], materials: [nf] }, portal, []).includes("z. B. „Arbeitsblatt: <Titel des Arbeitsblatts>“"));
+  assert.ok(claudePresentationPrompt(ctx, portal, []).includes("den Sitzungscode der Sitzung (bitte bei der Lehrkraft erfragen) (Festbreitenschrift, mindestens 48 pt)"), "ohne Code: Hinweis auch auf der Materialfolie");
+});
+
 test("Feibeitsblatt-Entwurf normalisieren", () => {
   const d = normalizeFbDraft({ titel: "T", aufgaben: [{ text: "A1", ki_auftrag: "K1" }, { text: "A2", ki_auftrag: "K2", antwort: { tabelle: ["Pro", "Contra"], zeilen: 4 } }, { text: "" }, { text: "Foto deines Plakats", antwort: "foto" }] });
   assert.equal(d.title, "T");
