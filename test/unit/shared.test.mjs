@@ -320,3 +320,13 @@ test("Sitzungscode auf Folien: Kästen aus Textstücken (auch über mehrere Stü
   // andere Zeile (andere Grundlinie) wird nicht verbunden; ungültige Stücke stören nicht
   assert.deepEqual(slideCodeBoxes([{ str: "AEH-", x: 0, base: 100, w: 80, h: 40 }, { str: "4VY", x: 80, base: 200, w: 60, h: 40 }, null, { str: "x" }]), []);
 });
+
+test("Sitzungscode auf Folien: mit gemessenen Zeichenbreiten liegt der Kasten auch in Proportionalschrift richtig", () => {
+  // „Sitzungscode “ (13 Zeichen) ist breit, der Code schmaler: mit gleich breiten Zeichen läge der Kasten zu weit rechts
+  const item = { str: "Sitzungscode ABC-234", x: 0, base: 100, w: 400, h: 40, eol: true };
+  const adv = (ch) => (ch === " " ? 1 : /[A-Z0-9]/.test(ch) ? 3 : 2);   // „S“ 3 + 11·2 + „ “ 1 = 26 vor dem Code, Code 6·3 + „-“ 2 = 20 → Summe 46
+  const [even] = slideCodeBoxes([item]), [real] = slideCodeBoxes([item], adv);
+  assert.ok(Math.abs(even.x0 - 260) < 0.01, "ohne Messung: 13/20 der Breite");
+  assert.ok(Math.abs(real.x0 - (400 * 26) / 46) < 0.01 && Math.abs(real.x1 - 400) < 0.01, "mit Messung: genau dort, wo der Code steht");
+  assert.equal(slideCodeBoxes([item], () => 0)[0].x0, even.x0, "unbrauchbare Messung: wie ohne");
+});

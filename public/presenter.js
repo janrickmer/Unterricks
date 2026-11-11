@@ -8,6 +8,14 @@ async function pdfjs() {
   return pdfjsP;
 }
 
+/* Breite eines Zeichens in der passenden allgemeinen Schrift (Festbreite, Serife, sonst serifenlos) – für die Lage des Codes im Satz */
+let measCtx = null; const measured = new Map();
+const genericFont = (fam) => (/mono|courier/i.test(fam) ? '"Courier New", Courier, monospace' : /serif/i.test(fam) && !/sans/i.test(fam) ? '"Times New Roman", Times, serif' : "Arial, Helvetica, sans-serif");
+function advance(ch, fam) {
+  const f = genericFont(fam), k = f + "|" + ch;
+  if (!measured.has(k)) { measCtx ||= document.createElement("canvas").getContext("2d"); measCtx.font = "bold 100px " + f; measured.set(k, measCtx.measureText(ch).width); }
+  return measured.get(k);
+}
 /* Codes auf einer Seite: Textstücke von PDF.js in Gerätekoordinaten (gedrehter Text zählt nicht) → slideCodeBoxes */
 async function codeBoxes(lib, page, vp) {
   const tc = await page.getTextContent();
@@ -18,7 +26,7 @@ async function codeBoxes(lib, page, vp) {
     const turned = Math.abs(tx[1]) > hgt * 0.02 || Math.abs(tx[2]) > hgt * 0.02;
     items.push(turned ? { str: "", eol: true } : { str: it.str, x: tx[4], base: tx[5], w: it.width * vp.scale, h: hgt, eol: !!it.hasEOL, family: ((tc.styles || {})[it.fontName] || {}).fontFamily || "" });
   }
-  return slideCodeBoxes(items);
+  return slideCodeBoxes(items, advance);
 }
 /* alten Code übermalen und den neuen hineinschreiben: Hintergrund = häufigste Farbe am Rand des Kastens, Schrift = die davon am weitesten
    entfernte Farbe im Kasten; fett, wenn der alte Code viel Farbe hatte; gleiche Größe, notfalls schmaler (gleiche Breite). */
@@ -40,7 +48,7 @@ function paintCode(ctx, b, text) {
   if (far < 40) return false;   // kein erkennbarer Text an dieser Stelle (z. B. Code nur in der Textebene)
   let ink = 0; for (let i = 0; i < d.length; i += 4) if (dist(px(i)) > far * 0.5) ink++;
   const weight = ink / (d.length / 4) > 0.2 ? "bold" : "normal";
-  const fam = /mono|courier/i.test(b.family) ? '"Courier New", Courier, monospace' : "Arial, Helvetica, sans-serif";
+  const fam = genericFont(b.family);
   ctx.save();
   ctx.fillStyle = "rgb(" + bg.map(Math.round).join(",") + ")"; ctx.fillRect(x, y, w, hh);
   const bw = b.x1 - b.x0;

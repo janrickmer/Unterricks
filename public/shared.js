@@ -188,15 +188,20 @@ export function codesInText(s) {
   return out;
 }
 /* Textstücke einer Seite in Gerätekoordinaten ({str, x, base, w, h, eol, family}; Reihenfolge wie im PDF) → Zeilen → je Code ein Kasten
-   {code, x0, x1, base, h, family}. Stücke auf derselben Grundlinie werden verbunden (ein Code kann in mehreren Stücken stehen). */
-export function slideCodeBoxes(items) {
+   {code, x0, x1, base, h, family}. Stücke auf derselben Grundlinie werden verbunden (ein Code kann in mehreren Stücken stehen).
+   advance(Zeichen, family) = relative Breite eines Zeichens (im Browser gemessen) – so liegt der Kasten auch mitten in einem Satz in
+   Proportionalschrift richtig; ohne advance gelten alle Zeichen als gleich breit. */
+export function slideCodeBoxes(items, advance) {
   const lines = []; let cur = null;
   for (const it of items || []) {
     if (!it || !it.str || !(it.h > 0) || !Number.isFinite(it.x) || !Number.isFinite(it.base) || !(it.w >= 0)) { if (!it || it.eol || !it.str) cur = null; continue; }
     if (!cur || Math.abs(it.base - cur.base) > it.h * 0.25 || it.x < cur.end - it.h * 0.5) { cur = { base: it.base, end: it.x, text: "", map: [] }; lines.push(cur); }
     else if (it.x - cur.end > it.h * 0.2) { cur.text += " "; cur.map.push(null); }
-    const n = it.str.length;
-    for (let i = 0; i < n; i++) { cur.text += it.str[i]; cur.map.push({ x0: it.x + (it.w * i) / n, x1: it.x + (it.w * (i + 1)) / n, h: it.h, base: it.base, family: it.family || "" }); }
+    const n = it.str.length, ws = [];
+    for (let i = 0; i < n; i++) { const a = advance ? Number(advance(it.str[i], it.family || "")) : 1; ws.push(Number.isFinite(a) && a > 0 ? a : 0); }
+    let tot = ws.reduce((a, b) => a + b, 0);
+    if (!(tot > 0)) { ws.fill(1); tot = n; }
+    for (let i = 0, acc = 0; i < n; i++) { const x0 = it.x + (it.w * acc) / tot; acc += ws[i]; cur.text += it.str[i]; cur.map.push({ x0, x1: it.x + (it.w * acc) / tot, h: it.h, base: it.base, family: it.family || "" }); }
     cur.end = it.x + it.w;
     if (it.eol) cur = null;
   }
