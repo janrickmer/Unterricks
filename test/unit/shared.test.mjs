@@ -153,6 +153,20 @@ test("Präsentations-Prompt: Materialfolien mit Aufforderung, Titel des Material
   assert.ok(mat.includes("unten gar nicht oder nur als Material „nur Lehrkraft“"), "Druckmaterial gilt nicht als fehlend");
 });
 
+test("Präsentations-Prompt: zeitlos – keine Daten der Lerngruppe, keine Klasse, Hausaufgabe bis zur nächsten Unterrichtssitzung", () => {
+  const p = claudePresentationPrompt({ ...ctx, klass: "8C", lesson: { ...ctx.lesson, date: "2026-11-12", homework: "Lies M2 bis zum 19.11." } }, "**1) Einstieg**", []);
+  const z = p.slice(p.indexOf("## Zeitlos gestalten"), p.indexOf("## Rahmendaten"));
+  assert.ok(p.indexOf("## Materialfolien") < p.indexOf("## Zeitlos gestalten") && p.indexOf("## Zeitlos gestalten") < p.indexOf("## Rahmendaten"));
+  for (const t of ["in ein paar Jahren noch passen, wenn eine andere Klasse dieses Jahrgangs das Thema lernt", "kein Datum, das sich auf diese Lerngruppe bezieht",
+    "„bis zur nächsten Unterrichtssitzung“ zu erledigen, auch wenn im Stundenverlauf oder bei der Hausaufgabe ein Datum steht", "nicht die Klasse (z. B. „8C“)", "(„Jg. 8“)",
+    "nicht als „aktuell“ oder „derzeit“, sondern mit Jahreszahl und Quelle", "Einzige Ausnahme ist der Sitzungscode"]) assert.ok(z.includes(t), t);
+  assert.ok(!p.includes("12.11.2026") && !/^- Datum:/m.test(p), "das Datum der Stunde steht nicht mehr im Prompt");
+  assert.ok(p.includes("Hausaufgabe (als letzte Folie zeigen – zu erledigen „bis zur nächsten Unterrichtssitzung“, ohne Datum): Lies M2"));
+  assert.ok(p.includes("Thema und Fach klein darüber (ohne Klasse und ohne Datum") && !p.includes("Thema, Fach und Klasse klein darüber"));
+  assert.ok(p.includes("„Jg-8_Politik-und-Wirtschaft_") && !p.includes("„8C_"), "Dateiname ohne Klasse");
+  assert.ok(claudePresentationPrompt(ctx, "x", []).includes("„Q2-GK_Politik-und-Wirtschaft_"), "Oberstufe: Kurs als Lerngruppe");
+});
+
 test("Präsentations-Prompt Jahrgang 5/6 (keine iPads): Materialfolien nur mit Aufforderung und Titel, Folie 1 bleibt", () => {
   const p = claudePresentationPrompt({ ...ctx, klass: "6B", code: "K7QM4X", sheets: [], materials: [{ name: "AB Kinderrechte.pdf", area: "print", kind: "file" }] }, "**1) Einstieg**", []);
   const mat = p.slice(p.indexOf("## Materialfolien"), p.indexOf("## Rahmendaten"));

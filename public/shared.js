@@ -521,7 +521,7 @@ export function claudePresentationPrompt(ctx, portalText, messages) {
     "- Sehr groß und gut abschreibbar der Sitzungscode " + codeText + " (Festbreitenschrift, mindestens 96 pt, mit Bindestrich wie angegeben).",
     "- Daneben der QR-Code zur Webseite " + PUBLIC_URL + ": mindestens ein Drittel der Folienhöhe groß, schwarz auf weiß, mit einem weißen Rand von 4 Modulen ringsum, scharfe Kanten (kein Weichzeichnen, keine Farbe, nichts darüber).",
     "- Darunter die Adresse " + host + " als Text und der Satz „" + (analog ? "Zu Hause findest du diese Sitzung in Unterricks: Scanne den QR-Code oder öffne " + host + " und gib den Sitzungscode ein."
-      : "Scanne den QR-Code oder öffne " + host + " und gib den Sitzungscode ein.") + "“; Thema, Fach und Klasse klein darüber.",
+      : "Scanne den QR-Code oder öffne " + host + " und gib den Sitzungscode ein.") + "“; Thema und Fach klein darüber (ohne Klasse und ohne Datum, siehe „Zeitlos gestalten“).",
     "- Zeichne den QR-Code genau nach diesem Muster und erzeuge ihn nicht neu (29 × 29 Module, Zeile für Zeile von oben nach unten; 1 = schwarzes Quadrat, 0 = weiß):",
     "```",
     ...QR_UNTERRICKS,
@@ -548,19 +548,26 @@ export function claudePresentationPrompt(ctx, portalText, messages) {
     analog ? "Steht ein Material, mit dem die Schüler:innen arbeiten sollen, unten nicht als „von der Lehrkraft auszudrucken“, nenne es mir zusätzlich im Chat – dann lege ich es zum Ausdrucken an."
       : "Steht ein Material, mit dem die Schüler:innen arbeiten sollen, unten gar nicht oder nur als Material „nur Lehrkraft“, nenne es mir zusätzlich im Chat – dann stelle ich es in Unterricks bereit.",
     "",
+    "## Zeitlos gestalten",
+    "Ziel ist eine zeitlose Präsentation: Sie soll auch in ein paar Jahren noch passen, wenn eine andere Klasse dieses Jahrgangs das Thema lernt. Deshalb steht auf den Folien:",
+    "- kein Datum, das sich auf diese Lerngruppe bezieht – kein Datum der Stunde, keine Abgabe- oder Prüfungstermine, keine Wochentage („bis Donnerstag“), kein Schuljahr oder Halbjahr mit Jahreszahl; " +
+      "Termine nur bezogen auf den Unterricht: Die Hausaufgabe ist „bis zur nächsten Unterrichtssitzung“ zu erledigen, auch wenn im Stundenverlauf oder bei der Hausaufgabe ein Datum steht;",
+    "- nicht die Klasse (z. B. „" + (classShort(ctx.klass) || "8c") + "“) und keine Namen von Schüler:innen oder Lehrkräften – wo eine Angabe nötig ist, nur die Lerngruppe allgemein („" + (groupShort(ctx.klass) || "Jg. 8") + "“);",
+    "- Zeitgebundenes (z. B. wer gerade regiert, neueste Zahlen) nicht als „aktuell“ oder „derzeit“, sondern mit Jahreszahl und Quelle („Stand " + new Date().getFullYear() + ": …“); fachliche Jahreszahlen und Daten (z. B. historische Ereignisse) bleiben selbstverständlich.",
+    "Einzige Ausnahme ist der Sitzungscode auf Folie 1 und den Materialfolien: Er gehört zu dieser Sitzung.",
+    "",
     "## Rahmendaten",
     "- Fach: " + subjectName(ctx.subject),
     "- Klasse/Kurs: " + classShort(ctx.klass) + " – " + gradeInfo(ctx.klass).text,
     "- Thema: " + (L.topic || L.title || "(siehe Stundenverlauf)"),
     "- Dauer: " + (L.durationMin ? L.durationMin + " Minuten" : "(nicht angegeben)"),
-    L.date ? "- Datum: " + fmtDay(L.date) : "",
     "",
     "## Verbindlicher Stundenverlauf (aktueller Schulportal-Eintrag der Lehrkraft – genau diese Fassung gilt, auch wenn ältere Planungen abweichen)",
     "Formatierung im Text: **…** = fett, ~~…~~ = kursiv (Titel, Leitfragen, Codes), Zeilen mit „- “ = Stichpunkte, „--> Nächste Stunde“ = ab hier folgt der Teil für die nächste Stunde.",
     "<<<",
     removeStops(portalText).trim(),
     ">>>",
-    L.homework ? "\nHausaufgabe bis zur nächsten Sitzung (als letzte Folie zeigen): " + clip(L.homework, 3000) : "",
+    L.homework ? "\nHausaufgabe (als letzte Folie zeigen – zu erledigen „bis zur nächsten Unterrichtssitzung“, ohne Datum): " + clip(L.homework, 3000) : "",
     "",
     "## Materialien und weitere Informationen",
     lessonContext(ctx, { portal: false, materialText: true, materialMax: 5000 }).split("\n").filter((l) => /^(- |  |Vorhandene|Feibeitsbl|Ideen|Präsentation)/.test(l)).join("\n") || "(keine)",
@@ -579,7 +586,7 @@ export function claudePresentationPrompt(ctx, portalText, messages) {
     "- Gestaltung für den Beamer: hoher Kontrast, Schrift mindestens 24 pt (Fließtext) bzw. 36 pt (Überschriften), höchstens 6 Zeilen pro Folie, ruhiges einheitliches Layout; keine Animationen oder Übergänge (PDF) – was nacheinander erscheinen soll, kommt auf aufeinanderfolgende Folien.",
     "- Altersgerechte Sprache für " + gradeInfo(ctx.klass).text + "; fachlich korrekt; keine erfundenen Quellen, Zitate oder Statistiken (wo nötig: Platzhalter mit Hinweis für die Lehrkraft).",
     "- Hinweise für die Lehrkraft (Impulse, Zeit, Erwartungen) je Folie gibst du mir zusätzlich hier im Chat als kurze Liste – eine PDF hat keine Sprechernotizen.",
-    "- Benenne die Datei sinnvoll, z. B. „" + (ctx.klass || "Klasse") + "_" + subjectName(ctx.subject).replace(/\s+/g, "-") + "_" + (L.topic || L.title || "Stunde").replace(/[^\wÄÖÜäöüß-]+/g, "-").slice(0, 40) + ".pdf“." +
+    "- Benenne die Datei sinnvoll und ebenfalls ohne Klasse und Datum, z. B. „" + (groupShort(ctx.klass) || "Jahrgang").replace(/\.?\s+/g, "-") + "_" + subjectName(ctx.subject).replace(/\s+/g, "-") + "_" + (L.topic || L.title || "Stunde").replace(/[^\wÄÖÜäöüß-]+/g, "-").slice(0, 40) + ".pdf“." +
       connectorHint(ctx).replace("speichere deine Ergebnisse auf Wunsch der Lehrkraft direkt mit `save_schulportal_entry`, `add_text_material` bzw. `propose_feibeitsblatt` in der Plattform",
         "verändere den Schulportal-Eintrag dabei nicht; die Hinweise für die Lehrkraft kannst du auf Wunsch mit `add_text_material` (bereich „lehrkraft“) in der Sitzung ablegen"),
   ].filter((l) => l !== null && l !== undefined).join("\n").replace(/\n{3,}/g, "\n\n");

@@ -283,6 +283,7 @@ async function main() {
     ok(matPart.includes("die Aufforderung, mit dem Material zu arbeiten") && matPart.includes("den Titel des Materials") && matPart.includes("denselben QR-Code zu Unterricks wie auf Folie 1") &&
       matPart.includes("Sitzungscode „" + lesson0.code.slice(0, 3) + "-" + lesson0.code.slice(3) + "“") && presPrompt.split("11111110111000011100001111111").length === 2,
       "Materialfolien: nur Aufforderung und Titel des Materials, dazu wieder QR-Code und Sitzungscode (Muster nur einmal im Prompt)");
+    ok(presPrompt.includes("## Zeitlos gestalten") && presPrompt.includes("„bis zur nächsten Unterrichtssitzung“") && !/^- Datum:/m.test(presPrompt), "zeitlos: keine Daten der Lerngruppe, Hausaufgabe bis zur nächsten Unterrichtssitzung");
     await tp.locator('.save-state[data-state="ok"]', { hasText: /^Gespeichert \d\d:\d\d/ }).waitFor({ timeout: 10000 });
     ok((await T("GET", "/api/teacher/lessons/" + lessonId)).data.lesson.portal.includes("Noch nicht gespeichert"), "… und speichert diesen Stand sofort");
 

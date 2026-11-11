@@ -153,7 +153,10 @@ implementiert und im End-to-End-Test geprüft (Ausnahmen unten ausdrücklich gen
    „(auf Papier)“ beim Titel und QR-Code, Sitzungscode und Hinweis auf Unterricks entfallen. In Jahrgang 5/6 (keine iPads,
    `isAnalogClass`) zeigen Materialfolien nur Aufforderung und Titel „(auf Papier)“; Folie 1 bleibt, mit dem Satz „Zu Hause findest du
    diese Sitzung in Unterricks: …“. Fehlt ein Material ganz (oder steht es nur „nur Lehrkraft“; in Jg. 5/6: jedes, das nicht auf der
-   Druckliste steht), nennt Claude es im Chat. Hinweise für die
+   Druckliste steht), nennt Claude es im Chat. **Zeitlos:** Die Präsentation soll in ein paar Jahren in einer anderen Klasse desselben
+   Jahrgangs noch passen – keine Daten der Lerngruppe (das Datum der Stunde steht gar nicht mehr im Prompt; Hausaufgabe „bis zur nächsten
+   Unterrichtssitzung“), keine Klasse und keine Namen (höchstens `groupShort`, z. B. „Jg. 8“, auch im Dateinamen), Zeitgebundenes mit
+   Jahreszahl statt „aktuell“; einzige Ausnahme ist der Sitzungscode. Hinweise für die
    Lehrkraft (statt Sprechernotizen) gibt Claude im Chat bzw. auf Wunsch über `add_text_material` (nur für die Lehrkraft).
 6. **Präsentation und Live-Synchronisation.** Upload der PDF → der Browser der Lehrkraft rendert jede Seite mit PDF.js
    (1920 px) und lädt sie als Bild hoch. „Ich bin im Unterricht …“ öffnet das Vollbild und meldet die Folie an das Durable
