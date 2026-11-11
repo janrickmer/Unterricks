@@ -221,6 +221,7 @@ async function logout() {
   if (T.fb) T.fb.disconnect();
   T.wrapKey = null; T.fbLink = { state: "checking" }; fbAuto = null; await forgetKey();   // dieses Gerät vergisst den Schlüssel
   nfReset();   // ein laufendes Nachholen endet
+  import("./designrender.js").then((m) => m.resetPrintQueue()).catch(() => {});   // ebenso das Drucken gestalteter Materialien
   toLogin();
 }
 
@@ -292,6 +293,7 @@ async function subjectsPage() {
   // Wochenkalender ganz oben: lädt eigenständig (ein Fehler dort verhindert die Fächer nicht)
   const week = weekCard(() => tapi("GET", "/api/teacher/schedule").then((r) => r.units));
   resumeCleanup();
+  printPending();
   let all; try { all = await loadLessons(); } catch (e) { clear(main).append(h("p", { class: "err", text: e.message })); return; }
   clear(main).append(...nn(pageHead({ title: "Welches Fach unterrichten Sie?", sub: "Planung in Unterrichtseinheiten – jede Sitzung gehört zu einer Stunde ihrer Einheit." }),
     week, h("h2", { class: "sr-only", text: "Fächer" }),
@@ -583,6 +585,18 @@ async function startReset(btn, status) {
 }
 /* nach einem unterbrochenen Zurücksetzen: restliche Dateien leise weiter löschen (einmal je Seitenaufruf, z. B. auf der Startseite) */
 let resumeChecked = false;
+/* Material von Claude, das noch nicht (neu) gedruckt ist – z. B. Vertretungsmaterial nach dem Bestätigen oder Material, das Claude bei
+   ausgelastetem Drucker abgelegt hat – druckt die gemeinsame Warteschlange nach, auch wenn seine Sitzung niemand öffnet */
+function printPending() {
+  tapi("GET", "/api/teacher/render").then(async (r) => {
+    if (!r.configured || !Array.isArray(r.pending) || !r.pending.length || (r.usage && r.usage.quotaUntil)) return;
+    const { printQueue } = await import("./designrender.js");
+    const q = printQueue(), before = q.pending;
+    for (const f of r.pending) q.add(f);
+    const added = q.pending - before;
+    if (added > 0) toast("Unterricks druckt " + (added === 1 ? "ein Material" : added + " Materialien") + " von Claude als PDF – Sie können weiterarbeiten.", "ok", 6000);
+  }).catch(() => {});
+}
 function resumeCleanup() {
   if (resumeChecked) return;
   resumeChecked = true;

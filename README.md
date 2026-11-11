@@ -102,8 +102,8 @@ Feibeitsblatt braucht keine Änderung. Die Adressen stehen in `wrangler.jsonc` (
   selbst als HTML-Seite und legt sie über den Connector ab (`add_material_pdf`); Unterricks druckt sie unverändert mit Chromium als
   A4-PDF (Cloudflare Browser Run, kostenlos bis 10 Minuten Browserzeit am Tag – das reicht für weit über hundert Seiten). Für
   Schüler:innen, nur für Sie oder in die Druckliste. Schüler:innen sehen ein Material, sobald seine PDF gedruckt ist; in der Sitzung
-  steht dann „PDF, von Claude gestaltet · 2 Seiten“. Ist der Drucker gerade ausgelastet, druckt die Sitzungsseite selbst nach
-  („wartet auf den PDF-Drucker …“); meldet er einen Fehler, steht dort „Druck fehlgeschlagen“ mit „Erneut drucken“ – Claude kann die
+  steht dann „PDF, von Claude gestaltet · 2 Seiten“. Ist der Drucker gerade ausgelastet, druckt Unterricks nach, sobald Sie die
+  Sitzung oder die Startseite öffnen („wartet auf den PDF-Drucker …“; der Tab kann dabei weiterarbeiten); meldet er einen Fehler, steht dort „Druck fehlgeschlagen“ mit „Erneut drucken“ – Claude kann die
   Gestaltung dann mit derselben Datei überarbeiten. Bei einer Krankheitsvertretung gibt es vor dem Bestätigen „Vorschau als PDF“. Der
   Chat mit kostenloser KI bleibt der Rückfall: „Als Material übernehmen“ setzt daraus eine einfache PDF ohne eigene Gestaltung.
   Nach dem Ausrollen prüft `https://<Worker-Adresse>/api/health/pdf` den Druck (höchstens einmal je Stunde; `?pdf=1` zeigt die

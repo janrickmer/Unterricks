@@ -6,9 +6,9 @@ import { requireTeacher } from "./auth.js";
 import { requireAccess } from "./student.js";
 import { normalizeEscapeRoom } from "../public/escape-data.js";
 import { getLesson, savePortal, insertDraft } from "./lessons.js";
-import { insertTextMaterial, fileKey, checkStorage, deleteNotfallFiles, saveDesign, deleteFileObjects } from "./files.js";
+import { insertTextMaterial, fileKey, checkStorage, deleteNotfallFiles, saveDesign, deleteFileObjects, designHtml } from "./files.js";
 import { normalizeSubstitute } from "../public/planning.js";
-import { cleanDesignHtml, renderPdf } from "./render.js";
+import { renderPdf } from "./render.js";
 import { isAnalogClass, normalizeCode, isValidCode, subjectName, classShort } from "../public/shared.js";
 
 export const ESCAPE_ROOMS_AVAILABLE = true;   // Escape-Room-Vorlage der Plattform (public/escape.js, Finale im Feibeitsblatt)
@@ -25,7 +25,8 @@ export async function saveProposal(db, lessonId, raw, now) {
   const p = normalizeSubstitute(raw);
   if (p.escape_room && !ESCAPE_ROOMS_AVAILABLE) throw bad("Escape-Rooms kann die Plattform noch nicht bereitstellen. Bitte ein Feibeitsblatt (bei einem Lernprodukt mit Foto-Abgabe) verwenden.");
   if (!p.schritte.length) throw bad("Der Vorschlag braucht eine chronologische Anleitung (schritte).");
-  p.materialien.forEach((m, i) => { if (m.html) { try { m.html = cleanDesignHtml(m.html); } catch (e) { throw bad("Material " + (i + 1) + " („" + m.titel + "“): " + e.message); } } });
+  // gestaltete Materialien schon hier so prüfen wie beim Bestätigen (Größe in Bytes, Platzhalter) – das Bestätigen darf nicht mittendrin scheitern
+  p.materialien.forEach((m, i) => { if (m.html) { try { m.html = designHtml(m.html); } catch (e) { throw bad("Material " + (i + 1) + " („" + m.titel + "“): " + e.message); } } });
   // Escape-Room: Inhalte streng prüfen (Fehlerliste geht an Claude zurück); das Finale ist ein Feibeitsblatt mit Escape-Kennung
   if (p.escape_room && !isAnalogClass(l.klass)) {
     try { p.escape_room = normalizeEscapeRoom(p.escape_room, { id: "unterricks-" + lessonId.slice(0, 8) + "-" + randomId(3), fach: subjectName(l.subject), klasse: classShort(l.klass) }); }
@@ -34,6 +35,9 @@ export async function saveProposal(db, lessonId, raw, now) {
   }
   if (isAnalogClass(l.klass) && (p.feibeitsblatt || p.escape_room)) throw bad("In den Jahrgängen 5 und 6 gibt es keine digitalen Formate (keine Feibeitsblätter/Escape-Rooms) – bitte analoges, ausdruckbares Material.");
   if (!isAnalogClass(l.klass) && !p.feibeitsblatt && !p.escape_room) throw bad("Jede Vertretungsstunde braucht eine Abgabe in der Plattform: ein Feibeitsblatt (ggf. mit Foto-Aufgabe) oder einen Escape-Room mit Feibeitsblatt-Finale.");
+  // D1 speichert höchstens 2 MB je Zeile – gestaltete Materialien mit großen eingebetteten Bildern passen sonst nicht in den Vorschlag
+  // (vor dem Entwurf geprüft, damit kein verwaister Entwurf zurückbleibt; die Kennung des Entwurfs hat 16 Zeichen)
+  if (new TextEncoder().encode(JSON.stringify({ ...p, draftId: "0".repeat(16) })).length > 1_900_000) throw bad("Der Vorschlag ist zu groß (vor allem die gestalteten Materialien, zusammen höchstens etwa 1,5 MB). Bitte Grafiken als SVG statt als eingebettete Fotos anlegen oder Materialien kürzen.");
   // Feibeitsblatt als Entwurf: die Lehrkraft prüft ihn im bekannten Editor und legt ihn beim Bestätigen an
   let draftId = null;
   if (p.feibeitsblatt) {
@@ -42,8 +46,6 @@ export async function saveProposal(db, lessonId, raw, now) {
     draftId = d.id;
   }
   const proposal = { ...p, draftId };
-  // D1 speichert höchstens 2 MB je Zeile – gestaltete Materialien mit großen eingebetteten Bildern passen sonst nicht in den Vorschlag
-  if (new TextEncoder().encode(JSON.stringify(proposal)).length > 1_900_000) throw bad("Der Vorschlag ist zu groß (vor allem die gestalteten Materialien, zusammen höchstens etwa 1,5 MB). Bitte Grafiken als SVG statt als eingebettete Fotos anlegen oder Materialien kürzen.");
   await db.prepare("INSERT INTO substitutes(lesson_id, status, proposal, created_at, updated_at) VALUES(?1, 'vorschlag', ?2, ?3, ?3) " +
     "ON CONFLICT(lesson_id) DO UPDATE SET status='vorschlag', proposal=excluded.proposal, updated_at=excluded.updated_at").bind(lessonId, JSON.stringify(proposal), now).run();
   if (cur && cur.status === "vorschlag") {
@@ -63,6 +65,11 @@ export async function routeSubstituteConfirm(c, lessonId) {
   const body = await readJson(c.request, 20000);
   const sheet = body.sheet && isValidCode(normalizeCode(body.sheet.code)) ? { code: normalizeCode(body.sheet.code), title: String(body.sheet.title || "Feibeitsblatt").slice(0, 200) } : null;
   if (p.draftId && !sheet && !isAnalogClass(l.klass)) throw bad("Bitte zuerst das Feibeitsblatt der Vertretung anlegen (Verbindung zu Feibeitsblatt nötig).");
+  // alles prüfen, was scheitern kann, BEVOR die ursprüngliche Planung archiviert wird (sonst bliebe die Sitzung halb umgestellt)
+  (p.materialien || []).forEach((m, i) => {
+    try { if (m.html) designHtml(m.html); else if (!String(m.markdown || "").trim()) throw new Error("Das Material ist leer."); }
+    catch (e) { throw bad("Material " + (i + 1) + " („" + (m.titel || "Material") + "“) lässt sich nicht übernehmen: " + e.message + " Bitte einen neuen Vorschlag mit Claude entwickeln."); }
+  });
   const [files, sheets] = await c.db.batch([
     c.db.prepare("SELECT id, area FROM files WHERE lesson_id=?1 AND area IN ('student','teacher','print')").bind(lessonId),
     c.db.prepare("SELECT code, title FROM fb_sheets WHERE lesson_id=?1").bind(lessonId),
@@ -168,15 +175,18 @@ export async function routeSubstituteTransfer(c, lessonId) {
   const ins = [];
   for (const { f0, f } of files) {
     const id = randomId(8);
+    let pending = false;
     if (f.kind === "file") {
       const obj = await c.env.FILES.get(fileKey(f.lesson_id, f.id));
-      if (!obj) continue;
-      await c.env.FILES.put(fileKey(target.id, id), obj.body, { httpMetadata: { contentType: f.mime } });
+      // von Claude gestaltet, aber noch nie gedruckt: ohne PDF übernehmen – die Zielsitzung druckt es
+      if (!obj && f.html != null) pending = true;
+      else if (!obj) continue;
+      else await c.env.FILES.put(fileKey(target.id, id), obj.body, { httpMetadata: { contentType: f.mime } });
     }
     ins.push(c.db.prepare("INSERT INTO files(id, lesson_id, area, kind, name, mime, size, text, status, source, print_copies, print_duplex, print_color, created_at, updated_at, html, html_at, pdf_at, pages) " +
-      "VALUES(?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, 'ready', 'uebernommen', ?9, ?10, ?11, ?12, ?12, ?13, ?14, ?15, ?16)")
-      .bind(id, target.id, f0.area === "teacher" || f0.area === "print" ? f0.area : "student", f.kind, f.name, f.mime, f.size, f.text, f.print_copies ?? null, f.print_duplex ?? null, f.print_color ?? null, c.now,
-        f.html ?? null, f.html_at ?? null, f.pdf_at ?? null, f.pages ?? null));
+      "VALUES(?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?17, 'uebernommen', ?9, ?10, ?11, ?12, ?12, ?13, ?14, ?15, ?16)")
+      .bind(id, target.id, f0.area === "teacher" || f0.area === "print" ? f0.area : "student", f.kind, f.name, f.mime, pending ? 0 : f.size, f.text, f.print_copies ?? null, f.print_duplex ?? null, f.print_color ?? null, c.now,
+        f.html ?? null, f.html_at ?? null, pending ? null : f.pdf_at ?? null, pending ? null : f.pages ?? null, pending ? "pending" : "ready"));
   }
   if (ins.length) await c.db.batch(ins);
   if (from === 0 && a.portal && body.portal !== false) {

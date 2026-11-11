@@ -192,9 +192,11 @@ export async function insertPrintText(db, lessonId, title, text, p, source, now)
 export const DESIGN_AREAS = new Set(["student", "teacher", "print"]);
 const pdfFileName = (t) => (cleanLine(t, 190).replace(/\.pdf$/i, "").trim() || "Material") + ".pdf";
 export const designOutdated = (f) => !!f.html && (!f.pdf_at || (f.html_at || 0) > f.pdf_at);
-function designHtml(raw) {
+export function designHtml(raw) {
   const html = cleanDesignHtml(raw);
   if (new TextEncoder().encode(html).length > HTML_MAX) throw bad("Das Material ist zu groß (höchstens 1,5 MB HTML). Bitte Grafiken als SVG statt als eingebettete Fotos anlegen oder das Material aufteilen.");
+  // Platzhalter aus get_material gelten nur beim Überarbeiten desselben Materials (file_id) – sonst stünde ein kaputtes Bild in der PDF
+  if (html.includes("data:unterricks-bild,")) throw bad("Die Gestaltung enthält Bild-Platzhalter („data:unterricks-bild,n“) aus get_material. Die gelten nur beim Überarbeiten desselben Materials mit seiner file_id – sonst die Bilder bitte wieder vollständig einbetten.");
   return html;
 }
 /* neu anlegen (fileId fehlt) oder die Gestaltung eines vorhandenen Materials dieser Sitzung ersetzen */
@@ -207,7 +209,11 @@ export async function saveDesign(c, lessonId, { area, title, html, print = {}, s
     const h = designHtml(keepImages(html, f.html)), at = Math.max(c.now, (f.pdf_at || 0) + 1, (f.html_at || 0) + 1);
     const sets = ["html=?2", "html_at=?3", "text=?4", "render_error=NULL", "updated_at=?5"], args = [fileId, h, at, htmlText(h), c.now];
     if (title) { args.push(pdfFileName(title)); sets.push("name=?" + args.length); }
-    if (area && area !== f.area) { args.push(area); sets.push("area=?" + args.length); }
+    if (area && area !== f.area) {
+      args.push(area); sets.push("area=?" + args.length);
+      // für Schüler:innen erst mit der neuen PDF (die bisherige war nur für die Lehrkraft gedacht)
+      if (area === "student") sets.push("status='pending'");
+    }
     if (f.area === "print") {
       const n = cleanCopies(print.copies); if (n) { args.push(n); sets.push("print_copies=?" + args.length); }
       if (typeof print.duplex === "boolean") { args.push(print.duplex ? 1 : 0); sets.push("print_duplex=?" + args.length); }
@@ -232,14 +238,21 @@ export async function renderDesign(c, fileOrId, { waitMs = 25000 } = {}) {
   let out;
   try { out = await renderPdf(c, f.html, { waitMs }); }
   catch (e) {
-    const msg = e instanceof RenderError ? e.message : "Der PDF-Druck ist fehlgeschlagen.";
-    // gemerkt werden nur Fehler, bei denen ein neuer Versuch mit derselben Gestaltung nichts ändert (die Sitzungsseite druckt sonst selbst nach)
-    if (!(e instanceof RenderError) || e.renderCode === "failed" || e.renderCode === "config") {
-      try { await c.db.prepare("UPDATE files SET render_error=?2 WHERE id=?1 AND COALESCE(html_at,0)=?3").bind(f.id, msg, at).run(); } catch {}
+    // gemerkt werden nur Ablehnungen des Druckers, bei denen ein neuer Versuch mit derselben Gestaltung nichts ändert – alles andere
+    // (ausgelastet, Tageskontingent, nicht eingerichtet, Fehler unterwegs) druckt die Sitzungsseite später selbst nach
+    if (e instanceof RenderError && e.renderCode === "failed") {
+      try { await c.db.prepare("UPDATE files SET render_error=?2 WHERE id=?1 AND COALESCE(html_at,0)=?3").bind(f.id, e.message, at).run(); } catch {}
     }
-    throw e instanceof HttpError ? e : new RenderError("failed", msg);
+    throw e instanceof HttpError ? e : new RenderError("busy", "Der PDF-Druck ist gerade fehlgeschlagen – Unterricks versucht es erneut.", 20);
   }
   await checkStorage(c, Math.max(0, out.bytes.length - (f.size || 0)));
+  // inzwischen neu gestaltet oder schon von einem anderen Auftrag gedruckt? Dann diese (ältere) PDF nicht über die neuere legen
+  const now = await c.db.prepare("SELECT html_at, pdf_at FROM files WHERE id=?1").bind(f.id).first();
+  if (!now) throw new HttpError(404, "not_found", "Das Material wurde inzwischen gelöscht.");
+  if ((now.html_at || 0) !== at || (now.pdf_at || 0) >= at) {
+    const cur = await c.db.prepare("SELECT * FROM files WHERE id=?1").bind(f.id).first();
+    return { file: cur, pages: cur.pages || out.pages, bytes: cur.size || out.bytes.length, current: (now.html_at || 0) === at };
+  }
   const key = fileKey(f.lesson_id, f.id);
   await c.env.FILES.put(key, out.bytes, { httpMetadata: { contentType: "application/pdf" } });
   const done = await c.db.prepare("UPDATE files SET status='ready', size=?2, pages=?3, pdf_at=?4, render_error=NULL, updated_at=?5 WHERE id=?1 AND COALESCE(html_at,0)=?4")
@@ -267,9 +280,14 @@ export async function routeDesignCreate(c, lessonId) {
   const f = await saveDesign(c, lessonId, { area: body.area, title: body.title, html: body.html, print: body.print && typeof body.print === "object" ? body.print : {}, source: cleanLine(body.source, 40) || "uebernommen" });
   return json({ ok: true, file: fileOut(f) });
 }
+/* Verbrauch des Druckers heute und Materialien, die noch (neu) gedruckt werden müssen – die Startseite der Lehrkraft druckt sie nach,
+   auch wenn ihre Sitzung gerade niemand geöffnet hat (z. B. Vertretungsmaterial nach dem Bestätigen, Material von Claude bei vollem Drucker) */
 export async function routeRenderUsage(c) {
   await requireTeacher(c);
-  return json({ ok: true, usage: await renderUsage(c.db, c.now), configured: printerConfigured(c.env) });
+  const r = await c.db.prepare("SELECT id, lesson_id, name, area, status, html_at, pdf_at FROM files WHERE html IS NOT NULL AND area<>'archive' AND render_error IS NULL " +
+    "AND (pdf_at IS NULL OR COALESCE(html_at,0) > pdf_at) ORDER BY updated_at LIMIT 40").all();
+  const pending = (r.results || []).map((f) => ({ id: f.id, lessonId: f.lesson_id, name: f.name, area: f.area, status: f.status, design: { outdated: true, error: null, htmlAt: f.html_at || null, pdfAt: f.pdf_at || null } }));
+  return json({ ok: true, usage: await renderUsage(c.db, c.now), configured: printerConfigured(c.env), pending });
 }
 /* Claudes Gestaltung lesen (Sicherung der Sitzung; mit short=1 eingebettete Bilder als Platzhalter) */
 export async function routeFileHtml(c, fileId) {

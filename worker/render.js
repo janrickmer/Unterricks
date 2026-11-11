@@ -11,13 +11,14 @@ export const PDF_FONT = "Atkinson Hyperlegible Next";
 
 /* Lange data:-Adressen (eingebettete Bilder) finden – mit indexOf und einem verankerten Ausdruck nur über die Base64-Zeichen: Ausdrücke
    über das ganze HTML kosten bei 1,5 MB sonst mehr Rechenzeit, als der Free-Plan erlaubt (10 ms je Anfrage) */
-const B64_RUN = /[A-Za-z0-9+\/=]*/y;
+const B64_RUN = /[A-Za-z0-9+\/=]*/y, DATA_HEAD = /^data:[a-z0-9.+\/-]+(?:;[a-z0-9=.+-]+)*;base64,$/i;
 export function dataRanges(s, min = 1500) {
   const out = [];
   for (let i = s.indexOf("data:"); i >= 0; i = s.indexOf("data:", i)) {
     const b = s.indexOf(";base64,", i);
     if (b < 0) break;
-    if (b - i > 120) { i += 5; continue; }
+    // nur eine schlichte Medienangabe zwischen „data:“ und „;base64,“ (sonst ließe sich hier Text an der Prüfung vorbeischleusen)
+    if (b - i > 120 || !DATA_HEAD.test(s.slice(i, b + 8))) { i += 5; continue; }
     B64_RUN.lastIndex = b + 8; B64_RUN.exec(s);
     const end = B64_RUN.lastIndex;
     if (end - i >= min) out.push([i, end]);
@@ -32,8 +33,8 @@ const cutRanges = (s, ranges, token) => {
   return o + s.slice(p);
 };
 
-/* HTML von Claude annehmen: nur Gestaltung – Skripte, eingebettete fremde Seiten und Weiterleitungen fallen weg (JavaScript ist beim Druck
-   ohnehin aus, Netzzugriffe sind gesperrt). Ein Bruchstück wird zu einer ganzen Seite. */
+/* HTML von Claude annehmen: nur Gestaltung – Skripte, Ereignis-Attribute, eingebettete fremde Seiten und Weiterleitungen fallen weg (zusätzlich
+   zum abgeschalteten JavaScript beim Druck, siehe pdfRequest; Netzzugriffe sind gesperrt). Ein Bruchstück wird zu einer ganzen Seite. */
 export function cleanDesignHtml(raw) {
   let s = typeof raw === "string" ? raw.replace(/\u0000/g, "") : "";
   if (s.length > HTML_MAX) throw bad("Das Material ist zu groß (höchstens " + HTML_MAX.toLocaleString("de-DE") + " Zeichen HTML). Bitte Grafiken einfacher halten oder auf mehrere Materialien aufteilen.");
@@ -42,13 +43,14 @@ export function cleanDesignHtml(raw) {
   const ranges = dataRanges(s), imgs = ranges.map(([a, z]) => s.slice(a, z));
   s = cutRanges(s, ranges, (k) => "\u0000" + k + "\u0000");
   if (!s || !/<[a-z!]/i.test(s)) throw bad("Bitte das Material als HTML-Seite übergeben (mit <style> für die Gestaltung).");
-  s = s.replace(/<script\b[\s\S]*?<\/script\s*>/gi, "").replace(/<script\b[^>]*>/gi, "")
-    .replace(/<\/?(iframe|object|embed|frame|frameset|portal|applet)\b[^>]*>/gi, "")
-    .replace(/<meta\b[^>]*http-equiv\s*=\s*["']?refresh[^>]*>/gi, "").replace(/<base\b[^>]*>/gi, "");
-  // Ereignis-Attribute (onload …) und javascript:-Adressen – je Tag mehrere, deshalb bis nichts mehr übrig ist
-  for (let i = 0, prev = ""; i < 20 && prev !== s; i++) {
+  // so lange wiederholt, bis sich nichts mehr ändert („<scr<script>ipt>“ setzt sich sonst nach dem Entfernen neu zusammen); je Tag auch
+  // mehrere Ereignis-Attribute (onload …, auch nach „/“ wie in „<svg/onload=…>“) und javascript:-Adressen
+  for (let i = 0, prev = ""; i < 30 && prev !== s; i++) {
     prev = s;
-    s = s.replace(/(<[a-z][^>]*?)\s+on[a-z]+\s*=\s*("[^"]*"|'[^']*'|[^\s>]+)/gi, "$1").replace(/((?:href|src|action|xlink:href)\s*=\s*["']?)\s*javascript:/gi, "$1#");
+    s = s.replace(/<script\b[\s\S]*?<\/script\s*>/gi, "").replace(/<\/?script\b[^>]*>/gi, "")
+      .replace(/<\/?(iframe|object|embed|frame|frameset|portal|applet)\b[^>]*>/gi, "")
+      .replace(/<meta\b[^>]*http-equiv\s*=\s*["']?refresh[^>]*>/gi, "").replace(/<base\b[^>]*>/gi, "")
+      .replace(/(<[a-z][^>]*?)[\s\/]+on[a-z]+\s*=\s*("[^"]*"|'[^']*'|[^\s>]+)/gi, "$1").replace(/((?:href|src|action|xlink:href|formaction)\s*=\s*["']?)\s*javascript:/gi, "$1#");
   }
   if (!/<html[\s>]/i.test(s)) s = '<!doctype html><html lang="de"><head><meta charset="utf-8"></head><body>' + s + "</body></html>";
   return imgs.length ? s.replace(/\u0000(\d+)\u0000/g, (m, k) => imgs[Number(k)] || "") : s;
@@ -66,12 +68,12 @@ export function printableHtml(html, fonts = "") {
   return html.replace(/<html\b[^>]*>/i, (m) => m + "<head>" + css + "</head>");
 }
 
-/* Auftrag an den Drucker (nur Felder aus der Doku der Quick Action „pdf“): A4 (eine @page-Regel von Claude geht vor, auch Querformat),
-   Hintergründe mitdrucken, jede Anfrage ins Netz abgewiesen (nur data:-Adressen). Skripte und Ereignis-Attribute entfernt
-   cleanDesignHtml vorher. */
-export function pdfRequest(html, fonts = "") {
+/* Auftrag an den Drucker: A4 (eine @page-Regel von Claude geht vor, auch Querformat), Hintergründe mitdrucken, JavaScript aus, jede
+   Anfrage ins Netz abgewiesen (nur data:-Adressen). Skripte und Ereignis-Attribute entfernt cleanDesignHtml vorher. */
+export function pdfRequest(html, fonts = "", js = false) {
   return {
     html: printableHtml(html, fonts),
+    ...(js ? {} : { setJavaScriptEnabled: false }),   // Feld der Browser-Run-API; lehnt der Drucker es ab, druckt renderPdf ohne (s. u.)
     rejectRequestPattern: ["^https?:", "^wss?:", "^ftp:", "^file:"],
     gotoOptions: { waitUntil: "load", timeout: 30000 },
     pdfOptions: { format: "a4", printBackground: true, preferCSSPageSize: true, timeout: 60000 },
@@ -160,6 +162,7 @@ const gapOf = (env) => (env && env.RENDER_GAP_MS !== undefined && Number.isFinit
 const utcDay = (t) => new Date(t).toISOString().slice(0, 10);
 const nextUtcMidnight = (t) => { const d = new Date(t); return Date.UTC(d.getUTCFullYear(), d.getUTCMonth(), d.getUTCDate() + 1); };
 const sleep = (ms) => new Promise((ok) => setTimeout(ok, ms));
+let jsFieldRejected = false;   // je Instanz: der Drucker lehnte setJavaScriptEnabled ab
 
 /* Platz in der Warteschlange: der nächste freie Zeitpunkt für einen Auftrag (atomar, auch über mehrere Instanzen) – nur, wenn er
    höchstens maxWait entfernt ist; sonst null und wann es wieder geht */
@@ -194,7 +197,8 @@ export async function renderPdf(c, html, { waitMs = 25000 } = {}) {
   const db = c.db, env = c.env;
   const now0 = Date.now(), q = await quotaUntil(db, now0);
   if (q) throw new RenderError("quota", QUOTA_TEXT);
-  const body = pdfRequest(html, await fontCss(env));
+  const fonts = await fontCss(env);
+  let body = pdfRequest(html, fonts, jsFieldRejected);
   const gap = gapOf(env), deadline = now0 + waitMs;
   for (let attempt = 1; ; attempt++) {
     const now = Date.now();
@@ -239,6 +243,8 @@ export async function renderPdf(c, html, { waitMs = 25000 } = {}) {
       if (attempt < 2 && left > gap + 5000) continue;
       throw new RenderError("busy", "Der PDF-Drucker hat gerade nicht geantwortet (Fehler " + r.status + ").", 20);
     }
+    // kennt der Drucker das Feld setJavaScriptEnabled nicht, ohne es erneut (Skripte und Ereignis-Attribute hat cleanDesignHtml entfernt)
+    if (r.status === 400 && !jsFieldRejected && /setJavaScriptEnabled|unrecognized|unknown key|additional propert/i.test(text)) { jsFieldRejected = true; body = pdfRequest(html, fonts, true); continue; }
     throw new RenderError("failed", "Der PDF-Drucker hat das Material abgelehnt (Fehler " + r.status + (text ? ": " + text.replace(/\s+/g, " ").slice(0, 200) : "") + ").");
   }
 }

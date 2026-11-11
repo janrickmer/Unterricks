@@ -300,7 +300,7 @@ async function callTool(c, name, a) {
         const code = e && e.code ? String(e.code) : "";
         const later = code === "render_busy" || code === "render_quota" || code === "render_config";
         return toolText("„" + f.name + "“ ist " + (a.file_id ? "überarbeitet" : "gespeichert") + " (" + where + "), aber noch nicht als PDF gedruckt: " + (e && e.message ? e.message : "Fehler beim Druck") + " " +
-          (later ? "Unterricks druckt es automatisch nach, sobald die Lehrkraft die Sitzung öffnet; bis dahin sehen die Schüler:innen " + (a.file_id ? "die bisherige Fassung." : "es noch nicht.")
+          (later ? "Unterricks druckt es automatisch nach, sobald die Lehrkraft Unterricks öffnet; bis dahin sehen die Schüler:innen " + (a.file_id && f.status === "ready" ? "die bisherige Fassung." : "es noch nicht.")
             : "Bitte die Gestaltung prüfen und mit add_material_pdf (file_id " + f.id + ") korrigiert erneut senden."), { file_id: f.id, status: later ? "wartet auf den Druck" : "Druckfehler", error: e && e.message ? e.message : null });
       }
     }

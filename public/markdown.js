@@ -51,6 +51,8 @@ export function parseBlocks(src) {
           items.push({ depth: Math.min(3, Math.floor(m[1].replace(/\t/g, "    ").length / 2)), ordered: /\d/.test(m[2]), num: parseInt(m[2], 10) || null, text: box ? box[2] : m[3], ...(box ? { box: box[1] !== " " ? "x" : " " } : {}) });
           i++; continue;
         }
+        // eingerückte Schreiblinien unter einer Aufgabe („   [[Linien: 6]]“) beenden die Liste – sie werden ein eigener Block
+        if (/^\s*(\[\[\s*(?:linien|zeilen|lines)\b|_{8,}\s*$)/i.test(lines[i])) break;
         if (lines[i].trim() && /^\s{2,}\S/.test(lines[i]) && items.length) { items[items.length - 1].text += " " + lines[i].trim(); i++; continue; }
         break;
       }
@@ -66,21 +68,21 @@ export function parseBlocks(src) {
 /* Inline-Läufe: [{text, b, i, code, href, img}] */
 export function parseInline(s) {
   s = String(s == null ? "" : s);
-  // Lücken aus Unterstrichen („Name: ________“) sind Text – nie Hervorhebung (sonst verschluckte „__“ … „__“ den Satz dazwischen)
-  if (/_{3,}/.test(s)) return s.split(/(_{3,})/).flatMap((part, k) => (k % 2 ? [{ text: part }] : parseInline(part)));
   const out = [];
-  // ohne Lookbehind (ältere iPads/Safari)
-  const re = /!\[([^\]]*)\]\(([^\s)]+)\)|(\*\*|__)(.+?)\3|(\*|_)(?!\s)([^*_\n]*?[^\s*_])\5(?![A-Za-z0-9])|`([^`]+)`|\[([^\]]+)\]\((https?:\/\/[^\s)]+)\)|(https?:\/\/[^\s<>()]+[^\s<>().,;:!?"'])/g;
+  // ohne Lookbehind (ältere iPads/Safari). Zuerst: Lücken aus Unterstrichen („Name: ________“) sind Text, nie Hervorhebung – auch innerhalb
+  // von **fett** („**Die ____ kontrolliert …**“ bleibt fett, die Lücke darin Text); „__“ öffnet keine Hervorhebung, wenn ein „_“ folgt.
+  const re = /(_{3,})|!\[([^\]]*)\]\(([^\s)]+)\)|(\*\*|__(?!_))(.+?)\4|(\*|_)(?!\s)([^*_\n]*?[^\s*_])\6(?![A-Za-z0-9])|`([^`]+)`|\[([^\]]+)\]\((https?:\/\/[^\s)]+)\)|(https?:\/\/[^\s<>()]+[^\s<>().,;:!?"'])/g;
   let last = 0, m;
   const push = (text, f = {}) => { if (text) out.push({ text, ...f }); };
   while ((m = re.exec(s))) {
     push(s.slice(last, m.index));
-    if (m[2] !== undefined) push("[Abbildung" + (m[1].trim() ? ": " + m[1].trim() : "") + "]", { i: true, img: true });   // Bilder werden nie geladen
-    else if (m[4] !== undefined) for (const r of parseInline(m[4])) out.push({ ...r, b: true });
-    else if (m[6] !== undefined) for (const r of parseInline(m[6])) out.push({ ...r, i: true });
-    else if (m[7] !== undefined) push(m[7], { code: true });
-    else if (m[8] !== undefined) push(m[8], { href: m[9] });
-    else if (m[10] !== undefined) push(m[10], { href: m[10] });
+    if (m[1] !== undefined) push(m[1]);
+    else if (m[3] !== undefined) push("[Abbildung" + (m[2].trim() ? ": " + m[2].trim() : "") + "]", { i: true, img: true });   // Bilder werden nie geladen
+    else if (m[5] !== undefined) for (const r of parseInline(m[5])) out.push({ ...r, b: true });
+    else if (m[7] !== undefined) for (const r of parseInline(m[7])) out.push({ ...r, i: true });
+    else if (m[8] !== undefined) push(m[8], { code: true });
+    else if (m[9] !== undefined) push(m[9], { href: m[10] });
+    else if (m[11] !== undefined) push(m[11], { href: m[11] });
     last = m.index + m[0].length;
   }
   push(s.slice(last));

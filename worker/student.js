@@ -92,7 +92,7 @@ export async function routeStudentLesson(c, lessonId) {
 export async function routeStudentFileLink(c, fileId) {
   await requireStudent(c);
   const f = await getFile(c.db, fileId);
-  if (f.area !== "student" || f.kind !== "file") throw new HttpError(404, "not_found", "Datei nicht gefunden.");
+  if (f.area !== "student" || f.kind !== "file" || f.status !== "ready") throw new HttpError(404, "not_found", "Datei nicht gefunden.");
   await requireAccess(c, f.lesson_id);
   return json({ ok: true, url: await downloadUrl(requireSecret(c.env), f, false, 10 * 60e3, c.now) });
 }

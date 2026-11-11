@@ -23,14 +23,17 @@ export const printProps = (f) => ({ copies: f.print_copies || 1, duplex: f.print
 export const codeSlidesOf = (f) => { try { return cleanCodeSlides(JSON.parse(f.code_slides || "[]"), f.pages || 0); } catch { return []; } };
 /* Spalten einer Dateiliste ohne Claudes Gestaltung (html bis 1,5 MB je Material – nur '' als Kennzeichen „gestaltet“) */
 export const FILE_COLS = "id, lesson_id, area, kind, name, mime, size, CASE WHEN kind IN ('text','link') THEN text END AS text, pages, status, source, created_at, updated_at, " +
-  "fb_code, fb_sig, shown_until, cut_size, code_slides, print_copies, print_duplex, print_color, html_at, pdf_at, render_error, CASE WHEN html IS NULL THEN NULL ELSE '' END AS html";
+  "fb_code, fb_sig, shown_until, cut_size, code_slides, print_copies, print_duplex, print_color, html_at, pdf_at, render_error, CASE WHEN html IS NULL THEN NULL ELSE '' END AS html, " +
+  "CASE WHEN html IS NOT NULL THEN substr(text, 1, 6000) END AS design_text";
 export const fileOut = (f, withText = true) => ({
   id: f.id, area: f.area, kind: f.kind, name: f.name, mime: f.mime, size: f.size, pages: f.pages ?? null, status: f.status, source: f.source || null,
   fbCode: f.fb_code || null, fbSig: f.fb_sig || null, ...(f.area === "presentation" ? { shownUntil: f.shown_until ?? null, cut: !!f.cut_size, codeSlides: codeSlidesOf(f) } : {}),
   ...(f.area === "print" ? { print: printProps(f), printName: printFileName({ name: f.name, ...printProps(f) }) } : {}),
   createdAt: f.created_at, ...(withText && f.kind === "text" ? { text: f.text || "" } : {}), ...(f.kind === "link" ? { url: f.text || "" } : {}),
   // von Claude gestaltet (HTML → PDF): ob die PDF zur aktuellen Gestaltung passt und die letzte Meldung des Druckers
-  ...(f.html != null ? { design: { outdated: !f.pdf_at || (f.html_at || 0) > f.pdf_at, error: f.render_error || null, htmlAt: f.html_at || null, pdfAt: f.pdf_at || null } } : {}),
+  // text = Klartext der Gestaltung (gekürzt) für die Prompts (z. B. Präsentation)
+  ...(f.html != null ? { design: { outdated: !f.pdf_at || (f.html_at || 0) > f.pdf_at, error: f.render_error || null, htmlAt: f.html_at || null, pdfAt: f.pdf_at || null,
+    text: String(f.design_text != null ? f.design_text : f.text || "").slice(0, 6000) } } : {}),
 });
 const msgOut = (m) => ({ id: m.id, role: m.role, content: m.content, model: m.model || null, mode: m.mode || null, createdAt: m.created_at });
 const draftOut = (d) => { let data = null; try { data = JSON.parse(d.data); } catch {} return { id: d.id, data, source: d.source, status: d.status, sheetCode: d.sheet_code || null, createdAt: d.created_at, updatedAt: d.updated_at }; };

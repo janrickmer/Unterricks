@@ -12,7 +12,7 @@ import { leupoldView } from "./units.js";
 import { substituteCards } from "./substitute.js";
 import { paintPortalPreview, portalPreview, contextMenu } from "./portalview.js";
 import { renderMarkdown } from "./markdown.js";
-import { designState, renderQueue } from "./designrender.js";
+import { designState, printQueue } from "./designrender.js";
 import { personLabel, personKey, cleanPhoto, PHOTO_TASKS_MAX } from "./fbclient.js";
 
 const MODES = [["planning", "Planung"], ["ideas", "Ideen weiterentwickeln"], ["material", "Material erstellen"]];
@@ -30,7 +30,7 @@ export async function sessionPage(id) {
   const row = () => (st.unit && L().unitRow ? (st.unit.rows || []).find((r) => r.uid === L().unitRow) || null : null);
   const ctx = () => ({ lessonId: id, code: L().code, subject: L().subject, klass: L().klass,
     lesson: { title: L().title, topic: L().topic, durationMin: L().durationMin, date: L().date, startTime: L().startTime, ideas: L().ideas, homework: L().homework },
-    materials: st.files.filter((f) => f.area !== "archive").map((f) => ({ name: f.name, area: f.area, kind: f.kind, text: f.kind === "link" ? f.url || "" : f.text || "", pages: f.pages })), sheets: st.sheets,
+    materials: st.files.filter((f) => f.area !== "archive").map((f) => ({ name: f.name, area: f.area, kind: f.kind, text: f.kind === "link" ? f.url || "" : f.design ? f.design.text || "" : f.text || "", pages: f.pages })), sheets: st.sheets,
     portal: portalTA ? portalTA.value : L().portal, unit: st.unit, row: row(), unitText: st.unit ? unitContext(st.unit, L().unitRow) : "",
     gradeNote: cfg && cfg[L().subject] ? (cfg[L().subject].gradeNotes || {})[gradeKey(L().klass)] || "" : "" });
 
@@ -354,20 +354,35 @@ export async function sessionPage(id) {
 
   /* ======================= Materialien ======================= */
   const lists = { student: h("div", { class: "list" }), teacher: h("div", { class: "list" }) };
-  /* von Claude gestaltetes Material: ausstehende und geänderte Gestaltungen nacheinander auf dem Server drucken lassen */
-  const rNotes = new Map(), rEls = new Map();   // Zwischenstand je Datei („wartet auf den PDF-Drucker …“) und die Stellen, die ihn zeigen
-  const designMeta = (f) => { const d = designState(f); return rNotes.get(f.id) || (rq.quota && d.need ? "Noch nicht gedruckt: " + rq.quota : d.text); };
-  const rq = renderQueue({
-    onDone: (nf) => { const f = st.files.find((x) => x.id === nf.id); if (f) { Object.assign(f, nf); if (!nf.design) delete f.design; } paintFiles(); paintPrint(); },
-    onNote: (fid, t) => { if (t) rNotes.set(fid, t); else rNotes.delete(fid); const f = st.files.find((x) => x.id === fid); for (const el of rEls.get(fid) || []) if (el.isConnected && f) el.textContent = designMeta(f); },
-    onFail: (f0, e, quota) => {
-      const f = st.files.find((x) => x.id === f0.id);
-      if (f && !quota && f.design) f.design = { ...f.design, error: e.message };
-      if (quota) toast(e.message, "err", 9000);
-      paintFiles(); paintPrint();
-    },
-  });
-  onLeave(() => rq.stop());
+  /* von Claude gestaltetes Material: ausstehende und geänderte Gestaltungen nacheinander auf dem Server drucken lassen (gemeinsame
+     Warteschlange des Tabs – sie druckt weiter, wenn Sie die Seite verlassen) */
+  const rNotes = new Map(), rEls = new Map(), rowEls = new Map();   // Zwischenstand je Datei, die Stellen, die ihn zeigen, und die Zeilen
+  const rq = printQueue();
+  const designMeta = (f) => {
+    const d = designState(f), failed = rq.failed(f);
+    return rNotes.get(f.id) || (failed && d.need ? "Druck fehlgeschlagen: " + failed : rq.quota && d.need ? "Noch nicht gedruckt: " + rq.quota : d.text);
+  };
+  // nur die Zeile dieser Datei neu aufbauen (Fokus und Eingaben in den anderen Zeilen bleiben)
+  const repaintFile = (fid) => {
+    const f = st.files.find((x) => x.id === fid), el = rowEls.get(fid);
+    if (!f || !el || !el.isConnected) { paintFiles(); paintPrint(); return; }
+    const had = el.contains(document.activeElement);
+    const row = f.area === "print" ? printRow(f) : fileRow(f);
+    el.replaceWith(row);
+    if (had) (row.querySelector("button, input, select") || row).focus({ preventScroll: true });
+  };
+  const printNote = h("p", { class: "small muted hidden", role: "status" });
+  const showBusy = (n) => {
+    printNote.textContent = n ? "Unterricks druckt gerade " + (n === 1 ? "ein Material" : n + " Materialien") + " von Claude als PDF (etwa " + Math.max(1, Math.round(n * 12 / 60)) + " min). Sie können weiterarbeiten." : "";
+    printNote.classList.toggle("hidden", !n);
+  };
+  onLeave(rq.on({
+    done: (nf) => { const f = st.files.find((x) => x.id === nf.id); if (!f) return; Object.assign(f, nf); if (!nf.design) delete f.design; repaintFile(f.id); },
+    note: (fid, t) => { if (t) rNotes.set(fid, t); else rNotes.delete(fid); const f = st.files.find((x) => x.id === fid); for (const el of rEls.get(fid) || []) if (el.isConnected && f) el.textContent = designMeta(f); },
+    fail: (f0, e, quota) => { if (quota) { toast(e.message, "err", 9000); paintFiles(); paintPrint(); } else repaintFile(f0.id); },
+    busy: showBusy,
+  }));
+  showBusy(rq.pending);
   // Aktionen und Zeile „Stand“ für gestaltetes Material; null für alle anderen Dateien
   function designBits(f, nameForDl) {
     const d = designState(f);
@@ -378,8 +393,8 @@ export async function sessionPage(id) {
     const acts = [];
     if (d.ok) acts.push(h("button", { class: "btn small" + (f.area === "print" ? " primary" : ""), type: "button", onclick: (e) => busy(e.currentTarget, async () => {
       try { const r = await tapi("POST", "/api/teacher/files/" + f.id + "/link", { body: {} }); downloadUrl(r.url, nameForDl); } catch (err) { errToast(err); } }) }, icon("download"), "Herunterladen"));
-    if (d.error || (rq.quota && d.need)) acts.push(h("button", { class: "btn small", type: "button", onclick: () => { if (f.design) f.design = { ...f.design, error: null }; rq.again(f); paintFiles(); paintPrint(); } }, "Erneut drucken"));
-    return { meta, acts, d };
+    if (d.error || rq.failed(f) || (rq.quota && d.need)) acts.push(h("button", { class: "btn small", type: "button", onclick: () => { if (f.design) f.design = { ...f.design, error: null }; rq.again(f); repaintFile(f.id); } }, "Erneut drucken"));
+    return { meta, acts, d, error: d.error || (!!rq.failed(f) && d.need) };
   }
   function fileRow(f) {
     const other = f.area === "student" ? "teacher" : "student";
@@ -408,9 +423,11 @@ export async function sessionPage(id) {
         try { await tapi("DELETE", "/api/teacher/files/" + f.id); st.files = st.files.filter((x) => x !== f); paintFiles(); } catch (e) { errToast(e); }
       } }, icon("trash"))));
     const src = (f.source === "claude" ? " · von Claude" : f.source === "chat" ? " · aus dem Chat" : f.source === "vertretung" ? " · Vertretung" : f.source === "uebernommen" ? " · übernommen" : f.source === "notfall" ? " · Notfall-Feibeitsblatt (automatisch aus dem Feibeitsblatt " + formatCode(f.fbCode || "") + ")" : "") + " · " + fmtTime(f.createdAt);
-    return h("div", { class: "item" + (des && des.d.error ? " design-err" : "") }, fileIcon(f.name, f.mime, f.kind), h("div", { class: "main" }, h("div", { class: "name", text: f.name }),
+    const row = h("div", { class: "item" + (des && des.error ? " design-err" : "") }, fileIcon(f.name, f.mime, f.kind), h("div", { class: "main" }, h("div", { class: "name", text: f.name }),
       des ? h("div", { class: "meta" }, des.meta, (des.d.ok ? " · " + fmtBytes(f.size) : "") + (f.source === "vertretung" ? " · Vertretung" : f.source === "uebernommen" ? " · übernommen" : "") + " · " + fmtTime(f.createdAt))
         : h("div", { class: "meta", text: (f.kind === "link" ? "Link: " + webUrlLabel(f.url) : f.kind === "text" ? "Text (PDF-Download)" : fmtBytes(f.size)) + src })), acts);
+    rowEls.set(f.id, row);
+    return row;
   }
   function paintFiles() {
     for (const area of ["student", "teacher"]) {
@@ -472,7 +489,7 @@ export async function sessionPage(id) {
     };
   }
   const progS = h("div", { class: "stack" }), progT = h("div", { class: "stack" });
-  const filesCard = h("section", { class: "card" }, h("div", { class: "section-title" }, h("h2", { text: "Material" })),
+  const filesCard = h("section", { class: "card" }, h("div", { class: "section-title" }, h("h2", { text: "Material" })), printNote,
     h("div", { class: "zones" },
       h("div", { class: "stack" }, h("h3", { text: "Für Schüler:innen zugänglich" }), dropZone("Dateien hier ablegen oder auswählen", "PDF, Bilder, Word, PowerPoint, Excel u. a. – bis 100 MB je Datei", uploadInto("student", progS)),
         h("div", { class: "row" }, h("button", { class: "btn small", type: "button", onclick: () => editLink(null, "student") }, icon("plus"), "Link hinzufügen")), progS, lists.student),
@@ -1123,10 +1140,12 @@ export async function sessionPage(id) {
         if (!(await confirmDialog("Druckvorlage löschen", "„" + (f.printName || f.name) + "“ endgültig löschen?", "Löschen", true))) return;
         try { await tapi("DELETE", "/api/teacher/files/" + f.id); st.files = st.files.filter((x) => x !== f); paintPrint(); } catch (e) { errToast(e); }
       } }, icon("trash")));
-    return h("div", { class: "item printrow" + (des && des.d.error ? " design-err" : "") }, fileIcon(f.name, "application/pdf", "file"), h("div", { class: "main" }, nameEl,
+    const row = h("div", { class: "item printrow" + (des && des.error ? " design-err" : "") }, fileIcon(f.name, "application/pdf", "file"), h("div", { class: "main" }, nameEl,
       h("div", { class: "pset" }, h("label", { class: "small pcount" }, copies, h("span", { text: "Exemplare" })), duplex, color),
       des ? h("div", { class: "meta" }, des.meta, (des.d.ok ? " · " + fmtBytes(f.size) : "") + (f.source === "vertretung" ? " · Vertretung" : f.source === "uebernommen" ? " · übernommen" : ""))
         : h("div", { class: "meta", text: (f.kind === "text" ? "Text (als A4-PDF)" : fmtBytes(f.size)) + (f.source === "claude" ? " · von Claude" : f.source === "uebernommen" ? " · übernommen" : "") })), acts);
+    rowEls.set(f.id, row);
+    return row;
   }
   async function uploadPrint(files) {
     for (const file of files) {

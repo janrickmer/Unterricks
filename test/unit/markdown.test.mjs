@@ -62,3 +62,11 @@ test("PDF: Liste „1. 1. 1.“ zählt 1, 2, 3; verschachtelte Listen zählen je
   const cell = lines.filter((l) => /^[A-Za-z\u00e4\u00f6\u00fc]+-?$/.test(l) && !/^(SpalteBCD|T)$/.test(l));
   assert.ok(cell.length >= 2 && cell[0].endsWith("-") && cell.join("").replace(/-/g, "") === "Donaudampfschifffahrtsgesellschaftskapit\u00e4nsm\u00fctze", "überlanges Wort mit Trennstrich umbrochen: " + cell.join(" | "));
 });
+
+test("Lücken in fettem Text bleiben fett (die Lücke als Text); eingerückte Schreiblinien unter einer Aufgabe werden Linien", () => {
+  assert.deepEqual(parseInline("**Ergänze: Die ________ kontrolliert.**"), [{ text: "Ergänze: Die ", b: true }, { text: "________", b: true }, { text: " kontrolliert.", b: true }]);
+  assert.deepEqual(parseInline("`a___b` [Lücke ___](https://x.de)"), [{ text: "a___b", code: true }, { text: " " }, { text: "Lücke ___", href: "https://x.de" }]);
+  const b = parseBlocks("1. **Erkläre** die Gewaltenteilung.\n   [[Linien: 6]]\n2. Nenne ein Beispiel.\n   __________");
+  assert.deepEqual(b.map((x) => x.type + (x.n ? ":" + x.n : "")), ["list", "write:6", "list", "write:1"]);
+  assert.equal(b[2].items[0].num, 2, "die Nummerierung läuft weiter");
+});

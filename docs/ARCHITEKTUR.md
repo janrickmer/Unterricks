@@ -546,12 +546,15 @@ Material nur für die Lehrkraft; der Chat mit kostenloser KI bleibt **nur als R�
   (`env.BROWSER.quickAction("pdf", {html, …})`, ab Kompatibilitätsdatum 2026-03-24, ohne API-Token). Kostenlos: **10 Minuten
   Browserzeit am Tag** (eine Seite braucht etwa 1–4 s) und **1 Auftrag je 10 s** für das ganze Konto; lokal nicht verfügbar
   (Tests: `RENDER_MOCK_URL` mit Chromium von Playwright).
-* **Auftrag** (`worker/render.js`, `pdfRequest`): nur dokumentierte Felder – `html`, `rejectRequestPattern` (jede Adresse mit http(s),
-  ws(s), ftp, file wird abgewiesen: Bilder und Schriften nur eingebettet), `gotoOptions`, `pdfOptions {format a4, printBackground,
-  preferCSSPageSize}`. Vorn im `<head>` setzt Unterricks die Grundeinstellungen (A4 mit Rändern, Schrift **Atkinson Hyperlegible Next**
+* **Auftrag** (`worker/render.js`, `pdfRequest`): `html`, `setJavaScriptEnabled: false` (lehnt der Drucker das Feld ab, druckt die
+  Instanz ohne – Skripte und Ereignis-Attribute hat `cleanDesignHtml` dann schon entfernt), `rejectRequestPattern` (jede Adresse mit
+  http(s), ws(s), ftp, file wird abgewiesen: Bilder und Schriften nur eingebettet), `gotoOptions`, `pdfOptions {format a4,
+  printBackground, preferCSSPageSize}`. In Produktion geprüft am 11.11.2026 (`/api/health/pdf`: 1 Seite, 73 KB, 2,2 s, Schrift
+  eingebettet); die Antwort der Bindung nennt `X-Browser-Ms-Used` nicht – Unterricks zählt dann die gemessene Dauer als Browserzeit. Vorn im `<head>` setzt Unterricks die Grundeinstellungen (A4 mit Rändern, Schrift **Atkinson Hyperlegible Next**
   und Mono als `@font-face` mit data:-Adressen aus `public/fonts`, Farben wie am Bildschirm) – Claudes eigene Regeln stehen danach und
-  gehen vor. `cleanDesignHtml` entfernt vorher Skripte, Ereignis-Attribute, `javascript:`, eingebettete Seiten, `<base>` und
-  Weiterleitungen; höchstens 1,5 MB HTML, 20 MB PDF, 40 Seiten. Eingebettete Bilder werden dabei mit `indexOf` statt mit regulären
+  gehen vor. `cleanDesignHtml` entfernt vorher – wiederholt, bis sich nichts mehr ändert – Skripte (auch verschachtelt), Ereignis-Attribute
+  (auch nach „/“), `javascript:`, eingebettete Seiten, `<base>` und Weiterleitungen; als Bild übersprungen wird nur eine data:-Adresse
+  mit schlichter Medienangabe. Höchstens 1,5 MB HTML (in Bytes), 20 MB PDF, 40 Seiten. Eingebettete Bilder werden dabei mit `indexOf` statt mit regulären
   Ausdrücken übersprungen (10 ms CPU im Free-Plan).
 * **Warteschlange und Kontingent:** `render_gate` (`slot` = nächster freier Auftrag, atomar per Upsert … RETURNING; `quota` = bis 0 Uhr
   UTC gesperrt, wenn Cloudflare „Browser time limit exceeded for today“ meldet) und `render_usage` (Browserzeit je Tag aus
@@ -559,8 +562,10 @@ Material nur für die Lehrkraft; der Chat mit kostenloser KI bleibt **nur als R�
 * **Ablage:** eine normale PDF-Datei (`files.kind = 'file'`, R2) mit `files.html` (Claudes Gestaltung), `html_at`/`pdf_at` (passt die
   PDF zur Gestaltung?) und `render_error` (nur Fehler, bei denen ein neuer Versuch mit derselben Gestaltung nichts ändert). Neu angelegt
   ist sie `pending` – Schüler:innen sehen sie erst nach dem ersten Druck; eine überarbeitete Gestaltung druckt Unterricks neu, bis dahin
-  bleibt die bisherige PDF sichtbar. `files.text` = Klartext der Gestaltung (Kontext für die KI-Hilfe im Planungschat). Listen lesen
-  `html` nicht mit (`FILE_COLS`).
+  bleibt die bisherige PDF sichtbar – außer ein Material wechselt von „nur Lehrkraft“ zu den Schüler:innen: dann ist es bis zum neuen
+  Druck ausstehend (die alte PDF war nur für die Lehrkraft). Ein älterer Druckauftrag legt seine PDF nie über eine neuere (vor dem
+  Speichern in R2 wird der Stand der Gestaltung erneut gelesen). `files.text` = Klartext der Gestaltung (Kontext für die KI-Hilfe im
+  Planungschat, gekürzt als `design.text` auch für den Präsentations-Prompt). Listen lesen `html` nicht mit (`FILE_COLS`).
 * **Connector:** `add_material_pdf` (lesson_id, bereich schueler | lehrkraft | druck, titel, html, bei druck anzahl/beidseitig/farbe,
   optional file_id zum Ersetzen) speichert und druckt sofort; die Antwort nennt Seitenzahl und Größe oder die Meldung des Druckers.
   `get_material` liefert die Gestaltung zum Überarbeiten – lange eingebettete Bilder als Platzhalter `data:unterricks-bild,n`, die beim
@@ -569,13 +574,20 @@ Material nur für die Lehrkraft; der Chat mit kostenloser KI bleibt **nur als R�
   stehen im Werkzeug und in den Prompts „Stunde mit Claude planen“ und Krankheitsvertretung: vollständige HTML-Seite, kein JavaScript,
   keine externen Dateien, Schrift, `@page` und Seitenumbrüche, Kopf mit Name/Klasse/Datum (nicht bei Lehrkraft-Material), M1/M2 mit
   Quelle, Aufgaben mit Operator und AFB, du-Form, Schreiblinien, Schriftgrößen je Jahrgang, schwarz-weiß lesbar, Selbstprüfung.
-* **Sitzungsseite** (`public/designrender.js`): zeigt je Datei den Stand („wird als PDF gedruckt …“, „wartet auf den PDF-Drucker (noch
-  12 s)“, „Druck fehlgeschlagen: …“ mit „Erneut drucken“, sonst „PDF, von Claude gestaltet · n Seiten“) und druckt Ausstehendes
-  nacheinander selbst nach (`POST /api/teacher/files/:id/render`; bei „ausgelastet“ mit der genannten Wartezeit, beim Tageskontingent
-  hört sie auf). Beim Zurückkehren übernimmt sie neue und geänderte Gestaltungen.
-* **Krankheitsvertretung:** `materialien[].html` (zusammen ≤ 1,5 MB im Vorschlag; `bereich` auch „druck“). Vor dem Bestätigen
-  „Vorschau als PDF“ (`POST …/substitute/preview`, gedruckt, nicht gespeichert); beim Bestätigen entstehen ausstehende Materialien, die
-  die Sitzungsseite gleich druckt; „Wiederherstellen“ löscht sie samt PDF.
+* **Nachdruck** (`public/designrender.js`, eine Warteschlange je Tab – sie druckt weiter, wenn die Lehrkraft die Seite wechselt; beim
+  Schließen des Tabs fragt der Browser nach, solange gedruckt wird): Die Sitzungsseite zeigt je Datei den Stand („wird als PDF gedruckt
+  …“, „wartet auf den PDF-Drucker (noch 12 s)“, „Druck fehlgeschlagen: …“ mit „Erneut drucken“, sonst „PDF, von Claude gestaltet · n
+  Seiten“) und baut nach einem Druck nur die betroffene Zeile neu auf. Die **Startseite** holt `GET /api/teacher/render` (`pending`:
+  Gestaltungen ohne aktuelle PDF und ohne gemerkten Fehler) und druckt sie nach – auch Vertretungsmaterial nach dem Bestätigen und
+  Material, das Claude bei ausgelastetem Drucker abgelegt hat. Gemerkt (`render_error`) werden nur Ablehnungen des Druckers; ausgelastet,
+  Tageskontingent, nicht eingerichtet oder Fehler unterwegs druckt Unterricks später erneut.
+* **Krankheitsvertretung:** `materialien[].html` (zusammen ≤ 1,5 MB im Vorschlag, beim Speichern geprüft wie beim Bestätigen, vor dem
+  Feibeitsblatt-Entwurf; `bereich` auch „druck“). Vor dem Bestätigen „Vorschau als PDF“ (`POST …/substitute/preview`, gedruckt, nicht
+  gespeichert); das Bestätigen prüft alle Materialien, bevor es die ursprüngliche Planung archiviert, und legt ausstehende Materialien
+  an, die Sitzungsseite bzw. Startseite gleich drucken; „Wiederherstellen“ löscht sie samt PDF; „in eine andere Sitzung übernehmen“
+  nimmt auch noch nicht gedruckte Gestaltungen mit (dort ausstehend).
+* **Bild-Platzhalter** aus `get_material` gelten nur beim Überarbeiten desselben Materials (`file_id`); sonst lehnt Unterricks die
+  Gestaltung mit einem Hinweis an Claude ab.
 * **Sitzung als Datei / Sicherung / Einheit:** die Gestaltung liegt als `gestaltung/n - Name.html` in der ZIP-Datei (im Browser zu
   öffnen), die PDF unter `dateien/`, wenn sie zur Gestaltung passt (`rendered`). Beim Laden wird die PDF hochgeladen und die Gestaltung
   angehängt (`PATCH /api/teacher/files/:id {html, rendered}`) – ohne neuen Druck; fehlt die PDF, entsteht ein ausstehendes Material
@@ -583,7 +595,8 @@ Material nur für die Lehrkraft; der Chat mit kostenloser KI bleibt **nur als R�
 * **Prüfung nach dem Ausrollen:** `GET /api/health/pdf` druckt eine feste Testseite (Umlaute, Griechisch, Hebräisch, SVG, Tabelle,
   Schreiblinien) höchstens einmal je Stunde (`?pdf=1` liefert die PDF), sonst nur, wann es wieder geht.
 * **Rückfall (Markdown, `public/pdfmaker.js`):** repariert – Zeilenumbrüche, keine Wiederholung des Titels, Lücken aus Unterstrichen
-  bleiben Text, Schreiblinien (`[[Linien: n]]` bzw. Zeilen nur aus Unterstrichen), Ankreuzkästchen, Bilder als „[Abbildung: …]“,
+  bleiben Text (auch innerhalb von **fett**), Schreiblinien (`[[Linien: n]]` bzw. Zeilen nur aus Unterstrichen, auch eingerückt unter
+  einer Aufgabe), Ankreuzkästchen, Bilder als „[Abbildung: …]“,
   Links mit Adresse, Name/Klasse/Datum nicht bei Lehrkraft-Material, zweistellige Listennummern und Zähler je Ebene, lange Wörter in
   Tabellenzellen. Griechisch/Hebräisch kann er weiterhin nicht (Standardschriften) – dafür ist der Druck aus HTML da.
 

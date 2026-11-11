@@ -781,6 +781,22 @@ async function main() {
     ok(hp.ok && hp.pages === 1 && hp.fonts === true, "Testseite /api/health/pdf: gedruckt, 1 Seite, mit Schrift");
     hp = await (await fetch(BASE + "/api/health/pdf")).json();
     ok(hp.ok && hp.skipped === true && hp.nextAt > Date.now(), "… ein zweiter Aufruf druckt nicht (höchstens einmal je Stunde)");
+    // Prüfbefunde vom 11.11.2026: JavaScript beim Druck aus; Platzhalter nur für dasselbe Material; Startseite druckt ohne offene Sitzung nach
+    ok(printer.calls.slice(nCalls).every((j) => j.setJavaScriptEnabled === false), "jeder Druckauftrag schaltet JavaScript ab");
+    r = await tool("add_material_pdf", { lesson_id: lessonId, bereich: "schueler", titel: "Variante", html: "<img src=\"data:unterricks-bild,1\">" });
+    ok(r.isError && /Bild-Platzhalter/.test(r.content[0].text), "Bild-Platzhalter aus get_material gelten nur für dasselbe Material");
+    printer.mode = "busy";
+    r = await tool("add_material_pdf", { lesson_id: lessonId, bereich: "lehrkraft", titel: "Tafelbild Gewaltenteilung", html: "<h1>Tafelbild</h1>" });
+    const tafelId = r.structuredContent.file_id;
+    printer.mode = "ok";
+    await tp.goto(BASE + "/#/lk");
+    await tp.locator(".toast", { hasText: "von Claude als PDF" }).waitFor({ timeout: 15000 });
+    let tafel = null;
+    for (let i = 0; i < 40 && !(tafel && tafel.status === "ready"); i++) { await sleep(500); tafel = (await T("GET", "/api/teacher/lessons/" + lessonId)).data.files.find((f) => f.id === tafelId); }
+    ok(tafel && tafel.status === "ready" && tafel.design && !tafel.design.outdated, "Startseite: Unterricks druckt ausstehendes Material nach, ohne dass die Sitzung offen ist");
+    await tp.goto(BASE + "/#/lk/s/" + lessonId); await tp.locator("#app .item", { hasText: "Tafelbild Gewaltenteilung.pdf" }).waitFor({ timeout: 15000 });
+    const ppr = await tool("get_lesson", { lesson_id: lessonId });
+    ok(ppr.content[0].text.includes("Tafelbild Gewaltenteilung.pdf") && ppr.content[0].text.includes("Wer kontrolliert die Macht?"), "get_lesson nennt gestaltetes Material mit seinem Inhalt");
 
     /* ---------- Feibeitsblatt ---------- */
     step("Feibeitsblatt: verbinden, Entwurf prüfen, anlegen, Abgaben einsehen");

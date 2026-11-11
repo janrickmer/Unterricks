@@ -80,9 +80,20 @@ test("HTML annehmen: Skripte, Ereignis-Attribute, eingebettete Seiten und Weiter
   assert.throws(() => R.cleanDesignHtml("<p>" + "x".repeat(R.HTML_MAX) + "</p>"), /zu groß/);
 });
 
+test("HTML annehmen: bekannte Umgehungen (Prüfbefund vom 11.11.2026) – „/“ vor on…, verschachtelte script-Tags, Text im data:-Kopf", () => {
+  const h = R.cleanDesignHtml('<svg/onload="for(;;);"></svg><img src=x/onerror=alert(1)><scr<script>ipt>a()</scr</script>ipt>' +
+    '<scr<script>ipt>b()</script><p><img src="data:<script>for(;;);</script>;base64,' + "A".repeat(1600) + '"></p><a href=" javascript:x()">y</a>');
+  for (const bad of ["onload", "onerror", "<script", "javascript:"]) assert.ok(!h.toLowerCase().includes(bad), bad + " in " + h.slice(0, 300));
+  const img = "data:image/png;base64," + "QUFB".repeat(500);
+  assert.ok(R.cleanDesignHtml('<img src="' + img + '">').includes(img), "echte eingebettete Bilder bleiben unverändert");
+  assert.deepEqual(R.dataRanges("x data:<b>;base64," + "A".repeat(2000)), [], "nur eine schlichte Medienangabe gilt als Bild");
+});
+
 test("Auftrag an den Drucker: nur dokumentierte Felder, Netz gesperrt, Grundeinstellungen vor Claudes CSS (Claudes Regeln gehen vor)", () => {
   const body = R.pdfRequest(R.cleanDesignHtml('<html><head><style id="claude">@page{size:A4 landscape}</style></head><body>x</body></html>'), "@font-face{x}");
-  assert.deepEqual(Object.keys(body).sort(), ["gotoOptions", "html", "pdfOptions", "rejectRequestPattern"]);
+  assert.deepEqual(Object.keys(body).sort(), ["gotoOptions", "html", "pdfOptions", "rejectRequestPattern", "setJavaScriptEnabled"]);
+  assert.equal(body.setJavaScriptEnabled, false, "JavaScript beim Druck aus");
+  assert.ok(!("setJavaScriptEnabled" in R.pdfRequest("<p>x</p>", "", true)), "Rückfall ohne das Feld");
   assert.deepEqual(body.pdfOptions, { format: "a4", printBackground: true, preferCSSPageSize: true, timeout: 60000 });
   for (const u of ["https://e.x/a.png", "http://e.x", "wss://e.x", "ftp://e.x", "file:///etc/passwd"]) assert.ok(body.rejectRequestPattern.some((p) => new RegExp(p).test(u)), u);
   assert.ok(!body.rejectRequestPattern.some((p) => new RegExp(p).test("data:image/png;base64,AA")), "data:-Adressen bleiben erlaubt");
@@ -164,13 +175,28 @@ test("Drucken über die Bindung: lokal ohne Cloudflare „nicht eingerichtet“,
   await assert.rejects(R.renderPdf(c, "<p>x</p>"), (e) => e.code === "render_config", "RENDER_MOCK_URL nur lokal");
 });
 
+test("Drucken: lehnt der Drucker setJavaScriptEnabled ab, druckt Unterricks ohne das Feld (einmal je Instanz gemerkt)", async () => {
+  const c = await ctx();
+  const calls = [], orig = globalThis.fetch;
+  globalThis.fetch = async (url, init) => {
+    const b = JSON.parse(init.body); calls.push(b);
+    return "setJavaScriptEnabled" in b ? new Response('Unrecognized key(s) in object: "setJavaScriptEnabled"', { status: 400 }) : new Response(PDF(1));
+  };
+  try {
+    assert.equal((await R.renderPdf(c, "<p>x</p>")).pages, 1);
+    assert.equal(calls.length, 2); assert.ok("setJavaScriptEnabled" in calls[0] && !("setJavaScriptEnabled" in calls[1]));
+    await R.renderPdf(c, "<p>y</p>");
+    assert.equal(calls.length, 3, "danach gleich ohne das Feld");
+  } finally { globalThis.fetch = orig; }
+});
+
 test("Material: anlegen (wartet auf den Druck), drucken (PDF in R2, sichtbar), ersetzen (bisherige PDF bleibt bis zum neuen Druck), Fehler merken", async () => {
   const c = await ctx(); const L = await lesson(c);
   const html = "<!doctype html><html><head><style>h1{}</style></head><body><h1>Gewaltenteilung</h1><img src=\"data:image/png;base64," + "QUFB".repeat(500) + "\"></body></html>";
   let f = await saveDesign(c, L, { area: "student", title: "Arbeitsblatt – Gewaltenteilung", html });
   assert.equal(f.status, "pending"); assert.equal(f.kind, "file"); assert.equal(f.mime, "application/pdf"); assert.equal(f.name, "Arbeitsblatt – Gewaltenteilung.pdf");
   assert.equal(f.text, "Gewaltenteilung"); assert.ok(designOutdated(f));
-  assert.deepEqual(fileOut(f).design, { outdated: true, error: null, htmlAt: f.html_at, pdfAt: null });
+  assert.deepEqual(fileOut(f).design, { outdated: true, error: null, htmlAt: f.html_at, pdfAt: null, text: "Gewaltenteilung" });
   let p = printer([() => new Response(PDF(2))]);
   try {
     const r = await renderDesign(c, f);
@@ -198,6 +224,33 @@ test("Material: anlegen (wartet auf den Druck), drucken (PDF in R2, sichtbar), e
   await assert.rejects(saveDesign(c, L, { area: "student", html: "<p>x</p>", fileId: d.id }), /nicht zwischen Druckliste/);
   await assert.rejects(saveDesign(c, L, { area: "nirgends", title: "x", html: "<p>x</p>" }), /Bereich/);
   await assert.rejects(saveDesign(c, "ffffffffffffffff", { html: "<p>x</p>", fileId: f.id }), /keinem gestalteten Material dieser Sitzung/);
+  // Platzhalter aus get_material nur beim Überarbeiten desselben Materials
+  await assert.rejects(saveDesign(c, L, { area: "student", title: "Variante", html: R.shortImages(html) }), /Bild-Platzhalter/);
+  // Fehler unterwegs (kein Fehler des Druckers) werden nicht gemerkt und gelten als „gleich erneut versuchen“
+  const brk = { ...c, db: { ...c.db, prepare: (q) => (/render_gate/.test(q) ? { bind: () => ({ first: async () => { throw new Error("D1 kurz weg"); }, run: async () => { throw new Error("D1 kurz weg"); } }), first: async () => { throw new Error("D1 kurz weg"); } } : c.db.prepare(q)) } };
+  const g2 = await c.db.prepare("SELECT * FROM files WHERE id=?1").bind(g.id).first();
+  await assert.rejects(renderDesign(brk, g2), (e) => e.code === "render_busy");
+  assert.equal((await c.db.prepare("SELECT render_error FROM files WHERE id=?1").bind(g.id).first()).render_error, null);
+});
+
+test("Material: von „nur Lehrkraft“ zu den Schüler:innen erst mit neuer PDF; ein älterer Druck legt sich nie über einen neueren", async () => {
+  const c = await ctx(); const L = await lesson(c);
+  let p = printer([() => new Response(PDF(1))]);
+  let t = await saveDesign(c, L, { area: "teacher", title: "Erwartungshorizont", html: "<p>Lösungen</p>" });
+  try { t = (await renderDesign(c, t)).file; } finally { p.restore(); }
+  assert.equal(t.status, "ready");
+  const moved = await saveDesign(c, L, { area: "student", html: "<p>ohne Lösungen</p>", fileId: t.id });
+  assert.equal(moved.area, "student"); assert.equal(moved.status, "pending", "die Lehrkraft-PDF ist für Schüler:innen nicht sichtbar");
+  // älterer Auftrag: Gestaltung v1 wird gedruckt, inzwischen kommt v2 an → v1 landet nicht in R2
+  const v1 = await c.db.prepare("SELECT * FROM files WHERE id=?1").bind(t.id).first();
+  const key = "l/" + L + "/f/" + t.id, before = c.env.FILES.m.get(key);
+  const orig = globalThis.fetch;
+  globalThis.fetch = async () => { await saveDesign(c, L, { html: "<p>v2</p>", fileId: t.id }); return new Response(PDF(5)); };
+  let r;
+  try { r = await renderDesign(c, v1); } finally { globalThis.fetch = orig; }
+  assert.equal(r.current, false); assert.equal(c.env.FILES.m.get(key), before, "R2 unverändert");
+  const row = await c.db.prepare("SELECT status, pdf_at, html_at FROM files WHERE id=?1").bind(t.id).first();
+  assert.ok(row.status === "pending" && row.html_at > (row.pdf_at || 0), "die neue Gestaltung bleibt zu drucken");
 });
 
 test("Connector: add_material_pdf legt an und druckt (Seitenzahl in der Antwort), get_material liefert die Gestaltung mit Platzhaltern, get_lesson nennt sie", async () => {
