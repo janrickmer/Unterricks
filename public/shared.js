@@ -202,65 +202,101 @@ export function slideCodeBoxes(items, advance) {
     for (let i = 0; i < n; i++) { const a = advance ? Number(advance(it.str[i], it.family || "")) : 1; ws.push(Number.isFinite(a) && a > 0 ? a : 0); }
     let tot = ws.reduce((a, b) => a + b, 0);
     if (!(tot > 0)) { ws.fill(1); tot = n; }
-    for (let i = 0, acc = 0; i < n; i++) { const x0 = it.x + (it.w * acc) / tot; acc += ws[i]; cur.text += it.str[i]; cur.map.push({ x0, x1: it.x + (it.w * acc) / tot, h: it.h, base: it.base, family: it.family || "" }); }
+    for (let i = 0, acc = 0; i < n; i++) { const x0 = it.x + (it.w * acc) / tot; acc += ws[i]; cur.text += it.str[i]; cur.map.push({ x0, x1: it.x + (it.w * acc) / tot, h: it.h, base: it.base, family: it.family || "", font: it.font || null }); }
     cur.end = it.x + it.w;
     if (it.eol) cur = null;
   }
   const out = [];
   for (const l of lines) for (const c of codesInText(l.text)) {
     const cs = l.map.slice(c.start, c.end).filter(Boolean);
-    if (cs.length) out.push({ code: c.code, x0: Math.min(...cs.map((q) => q.x0)), x1: Math.max(...cs.map((q) => q.x1)), base: cs[0].base, h: Math.max(...cs.map((q) => q.h)), family: cs[0].family });
+    if (cs.length) out.push({ code: c.code, x0: Math.min(...cs.map((q) => q.x0)), x1: Math.max(...cs.map((q) => q.x1)), base: cs[0].base, h: Math.max(...cs.map((q) => q.h)), family: cs[0].family, font: cs[0].font });
   }
   return out;
 }
 /* Wo genau steht der alte Code im Bild? d = RGBA-Pixel eines Ausschnitts (Breite rw, Höhe rh), b = Kasten im Ausschnitt {x0, x1, base, h}.
-   Hintergrund = häufigste Farbe im Streifen knapp unter der Grundlinie (Codes haben keine Unterlängen; so stimmt sie auch in einem farbigen
-   Kästchen und bei sehr fetter Schrift), ersatzweise im Kasten; Schrift = die davon am weitesten entfernte Farbe.
-   Die Fläche zum Übermalen wird an den Pixeln gemessen: nach oben nur so weit, wie Zeilen Schrift enthalten (Text darüber bleibt), nach
-   unten bis zur Grundlinie und eine Unterlänge weit, seitlich bis zur ersten leeren Spalte. null = an dieser Stelle keine erkennbare Schrift. */
+   Hintergrund = häufigste Farbe im Band der Großbuchstaben (Lücken und Punzen zwischen den Zeichen – Schrift macht dort 25–45 % aus; so
+   stimmt er auch in einem knappen farbigen Kästchen und bei einem Unterstrich), Schrift = häufigste deutlich abweichende Farbe dort.
+   Die Fläche wird an den Pixeln gemessen: nach oben nur so weit, wie Zeilen Schrift enthalten (Text darüber bleibt), nach unten bis zur
+   Grundlinie und darunter nur, was an die Schrift anschließt (Q-Schwanz, nicht der Unterstrich oder die nächste Zeile), seitlich bis zur
+   ersten leeren Spalte. Ergebnis {bg, fg, thr, share, x, y, w, h (Fläche zum Übermalen), inkX, inkW (die Schrift selbst)}; null = an dieser
+   Stelle kein Text auf ruhigem Grund (dann bleibt die Folie, wie sie ist, und die Lehrkraft erfährt es). */
 export function codeCover(d, rw, rh, b) {
   const h = b.h, base = Math.round(b.base), cx0 = Math.max(0, Math.floor(b.x0)), cx1 = Math.min(rw - 1, Math.ceil(b.x1) - 1);
-  const ry0 = Math.max(0, Math.round(base - 0.75 * h)), ry1 = Math.min(rh - 1, base);
-  if (cx1 - cx0 < 2 || ry1 - ry0 < 2) return null;
+  const fy0 = Math.max(0, Math.round(base - 0.5 * h)), fy1 = Math.min(rh - 1, Math.round(base - 0.05 * h));
+  if (cx1 - cx0 < 2 || fy1 - fy0 < 2) return null;
   const at = (x, y) => (y * rw + x) * 4;
-  const common = (ya, yb) => {
-    const buckets = new Map();
-    for (let y = ya; y <= yb; y++) for (let x = cx0; x <= cx1; x++) {
-      const i = at(x, y), k = (d[i] >> 4) * 256 + (d[i + 1] >> 4) * 16 + (d[i + 2] >> 4), e = buckets.get(k) || [0, 0, 0, 0];
-      e[0]++; e[1] += d[i]; e[2] += d[i + 1]; e[3] += d[i + 2]; buckets.set(k, e);
+  const tally = (pick) => {
+    const m = new Map();
+    for (let y = fy0; y <= fy1; y++) for (let x = cx0; x <= cx1; x++) {
+      const i = at(x, y); if (pick && !pick(i)) continue;
+      const k = (d[i] >> 4) * 256 + (d[i + 1] >> 4) * 16 + (d[i + 2] >> 4), e = m.get(k) || [0, 0, 0, 0];
+      e[0]++; e[1] += d[i]; e[2] += d[i + 1]; e[3] += d[i + 2]; m.set(k, e);
     }
-    let t = null; for (const e of buckets.values()) if (!t || e[0] > t[0]) t = e;
-    return t;
+    let t = null; for (const e of m.values()) if (!t || e[0] > t[0]) t = e;
+    return t && [t[1] / t[0], t[2] / t[0], t[3] / t[0]];
   };
-  const sy0 = Math.round(base + 0.06 * h), sy1 = Math.min(rh - 1, Math.round(base + 0.16 * h));
-  const top = (sy1 >= sy0 && common(sy0, sy1)) || common(ry0, ry1);
-  const bg = [top[1] / top[0], top[2] / top[0], top[3] / top[0]];
-  const dist = (i) => Math.hypot(d[i] - bg[0], d[i + 1] - bg[1], d[i + 2] - bg[2]);
-  // Schriftfarbe nur in Höhe der Großbuchstaben (darüber kann anderer Text stehen) und als häufigste deutlich abweichende Farbe
-  const fy0 = Math.max(0, Math.round(base - 0.5 * h)), fy1 = Math.min(rh - 1, Math.round(base - 0.05 * h)), inks = new Map();
-  for (let y = fy0; y <= fy1; y++) for (let x = cx0; x <= cx1; x++) {
-    const i = at(x, y); if (dist(i) <= 50) continue;
-    const k = (d[i] >> 4) * 256 + (d[i + 1] >> 4) * 16 + (d[i + 2] >> 4), e = inks.get(k) || [0, 0, 0, 0];
-    e[0]++; e[1] += d[i]; e[2] += d[i + 1]; e[3] += d[i + 2]; inks.set(k, e);
-  }
-  let fe = null; for (const e of inks.values()) if (!fe || e[0] > fe[0]) fe = e;
-  if (!fe) return null;   // keine erkennbare Schrift (z. B. Code nur in der Textebene)
-  const fg = [fe[1] / fe[0], fe[2] / fe[0], fe[3] / fe[0]].map(Math.round), far = Math.hypot(fg[0] - bg[0], fg[1] - bg[1], fg[2] - bg[2]);
+  const bg = tally(null);
+  const dist = (i, c) => Math.hypot(d[i] - c[0], d[i + 1] - c[1], d[i + 2] - c[2]);
+  const fgRaw = tally((i) => dist(i, bg) > 50);
+  if (!fgRaw) return null;   // keine erkennbare Schrift (z. B. Code nur in der Textebene)
+  const fg = fgRaw.map(Math.round), far = Math.hypot(fg[0] - bg[0], fg[1] - bg[1], fg[2] - bg[2]);
   if (far < 40) return null;
   const thr = Math.max(30, far * 0.35);
-  let ink = 0, all = 0;
-  for (let y = fy0; y <= fy1; y++) for (let x = cx0; x <= cx1; x++) { all++; if (dist(at(x, y)) > thr) ink++; }
-  const rowInk = (y, xa, xb) => { for (let x = xa; x <= xb; x++) if (dist(at(x, y)) > thr) return true; return false; };
-  let t = Math.min(ry1, Math.round(base - 0.3 * h)); const tMin = Math.max(0, Math.round(base - 0.9 * h)), tForce = base - 0.45 * h;
-  while (t - 1 >= tMin && (t - 1 > tForce || rowInk(t - 1, cx0, cx1))) t--;
-  let bt = Math.min(rh - 1, Math.round(base - 0.05 * h)); const bMax = Math.min(rh - 1, Math.round(base + 0.25 * h));
-  while (bt + 1 <= bMax && (bt + 1 <= base || rowInk(bt + 1, cx0, cx1))) bt++;
-  const colInk = (x) => { for (let y = t; y <= bt; y++) if (dist(at(x, y)) > thr) return true; return false; };
+  const isInk = (x, y) => { const i = at(x, y), a = dist(i, bg); return a > thr && dist(i, fg) < a; };
+  let ink = 0;
+  for (let y = fy0; y <= fy1; y++) for (let x = cx0; x <= cx1; x++) if (isInk(x, y)) ink++;
+  const share = ink / ((fy1 - fy0 + 1) * (cx1 - cx0 + 1));
+  if (share < 0.05 || share > 0.6) return null;   // kein Text auf einfarbigem Grund (Kästchen ohne Text, Raster, Foto …)
+  const rowHas = (y) => { for (let x = cx0; x <= cx1; x++) if (isInk(x, y)) return true; return false; };
+  let t = Math.min(fy1, Math.round(base - 0.3 * h)); const tMin = Math.max(0, Math.round(base - 0.9 * h)), tForce = base - 0.45 * h;
+  while (t - 1 >= tMin && (t - 1 > tForce || rowHas(t - 1))) t--;
+  let bt = fy1; const bMax = Math.min(rh - 1, Math.round(base + 0.25 * h)), wide = 0.6 * (cx1 - cx0 + 1);
+  while (bt + 1 <= bMax) {
+    const y = bt + 1;
+    if (y <= base) { bt = y; continue; }
+    let n = 0, joined = false;
+    for (let x = cx0; x <= cx1; x++) if (isInk(x, y)) { n++; if (isInk(x, y - 1) || (x > cx0 && isInk(x - 1, y - 1)) || (x < cx1 && isInk(x + 1, y - 1))) joined = true; }
+    if (!n || !joined || n > wide) break;
+    bt = y;
+  }
+  const colHas = (x) => { for (let y = t; y <= bt; y++) if (isInk(x, y)) return true; return false; };
   const side = Math.round(0.2 * h);
-  let l = cx0; while (l - 1 >= Math.max(0, cx0 - side) && colInk(l) && colInk(l - 1)) l--;
-  let r = cx1; while (r + 1 <= Math.min(rw - 1, cx1 + side) && colInk(r) && colInk(r + 1)) r++;
+  let l = cx0; while (l - 1 >= Math.max(0, cx0 - side) && colHas(l - 1)) l--;
+  while (l < cx1 && !colHas(l)) l++;
+  let r = cx1; while (r + 1 <= Math.min(rw - 1, cx1 + side) && colHas(r + 1)) r++;
+  while (r > l && !colHas(r)) r--;
   const x = Math.max(0, l - 2), y = Math.max(0, t - 2);
-  return { bg, fg, bold: ink / all > 0.2, x, y, w: Math.min(rw, r + 3) - x, h: Math.min(rh, bt + 3) - y };
+  return { bg, fg, thr, share, x, y, w: Math.min(rw, r + 3) - x, h: Math.min(rh, bt + 2) - y, inkX: l, inkW: r - l + 1 };
+}
+/* Füllung für die Fläche aus codeCover: je Spalte zwischen dem Pixel darüber und darunter verlaufend (auch Farbverläufe und Bilder
+   bleiben ruhig); Pixel, die zur Schrift gehören oder nicht zum Hintergrund passen, zählen nicht. → RGBA-Pixel der Fläche (c.w × c.h). */
+export function coverFill(d, rw, rh, c) {
+  const out = new Uint8ClampedArray(c.w * c.h * 4);
+  const near = (x, y) => {
+    if (y < 0 || y >= rh || x < 0 || x >= rw) return null;
+    const i = (y * rw + x) * 4, px = [d[i], d[i + 1], d[i + 2]];
+    return Math.hypot(px[0] - c.bg[0], px[1] - c.bg[1], px[2] - c.bg[2]) <= c.thr ? px : null;
+  };
+  for (let xx = 0; xx < c.w; xx++) {
+    const x = c.x + xx;
+    let top = null, bot = null;
+    for (let k = 1; k <= 3 && !top; k++) top = near(x, c.y - k);
+    for (let k = 0; k < 3 && !bot; k++) bot = near(x, c.y + c.h + k);
+    const A = top || bot || c.bg, B = bot || top || c.bg;
+    for (let yy = 0; yy < c.h; yy++) {
+      const f = (yy + 0.5) / c.h, o = (yy * c.w + xx) * 4;
+      out[o] = A[0] + (B[0] - A[0]) * f; out[o + 1] = A[1] + (B[1] - A[1]) * f; out[o + 2] = A[2] + (B[2] - A[2]) * f; out[o + 3] = 255;
+    }
+  }
+  return out;
+}
+/* Schrift des alten Codes (Angaben von PDF.js: Name, fett, kursiv, Ersatzfamilie) → {mono, serif, bold, italic}; bold null = unbekannt */
+export function codeFontStyle(f) {
+  const name = String((f && (f.name || f.loadedName)) || ""), fam = String((f && (f.fallbackName || f.family)) || "");
+  const mono = /mono|courier|consol|menlo|code|typewriter/i.test(name) || /mono/i.test(fam);
+  const serif = !mono && (/serif|times|georgia|cambria|caladea|garamond|palatino|book|roman/i.test(name.replace(/sans/gi, "")) && !/sans/i.test(name) || (/serif/i.test(fam) && !/sans/i.test(fam)));
+  const bold = f && (f.bold || f.black || /bold|black|heavy|extrabold|semibold|demi/i.test(name)) ? true : f && (f.name || f.loadedName) ? false : null;
+  return { mono, serif, bold, italic: !!(f && (f.italic || /italic|oblique/i.test(name))) };
 }
 /* der Sitzungscode einer Präsentation: der größte Code auf Folie 1 (laut Prompt die Einstiegsfolie, mindestens 96 pt ≈ 18 % der Höhe);
    opt.exclude = Codes, die es sicher nicht sind (verknüpfte Feibeitsblätter), opt.minH = Mindesthöhe (kleine Codes sind es nicht); "" = keiner */

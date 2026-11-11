@@ -1,6 +1,6 @@
 // presenter.js – Präsentation (PDF) in Folienbilder umwandeln und im Vollbild live für alle zeigen.
 import { h, clear, api, apiUrl, wsUrl, toast, errToast, icon } from "./ui.js";
-import { PUBLIC_URL, isValidCode, formatCode, slideCodeBoxes, slideSessionCode, codeCover } from "./shared.js";
+import { PUBLIC_URL, isValidCode, formatCode, slideCodeBoxes, slideSessionCode, codeCover, coverFill, codeFontStyle } from "./shared.js";
 
 let pdfjsP = null;
 async function pdfjs() {
@@ -8,56 +8,68 @@ async function pdfjs() {
   return pdfjsP;
 }
 
-/* Breite eines Zeichens in der passenden allgemeinen Schrift (Festbreite, Serife, sonst serifenlos) – für die Lage des Codes im Satz */
+/* Schriftfamilie für den neuen Code: wie der alte (Festbreite, Serife, sonst serifenlos) – aus den Schriftangaben von PDF.js bzw. der Ersatzfamilie */
+const genericFont = (st) => (st && st.mono ? '"Courier New", Courier, monospace' : st && st.serif ? '"Times New Roman", Times, serif' : "Arial, Helvetica, sans-serif");
+const styleOf = (b) => { const st = codeFontStyle(b.font); if (/mono|courier/i.test(b.family)) { st.mono = true; st.serif = false; } else if (!b.font && /serif/i.test(b.family) && !/sans/i.test(b.family)) st.serif = true; return st; };
+/* Breite eines Zeichens in der passenden allgemeinen Schrift – für die Lage des Codes im Satz */
 let measCtx = null; const measured = new Map();
-const genericFont = (fam) => (/mono|courier/i.test(fam) ? '"Courier New", Courier, monospace' : /serif/i.test(fam) && !/sans/i.test(fam) ? '"Times New Roman", Times, serif' : "Arial, Helvetica, sans-serif");
 function advance(ch, fam) {
-  const f = genericFont(fam), k = f + "|" + ch;
+  const f = genericFont({ mono: /mono|courier/i.test(fam), serif: /serif/i.test(fam) && !/sans/i.test(fam) }), k = f + "|" + ch;
   if (!measured.has(k)) { measCtx ||= document.createElement("canvas").getContext("2d"); measCtx.font = "bold 100px " + f; measured.set(k, measCtx.measureText(ch).width); }
   return measured.get(k);
 }
-/* Codes auf einer Seite: Textstücke von PDF.js in Gerätekoordinaten (gedrehter Text zählt nicht) → slideCodeBoxes */
+/* Codes auf einer Seite: Textstücke von PDF.js in Gerätekoordinaten (gedrehter Text zählt nicht) → slideCodeBoxes. Ein Strich, den eine
+   Schrift als Sonderglyphe ohne Unicode setzt (z. B. Inter zwischen Großbuchstaben: leeres Stück bzw. Privatzeichen), zählt als Bindestrich. */
 async function codeBoxes(lib, page, vp) {
   const tc = await page.getTextContent();
   const items = [], sx = Math.hypot(vp.transform[0], vp.transform[1]);   // Maßstab samt /UserUnit (vp.scale enthält ihn nicht)
+  const fontOf = (name) => { try { return page.commonObjs.has(name) ? page.commonObjs.get(name) : null; } catch { return null; } };
   for (const it of tc.items || []) {
     if (typeof it.str !== "string") continue;   // Markierungen ohne Text
-    const tx = lib.Util.transform(vp.transform, it.transform), hgt = Math.hypot(tx[2], tx[3]);
+    const tx = lib.Util.transform(vp.transform, it.transform), hgt = Math.hypot(tx[2], tx[3]), w = it.width * sx;
     const turned = Math.abs(tx[1]) > hgt * 0.02 || Math.abs(tx[2]) > hgt * 0.02;
-    items.push(turned ? { str: "", eol: true } : { str: it.str, x: tx[4], base: tx[5], w: it.width * sx, h: hgt, eol: !!it.hasEOL, family: ((tc.styles || {})[it.fontName] || {}).fontFamily || "" });
+    const dashLike = (it.str === "" || /^[\uE000-\uF8FF]$/.test(it.str)) && !it.hasEOL && w > hgt * 0.15 && w < hgt * 0.8;
+    items.push(turned ? { str: "", eol: true } : { str: dashLike ? "\u2010" : it.str, x: tx[4], base: tx[5], w, h: hgt, eol: !!it.hasEOL,
+      family: ((tc.styles || {})[it.fontName] || {}).fontFamily || "", font: fontOf(it.fontName) });
   }
   return slideCodeBoxes(items, advance);
 }
-/* alten Code übermalen und den neuen hineinschreiben (Fläche, Hintergrund- und Schriftfarbe misst codeCover an den Pixeln); gleiche Größe,
-   notfalls schmaler (gleiche Breite), fett, wenn der alte Code fett war. false = an dieser Stelle keine erkennbare Schrift. */
+/* alten Code übermalen (Fläche und Farben misst codeCover, die Füllung verläuft wie der Hintergrund – coverFill) und den neuen genau auf
+   die Fläche der alten Schrift setzen: gleiche Größe, Breite angeglichen (leicht gestaucht bzw. gestreckt), Schnitt und Familie wie vorher.
+   false = an dieser Stelle nicht sicher möglich (Folie bleibt, die Lehrkraft erfährt es). */
 function paintCode(ctx, b, text) {
   const W = ctx.canvas.width, H = ctx.canvas.height;
   const rx = Math.max(0, Math.floor(b.x0 - b.h * 0.25)), ry = Math.max(0, Math.floor(b.base - b.h * 1.0));
   const rw = Math.min(W, Math.ceil(b.x1 + b.h * 0.25)) - rx, rh = Math.min(H, Math.ceil(b.base + b.h * 0.35)) - ry;
   if (rw < 4 || rh < 4) return false;
-  const c = codeCover(ctx.getImageData(rx, ry, rw, rh).data, rw, rh, { x0: b.x0 - rx, x1: b.x1 - rx, base: b.base - ry, h: b.h });
+  const d = ctx.getImageData(rx, ry, rw, rh).data;
+  const c = codeCover(d, rw, rh, { x0: b.x0 - rx, x1: b.x1 - rx, base: b.base - ry, h: b.h });
   if (!c) return false;
-  const fam = genericFont(b.family), weight = c.bold ? "bold" : "normal";
+  ctx.putImageData(new ImageData(coverFill(d, rw, rh, c), c.w, c.h), rx + c.x, ry + c.y);
+  const st = styleOf(b), weight = st.bold === null ? (c.share > 0.34 ? "bold" : "normal") : st.bold ? "bold" : "normal";
+  const font = (size) => (st.italic ? "italic " : "") + weight + " " + size + "px " + genericFont(st);
   ctx.save();
-  ctx.fillStyle = "rgb(" + c.bg.map(Math.round).join(",") + ")"; ctx.fillRect(rx + c.x, ry + c.y, c.w, c.h);
-  const bw = b.x1 - b.x0;
-  let size = b.h; ctx.font = weight + " " + size + "px " + fam;
-  let tw = ctx.measureText(text).width;
-  if (tw > bw * 1.04) { size = (size * bw) / tw; ctx.font = weight + " " + size + "px " + fam; tw = ctx.measureText(text).width; }
-  ctx.fillStyle = "rgb(" + c.fg.join(",") + ")"; ctx.textBaseline = "alphabetic";
-  ctx.fillText(text, b.x0 + (bw - tw) / 2, b.base);
+  ctx.textBaseline = "alphabetic"; ctx.textAlign = "left"; ctx.fillStyle = "rgb(" + c.fg.join(",") + ")";
+  let size = b.h; ctx.font = font(size);
+  let m = ctx.measureText(text), inkW = (m.actualBoundingBoxLeft || 0) + (m.actualBoundingBoxRight || m.width);
+  let k = c.inkW / inkW;
+  if (k < 0.8) { size *= k / 0.8; ctx.font = font(size); m = ctx.measureText(text); inkW = (m.actualBoundingBoxLeft || 0) + (m.actualBoundingBoxRight || m.width); k = c.inkW / inkW; }
+  k = Math.min(1.2, Math.max(0.8, k));
+  ctx.translate(rx + c.inkX + (c.inkW - inkW * k) / 2, b.base); ctx.scale(k, 1);
+  ctx.fillText(text, m.actualBoundingBoxLeft || 0, 0);
   ctx.restore();
   return true;
 }
 
 /* PDF im Browser rendern (PDF.js) und jede Seite als JPEG hochladen. onProgress(i, n).
    opt.code = Code der Sitzung: steht auf Folie 1 ein anderer (Präsentation aus einer früheren Sitzung), wird er auf allen Folien ersetzt.
-   opt.exclude = Codes verknüpfter Feibeitsblätter (nie der Sitzungscode). Ergebnis swapped = {from, to, slides} oder null, noCode = auf
-   Folie 1 kein Sitzungscode als Text gefunden. Die hochgeladene PDF selbst bleibt unverändert. */
+   opt.exclude = Codes verknüpfter Feibeitsblätter (nie der Sitzungscode). Ergebnis swapped = {from, to, slides, missed} oder null (missed =
+   Folien, auf denen der alte Code steht, aber nicht sicher ersetzt werden konnte), noCode = auf Folie 1 kein Sitzungscode als Text gefunden.
+   Die hochgeladene PDF selbst bleibt unverändert. */
 export async function rasterizeAndUpload(file, fileId, token, onProgress, opt = {}) {
   const want = isValidCode(opt.code) ? opt.code : "";
   let oldCode = "";
-  const swappedOn = [];
+  const swappedOn = [], missedOn = [];
   const lib = await pdfjs();
   const doc = await lib.getDocument({ data: new Uint8Array(await file.arrayBuffer()), isEvalSupported: false, disableFontFace: false }).promise;
   const n = doc.numPages;
@@ -77,7 +89,14 @@ export async function rasterizeAndUpload(file, fileId, token, onProgress, opt = 
       try {
         const boxes = await codeBoxes(lib, page, vp);
         if (i === 1) oldCode = slideSessionCode(boxes, { exclude: opt.exclude, minH: canvas.height * 0.06 });   // kleine Codes sind es nicht
-        if (oldCode && oldCode !== want) { let k = 0; for (const b of boxes) if (b.code === oldCode && paintCode(ctx, b, formatCode(want))) k++; if (k) swappedOn.push(i); }
+        if (oldCode && oldCode !== want) {
+          // derselbe Code doppelt übereinander (z. B. Schatten): nur einmal, und zwar den vordersten (zuletzt gezeichneten)
+          const mine = boxes.filter((b) => b.code === oldCode).reverse().filter((b, j, all) => !all.slice(0, j).some((o) => Math.abs(o.x0 - b.x0) < b.h * 0.3 && Math.abs(o.base - b.base) < b.h * 0.3));
+          let ok = 0, bad = 0;
+          for (const b of mine) { let done = false; try { done = paintCode(ctx, b, formatCode(want)); } catch {} if (done) ok++; else bad++; }
+          if (ok) swappedOn.push(i);
+          if (bad) missedOn.push(i);
+        }
       } catch {}   // ohne lesbare Textebene: Folie bleibt, wie sie ist
     }
     const blob = await new Promise((res) => canvas.toBlob(res, "image/jpeg", 0.86));
@@ -95,7 +114,7 @@ export async function rasterizeAndUpload(file, fileId, token, onProgress, opt = 
   }
   await doc.destroy();
   const ready = await api("POST", "/api/teacher/files/" + fileId + "/ready", { token, body: { pages: n } });
-  return { pages: n, thumbs, file: ready.file, swapped: swappedOn.length ? { from: oldCode, to: want, slides: swappedOn } : null, noCode: !!want && !oldCode };
+  return { pages: n, thumbs, file: ready.file, swapped: swappedOn.length || missedOn.length ? { from: oldCode, to: want, slides: swappedOn, missed: missedOn } : null, noCode: !!want && !oldCode };
 }
 
 /* ---------- Live-Verbindung der Lehrkraft ---------- */

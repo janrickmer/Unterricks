@@ -552,9 +552,12 @@ export async function sessionPage(id) {
         { code: L().code, exclude: [...st.sheets.map((s) => s.code), ...moreSheetCodes] });
       Object.assign(r.file, out.file);
       const sw = out.swapped;   // Präsentation aus einer früheren Sitzung: alter Code auf den Folien durch den dieser Sitzung ersetzt
-      toast("Präsentation bereit (" + out.pages + " Folien)." + (sw ? " Den Sitzungscode " + formatCode(sw.from) + " einer früheren Sitzung hat Unterricks auf " +
-        (sw.slides.length === 1 ? "Folie " + sw.slides[0] : sw.slides.length + " Folien") + " durch den Code dieser Sitzung " + formatCode(sw.to) + " ersetzt." : out.noCode ? " Auf Folie 1 hat Unterricks keinen Sitzungscode als Text gefunden – steht dort einer, prüfen Sie, ob es " +
-        formatCode(L().code) + " ist." : ""), "ok", sw || out.noCode ? 12000 : undefined);
+      const folien = (l) => (l.length === 1 ? "Folie " + l[0] : "den Folien " + l.slice(0, -1).join(", ") + " und " + l[l.length - 1]);
+      const note = sw ? (sw.slides.length ? " Den Sitzungscode " + formatCode(sw.from) + " einer früheren Sitzung hat Unterricks auf " +
+          (sw.slides.length === 1 ? "Folie " + sw.slides[0] : sw.slides.length + " Folien") + " durch den Code dieser Sitzung " + formatCode(sw.to) + " ersetzt." : "") +
+          (sw.missed.length ? " Auf " + folien(sw.missed) + " steht noch der alte Sitzungscode " + formatCode(sw.from) + " – dort ließ er sich nicht sicher ersetzen; bitte die Folie ändern oder den Code dieser Sitzung (" + formatCode(sw.to) + ") ansagen." : "")
+        : out.noCode ? " Auf Folie 1 hat Unterricks keinen Sitzungscode als Text gefunden – steht dort einer, prüfen Sie, ob es " + formatCode(L().code) + " ist." : "";
+      toast("Präsentation bereit (" + out.pages + " Folien)." + note, sw && sw.missed.length ? "err" : "ok", note ? (sw && sw.missed.length ? 20000 : 12000) : undefined);
     } catch (e) { errToast(e); }
     pendingPdf = null; paintPres();
   }

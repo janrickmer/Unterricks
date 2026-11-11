@@ -331,7 +331,7 @@ test("Sitzungscode auf Folien: mit gemessenen Zeichenbreiten liegt der Kasten au
   assert.equal(slideCodeBoxes([item], () => 0)[0].x0, even.x0, "unbrauchbare Messung: wie ohne");
 });
 
-import { codeCover } from "../../public/shared.js";
+import { codeCover, coverFill, codeFontStyle } from "../../public/shared.js";
 
 test("Sitzungscode auf Folien: gesperrt gesetzter Code (PDF.js fügt Leerzeichen ein), Feibeitsblatt-Codes und kleine Codes ausgenommen", () => {
   assert.deepEqual(codesInText("A E H - 4 V Y"), [{ start: 0, end: 13, code: "AEH4VY" }]);
@@ -344,30 +344,54 @@ test("Sitzungscode auf Folien: gesperrt gesetzter Code (PDF.js fügt Leerzeichen
   assert.equal(slideSessionCode([{ code: "BCD234", h: 20 }], { minH: 64 }), "", "kleiner Code auf Folie 1 ist nicht der Sitzungscode");
 });
 
-test("Sitzungscode auf Folien: codeCover misst Fläche und Farben an den Pixeln (Text darüber bleibt)", () => {
-  // 200 × 120 Pixel, Hintergrund dunkelblau; „Code“ als gelber Block von x 40–160, y 50–90 (Grundlinie 90, Schriftgröße 60);
-  // darüber eine weiße Zeile bei y 20–28 (z. B. „Thema“) – sie darf nicht übermalt werden
-  const rw = 200, rh = 120, d = new Uint8ClampedArray(rw * rh * 4);
-  const set = (x, y, c) => { const i = (y * rw + x) * 4; d[i] = c[0]; d[i + 1] = c[1]; d[i + 2] = c[2]; d[i + 3] = 255; };
-  for (let y = 0; y < rh; y++) for (let x = 0; x < rw; x++) set(x, y, [32, 59, 94]);
-  for (let y = 50; y <= 90; y++) for (let x = 40; x <= 160; x++) if ((x - 40) % 20 < 12) set(x, y, [255, 217, 77]);   // Zeichen mit Lücken
-  for (let y = 20; y <= 28; y++) for (let x = 40; x <= 160; x++) set(x, y, [255, 255, 255]);
-  const c = codeCover(d, rw, rh, { x0: 40, x1: 160, base: 90, h: 60 });
-  assert.deepEqual(c.bg.map(Math.round), [32, 59, 94]);
-  assert.deepEqual(c.fg, [255, 217, 77]);
-  assert.ok(c.y > 28 && c.y <= 48, "oben nur bis kurz über die Schrift – die Zeile darüber bleibt (y " + c.y + ")");
-  assert.ok(c.y + c.h >= 91 && c.y + c.h <= 95, "unten bis zur Grundlinie");
-  assert.ok(c.x <= 40 && c.x >= 36 && c.x + c.w >= 160 && c.x + c.w <= 165, "seitlich bis zur Schrift");
-  assert.equal(c.bold, true);
-  // Text dicht über dem Code (weiß, noch im Band bis 0,75 Schriftgrößen über der Grundlinie): Schriftfarbe bleibt die des Codes, die Zeile bleibt stehen
-  const d2 = new Uint8ClampedArray(rw * rh * 4), set2 = (x, y, c2) => { const i = (y * rw + x) * 4; d2[i] = c2[0]; d2[i + 1] = c2[1]; d2[i + 2] = c2[2]; d2[i + 3] = 255; };
-  for (let y = 0; y < rh; y++) for (let x = 0; x < rw; x++) set2(x, y, [32, 59, 94]);
-  for (let y = 60; y <= 90; y++) for (let x = 40; x <= 160; x++) if ((x - 40) % 20 < 9) set2(x, y, [255, 217, 77]);
-  for (let y = 46; y <= 52; y++) for (let x = 40; x <= 160; x++) set2(x, y, [255, 255, 255]);
-  const c2 = codeCover(d2, rw, rh, { x0: 40, x1: 160, base: 90, h: 60 });
-  assert.deepEqual(c2.fg, [255, 217, 77], "Schriftfarbe des Codes, nicht die der Zeile darüber");
-  assert.ok(c2.y > 52 && c2.y <= 58, "die Zeile darüber bleibt stehen (y " + c2.y + ")");
-  // ohne Schrift an der Stelle (Code nur in der Textebene): nichts übermalen
-  const empty = new Uint8ClampedArray(rw * rh * 4).fill(200);
-  assert.equal(codeCover(empty, rw, rh, { x0: 40, x1: 160, base: 90, h: 60 }), null);
+test("Sitzungscode auf Folien: codeCover misst Fläche und Farben an den Pixeln", () => {
+  // Bild 200 × 140, Schriftgröße 60, Grundlinie 90; „Zeichen“ = senkrechte Balken (40 % der Fläche) von y 50 bis 90 zwischen x 40 und 160
+  const rw = 200, rh = 140;
+  const img = (paint) => { const d = new Uint8ClampedArray(rw * rh * 4); const set = (x, y, c) => { const i = (y * rw + x) * 4; d[i] = c[0]; d[i + 1] = c[1]; d[i + 2] = c[2]; d[i + 3] = 255; }; paint(set); return d; };
+  const fill = (set, x0, y0, x1, y1, c) => { for (let y = y0; y <= y1; y++) for (let x = x0; x <= x1; x++) set(x, y, c); };
+  const glyphs = (set, c, y0 = 50) => { for (let y = y0; y <= 90; y++) for (let x = 40; x <= 160; x++) if ((x - 40) % 20 < 8) set(x, y, c); };
+  const BLUE = [32, 59, 94], YEL = [255, 217, 77], WHITE = [255, 255, 255], DARK = [17, 24, 39];
+  const box = { x0: 40, x1: 160, base: 90, h: 60 };
+  // 1) einfarbiger Grund, weiße Zeile weit darüber: Farben, Fläche, Schrift
+  let c = codeCover(img((set) => { fill(set, 0, 0, rw - 1, rh - 1, BLUE); glyphs(set, YEL); fill(set, 40, 20, 160, 28, WHITE); }), rw, rh, box);
+  assert.deepEqual(c.bg.map(Math.round), BLUE); assert.deepEqual(c.fg, YEL);
+  assert.ok(c.y > 28 && c.y <= 48 && c.y + c.h >= 91 && c.y + c.h <= 93, "oben bis kurz über die Schrift, unten bis zur Grundlinie (" + c.y + "/" + c.h + ")");
+  assert.ok(c.inkX === 40 && c.inkX + c.inkW === 161, "Schriftfläche genau (" + c.inkX + "/" + c.inkW + ")");
+  // 2) Text dicht über dem Code (weiß, y 46–52) und eine Zeile mit „Umlautpunkten“ 3 px unter der Grundlinie: beide bleiben stehen
+  c = codeCover(img((set) => { fill(set, 0, 0, rw - 1, rh - 1, BLUE); glyphs(set, YEL, 60); fill(set, 40, 46, 160, 52, WHITE); fill(set, 45, 94, 48, 96, WHITE); fill(set, 52, 94, 55, 96, WHITE); }), rw, rh, box);
+  assert.deepEqual(c.fg, YEL, "Schriftfarbe des Codes, nicht die der Zeile darüber");
+  assert.ok(c.y > 52 && c.y <= 58, "die Zeile darüber bleibt (y " + c.y + ")");
+  assert.ok(c.y + c.h <= 93, "die Punkte darunter bleiben (bis " + (c.y + c.h) + ")");
+  // 3) knappes farbiges Kästchen (gelb, endet 3 px unter der Grundlinie) auf weißer Folie, dunkle Schrift: Hintergrund = Kästchen
+  c = codeCover(img((set) => { fill(set, 0, 0, rw - 1, rh - 1, WHITE); fill(set, 30, 40, 170, 93, YEL); glyphs(set, DARK); }), rw, rh, box);
+  assert.deepEqual(c.bg.map(Math.round), YEL, "Hintergrund ist das Kästchen, nicht die Folie"); assert.deepEqual(c.fg, DARK);
+  assert.ok(c.x >= 30 && c.x + c.w <= 171 && c.y >= 40, "die Fläche bleibt im Kästchen");
+  // 4) unterstrichener Code (Strich in Schriftfarbe 4–6 px unter der Grundlinie über die ganze Breite): Strich bleibt, Farben richtig
+  c = codeCover(img((set) => { fill(set, 0, 0, rw - 1, rh - 1, WHITE); glyphs(set, DARK); fill(set, 38, 94, 162, 96, DARK); }), rw, rh, box);
+  assert.deepEqual(c.bg.map(Math.round), WHITE); assert.deepEqual(c.fg, DARK);
+  assert.ok(c.y + c.h <= 93, "der Unterstrich wird nicht übermalt (bis " + (c.y + c.h) + ")");
+  // 5) ohne Schrift an der Stelle (Code nur in der Textebene) bzw. vollflächig (kein Text auf ruhigem Grund): nichts übermalen
+  assert.equal(codeCover(img((set) => fill(set, 0, 0, rw - 1, rh - 1, [200, 200, 200])), rw, rh, box), null);
+  assert.equal(codeCover(img((set) => { fill(set, 0, 0, rw - 1, rh - 1, WHITE); fill(set, 40, 40, 160, 90, DARK); fill(set, 60, 60, 61, 61, WHITE); }), rw, rh, box), null);
+});
+
+test("Sitzungscode auf Folien: coverFill füllt wie der Hintergrund (auch Farbverlauf), Schrift am Rand zählt nicht", () => {
+  const rw = 100, rh = 60, d = new Uint8ClampedArray(rw * rh * 4);
+  for (let y = 0; y < rh; y++) for (let x = 0; x < rw; x++) { const i = (y * rw + x) * 4; d[i] = 2 * x; d[i + 1] = 100; d[i + 2] = 3 * y; d[i + 3] = 255; }   // Verlauf
+  const i0 = (9 * rw + 50) * 4; d[i0] = 255; d[i0 + 1] = 255; d[i0 + 2] = 255;   // ein „Schrift“-Pixel direkt über der Fläche
+  const c = { x: 20, y: 10, w: 60, h: 30, bg: [100, 100, 60], thr: 200 };
+  const out = coverFill(d, rw, rh, c), px = (x, y) => Array.from(out.slice((y * c.w + x) * 4, (y * c.w + x) * 4 + 3));
+  const near = (a, b2) => a.every((v, k) => Math.abs(v - b2[k]) <= 4);
+  assert.ok(near(px(0, 0), [40, 100, 30]) && near(px(59, 29), [158, 100, 117]), "waagerecht und senkrecht wie der Verlauf " + JSON.stringify([px(0, 0), px(59, 29)]));
+  assert.ok(near(px(30, 0), [100, 100, 30]), "das Schrift-Pixel darüber wird übersprungen " + JSON.stringify(px(30, 0)));
+});
+
+test("Sitzungscode auf Folien: Schrift des alten Codes aus den Angaben von PDF.js", () => {
+  assert.deepEqual(codeFontStyle({ name: "BCDEEE+DejaVuSansMono-Bold", bold: true }), { mono: true, serif: false, bold: true, italic: false });
+  assert.deepEqual(codeFontStyle({ name: "Courier" }), { mono: true, serif: false, bold: false, italic: false });
+  assert.deepEqual(codeFontStyle({ name: "Times-BoldItalic", bold: true, italic: true }), { mono: false, serif: true, bold: true, italic: true });
+  assert.deepEqual(codeFontStyle({ name: "Helvetica-Oblique" }), { mono: false, serif: false, bold: false, italic: true });
+  assert.deepEqual(codeFontStyle({ name: "ABCDEF+Caladea-Italic", italic: true }), { mono: false, serif: true, bold: false, italic: true });
+  assert.deepEqual(codeFontStyle({ name: "LiberationSans-Bold", fallbackName: "sans-serif", bold: true }), { mono: false, serif: false, bold: true, italic: false });
+  assert.equal(codeFontStyle(null).bold, null, "ohne Angaben: Schnitt unbekannt (dann misst paintCode)");
 });
