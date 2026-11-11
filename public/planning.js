@@ -1,7 +1,7 @@
 // planning.js – Unterrichtseinheiten (Leupold-Schema + Ablaufplan), Terminberechnung, Krankheitsvertretung, Claude-Prompts.
 // Gemeinsam für Browser und Worker (keine DOM-Zugriffe).
 import { subjectName, gradeInfo, classShort, isAnalogClass, ANALOG_RULE, fmtDay, addDays, isIsoDate, isClockTime, PORTAL_RULES, PORTAL_EXAMPLE, FEIBEITSBLATT_INFO,
-  SYSTEM_PROMPT_ROLE, UNIT_RULE_BASE, STOP_LINE, lessonContext, teacherWishes, groupShort, subjectShort } from "./shared.js";
+  SYSTEM_PROMPT_ROLE, UNIT_RULE_BASE, STOP_LINE, lessonContext, teacherWishes, groupShort, subjectShort, isValidSubject, isValidClass, clockMinutes, minutesClock, mondayOf, isWeekend } from "./shared.js";
 import { ESCAPE_FORMAT_HINT } from "./escape-data.js";
 export { UNIT_RULE } from "./shared.js";
 
@@ -36,6 +36,82 @@ export function computeSlots(raw) {
   return out;
 }
 export const lessonSlots = (slots) => slots.filter((s) => s.kind === "stunde");
+
+/* ---------- Wochenkalender der Lehrkraft (Startseite) ----------
+ * units = [{id, subject, klass, title, params}] (GET /api/teacher/schedule), monday = Montag der Woche. Eine Einheit gilt an einem Tag, wenn er
+ * in ihrem Zeitraum liegt (Beginn und Ende einschließlich), sein Wochentag in ihrem Stundenplan steht und er in keinen ihrer Ferien/Ausfälle
+ * fällt – wie computeSlots. Dieselbe Klasse zur selben Zeit (überlappende Einheiten) erscheint einmal. Je Tag: timed (mit Uhrzeit, nach Beginn),
+ * untimed (ohne Uhrzeit), off (Unterricht, der laut Einheit an diesem Tag entfällt, mit dem Grund). */
+export function weekSchedule(units, monday) {
+  const friday = addDays(monday, 4);
+  const days = WEEKDAYS.map((w, i) => ({ date: addDays(monday, i), day: w.d, name: w.n, timed: [], untimed: [], off: [] }));
+  const byKey = new Map();
+  for (const u of Array.isArray(units) ? units : []) {
+    if (!u || !isValidSubject(u.subject) || !isValidClass(u.klass)) continue;
+    const p = normalizeParams(u.params);
+    if (!p.start || !p.end || p.end < p.start || !p.weekdays.length || p.end < monday || p.start > friday) continue;
+    const from = p.start > monday ? p.start : monday, to = p.end < friday ? p.end : friday;
+    for (const s of computeSlots({ ...p, start: from, end: to })) {
+      const day = days.find((d) => d.date === s.date);
+      if (!day) continue;
+      const key = u.subject + "|" + u.klass + "|" + s.date + "|" + (s.time || "");
+      const old = byKey.get(key);
+      if (old) {   // dieselbe Klasse zur selben Zeit aus einer zweiten Einheit
+        if (!old.unitIds.includes(u.id)) old.unitIds.push(u.id);
+        if (s.kind === "klausur") old.kind = "klausur";
+        if (s.minutes > old.minutes) { old.minutes = s.minutes; if (old.start != null) { old.end = Math.min(24 * 60, old.start + s.minutes); old.endTime = minutesClock(old.end); } }
+        continue;
+      }
+      const start = clockMinutes(s.time), end = start == null ? null : Math.min(24 * 60, start + s.minutes);
+      const e = { key, date: s.date, day: day.day, time: s.time || null, endTime: end == null ? null : minutesClock(end), start, end, minutes: s.minutes, kind: s.kind,
+        subject: u.subject, subjectShort: subjectShort(u.subject), klass: u.klass, label: classShort(u.klass), title: str(u.title, 200), unitIds: [u.id],
+        href: "#/lk/f/" + u.subject + "/" + u.klass };
+      byKey.set(key, e);
+      (e.time ? day.timed : day.untimed).push(e);
+    }
+    // Ausfall laut Einheit (Ferien, Exkursion …): an Tagen im Zeitraum mit Unterricht nach Stundenplan, die in einen Ausfall fallen
+    for (const day of days) {
+      if (day.date < from || day.date > to || !p.weekdays.some((w) => w.day === day.day)) continue;
+      const b = p.breaks.find((x) => day.date >= x.from && day.date <= x.to);
+      if (b && !day.off.some((o) => o.subject === u.subject && o.klass === u.klass))
+        day.off.push({ subject: u.subject, subjectShort: subjectShort(u.subject), klass: u.klass, label: classShort(u.klass), reason: b.label || "" });
+    }
+  }
+  const order = (a, b) => (a.subjectShort < b.subjectShort ? -1 : a.subjectShort > b.subjectShort ? 1 : a.label.localeCompare(b.label, "de", { numeric: true }));
+  for (const d of days) {
+    d.timed.sort((a, b) => a.start - b.start || order(a, b)); d.untimed.sort(order);
+    // findet die Klasse an dem Tag doch statt (eine zweite Einheit ohne diesen Ausfall), ist sie nicht „entfallen“
+    d.off = d.off.filter((o) => ![...d.timed, ...d.untimed].some((e) => e.subject === o.subject && e.klass === o.klass)).sort(order);
+  }
+  return { monday, friday, days };
+}
+/* Welche Woche zeigt der Kalender zuerst? Die laufende – am Wochenende die kommende (Montag bis Freitag). */
+export const calendarWeek = (today) => { const m = mondayOf(today); return isWeekend(today) ? addDays(m, 7) : m; };
+const MONTHS = ["Januar", "Februar", "März", "April", "Mai", "Juni", "Juli", "August", "September", "Oktober", "November", "Dezember"];
+const dmy = (iso) => [Number(iso.slice(8, 10)), Number(iso.slice(5, 7)) - 1, iso.slice(0, 4)];
+/* „9.–13. November 2026“, „30. November – 4. Dezember 2026“, „28. Dezember 2026 – 1. Januar 2027“ */
+export function weekRangeText(monday) {
+  const [d1, m1, y1] = dmy(monday), [d2, m2, y2] = dmy(addDays(monday, 4));
+  if (y1 !== y2) return d1 + ". " + MONTHS[m1] + " " + y1 + " – " + d2 + ". " + MONTHS[m2] + " " + y2;
+  if (m1 !== m2) return d1 + ". " + MONTHS[m1] + " – " + d2 + ". " + MONTHS[m2] + " " + y2;
+  return d1 + ".–" + d2 + ". " + MONTHS[m2] + " " + y2;
+}
+export const dayMonthText = (iso) => { const [d, m] = dmy(iso); return d + ". " + MONTHS[m]; };   // „9. November“
+/* Überschneidungen je Tag nebeneinander: lane (0 …) und lanes (Zahl der Spuren in der Gruppe). minSpan = Mindesthöhe eines Eintrags in Minuten
+   (kurze Stunden werden höher gezeichnet als ihre Dauer und dürfen den nächsten Eintrag nicht verdecken). entries nach start sortiert. */
+export function assignLanes(entries, minSpan = 0) {
+  let group = [], groupEnd = -1, laneEnds = [];
+  const flush = () => { for (const e of group) e.lanes = Math.max(1, laneEnds.length); group = []; laneEnds = []; };
+  for (const e of entries) {
+    const end = Math.max(e.end, e.start + minSpan);
+    if (group.length && e.start >= groupEnd) flush();
+    let lane = laneEnds.findIndex((x) => x <= e.start);
+    if (lane < 0) { lane = laneEnds.length; laneEnds.push(end); } else laneEnds[lane] = end;
+    e.lane = lane; group.push(e); groupEnd = Math.max(groupEnd, end);
+  }
+  flush();
+  return entries;
+}
 export function paramsText(raw) {
   const p = normalizeParams(raw);
   const lines = [];

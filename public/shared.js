@@ -103,6 +103,14 @@ export function addDays(iso, n) { const d = new Date(utcNoon(iso)); d.setUTCDate
 export const daysBetween = (a, b) => Math.round((utcNoon(b) - utcNoon(a)) / 86400e3);
 export const weekday = (iso) => WD[new Date(utcNoon(iso)).getUTCDay()];
 export const isWeekend = (iso) => { const d = new Date(utcNoon(iso)).getUTCDay(); return d === 0 || d === 6; };
+/* Wochen (Montag bis Freitag) für den Wochenkalender der Lehrkraft */
+export const mondayOf = (iso) => addDays(iso, -((new Date(utcNoon(iso)).getUTCDay() + 6) % 7));
+export const isoWeek = (iso) => { const th = addDays(mondayOf(iso), 3); return Math.floor(daysBetween(th.slice(0, 4) + "-01-01", th) / 7) + 1; };   // KW nach ISO 8601
+/* heutiges Datum an der Schule (Europe/Berlin), unabhängig von der Zeitzone des Geräts */
+export const berlinToday = (ms = Date.now()) => new Intl.DateTimeFormat("sv-SE", { timeZone: "Europe/Berlin", year: "numeric", month: "2-digit", day: "2-digit" }).format(new Date(ms));
+/* „HH:MM“ ↔ Minuten seit Mitternacht */
+export const clockMinutes = (t) => (isClockTime(t) ? Number(t.slice(0, 2)) * 60 + Number(t.slice(3)) : null);
+export const minutesClock = (m) => String(Math.floor(m / 60)).padStart(2, "0") + ":" + String(m % 60).padStart(2, "0");
 /* Uhrzeit „HH:MM“ (24 Stunden) */
 export const isClockTime = (s) => typeof s === "string" && /^([01]\d|2[0-3]):[0-5]\d$/.test(s);
 /* Ortszeit der Schule (Europe/Berlin, mit Sommerzeit) → Zeitpunkt in ms */

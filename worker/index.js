@@ -56,6 +56,7 @@ const ROUTES = [
   ["GET", "/api/teacher/basis", B.routeBasisPreview],
   // Unterrichtseinheiten
   ["GET", "/api/teacher/units", U.routeUnitsList],
+  ["GET", "/api/teacher/schedule", U.routeSchedule],
   ["POST", "/api/teacher/units", U.routeUnitCreate],
   ["GET", "/api/teacher/units/" + ID, U.routeUnitGet],
   ["PATCH", "/api/teacher/units/" + ID, U.routeUnitPatch],

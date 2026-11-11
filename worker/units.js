@@ -65,6 +65,21 @@ export async function routeUnitsList(c) {
   const r = await c.db.prepare("SELECT u.*, (SELECT COUNT(*) FROM lessons l WHERE l.unit_id=u.id) AS n FROM units u WHERE subject=?1 AND klass=?2 ORDER BY created_at DESC").bind(subject, klass).all();
   return json({ ok: true, units: (r.results || []).map((x) => { const o = unitOut(x, { lessonCount: x.n || 0 }); return { ...o, slotCount: lessonSlots(computeSlots(o.params)).length }; }) });
 }
+/* Wochenkalender der Startseite: alle Einheiten mit Stundenplan und Zeitraum (nur Rahmendaten – nie Plan, Ablauf oder Notizen), nur Klassen,
+   die laut Fach-Einstellungen unterrichtet werden. Die Wochen rechnet der Browser (weekSchedule in public/planning.js). */
+export async function routeSchedule(c) {
+  await requireTeacher(c);
+  const cfgs = await loadSubjectConfigs(c.db);
+  const r = await c.db.prepare("SELECT id, subject, klass, title, params FROM units ORDER BY created_at LIMIT 2000").all();
+  const units = [];
+  for (const x of r.results || []) {
+    if (!isValidSubject(x.subject) || !classAllowed(cfgs[x.subject], x.klass)) continue;
+    const p = normalizeParams(parseJ(x.params, {}));
+    if (!p.start || !p.end || p.end < p.start || !p.weekdays.length) continue;
+    units.push({ id: x.id, subject: x.subject, klass: x.klass, title: x.title, params: { start: p.start, end: p.end, exam: p.exam, weekdays: p.weekdays, breaks: p.breaks } });
+  }
+  return json({ ok: true, units });
+}
 export async function routeUnitCreate(c) {
   await requireTeacher(c);
   const body = await readJson(c.request, 50000);

@@ -82,6 +82,10 @@ Feibeitsblatt braucht keine Änderung. Die Adressen stehen in `wrangler.jsonc` (
   Benutzerkonto speichern“). Danach verbindet sich Unterricks auf jedem Gerät, auf dem Sie sich mit Ihrem Passwort anmelden,
   automatisch; Geräte, die schon vorher angemeldet waren, entsperren sie einmal mit dem Unterricks-Passwort. Der Server sieht dabei
   weder Passwort noch Schlüssel.
+* **Wochenkalender:** Ganz oben auf Ihrer Startseite steht die Woche (Mo–Fr) mit Ihrem Unterricht – aus den Stundenplänen Ihrer
+  Unterrichtseinheiten (Wochentag, Uhrzeit, Dauer, Zeitraum, Ferien/Ausfälle). Mit ‹ › blättern Sie, „Heute“ führt zurück; am
+  Wochenende zeigt er die kommende Woche. Unterricht ohne eingetragene Uhrzeit steht in der Zeile „ohne Uhrzeit“. Ein Klick auf einen
+  Eintrag öffnet die Klasse bzw. den Kurs. Auf dem Handy und dem iPad hochkant erscheint die Woche als Liste je Tag.
 * **Beginn, Hausaufgabe, Präsentation:** Den Beginn der Sitzung tragen Sie im Stundenplan der Einheit (je Wochentag) oder in der
   Sitzung ein. Schüler:innen sehen die Hausaufgabe ab 15 Minuten vor dem Ende und können die Präsentation 5 Minuten nach dem Ende selbst
   öffnen – ohne Beginn weder noch. Am Ende der Stunde markieren Sie die letzte gezeigte Folie (im Vollbild „Bis hier gezeigt“ oder in

@@ -5,6 +5,7 @@ import { SUBJECTS, subjectName, gradeInfo, isValidClass, isValidSubject, formatC
   COURSE_GRADES, courseKey, isCourseClass, courseMembers } from "./shared.js";
 import { missingFor } from "./bases-detect.js";
 import { portalPreview } from "./portalview.js";
+import { weekCard } from "./weekcal.js";
 import { FbClient } from "./fbclient.js";
 import { deriveLogin, rememberKey, recallKey, forgetKey, sealLink, openLink, linkData, sameApi } from "./fblink.js";
 
@@ -288,8 +289,11 @@ async function loadLessons() { return (await tapi("GET", "/api/teacher/lessons")
 async function subjectsPage() {
   const main = h("main", null, h("div", { class: "skeleton", text: "Lade …" }));
   render(teacherBar("lessons"), main);
+  // Wochenkalender ganz oben: lädt eigenständig (ein Fehler dort verhindert die Fächer nicht)
+  const week = weekCard(() => tapi("GET", "/api/teacher/schedule").then((r) => r.units));
   let all; try { all = await loadLessons(); } catch (e) { clear(main).append(h("p", { class: "err", text: e.message })); return; }
   clear(main).append(...nn(pageHead({ title: "Welches Fach unterrichten Sie?", sub: "Planung in Unterrichtseinheiten – jede Sitzung gehört zu einer Stunde ihrer Einheit." }),
+    week, h("h2", { class: "sr-only", text: "Fächer" }),
     h("div", { class: "tiles" }, SUBJECTS.map((s) => {
       const n = all.filter((l) => l.subject === s.id).length;
       return h("a", { class: "tile", href: "#/lk/f/" + s.id, dataset: { fach: s.id } }, h("div", { class: "t", text: s.name }), h("div", { class: "s", text: n ? n + " Sitzung" + (n === 1 ? "" : "en") : "Noch keine Sitzungen" }));

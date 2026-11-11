@@ -685,3 +685,64 @@ img.sub-photo { max-width: 100%; max-height: 60vh; border-radius: 12px; border: 
 .er-msg { color: #ffb4a6; font-weight: 700; min-height: 1em; }
 @media (prefers-reduced-motion: reduce) { .er-letter { animation: none; } }
 @media (max-width: 560px) { .er-assign, .er-bcard { grid-template-columns: minmax(0, 1fr); } .er-mark { display: none; } .er-in { min-width: 0; width: 100%; } .er-baskets { grid-template-columns: minmax(0, 1fr); } .er-wrap { padding-inline: .75rem; } .er-card { padding: .9rem .95rem; } .er-tiles.big .er-tile { width: 2.4rem; height: 2.9rem; font-size: 1.35rem; } .er-tiles { flex-wrap: wrap; } }
+
+/* ---------- Wochenkalender auf der Startseite der Lehrkraft (weekcal.js) ----------
+   Breit (über 1000px): Zeitraster Mo–Fr, Einträge nach Uhrzeit (--m Minuten ab Rasterbeginn, --dur Dauer, Überschneidungen in Spuren
+   --lane/--lanes), darüber je Tag die Zeile „ohne Uhrzeit“ (gleich hoch: --urows). Schmal: Liste je Tag. Fachfarbe je Eintrag wie .tile/.ftag
+   (hier stehen alle drei Fächer nebeneinander), Schrift immer --text/--muted, die Farbe nur als Tönung und im Fach-Schild. */
+.weekcal { margin-bottom: 1.15rem; }
+.weekcal .section-title { align-items: center; }
+.wk-nav { display: flex; align-items: center; gap: .35rem; flex-wrap: wrap; min-width: 0; }
+.wk-nav .iconbtn { min-width: 44px; min-height: 44px; }
+.wk-range { margin: 0 .2rem; font-weight: 700; min-width: 0; font-variant-numeric: tabular-nums; }
+.wk-body.skeleton { padding: 1.5rem; }
+.wk-grid { --ppm: 1.1px; --dh: 2.6rem; --urow: 3.25rem; display: grid; grid-template-columns: 2.9rem minmax(0, 1fr); gap: 0 .45rem; }
+.wk-grid.no-time { grid-template-columns: minmax(0, 1fr); }
+.wk-axis { position: relative; font-size: .74rem; color: var(--muted); font-variant-numeric: tabular-nums; padding-top: var(--dh); }
+.wk-ax-u { display: block; height: calc(var(--urows) * var(--urow)); margin-bottom: var(--ugap); padding-top: .2rem; line-height: 1.15; }
+.wk-ax-m { position: relative; height: calc(var(--span) * var(--ppm)); }
+.wk-ax-m > span { position: absolute; top: calc(var(--m) * var(--ppm)); right: 0; transform: translateY(-50%); }
+.wk-days { display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); gap: .45rem; list-style: none; margin: 0; padding: 0; min-width: 0; }
+.wk-day { min-width: 0; border-radius: var(--radius-s); }
+.wk-dh { display: flex; align-items: center; gap: .4rem; height: var(--dh); margin: 0; font-size: .95rem; font-weight: 800; }
+.wk-wd { color: var(--muted); }
+.wk-day.today .wk-dh time { background: var(--ink); color: #fff; border-radius: 999px; padding: .12rem .5rem; }   /* heute: das Datum als Marke */
+.wk-untimed { display: grid; grid-template-columns: minmax(0, 1fr); gap: .3rem; grid-auto-rows: calc(var(--urow) - .3rem); min-height: calc(var(--urows) * var(--urow) - .3rem); margin: 0 0 var(--ugap); padding: 0; list-style: none; }
+.wk-track { position: relative; height: calc(var(--span) * var(--ppm)); margin: 0; padding: 0; list-style: none; border-top: 1px solid var(--line); border-bottom: 1px solid var(--line); }
+.wk-day.today .wk-track { background: color-mix(in srgb, var(--marke) 6%, transparent); }
+.wk-hl { position: absolute; left: 0; right: 0; top: calc(var(--m) * var(--ppm)); border-top: 1px solid var(--line); }
+.wk-slot { position: absolute; top: calc(var(--m) * var(--ppm)); height: calc(var(--dur) * var(--ppm)); left: calc(var(--lane) * 100% / var(--lanes)); width: calc(100% / var(--lanes)); padding: 1px; }
+.wk-ev { --ec: var(--marke); --et: var(--marke-t); display: flex; flex-direction: column; gap: .12rem; height: 100%; min-height: 0; padding: .28rem .42rem; overflow: hidden;
+  border-radius: var(--radius-s); background: var(--et); border: 1px solid color-mix(in srgb, var(--ec) 30%, var(--line)); color: var(--text); text-decoration: none; font-size: .8rem; line-height: 1.25;
+  transition: border-color .2s var(--ease), box-shadow .2s var(--ease); }
+.wk-ev > * { flex-shrink: 0; min-width: 0; }   /* nichts stauchen – was nicht passt, schneidet der Eintrag unten ab */
+.wk-ev[data-fach="powi"] { --ec: var(--blau); --et: var(--blau-t); } .wk-ev[data-fach="evrel"] { --ec: var(--violett); --et: var(--violett-t); } .wk-ev[data-fach="ethik"] { --ec: var(--kupfer); --et: var(--kupfer-t); }
+.wk-ev:hover { border-color: color-mix(in srgb, var(--ec) 65%, var(--line)); box-shadow: var(--shadow); }
+.wk-time { font-weight: 700; color: var(--muted); font-variant-numeric: tabular-nums; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.wk-who { display: flex; align-items: center; gap: .3rem; min-width: 0; flex-wrap: wrap; }
+.wk-who strong { min-width: 0; overflow-wrap: anywhere; }
+.wk-ev .ftag { min-width: 0; padding: .1rem .38rem; font-size: .7rem; border-radius: 6px; }
+.wk-ev .badge { font-size: .7rem; padding: .08rem .4rem; }
+.wk-t { color: var(--muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.wk-off, .wk-none { margin: .35rem 0 0; font-size: .78rem; color: var(--muted); line-height: 1.3; }
+.wk-empty { margin: .2rem 0 0; }
+.wk-hint { margin-top: .6rem; }
+@media (max-width: 1000px) {   /* Handy und Tablet hochkant: Liste je Tag statt Raster */
+  .wk-grid, .wk-grid.no-time { display: block; }
+  .wk-axis, .wk-hl { display: none; }
+  .wk-days { grid-template-columns: minmax(0, 1fr); gap: .75rem; }
+  .wk-day { padding: 0; }
+  .wk-dh { height: auto; margin-bottom: .35rem; }
+  .wk-untimed { min-height: 0; grid-auto-rows: auto; margin: 0 0 .3rem; }
+  .wk-untimed:empty { display: none; }
+  .wk-track { height: auto; border: 0; display: grid; gap: .3rem; }
+  .wk-day.today .wk-track { background: none; }
+  .wk-day.today { background: color-mix(in srgb, var(--marke) 6%, transparent); padding: .35rem .5rem .5rem; margin-inline: -.5rem; }
+  .wk-slot { position: static; width: auto; height: auto; padding: 0; }
+  .wk-ev { height: auto; min-height: 44px; display: grid; grid-template-columns: auto minmax(0, 1fr); column-gap: .6rem; row-gap: .1rem; align-items: center; font-size: .88rem; }
+  .wk-time { grid-row: 1 / span 2; min-width: 5.6rem; max-width: 6.4rem; white-space: normal; }
+  .wk-t { white-space: normal; overflow-wrap: break-word; hyphens: auto; }
+  .weekcal .section-title { display: grid; grid-template-columns: minmax(0, 1fr); gap: .35rem; }
+  .wk-nav { display: grid; grid-template-columns: auto auto minmax(0, 1fr); gap: .25rem; justify-items: start; }
+  .wk-range { grid-column: 1 / -1; order: -1; margin: 0; }   /* Zeitraum oben, darunter ‹ › Heute (Tab-Reihenfolge bleibt) */
+}

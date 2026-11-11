@@ -35,6 +35,7 @@ implementiert und im End-to-End-Test geprüft (Ausnahmen unten ausdrücklich gen
 | Beginn der Sitzung (Ergänzung) | Uhrzeit **im Stundenplan der Einheit** je Wochentag (neue Sitzungen bekommen sie) und **in jeder Sitzung änderbar** |
 | Notfall-Feibeitsblätter bei Schüler:innen (Ergänzung) | **eigenes Kästchen unter dem Material**, kleinere Schrift, beginnt mit dem roten Hinweis „Achtung! Eigentlich sollst du …“ (Wortlaut der Lehrkraft; nur das Komma vor „soll“ entfernt) |
 | Beamer-Folie (Ergänzung) | Sitzungscode **mit QR-Code** zu https://unterricks.janrickmer.de |
+| Wochenkalender (Ergänzung vom 11.11.2026) | Ganz oben auf der **Startseite der Lehrkraft**: der Unterricht der Woche (Mo–Fr) aus den **Stundenplänen der Unterrichtseinheiten**; laufende Woche, am Wochenende die kommende, blätterbar (‹ › „Heute“); mit Uhrzeit im Zeitraster, ohne Uhrzeit in einer eigenen Zeile; ein Klick öffnet die **Klasse bzw. den Kurs** |
 | Codefolie (Ergänzung vom 11.11.2026) | Die Präsentation enthält **keinen Sitzungscode und keinen QR-Code**: Folie 1 ist eine gestaltete Titelfolie; beim Start zeigt Unterricks **vor Folie 1 die Codefolie** (wie „Für den Beamer zeigen“, immer mit dem Code der **aktuellen** Sitzung) am Beamer und live auf den iPads; Folien mit der Zeile **„Unterricks-Codefolie: …“** (auch jede Materialfolie mit Material aus Unterricks) zeigt Unterricks live als Codefolie mit ihrem übrigen Text als Überschrift; Knopf **„Sitzungscode zeigen“** im Präsentationsmodus; das Ersetzen alter Codes auf den Folien bleibt als stiller Rückfall für ältere Präsentationen |
 | Links als Material (Ergänzung) | in **beiden Bereichen** (Schüler:innen / nur Lehrkraft) Links mit **Titel** und Internetadresse (nur http/https) |
 | Druckliste (Ergänzung) | Karte **„Von der Lehrkraft auszudrucken“** ganz unten: **nur PDF**, alles **A4** (andere Formate beim Hochladen umgerechnet, mit Hinweis), Name **„28x - beidseitig - sw - Name.pdf“**, einzeln oder **als ZIP**; Claude legt Vorlagen über den Connector ab (`add_print_material`), siehe 4i |
@@ -94,7 +95,8 @@ implementiert und im End-to-End-Test geprüft (Ausnahmen unten ausdrücklich gen
 | | `worker/ai.js` | kostenlose KI-Anbieter, Modell je Aufgabe, Ausweichliste |
 | | `worker/mcp.js` | Connector für claude.ai (MCP) |
 | | `worker/bases.js` | Fach-Einstellungen, Planungsgrundlagen (Seitentexte), Zusammenstellung je Klasse/Kurs |
-| | `worker/units.js` | Unterrichtseinheiten (Versionsschutz), Sitzungen aus der Einheit |
+| | `worker/units.js` | Unterrichtseinheiten (Versionsschutz), Sitzungen aus der Einheit, Stundenpläne für den Wochenkalender |
+| | `public/weekcal.js` | Wochenkalender auf der Startseite der Lehrkraft (Raster bzw. Liste je Tag) |
 | | `worker/substitute.js` | Krankheitsvertretung: Vorschlag, Bestätigen (Archiv), Wiederherstellen, Übertragen |
 | Oberfläche | `public/app.js` | Router, Startseite, Schüleransicht |
 | | `public/teacher.js`, `public/session.js` | Lehrkräfteansicht (Fach → Klasse/Kurs → Einheiten), Sitzungsansicht |
@@ -230,6 +232,18 @@ implementiert und im End-to-End-Test geprüft (Ausnahmen unten ausdrücklich gen
   den Hinweis beim Anlegen ist die zuletzt gehaltene Sitzung (Datum bis heute).
 
 ## 4b. Unterrichtseinheiten, Planungsgrundlagen, Krankheitsvertretung (Ergänzung vom 10.11.2026)
+
+* **Wochenkalender (Ergänzung vom 11.11.2026).** Ganz oben auf der Startseite der Lehrkraft (`public/weekcal.js`, über den Fächern).
+  `GET /api/teacher/schedule` liefert alle Einheiten mit Stundenplan und Zeitraum – nur die Rahmendaten (Beginn, Ende, Klausur,
+  Wochentage mit Dauer und Uhrzeit, Ferien/Ausfälle), nie Plan, Ablauf oder Notizen – und nur Klassen, die laut Fach-Einstellungen
+  unterrichtet werden. Die Woche rechnet der Browser (`weekSchedule` in `public/planning.js`, gemeinsam mit `computeSlots`): Eine
+  Einheit gilt an einem Tag, wenn er in ihrem Zeitraum liegt (Beginn und Ende einschließlich), sein Wochentag im Stundenplan steht und
+  er in keinen ihrer Ausfälle fällt; der Klausurtag ist markiert. Dieselbe Klasse zur selben Zeit aus zwei überlappenden Einheiten
+  erscheint einmal; entfällt Unterricht laut Einheit, steht „Entfällt: … (Grund)“ am Tag. „Heute“ ist das Datum in Europe/Berlin
+  (`berlinToday`); am Wochenende zeigt der Kalender die kommende Woche (`calendarWeek`). Ab 1000 px Breite ein Zeitraster (Einträge
+  nach Uhrzeit, Überschneidungen in Spuren nebeneinander – `assignLanes`), darunter eine Liste je Tag; Unterricht ohne Uhrzeit steht in
+  einer eigenen Zeile „ohne Uhrzeit“. Jeder Eintrag ist ein Link auf die Klasse bzw. den Kurs (`#/lk/f/<Fach>/<Klasse>`). Der Kalender
+  lädt unabhängig von den Fächern (ein Fehler dort verhindert die Startseite nicht).
 
 * **Fächer und Jahrgänge.** Unter *Planungsgrundlagen → Fach → Fach-Einstellungen* steht, in welchen Jahrgängen ein Fach
   unterrichtet wird. Vorgabe für Politik und Wirtschaft: Jahrgänge 6, 8, 9, 10 (Hinweis: nur 1. Halbjahr), E-Phase und Q-Phase;

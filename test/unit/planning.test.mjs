@@ -176,3 +176,60 @@ test("Seitenbereiche und Seitentext", () => {
   const items = [{ str: "Kapitel", transform: [0, 0, 0, 0, 0, 700] }, { str: " 3  ", transform: [0, 0, 0, 0, 0, 700] }, { str: "Text", transform: [0, 0, 0, 0, 0, 680] }, { str: "", transform: [0, 0, 0, 0, 0, 660] }];
   assert.equal(pageText(items), "Kapitel 3\nText");
 });
+
+import { weekSchedule, assignLanes, calendarWeek, weekRangeText, dayMonthText } from "../../public/planning.js";
+import { mondayOf, isoWeek, berlinToday, clockMinutes, minutesClock } from "../../public/shared.js";
+const unit = (id, subject, klass, params, title = "Einheit " + id) => ({ id, subject, klass, title, params });
+
+test("Wochenkalender: Woche, KW, Heute an der Schule, Uhrzeiten", () => {
+  assert.equal(mondayOf("2026-11-09"), "2026-11-09"); assert.equal(mondayOf("2026-11-15"), "2026-11-09"); assert.equal(mondayOf("2027-01-01"), "2026-12-28");
+  assert.deepEqual(["2026-11-11", "2026-12-28", "2027-01-01", "2027-01-04", "2026-01-01"].map(isoWeek), [46, 53, 53, 1, 1]);
+  assert.equal(berlinToday(Date.parse("2026-07-01T22:30:00Z")), "2026-07-02", "Sommerzeit: 00:30 Uhr in Berlin");
+  assert.equal(berlinToday(Date.parse("2026-12-31T22:59:00Z")), "2026-12-31"); assert.equal(berlinToday(Date.parse("2026-12-31T23:01:00Z")), "2027-01-01");
+  assert.equal(clockMinutes("07:45"), 465); assert.equal(clockMinutes("7:45"), null); assert.equal(minutesClock(555), "09:15");
+  assert.equal(calendarWeek("2026-11-11"), "2026-11-09"); assert.equal(calendarWeek("2026-11-14"), "2026-11-16", "Samstag: die kommende Woche"); assert.equal(calendarWeek("2026-11-15"), "2026-11-16");
+  assert.equal(weekRangeText("2026-11-09"), "9.–13. November 2026"); assert.equal(weekRangeText("2026-11-30"), "30. November – 4. Dezember 2026");
+  assert.equal(weekRangeText("2026-12-28"), "28. Dezember 2026 – 1. Januar 2027"); assert.equal(dayMonthText("2026-03-02"), "2. März");
+});
+
+test("Wochenkalender: Zeitraum der Einheit (einschließlich), Wochentage, Uhrzeit oder „ohne Uhrzeit“, Klausur, Ausfall", () => {
+  const u = [unit("a", "powi", "Q2-GK", { start: "2026-11-11", end: "2026-11-27", exam: "2026-11-12", weekdays: [{ day: 1, minutes: 90, time: "07:45" }, { day: 3, minutes: 90, time: "09:35" }, { day: 4, minutes: 45 }],
+    breaks: [{ from: "2026-11-18", to: "2026-11-18", label: "Studientag" }] }, "Gewaltenteilung")];
+  let w = weekSchedule(u, "2026-11-09");
+  assert.deepEqual(w.days.map((d) => d.date), ["2026-11-09", "2026-11-10", "2026-11-11", "2026-11-12", "2026-11-13"]);
+  assert.deepEqual(w.days[0].timed, [], "vor dem Beginn (Mi) kein Montag");
+  const mi = w.days[2].timed[0];
+  assert.deepEqual([mi.time, mi.endTime, mi.start, mi.end, mi.label, mi.subjectShort, mi.href, mi.kind, mi.title], ["09:35", "11:05", 575, 665, "Q2 GK", "PoWi", "#/lk/f/powi/Q2-GK", "stunde", "Gewaltenteilung"]);
+  assert.deepEqual(w.days[3].untimed.map((e) => [e.minutes, e.kind]), [[45, "klausur"]], "Do ohne Uhrzeit, Klausurtag markiert");
+  w = weekSchedule(u, "2026-11-16");
+  assert.deepEqual([w.days[0].timed.length, w.days[2].timed.length, w.days[2].off], [1, 0, [{ subject: "powi", subjectShort: "PoWi", klass: "Q2-GK", label: "Q2 GK", reason: "Studientag" }]]);
+  w = weekSchedule(u, "2026-11-23");
+  assert.equal(w.days[0].timed.length + w.days[2].timed.length + w.days[3].untimed.length, 3, "letzte Woche: Ende (Fr 27.11.) einschließlich");
+  assert.equal(weekSchedule(u, "2026-11-30").days.flatMap((d) => [...d.timed, ...d.untimed]).length, 0, "nach dem Ende nichts");
+  // ohne Zeitraum oder ohne Stundenplan, ungültige Fächer/Klassen: nichts
+  for (const p of [{ weekdays: [{ day: 1, minutes: 45 }] }, { start: "2026-11-01", weekdays: [{ day: 1, minutes: 45 }] }, { start: "2026-11-01", end: "2026-12-01", weekdays: [] }, { start: "2026-12-01", end: "2026-11-01", weekdays: [{ day: 1, minutes: 45 }] }])
+    assert.equal(weekSchedule([unit("x", "powi", "8C", p)], "2026-11-09").days.flatMap((d) => [...d.timed, ...d.untimed]).length, 0, JSON.stringify(p));
+  assert.equal(weekSchedule([unit("x", "mathe", "8C", u[0].params), unit("y", "powi", "8Z", u[0].params), null, {}], "2026-11-16").days.flatMap((d) => [...d.timed, ...d.untimed]).length, 0);
+  // sehr lange Einheit: auch spät im Zeitraum (computeSlots rechnet höchstens 400 Tage)
+  assert.equal(weekSchedule([unit("l", "ethik", "E-K", { start: "2025-01-06", end: "2027-07-01", weekdays: [{ day: 5, minutes: 45, time: "11:40" }] })], "2027-06-21").days[4].timed[0].label, "Kurs E-Phase");
+});
+
+test("Wochenkalender: überlappende Einheiten derselben Klasse einmal, Sortierung, Ausfall nur wenn wirklich nichts stattfindet", () => {
+  const base = { start: "2026-11-02", end: "2026-11-30", weekdays: [{ day: 1, minutes: 45, time: "07:45" }] };
+  const w = weekSchedule([unit("a", "powi", "Q2-GK", { ...base, breaks: [{ from: "2026-11-09", to: "2026-11-09", label: "Ausfall" }] }), unit("b", "powi", "Q2-GK", { ...base, weekdays: [{ day: 1, minutes: 90, time: "07:45" }] }),
+    unit("c", "ethik", "7-K", { ...base, weekdays: [{ day: 1, minutes: 45, time: "07:45" }, { day: 1, minutes: 45, time: "07:45" }] }), unit("d", "evrel", "9B", { ...base, weekdays: [{ day: 1, minutes: 45, time: "07:00" }] })], "2026-11-09");
+  const mo = w.days[0];
+  assert.deepEqual(mo.timed.map((e) => [e.time, e.subjectShort, e.label, e.unitIds.join(",")]), [["07:00", "Ev. Religion", "9B", "d"], ["07:45", "Ethik", "Kurs Jg. 7", "c"], ["07:45", "PoWi", "Q2 GK", "b"]]);
+  assert.deepEqual(mo.off, [], "Q2 GK findet über die zweite Einheit statt – kein „Entfällt“");
+  const w2 = weekSchedule([unit("a", "powi", "Q2-GK", base), unit("b", "powi", "Q2-GK", { ...base, weekdays: [{ day: 1, minutes: 90, time: "07:45" }] })], "2026-11-09");
+  assert.deepEqual(w2.days[0].timed.map((e) => [e.unitIds.join(","), e.minutes, e.endTime]), [["a,b", 90, "09:15"]], "gleiche Klasse, gleiche Zeit: ein Eintrag mit der längeren Dauer");
+});
+
+test("Wochenkalender: Überschneidungen in Spuren nebeneinander (mit Mindesthöhe)", () => {
+  const e = (start, end) => ({ start, end });
+  const a = assignLanes([e(465, 555), e(510, 555), e(560, 605), e(600, 645)], 40);
+  assert.deepEqual(a.map((x) => [x.lane, x.lanes]), [[0, 2], [1, 2], [0, 2], [1, 2]], "kurz hintereinander: Mindesthöhe überlappt → zweite Spur");
+  assert.deepEqual(assignLanes([e(465, 510), e(515, 560)], 40).map((x) => [x.lane, x.lanes]), [[0, 1], [0, 1]]);
+  assert.deepEqual(assignLanes([e(480, 600), e(480, 525), e(490, 535), e(540, 585)], 0).map((x) => [x.lane, x.lanes]), [[0, 3], [1, 3], [2, 3], [1, 3]]);
+  assert.deepEqual(assignLanes([]), []);
+});

@@ -207,6 +207,55 @@ async function main() {
     await tp.getByRole("button", { name: "Speichern und Termine berechnen" }).click();
     await tp.locator(".toast", { hasText: "6 Sitzungen verfügbar." }).waitFor({ timeout: 10000 });
     ok(true, "Rahmendaten (Mo/Mi/Fr à 90 min, zwei Wochen) → 6 Termine");
+
+    step("Wochenkalender auf der Startseite: Unterricht der Woche aus den Stundenplänen, Klick öffnet die Klasse");
+    {
+      const { berlinToday, isoWeek } = await import("../../public/shared.js");
+      const { calendarWeek, weekRangeText, weekSchedule } = await import("../../public/planning.js");
+      const mon = calendarWeek(berlinToday());
+      // zwei Einheiten mit Uhrzeit (eine überschneidet sich am Montag), ein Ausfall am Mittwoch, Donnerstag ohne Uhrzeit
+      const u9b = (await T("POST", "/api/teacher/units", { subject: "evrel", klass: "9B", title: "Propheten", params: { start: mon, end: addDays(mon, 11),
+        weekdays: [{ day: 1, minutes: 90, time: "08:00" }, { day: 3, minutes: 45, time: "10:00" }], breaks: [{ from: addDays(mon, 2), to: addDays(mon, 2), label: "Ausfall" }] } })).data.unit;
+      const u10 = (await T("POST", "/api/teacher/units", { subject: "ethik", klass: "10C", title: "Glück", params: { start: mon, end: addDays(mon, 11), weekdays: [{ day: 1, minutes: 45, time: "08:30" }, { day: 4, minutes: 45 }] } })).data.unit;
+      ok(!!(u9b && u10), "Einheiten mit Stundenplan und Uhrzeit angelegt");
+      const sch = await T("GET", "/api/teacher/schedule");
+      const keys = new Set(sch.data.units.flatMap((x) => Object.keys(x))), pkeys = new Set(sch.data.units.flatMap((x) => Object.keys(x.params)));
+      ok(sch.status === 200 && sch.data.units.some((x) => x.id === u9b.id) && sch.data.units.some((x) => x.id === unitId) && !keys.has("plan") && !keys.has("rows") && !pkeys.has("notes")
+        && (await fetch(BASE + "/api/teacher/schedule")).status === 401, "GET /api/teacher/schedule: nur Rahmendaten (kein Plan, kein Ablauf, keine Notizen), nur angemeldet");
+      await tp.goto(BASE + "/#/lk"); await tp.locator(".weekcal .wk-ev").first().waitFor({ timeout: 15000 });
+      const want = weekSchedule(sch.data.units, mon).days.reduce((n, d) => n + d.timed.length + d.untimed.length, 0);
+      ok((await tp.locator("#wk-range").textContent()) === weekRangeText(mon) + " · KW " + isoWeek(mon) && await tp.locator(".weekcal .wk-ev").count() === want
+        && await tp.locator(".weekcal").evaluate((c) => c.compareDocumentPosition(document.querySelector(".tiles")) & Node.DOCUMENT_POSITION_FOLLOWING) > 0,
+        "Startseite: Wochenkalender ganz oben (vor den Fächern), Woche " + weekRangeText(mon) + ", " + want + " Einträge");
+      const monCol = tp.locator(".wk-day").nth(0);
+      const ev9 = monCol.locator(".wk-ev", { hasText: "9B" }), ev10 = monCol.locator(".wk-ev", { hasText: "10C" });
+      const [b9, b10, bc] = [await ev9.boundingBox(), await ev10.boundingBox(), await monCol.boundingBox()];
+      ok((await ev9.textContent()).includes("08:00–09:30") && (await ev10.textContent()).includes("08:30–09:15") && b9.x + b9.width <= b10.x + 1 && b9.x >= bc.x - 1 && b10.x + b10.width <= bc.x + bc.width + 1
+        && Math.abs(b9.y - b10.y) < 40 && await ev9.getAttribute("data-fach") === "evrel" && await ev10.getAttribute("data-fach") === "ethik",
+        "Uhrzeit-Raster: Ev. Religion 9B und Ethik 10C am Montag nebeneinander (Überschneidung), Fachfarbe je Eintrag");
+      ok((await tp.locator(".wk-day").nth(2).locator(".wk-off").textContent()).includes("Ev. Religion 9B (Ausfall)") && await tp.locator(".wk-day").nth(3).locator(".wk-untimed .wk-ev", { hasText: "10C" }).count() === 1,
+        "Ausfall laut Einheit als „Entfällt“, Donnerstag ohne Uhrzeit in der eigenen Zeile");
+      // Wochen blättern: Fokus bleibt auf dem Knopf, „Heute“ führt zurück
+      await tp.getByRole("button", { name: "Nächste Woche" }).click();
+      await tp.locator("#wk-range", { hasText: weekRangeText(addDays(mon, 7)) }).waitFor({ timeout: 5000 });
+      ok(await tp.evaluate(() => document.activeElement && document.activeElement.getAttribute("aria-label")) === "Nächste Woche" && await tp.locator(".weekcal .wk-ev").count() === weekSchedule(sch.data.units, addDays(mon, 7)).days.reduce((n, d) => n + d.timed.length + d.untimed.length, 0)
+        && await tp.locator(".weekcal").getByRole("button", { name: "Zur Woche von heute" }).getAttribute("aria-disabled") === "false", "„Nächste Woche“: neue Woche, Fokus bleibt auf dem Knopf");
+      await tp.locator(".weekcal").getByRole("button", { name: "Zur Woche von heute" }).click();
+      await tp.locator("#wk-range", { hasText: weekRangeText(mon) }).waitFor({ timeout: 5000 });
+      ok(await tp.locator(".weekcal").getByRole("button", { name: /^Heute –/ }).getAttribute("aria-disabled") === "true", "„Heute“ führt zur Woche von heute zurück");
+      await tp.locator(".weekcal").screenshot({ path: join(OUT, "lehrkraft-woche.png") });
+      await tp.emulateMedia({ colorScheme: "dark" }); await tp.waitForTimeout(200); await tp.locator(".weekcal").screenshot({ path: join(OUT, "lehrkraft-woche-dunkel.png") }); await tp.emulateMedia({ colorScheme: "light" });
+      // Klick öffnet die Klasse
+      await ev9.click();
+      await tp.waitForURL(/#\/lk\/f\/evrel\/9B$/);
+      await tp.locator("h1", { hasText: "9B" }).waitFor({ timeout: 10000 });
+      ok((await tp.locator("h1").textContent()).includes("Evangelische Religion"), "Klick auf den Eintrag öffnet die Klasse (Ev. Religion · 9B)");
+      await tp.goto(BASE + "/#/lk"); await tp.locator(".weekcal .wk-ev").first().waitFor({ timeout: 15000 });
+      await tp.locator(".weekcal .wk-ev", { hasText: "10C" }).first().focus(); await tp.keyboard.press("Enter");
+      await tp.waitForURL(/#\/lk\/f\/ethik\/10C$/);
+      ok(true, "… auch per Tastatur (Enter): Ethik · 10C");
+      await tp.goto(BASE + "/#/lk/u/" + unitId); await tp.locator('input[aria-label="Beginn"]').waitFor({ timeout: 10000 });
+    }
     await tp.getByRole("button", { name: "Einheit mit Claude planen" }).click();
     const um = tp.locator(".modal", { hasText: "Welches Sprachmodell?" });
     await um.waitFor();
