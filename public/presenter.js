@@ -32,9 +32,10 @@ async function pageItems(lib, page, vp) {
   for (const it of tc.items || []) {
     if (typeof it.str !== "string") continue;   // Markierungen ohne Text
     const tx = lib.Util.transform(vp.transform, it.transform), hgt = Math.hypot(tx[2], tx[3]), w = it.width * sx;
-    const turned = Math.abs(tx[1]) > hgt * 0.02 || Math.abs(tx[2]) > hgt * 0.02;
+    // gedreht oder gespiegelt: keine waagerechte Zeile; schräg (künstliches Kursiv: Scherung in tx[2]) zählt für die Codefolie mit
+    const turned = Math.abs(tx[1]) > hgt * 0.02 || !(tx[0] > 0), skewed = Math.abs(tx[2]) > hgt * 0.02;
     const dashLike = (it.str === "" || /^[\uE000-\uF8FF]$/.test(it.str)) && !it.hasEOL && w > hgt * 0.15 && w < hgt * 0.8;
-    items.push(turned ? { str: "", eol: true } : { str: dashLike ? "\u2010" : it.str, x: tx[4], base: tx[5], w, h: hgt, eol: !!it.hasEOL,
+    items.push(turned ? { str: "", eol: true } : { str: dashLike ? "\u2010" : it.str, x: tx[4], base: tx[5], w, h: hgt, eol: !!it.hasEOL, skewed,
       family: ((tc.styles || {})[it.fontName] || {}).fontFamily || "", font: fontOf(it.fontName), mf: loaded(fontOf(it.fontName)) });
   }
   return items;
@@ -95,12 +96,12 @@ export async function rasterizeAndUpload(file, fileId, token, onProgress, opt = 
     let items = null, placeholder = false;
     try {   // Platzhalterfolie für die Codefolie? (eigener Versuch: ein Fehler hier schaltet den Rückfall nicht ab)
       items = await pageItems(lib, page, vp);
-      const head = codeSlideLines(slideTextLines(items));
+      const head = codeSlideLines(slideTextLines(items), canvas.height);
       if (head) { placeholder = true; codeSlides.push({ n: i, lines: head }); }
     } catch {}
     if (want && items && !placeholder) {
       try {
-        const boxes = slideCodeBoxes(items, advance);
+        const boxes = slideCodeBoxes(items.map((it) => (it.skewed ? { str: "", eol: true } : it)), advance);   // nur aufrechte Schrift übermalen
         if (i === 1) oldCode = slideSessionCode(boxes, { exclude: opt.exclude, minH: canvas.height * 0.06 });   // kleine Codes sind es nicht
         if (oldCode && oldCode !== want) {
           // derselbe Code doppelt übereinander (z. B. Schatten): nur einmal, und zwar den vordersten (zuletzt gezeichneten)
@@ -153,7 +154,7 @@ export class TeacherLive {
     } catch (e) { this.fails++; this.reT = setTimeout(() => this.connect(), 3000); }
   }
   send(m) {
-    if (m.t === "start") this.want = { ...m };
+    if (m.t === "start") this.want = { ...m, resume: false };   // nach einer Wiederverbindung gilt der Stand dieser Seite
     else if (m.t === "goto" && this.want) { this.want.slide = m.slide; this.want.codeShown = false; }
     else if (m.t === "code" && this.want) this.want.codeShown = !!m.on;   // nach einer Wiederverbindung bleibt die eingeblendete Codefolie
     else if (m.t === "stop") this.want = null;
@@ -207,7 +208,7 @@ export async function startPresenter({ lessonId, file, token, startSlide = 0, on
     codeBtn.textContent = peek ? "Zurück zu Folie " + cur : "Sitzungscode zeigen";
     codeBtn.disabled = !peek && cur === 0;
   }
-  function setPeek(on) { if (on === peek || (on && cur === 0)) return; peek = on; paint(); live.send({ t: "code", on }); }
+  function setPeek(on) { if (on === peek || (on && cur === 0)) return; moved = true; peek = on; paint(); live.send({ t: "code", on }); }
   const root = h("div", { class: "presenter", role: "dialog", "aria-label": "Präsentation läuft" },
     stage,
     h("div", { class: "bar" },
@@ -221,9 +222,18 @@ export async function startPresenter({ lessonId, file, token, startSlide = 0, on
       h("button", { class: "btn small", type: "button", onclick: () => end(false), title: "Fenster schließen, Live-Anzeige läuft weiter" }, "Schließen")));
   const cache = new Map();
   const preload = (k) => { if (k >= 1 && k <= n && !cache.has(k)) { const im = new Image(); im.src = urls[k - 1]; cache.set(k, im); } };
+  // Läuft diese Präsentation schon (Wiederöffnen), übernimmt die Seite einmal den laufenden Stand – solange noch nicht geblättert wurde
+  let adopted = false, moved = false;
   const live = new TeacherLive(lessonId, token, (m) => {
     if (m.t === "count") students = m.students;
-    else if (m.t === "state") { if (typeof m.students === "number") students = m.students; connOk = true; }
+    else if (m.t === "state") {
+      if (typeof m.students === "number") students = m.students; connOk = true;
+      if (!adopted && !moved && m.active && m.fileId === file.id && Number.isInteger(m.slide)) {
+        adopted = true;
+        const k = Math.min(Math.max(first, m.slide), n), pk = withCode && k >= 1 && m.codeShown === true;
+        if (k !== cur || pk !== peek) { cur = k; peek = pk; paint(); }
+      }
+    }
     else if (m.t === "conn") connOk = m.ok;
     paintInfo();
   });
@@ -236,7 +246,7 @@ export async function startPresenter({ lessonId, file, token, startSlide = 0, on
   }
   function goto(k) {
     if (peek) { setPeek(false); return; }   // erst zurück von der eingeblendeten Codefolie
-    k = Math.min(Math.max(first, k), n); if (k === cur) return; cur = k; paint(); live.send({ t: "goto", slide: cur });
+    k = Math.min(Math.max(first, k), n); if (k === cur) return; moved = true; cur = k; paint(); live.send({ t: "goto", slide: cur });
   }
   const isFs = () => !!(document.fullscreenElement || document.webkitFullscreenElement);
   function toggleFs() {
@@ -248,7 +258,7 @@ export async function startPresenter({ lessonId, file, token, startSlide = 0, on
     else if (["ArrowLeft", "ArrowUp", "PageUp", "Backspace", "p"].includes(e.key)) { e.preventDefault(); goto(cur - 1); }
     else if (e.key === "Home") goto(first); else if (e.key === "End") goto(n);
     else if (e.key === "f" || e.key === "F") toggleFs();
-    else if ((e.key === "c" || e.key === "C") && codeBtn) setPeek(!peek);
+    else if ((e.key === "c" || e.key === "C") && codeBtn && !e.ctrlKey && !e.metaKey && !e.altKey && !e.repeat) setPeek(!peek);   // nicht bei Strg/Cmd+C
   };
   let idleT = null;
   const wake = () => { root.classList.remove("idle"); clearTimeout(idleT); idleT = setTimeout(() => root.classList.add("idle"), 2500); };
@@ -272,7 +282,8 @@ export async function startPresenter({ lessonId, file, token, startSlide = 0, on
   // Vollbild muss direkt aus dem Klick heraus angefordert werden (Aufrufer ruft startPresenter im Klick-Handler auf)
   toggleFs();
   live.connect();
-  live.send({ t: "start", fileId: file.id, pages: n, slide: cur, ...(withCode ? { code, title, codeSlides: [...holders].map(([k, lines]) => ({ n: k, lines })) } : {}) });
+  // resume: läuft diese Präsentation schon, bleibt sie an der laufenden Stelle (neu gestartet beginnt sie mit der Codefolie)
+  live.send({ t: "start", fileId: file.id, pages: n, slide: cur, resume: true, ...(withCode ? { code, title, codeSlides: [...holders].map(([k, lines]) => ({ n: k, lines })) } : {}) });
   return { end };
 }
 

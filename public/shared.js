@@ -426,8 +426,8 @@ export function slideSessionCode(boxes, opt = {}) {
  * Den Sitzungscode zeigt Unterricks live auf einer eigenen Folie (wie „Für den Beamer zeigen“: Code + QR-Code der aktuellen Sitzung) – beim
  * Start der Präsentation vor Folie 1 und überall, wo die PDF eine Platzhalterfolie hat: eine Folie mit der Zeile CODE_SLIDE_MARK. Ihr
  * übriger großer Text (Aufforderung, Materialtitel) wird zur Überschrift der Codefolie; kleine Zeilen (Fußzeile, Seitenzahl), Codes und
- * der Erklärsatz zur Marke entfallen; die Zeilen bleiben, wie sie auf der Folie umbrochen sind. lines = slideTextLines(…) einer Seite →
- * null (keine Platzhalterfolie) oder die Überschrift (0–4 Zeilen, von oben nach unten). */
+ * der Erklärsatz zur Marke entfallen; die Zeilen bleiben, wie sie auf der Folie umbrochen sind. lines = slideTextLines(…) einer Seite, pageH =
+ * Höhe der Seite in denselben Einheiten → null (keine Platzhalterfolie) oder die Überschrift (0–4 Zeilen, von oben nach unten). */
 export const CODE_SLIDE_MARK = "Unterricks-Codefolie";
 export const CODE_SLIDE_LINE = CODE_SLIDE_MARK + ": Hier zeigt Unterricks den QR-Code und den Sitzungscode.";   // so steht sie laut Prompt auf der Folie
 export const CODE_SLIDE_LIMITS = { slides: 60, lines: 4, line: 160 };   // Prompt: höchstens drei Zeilen – eine umbrochene mehr geht noch
@@ -435,24 +435,45 @@ const MARK_SRC = "u\\s?n\\s?t\\s?e\\s?r\\s?r\\s?i\\s?c\\s?k\\s?s\\s?[-\\u2010\\u
 const MARK_RE = new RegExp(MARK_SRC, "i");
 const cleanSlideLine = (s, max) => String(s == null ? "" : s).normalize("NFC").replace(/[\u0000-\u001F\u007F-\u009F\u00AD\u200B-\u200F\u2028-\u202E\u2060-\u206F\uFEFF]/g, " ")
   .replace(/\s+/g, " ").trim().slice(0, max).replace(/[\uD800-\uDBFF]$/, "").trim();
-const explains = (t) => /qr-?code|sitzungscode|hier zeigt unterricks/i.test(t);   // Erklärsatz zur Marke („Hier zeigt Unterricks den QR-Code …“), auch umgebrochen
-export function codeSlideLines(lines) {
+// Erklärsatz zur Marke („Hier zeigt Unterricks den QR-Code und den Sitzungscode.“) – auch umbrochen: Zeilen, die nur ein Stück davon sind
+const EXPLAIN = " " + CODE_SLIDE_LINE.slice(CODE_SLIDE_MARK.length).toLowerCase().replace(/[^\p{L}\p{N}]+/gu, " ").trim() + " ";
+const explains = (t) => { const n = String(t).toLowerCase().replace(/[^\p{L}\p{N}]+/gu, " ").trim(); return n.length > 0 && EXPLAIN.includes(" " + n + " "); };
+// gesperrt gesetzt („B E A R B E I T E T  I N …“): PDF.js fügt zwischen den Buchstaben Leerzeichen ein – zusammenziehen, Wortlücken bleiben
+const unspace = (t) => {
+  const tok = t.trim().split(" ").filter(Boolean);
+  if (tok.length < 4 || tok.filter((w) => [...w].length === 1).length < tok.length * 0.7) return t;
+  return /\s{2,}/.test(t.trim()) ? t.trim().split(/\s{2,}/).map((w) => w.replace(/\s+/g, "")).join(" ") : t;   // ohne erkennbare Wortlücken bleibt die Sperrung
+};
+export function codeSlideLines(lines, pageH) {
   const all = (lines || []).filter((l) => l && typeof l.text === "string");
   if (!all.some((l) => MARK_RE.test(l.text))) return null;
   const keep = [];
   for (const l of all) {
-    let t = l.text;
+    let t = unspace(l.text);
     if (MARK_RE.test(t)) {
       t = t.replace(new RegExp(MARK_SRC, "gi"), " ").replace(/^[\s:·|–—-]+|[\s:·|–—-]+$/g, "");
       if (t.split(/\s+/).filter((w) => /\p{L}/u.test(w)).length < 2 || explains(t)) continue;   // Marke allein bzw. mit Erklärsatz
     }
-    if (!/\p{L}{2}/u.test(t) || codesInText(t).length || explains(t)) continue;   // Seitenzahl, Code, Erklärung
+    if ((t.match(/\p{L}/gu) || []).length < 2 || codesInText(t).length || explains(t)) continue;   // Seitenzahl, Code, Stück des Erklärsatzes
     if (/^\s*[„“”"‚‘’'«»]/.test(t) && /[„“”"‚‘’'«»]\s*$/.test(t)) t = t.replace(/^\s*[„“”"‚‘’'«»]+|[„“”"‚‘’'«»]+\s*$/g, "");   // ganz in Anführungszeichen
-    const text = cleanSlideLine(t, CODE_SLIDE_LIMITS.line);
-    if (text) keep.push({ text, base: l.base, h: Number(l.h) || 0 });
+    const text = cleanSlideLine(t, CODE_SLIDE_LIMITS.line), h = Number(l.h) || 0;
+    // doppelt gezeichnet (Schatten, Kontur): dieselbe Zeile fast an derselben Stelle nur einmal
+    if (text && !keep.some((k) => k.text === text && Math.abs(k.base - l.base) < 0.35 * Math.max(h, k.h) && Math.abs(k.h - h) < 0.2 * Math.max(h, k.h))) keep.push({ text, base: l.base, h });
   }
+  // klein = Fußzeile, Seitenzahl, Quellenangabe: unter 3,2 % der Seitenhöhe (17 pt auf einer 540 pt hohen 16:9-Folie; Fließtext ab 24 pt sind 4,4 %)
+  // oder unter 30 % der größten Zeile – nie allein an der größten Zeile gemessen, sonst entfiele die Aufforderung neben einem sehr großen
+  // Materialtitel (und auf einer Codefolie ohne Überschrift würde die Fußzeile dazu); ohne Seitenhöhe gilt ein Drittel der größten Zeile
   const maxH = Math.max(0, ...keep.map((l) => l.h));
-  return keep.filter((l) => !(maxH > 0) || l.h >= maxH * 0.55).sort((a, b) => a.base - b.base).slice(0, CODE_SLIDE_LIMITS.lines).map((l) => l.text);
+  const big = keep.filter((l) => (Number(pageH) > 0 ? l.h >= pageH * 0.032 && l.h >= maxH * 0.3 : !(maxH > 0) || l.h >= maxH / 3)).sort((a, b) => a.base - b.base);
+  // umbrochene Zeile (gleiche Schriftgröße, direkt darunter, kein Satzende davor) wieder zu einer Zeile zusammenfügen
+  const out = [];
+  for (const l of big) {
+    const p = out[out.length - 1];
+    if (p && Math.abs(p.h - l.h) <= 0.1 * Math.max(p.h, l.h) && l.base - p.base > 0 && l.base - p.base <= 1.6 * Math.max(p.h, l.h) && !/[.!?:;]$/.test(p.text))
+      Object.assign(p, { text: cleanSlideLine(p.text + " " + l.text, CODE_SLIDE_LIMITS.line), base: l.base });
+    else out.push({ ...l });
+  }
+  return out.slice(0, CODE_SLIDE_LIMITS.lines).map((l) => l.text);
 }
 /* Codefolien aus fremden Daten (Browser → Server, Server → DO): [{n (1…pages, eindeutig), lines (0–3 Zeilen ≤ 160 Zeichen)}], nach n sortiert */
 export function cleanCodeSlides(raw, pages) {

@@ -10,9 +10,12 @@ export function liveReduce(st, m, now) {
   if (!m || typeof m !== "object") return false;
   if (m.t === "start" && typeof m.fileId === "string" && isId(m.fileId) && Number.isInteger(m.pages) && m.pages >= 1 && m.pages <= 300) {
     const code = isValidCode(m.code) ? m.code : null, min = code ? 0 : 1;   // Folie 0 (Codefolie) nur mit Code
-    const slide = Number.isInteger(m.slide) ? Math.min(Math.max(min, m.slide), m.pages) : min;
-    Object.assign(st, { active: true, fileId: m.fileId, pages: m.pages, slide, startedAt: now, code, title: cleanLine(m.title, 200),
-      codeSlides: code ? cleanCodeSlides(m.codeSlides, m.pages) : [], codeShown: !!code && slide >= 1 && m.codeShown === true });
+    // resume: Läuft diese Präsentation schon, geht es an der laufenden Stelle weiter (die Seite der Lehrkraft kennt sie nicht immer)
+    const same = m.resume === true && st.active && st.fileId === m.fileId && st.pages === m.pages && st.code === code;
+    const slide = same ? Math.min(Math.max(min, st.slide), m.pages) : Number.isInteger(m.slide) ? Math.min(Math.max(min, m.slide), m.pages) : min;
+    const codeShown = !!code && slide >= 1 && (same ? !!st.codeShown : m.codeShown === true);
+    Object.assign(st, { active: true, fileId: m.fileId, pages: m.pages, slide, startedAt: same ? st.startedAt : now, code, title: cleanLine(m.title, 200),
+      codeSlides: code ? cleanCodeSlides(m.codeSlides, m.pages) : [], codeShown });
   } else if (m.t === "goto" && st.active && Number.isInteger(m.slide)) {
     st.slide = Math.min(Math.max(st.code ? 0 : 1, m.slide), st.pages);
     st.codeShown = false;

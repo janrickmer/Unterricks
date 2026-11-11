@@ -454,7 +454,7 @@ test("Codefolie: Erkennung tolerant – gesperrt, anderer Strich, klein geschrie
     ["Bearbeitet die Aufgaben."], "Codes gehören nie in die Überschrift");
   assert.deepEqual(codeSlideLines([{ text: "• " + CODE_SLIDE_MARK + " –", base: 300, h: 40 }]), [], "Marke mit Zeichen davor: ganze Zeile entfällt");
   assert.deepEqual(codeSlideLines([{ text: "Lies den Text " + CODE_SLIDE_MARK, base: 300, h: 40 }]), ["Lies den Text"], "steht die Marke hinter Text, bleibt der Text");
-  const many = Array.from({ length: 7 }, (_, i) => ({ text: "Zeile " + (i + 1) + " mit Text", base: 100 + i * 60, h: 40 }));
+  const many = Array.from({ length: 7 }, (_, i) => ({ text: "Satz " + (i + 1) + " mit Text.", base: 100 + i * 60, h: 40 }));
   assert.deepEqual(codeSlideLines([...many, { text: CODE_SLIDE_MARK, base: 950, h: 14 }]), many.slice(0, CODE_SLIDE_LIMITS.lines).map((l) => l.text), "höchstens vier Zeilen");
   assert.equal(codeSlideLines([{ text: "x".repeat(400) + " lang", base: 100, h: 40 }, { text: CODE_SLIDE_MARK, base: 900, h: 14 }])[0].length, CODE_SLIDE_LIMITS.line);
   assert.equal(codeSlideLines([]), null);
@@ -486,4 +486,37 @@ test("Codefolie: die Beispiel-Überschriften des Prompts übersteht die Erkennun
     assert.ok(p.includes("„" + head + "“"), head);
     assert.deepEqual(codeSlideLines(slideTextLines([piece(head, 100, 300, 44), piece(CODE_SLIDE_LINE, 100, 980, 16)])), [head]);
   }
+});
+
+test("Codefolie: Aufforderung bleibt neben einem sehr großen Materialtitel; Fußzeile entfällt an der Seitenhöhe gemessen", () => {
+  // 16:9-Folie 540 pt hoch: Fließtext ≥ 24 pt (4,4 %), Fußzeile 10–14 pt
+  for (const [instr, title] of [[24, 48], [24, 44], [28, 54], [26, 52], [30, 36]]) {
+    const lines = [{ text: "Bearbeitet in Partnerarbeit die Aufgaben 1 bis 3.", base: 260, h: instr }, { text: "Feibeitsblatt: Die wehrhafte Demokratie", base: 340, h: title },
+      { text: "Politik und Wirtschaft · Die wehrhafte Demokratie", base: 525, h: 14 }, { text: CODE_SLIDE_LINE, base: 505, h: 12 }];
+    assert.deepEqual(codeSlideLines(lines, 540), ["Bearbeitet in Partnerarbeit die Aufgaben 1 bis 3.", "Feibeitsblatt: Die wehrhafte Demokratie"], instr + "/" + title);
+  }
+  // in Gerätepixeln (1920 × 1080) gilt dasselbe
+  assert.deepEqual(codeSlideLines([{ text: "Lest M1.", base: 500, h: 48 }, { text: "Arbeitsblatt: Karikatur", base: 680, h: 108 }, { text: "Seite 4", base: 1050, h: 24 }, { text: CODE_SLIDE_MARK, base: 1020, h: 24 }], 1080),
+    ["Lest M1.", "Arbeitsblatt: Karikatur"]);
+});
+
+test("Codefolie: Schatten (doppelt gezeichnet), gesperrte Schrift, „QR-Code“ in der Aufforderung", () => {
+  const twice = [{ text: "Bearbeitet die Aufgaben.", base: 300, h: 40 }, { text: "Bearbeitet die Aufgaben.", base: 302, h: 40 }, { text: "Feibeitsblatt: X", base: 380, h: 48 }, { text: "Feibeitsblatt: X", base: 383, h: 48 }, { text: CODE_SLIDE_MARK, base: 520, h: 12 }];
+  assert.deepEqual(codeSlideLines(twice, 540), ["Bearbeitet die Aufgaben.", "Feibeitsblatt: X"], "Schatten nur einmal");
+  assert.deepEqual(codeSlideLines([{ text: "B E A R B E I T E T  I N  P A R T N E R A R B E I T", base: 300, h: 40 }, { text: "F E I B E I T S B L A T T", base: 380, h: 48 }, { text: CODE_SLIDE_MARK, base: 520, h: 12 }], 540),
+    ["BEARBEITET IN PARTNERARBEIT", "F E I B E I T S B L A T T"], "gesperrt: mit Wortlücken zusammengezogen, sonst bleibt die Sperrung – nie verworfen");
+  assert.deepEqual(codeSlideLines([{ text: "Scannt den QR-Code und bearbeitet die Aufgaben 1 bis 3.", base: 300, h: 30 }, { text: "Gebt den Sitzungscode ein.", base: 340, h: 30 },
+    { text: "Unterricks-Codefolie: Hier zeigt Unterricks den QR-Code und", base: 505, h: 12 }, { text: "den Sitzungscode.", base: 522, h: 12 }], 540),
+    ["Scannt den QR-Code und bearbeitet die Aufgaben 1 bis 3.", "Gebt den Sitzungscode ein."], "nur Stücke des festen Erklärsatzes entfallen");
+});
+
+test("Codefolie: umbrochene Zeilen werden wieder eine; ohne Überschrift wird keine Fußzeile zur Überschrift", () => {
+  const M = { text: CODE_SLIDE_LINE, base: 505, h: 12 };
+  assert.deepEqual(codeSlideLines([{ text: "Feibeitsblatt: Die wehrhafte", base: 300, h: 48 }, { text: "Demokratie", base: 358, h: 48 }, { text: "Bearbeitet die Aufgaben 1", base: 180, h: 26 },
+    { text: "bis 3.", base: 212, h: 26 }, M], 540), ["Bearbeitet die Aufgaben 1 bis 3.", "Feibeitsblatt: Die wehrhafte Demokratie"]);
+  assert.deepEqual(codeSlideLines([{ text: "Bearbeitet die Aufgaben 1 bis 3.", base: 300, h: 40 }, { text: "Feibeitsblatt: X", base: 345, h: 40 }, M], 540),
+    ["Bearbeitet die Aufgaben 1 bis 3.", "Feibeitsblatt: X"], "nach einem Satzende kein Zusammenfügen");
+  assert.deepEqual(codeSlideLines([{ text: "3) Partnerarbeit 20 min", base: 40, h: 28 }, { text: "Arbeitsblatt: Karikatur", base: 300, h: 48 }, M], 540),
+    ["3) Partnerarbeit 20 min", "Arbeitsblatt: Karikatur"], "weit auseinander: zwei Zeilen");
+  assert.deepEqual(codeSlideLines([{ text: "Politik und Wirtschaft · Die wehrhafte Demokratie 4", base: 525, h: 11 }, M], 540), [], "nur Fußzeile und Marke: Codefolie ohne Überschrift");
 });

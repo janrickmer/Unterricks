@@ -549,6 +549,16 @@ async function main() {
     await tp.locator(".presenter .stage .codeslide.cs-task").waitFor({ timeout: 10000 });
     await tp.waitForTimeout(800);
     ok((await tp.locator(".presenter .counter").textContent()) === "3 / 3" && await sp.locator(".live .badge", { hasText: "Folie 3 / 3" }).count() === 1, "erneut geöffnet: es geht an der laufenden Stelle weiter");
+    // … auch wenn die Seite den laufenden Stand nicht kennt (Abfrage gescheitert): das Live-Objekt bleibt an der laufenden Stelle
+    await tp.locator(".presenter").getByRole("button", { name: "Schließen", exact: true }).click();
+    const liveRe = /\/api\/teacher\/lessons\/[^/]+\/live$/;
+    await tp.route(liveRe, (route) => (route.request().method() === "GET" ? route.fulfill({ status: 503, contentType: "application/json", body: JSON.stringify({ ok: false, error: "nicht erreichbar" }) }) : route.continue()));
+    await tp.getByRole("button", { name: "Ich bin im Unterricht und starte die Präsentation für alle." }).click();
+    await tp.locator(".presenter .counter", { hasText: "3 / 3" }).waitFor({ timeout: 10000 });
+    await tp.waitForTimeout(1500);
+    ok((await tp.locator(".presenter .counter").textContent()) === "3 / 3" && await sp.locator(".live .badge", { hasText: "Folie 3 / 3" }).count() === 1 && await sp.locator(".live .badge", { hasText: "Sitzungscode" }).count() === 0,
+      "erneut geöffnet ohne bekannten Stand: das Live-Objekt setzt an der laufenden Stelle fort (kein Sprung zur Codefolie)");
+    await tp.unroute(liveRe);
     await tp.getByRole("button", { name: "Präsentation für alle beenden" }).click();
     await sp.locator(".live .placeholder").waitFor({ timeout: 10000 });
     ok(true, "Beenden kommt bei allen an");

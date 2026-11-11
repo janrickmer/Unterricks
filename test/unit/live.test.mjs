@@ -75,3 +75,19 @@ test("Live: Daten der Lehrkraft werden geprüft (Titel einzeilig und gekürzt, P
   assert.ok(!/[\n\u0000]/.test(st.title) && st.title.length === 200 && st.title.startsWith("Titel mit"));
   assert.deepEqual(st.codeSlides, [{ n: 2, lines: ["<b>fett</b>"] }]);
 });
+
+test("Live: erneutes Öffnen (resume) bleibt an der laufenden Stelle – unabhängig vom Stand der Seite der Lehrkraft", () => {
+  const st = fresh();
+  liveReduce(st, start({ resume: true }), 1);
+  assert.equal(st.slide, 0, "nichts läuft: Start mit der Codefolie");
+  liveReduce(st, { t: "goto", slide: 2 }, 2); liveReduce(st, { t: "code", on: true }, 3);
+  liveReduce(st, start({ slide: 0, resume: true, title: "Neuer Titel" }), 4);
+  assert.equal(st.slide, 2); assert.equal(st.codeShown, true); assert.equal(st.startedAt, 1); assert.equal(st.title, "Neuer Titel");
+  liveReduce(st, start({ slide: 1 }), 5);
+  assert.equal(st.slide, 1, "ohne resume (Wiederverbindung): der Stand der Lehrkraft gilt"); assert.equal(st.codeShown, false);
+  liveReduce(st, start({ slide: 0, resume: true, fileId: "fedcba9876543210" }), 6);
+  assert.equal(st.slide, 0, "andere Präsentation: neu beginnen");
+  liveReduce(st, { t: "stop" }, 7);
+  liveReduce(st, start({ slide: 0, resume: true }), 8);
+  assert.equal(st.slide, 0, "nach „für alle beenden“: neu beginnen");
+});

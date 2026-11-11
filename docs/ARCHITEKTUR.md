@@ -163,9 +163,12 @@ implementiert und im End-to-End-Test geprüft (Ausnahmen unten ausdrücklich gen
    Prompt; Hausaufgabe „bis zur nächsten Unterrichtssitzung“), keine Klasse und keine Namen (höchstens `groupShort`, z. B. „Jg. 8“, auch im
    Dateinamen), Zeitgebundenes mit Jahreszahl statt „aktuell“, kein Sitzungscode und kein QR-Code – ohne Ausnahme.
    **Erkennen beim Hochladen:** `rasterizeAndUpload` (`public/presenter.js`) liest die Textebene jeder Seite mit PDF.js
-   (`slideTextLines`); `codeSlideLines` (`shared.js`) erkennt die Marke tolerant (gesperrt, andere Striche, Groß-/Kleinschreibung) und
-   nimmt den übrigen großen Text von oben nach unten als Überschrift (höchstens 4 Zeilen × 160 Zeichen; kleine Zeilen wie Fußzeile und
-   Seitenzahl, Codes und der Erklärsatz zur Marke entfallen, auch umbrochen). Ergebnis `codeSlides = [{n, lines}]` geht mit `POST
+   (`slideTextLines`; schräg gesetzte, künstlich kursive Schrift zählt mit); `codeSlideLines` (`shared.js`) erkennt die Marke tolerant
+   (gesperrt, andere Striche, Groß-/Kleinschreibung) und nimmt den übrigen Text von oben nach unten als Überschrift (höchstens 4 Zeilen ×
+   160 Zeichen). „Klein“ ist an der Seitenhöhe gemessen (unter 3,2 % – Fußzeile, Seitenzahl – oder unter 30 % der größten Zeile), nie
+   allein an der größten Zeile, damit die Aufforderung neben einem sehr großen Materialtitel bleibt; Codes und Stücke des Erklärsatzes zur
+   Marke entfallen (auch umbrochen – eine Aufforderung mit „QR-Code“ bleibt), doppelt gezeichneter Text (Schatten) zählt einmal, umbrochene
+   Zeilen gleicher Größe ohne Satzende werden wieder eine, gesperrte Schrift wird an ihren Wortlücken zusammengezogen. Ergebnis `codeSlides = [{n, lines}]` geht mit `POST
    …/ready` an den Server; `cleanCodeSlides` prüft dort (n = Seite der PDF, Zeilen nur als Text) und speichert in `files.code_slides`
    (`fileOut` und `GET …/slides` liefern `codeSlides`). Die Meldung nach dem Hochladen nennt die erkannten Codefolien.
    **Rückfall für ältere Präsentationen** (Prompt vor dem 11.11.2026, Code auf Folie 1 und den Materialfolien): Wird eine solche Präsentation in
@@ -189,7 +192,9 @@ implementiert und im End-to-End-Test geprüft (Ausnahmen unten ausdrücklich gen
    sie können nicht vorblättern. **Codefolie** (`public/codeslide.js`, dieselbe wie „Für den Beamer zeigen“): Ein Neustart beginnt mit
    Folie 0 = Codefolie (Titel der Sitzung, Code, QR-Code), → geht zu Folie 1; eine schon laufende Präsentation öffnet an der laufenden
    Stelle. An Codefolien der PDF zeigt der Präsentationsmodus statt des Bildes die Codefolie mit deren Überschrift; „Sitzungscode zeigen“
-   (Taste C) blendet sie über der aktuellen Folie ein, die nächste Bewegung kehrt zurück. Die Lehrkraft schickt Code, Titel und
+   (Taste C) blendet sie über der aktuellen Folie ein, die nächste Bewegung kehrt zurück. Ob eine Präsentation schon läuft, entscheidet
+   das Durable Object: `start` trägt `resume: true` – läuft dieselbe Präsentation, bleibt sie an der laufenden Stelle, und die Seite der
+   Lehrkraft übernimmt diese einmal (auch wenn sie den Stand nicht abfragen konnte); nach einer Wiederverbindung gilt der Stand der Seite. Die Lehrkraft schickt Code, Titel und
    `codeSlides` im `start` mit (das DO prüft mit `isValidCode`/`cleanCodeSlides`; Folie 0 nur mit Code); `goto` erlaubt 0…Seiten, `code`
    `{on}` schaltet `codeShown`. Die Nachricht `state` trägt dann `view: "code"`, `code`, `title`, `lines` – die Schüler:innen-Seite zeigt
    daraus dieselbe Codefolie (Abzeichen „Sitzungscode“ bzw. „Folie n / m“). Folie 0 hat kein Folienbild (kein `url`); an Codefolien der
