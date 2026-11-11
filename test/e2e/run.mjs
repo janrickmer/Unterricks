@@ -1106,6 +1106,16 @@ async function main() {
       const tl = Date.now(); await ptp.getByRole("button", { name: "Anmelden" }).click(); await waitTeacherHome(ptp, tl, "Anmeldung auf Pages");
       await ptp.goto(PAGES + "/#/lk/s/" + lessonId); await ptp.locator(".code-big").waitFor({ timeout: 20000 });
       ok(true, "Lehrkraft auf Pages: Anmeldung (mit Vorabanfrage) und Sitzung laden");
+      { // „PDF ansehen“ öffnet den signierten Link beim Worker, nicht auf der Pages-Herkunft (dort gäbe es 404)
+        const dlReq = ptc.waitForEvent("request", { predicate: (q) => q.url().includes("/api/dl/"), timeout: 15000 }).catch(() => null);
+        await ptp.locator("section.card", { hasText: "Präsentation für den Unterricht" }).getByRole("button", { name: "PDF ansehen" }).click();
+        const q = await dlReq, u = q ? q.url() : "";
+        const res = u ? await fetch(u) : null;
+        if (!(u.startsWith(BASE + "/api/dl/") && res && res.status === 200)) console.log("    PDF ansehen:", u, res && res.status);
+        ok(u.startsWith(BASE + "/api/dl/") && res.status === 200 && res.headers.get("content-type") === "application/pdf" && /inline/.test(res.headers.get("content-disposition") || ""),
+          "„PDF ansehen“ auf Pages: öffnet die PDF beim Worker (kein 404)");
+        for (const pg of ptc.pages()) if (pg !== ptp) await pg.close().catch(() => {});
+      }
       ok(cspErr.length === 0, "keine CSP- oder CORS-Fehler auf Pages" + (cspErr.length ? ": " + cspErr.slice(0, 3).join(" | ") : ""));
       const fctx = await browser.newContext(); const fp = await fctx.newPage();
       await fp.setContent('<iframe src="' + PAGES + '/" style="width:800px;height:600px"></iframe>');

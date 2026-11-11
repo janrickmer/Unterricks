@@ -531,7 +531,7 @@ export async function sessionPage(id) {
     refreshLive();
     presCard.append(
       h("div", { class: "item" }, fileIcon(p.name, p.mime), h("div", { class: "main" }, h("div", { class: "name", text: p.name }), h("div", { class: "meta", text: p.pages + " Folien · " + fmtBytes(p.size) })),
-        h("div", { class: "acts" }, h("button", { class: "btn small", type: "button", onclick: (e) => busy(e.currentTarget, async () => { try { const r = await tapi("POST", "/api/teacher/files/" + p.id + "/link", { body: { inline: true } }); window.open(r.url, "_blank", "noopener"); } catch (err) { errToast(err); } }) }, "PDF ansehen"),
+        h("div", { class: "acts" }, h("button", { class: "btn small", type: "button", onclick: (e) => viewPdf(e.currentTarget, p) }, "PDF ansehen"),
           h("button", { class: "btn small ghost danger", type: "button", onclick: async () => {
             if (!(await confirmDialog("Präsentation löschen", "Präsentation und Folienbilder löschen? Eine laufende Live-Anzeige endet.", "Löschen", true))) return;
             try { await tapi("DELETE", "/api/teacher/files/" + p.id); st.files = st.files.filter((x) => x !== p); st.slides = null; paintPres(); } catch (e) { errToast(e); }
@@ -539,6 +539,19 @@ export async function sessionPage(id) {
       thumbs, shownBox, presRel, startBtn, liveLine,
       h("p", { class: "hint", text: "Startet das Vollbild hier und zeigt dieselbe Folie oben in der Schüleransicht aller freigeschalteten Schüler:innen. Beim Start erscheint zuerst die Codefolie mit dem Sitzungscode und dem QR-Code dieser Sitzung; läuft die Präsentation schon, geht es an der laufenden Stelle weiter. „Sitzungscode zeigen“ (Taste C) blendet die Codefolie jederzeit wieder ein. Weiter mit →, Leertaste, Bildtaste (Presenter) oder Tippen; Schüler:innen können nicht selbst blättern. Selbst öffnen können sie die Präsentation erst " + PRESENTATION_AFTER_END_MIN + " Minuten nach dem Ende der Sitzung – bei markierter letzter Folie nur bis dorthin." }),
       h("details", { class: "box" }, h("summary", null, "Andere Präsentation hochladen"), zone));
+  }
+  // „PDF ansehen“: das Fenster direkt im Klick öffnen (sonst blockt Safari es nach der Anfrage) und erst dann zum signierten Link führen –
+  // der Link zeigt auf den Worker (apiUrl), nicht auf die Herkunft der Oberfläche (auf GitHub Pages gäbe es sonst 404)
+  function viewPdf(btn, p) {
+    if (btn.disabled) return;   // läuft schon
+    const w = window.open("about:blank", "_blank");
+    if (w) { try { w.opener = null; } catch {} }
+    busy(btn, async () => {
+      try {
+        const r = await tapi("POST", "/api/teacher/files/" + p.id + "/link", { body: { inline: true } }), u = apiUrl(r.url);
+        if (w && !w.closed) w.location.href = u; else window.open(u, "_blank", "noopener");
+      } catch (err) { if (w) w.close(); errToast(err); }
+    }, "Öffne …");
   }
   async function uploadPres(file, moreSheetCodes = []) {   // moreSheetCodes: Feibeitsblätter der Sitzung, aus der eine Sitzungsdatei stammt
     if (!file) return;
@@ -895,10 +908,21 @@ export async function sessionPage(id) {
   // Foto-Antwort: das Feibeitsblatt legt das Bild nur in der Abgabe (stage "final") als answers[i].photo ab (JPEG, data:-URL);
   // final ist dann „[Foto]“. Fremde Daten → nur nach Prüfung als Bildquelle verwenden.
   const photoOf = (a) => (a && typeof a === "object" ? cleanPhoto(a.photo) : null);
+  // eine data:-Adresse öffnen Browser nicht im neuen Tab (Chrome blockiert sie): das Bild in ein leeres Fenster setzen
+  function openImage(url, name) {
+    const w = window.open("about:blank", "_blank");
+    if (!w) { toast("Das Fenster wurde blockiert – bitte Pop-ups für Unterricks erlauben oder „Foto speichern“ nutzen.", "err"); return; }
+    try { w.opener = null; } catch {}
+    const d = w.document, img = d.createElement("img");
+    d.title = name || "Foto"; img.src = url; img.alt = "Foto der Abgabe";
+    img.style.cssText = "max-width:100%;max-height:100vh;height:auto;display:block;margin:auto";
+    d.body.style.cssText = "margin:0;background:#111;min-height:100vh;display:grid;place-items:center";
+    d.body.append(img);
+  }
   function photoNode(url, name) {
     const img = h("img", { src: url, alt: "Foto der Abgabe", class: "sub-photo", loading: "lazy" });
     return h("div", { class: "answer" }, img, h("div", { class: "row", style: { marginTop: ".3rem" } },
-      h("button", { class: "btn small", type: "button", onclick: () => window.open(url, "_blank", "noopener") }, "Groß ansehen"),
+      h("button", { class: "btn small", type: "button", onclick: () => openImage(url, name) }, "Groß ansehen"),
       h("a", { class: "btn small", href: url, download: name || "Foto.jpg" }, "Foto speichern")));
   }
   function fbBlock(title, f, okLabel, missLabel) {

@@ -30,3 +30,15 @@ test("jede Funktion aus einem anderen Modul des Projekts ist importiert (worker/
   }
   assert.deepEqual(missing, []);
 });
+
+test("Links vom Server öffnet die Oberfläche immer über apiUrl (auf GitHub Pages zeigt „/api/…“ sonst auf Pages – 404)", () => {
+  const bad = [];
+  for (const f of files.filter((x) => x.startsWith("public/"))) {
+    src[f].split("\n").forEach((line, i) => {
+      // ein Link aus einer Antwort des Servers (r.url, l.url, …) in window.open, location.href, href:/src: ohne apiUrl(…)
+      if (/(window\.open\(|location\.href\s*=|\bhref:\s*|\bsrc:\s*)\s*\(?\s*(r|l|d|res|x|out|ready)\.url\b/.test(line) && !/apiUrl\(/.test(line)) bad.push(f + ":" + (i + 1));
+      if (/window\.open\(\s*["'`]\/api\//.test(line)) bad.push(f + ":" + (i + 1));
+    });
+  }
+  assert.deepEqual(bad, []);
+});
