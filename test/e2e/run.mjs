@@ -1522,14 +1522,17 @@ async function main() {
       ok(/^Unterricks-Sicherung - \d{4}-\d{2}-\d{2}\.zip$/.test(bdl.suggestedFilename()) && names.includes("Lies mich.txt"), "Sicherung „" + bdl.suggestedFilename() + "“ mit „Lies mich.txt“");
       if (!(unitJsons.length === before.units && sess.length === before.lessons)) console.log("    Inhalt:", names.join(" | "));
       ok(unitJsons.length === before.units && unitJsons.every((n) => n.split("/").length === 3) && sess.length === before.lessons
-        && sess.every((n) => n.split("/").length === 4 && /^\d{2,} - /.test(n.split("/")[2])),
+        && sess.every((n) => n.split("/").length === 4 && /^\d{2,} - /.test(n.split("/")[2]) && n.endsWith("/Unterrickssitzung.zip") && n.length < 160),
         "1. Ebene Fächer, 2. Ebene Einheiten mit Einheitsdatei, 3. Ebene Sitzungen (chronologisch nummeriert, je eine Sitzungsdatei)");
       ok(names.some((n) => n.startsWith("Politik und Wirtschaft/Q2 GK - Gewaltenteilung und BVerfG/01 - ")) && names.some((n) => n.startsWith("Politik und Wirtschaft/Q2 GK - Gewaltenteilung und BVerfG (2)/") || n.startsWith("Politik und Wirtschaft/Q2 GK - Gewaltenteilung und BVerfG/"))
         && names.some((n) => n.startsWith("Ethik/")), "Ordner je Fach und Einheit, gleichnamige Einheiten getrennt (z. B. „Politik und Wirtschaft/Q2 GK - Gewaltenteilung und BVerfG/01 - …“)");
       const anyS = await readZip(bz.find((x) => x.name === sess[0]).data);
       ok(anyS.some((x) => x.name === "sitzung.json"), "jede Sitzung ist eine Sitzungsdatei, die sich mit „Sitzung aus Datei laden“ wieder laden lässt");
       const cm = tp.locator(".modal", { hasText: "Sicherung heruntergeladen – jetzt löschen?" }); await cm.waitFor({ timeout: 60000 });
-      ok((await cm.textContent()).includes(bdl.suggestedFilename()), "vor dem Löschen: Name der Sicherung und letzte Bestätigung");
+      ok((await cm.textContent()).includes(bdl.suggestedFilename()) && await cm.getByRole("button", { name: "Sicherung erneut herunterladen" }).count() === 1, "vor dem Löschen: Name der Sicherung, erneut herunterladen, letzte Bestätigung");
+      await cm.getByRole("button", { name: "Jetzt endgültig löschen" }).click();
+      ok(await cm.isVisible() && (await TR("GET", "/api/teacher/reset")).data.lessons === before.lessons, "ohne bestätigtes Kästchen wird nichts gelöscht");
+      await cm.locator("#rs-ok").check();
       await cm.getByRole("button", { name: "Jetzt endgültig löschen" }).click();
       await tp.locator("#resetcard [role=status]", { hasText: "Alle Unterrichtsinhalte sind gelöscht." }).waitFor({ timeout: 180000 });
       const after = (await TR("GET", "/api/teacher/reset")).data, all = (await TR("GET", "/api/teacher/lessons")).data;

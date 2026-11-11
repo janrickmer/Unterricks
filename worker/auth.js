@@ -99,15 +99,15 @@ export async function routeTeacherLogin(c) {
 
 /* Passwort einer angemeldeten Lehrkraft noch einmal prüfen (z. B. vor dem Zurücksetzen): dieselben Sperren wie bei der Anmeldung –
    zwei Fehlversuche sperren dieses Gerät für 30 Minuten. authKey = im Browser per PBKDF2 abgeleitet (wie bei der Anmeldung). */
-export async function checkTeacherPassword(c, authKey) {
+export async function checkTeacherPassword(c, authKey, wrong = "Das Passwort ist falsch.") {
   const me = c.teacher || (await requireTeacher(c)), devKey = "t:dev:" + me.deviceHash;
   const ms = await lockedFor(c.db, devKey, c.now);
-  if (ms) throw lockedError(ms, "Nach zwei Fehlversuchen ist die Passwortabfrage auf diesem Gerät gesperrt. Bitte warten Sie noch " + fmtWait(ms) + ".");
+  if (ms) throw lockedError(ms, "Nach zwei Fehlversuchen sind Passwortabfrage und Anmeldung auf diesem Gerät gesperrt. Bitte warten Sie noch " + fmtWait(ms) + ".");
   const t = await teacherRow(c.db);
   if (!t || !isAuthKey(authKey) || !timingSafeEqual(await authHash(authKey), t.auth_hash)) {
     const r = await registerFail(c.db, devKey, LOCKS.teacherDevice, c.now);
-    if (r.locked) throw lockedError(r.lockMs, "Das Passwort ist falsch. Die Passwortabfrage ist auf diesem Gerät jetzt für 30 Minuten gesperrt.");
-    throw new HttpError(403, "wrong_credentials", "Das Passwort ist falsch. Noch " + r.left + " Versuch" + (r.left === 1 ? "" : "e") + ", dann wird dieses Gerät für 30 Minuten gesperrt.", { left: r.left });
+    if (r.locked) throw lockedError(r.lockMs, wrong + " Passwortabfrage und Anmeldung sind auf diesem Gerät jetzt für 30 Minuten gesperrt.");
+    throw new HttpError(403, "wrong_credentials", wrong + " Noch " + r.left + " Versuch" + (r.left === 1 ? "" : "e") + ", dann werden Passwortabfrage und Anmeldung auf diesem Gerät für 30 Minuten gesperrt.", { left: r.left });
   }
   await clearFails(c.db, devKey);
   return true;
@@ -159,9 +159,8 @@ export async function routeTeacherForgetDevices(c) {
 export async function routeTeacherPassword(c) {
   const me = await requireTeacher(c);
   const body = await readJson(c.request, 20000);
+  await checkTeacherPassword(c, body.oldAuthKey, "Das bisherige Passwort ist falsch.");   // Sperren wie bei der Anmeldung
   const t = await teacherRow(c.db);
-  if (!isAuthKey(body.oldAuthKey) || !timingSafeEqual(await authHash(body.oldAuthKey), t.auth_hash))
-    throw new HttpError(403, "wrong_credentials", "Das bisherige Passwort ist falsch.");
   if (!isSalt(body.salt) || !isAuthKey(body.authKey)) throw bad("Ungültige Anmeldedaten.");
   const user = body.username != null ? normUser(body.username) : t.username;
   if (user.length < 3) throw bad("Bitte einen Benutzernamen mit mindestens 3 Zeichen wählen.");

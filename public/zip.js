@@ -104,6 +104,16 @@ export class ZipBlob {
 }
 function setU64(dv, at, v) { dv.setUint32(at, v % 0x100000000, true); dv.setUint32(at + 4, Math.floor(v / 0x100000000), true); }
 
+/* Name eines Eintrags: UTF-8 (Bit 11 oder gültiges UTF-8), sonst Codepage 437 – so packt z. B. Windows („Senden an → ZIP-komprimierter
+   Ordner“) Umlaute; immer in NFC (macOS liefert Namen zerlegt) */
+const CP437_HI = "ÇüéâäàåçêëèïîìÄÅÉæÆôöòûùÿÖÜ¢£¥₧ƒáíóúñÑªº¿⌐¬½¼¡«»░▒▓│┤╡╢╖╕╣║╗╝╜╛┐└┴┬├─┼╞╟╚╔╩╦╠═╬╧╨╤╥╙╘╒╓╫╪┘┌█▄▌▐▀αßΓπΣσµτΦΘΩδ∞φε∩≡±≥≤⌠⌡÷≈°∙·√ⁿ²■\u00a0";
+const tdStrict = new TextDecoder("utf-8", { fatal: true });
+function zipName(b, utf8) {
+  let s;
+  if (utf8) s = td.decode(b);
+  else { try { s = tdStrict.decode(b); } catch { s = Array.from(b, (c) => (c < 128 ? String.fromCharCode(c) : CP437_HI[c - 128])).join(""); } }
+  return s.normalize("NFC");
+}
 /* ZIP lesen → [{ name, data }] (Verzeichnisse übersprungen); prüft die CRC */
 export async function readZip(buf) {
   const u8 = buf instanceof Uint8Array ? buf : new Uint8Array(buf), dv = new DataView(u8.buffer, u8.byteOffset, u8.byteLength);
@@ -124,7 +134,7 @@ export async function readZip(buf) {
     const method = dv.getUint16(p + 10, true), crc = dv.getUint32(p + 16, true), csize = dv.getUint32(p + 20, true);
     const nl = dv.getUint16(p + 28, true), xl = dv.getUint16(p + 30, true), cl = dv.getUint16(p + 32, true);
     let lo = dv.getUint32(p + 42, true);
-    const name = td.decode(u8.subarray(p + 46, p + 46 + nl));
+    const name = zipName(u8.subarray(p + 46, p + 46 + nl), (dv.getUint16(p + 8, true) & 0x0800) !== 0);
     if (lo === 0xffffffff) {   // ZIP64: Lage im Zusatzfeld 0x0001 (Größen hier immer unter 4 GiB)
       for (let x = p + 46 + nl, xe = x + xl; x + 4 <= xe;) {
         const id = dv.getUint16(x, true), len = dv.getUint16(x + 2, true);

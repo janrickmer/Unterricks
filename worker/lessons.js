@@ -167,13 +167,14 @@ export async function routeLessonCreate(c) {
 export async function routeLessonGet(c, id) {
   await requireTeacher(c);
   const l = await getLesson(c.db, id);
+  const full = new URL(c.request.url).searchParams.get("full") === "1";   // Sicherung: ganzer Planungsverlauf und alle Entwürfe
   const [files, sheets, drafts, students] = await c.db.batch([
     c.db.prepare("SELECT * FROM files WHERE lesson_id=?1 ORDER BY created_at").bind(id),
     c.db.prepare("SELECT code, title, kind, created_at FROM fb_sheets WHERE lesson_id=?1 ORDER BY created_at").bind(id),
-    c.db.prepare("SELECT * FROM fb_drafts WHERE lesson_id=?1 ORDER BY created_at DESC LIMIT 50").bind(id),
+    c.db.prepare("SELECT * FROM fb_drafts WHERE lesson_id=?1 ORDER BY created_at DESC LIMIT ?2").bind(id, full ? 500 : 50),
     c.db.prepare("SELECT COUNT(*) AS n FROM student_access WHERE lesson_id=?1").bind(id),
   ]);
-  const messages = await chatMessages(c.db, id);
+  const messages = await chatMessages(c.db, id, full ? 5000 : 200);
   const [prev, nextDate] = await Promise.all([previousLesson(c.db, l), nextLessonDate(c.db, l)]);
   const previousStop = prev && hasStop(prev.portal) ? { id: prev.id, title: prev.title, date: prev.lesson_date, portal: prev.portal } : null;
   let unit = null;

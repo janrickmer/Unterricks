@@ -11,18 +11,30 @@ import { zipPath } from "./zip.js";
 export const UNIT_FILE = { kind: "unterricks-einheit", v: 1 };
 export const BACKUP_FILE = { kind: "unterricks-sicherung", v: 1, json: "unterricks-sicherung.json" };
 const clean = (s) => String(s == null ? "" : s).replace(/[\\/:*?"<>|\u0000-\u001f\u007f]+/g, " ").replace(/\s+/g, " ").trim().replace(/[. ]+$/, "");
+/* Teil eines Pfades: gekürzt (Windows kann Pfade über 260 Zeichen beim Entpacken nicht anlegen), ohne Punkt oder Leerzeichen am Ende
+   (entfernt Windows bei Ordnern – die Pfade in der Einheitsdatei passten dann nicht mehr) */
+const part = (s, max) => {
+  const c = clean(s);
+  let t = c.slice(0, max);
+  if (c.length > max) { const i = t.lastIndexOf(" "); if (i > max * 0.5) t = t.slice(0, i); }   // möglichst an einer Wortgrenze
+  return t.replace(/[\s.,;:\u2013-]+$/, "");
+};
 const dmy = (iso) => (isIsoDate(iso) ? iso.slice(8, 10) + "." + iso.slice(5, 7) + "." + iso.slice(0, 4) : "");
 
 /* „Unterrichtseinheit - PoWi - Jg. 8 - Gewaltenteilung“ (ohne Endung) */
-export function unitBaseName({ subject, klass, title }) {
-  return ["Unterrichtseinheit", subjectShort(subject) || subjectName(subject) || "Fach", groupShort(klass) || "Lerngruppe", clean(title).slice(0, 80) || "ohne Titel"].join(" - ");
+export function unitBaseName({ subject, klass, title }, max = 80) {
+  return ["Unterrichtseinheit", subjectShort(subject) || subjectName(subject) || "Fach", groupShort(klass) || "Lerngruppe", part(title, max) || "ohne Titel"].join(" - ");
 }
+/* Einheitsdatei im Einheitsordner (kürzer – der Ordner nennt Klasse und Titel schon) */
+export const unitJsonName = (u) => unitBaseName(u, 40) + ".json";
+/* Sitzungsdatei im Sitzungsordner (kurz – Fach, Einheit, Nummer, Datum und Stundenfrage nennen die Ordner) */
+export const SESSION_IN_FOLDER = "Unterrickssitzung.zip";
 /* Ordner einer Einheit in der Sicherung: „8B - Gewaltenteilung“ (Klasse bzw. Kurs, damit gleiche Titel verschiedener Klassen getrennt bleiben) */
-export const unitFolderName = ({ klass, title }) => (classShort(klass) || "Lerngruppe") + " - " + (clean(title).slice(0, 80) || "ohne Titel");
+export const unitFolderName = ({ klass, title }) => (classShort(klass) || "Lerngruppe") + " - " + (part(title, 40) || "ohne Titel");
 export const looseFolderName = (klass) => (classShort(klass) || "Lerngruppe") + " - Sitzungen ohne Einheit";
 /* Ordner einer Sitzung: „03 - 12.11.2026 - Wer kontrolliert wen“ (n = chronologische Nummer, width = Stellen) */
 export function sessionFolderName(n, { date, title }, width = 2) {
-  return String(n).padStart(width, "0") + " - " + (dmy(date) || "ohne Datum") + (clean(title) ? " - " + clean(title).slice(0, 60) : "");
+  return String(n).padStart(width, "0") + " - " + (dmy(date) || "ohne Datum") + (part(title, 30) ? " - " + part(title, 30) : "");
 }
 export const backupFileName = (iso) => "Unterricks-Sicherung - " + (isIsoDate(iso) ? iso : "ohne Datum") + ".zip";
 export const subjectFolderName = (id) => clean(subjectName(id)) || "Fach";
@@ -62,7 +74,7 @@ export function cleanUnitFile(raw) {
     const [n] = normalizeRows([r && typeof r === "object" ? { ...r, uid: undefined } : {}], () => "00000000");
     if (!n) continue;
     rows.push({ stundenfrage: n.stundenfrage, ablauf: n.ablauf, schritt: n.schritt !== null && n.schritt < plan.schritte.length ? n.schritt : null, date: null, minutes: null, time: null });
-    const p = r && typeof r.session === "string" && r.session.length <= 400 && /\.zip$/i.test(r.session) ? zipPath(r.session) : null;
+    const p = r && typeof r.session === "string" && r.session.length <= 400 && /\.zip$/i.test(r.session) ? zipPath(r.session.normalize("NFC")) : null;
     sessions.push(p && p !== "Datei" ? p : null);
   }
   return { source: { subject: isValidSubject(src.subject) ? src.subject : null, klass: isValidClass(src.klass) ? src.klass : null, title: clean(src.title).slice(0, 200) },
@@ -70,15 +82,28 @@ export function cleanUnitFile(raw) {
 }
 
 /* In einer ZIP-Datei die Einheitsdatei finden (auch ein gepackter Ordner aus der großen Sicherung): die am wenigsten tief liegende
-   JSON-Datei mit kind „unterricks-einheit“. → {data (roh), base: Ordner der Datei („“ = oben)} oder null */
+   JSON-Datei mit kind „unterricks-einheit“. → {data (roh), base: Ordner der Datei („“ = oben), count: Zahl der Einheitsdateien} oder null
+   (count > 1 bzw. backup: das ist eine ganze Sicherung, keine einzelne Einheit) */
 export function findUnitEntry(entries, decode = (u8) => new TextDecoder().decode(u8)) {
   const cands = (entries || []).filter((e) => /\.json$/i.test(e.name) && e.data && e.data.length <= 4e6)
     .sort((a, b) => a.name.split("/").length - b.name.split("/").length || a.name.length - b.name.length);
+  let found = null, count = 0, backup = false;
   for (const e of cands) {
     let raw; try { raw = JSON.parse(decode(e.data)); } catch { continue; }
-    if (raw && raw.kind === UNIT_FILE.kind) { const i = e.name.lastIndexOf("/"); return { data: raw, base: i < 0 ? "" : e.name.slice(0, i), name: e.name }; }
+    if (raw && raw.kind === BACKUP_FILE.kind) backup = true;
+    if (raw && raw.kind === UNIT_FILE.kind) { count++; if (!found) { const i = e.name.lastIndexOf("/"); found = { data: raw, base: i < 0 ? "" : e.name.slice(0, i), name: e.name }; } }
   }
-  return null;
+  return found ? { ...found, count, backup } : null;
 }
 /* Pfad der Sitzungsdatei relativ zur Einheitsdatei → Name in der ZIP-Datei */
 export const joinPath = (base, p) => zipPath((base ? base + "/" : "") + p);
+/* Sitzungsdatei zu einem Pfad finden: genau, sonst (neu gepackt: andere Schreibweise des Ordners) über die Nummer des Sitzungsordners
+   („03 - “) im selben Einheitsordner. names = Namen aller Einträge (NFC) */
+export function findSessionEntry(names, base, p) {
+  const want = joinPath(base, p).normalize("NFC");
+  if (names.includes(want)) return want;
+  const m = /^(\d{2,}) - /.exec(p.split("/")[0] || "");
+  if (!m) return null;
+  const pre = (base ? base.normalize("NFC") + "/" : ""), hits = names.filter((n) => n.startsWith(pre) && /\.zip$/i.test(n) && n.slice(pre.length).split("/").length === 2 && n.slice(pre.length).startsWith(m[1] + " - "));
+  return hits.length === 1 ? hits[0] : null;
+}

@@ -291,6 +291,7 @@ async function subjectsPage() {
   render(teacherBar("lessons"), main);
   // Wochenkalender ganz oben: lädt eigenständig (ein Fehler dort verhindert die Fächer nicht)
   const week = weekCard(() => tapi("GET", "/api/teacher/schedule").then((r) => r.units));
+  resumeCleanup();
   let all; try { all = await loadLessons(); } catch (e) { clear(main).append(h("p", { class: "err", text: e.message })); return; }
   clear(main).append(...nn(pageHead({ title: "Welches Fach unterrichten Sie?", sub: "Planung in Unterrichtseinheiten – jede Sitzung gehört zu einer Stunde ihrer Einheit." }),
     week, h("h2", { class: "sr-only", text: "Fächer" }),
@@ -527,20 +528,27 @@ async function runBackup() {
     return null;
   }
 }
-/* letzte Bestätigung (mit Ergebnis der Sicherung) */
+/* letzte Bestätigung (mit Ergebnis der Sicherung): löschen erst, wenn das Kästchen bestätigt ist; die Sicherung lässt sich hier (mit einem
+   echten Klick – manche Browser fragen bei Downloads ohne Klick nach oder blockieren sie) erneut herunterladen */
 function confirmReset(info, backup) {
   return new Promise((resolve) => {
     let done = false;
+    const plural = (n, one, many) => n + " " + (n === 1 ? one : many);
     const list = (title, xs) => (xs.length ? [h("h3", { text: title }), h("ul", { class: "small" }, xs.slice(0, 15).map((x) => h("li", { text: x })), xs.length > 15 ? h("li", { text: "… und " + (xs.length - 15) + " weitere" }) : null)] : []);
+    const check = h("input", { type: "checkbox", id: "rs-ok" });
+    const again = backup ? h("button", { class: "btn small", type: "button", onclick: () => downloadBlob(backup.blob, backup.name, 30 * 60e3) }, icon("download"), "Sicherung erneut herunterladen") : null;
     modal({ title: backup ? "Sicherung heruntergeladen – jetzt löschen?" : "Ohne Sicherung endgültig löschen?", wide: true, onClose: () => { if (!done) resolve(false); },
       body: (el) => el.append(...nn(
-        backup ? h("p", null, "Die Sicherung „", h("strong", { text: backup.name }), "“ (" + fmtBytes(backup.size) + ", " + backup.counts.units + " Einheiten, " + backup.counts.lessons + " Sitzungen) wird heruntergeladen. Bitte prüfen Sie im Download-Ordner, ob sie vollständig gespeichert ist, bevor Sie löschen.")
-          : h("p", { class: "err", text: "Ohne Sicherung lassen sich die Unterrichtsinhalte danach nicht wiederherstellen." }),
+        backup ? h("p", null, "Die Sicherung „", h("strong", { text: backup.name }), "“ (" + fmtBytes(backup.size) + ", " + plural(backup.counts.units, "Einheit", "Einheiten") + ", " + plural(backup.counts.lessons, "Sitzung", "Sitzungen") + ") wird heruntergeladen. Bitte prüfen Sie im Download-Ordner, ob sie vollständig gespeichert ist. Kam kein Download an, laden Sie sie hier erneut herunter.") : null,
+        again ? h("div", { class: "row" }, again) : null,
+        backup ? null : h("p", { class: "err", text: "Ohne Sicherung lassen sich die Unterrichtsinhalte danach nicht wiederherstellen." }),
         ...(backup ? list("Diese Dateien fehlen in der Sicherung – sie gingen beim Löschen verloren", backup.missing) : []),
         ...(backup ? list("Hinweise zur Sicherung", backup.notes) : []),
         h("p", { class: "small", text: DELETED_TEXT }),
-        h("p", { class: "small", text: "Endgültig gelöscht werden " + info.units + " Unterrichtseinheit" + (info.units === 1 ? "" : "en") + " und " + info.lessons + " Sitzung" + (info.lessons === 1 ? "" : "en") + ". Das lässt sich nicht rückgängig machen." }))),
-      actions: [{ label: "Abbrechen – nichts löschen", onClick: () => { done = true; resolve(false); } }, { label: "Jetzt endgültig löschen", class: "danger", onClick: () => { done = true; resolve(true); } }] });
+        h("p", { class: "small", text: "Endgültig gelöscht werden " + plural(info.units, "Unterrichtseinheit", "Unterrichtseinheiten") + " und " + plural(info.lessons, "Sitzung", "Sitzungen") + ". Das lässt sich nicht rückgängig machen." }),
+        h("label", { class: "checkrow", for: "rs-ok" }, check, backup ? " Die Sicherung ist vollständig gespeichert – jetzt alles löschen." : " Ich habe verstanden, dass sich die Unterrichtsinhalte ohne Sicherung nicht wiederherstellen lassen."))),
+      actions: [{ label: "Abbrechen – nichts löschen", onClick: () => { done = true; resolve(false); } },
+        { label: "Jetzt endgültig löschen", class: "danger", onClick: () => { if (!check.checked) { check.focus(); toast("Bitte zuerst das Kästchen bestätigen.", "err", 5000); return false; } done = true; resolve(true); } }] });
   });
 }
 async function startReset(btn, status) {
@@ -556,16 +564,32 @@ async function startReset(btn, status) {
   if (choice === "backup") { backup = await runBackup(); if (!backup) return; }
   if (!(await confirmReset(info, backup))) return;
   await busy(btn, async () => {
+    let r;
     try {
       stateLine(status, "Lösche die Unterrichtsinhalte …");
-      const r = await tapi("POST", "/api/teacher/reset", { body: { authKey } });
-      store.del("u.nfFails");
-      try { const B = await import("./backup.js"); await B.clearAllPending(); } catch {}
-      if (r.pending) await finishCleanup(status, r.pending);
-      else stateLine(status, "Alle Unterrichtsinhalte sind gelöscht.", "ok");
-      toast("Unterricks wurde zurückgesetzt: " + r.deleted.units + " Einheiten und " + r.deleted.lessons + " Sitzungen gelöscht.", "ok", 9000);
-    } catch (e) { stateLine(status, ""); errToast(e); }
+      r = await tapi("POST", "/api/teacher/reset", { body: { authKey, ...(backup && backup.mark ? { mark: backup.mark } : {}) } });
+    } catch (e) {
+      // ist trotz Fehler schon gelöscht (z. B. Verbindung abgerissen)? Dann den wahren Stand zeigen und aufräumen
+      let now = null; try { now = await tapi("GET", "/api/teacher/reset"); } catch {}
+      if (now && !now.units && !now.lessons) { r = { deleted: { units: info.units, lessons: info.lessons }, pending: now.pending }; }
+      else { stateLine(status, (e.code === "changed" ? "" : "Nicht gelöscht: ") + e.message, "err"); errToast(e); return; }
+    }
+    store.del("u.nfFails");
+    try { const B = await import("./backup.js"); await B.clearAllPending(); } catch {}
+    if (r.pending) await finishCleanup(status, r.pending);
+    else stateLine(status, "Alle Unterrichtsinhalte sind gelöscht.", "ok");
+    toast("Unterricks wurde zurückgesetzt: " + r.deleted.units + " Einheiten und " + r.deleted.lessons + " Sitzungen gelöscht.", "ok", 9000);
   }, "Lösche …");
+}
+/* nach einem unterbrochenen Zurücksetzen: restliche Dateien leise weiter löschen (einmal je Seitenaufruf, z. B. auf der Startseite) */
+let resumeChecked = false;
+function resumeCleanup() {
+  if (resumeChecked) return;
+  resumeChecked = true;
+  tapi("GET", "/api/teacher/reset").then(async (r) => {
+    let pending = r.pending;
+    for (let i = 0; i < 400 && pending > 0; i++) pending = (await tapi("POST", "/api/teacher/reset/cleanup")).pending;
+  }).catch(() => {});
 }
 /* restliche Dateien gelöschter Sitzungen löschen (in Runden) */
 async function finishCleanup(status, pending) {

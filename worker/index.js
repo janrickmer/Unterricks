@@ -180,6 +180,7 @@ export default {
   async scheduled(controller, env) {
     await ensureSchema(env.DB);
     await env.DB.batch(cleanupStatements(env.DB, Date.now()));
+    try { await R.cleanupRound({ db: env.DB, env, now: Date.now() }); } catch {}   // Dateien nach einem unterbrochenen Zurücksetzen
   },
   async fetch(request, env, ctx) {
     const url = new URL(request.url);

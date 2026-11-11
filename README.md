@@ -117,7 +117,9 @@ Feibeitsblatt braucht keine Änderung. Die Adressen stehen in `wrangler.jsonc` (
   * Zuerst fragt Unterricks Ihr Passwort ab (zwei Fehlversuche sperren wie bei der Anmeldung 30 Minuten). Dann bietet es eine
     Sicherung als ZIP-Datei an: 1. Ebene Fächer, 2. Ebene Einheiten mit der Einheitsdatei, 3. Ebene die Sitzungen, chronologisch
     nummeriert, je als Sitzungsdatei. Sitzungen ohne Einheit liegen in „… - Sitzungen ohne Einheit“.
-  * Gelöscht wird erst nach einer letzten Bestätigung.
+  * Vertretene Sitzungen bringen ihre ursprüngliche Planung mit (in der Sitzungsdatei unter „archive“ und im Ordner „archiv/“).
+  * Gelöscht wird erst nach einer letzten Bestätigung mit Kästchen. Dort lässt sich die Sicherung auch erneut herunterladen. Hat sich
+    seit der Sicherung etwas geändert (z. B. über Claude), löscht Unterricks nichts und bittet, neu zu sichern.
 * **KI-Begriffshilfe:** Während der Stunde können Schüler:innen unter der Live-Präsentation Fachbegriffe kurz und einfach erklären
   lassen – nur nach ihrer Einwilligung, mit der kostenlosen KI; in den Sitzungsdaten abschaltbar. Bitte vor dem Einsatz prüfen, ob
   das an Ihrer Schule zulässig ist (siehe docs/ARCHITEKTUR.md, 4k).

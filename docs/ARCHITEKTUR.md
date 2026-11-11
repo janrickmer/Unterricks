@@ -481,7 +481,13 @@ implementiert und im End-to-End-Test geprüft (Ausnahmen unten ausdrücklich gen
   unit: {title, plan, rows: [{stundenfrage, ablauf, schritt, date, minutes, time, session}]}}`. `session` ist der Pfad der
   Sitzungsdatei relativ zur Einheitsdatei oder `null`.
 * **Einheit als Datei**: ZIP mit der Einheitsdatei und je Sitzung einem Ordner „01 - TT.MM.JJJJ - Stundenfrage/“ mit der
-  Sitzungsdatei. Die Ordner sind chronologisch nummeriert (`chronoLessons`: Datum, ohne Datum zuletzt, dann Lage der Zeile).
+  Sitzungsdatei `Unterrickssitzung.zip`. Die Ordner sind chronologisch nummeriert (`chronoLessons`: Datum, ohne Datum zuletzt, dann
+  Lage der Zeile).
+  * Namen: Titel im Einheitsordner höchstens 40, im Sitzungsordner höchstens 30 Zeichen, möglichst an einer Wortgrenze, ohne Punkt am
+    Ende. So bleiben die Pfade beim Entpacken unter Windows unter 260 Zeichen, und Windows entfernt keine Punkte aus Ordnernamen.
+  * Ein neu gepackter Einheitsordner wird erkannt. Namen ohne UTF-8-Kennzeichen liest `readZip` als Codepage 437 (so packt Windows),
+    immer in NFC. Eine Sitzung findet sich notfalls über die Nummer ihres Ordners (`findSessionEntry`).
+  * Eine ganze Sicherung (mehrere Einheitsdateien bzw. `unterricks-sicherung.json`) lehnt „Einheit aus Datei laden“ mit einem Hinweis ab.
 * **Laden** (nur in eine Einheit ohne Sitzungen):
   * `cleanUnitFile` übernimmt Zeilen ohne Kennung, Datum, Dauer und Beginn.
   * `PATCH /api/teacher/units/:id` mit `assignDates: true` verteilt die Termine aus den Rahmendaten der geöffneten Einheit.
@@ -494,15 +500,32 @@ implementiert und im End-to-End-Test geprüft (Ausnahmen unten ausdrücklich gen
   * Dazu kommen „Lies mich.txt“ und `unterricks-sicherung.json`.
   * `ZipBlob` (`zip.js`) fügt die Sitzungsdateien nacheinander als Blob-Teile an, damit nie alles zugleich im Arbeitsspeicher liegt. Ab
     4 GiB bzw. 65 535 Einträgen schreibt es ZIP64, und `readZip` liest ZIP64.
-  * Dateien, die sich nicht laden lassen, fehlen und werden vor dem Löschen genannt.
+  * Die Übersicht liefert nur Kopfdaten der Einheiten. Plan und Zeilen holt der Browser je Einheit, damit die Anfrage im CPU-Limit
+    bleibt. Die Gesamtzahlen vergleicht der Browser mit den Listen.
+  * Die Sitzungen holt der Browser mit `?full=1` (ganzer Planungsverlauf, alle Entwürfe). Vertretene Sitzungen bringen ihr Archiv mit:
+    die ursprüngliche Planung unter `archive` in `sitzung.json`, die Dateien unter `archiv/`, dazu der Vertretungsplan (`substitute`).
+    Noch nicht fertig verarbeitete Präsentationen kommen mit, Escape-Rooms nennt ein Hinweis.
+  * Netzfehler und Fehler des Servers werden bis zu dreimal wiederholt (`retry`). Dateien, die sich trotzdem nicht laden lassen,
+    fehlen und werden vor dem Löschen genannt. Abbrechen greift vor jeder Datei.
+  * Die letzte Bestätigung bietet „Sicherung erneut herunterladen“ (echter Klick) an. Gelöscht wird erst nach einem bestätigten
+    Kästchen.
 * **Zurücksetzen** (`reset.js`):
   * `POST /api/teacher/verify-password` und `POST /api/teacher/reset` prüfen das Passwort mit `checkTeacherPassword`: dieselben Sperren
     wie bei der Anmeldung (`t:dev:<Gerät>`, 2 Fehlversuche → 30 min), 403 statt 401, damit die Seite nicht abmeldet.
-  * Dann löscht **ein Batch** alle Zeilen in `slides`, `files`, `chat`, `student_access`, `fb_sheets`, `fb_drafts`, `substitutes`,
-    `lessons` und `units`. Vorher merkt er die Kennungen der Sitzungen in `reset_queue`.
+  * Mit Sicherung schickt der Browser deren Stand (`mark`, `contentMark`: Zahlen und letzte Änderungen von Einheiten, Sitzungen,
+    Dateien ohne Notfall-Feibeitsblätter, Planungsverlauf, Feibeitsblättern, Entwürfen und Vertretungen). Hat sich seitdem etwas
+    geändert, z. B. über Claude oder ein anderes Gerät, wird nichts gelöscht (409 `changed`).
+  * Dann löscht **ein Batch** alle Zeilen in `slides`, `files`, `fb_sheets`, `fb_drafts`, `substitutes`, `lessons` und `units`.
+    Vorher merkt er die Kennungen der Sitzungen in `reset_queue`, auch die von Dateien ohne Sitzung.
+  * Planungsverlauf (`chat`) und Freischaltungen (`student_access`) folgen je Sitzung in den Aufräumrunden. Das hält den großen Batch
+    klein, angesichts der Grenze von 100 000 geschriebenen Zeilen am Tag im Free-Plan.
+  * Scheitert die erste Aufräumrunde, ist trotzdem gelöscht: Die Antwort meldet das, und der Browser räumt weiter auf.
   * Die Dateien in R2 (Präfix `l/<Sitzung>/`) und den Live-Zustand je Sitzung löscht `cleanupRound` in Runden, höchstens 36
     R2-/Durable-Object-Aufrufe je Anfrage. Der Browser ruft `POST /api/teacher/reset/cleanup`, bis nichts mehr offen ist. Nach einer
-    Unterbrechung setzt die Seite Einstellungen das fort.
+    Unterbrechung setzen die Startseite und die Einstellungen das fort, ebenso `scheduled`, falls ein Zeitplan eingerichtet ist. Jede
+    Runde nimmt auch Dateien auf, deren Sitzung es nicht mehr gibt (Hochladen während des Zurücksetzens).
+  * Die Passwortabfrage nutzt dieselbe Sperre wie die Anmeldung. Die Meldung sagt das, und auch „Zugangsdaten ändern“ zählt
+    Fehlversuche.
   * Neue Sitzungen sind nie betroffen (nur gemerkte Kennungen).
   * Nicht gelöscht: `teacher`, `teacher_tokens`, `trusted_devices`, `locks`, `settings`, `bases`, `base_pages`, `student_devices`.
 

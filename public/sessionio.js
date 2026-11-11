@@ -9,32 +9,61 @@ import { makeZip, readZip } from "./zip.js";
 const te = new TextEncoder();
 export const safeName = (n) => String(n || "Datei").replace(/[\\/:*?"<>|\u0000-\u001f]+/g, " ").replace(/\s+/g, " ").trim().slice(0, 120) || "Datei";
 
+/* bei Netzfehlern und Fehlern des Servers (5xx, 429) bis zu tries-mal mit Pause wiederholen – nicht bei Ablehnungen (4xx) */
+export async function retry(fn, tries = 3) {
+  for (let i = 1; ; i++) {
+    try { return await fn(); }
+    catch (e) {
+      const st = e && typeof e.status === "number" ? e.status : 0;
+      if (i >= tries || (st >= 400 && st < 500 && st !== 429)) throw e;
+      await new Promise((r) => setTimeout(r, 800 * i * i));
+    }
+  }
+}
 /* Bytes einer Datei (kind "file") über einen kurz gültigen, signierten Link */
 export async function fetchFileBytes(f) {
-  const r = await tapi("POST", "/api/teacher/files/" + f.id + "/link", { body: {} });
-  const res = await fetch(apiUrl(r.url), { credentials: "omit", cache: "no-store" });
-  if (!res.ok) throw new Error("„" + f.name + "“ ließ sich nicht laden (Fehler " + res.status + ").");
-  return new Uint8Array(await res.arrayBuffer());
+  return retry(async () => {
+    const r = await tapi("POST", "/api/teacher/files/" + f.id + "/link", { body: {} });
+    const res = await fetch(apiUrl(r.url), { credentials: "omit", cache: "no-store" });
+    if (!res.ok) { const e = new Error("„" + f.name + "“ ließ sich nicht laden (Fehler " + res.status + ")."); e.status = res.status >= 500 ? res.status : 0; throw e; }
+    return new Uint8Array(await res.arrayBuffer());
+  });
 }
 
 /* detail = Antwort von GET /api/teacher/lessons/:id; homework/portal: Stand der offenen Seite (sonst der gespeicherte).
-   skipBroken: eine Datei, die sich nicht laden lässt, fehlt dann (missing) statt abzubrechen – für die große Sicherung.
-   → {name, bytes (ZIP), files, notes, missing} */
-export async function buildSessionZip(detail, { fb = T.fb, onStep = () => {}, homework, portal, skipBroken = false } = {}) {
+   full: für die Sicherung – auch das Archiv einer Vertretung (ursprüngliche Planung, Dateien unter „archiv/“), der Vertretungsplan selbst
+   und noch nicht fertig verarbeitete Präsentationen; eine Datei, die sich nicht laden lässt, fehlt dann (missing) statt abzubrechen.
+   cancelled() bricht vor jeder Datei ab. → {name, bytes (ZIP), files, notes, missing} */
+export async function buildSessionZip(detail, { fb = T.fb, onStep = () => {}, homework, portal, full = false, cancelled = () => false, fileName } = {}) {
   const L = detail.lesson, unit = detail.unit || null;
   const rows = unit ? unit.rows || [] : [], idx = rows.findIndex((r) => r.uid === L.unitRow);
-  const entries = [], files = [], drafts = [], notes = [], missing = [];
-  let k = 0;
+  const entries = [], files = [], drafts = [], notes = [], missing = [], archived = [];
+  let k = 0, a = 0;
+  const grab = async (f) => {
+    if (cancelled()) { const e = new Error("Abgebrochen."); e.cancelled = true; throw e; }
+    onStep("Lade „" + f.name + "“ …");
+    try { return await fetchFileBytes(f); }
+    catch (e) { if (!full) throw e; missing.push("„" + f.name + "“: " + e.message); return null; }
+  };
   for (const f of detail.files || []) {
-    if (f.area === "archive" || f.source === "notfall" || f.status !== "ready") continue;   // Notfall-Feibeitsblätter entstehen neu
+    if (f.source === "notfall") continue;   // Notfall-Feibeitsblätter entstehen neu
     const base = { area: f.area, kind: f.kind, name: f.name, mime: f.mime, ...(f.print ? { print: f.print } : {}) };
+    if (f.area === "archive") {   // ursprüngliches Material einer vertretenen Sitzung – nur in der Sicherung
+      if (!full) continue;
+      if (f.kind === "text") archived.push({ kind: "text", name: f.name, text: f.text || "" });
+      else if (f.kind === "link") archived.push({ kind: "link", name: f.name, url: f.url });
+      else { const data = await grab(f); if (!data) continue; const path = "archiv/" + (++a) + " - " + safeName(f.name); entries.push({ name: path, data }); archived.push({ kind: "file", name: f.name, mime: f.mime, path }); }
+      continue;
+    }
+    if (f.status !== "ready" && !(full && f.area === "presentation" && f.kind === "file")) {
+      if (full) missing.push("„" + f.name + "“: noch nicht fertig hochgeladen");
+      continue;
+    }
     if (f.kind === "text") files.push({ ...base, text: f.text || "" });
     else if (f.kind === "link") files.push({ ...base, url: f.url });
     else {
-      onStep("Lade „" + f.name + "“ …");
-      let data;
-      try { data = await fetchFileBytes(f); }
-      catch (e) { if (!skipBroken) throw e; missing.push("„" + f.name + "“: " + e.message); continue; }
+      const data = await grab(f);
+      if (!data) continue;
       const path = "dateien/" + (++k) + " - " + safeName(f.name);
       entries.push({ name: path, data }); files.push({ ...base, path });
     }
@@ -42,7 +71,7 @@ export async function buildSessionZip(detail, { fb = T.fb, onStep = () => {}, ho
   for (const d of detail.drafts || []) if (d.status === "draft" && d.data) drafts.push(d.data);
   const sheets = [];
   for (const s of detail.sheets || []) {
-    if (s.kind === "escape") continue;
+    if (s.kind === "escape") { notes.push("Escape-Room mit dem Feibeitsblatt „" + s.title + "“ (" + formatCode(s.code) + "): nicht in der Datei – ein Escape-Room lässt sich nicht übernehmen."); continue; }
     sheets.push({ code: s.code, title: s.title });
     if (!fb || !fb.connected) { notes.push("Feibeitsblatt „" + s.title + "“ (" + formatCode(s.code) + "): nur der Code – ohne Verbindung zum Feibeitsblatt ließ sich der Inhalt nicht mitnehmen."); continue; }
     try { onStep("Lade das Feibeitsblatt „" + s.title + "“ …"); const c = sheetToDraft((await fb.getSheet(s.code)).sheet); if (c.draft) drafts.push(c.draft); notes.push(...c.notes.map((x) => "„" + s.title + "“: " + x)); }
@@ -54,8 +83,17 @@ export async function buildSessionZip(detail, { fb = T.fb, onStep = () => {}, ho
     lesson: { title: L.title, topic: L.topic, ideas: L.ideas || "", homework: homework !== undefined ? homework : L.homework || "", portal: portal !== undefined ? portal : L.portal || "" },
     chat: (detail.messages || []).filter((m) => (m.role === "user" || m.role === "assistant") && m.model !== "begruessung").map((m) => ({ role: m.role, content: m.content, model: m.model || null, mode: m.mode || null })),
     files, drafts, sheets, notes };
+  const sub = detail.substitute;
+  if (full && sub) {
+    // Vertretung: der Plan selbst und – nach dem Bestätigen – die ursprüngliche Planung der Lehrkraft (Schulportal, Hausaufgabe, Feibeitsblätter, Material)
+    data.substitute = { status: sub.status, proposal: sub.proposal || null, confirmedAt: sub.confirmedAt || null };
+    if (sub.archive) {
+      data.archive = { portal: sub.archive.portal || "", homework: sub.archive.homework || "", sheets: sub.archive.sheets || [], files: archived, at: sub.archive.at || null };
+      notes.push("Diese Sitzung wurde vertreten: Die ursprüngliche Planung (Schulportal-Eintrag, Hausaufgabe, Feibeitsblätter, Material) steht in dieser Datei unter „archive“ in sitzung.json und im Ordner „archiv/“.");
+    }
+  }
   entries.unshift({ name: SESSION_FILE.json, data: te.encode(JSON.stringify(data, null, 1)) });
-  const name = sessionFileName({ subject: L.subject, klass: L.klass, unitTitle: data.source.unitTitle, sessionNo: data.source.sessionNo });
+  const name = fileName || sessionFileName({ subject: L.subject, klass: L.klass, unitTitle: data.source.unitTitle, sessionNo: data.source.sessionNo });
   return { name, bytes: makeZip(entries), files: files.length, notes, missing };
 }
 
