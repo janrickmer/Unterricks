@@ -236,11 +236,20 @@ export function codeCover(d, rw, rh, b) {
   const top = (sy1 >= sy0 && common(sy0, sy1)) || common(ry0, ry1);
   const bg = [top[1] / top[0], top[2] / top[0], top[3] / top[0]];
   const dist = (i) => Math.hypot(d[i] - bg[0], d[i + 1] - bg[1], d[i + 2] - bg[2]);
-  let fg = [0, 0, 0], far = 0, ink = 0, all = 0;
-  for (let y = ry0; y <= ry1; y++) for (let x = cx0; x <= cx1; x++) { const i = at(x, y), q = dist(i); if (q > far) { far = q; fg = [d[i], d[i + 1], d[i + 2]]; } }
+  // Schriftfarbe nur in Höhe der Großbuchstaben (darüber kann anderer Text stehen) und als häufigste deutlich abweichende Farbe
+  const fy0 = Math.max(0, Math.round(base - 0.5 * h)), fy1 = Math.min(rh - 1, Math.round(base - 0.05 * h)), inks = new Map();
+  for (let y = fy0; y <= fy1; y++) for (let x = cx0; x <= cx1; x++) {
+    const i = at(x, y); if (dist(i) <= 50) continue;
+    const k = (d[i] >> 4) * 256 + (d[i + 1] >> 4) * 16 + (d[i + 2] >> 4), e = inks.get(k) || [0, 0, 0, 0];
+    e[0]++; e[1] += d[i]; e[2] += d[i + 1]; e[3] += d[i + 2]; inks.set(k, e);
+  }
+  let fe = null; for (const e of inks.values()) if (!fe || e[0] > fe[0]) fe = e;
+  if (!fe) return null;   // keine erkennbare Schrift (z. B. Code nur in der Textebene)
+  const fg = [fe[1] / fe[0], fe[2] / fe[0], fe[3] / fe[0]].map(Math.round), far = Math.hypot(fg[0] - bg[0], fg[1] - bg[1], fg[2] - bg[2]);
   if (far < 40) return null;
   const thr = Math.max(30, far * 0.35);
-  for (let y = ry0; y <= ry1; y++) for (let x = cx0; x <= cx1; x++) { all++; if (dist(at(x, y)) > thr) ink++; }
+  let ink = 0, all = 0;
+  for (let y = fy0; y <= fy1; y++) for (let x = cx0; x <= cx1; x++) { all++; if (dist(at(x, y)) > thr) ink++; }
   const rowInk = (y, xa, xb) => { for (let x = xa; x <= xb; x++) if (dist(at(x, y)) > thr) return true; return false; };
   let t = Math.min(ry1, Math.round(base - 0.3 * h)); const tMin = Math.max(0, Math.round(base - 0.9 * h)), tForce = base - 0.45 * h;
   while (t - 1 >= tMin && (t - 1 > tForce || rowInk(t - 1, cx0, cx1))) t--;

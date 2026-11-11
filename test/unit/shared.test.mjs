@@ -359,6 +359,14 @@ test("Sitzungscode auf Folien: codeCover misst Fläche und Farben an den Pixeln 
   assert.ok(c.y + c.h >= 91 && c.y + c.h <= 95, "unten bis zur Grundlinie");
   assert.ok(c.x <= 40 && c.x >= 36 && c.x + c.w >= 160 && c.x + c.w <= 165, "seitlich bis zur Schrift");
   assert.equal(c.bold, true);
+  // Text dicht über dem Code (weiß, noch im Band bis 0,75 Schriftgrößen über der Grundlinie): Schriftfarbe bleibt die des Codes, die Zeile bleibt stehen
+  const d2 = new Uint8ClampedArray(rw * rh * 4), set2 = (x, y, c2) => { const i = (y * rw + x) * 4; d2[i] = c2[0]; d2[i + 1] = c2[1]; d2[i + 2] = c2[2]; d2[i + 3] = 255; };
+  for (let y = 0; y < rh; y++) for (let x = 0; x < rw; x++) set2(x, y, [32, 59, 94]);
+  for (let y = 60; y <= 90; y++) for (let x = 40; x <= 160; x++) if ((x - 40) % 20 < 9) set2(x, y, [255, 217, 77]);
+  for (let y = 46; y <= 52; y++) for (let x = 40; x <= 160; x++) set2(x, y, [255, 255, 255]);
+  const c2 = codeCover(d2, rw, rh, { x0: 40, x1: 160, base: 90, h: 60 });
+  assert.deepEqual(c2.fg, [255, 217, 77], "Schriftfarbe des Codes, nicht die der Zeile darüber");
+  assert.ok(c2.y > 52 && c2.y <= 58, "die Zeile darüber bleibt stehen (y " + c2.y + ")");
   // ohne Schrift an der Stelle (Code nur in der Textebene): nichts übermalen
   const empty = new Uint8ClampedArray(rw * rh * 4).fill(200);
   assert.equal(codeCover(empty, rw, rh, { x0: 40, x1: 160, base: 90, h: 60 }), null);
