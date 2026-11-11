@@ -37,6 +37,7 @@ implementiert und im End-to-End-Test geprüft (Ausnahmen unten ausdrücklich gen
 | Beamer-Folie (Ergänzung) | Sitzungscode **mit QR-Code** zu https://unterricks.janrickmer.de |
 | Wochenkalender (Ergänzung vom 11.11.2026) | Ganz oben auf der **Startseite der Lehrkraft**: der Unterricht der Woche (Mo–Fr) aus den **Stundenplänen der Unterrichtseinheiten**; laufende Woche, am Wochenende die kommende, blätterbar (‹ › „Heute“); mit Uhrzeit im Zeitraster, ohne Uhrzeit in einer eigenen Zeile; ein Klick öffnet die **Klasse bzw. den Kurs** |
 | Codefolie (Ergänzung vom 11.11.2026) | Die Präsentation enthält **keinen Sitzungscode und keinen QR-Code**: Folie 1 ist eine gestaltete Titelfolie; beim Start zeigt Unterricks **vor Folie 1 die Codefolie** (wie „Für den Beamer zeigen“, immer mit dem Code der **aktuellen** Sitzung) am Beamer und live auf den iPads; Folien mit der Zeile **„Unterricks-Codefolie: …“** (auch jede Materialfolie mit Material aus Unterricks) zeigt Unterricks live als Codefolie mit ihrem übrigen Text als Überschrift; Knopf **„Sitzungscode zeigen“** im Präsentationsmodus; das Ersetzen alter Codes auf den Folien bleibt als stiller Rückfall für ältere Präsentationen |
+| Vorschau der nächsten Folie (Ergänzung vom 11.11.2026) | Im Präsentationsmodus der Lehrkraft **groß die aktuelle Folie, kleiner daneben die nächste** (hochkant darunter), per **„Vorschau“ / Taste V** aus- und einblendbar (gemerkt); dazu **„Beamerfenster öffnen“**: ein zweites Fenster **nur mit der aktuellen Folie** für den Beamer als erweiterten Bildschirm – bei gespiegeltem Bildschirm sähe die Klasse sonst die Vorschau mit (Rückfrage beantwortet: Beamerfenster + Vorschau) |
 | Links als Material (Ergänzung) | in **beiden Bereichen** (Schüler:innen / nur Lehrkraft) Links mit **Titel** und Internetadresse (nur http/https) |
 | Druckliste (Ergänzung) | Karte **„Von der Lehrkraft auszudrucken“** ganz unten: **nur PDF**, alles **A4** (andere Formate beim Hochladen umgerechnet, mit Hinweis), Name **„28x - beidseitig - sw - Name.pdf“**, einzeln oder **als ZIP**; Claude legt Vorlagen über den Connector ab (`add_print_material`), siehe 4i |
 | Sitzung als Datei (Ergänzung) | ganz unten **„Sitzung als Datei herunterladen“** („Unterrickssitzung - Fach - Jahrgang - Einheit - Sitzung Nr. n.zip“) und daneben **„Sitzung aus Datei laden“**; beim Laden bleiben Datum, Beginn und Dauer der geöffneten Sitzung, Datumsangaben in den Texten werden angepasst, siehe 4j |
@@ -108,7 +109,8 @@ implementiert und im End-to-End-Test geprüft (Ausnahmen unten ausdrücklich gen
 | | `public/pdfcut.js`, `public/a4.js`, `public/zip.js` | Präsentation kürzen, Druckvorlagen auf A4, ZIP schreiben/lesen |
 | | `public/sessionfile.js` | Sitzung als Datei: Name, Datumsanpassung, Feibeitsblatt → Entwurf, Prüfung |
 | | `public/notfall.js`, `public/fbanalog.js` | Notfall-Feibeitsblatt: Blatt, Checkliste und Bilder laden; das analoge Arbeitsblatt (aus dem Feibeitsblatt übernommen per `scripts/fbanalog-sync.mjs`) |
-| | `public/presenter.js` | PDF → Folienbilder (Codefolien erkennen), Präsentationsmodus mit Codefolie, Beamer-Code |
+| | `public/presenter.js` | PDF → Folienbilder (Codefolien erkennen), Präsentationsmodus mit Codefolie und Vorschau der nächsten Folie, Beamer-Code |
+| | `public/beamer.js` | Beamerfenster (`#/beamer`): nur die aktuelle Folie, verbunden mit dem Präsentationsfenster per `BroadcastChannel` |
 | | `public/codeslide.js` | die Codefolie (Sitzungscode + QR-Code) für Beamer, Präsentationsmodus und Live-Ansicht der Schüler:innen |
 | | `public/pdfmaker.js`, `public/markdown.js` | Textmaterial als PDF, sicheres Markdown |
 
@@ -203,6 +205,19 @@ implementiert und im End-to-End-Test geprüft (Ausnahmen unten ausdrücklich gen
    PDF bleibt `url` als Rückfall für ältere, gecachte Seiten. „Bis hier gezeigt“ ist auf der Codefolie gesperrt (keine Seite der PDF);
    `v` bleibt auch über „Präsentation für alle beenden“ hinweg monoton. Die PDF zum Selbstöffnen gibt der Server erst 5 Minuten nach dem Ende der Sitzung frei – bei markierter
    letzter Folie nur gekürzt (siehe 4h).
+   **Vorschau und Beamerfenster** (nur im Browser der Lehrkraft, ohne Server): Der Präsentationsmodus zeigt neben der aktuellen Folie
+   die nächste (`nextSlideOf`: nach Folie 0 Folie 1, eine Platzhalterfolie als Codefolie, bei „Sitzungscode zeigen“ die Folie darunter,
+   nach der letzten „Ende der Präsentation“); „Vorschau“/Taste V schaltet sie, gemerkt in `localStorage` (`u.presnext`). „Beamerfenster
+   öffnen“ öffnet `#/beamer` (`public/beamer.js`) als Pop-up. Beide Fenster sprechen über den `BroadcastChannel` „unterricks-beamer“ –
+   nur Fenster derselben Herkunft im selben Browser. Das Präsentationsfenster (Kennung `id`, Zeitpunkt `at`) meldet sich mit `claim`.
+   Das Beamerfenster folgt dem zuletzt gestarteten bzw. zuletzt öffnenden Präsentationsfenster (`beamerFollow`). Ein beendetes
+   (`end`) gibt es frei: Das Beamerfenster fragt dann mit `hello`, ob noch eine andere Präsentation offen ist. Ein neuer Anspruch
+   desselben Fensters, z. B. aus dem Verlauf zurück, gilt wieder. Es antwortet mit `following`, dann bekommt es `show` mit der Ansicht. Das ist nur das Folienbild als
+   signierter Link oder die Codefolie als Text (`cleanBeamerView`), nie die Vorschau. Tasten im Beamerfenster gehen als `cmd` zurück
+   (`presenterKey`, z. B. die eines Presenters, wenn das Beamerfenster den Fokus hat). Enter und Leertaste auf einem fokussierten
+   Knopf lösen den Knopf aus. Nach einem Mausklick verliert er den Fokus wieder, damit Leertaste und Presenter weiterblättern. „Vollbild auf dem Beamer“ nutzt, wo vorhanden
+   (Chrome/Edge mit mehreren Bildschirmen), die Window Management API (`getScreenDetails`, `beamerScreen`), sonst Vollbild auf dem
+   Bildschirm, auf dem das Fenster liegt.
 7. **Material.** Zwei Bereiche (Schüler:innen / nur Lehrkraft). Jede Schüler-Abfrage filtert serverseitig auf den
    Schülerbereich; Downloads laufen über kurzlebige signierte Links. KI-Material wird mit „Als Material übernehmen“ als
    Textmaterial gespeichert; Schüler:innen laden es als PDF (mit Namens-/Datumszeile) herunter, z. B. für GoodNotes.

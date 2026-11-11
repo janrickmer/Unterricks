@@ -497,6 +497,78 @@ export function cleanCodeSlides(raw, pages) {
   return out.sort((a, b) => a.n - b.n);
 }
 
+/* ---------- Präsentationsmodus: Vorschau der nächsten Folie und Beamerfenster (presenter.js, beamer.js) ---------- */
+/* Was nach der aktuellen Ansicht kommt: cur = aktuelle Folie (0 = Codefolie vor Folie 1), n = Folienzahl, peek = „Sitzungscode zeigen“
+   eingeblendet (die nächste Bewegung kehrt zu cur zurück), holders = Nummern der Platzhalterfolien (Set, Map oder Array; zählen nur mit Code).
+   → {k, back, code, end}: k = diese Folie kommt als Nächstes, back = Rückkehr unter der eingeblendeten Codefolie, code = sie erscheint als
+   Codefolie, end = es kommt keine Folie mehr */
+export function nextSlideOf({ cur, n, peek = false, holders = [], withCode = false }) {
+  const has = (k) => withCode && (typeof holders.has === "function" ? holders.has(k) : Array.isArray(holders) && holders.includes(k));
+  if (withCode && peek && cur >= 1) return { k: cur, back: true, code: has(cur), end: false };
+  if (!(cur < n)) return { k: null, back: false, code: false, end: true };
+  const k = Math.max(1, cur + 1);
+  return { k, back: false, code: has(k), end: false };
+}
+export const nextSlideLabel = (x, n) => (x.end ? "Ende der Präsentation" : (x.back ? "Zurück zu Folie " : "Folie ") + x.k + " / " + n + (x.code ? " · Codefolie" : ""));
+export const BEAMER_CHANNEL = "unterricks-beamer";
+const HEX16 = /^[a-f0-9]{16}$/;
+/* Welchem Präsentationsfenster folgt das Beamerfenster? Das zuletzt gestartete – bzw. das, aus dem es zuletzt geöffnet wurde (at) – gewinnt;
+   ein beendetes gibt es frei – beansprucht dasselbe Fenster es später neu (z. B. aus dem Verlauf zurück), gilt es wieder.
+   st = {id, at, ended} | null, m = Nachricht {t: "claim"|"show"|"end", id, at} → neuer Stand (oder st) */
+export function beamerFollow(st, m) {
+  if (!m || typeof m !== "object" || typeof m.id !== "string" || !HEX16.test(m.id)) return st;
+  if (m.t === "end") return st && st.id === m.id && !st.ended ? { ...st, ended: true } : st;
+  if (m.t !== "claim" && m.t !== "show") return st;
+  const at = Number(m.at);
+  if (!Number.isFinite(at)) return st;
+  if (st && st.id === m.id) return at <= st.at || (st.ended && m.t !== "claim") ? st : { id: m.id, at, ended: false };
+  if (!st || st.ended || at > st.at || (at === st.at && m.id > st.id)) return { id: m.id, at, ended: false };
+  return st;
+}
+/* Ansicht fürs Beamerfenster aus einer Nachricht (anderes Fenster derselben Herkunft – trotzdem nur bekannte Felder, Text nur als Text):
+   {kind: "img", src, next} (Folienbilder nur vom Server: slideBase = apiUrl("/api/slide/")) | {kind: "code", code, title, lines} | null */
+export function cleanBeamerView(v, slideBase) {
+  if (!v || typeof v !== "object" || typeof slideBase !== "string" || !slideBase) return null;
+  const src = (s) => (typeof s === "string" && s.length <= 1000 && s.startsWith(slideBase) && !/[\s"'<>\\]/.test(s) ? s : null);
+  if (v.kind === "img") { const s = src(v.src); return s ? { kind: "img", src: s, next: src(v.next) } : null; }
+  if (v.kind === "code" && isValidCode(v.code)) {
+    const lines = (Array.isArray(v.lines) ? v.lines.slice(0, 10) : []).filter((t) => typeof t === "string").map((t) => cleanSlideLine(t, CODE_SLIDE_LIMITS.line)).filter(Boolean).slice(0, CODE_SLIDE_LIMITS.lines);
+    return { kind: "code", code: v.code, title: cleanSlideLine(v.title, 200), lines };
+  }
+  return null;
+}
+/* Tasten im Präsentationsfenster und im Beamerfenster (dort weitergeleitet): Pfeile, Bild auf/ab (Presenter), Leertaste, Enter, Pos1/Ende;
+   Buchstaben nur ohne Strg/Cmd/Alt (Strg+P druckt, Strg+C kopiert): N/P blättern, F Vollbild, C Sitzungscode zeigen, V Vorschau der
+   nächsten Folie – C und V nicht beim Gedrückthalten. Enter und Leertaste auf einem Knopf oder Link (onControl) bleiben bei diesem.
+   → "next" | "prev" | "first" | "last" | "fs" | "code" | "preview" | null */
+export function presenterKey(e, onControl = false) {
+  const k = e && e.key;
+  if (onControl && (k === "Enter" || k === " ")) return null;
+  if (["ArrowRight", "ArrowDown", "PageDown", " ", "Enter"].includes(k)) return "next";
+  if (["ArrowLeft", "ArrowUp", "PageUp", "Backspace"].includes(k)) return "prev";
+  if (k === "Home") return "first";
+  if (k === "End") return "last";
+  if (typeof k !== "string" || k.length !== 1 || e.ctrlKey || e.metaKey || e.altKey) return null;
+  const l = k.toLowerCase();
+  if (l === "n") return "next";
+  if (l === "p") return "prev";
+  if (l === "f") return "fs";
+  if (l === "c" || l === "v") return e.repeat ? null : l === "c" ? "code" : "preview";
+  return null;
+}
+/* Bildschirm für „Vollbild auf dem Beamer“ (Window Management API: getScreenDetails() → {screens, currentScreen}): liegt das Beamerfenster
+   noch auf dem eingebauten Bildschirm des Laptops, der erste externe; liegt es schon auf einem externen (dorthin gezogen), keiner (= Vollbild
+   genau hier). Ohne Angabe isInternal (z. B. zwei Monitore am PC): vom Hauptbildschirm auf einen anderen. null = Vollbild auf diesem Bildschirm */
+export function beamerScreen(d) {
+  const all = d && Array.isArray(d.screens) ? d.screens : [], cur = d && d.currentScreen;
+  if (all.length < 2 || !cur) return null;
+  if (cur.isInternal === false) return null;
+  const ext = all.find((s) => s !== cur && s.isInternal === false);
+  if (ext) return ext;
+  if (cur.isInternal === true) return all.find((s) => s !== cur) || null;
+  return cur.isPrimary === true ? all.find((s) => s !== cur && s.isPrimary !== true) || null : null;
+}
+
 /* Öffentliche Adresse der Oberfläche (GitHub Pages mit eigener Domain) – für Hinweise im Schulportal */
 export const PUBLIC_URL = "https://unterricks.janrickmer.de";
 export const subjectShort = (id) => (SUBJECTS.find((s) => s.id === id) || {}).short || "";

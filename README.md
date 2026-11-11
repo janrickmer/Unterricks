@@ -68,7 +68,13 @@ Feibeitsblatt braucht keine Änderung. Die Adressen stehen in `wrangler.jsonc` (
   Materialfolie mit Material aus Unterricks ist eine – mit der Aufforderung und dem Titel des Materials, z. B. dem Namen des
   Feibeitsblatts, als Überschrift über Code und QR-Code (ausgedrucktes Material und Jahrgang 5/6 ohne iPads: gewöhnliche Folie mit
   „(auf Papier)“). Unterricks erkennt diese Folien beim Hochladen (die Meldung nennt sie, im Folienstreifen tragen sie „Code“) und
-  zeigt im Unterricht an ihrer Stelle die Codefolie. „Sitzungscode zeigen“ (Taste C) blendet sie jederzeit ein. Ältere Präsentationen
+  zeigt im Unterricht an ihrer Stelle die Codefolie. „Sitzungscode zeigen“ (Taste C) blendet sie jederzeit ein. Im Präsentationsmodus
+  sehen Sie groß die aktuelle Folie und daneben kleiner die **nächste** („Als Nächstes“; hochkant darunter). „Vorschau“ (Taste V)
+  blendet sie aus und ein – Unterricks merkt sich die Wahl. Ist der Bildschirm auf den Beamer **gespiegelt**, sieht die Klasse die
+  Vorschau mit: Blenden Sie sie dann aus, oder richten Sie den Beamer als **erweiterten Bildschirm** ein und öffnen Sie
+  „Beamerfenster öffnen“. Das ist ein zweites Fenster nur mit der aktuellen Folie. Sie ziehen es auf den Beamer und klicken dort auf
+  „Vollbild“; in Chrome und Edge geht das direkt über „Vollbild auf dem Beamer“. Gesteuert wird weiter im Präsentationsfenster, Pfeiltasten und
+  Presenter wirken auch im Beamerfenster. Ein offenes Beamerfenster übernimmt jede neu gestartete Präsentation von selbst. Ältere Präsentationen
   mit einem Code auf den Folien: Unterricks ersetzt ihn beim Hochladen durch den Code dieser Sitzung (wo das nicht sicher geht, z. B.
   bei einem unruhigen Foto hinter dem Code, bleibt die Folie unverändert und die Meldung nennt sie). Am Stundenende: Hausaufgabe eintragen und per
   Rechtsklick im Verlaufsplan „Zwischenstopp einfügen“, falls nicht alles geschafft wurde. „Für das Schulportal kopieren“ bei der

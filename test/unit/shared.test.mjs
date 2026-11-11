@@ -520,3 +520,84 @@ test("Codefolie: umbrochene Zeilen werden wieder eine; ohne Überschrift wird ke
     ["3) Partnerarbeit 20 min", "Arbeitsblatt: Karikatur"], "weit auseinander: zwei Zeilen");
   assert.deepEqual(codeSlideLines([{ text: "Politik und Wirtschaft · Die wehrhafte Demokratie 4", base: 525, h: 11 }, M], 540), [], "nur Fußzeile und Marke: Codefolie ohne Überschrift");
 });
+
+test("Präsentationsmodus: Vorschau der nächsten Folie (Codefolie, Platzhalter, eingeblendeter Sitzungscode, Ende)", async () => {
+  const { nextSlideOf, nextSlideLabel } = await import("../../public/shared.js");
+  const holders = new Map([[3, ["Arbeitsauftrag"]]]);
+  const nx = (cur, peek = false, withCode = true) => nextSlideOf({ cur, n: 4, peek, holders, withCode });
+  assert.deepEqual(nx(0), { k: 1, back: false, code: false, end: false }, "nach der Codefolie vor Folie 1 kommt Folie 1");
+  assert.deepEqual(nx(2), { k: 3, back: false, code: true, end: false }, "Platzhalterfolie erscheint als Codefolie");
+  assert.deepEqual(nx(4), { k: null, back: false, code: false, end: true }, "nach der letzten Folie kommt nichts mehr");
+  assert.deepEqual(nx(2, true), { k: 2, back: true, code: false, end: false }, "eingeblendeter Sitzungscode: zurück zur Folie darunter");
+  assert.deepEqual(nx(3, true), { k: 3, back: true, code: true, end: false });
+  assert.deepEqual(nx(2, false, false), { k: 3, back: false, code: false, end: false }, "ohne Sitzungscode keine Codefolien");
+  assert.deepEqual(nextSlideOf({ cur: 1, n: 2, holders: [2], withCode: true }), { k: 2, back: false, code: true, end: false }, "holders auch als Array");
+  assert.equal(nextSlideLabel(nx(0), 4), "Folie 1 / 4");
+  assert.equal(nextSlideLabel(nx(2), 4), "Folie 3 / 4 · Codefolie");
+  assert.equal(nextSlideLabel(nx(2, true), 4), "Zurück zu Folie 2 / 4");
+  assert.equal(nextSlideLabel(nx(4), 4), "Ende der Präsentation");
+});
+
+test("Beamerfenster: folgt dem zuletzt gestarteten Präsentationsfenster, ein beendetes gibt es frei", async () => {
+  const { beamerFollow } = await import("../../public/shared.js");
+  const A = "a".repeat(16), B = "b".repeat(16);
+  let st = beamerFollow(null, { t: "claim", id: A, at: 100 });
+  assert.deepEqual(st, { id: A, at: 100, ended: false });
+  assert.equal(beamerFollow(st, { t: "show", id: B, at: 50 }), st, "älteres Fenster übernimmt nicht");
+  assert.equal(beamerFollow(st, { t: "end", id: B }), st, "Ende eines anderen Fensters ändert nichts");
+  assert.deepEqual(beamerFollow(st, { t: "claim", id: A, at: 300 }), { id: A, at: 300, ended: false }, "dasselbe Fenster beansprucht neu");
+  st = beamerFollow(st, { t: "claim", id: B, at: 200 });
+  assert.equal(st.id, B, "neueres Fenster gewinnt");
+  st = beamerFollow(st, { t: "end", id: B });
+  assert.deepEqual(st, { id: B, at: 200, ended: true });
+  assert.equal(beamerFollow(st, { t: "end", id: B }), st, "zweites Ende: unverändert");
+  assert.equal(beamerFollow(st, { t: "show", id: B, at: 900 }), st, "beendetes Fenster kommt mit einer Folie nicht zurück");
+  assert.equal(beamerFollow(st, { t: "claim", id: B, at: 200 }), st, "… und nicht mit einem alten Anspruch");
+  assert.deepEqual(beamerFollow(st, { t: "claim", id: B, at: 900 }), { id: B, at: 900, ended: false }, "… aber mit einem neuen (aus dem Verlauf zurück)");
+  assert.deepEqual(beamerFollow(st, { t: "claim", id: A, at: 10 }), { id: A, at: 10, ended: false }, "nach dem Ende übernimmt jedes Fenster");
+  for (const bad of [null, "x", { t: "claim", id: "zz", at: 1 }, { t: "claim", id: A }, { t: "claim", id: A, at: "x" }, { t: "cmd", id: A, at: 5 }])
+    assert.equal(beamerFollow(null, bad), null, "ungültig: " + JSON.stringify(bad));
+  assert.equal(beamerFollow({ id: A, at: 5, ended: false }, { t: "claim", id: B, at: 5 }).id, B, "Gleichstand: feste Reihenfolge");
+});
+
+test("Beamerfenster: Ansicht nur mit Folienbildern vom Server und Codefolie als Text", async () => {
+  const { cleanBeamerView } = await import("../../public/shared.js");
+  const base = "https://unterricks.example.workers.dev/api/slide/";
+  const src = base + "0123456789abcdef/2?e=1&s=abc%2B";
+  assert.deepEqual(cleanBeamerView({ kind: "img", src, next: base + "0123456789abcdef/3?e=1&s=x", extra: 1 }, base), { kind: "img", src, next: base + "0123456789abcdef/3?e=1&s=x" });
+  assert.deepEqual(cleanBeamerView({ kind: "img", src, next: "https://evil.example/x.jpg" }, base), { kind: "img", src, next: null });
+  for (const bad of ["https://evil.example/api/slide/1", "javascript:alert(1)", base + "x\" onerror=\"", 5, null])
+    assert.equal(cleanBeamerView({ kind: "img", src: bad }, base), null);
+  assert.deepEqual(cleanBeamerView({ kind: "code", code: "ABC234", title: "  Die\u0000 Wahl  ", lines: ["Arbeitsauftrag", 7, "", "M1", "a", "b", "c"] }, base),
+    { kind: "code", code: "ABC234", title: "Die Wahl", lines: ["Arbeitsauftrag", "M1", "a", "b"] });
+  assert.equal(cleanBeamerView({ kind: "code", code: "ABC-234" }, base), null, "nur gültige Codes");
+  assert.equal(cleanBeamerView({ kind: "html", html: "<b>x</b>" }, base), null);
+  assert.equal(cleanBeamerView({ kind: "img", src }, ""), null);
+});
+
+test("Präsentationsmodus: Tasten (auch Presenter) – Buchstaben nur ohne Strg/Cmd/Alt", async () => {
+  const { presenterKey } = await import("../../public/shared.js");
+  const k = (key, o = {}) => presenterKey({ key, ...o });
+  for (const key of ["ArrowRight", "ArrowDown", "PageDown", " ", "Enter", "n", "N"]) assert.equal(k(key), "next", key);
+  for (const key of ["ArrowLeft", "ArrowUp", "PageUp", "Backspace", "p"]) assert.equal(k(key), "prev", key);
+  assert.equal(k("Home"), "first"); assert.equal(k("End"), "last");
+  assert.equal(k("f"), "fs"); assert.equal(k("c"), "code"); assert.equal(k("V"), "preview");
+  assert.equal(k("c", { repeat: true }), null); assert.equal(k("v", { repeat: true }), null);
+  assert.equal(k("p", { ctrlKey: true }), null, "Strg+P druckt"); assert.equal(k("c", { metaKey: true }), null, "Cmd+C kopiert"); assert.equal(k("f", { altKey: true }), null);
+  assert.equal(k("x"), null); assert.equal(k("Escape"), null); assert.equal(presenterKey(null), null);
+  // auf einem Knopf: Enter und Leertaste lösen ihn aus (Tastatur), alle anderen Tasten blättern weiter
+  assert.equal(presenterKey({ key: "Enter" }, true), null); assert.equal(presenterKey({ key: " " }, true), null);
+  assert.equal(presenterKey({ key: "PageDown" }, true), "next"); assert.equal(presenterKey({ key: "ArrowLeft" }, true), "prev");
+});
+
+test("Beamerfenster: Bildschirm für „Vollbild auf dem Beamer“", async () => {
+  const { beamerScreen } = await import("../../public/shared.js");
+  const lap = { isInternal: true, isPrimary: true }, ext = { isInternal: false, isPrimary: false };
+  assert.equal(beamerScreen({ screens: [lap, ext], currentScreen: lap }), ext, "vom Laptop auf den Beamer");
+  assert.equal(beamerScreen({ screens: [lap, ext], currentScreen: ext }), null, "schon auf dem Beamer: Vollbild hier");
+  assert.equal(beamerScreen({ screens: [lap], currentScreen: lap }), null, "nur ein Bildschirm");
+  const m1 = { isPrimary: true }, m2 = { isPrimary: false };
+  assert.equal(beamerScreen({ screens: [m1, m2], currentScreen: m1 }), m2, "zwei Monitore ohne Angabe: vom Hauptbildschirm weg");
+  assert.equal(beamerScreen({ screens: [m1, m2], currentScreen: m2 }), null);
+  assert.equal(beamerScreen(null), null); assert.equal(beamerScreen({ screens: [lap, ext] }), null);
+});

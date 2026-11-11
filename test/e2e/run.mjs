@@ -545,6 +545,13 @@ async function main() {
     const markB = tp.locator(".presenter").getByRole("button", { name: /als letzte im Unterricht gezeigte Folie markieren/ });
     ok((await tp.locator(".presenter .counter").textContent()) === "Sitzungscode" && await markB.isDisabled() && await tp.locator(".presenter .stage > img").count() === 0,
       "Start: zuerst die Codefolie (vor Folie 1) – „Bis hier gezeigt“ gilt dort nicht");
+    // Vorschau der nächsten Folie (nur im Präsentationsfenster): groß die aktuelle, kleiner daneben die nächste
+    const npHead = () => tp.locator(".presenter .nextpane .np-head").textContent();
+    const prevB = tp.locator(".presenter").getByRole("button", { name: "Vorschau der nächsten Folie" });
+    await tp.waitForFunction(() => /\/1\?/.test((document.querySelector(".presenter .nextpane .np-frame > img") || {}).src || ""), null, { timeout: 10000 });
+    const geo = await tp.evaluate(() => { const r = (q) => document.querySelector(q).getBoundingClientRect(); const a = r(".presenter .stage"), b = r(".presenter .nextpane .np-frame"); return { a: a.width, b: b.width, side: b.left >= a.right, h: b.height }; });
+    ok(await npHead() === "Als Nächstes Folie 1 / 3" && (await prevB.getAttribute("aria-pressed")) === "true" && geo.side && geo.b < geo.a && geo.b > geo.a * 0.4 && geo.h > 200,
+      "Vorschau: neben der Codefolie (groß) kleiner, aber lesbar die nächste Folie 1 (" + Math.round(geo.a) + " / " + Math.round(geo.b) + " px breit)");
     await sp.locator(".live .codeslide .c", { hasText: codeF }).waitFor({ timeout: 15000 });
     await sp.locator(".live .badge", { hasText: "Sitzungscode" }).waitFor({ timeout: 10000 });
     await sp.waitForFunction(() => { const i = document.querySelector(".live .codeslide img.qr"); return !!i && i.complete && i.naturalWidth > 0; }, null, { timeout: 10000 }).catch(() => {});
@@ -561,6 +568,9 @@ async function main() {
     await tp.keyboard.press("ArrowRight");
     await sp.locator(".live .badge", { hasText: "Folie 2 / 3" }).waitFor({ timeout: 10000 });
     ok(true, "Folienwechsel kommt an (" + (Date.now() - t0) + " ms)");
+    await tp.locator(".presenter .nextpane .codeslide.cs-task").waitFor({ timeout: 10000 });
+    ok(await npHead() === "Als Nächstes Folie 3 / 3 · Codefolie" && await tp.locator(".presenter .nextpane .codeslide .c", { hasText: codeF }).count() === 1,
+      "… auf Folie 2 zeigt die Vorschau die Platzhalterfolie 3 als Codefolie");
     await markB.click();
     await tp.locator(".presenter .markstate", { hasText: "Bis Folie 2 markiert" }).waitFor({ timeout: 20000 });
     const presF = (await T("GET", "/api/teacher/lessons/" + lessonId)).data.files.find((f) => f.area === "presentation");
@@ -577,10 +587,11 @@ async function main() {
     await sp.locator(".live .badge", { hasText: "Sitzungscode" }).waitFor({ timeout: 10000 });
     ok(await sp.locator(".live .codeslide .c", { hasText: codeF }).count() === 1 && await tp.locator(".presenter").getByRole("button", { name: "Zurück zu Folie 2" }).count() === 1
       && (await tp.locator(".presenter .counter").textContent()) === "Sitzungscode" && await markB.isDisabled(), "„Sitzungscode zeigen“ blendet die Codefolie live bei allen ein");
-    await tp.keyboard.press("ArrowRight");
+    ok(await npHead() === "Als Nächstes Zurück zu Folie 2 / 3" && /\/2\?/.test(await tp.locator(".presenter .nextpane .np-frame > img").getAttribute("src")), "… die Vorschau zeigt die Folie darunter (Rückkehr)");
+    await tp.keyboard.press("Space");   // nach dem Mausklick auf den Knopf blättert die Leertaste (z. B. eines Presenters) weiter
     await sp.locator(".live .badge", { hasText: "Folie 2 / 3" }).waitFor({ timeout: 10000 });
     await sp.waitForFunction(() => !document.querySelector(".live .codeslide") && /\/2\?/.test((document.querySelector(".live > img") || {}).src || ""), null, { timeout: 10000 });
-    ok((await tp.locator(".presenter .counter").textContent()) === "2 / 3", "… die nächste Taste kehrt zu Folie 2 zurück");
+    ok((await tp.locator(".presenter .counter").textContent()) === "2 / 3", "… die nächste Taste (Leertaste nach dem Mausklick auf den Knopf) kehrt zu Folie 2 zurück");
     // Folie 3 ist eine Unterricks-Codefolie: bei allen die Codefolie mit Aufforderung und Materialtitel als Überschrift
     await tp.keyboard.press("ArrowRight");
     await sp.locator(".live .codeslide.cs-task").waitFor({ timeout: 10000 });
@@ -591,13 +602,58 @@ async function main() {
       "Unterricks-Codefolie (Folie 3): live die Codefolie mit Aufforderung und Materialtitel – beim Beamer und auf dem iPad");
     await sp.screenshot({ ...SHOT, path: join(OUT, "schueler-codefolie-material.png") });
     await tp.screenshot({ ...SHOT, path: join(OUT, "lehrkraft-codefolie-material.png") });
+    ok(await npHead() === "Als Nächstes Ende der Präsentation" && (await tp.locator(".presenter .nextpane .np-end").textContent()) === "Keine weitere Folie", "letzte Folie: die Vorschau sagt, dass keine Folie mehr kommt");
+    // Vorschau ausblenden (Knopf bzw. Taste V) – gemerkt; bei gespiegeltem Bildschirm sähe die Klasse sie sonst mit
+    await prevB.click();
+    ok((await prevB.getAttribute("aria-pressed")) === "false" && !(await tp.locator(".presenter .nextpane").isVisible()) && await tp.locator(".presenter.with-next").count() === 0, "„Vorschau“ blendet die nächste Folie aus");
+    await tp.keyboard.press("v");
+    await tp.locator(".presenter .nextpane").waitFor();
+    ok((await prevB.getAttribute("aria-pressed")) === "true", "… Taste V blendet sie wieder ein");
+    await prevB.focus(); await tp.keyboard.press("Enter");
+    const viaEnter = await prevB.getAttribute("aria-pressed");
+    await tp.keyboard.press("Enter");
+    await tp.waitForTimeout(3000);   // länger als die Ruhezeit der Leiste
+    const barShown = await tp.waitForFunction(() => getComputedStyle(document.querySelector(".presenter .bar")).opacity === "1", null, { timeout: 3000 }).then(() => true, () => false);
+    ok(viaEnter === "false" && (await prevB.getAttribute("aria-pressed")) === "true" && barShown,
+      "Tastatur: Enter auf dem fokussierten Knopf löst ihn aus (statt weiterzublättern), die Leiste bleibt dabei sichtbar");
+    // Pop-up blockiert: die Meldung steht in der Leiste (Toasts sind im Vollbild nicht zu sehen)
+    await tp.evaluate(() => { window.__open = window.open; window.open = () => null; });
+    await tp.locator(".presenter").getByRole("button", { name: "Beamerfenster öffnen" }).click();
+    ok(/Beamerfenster blockiert/.test(await tp.locator(".presenter .beamstate").textContent()), "Beamerfenster blockiert: Hinweis direkt in der Leiste");
+    await tp.evaluate(() => { window.open = window.__open; });
+    // Beamerfenster: zweites Fenster nur mit der aktuellen Folie (Beamer als erweiterter Bildschirm), Tasten dort steuern die Präsentation
+    const [bw] = await Promise.all([tctx.waitForEvent("page"), tp.locator(".presenter").getByRole("button", { name: "Beamerfenster öffnen" }).click()]);
+    watch(bw, "Beamerfenster");
+    await bw.locator(".beamer .bm-stage .codeslide.cs-task").waitFor({ timeout: 10000 });
+    await tp.locator(".presenter .beamstate", { hasText: "Beamerfenster verbunden" }).waitFor({ timeout: 10000 });
+    ok(await lines(bw, ".beamer .bm-stage") === head && await bw.locator(".nextpane, .np-frame, .presenter").count() === 0 && new URL(bw.url()).hash === "#/beamer" && (await bw.title()) === "Unterricks – Beamerfenster",
+      "Beamerfenster: dieselbe Codefolie wie im Präsentationsfenster, ohne Vorschau und ohne Steuerung");
+    await bw.keyboard.press("ArrowLeft");
+    await sp.locator(".live .badge", { hasText: "Folie 2 / 3" }).waitFor({ timeout: 10000 });
+    await bw.waitForFunction(() => /\/2\?/.test((document.querySelector(".beamer .bm-stage > img") || {}).src || ""), null, { timeout: 10000 });
+    ok((await tp.locator(".presenter .counter").textContent()) === "2 / 3" && await bw.locator(".beamer .codeslide").count() === 0, "Taste im Beamerfenster (z. B. Presenter) blättert die Präsentation – bei allen");
+    const bwFs = bw.locator(".beamer .bm-bar button").first();
+    await bwFs.focus(); await bw.keyboard.press("Enter"); await tp.waitForTimeout(500);
+    ok((await tp.locator(".presenter .counter").textContent()) === "2 / 3" && /Vollbild/.test(await bwFs.textContent()), "Enter auf „Vollbild“ im Beamerfenster blättert nicht weiter");
+    if (await bw.evaluate(() => !!document.fullscreenElement)) await bw.evaluate(() => document.exitFullscreen().catch(() => {}));
+    await bw.mouse.move(300, 300);
+    await bw.screenshot({ ...SHOT, path: join(OUT, "beamerfenster.png") });
+    await tp.screenshot({ ...SHOT, path: join(OUT, "lehrkraft-praesentation-vorschau.png") });
+    await tp.keyboard.press("ArrowRight");
+    await bw.locator(".beamer .bm-stage .codeslide.cs-task").waitFor({ timeout: 10000 });
+    ok((await tp.locator(".presenter .counter").textContent()) === "3 / 3", "… und folgt dem Präsentationsfenster");
     // Fenster schließen, Live-Anzeige läuft weiter; erneut öffnen → weiter an der laufenden Stelle (nicht wieder die Codefolie davor)
     await tp.locator(".presenter").getByRole("button", { name: "Schließen", exact: true }).click();
+    await bw.locator(".beamer .bm-wait", { hasText: "Die Präsentation ist gerade nicht geöffnet." }).waitFor({ timeout: 10000 });
+    ok(await bw.locator(".beamer .codeslide, .beamer .bm-stage > img").count() === 0, "Präsentationsfenster geschlossen: das Beamerfenster zeigt keine Folie mehr");
     await tp.locator("section.card", { hasText: "Präsentation für den Unterricht" }).locator(".small", { hasText: "Folie 3 / 3" }).waitFor({ timeout: 10000 });
     await tp.getByRole("button", { name: "Ich bin im Unterricht und starte die Präsentation für alle." }).click();
     await tp.locator(".presenter .stage .codeslide.cs-task").waitFor({ timeout: 10000 });
     await tp.waitForTimeout(800);
     ok((await tp.locator(".presenter .counter").textContent()) === "3 / 3" && await sp.locator(".live .badge", { hasText: "Folie 3 / 3" }).count() === 1, "erneut geöffnet: es geht an der laufenden Stelle weiter");
+    await bw.locator(".beamer .bm-stage .codeslide.cs-task").waitFor({ timeout: 10000 });
+    await tp.locator(".presenter .beamstate", { hasText: "Beamerfenster verbunden" }).waitFor({ timeout: 10000 });
+    ok((await prevB.getAttribute("aria-pressed")) === "true", "… das offene Beamerfenster übernimmt die Präsentation von selbst; die Vorschau bleibt wie gewählt");
     // … auch wenn die Seite den laufenden Stand nicht kennt (Abfrage gescheitert): das Live-Objekt bleibt an der laufenden Stelle
     await tp.locator(".presenter").getByRole("button", { name: "Schließen", exact: true }).click();
     const liveRe = /\/api\/teacher\/lessons\/[^/]+\/live$/;
@@ -610,7 +666,9 @@ async function main() {
     await tp.unroute(liveRe);
     await tp.getByRole("button", { name: "Präsentation für alle beenden" }).click();
     await sp.locator(".live .placeholder").waitFor({ timeout: 10000 });
-    ok(true, "Beenden kommt bei allen an");
+    await bw.locator(".beamer .bm-wait", { hasText: "Die Präsentation ist beendet." }).waitFor({ timeout: 10000 });
+    ok(true, "Beenden kommt bei allen an – auch im Beamerfenster");
+    await bw.close();
     await tp.locator(".thumbs .thumb.mark").waitFor({ timeout: 10000 });
     ok(await tp.locator("#shown-sel").inputValue() === "2" && await tp.locator(".thumbs .thumb.after").count() === 1, "Sitzung zeigt die Markierung (Folie 3 für Schüler:innen nicht freigegeben)");
 

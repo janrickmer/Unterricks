@@ -428,6 +428,7 @@ const ROUTES = [
   [/^#\/schueler$/, () => studentHome()],
   [/^#\/schueler\/s\/([a-f0-9]{16})$/, (m) => studentRoom(m[1])],
   [/^#\/schueler\/escape\/([a-f0-9]{16})$/, (m) => import("./escape.js").then((x) => x.escapePage(m[1])).catch((e) => { render(h("main", null, h("p", { class: "err", text: "Der Escape-Room konnte nicht geladen werden: " + e.message }))); })],
+  [/^#\/beamer$/, () => import("./beamer.js").then((b) => b.beamerPage()).catch((e) => { render(h("main", null, h("p", { class: "err", text: "Das Beamerfenster konnte nicht geladen werden: " + e.message }))); })],
   [/^#\/(lehrkraft|lk)(\/.*)?$/, () => import("./teacher.js").then((t) => t.route(location.hash)).catch((e) => { render(h("main", null, h("p", { class: "err", text: "Die Lehrkräfteansicht konnte nicht geladen werden: " + e.message }))); })],
 ];
 export function route() {

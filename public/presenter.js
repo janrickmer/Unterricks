@@ -1,6 +1,7 @@
 // presenter.js – Präsentation (PDF) in Folienbilder umwandeln und im Vollbild live für alle zeigen.
-import { h, clear, api, apiUrl, wsUrl, toast, errToast, icon } from "./ui.js";
-import { isValidCode, formatCode, slideTextLines, slideCodeBoxes, slideSessionCode, codeCover, coverFill, codeFontStyle, codeSlideLines, cleanCodeSlides } from "./shared.js";
+import { h, clear, api, apiUrl, wsUrl, toast, errToast, icon, store, rand } from "./ui.js";
+import { isValidCode, formatCode, slideTextLines, slideCodeBoxes, slideSessionCode, codeCover, coverFill, codeFontStyle, codeSlideLines, cleanCodeSlides,
+  nextSlideOf, nextSlideLabel, presenterKey, BEAMER_CHANNEL } from "./shared.js";
 import { codeSlideDom } from "./codeslide.js";
 
 let pdfjsP = null;
@@ -171,15 +172,23 @@ export async function fetchSlides(fileId, token) {
 // slides vorab laden (fetchSlides), damit das Vollbild ohne Wartezeit direkt aus dem Klick angefordert werden kann.
 // Codefolie (code = Sitzungscode, title = Titel der Sitzung): Folie 0 vor Folie 1, an Platzhalterfolien (codeSlides) mit deren Überschrift
 // und über „Sitzungscode zeigen“ (peek) – bei allen live gleich. startSlide 0 = Start mit der Codefolie.
+// Für die Lehrkraft: groß die aktuelle Folie, daneben kleiner die nächste (Vorschau, Taste V, gemerkt); „Beamerfenster öffnen“ = zweites
+// Fenster nur mit der aktuellen Folie (beamer.js, BroadcastChannel) für den Beamer als erweiterten Bildschirm.
+const NEXT_KEY = "u.presnext";
+const hex = (b) => Array.from(b, (x) => x.toString(16).padStart(2, "0")).join("");
 export async function startPresenter({ lessonId, file, token, startSlide = 0, onEnd, slides, onMark, shownUntil = null, code = "", title = "" }) {
   const s = slides || (await fetchSlides(file.id, token));
   const urls = (s.urls || []).map(apiUrl), n = s.pages, pages = n;
   const withCode = isValidCode(code), first = withCode ? 0 : 1;
   const holders = new Map(withCode ? cleanCodeSlides(s.codeSlides || (file && file.codeSlides) || [], n).map((c) => [c.n, c.lines]) : []);
   let cur = Math.min(Math.max(first, startSlide), n), peek = false, students = 0, connOk = true;
+  let showNext = store.get(NEXT_KEY) !== "0";
   const img = h("img", { alt: "", draggable: "false" });
   const stage = h("div", { class: "stage" }, img);
-  const isCode = () => withCode && (cur === 0 || peek || holders.has(cur));
+  const stageCell = h("div", { class: "stagecell" }, stage);
+  const npImg = h("img", { alt: "", draggable: "false" });
+  const npHead = h("p", { class: "np-head" }), npFrame = h("div", { class: "np-frame" }, npImg);
+  const nextPane = h("aside", { class: "nextpane", "aria-label": "Vorschau der nächsten Folie", title: "Zur nächsten Folie" }, h("div", { class: "np-box" }, npHead, npFrame));
   const counter = h("span", { class: "counter" });
   const info = h("span", { class: "small" });
   const fsBtn = h("button", { class: "btn small", type: "button", onclick: () => toggleFs() }, "Vollbild");
@@ -209,19 +218,36 @@ export async function startPresenter({ lessonId, file, token, startSlide = 0, on
     codeBtn.disabled = !peek && cur === 0;
   }
   function setPeek(on) { if (on === peek || (on && cur === 0)) return; moved = true; peek = on; paint(); live.send({ t: "code", on }); }
-  const root = h("div", { class: "presenter", role: "dialog", "aria-label": "Präsentation läuft" },
-    stage,
+  // Vorschau der nächsten Folie (nur hier, nie im Beamerfenster und nie bei den Schüler:innen) – bei gespiegeltem Bildschirm ausblenden
+  const nextBtn = h("button", { class: "btn small", type: "button", "aria-pressed": String(showNext), "aria-label": "Vorschau der nächsten Folie",
+    title: "Vorschau der nächsten Folie ein- oder ausblenden (Taste V)", onclick: () => setNext(!showNext) }, "Vorschau");
+  function setNext(on) { showNext = on; store.set(NEXT_KEY, on ? "1" : "0"); nextBtn.setAttribute("aria-pressed", String(on)); root.classList.toggle("with-next", on); paint(); }
+  // Beamerfenster: nicht auf Tablets und Handys (dort gibt es kein zweites Fenster neben dem Präsentationsfenster)
+  const bc = typeof BroadcastChannel === "function" ? new BroadcastChannel(BEAMER_CHANNEL) : null;
+  const pid = hex(rand(8)), beamers = new Set();
+  let claimAt = Date.now();
+  const touchOnly = typeof matchMedia === "function" && matchMedia("(hover: none) and (pointer: coarse)").matches;
+  const beamBtn = bc && !touchOnly ? h("button", { class: "btn small", type: "button", onclick: () => openBeamer(),
+    title: "Zweites Fenster nur mit der aktuellen Folie – für den Beamer als erweiterten Bildschirm. Hier sehen Sie weiter die nächste Folie." }, "Beamerfenster öffnen") : null;
+  const beamState = h("span", { class: "small beamstate", "aria-live": "polite" });
+  let beamNote = "";   // Hinweis zum Beamerfenster in der Leiste – Toasts sind im Vollbild nicht zu sehen
+  const root = h("div", { class: "presenter" + (showNext ? " with-next" : ""), role: "dialog", "aria-label": "Präsentation läuft" },
+    h("div", { class: "pview" }, stageCell, nextPane),
     h("div", { class: "bar" },
       h("button", { class: "btn small", type: "button", onclick: () => goto(cur - 1), "aria-label": "Vorherige Folie" }, icon("left")),
       counter,
       h("button", { class: "btn small", type: "button", onclick: () => goto(cur + 1), "aria-label": "Nächste Folie" }, icon("right")),
       h("span", { class: "badge onair" }, h("span", { class: "dot" }), "LIVE für alle"), info,
-      h("span", { class: "grow" }), codeBtn, markBtn, markState,
+      h("span", { class: "grow" }), nextBtn, beamBtn, beamState, codeBtn, markBtn, markState,
       fsBtn,
       h("button", { class: "btn small onair", type: "button", onclick: () => end(true) }, "Präsentation für alle beenden"),
       h("button", { class: "btn small", type: "button", onclick: () => end(false), title: "Fenster schließen, Live-Anzeige läuft weiter" }, "Schließen")));
+  // Seitenverhältnis der Folien (für die Rahmen neben der Vorschau): aus dem ersten geladenen Folienbild, sonst 16:9
+  const setAr = (im) => { if (im.naturalWidth > 0 && im.naturalHeight > 0) root.style.setProperty("--ar", String(Math.round((im.naturalWidth / im.naturalHeight) * 10000) / 10000)); };
+  img.addEventListener("load", () => setAr(img));
+  let arSet = false;
   const cache = new Map();
-  const preload = (k) => { if (k >= 1 && k <= n && !cache.has(k)) { const im = new Image(); im.src = urls[k - 1]; cache.set(k, im); } };
+  const preload = (k) => { if (k >= 1 && k <= n && !cache.has(k)) { const im = new Image(); im.onload = () => { if (!arSet) { arSet = true; if (!img.naturalWidth) setAr(im); } }; im.src = urls[k - 1]; cache.set(k, im); } };
   // Läuft diese Präsentation schon (Wiederöffnen), übernimmt die Seite einmal den laufenden Stand – solange noch nicht geblättert wurde
   let adopted = false, moved = false;
   const live = new TeacherLive(lessonId, token, (m) => {
@@ -238,52 +264,115 @@ export async function startPresenter({ lessonId, file, token, startSlide = 0, on
     paintInfo();
   });
   function paintInfo() { clear(info).append(...(connOk ? [] : [icon("alert"), "Verbindung wird wiederhergestellt … · "]), students + " Schüler:in" + (students === 1 ? "" : "nen") + " verbunden"); }
+  // Ansicht einer Folie: Folienbild oder Codefolie (Folie 0, Platzhalterfolie, „Sitzungscode zeigen“ = asCode)
+  const viewOf = (k, asCode) => (withCode && (asCode || k === 0 || holders.has(k))
+    ? { kind: "code", code, title, lines: asCode || k === 0 ? [] : holders.get(k) || [] } : { kind: "img", src: urls[k - 1] });
+  function put(box, v, im) {
+    if (v.kind === "code") { box.replaceChildren(codeSlideDom(v)); return; }
+    if (im.getAttribute("src") !== v.src) im.src = v.src;
+    if (box.firstChild !== im || box.childNodes.length > 1) box.replaceChildren(im);
+  }
   function paint() {
-    if (isCode()) stage.replaceChildren(codeSlideDom({ code, title, lines: cur === 0 || peek ? [] : holders.get(cur) }));
-    else { img.src = urls[cur - 1]; if (!img.isConnected) stage.replaceChildren(img); }
+    const cv = viewOf(cur, peek), nx = nextSlideOf({ cur, n, peek, holders, withCode }), nv = nx.end ? null : viewOf(nx.k, false);
+    put(stage, cv, img);
     counter.textContent = cur === 0 || peek ? "Sitzungscode" : cur + " / " + n;
+    if (showNext) {
+      npHead.replaceChildren(h("span", { class: "np-k", text: "Als Nächstes" }), " ", h("span", { class: "np-l", text: nextSlideLabel(nx, n) }));
+      if (nv) put(npFrame, nv, npImg);
+      else npFrame.replaceChildren(h("div", { class: "np-end", text: "Keine weitere Folie" }));
+      npFrame.classList.toggle("end", !nv);
+    }
     preload(cur + 1); preload(cur + 2); preload(cur - 1); paintMark(); paintCodeBtn();
+    sendShow(cv, nv);
   }
   function goto(k) {
     if (peek) { setPeek(false); return; }   // erst zurück von der eingeblendeten Codefolie
     k = Math.min(Math.max(first, k), n); if (k === cur) return; moved = true; cur = k; paint(); live.send({ t: "goto", slide: cur });
   }
+  /* ---------- Beamerfenster (beamer.js): bekommt nur die aktuelle Folie, schickt Tasten zurück ---------- */
+  function sendShow(cv = viewOf(cur, peek), nv) {
+    if (!bc || !beamers.size) return;
+    if (nv === undefined) { const nx = nextSlideOf({ cur, n, peek, holders, withCode }); nv = nx.end ? null : viewOf(nx.k, false); }
+    const view = cv.kind === "img" ? { kind: "img", src: cv.src, next: nv && nv.kind === "img" ? nv.src : null } : { kind: "code", code: cv.code, title: cv.title, lines: cv.lines };
+    try { bc.postMessage({ t: "show", id: pid, at: claimAt, fach: document.documentElement.dataset.fach || null, view }); } catch {}
+  }
+  const claim = () => { try { bc.postMessage({ t: "claim", id: pid, at: claimAt }); } catch {} };
+  function paintBeam() { beamState.textContent = beamers.size ? "Beamerfenster verbunden" + (beamNote ? " · " + beamNote : "") : beamNote; }
+  function openBeamer() {
+    let w = null;
+    try { w = window.open(location.pathname + location.search + "#/beamer", "unterricks-beamer", "popup=yes,width=1024,height=640"); } catch {}
+    if (!w) {
+      beamNote = "Beamerfenster blockiert – bitte Pop-up-Fenster für diese Seite erlauben und noch einmal öffnen."; paintBeam();
+      if (!isFs()) toast("Das Beamerfenster wurde blockiert. Bitte erlauben Sie Pop-up-Fenster für diese Seite und klicken Sie noch einmal auf „Beamerfenster öffnen“.", "err", 9000);
+      return;
+    }
+    claimAt = Date.now(); claim();   // ein schon offenes Beamerfenster folgt jetzt dieser Präsentation
+    try { w.focus(); } catch {}
+    beamNote = window.screen && window.screen.isExtended === false ? "nur ein Bildschirm erkannt: Beamer als erweiterten Bildschirm einrichten – gespiegelt sieht die Klasse die Vorschau (Taste V blendet sie aus)" : "";
+    paintBeam();
+  }
+  if (bc) bc.onmessage = (ev) => {
+    const m = ev.data;
+    if (!m || typeof m !== "object" || typeof m.bid !== "string") return;
+    if (m.t === "hello") claim();
+    else if (m.t === "following") { if (m.id === pid) { beamers.add(m.bid); sendShow(); } else beamers.delete(m.bid); paintBeam(); }
+    else if (m.t === "bye") { beamers.delete(m.bid); paintBeam(); }
+    else if (m.t === "cmd" && m.id === pid && beamers.has(m.bid)) run(m.cmd);
+  };
+  const onHide = () => { if (bc) try { bc.postMessage({ t: "end", id: pid, why: "close" }); } catch {} };
+  const onShow = (e) => { if (e.persisted && bc) { claimAt = Date.now(); claim(); } };   // aus dem Verlauf zurück: Beamerfenster wieder übernehmen
   const isFs = () => !!(document.fullscreenElement || document.webkitFullscreenElement);
   function toggleFs() {
     if (isFs()) (document.exitFullscreen || document.webkitExitFullscreen).call(document);
     else { const f = root.requestFullscreen || root.webkitRequestFullscreen; if (f) Promise.resolve(f.call(root)).catch(() => {}); }
   }
-  const onKey = (e) => {
-    if (["ArrowRight", "ArrowDown", "PageDown", " ", "Enter", "n"].includes(e.key)) { e.preventDefault(); goto(cur + 1); }
-    else if (["ArrowLeft", "ArrowUp", "PageUp", "Backspace", "p"].includes(e.key)) { e.preventDefault(); goto(cur - 1); }
-    else if (e.key === "Home") goto(first); else if (e.key === "End") goto(n);
-    else if (e.key === "f" || e.key === "F") toggleFs();
-    else if ((e.key === "c" || e.key === "C") && codeBtn && !e.ctrlKey && !e.metaKey && !e.altKey && !e.repeat) setPeek(!peek);   // nicht bei Strg/Cmd+C
-  };
+  function run(a) {
+    if (a === "next") goto(cur + 1); else if (a === "prev") goto(cur - 1);
+    else if (a === "first") goto(first); else if (a === "last") goto(n);
+    else if (a === "code") { if (codeBtn) setPeek(!peek); }
+    else if (a === "fs") toggleFs(); else if (a === "preview") setNext(!showNext);
+  }
+  // Enter/Leertaste auf einem Knopf der Leiste lösen den Knopf aus (Tastatur); nach einem Mausklick verliert der Knopf den Fokus wieder,
+  // damit Leertaste und Presenter danach weiter blättern
+  const onControl = (t) => !!(t && t.closest && root.contains(t) && t.closest("button, a[href], input, select, textarea"));
+  const onKey = (e) => { const a = presenterKey(e, onControl(e.target)); if (!a) return; if (a === "next" || a === "prev") e.preventDefault(); run(a); };
   let idleT = null;
   const wake = () => { root.classList.remove("idle"); clearTimeout(idleT); idleT = setTimeout(() => root.classList.add("idle"), 2500); };
   let tx = null;
-  root.querySelector(".stage").addEventListener("click", (e) => { const r = e.currentTarget.getBoundingClientRect(); goto(e.clientX - r.left > r.width / 3 ? cur + 1 : cur - 1); });
+  stageCell.addEventListener("click", (e) => { const r = stageCell.getBoundingClientRect(); goto(e.clientX - r.left > r.width / 3 ? cur + 1 : cur - 1); });
+  nextPane.addEventListener("click", () => goto(cur + 1));
   root.addEventListener("touchstart", (e) => { tx = e.touches[0].clientX; }, { passive: true });
   root.addEventListener("touchend", (e) => { if (tx == null) return; const dx = e.changedTouches[0].clientX - tx; if (Math.abs(dx) > 50) goto(dx < 0 ? cur + 1 : cur - 1); tx = null; });
   root.addEventListener("mousemove", wake);
+  root.addEventListener("focusin", wake);
+  root.addEventListener("click", (e) => { const b = e.target.closest && e.target.closest("button"); if (b && e.detail > 0) b.blur(); });
   document.addEventListener("keydown", onKey);
+  window.addEventListener("pagehide", onHide);
+  window.addEventListener("pageshow", onShow);
   function end(stopForAll) {
     document.removeEventListener("keydown", onKey); clearTimeout(idleT);
+    window.removeEventListener("pagehide", onHide); window.removeEventListener("pageshow", onShow);
+    if (bc) { try { bc.postMessage({ t: "end", id: pid, why: stopForAll ? "stop" : "close" }); } catch {} bc.close(); }
     if (stopForAll) live.send({ t: "stop" });
     setTimeout(() => live.close(), stopForAll ? 400 : 0);
     if (isFs()) (document.exitFullscreen || document.webkitExitFullscreen).call(document).catch(() => {});
     root.remove();
+    if (back && back.isConnected && typeof back.focus === "function") try { back.focus({ preventScroll: true }); } catch {}
     if (stopForAll) toast("Die Live-Präsentation wurde für alle beendet.", "ok");
     if (onEnd) onEnd(stopForAll);
   }
+  // Fokus in den Präsentationsmodus (Dialog) – nicht auf dem Knopf dahinter, sonst löste die Leertaste ihn erneut aus; danach zurück
+  const back = document.activeElement;
+  root.tabIndex = -1;
   document.body.append(root);
+  try { root.focus({ preventScroll: true }); } catch {}
   paint(); paintInfo(); wake();
   // Vollbild muss direkt aus dem Klick heraus angefordert werden (Aufrufer ruft startPresenter im Klick-Handler auf)
   toggleFs();
   live.connect();
   // resume: läuft diese Präsentation schon, bleibt sie an der laufenden Stelle (neu gestartet beginnt sie mit der Codefolie)
   live.send({ t: "start", fileId: file.id, pages: n, slide: cur, resume: true, ...(withCode ? { code, title, codeSlides: [...holders].map(([k, lines]) => ({ n: k, lines })) } : {}) });
+  if (bc) claim();   // ein schon offenes Beamerfenster übernimmt diese Präsentation
   return { end };
 }
 
