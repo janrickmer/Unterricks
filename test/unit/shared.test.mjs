@@ -160,7 +160,8 @@ test("Präsentations-Prompt Jahrgang 5/6 (keine iPads): Materialfolien nur mit A
   assert.ok(!mat.includes("denselben QR-Code") && !mat.includes("Du findest das Material in Unterricks") && !mat.includes("K7Q-M4X") && mat.includes("lege ich es zum Ausdrucken an"));
   assert.ok(!p.includes("synchron auf den Geräten der Schüler:innen") && p.includes("die Schüler:innen dieser Jahrgangsstufe haben im Unterricht keine iPads"));
   const first = p.slice(p.indexOf("## Erste Folie"), p.indexOf("## Materialfolien"));
-  assert.ok(first.includes("„K7Q-M4X“") && first.includes(QR_UNTERRICKS.join("\n")) && first.includes("z. B. zu Hause"), "Folie 1 bleibt immer: Code und QR-Code");
+  assert.ok(first.includes("„K7Q-M4X“") && first.includes(QR_UNTERRICKS.join("\n")) && first.includes("„Zu Hause findest du diese Sitzung in Unterricks: Scanne den QR-Code"), "Folie 1 bleibt immer: Code und QR-Code (für zu Hause)");
+  assert.ok(mat.includes("unten nicht als „von der Lehrkraft auszudrucken“, nenne es mir zusätzlich im Chat – dann lege ich es zum Ausdrucken an"), "Material ohne Druckvorlage wird gemeldet");
 });
 
 test("Feibeitsblatt-Entwurf normalisieren", () => {

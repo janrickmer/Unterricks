@@ -151,8 +151,9 @@ implementiert und im End-to-End-Test geprüft (Ausnahmen unten ausdrücklich gen
    Unterricks beim Öffnen selbst; zwei Codes auf einer Folie verwechseln Schüler:innen leicht), keine Notfall-Feibeitsblätter. Material
    „von der Lehrkraft auszudrucken“ sehen die Schüler:innen in Unterricks nicht (`area = 'print'`): Arbeiten sie nur damit, steht
    „(auf Papier)“ beim Titel und QR-Code, Sitzungscode und Hinweis auf Unterricks entfallen. In Jahrgang 5/6 (keine iPads,
-   `isAnalogClass`) zeigen Materialfolien nur Aufforderung und Titel „(auf Papier)“; Folie 1 bleibt (Sitzung z. B. zu Hause finden).
-   Fehlt ein Material ganz (oder steht es nur „nur Lehrkraft“), nennt Claude es im Chat. Hinweise für die
+   `isAnalogClass`) zeigen Materialfolien nur Aufforderung und Titel „(auf Papier)“; Folie 1 bleibt, mit dem Satz „Zu Hause findest du
+   diese Sitzung in Unterricks: …“. Fehlt ein Material ganz (oder steht es nur „nur Lehrkraft“; in Jg. 5/6: jedes, das nicht auf der
+   Druckliste steht), nennt Claude es im Chat. Hinweise für die
    Lehrkraft (statt Sprechernotizen) gibt Claude im Chat bzw. auf Wunsch über `add_text_material` (nur für die Lehrkraft).
 6. **Präsentation und Live-Synchronisation.** Upload der PDF → der Browser der Lehrkraft rendert jede Seite mit PDF.js
    (1920 px) und lädt sie als Bild hoch. „Ich bin im Unterricht …“ öffnet das Vollbild und meldet die Folie an das Durable

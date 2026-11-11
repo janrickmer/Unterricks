@@ -517,10 +517,11 @@ export function claudePresentationPrompt(ctx, portalText, messages) {
     "",
     "## Erste Folie (immer): Sitzungscode und QR-Code zu Unterricks",
     "Mit dieser Folie beginnt jede Stunde – die Schüler:innen scannen den QR-Code, öffnen so Unterricks und geben den Sitzungscode ein" +
-      (analog ? " (in dieser Jahrgangsstufe ohne iPads z. B. zu Hause, um Material und Hausaufgabe der Sitzung zu finden)." : "."),
+      (analog ? " (in dieser Jahrgangsstufe ohne iPads zu Hause, um die Sitzung mit Hausaufgabe und Präsentation zu finden)." : "."),
     "- Sehr groß und gut abschreibbar der Sitzungscode " + codeText + " (Festbreitenschrift, mindestens 96 pt, mit Bindestrich wie angegeben).",
     "- Daneben der QR-Code zur Webseite " + PUBLIC_URL + ": mindestens ein Drittel der Folienhöhe groß, schwarz auf weiß, mit einem weißen Rand von 4 Modulen ringsum, scharfe Kanten (kein Weichzeichnen, keine Farbe, nichts darüber).",
-    "- Darunter die Adresse " + host + " als Text und der Satz „Scanne den QR-Code oder öffne " + host + " und gib den Sitzungscode ein.“; Thema, Fach und Klasse klein darüber.",
+    "- Darunter die Adresse " + host + " als Text und der Satz „" + (analog ? "Zu Hause findest du diese Sitzung in Unterricks: Scanne den QR-Code oder öffne " + host + " und gib den Sitzungscode ein."
+      : "Scanne den QR-Code oder öffne " + host + " und gib den Sitzungscode ein.") + "“; Thema, Fach und Klasse klein darüber.",
     "- Zeichne den QR-Code genau nach diesem Muster und erzeuge ihn nicht neu (29 × 29 Module, Zeile für Zeile von oben nach unten; 1 = schwarzes Quadrat, 0 = weiß):",
     "```",
     ...QR_UNTERRICKS,
@@ -544,8 +545,8 @@ export function claudePresentationPrompt(ctx, portalText, messages) {
     "Nicht auf die Materialfolie gehören die Aufgaben, Texte und Inhalte des Materials (sie stehen im Material selbst) und Lösungen" + (analog ? "." : " – und auch nicht der Code eines Feibeitsblatts, auch wenn der Stundenverlauf ihn nennt: " +
       "Die Schüler:innen öffnen das Feibeitsblatt in Unterricks, das den Code dabei selbst kopiert; zwei Codes auf einer Folie würden sie leicht verwechseln. " +
       "Notfall-Feibeitsblätter (nur für technische Probleme) nennst du nicht als Material – gemeint ist immer das Feibeitsblatt selbst."),
-    "Steht ein Material, mit dem die Schüler:innen arbeiten sollen, unten gar nicht oder nur als Material „nur Lehrkraft“, nenne es mir zusätzlich im Chat – dann " +
-      (analog ? "lege ich es zum Ausdrucken an." : "stelle ich es in Unterricks bereit."),
+    analog ? "Steht ein Material, mit dem die Schüler:innen arbeiten sollen, unten nicht als „von der Lehrkraft auszudrucken“, nenne es mir zusätzlich im Chat – dann lege ich es zum Ausdrucken an."
+      : "Steht ein Material, mit dem die Schüler:innen arbeiten sollen, unten gar nicht oder nur als Material „nur Lehrkraft“, nenne es mir zusätzlich im Chat – dann stelle ich es in Unterricks bereit.",
     "",
     "## Rahmendaten",
     "- Fach: " + subjectName(ctx.subject),
