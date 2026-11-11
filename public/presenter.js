@@ -11,11 +11,12 @@ async function pdfjs() {
 /* Schriftfamilie für den neuen Code: wie der alte (Festbreite, Serife, sonst serifenlos) – aus den Schriftangaben von PDF.js bzw. der Ersatzfamilie */
 const genericFont = (st) => (st && st.mono ? '"Courier New", Courier, monospace' : st && st.serif ? '"Times New Roman", Times, serif' : "Arial, Helvetica, sans-serif");
 const styleOf = (b) => { const st = codeFontStyle(b.font); if (/mono|courier/i.test(b.family)) { st.mono = true; st.serif = false; } else if (!b.font && /serif/i.test(b.family) && !/sans/i.test(b.family)) st.serif = true; return st; };
-/* Breite eines Zeichens in der passenden allgemeinen Schrift – für die Lage des Codes im Satz */
+/* Breite eines Zeichens – für die Lage des Codes im Satz: in der Schrift des PDF selbst (PDF.js meldet eingebettete Schriften unter ihrem
+   loadedName im Browser an, mf), sonst in der passenden allgemeinen Schrift */
 let measCtx = null; const measured = new Map();
-function advance(ch, fam) {
-  const f = genericFont({ mono: /mono|courier/i.test(fam), serif: /serif/i.test(fam) && !/sans/i.test(fam) }), k = f + "|" + ch;
-  if (!measured.has(k)) { measCtx ||= document.createElement("canvas").getContext("2d"); measCtx.font = "bold 100px " + f; measured.set(k, measCtx.measureText(ch).width); }
+function advance(ch, fam, mf) {
+  const gen = genericFont({ mono: /mono|courier/i.test(fam), serif: /serif/i.test(fam) && !/sans/i.test(fam) }), f = mf ? "100px " + mf + ", " + gen : "bold 100px " + gen, k = f + "|" + ch;
+  if (!measured.has(k)) { measCtx ||= document.createElement("canvas").getContext("2d"); measCtx.font = f; measured.set(k, measCtx.measureText(ch).width); }
   return measured.get(k);
 }
 /* Codes auf einer Seite: Textstücke von PDF.js in Gerätekoordinaten (gedrehter Text zählt nicht) → slideCodeBoxes. Ein Strich, den eine
@@ -24,13 +25,15 @@ async function codeBoxes(lib, page, vp) {
   const tc = await page.getTextContent();
   const items = [], sx = Math.hypot(vp.transform[0], vp.transform[1]);   // Maßstab samt /UserUnit (vp.scale enthält ihn nicht)
   const fontOf = (name) => { try { return page.commonObjs.has(name) ? page.commonObjs.get(name) : null; } catch { return null; } };
+  const hasFace = (name) => { try { for (const ff of document.fonts) if (ff.family.replace(/["']/g, "") === name && ff.status === "loaded") return true; } catch {} return false; };
+  const loaded = (f) => (f && f.loadedName && !f.missingFile && /^[\w-]+$/.test(f.loadedName) && hasFace(f.loadedName) ? '"' + f.loadedName + '"' : "");
   for (const it of tc.items || []) {
     if (typeof it.str !== "string") continue;   // Markierungen ohne Text
     const tx = lib.Util.transform(vp.transform, it.transform), hgt = Math.hypot(tx[2], tx[3]), w = it.width * sx;
     const turned = Math.abs(tx[1]) > hgt * 0.02 || Math.abs(tx[2]) > hgt * 0.02;
     const dashLike = (it.str === "" || /^[\uE000-\uF8FF]$/.test(it.str)) && !it.hasEOL && w > hgt * 0.15 && w < hgt * 0.8;
     items.push(turned ? { str: "", eol: true } : { str: dashLike ? "\u2010" : it.str, x: tx[4], base: tx[5], w, h: hgt, eol: !!it.hasEOL,
-      family: ((tc.styles || {})[it.fontName] || {}).fontFamily || "", font: fontOf(it.fontName) });
+      family: ((tc.styles || {})[it.fontName] || {}).fontFamily || "", font: fontOf(it.fontName), mf: loaded(fontOf(it.fontName)) });
   }
   return slideCodeBoxes(items, advance);
 }
@@ -39,8 +42,9 @@ async function codeBoxes(lib, page, vp) {
    false = an dieser Stelle nicht sicher möglich (Folie bleibt, die Lehrkraft erfährt es). */
 function paintCode(ctx, b, text) {
   const W = ctx.canvas.width, H = ctx.canvas.height;
-  const rx = Math.max(0, Math.floor(b.x0 - b.h * 0.25)), ry = Math.max(0, Math.floor(b.base - b.h * 1.0));
-  const rw = Math.min(W, Math.ceil(b.x1 + b.h * 0.25)) - rx, rh = Math.min(H, Math.ceil(b.base + b.h * 0.35)) - ry;
+  if (b.x0 < 0 || b.x1 > W || b.base - b.h < 0 || b.base > H) return false;   // nicht ganz auf der Folie – lieber nicht
+  const rx = Math.max(0, Math.floor(b.x0 - b.h * 0.6)), ry = Math.max(0, Math.floor(b.base - b.h * 1.4));
+  const rw = Math.min(W, Math.ceil(b.x1 + b.h * 0.6)) - rx, rh = Math.min(H, Math.ceil(b.base + b.h * 0.7)) - ry;
   if (rw < 4 || rh < 4) return false;
   const d = ctx.getImageData(rx, ry, rw, rh).data;
   const c = codeCover(d, rw, rh, { x0: b.x0 - rx, x1: b.x1 - rx, base: b.base - ry, h: b.h });

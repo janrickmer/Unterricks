@@ -64,7 +64,8 @@ Feibeitsblatt braucht keine Änderung. Die Adressen stehen in `wrangler.jsonc` (
   arbeiten, und sein Titel, z. B. der Name des Feibeitsblatts; ausgedrucktes Material und Jahrgang 5/6 ohne iPads: „(auf Papier)“,
   ohne QR-Code; die Präsentation ist zeitlos – ohne Datum und Klasse, Hausaufgabe „bis zur nächsten Unterrichtssitzung“ –, damit sie
   in ein paar Jahren in einer anderen Klasse desselben Jahrgangs wieder passt; lädt man sie dann in einer neuen Sitzung hoch, ersetzt
-  Unterricks den alten Sitzungscode auf den Folien automatisch durch den neuen) → im Unterricht „Ich bin im Unterricht und starte
+  Unterricks den alten Sitzungscode auf den Folien automatisch durch den neuen; wo das nicht sicher geht, z. B. bei einem unruhigen
+  Foto hinter dem Code, bleibt die Folie unverändert und die Meldung nennt sie) → im Unterricht „Ich bin im Unterricht und starte
   die Präsentation für alle.“ Den Sitzungscode zeigt „Für den Beamer zeigen“. Am Stundenende: Hausaufgabe eintragen und per
   Rechtsklick im Verlaufsplan „Zwischenstopp einfügen“, falls nicht alles geschafft wurde. „Für das Schulportal kopieren“ bei der
   Hausaufgabe liefert sie im Format der Lehrkraft: **Hausaufgabe zum 25. November 2026:** (Datum der nächsten Sitzung), eine

@@ -344,46 +344,58 @@ test("Sitzungscode auf Folien: gesperrt gesetzter Code (PDF.js fügt Leerzeichen
   assert.equal(slideSessionCode([{ code: "BCD234", h: 20 }], { minH: 64 }), "", "kleiner Code auf Folie 1 ist nicht der Sitzungscode");
 });
 
-test("Sitzungscode auf Folien: codeCover misst Fläche und Farben an den Pixeln", () => {
-  // Bild 200 × 140, Schriftgröße 60, Grundlinie 90; „Zeichen“ = senkrechte Balken (40 % der Fläche) von y 50 bis 90 zwischen x 40 und 160
+test("Sitzungscode auf Folien: codeCover findet die Buchstaben des Codes – Umgebung bleibt stehen", () => {
+  // Bild 200 × 140, Schriftgröße 60, Grundlinie 90; „Buchstaben“ = senkrechte Balken (40 % der Fläche) von y 50 bis 90 zwischen x 40 und 160
   const rw = 200, rh = 140;
   const img = (paint) => { const d = new Uint8ClampedArray(rw * rh * 4); const set = (x, y, c) => { const i = (y * rw + x) * 4; d[i] = c[0]; d[i + 1] = c[1]; d[i + 2] = c[2]; d[i + 3] = 255; }; paint(set); return d; };
   const fill = (set, x0, y0, x1, y1, c) => { for (let y = y0; y <= y1; y++) for (let x = x0; x <= x1; x++) set(x, y, c); };
   const glyphs = (set, c, y0 = 50) => { for (let y = y0; y <= 90; y++) for (let x = 40; x <= 160; x++) if ((x - 40) % 20 < 8) set(x, y, c); };
   const BLUE = [32, 59, 94], YEL = [255, 217, 77], WHITE = [255, 255, 255], DARK = [17, 24, 39];
   const box = { x0: 40, x1: 160, base: 90, h: 60 };
-  // 1) einfarbiger Grund, weiße Zeile weit darüber: Farben, Fläche, Schrift
+  const masked = (c, x, y) => x >= c.x && y >= c.y && x < c.x + c.w && y < c.y + c.h && c.mask[(y - c.y) * c.w + (x - c.x)] === 1;
+  // 1) einfarbiger Grund, weiße Zeile weit darüber: Farben, Maske = Buchstaben samt 2 px Rand, nicht die Lücken dazwischen
   let c = codeCover(img((set) => { fill(set, 0, 0, rw - 1, rh - 1, BLUE); glyphs(set, YEL); fill(set, 40, 20, 160, 28, WHITE); }), rw, rh, box);
   assert.deepEqual(c.bg.map(Math.round), BLUE); assert.deepEqual(c.fg, YEL);
-  assert.ok(c.y > 28 && c.y <= 48 && c.y + c.h >= 91 && c.y + c.h <= 93, "oben bis kurz über die Schrift, unten bis zur Grundlinie (" + c.y + "/" + c.h + ")");
   assert.ok(c.inkX === 40 && c.inkX + c.inkW === 161, "Schriftfläche genau (" + c.inkX + "/" + c.inkW + ")");
-  // 2) Text dicht über dem Code (weiß, y 46–52) und eine Zeile mit „Umlautpunkten“ 3 px unter der Grundlinie: beide bleiben stehen
-  c = codeCover(img((set) => { fill(set, 0, 0, rw - 1, rh - 1, BLUE); glyphs(set, YEL, 60); fill(set, 40, 46, 160, 52, WHITE); fill(set, 45, 94, 48, 96, WHITE); fill(set, 52, 94, 55, 96, WHITE); }), rw, rh, box);
+  assert.ok(masked(c, 44, 70) && masked(c, 49, 70) && !masked(c, 54, 70) && !masked(c, 44, 24), "Buchstaben ja, Lücke und Zeile darüber nein");
+  // 2) Text dicht über dem Code (weiß, y 46–52), Zeile mit „Umlautpunkten“ 3 px unter der Grundlinie und ein unterschnittener Punkt
+  //    direkt am letzten Buchstaben (unten rechts, 2 px Abstand): alles bleibt stehen
+  c = codeCover(img((set) => { fill(set, 0, 0, rw - 1, rh - 1, BLUE); glyphs(set, YEL, 60); fill(set, 40, 46, 160, 52, WHITE); fill(set, 45, 94, 48, 96, WHITE); fill(set, 52, 94, 55, 96, WHITE); fill(set, 170, 84, 175, 90, YEL); }), rw, rh, box);
   assert.deepEqual(c.fg, YEL, "Schriftfarbe des Codes, nicht die der Zeile darüber");
-  assert.ok(c.y > 52 && c.y <= 58, "die Zeile darüber bleibt (y " + c.y + ")");
-  assert.ok(c.y + c.h <= 93, "die Punkte darunter bleiben (bis " + (c.y + c.h) + ")");
+  assert.ok(!masked(c, 60, 49) && !masked(c, 46, 95) && !masked(c, 172, 88), "Zeile darüber, Punkte darunter und der Punkt daneben bleiben");
+  assert.ok(c.inkX + c.inkW === 161, "der Punkt gehört nicht zum Code");
   // 3) knappes farbiges Kästchen (gelb, endet 3 px unter der Grundlinie) auf weißer Folie, dunkle Schrift: Hintergrund = Kästchen
   c = codeCover(img((set) => { fill(set, 0, 0, rw - 1, rh - 1, WHITE); fill(set, 30, 40, 170, 93, YEL); glyphs(set, DARK); }), rw, rh, box);
   assert.deepEqual(c.bg.map(Math.round), YEL, "Hintergrund ist das Kästchen, nicht die Folie"); assert.deepEqual(c.fg, DARK);
-  assert.ok(c.x >= 30 && c.x + c.w <= 171 && c.y >= 40, "die Fläche bleibt im Kästchen");
-  // 4) unterstrichener Code (Strich in Schriftfarbe 4–6 px unter der Grundlinie über die ganze Breite): Strich bleibt, Farben richtig
+  assert.ok(c.x >= 30 && c.x + c.w <= 171 && c.y >= 40 && c.y + c.h <= 94, "die Maske bleibt im Kästchen");
+  // 4) unterstrichener Code (Strich in Schriftfarbe 4–6 px unter der Grundlinie über die ganze Breite): Strich bleibt
   c = codeCover(img((set) => { fill(set, 0, 0, rw - 1, rh - 1, WHITE); glyphs(set, DARK); fill(set, 38, 94, 162, 96, DARK); }), rw, rh, box);
   assert.deepEqual(c.bg.map(Math.round), WHITE); assert.deepEqual(c.fg, DARK);
-  assert.ok(c.y + c.h <= 93, "der Unterstrich wird nicht übermalt (bis " + (c.y + c.h) + ")");
-  // 5) ohne Schrift an der Stelle (Code nur in der Textebene) bzw. vollflächig (kein Text auf ruhigem Grund): nichts übermalen
+  assert.ok(!masked(c, 100, 95), "der Unterstrich wird nicht übermalt");
+  // 5) weißer fetter Code auf einem waagerechten Farbverlauf (typische Titelfolie): Hintergrund = Verlauf, nicht die Schrift
+  c = codeCover(img((set) => { for (let y = 0; y < rh; y++) for (let x = 0; x < rw; x++) set(x, y, [102 + x * 0.08, 126 - x * 0.25, 234 - x * 0.36]); for (let y = 50; y <= 90; y++) for (let x = 40; x <= 160; x++) if ((x - 40) % 20 < 9) set(x, y, WHITE); }), rw, rh, box);
+  assert.ok(c && Math.min(...c.bg) < 200 && c.fg.join() === WHITE.join(), "Farben nicht vertauscht " + JSON.stringify(c && [c.bg.map(Math.round), c.fg]));
+  // 6) weiße Schrift in einem knappen blauen Kästchen auf weißer Folie (Kästchen endet oben schon an der Schrift, seitlich nach 6 px):
+  //    Hintergrund = Kästchen, nicht die weiße Folie
+  c = codeCover(img((set) => { fill(set, 0, 0, rw - 1, rh - 1, WHITE); fill(set, 34, 49, 166, 96, [30, 58, 138]); glyphs(set, WHITE); }), rw, rh, box);
+  assert.ok(c && c.bg.map(Math.round).join() === "30,58,138" && c.fg.join() === WHITE.join(), "Kästchen ist Hintergrund " + JSON.stringify(c && [c.bg.map(Math.round), c.fg]));
+  assert.ok(c.x >= 34 && c.x + c.w <= 167, "die Maske bleibt im Kästchen");
+  // 7) ohne Schrift an der Stelle (Code nur in der Textebene) bzw. vollflächig (kein Text auf ruhigem Grund): nichts übermalen
   assert.equal(codeCover(img((set) => fill(set, 0, 0, rw - 1, rh - 1, [200, 200, 200])), rw, rh, box), null);
   assert.equal(codeCover(img((set) => { fill(set, 0, 0, rw - 1, rh - 1, WHITE); fill(set, 40, 40, 160, 90, DARK); fill(set, 60, 60, 61, 61, WHITE); }), rw, rh, box), null);
 });
 
-test("Sitzungscode auf Folien: coverFill füllt wie der Hintergrund (auch Farbverlauf), Schrift am Rand zählt nicht", () => {
+test("Sitzungscode auf Folien: coverFill füllt nur die Maske, wie der Hintergrund (auch Verlauf), ohne Schrift am Rand", () => {
   const rw = 100, rh = 60, d = new Uint8ClampedArray(rw * rh * 4);
-  for (let y = 0; y < rh; y++) for (let x = 0; x < rw; x++) { const i = (y * rw + x) * 4; d[i] = 2 * x; d[i + 1] = 100; d[i + 2] = 3 * y; d[i + 3] = 255; }   // Verlauf
-  const i0 = (9 * rw + 50) * 4; d[i0] = 255; d[i0 + 1] = 255; d[i0 + 2] = 255;   // ein „Schrift“-Pixel direkt über der Fläche
-  const c = { x: 20, y: 10, w: 60, h: 30, bg: [100, 100, 60], thr: 200 };
+  for (let y = 0; y < rh; y++) for (let x = 0; x < rw; x++) { const i = (y * rw + x) * 4; d[i] = x; d[i + 1] = 100; d[i + 2] = 50 + y; d[i + 3] = 255; }   // sanfter Verlauf
+  const i0 = (6 * rw + 50) * 4; d[i0] = 255; d[i0 + 1] = 255; d[i0 + 2] = 255;   // ein „Schrift“-Pixel über der Fläche
+  const c = { x: 20, y: 10, w: 60, h: 30, bg: [50, 100, 80], thr: 200, mask: new Uint8Array(60 * 30).fill(1) };
+  c.mask[0] = 0;
   const out = coverFill(d, rw, rh, c), px = (x, y) => Array.from(out.slice((y * c.w + x) * 4, (y * c.w + x) * 4 + 3));
-  const near = (a, b2) => a.every((v, k) => Math.abs(v - b2[k]) <= 4);
-  assert.ok(near(px(0, 0), [40, 100, 30]) && near(px(59, 29), [158, 100, 117]), "waagerecht und senkrecht wie der Verlauf " + JSON.stringify([px(0, 0), px(59, 29)]));
-  assert.ok(near(px(30, 0), [100, 100, 30]), "das Schrift-Pixel darüber wird übersprungen " + JSON.stringify(px(30, 0)));
+  const near = (a, b2, t = 6) => a.every((v, k) => Math.abs(v - b2[k]) <= t);
+  assert.deepEqual(px(0, 0), [20, 100, 60], "außerhalb der Maske bleibt das Bild");
+  assert.ok(near(px(1, 0), [21, 100, 60]) && near(px(59, 29), [79, 100, 89]), "waagerecht und senkrecht wie der Verlauf " + JSON.stringify([px(1, 0), px(59, 29)]));
+  assert.ok(near(px(30, 0), [50, 100, 60]), "das Schrift-Pixel darüber zählt nicht " + JSON.stringify(px(30, 0)));
 });
 
 test("Sitzungscode auf Folien: Schrift des alten Codes aus den Angaben von PDF.js", () => {

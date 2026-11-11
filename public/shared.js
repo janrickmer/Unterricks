@@ -199,7 +199,7 @@ export function slideCodeBoxes(items, advance) {
     if (!cur || Math.abs(it.base - cur.base) > it.h * 0.25 || it.x < cur.end - it.h * 0.5) { cur = { base: it.base, end: it.x, text: "", map: [] }; lines.push(cur); }
     else if (it.x - cur.end > it.h * 0.2) { cur.text += " "; cur.map.push(null); }
     const n = it.str.length, ws = [];
-    for (let i = 0; i < n; i++) { const a = advance ? Number(advance(it.str[i], it.family || "")) : 1; ws.push(Number.isFinite(a) && a > 0 ? a : 0); }
+    for (let i = 0; i < n; i++) { const a = advance ? Number(advance(it.str[i], it.family || "", it.mf || "")) : 1; ws.push(Number.isFinite(a) && a > 0 ? a : 0); }
     let tot = ws.reduce((a, b) => a + b, 0);
     if (!(tot > 0)) { ws.fill(1); tot = n; }
     for (let i = 0, acc = 0; i < n; i++) { const x0 = it.x + (it.w * acc) / tot; acc += ws[i]; cur.text += it.str[i]; cur.map.push({ x0, x1: it.x + (it.w * acc) / tot, h: it.h, base: it.base, family: it.family || "", font: it.font || null }); }
@@ -214,78 +214,184 @@ export function slideCodeBoxes(items, advance) {
   return out;
 }
 /* Wo genau steht der alte Code im Bild? d = RGBA-Pixel eines Ausschnitts (Breite rw, Höhe rh), b = Kasten im Ausschnitt {x0, x1, base, h}.
-   Hintergrund = häufigste Farbe im Band der Großbuchstaben (Lücken und Punzen zwischen den Zeichen – Schrift macht dort 25–45 % aus; so
-   stimmt er auch in einem knappen farbigen Kästchen und bei einem Unterstrich), Schrift = häufigste deutlich abweichende Farbe dort.
-   Die Fläche wird an den Pixeln gemessen: nach oben nur so weit, wie Zeilen Schrift enthalten (Text darüber bleibt), nach unten bis zur
-   Grundlinie und darunter nur, was an die Schrift anschließt (Q-Schwanz, nicht der Unterstrich oder die nächste Zeile), seitlich bis zur
-   ersten leeren Spalte. Ergebnis {bg, fg, thr, share, x, y, w, h (Fläche zum Übermalen), inkX, inkW (die Schrift selbst)}; null = an dieser
-   Stelle kein Text auf ruhigem Grund (dann bleibt die Folie, wie sie ist, und die Lehrkraft erfährt es). */
+   Hintergrund und Schrift = die zwei Hauptfarben im Band der Großbuchstaben (mit Toleranz zusammengefasst, damit auch ein Verlauf eine
+   Gruppe bildet); welche der Hintergrund ist, entscheiden schmale Streifen links, rechts und über dem Code per Mehrheit (stimmt auch in
+   knappen Kästchen, auf Verläufen und mitten im Satz). Übermalt werden nur die Buchstaben des Codes: zusammenhängende Schriftflächen, die das mittlere Band
+   (0,2–0,45 Schriftgrößen über der Grundlinie) erreichen und deren Mitte im Kasten liegt – Satzzeichen daneben (auch unterschnitten),
+   Text darüber, ein Unterstrich und die nächste Zeile bleiben stehen. Ergebnis {bg, fg, thr, share, x, y, w, h (Rechteck um die Maske),
+   mask (w × h, 1 = übermalen), inkX, inkW (die Schrift selbst)}; null = an dieser Stelle nicht sicher (Folie bleibt, die Lehrkraft erfährt es). */
 export function codeCover(d, rw, rh, b) {
   const h = b.h, base = Math.round(b.base), cx0 = Math.max(0, Math.floor(b.x0)), cx1 = Math.min(rw - 1, Math.ceil(b.x1) - 1);
   const fy0 = Math.max(0, Math.round(base - 0.5 * h)), fy1 = Math.min(rh - 1, Math.round(base - 0.05 * h));
   if (cx1 - cx0 < 2 || fy1 - fy0 < 2) return null;
   const at = (x, y) => (y * rw + x) * 4;
-  const tally = (pick) => {
-    const m = new Map();
-    for (let y = fy0; y <= fy1; y++) for (let x = cx0; x <= cx1; x++) {
-      const i = at(x, y); if (pick && !pick(i)) continue;
-      const k = (d[i] >> 4) * 256 + (d[i + 1] >> 4) * 16 + (d[i + 2] >> 4), e = m.get(k) || [0, 0, 0, 0];
-      e[0]++; e[1] += d[i]; e[2] += d[i + 1]; e[3] += d[i + 2]; m.set(k, e);
-    }
-    let t = null; for (const e of m.values()) if (!t || e[0] > t[0]) t = e;
-    return t && [t[1] / t[0], t[2] / t[0], t[3] / t[0]];
-  };
-  const bg = tally(null);
   const dist = (i, c) => Math.hypot(d[i] - c[0], d[i + 1] - c[1], d[i + 2] - c[2]);
-  const fgRaw = tally((i) => dist(i, bg) > 50);
-  if (!fgRaw) return null;   // keine erkennbare Schrift (z. B. Code nur in der Textebene)
-  const fg = fgRaw.map(Math.round), far = Math.hypot(fg[0] - bg[0], fg[1] - bg[1], fg[2] - bg[2]);
-  if (far < 40) return null;
-  const thr = Math.max(30, far * 0.35);
-  const isInk = (x, y) => { const i = at(x, y), a = dist(i, bg); return a > thr && dist(i, fg) < a; };
-  let ink = 0;
-  for (let y = fy0; y <= fy1; y++) for (let x = cx0; x <= cx1; x++) if (isInk(x, y)) ink++;
-  const share = ink / ((fy1 - fy0 + 1) * (cx1 - cx0 + 1));
-  if (share < 0.05 || share > 0.6) return null;   // kein Text auf einfarbigem Grund (Kästchen ohne Text, Raster, Foto …)
-  const rowHas = (y) => { for (let x = cx0; x <= cx1; x++) if (isInk(x, y)) return true; return false; };
-  let t = Math.min(fy1, Math.round(base - 0.3 * h)); const tMin = Math.max(0, Math.round(base - 0.9 * h)), tForce = base - 0.45 * h;
-  while (t - 1 >= tMin && (t - 1 > tForce || rowHas(t - 1))) t--;
-  let bt = fy1; const bMax = Math.min(rh - 1, Math.round(base + 0.25 * h)), wide = 0.6 * (cx1 - cx0 + 1);
-  while (bt + 1 <= bMax) {
-    const y = bt + 1;
-    if (y <= base) { bt = y; continue; }
-    let n = 0, joined = false;
-    for (let x = cx0; x <= cx1; x++) if (isInk(x, y)) { n++; if (isInk(x, y - 1) || (x > cx0 && isInk(x - 1, y - 1)) || (x < cx1 && isInk(x + 1, y - 1))) joined = true; }
-    if (!n || !joined || n > wide) break;
-    bt = y;
+  // die zwei Hauptfarben im Band der Großbuchstaben (Farben mit Toleranz zusammengefasst – auch ein Verlauf bildet eine Gruppe)
+  const band = [];
+  for (let y = fy0; y <= fy1; y++) for (let x = cx0; x <= cx1; x++) band.push(at(x, y));
+  const groupOf = (pix) => {
+    const fach = new Map();
+    for (const i of pix) { const k = (d[i] >> 4) * 256 + (d[i + 1] >> 4) * 16 + (d[i + 2] >> 4), e = fach.get(k) || [0, 0, 0, 0]; e[0]++; e[1] += d[i]; e[2] += d[i + 1]; e[3] += d[i + 2]; fach.set(k, e); }
+    let best = null;
+    for (const e of [...fach.values()].sort((p, q) => q[0] - p[0]).slice(0, 8)) {
+      const c = [e[1] / e[0], e[2] / e[0], e[3] / e[0]], near = pix.filter((i) => dist(i, c) <= 40);
+      if (!best || near.length > best.length) best = near;
+    }
+    return best && best.length ? [0, 1, 2].map((k) => best.reduce((s2, i) => s2 + d[i + k], 0) / best.length) : null;
+  };
+  const A = groupOf(band);
+  const B = A && groupOf(band.filter((i) => dist(i, A) > 80));
+  if (!B) return null;   // nur eine Farbe: keine erkennbare Schrift (z. B. Code nur in der Textebene)
+  // welche ist der Hintergrund? Abstimmung dreier Stellen ohne Schrift: schmale Streifen links und rechts des Codes und einer über
+  // den Großbuchstaben (in einem knappen Kästchen liegt einer davon schon draußen – dann entscheiden die anderen)
+  const vote = (pix) => { let a = 0, bb = 0; for (const i of pix) { const da = dist(i, A), db = dist(i, B); if (da <= 40 && da < db) a++; else if (db <= 40) bb++; } return a > bb ? 1 : bb > a ? -1 : 0; };
+  const strip = (xa, xb, ya, yb) => { const out = []; for (let y = Math.max(0, ya); y <= Math.min(rh - 1, yb); y++) for (let x = Math.max(0, xa); x <= Math.min(rw - 1, xb); x++) out.push(at(x, y)); return out; };
+  const g1 = Math.max(1, Math.round(0.02 * h)), g2 = Math.max(g1 + 1, Math.round(0.08 * h));
+  const votes = vote(strip(cx0 - g2, cx0 - g1, fy0, fy1)) + vote(strip(cx1 + g1, cx1 + g2, fy0, fy1)) + vote(strip(cx0, cx1, Math.round(base - 0.9 * h), Math.round(base - 0.78 * h)));
+  const aShare = band.filter((i) => dist(i, A) <= 40).length, bShare = band.filter((i) => dist(i, B) <= 40).length;
+  const first = votes > 0 || (votes === 0 && aShare >= bShare) ? A : B;
+  // Buchstaben unter einer Annahme (bg, fg): zusammenhängende Schriftflächen im Suchfenster (8er-Nachbarschaft), die das mittlere Band
+  // (0,2–0,45 Schriftgrößen über der Grundlinie) erreichen und deren Mitte im Kasten liegt
+  // Suchfenster mit Platz für Schein oder Schatten ringsum (der Ausschnitt aus paintCode reicht 0,6 Schriftgrößen weiter)
+  const wx0 = Math.max(0, cx0 - Math.round(0.55 * h)), wx1 = Math.min(rw - 1, cx1 + Math.round(0.55 * h)), wy0 = Math.max(0, Math.round(base - 1.35 * h)), wy1 = Math.min(rh - 1, Math.round(base + 0.65 * h));
+  const ww = wx1 - wx0 + 1, wh = wy1 - wy0 + 1, midA = base - 0.45 * h - wy0, midB = base - 0.2 * h - wy0;
+  const glyphs = (bg, fg) => {
+    const far = Math.hypot(fg[0] - bg[0], fg[1] - bg[1], fg[2] - bg[2]);
+    if (far < 40) return null;
+    const thr = Math.max(30, far * 0.35);
+    const isInkAt = (i) => { const a2 = dist(i, bg); return a2 > thr && dist(i, fg) < a2; };
+    let ink = 0, third = 0;
+    for (let y = fy0; y <= fy1; y++) for (let x = cx0; x <= cx1; x++) { const i = at(x, y); if (isInkAt(i)) ink++; else if (dist(i, bg) > thr) third++; }
+    const all = (fy1 - fy0 + 1) * (cx1 - cx0 + 1), share = ink / all;
+    // eine dritte Farbe hinter der Schrift (z. B. Textmarker nur unten, zweifarbiger Grund) – dann ist der Grund nicht ruhig: lieber nicht
+    if (share < 0.03 || share > 0.6 || third / all > 0.12) return null;
+    const lab = new Int32Array(ww * wh), inkW = new Uint8Array(ww * wh), keep = [], stack = [];
+    for (let y = 0; y < wh; y++) for (let x = 0; x < ww; x++) if (isInkAt(at(wx0 + x, wy0 + y))) inkW[y * ww + x] = 1;
+    let n = 0;
+    for (let s0 = 0; s0 < ww * wh; s0++) {
+      if (!inkW[s0] || lab[s0]) continue;
+      n++; lab[s0] = n; stack.push(s0);
+      let minx = ww, maxx = -1, miny = wh, maxy = -1, mid = false;
+      const px = [];
+      while (stack.length) {
+        const q = stack.pop(), qx = q % ww, qy = (q - qx) / ww; px.push(q);
+        if (qx < minx) minx = qx; if (qx > maxx) maxx = qx; if (qy < miny) miny = qy; if (qy > maxy) maxy = qy;
+        if (qy >= midA && qy <= midB) mid = true;
+        for (let dy = -1; dy <= 1; dy++) for (let dx = -1; dx <= 1; dx++) {
+          const nx = qx + dx, ny = qy + dy; if (nx < 0 || ny < 0 || nx >= ww || ny >= wh) continue;
+          const r2 = ny * ww + nx; if (inkW[r2] && !lab[r2]) { lab[r2] = n; stack.push(r2); }
+        }
+      }
+      const mx = wx0 + (minx + maxx) / 2;
+      // ein Buchstabe des Codes ist höchstens etwa eine Schriftgröße hoch und reicht nie bis an den oberen oder unteren Rand des
+      // Suchfensters (sonst: Rahmen, Kachel- oder Tabellenlinie, Bild)
+      if (mid && mx >= cx0 - 0.1 * h && mx <= cx1 + 0.1 * h && maxy - miny < 1.0 * h && miny > 0 && maxy < wh - 1 && maxx - minx <= cx1 - cx0 + 0.4 * h) keep.push({ minx, maxx, miny, maxy, px });
+    }
+    // dünne Rahmen und Linien um bzw. unter dem Code (breit oder um einen Buchstaben herum, aber kaum gefüllt) bleiben stehen
+    const holds = (q) => keep.some((o) => o !== q && (o.minx + o.maxx) / 2 > q.minx && (o.minx + o.maxx) / 2 < q.maxx && (o.miny + o.maxy) / 2 > q.miny && (o.miny + o.maxy) / 2 < q.maxy);
+    for (let k = keep.length - 1; k >= 0; k--) {
+      const q = keep[k], bw = q.maxx - q.minx + 1, fill = q.px.length / (bw * (q.maxy - q.miny + 1));
+      if ((bw > 1.3 * h && fill < 0.2) || (fill < 0.12 && holds(q))) keep.splice(k, 1);
+    }
+    if (!keep.length) return null;
+    // sieht das wie Buchstaben aus? mehrere Teile, keins breiter als zwei Zeichen (sonst ist es ein Kästchen, ein Balken oder die
+    // Annahme ist vertauscht)
+    const widest = Math.max(...keep.map((k) => k.maxx - k.minx + 1));
+    const letters = keep.length >= 3 && widest <= Math.max(1.3 * h, 0.4 * (cx1 - cx0 + 1));
+    return { bg, fg, thr, share, keep, letters, isInkAt };
+  };
+  const second = first === A ? B : A;
+  let g = glyphs(first, second.map(Math.round));
+  if (!g || !g.letters) { const g2 = glyphs(second, first.map(Math.round)); if (g2 && g2.letters) g = g2; }
+  if (!g || !g.letters) return null;   // weder so noch vertauscht Buchstaben – lieber nicht übermalen
+  const { fg, thr, share, keep, isInkAt } = g;
+  // echter Hintergrund weiter außen (über und unter dem Code, Median): Leuchten oder Schatten färben die Lücken zwischen den Buchstaben,
+  // dann wäre der Schein selbst „Hintergrund“ und bliebe als Geisterschrift stehen
+  let bg = g.bg;
+  {
+    const far0 = Math.hypot(fg[0] - bg[0], fg[1] - bg[1], fg[2] - bg[2]), outer = [];
+    for (const [ya, yb] of [[base - 1.2 * h, base - 1.05 * h], [base + 0.3 * h, base + 0.45 * h]])
+      for (let y = Math.max(wy0, Math.round(ya)); y <= Math.min(wy1, Math.round(yb)); y++) for (let x = cx0; x <= cx1; x += 3) outer.push(at(x, y));
+    if (outer.length >= 20) {
+      const med = [0, 1, 2].map((k) => { const v = outer.map((i) => d[i + k]).sort((p, q) => p - q); return v[v.length >> 1]; });
+      if (Math.hypot(med[0] - bg[0], med[1] - bg[1], med[2] - bg[2]) < far0 * 0.25) bg = med;   // nur eine leichte Abweichung (Schein), kein anderer Grund (Kästchen)
+    }
   }
-  const colHas = (x) => { for (let y = t; y <= bt; y++) if (isInk(x, y)) return true; return false; };
-  const side = Math.round(0.2 * h);
-  let l = cx0; while (l - 1 >= Math.max(0, cx0 - side) && colHas(l - 1)) l--;
-  while (l < cx1 && !colHas(l)) l++;
-  let r = cx1; while (r + 1 <= Math.min(rw - 1, cx1 + side) && colHas(r + 1)) r++;
-  while (r > l && !colHas(r)) r--;
-  const x = Math.max(0, l - 2), y = Math.max(0, t - 2);
-  return { bg, fg, thr, share, x, y, w: Math.min(rw, r + 3) - x, h: Math.min(rh, bt + 2) - y, inkX: l, inkW: r - l + 1 };
+  const kx0 = wx0 + Math.min(...keep.map((k) => k.minx)), kx1 = wx0 + Math.max(...keep.map((k) => k.maxx));
+  if (kx1 - kx0 < (cx1 - cx0) * 0.5) return null;   // nur ein Teil des Codes gefunden – lieber nicht
+  // Maske im Suchfenster: die Buchstaben, 2 px Rand (Kantenglättung) und weicher Schein oder Schatten, der an ihnen hängt (deutlich anders
+  // als der Hintergrund, aber keine Schrift – so bleibt Text daneben stehen), höchstens 0,15 Schriftgrößen weit
+  const far = Math.hypot(fg[0] - bg[0], fg[1] - bg[1], fg[2] - bg[2]), soft = Math.max(18, far * 0.12);
+  const grow = (reach) => {
+    const m2 = new Uint8Array(ww * wh), seen = new Int16Array(ww * wh).fill(-1), queue = [];
+    for (const k of keep) for (const q of k.px) { m2[q] = 1; seen[q] = 0; queue.push(q); }
+    for (let qi = 0; qi < queue.length; qi++) {
+      const q = queue[qi], qx = q % ww, qy = (q - qx) / ww, dd = seen[q];
+      for (let dy = -1; dy <= 1; dy++) for (let dx = -1; dx <= 1; dx++) {
+        const nx = qx + dx, ny = qy + dy; if (nx < 0 || ny < 0 || nx >= ww || ny >= wh) continue;
+        const r2 = ny * ww + nx; if (seen[r2] >= 0) continue;
+        const i = at(wx0 + nx, wy0 + ny), near = dd + 1 <= 2, glow = dd + 1 <= reach && dist(i, bg) > soft && !isInkAt(i);
+        if (near || glow) { seen[r2] = dd + 1; m2[r2] = 1; queue.push(r2); }
+      }
+    }
+    return m2;
+  };
+  // Geht der Schein über die Grenze hinaus weiter (Leuchten)? Dann ist das Pixel direkt über der Maske noch kein Hintergrund und wird nach
+  // außen hin weiter schwächer – bei einem Verlauf ändert es sich dort kaum, eine Zeile darüber liegt hinter Hintergrund. Dann ausdehnen.
+  const haloOut = (m2) => {
+    let cols = 0, halo = 0;
+    for (let xx = 0; xx < ww; xx++) {
+      let t = -1; for (let yy = 0; yy < wh; yy++) if (m2[yy * ww + xx]) { t = yy; break; }
+      if (t < 8) continue;
+      cols++;
+      const p1 = at(wx0 + xx, wy0 + t - 1), p4 = at(wx0 + xx, wy0 + t - 4);
+      if (dist(p1, bg) > soft && Math.hypot(d[p1] - d[p4], d[p1 + 1] - d[p4 + 1], d[p1 + 2] - d[p4 + 2]) > soft / 3) halo++;
+    }
+    return cols > 0 && halo > cols * 0.3;
+  };
+  let m = grow(Math.max(2, Math.round(0.15 * h)));
+  if (haloOut(m)) { m = grow(Math.max(2, Math.round(0.45 * h))); if (haloOut(m)) return null; }   // Schein ohne Ende (z. B. auf einem Verlauf) – lieber nicht
+  let mx0 = ww, mx1 = -1, my0 = wh, my1 = -1;
+  for (let q = 0; q < m.length; q++) if (m[q]) { const qx = q % ww, qy = (q - qx) / ww; if (qx < mx0) mx0 = qx; if (qx > mx1) mx1 = qx; if (qy < my0) my0 = qy; if (qy > my1) my1 = qy; }
+  const x = wx0 + mx0, y = wy0 + my0, w = mx1 - mx0 + 1, hh = my1 - my0 + 1, mask = new Uint8Array(w * hh);
+  for (let yy = 0; yy < hh; yy++) for (let xx = 0; xx < w; xx++) mask[yy * w + xx] = m[(my0 + yy) * ww + mx0 + xx];
+  return { bg, fg, thr, share, x, y, w, h: hh, mask, inkX: kx0, inkW: kx1 - kx0 + 1 };
 }
-/* Füllung für die Fläche aus codeCover: je Spalte zwischen dem Pixel darüber und darunter verlaufend (auch Farbverläufe und Bilder
-   bleiben ruhig); Pixel, die zur Schrift gehören oder nicht zum Hintergrund passen, zählen nicht. → RGBA-Pixel der Fläche (c.w × c.h). */
+/* Füllung für die Maske aus codeCover: je Spalte zwischen Hintergrundpixeln darüber und darunter verlaufend (auch Farbverläufe und
+   Bilder bleiben ruhig). Stützpunkte = Median einiger Zeilen mit Abstand zur Schrift (keine Kantenglättung), nur Pixel nahe am Hintergrund,
+   waagerecht geglättet. Pixel außerhalb der Maske bleiben, wie sie sind. → RGBA-Pixel des Rechtecks (c.w × c.h). */
 export function coverFill(d, rw, rh, c) {
   const out = new Uint8ClampedArray(c.w * c.h * 4);
-  const near = (x, y) => {
-    if (y < 0 || y >= rh || x < 0 || x >= rw) return null;
-    const i = (y * rw + x) * 4, px = [d[i], d[i + 1], d[i + 2]];
-    return Math.hypot(px[0] - c.bg[0], px[1] - c.bg[1], px[2] - c.bg[2]) <= c.thr ? px : null;
+  for (let yy = 0; yy < c.h; yy++) for (let xx = 0; xx < c.w; xx++) { const o = (yy * c.w + xx) * 4, i = ((c.y + yy) * rw + c.x + xx) * 4; out[o] = d[i]; out[o + 1] = d[i + 1]; out[o + 2] = d[i + 2]; out[o + 3] = 255; }
+  // Toleranz wie die Schwelle zur Schrift: Bei Leuchten ist der geschätzte Hintergrund zu hell, die Pixel ringsum sind der echte
+  const tol = Math.max(14, c.thr), med = (a) => { a.sort((p, q) => p - q); return a[a.length >> 1]; };
+  const anchor = (x, y0, dir) => {
+    const r = [], g = [], bl = [];
+    for (let k = 3; k <= 8; k++) {
+      const y = y0 + dir * k; if (y < 0 || y >= rh) continue;
+      const i = (y * rw + x) * 4;
+      if (Math.hypot(d[i] - c.bg[0], d[i + 1] - c.bg[1], d[i + 2] - c.bg[2]) <= tol) { r.push(d[i]); g.push(d[i + 1]); bl.push(d[i + 2]); }
+    }
+    return r.length >= 2 ? [med(r), med(g), med(bl)] : null;
+  };
+  const cols = [];
+  for (let xx = 0; xx < c.w; xx++) {
+    let t = -1, bo = -1;
+    for (let yy = 0; yy < c.h; yy++) if (c.mask[yy * c.w + xx]) { if (t < 0) t = yy; bo = yy; }
+    cols.push(t < 0 ? null : { t, bo, top: anchor(c.x + xx, c.y + t, -1), bot: anchor(c.x + xx, c.y + bo, 1) });
+  }
+  const smooth = (xx, key) => {
+    const r = [], g = [], bl = [];
+    for (let k = Math.max(0, xx - 3); k <= Math.min(c.w - 1, xx + 3); k++) { const v = cols[k] && cols[k][key]; if (v) { r.push(v[0]); g.push(v[1]); bl.push(v[2]); } }
+    return r.length ? [med(r), med(g), med(bl)] : null;
   };
   for (let xx = 0; xx < c.w; xx++) {
-    const x = c.x + xx;
-    let top = null, bot = null;
-    for (let k = 1; k <= 3 && !top; k++) top = near(x, c.y - k);
-    for (let k = 0; k < 3 && !bot; k++) bot = near(x, c.y + c.h + k);
-    const A = top || bot || c.bg, B = bot || top || c.bg;
-    for (let yy = 0; yy < c.h; yy++) {
-      const f = (yy + 0.5) / c.h, o = (yy * c.w + xx) * 4;
-      out[o] = A[0] + (B[0] - A[0]) * f; out[o + 1] = A[1] + (B[1] - A[1]) * f; out[o + 2] = A[2] + (B[2] - A[2]) * f; out[o + 3] = 255;
+    const col = cols[xx]; if (!col) continue;
+    const top = smooth(xx, "top"), bot = smooth(xx, "bot"), A = top || bot || c.bg, B = bot || top || c.bg, span = col.bo - col.t + 1;
+    for (let yy = col.t; yy <= col.bo; yy++) {
+      if (!c.mask[yy * c.w + xx]) continue;
+      const f = (yy - col.t + 0.5) / span, o = (yy * c.w + xx) * 4;
+      out[o] = A[0] + (B[0] - A[0]) * f; out[o + 1] = A[1] + (B[1] - A[1]) * f; out[o + 2] = A[2] + (B[2] - A[2]) * f;
     }
   }
   return out;

@@ -160,11 +160,16 @@ implementiert und im End-to-End-Test geprüft (Ausnahmen unten ausdrücklich gen
    anderen Sitzung hochgeladen (auch per Sitzungsdatei), sucht `rasterizeAndUpload` (`public/presenter.js`, Option `code`) mit der Textebene
    von PDF.js den größten Code auf Folie 1 (`slideCodeBoxes`/`slideSessionCode` in `shared.js`, Form wie `formatCode`, auch gesperrt gesetzt;
    mindestens 6 % der Folienhöhe; nie der Code eines verknüpften Feibeitsblatts – auch nicht aus der Sitzungsdatei) und ersetzt ihn auf allen
-   Folienbildern durch den Code der aktuellen Sitzung. Zeichenbreiten werden im Browser gemessen (Lage im Satz), die Fläche zum Übermalen misst
-   `codeCover` an den Pixeln (Text darüber bleibt), Hintergrund = häufigste Farbe knapp unter der Grundlinie, Schrift = die davon am weitesten
-   entfernte Farbe, gleiche Größe (notfalls schmaler), Festbreitenschrift, wenn das PDF eine hatte; Breite mit `/UserUnit`. Die hochgeladene PDF
-   selbst (Schüler:innen öffnen sie nach der Stunde) bleibt unverändert; die Lehrkraft sieht eine Meldung, auf welchen Folien ersetzt wurde –
-   bzw. dass auf Folie 1 kein Code als Text zu finden war. Hinweise für die
+   Folienbildern durch den Code der aktuellen Sitzung. Zeichenbreiten misst der Browser in der Schrift des PDF (Lage im Satz).
+   `codeCover` bestimmt die zwei Hauptfarben im Band der Großbuchstaben; welche der Hintergrund ist, entscheiden Streifen links, rechts
+   und über dem Code per Mehrheit, abgesichert durch die Form (mehrere schmale Buchstaben, sonst vertauscht prüfen). Übermalt werden nur
+   die Buchstaben selbst – zusammenhängende Flächen, die das mittlere Band erreichen, samt 2 px Rand und weichem Schein/Schatten
+   (Satzzeichen, Text darüber, Unterstrich, Rahmen und Kacheln bleiben); `coverFill` füllt je Spalte verlaufend aus dem Hintergrund
+   darüber und darunter (Verläufe, ruhige Fotos). Der neue Code sitzt auf der gemessenen Fläche der alten Schrift (Breite angeglichen), in
+   Schnitt, Kursiv und Familie wie vorher (`codeFontStyle`, Angaben von PDF.js). Nicht sicher – unruhiger oder zweifarbiger Grund,
+   Schein ohne Ende, Code nicht ganz auf der Folie – bleibt die Folie, wie sie ist, und steht in `swapped.missed`. Breite mit `/UserUnit`.
+   Die hochgeladene PDF selbst (Schüler:innen öffnen sie nach der Stunde) bleibt unverändert; die Lehrkraft sieht eine Meldung, auf
+   welchen Folien ersetzt wurde, auf welchen der alte Code noch steht – bzw. dass auf Folie 1 kein Code als Text zu finden war. Hinweise für die
    Lehrkraft (statt Sprechernotizen) gibt Claude im Chat bzw. auf Wunsch über `add_text_material` (nur für die Lehrkraft).
 6. **Präsentation und Live-Synchronisation.** Upload der PDF → der Browser der Lehrkraft rendert jede Seite mit PDF.js
    (1920 px) und lädt sie als Bild hoch. „Ich bin im Unterricht …“ öffnet das Vollbild und meldet die Folie an das Durable
