@@ -175,9 +175,11 @@ export function cleanWebUrl(raw) {
 export const webUrlLabel = (url) => { const s = String(url || "").replace(/^https?:\/\//, "").replace(/\/$/, ""); return s.length > 70 ? s.slice(0, 67) + "…" : s; };
 export const formatCode = (c) => (c && c.length === 6 ? c.slice(0, 3) + "-" + c.slice(3) : String(c || ""));
 /* ---------- Sitzungscode auf den Folien einer Präsentation (Wunsch der Lehrkraft vom 11.11.2026) ----------
- * Präsentationen sind zeitlos und werden in späteren Sitzungen wiederverwendet; Folie 1 und die Materialfolien zeigen aber den Sitzungscode.
- * Beim Erzeugen der Folienbilder (presenter.js) findet Unterricks den Code auf Folie 1 (den größten dort) und ersetzt ihn auf allen Folien
- * durch den Code der aktuellen Sitzung. codesInText: Codes wie formatCode („AEH-4VY“, Bindestrich oder Gedankenstrich), nicht mitten in Wörtern. */
+ * Präsentationen sind zeitlos und werden in späteren Sitzungen wiederverwendet. Seit dem 11.11.2026 steht der Sitzungscode nicht mehr auf
+ * den Folien: Unterricks zeigt ihn live auf einer eigenen Codefolie (vor Folie 1 und an Platzhalterfolien, siehe codeSlideLines). Für ältere
+ * Präsentationen mit dem Code auf den Folien bleibt der stille Rückfall: Beim Erzeugen der Folienbilder (presenter.js) findet Unterricks den
+ * Code auf Folie 1 (den größten dort) und ersetzt ihn auf allen Folien durch den Code der aktuellen Sitzung.
+ * codesInText: Codes wie formatCode („AEH-4VY“, Bindestrich oder Gedankenstrich), nicht mitten in Wörtern. */
 /* auch gesperrt gesetzt: PDF.js fügt bei erweitertem Zeichenabstand (ab etwa 0,1 em) Leerzeichen ein – „A E H - 4 V Y“ */
 const CODE_IN_TEXT = /(^|[^A-Za-z0-9])(?:([A-Z0-9]{3})[-\u2010\u2011\u2013\u2014]([A-Z0-9]{3})|([A-Z0-9]) ([A-Z0-9]) ([A-Z0-9]) [-\u2010\u2011\u2013\u2014] ([A-Z0-9]) ([A-Z0-9]) ([A-Z0-9]))(?![A-Za-z0-9])/g;
 export function codesInText(s) {
@@ -188,24 +190,31 @@ export function codesInText(s) {
   }
   return out;
 }
-/* Textstücke einer Seite in Gerätekoordinaten ({str, x, base, w, h, eol, family}; Reihenfolge wie im PDF) → Zeilen → je Code ein Kasten
-   {code, x0, x1, base, h, family}. Stücke auf derselben Grundlinie werden verbunden (ein Code kann in mehreren Stücken stehen).
-   advance(Zeichen, family) = relative Breite eines Zeichens (im Browser gemessen) – so liegt der Kasten auch mitten in einem Satz in
-   Proportionalschrift richtig; ohne advance gelten alle Zeichen als gleich breit. */
-export function slideCodeBoxes(items, advance) {
+/* Zeilen einer Seite aus den Textstücken ({str, x, base, w, h, eol, family, font?, mf?}): Stücke auf derselben Grundlinie werden verbunden
+   (Leerzeichen bei einer Lücke); je Zeile {base, end, h (größte Schrift), text, map (je Zeichen {x0, x1, h, base, family, font} bzw. null)} –
+   in der Reihenfolge des PDF. advance wie bei slideCodeBoxes. */
+export function slideTextLines(items, advance) {
   const lines = []; let cur = null;
   for (const it of items || []) {
     if (!it || !it.str || !(it.h > 0) || !Number.isFinite(it.x) || !Number.isFinite(it.base) || !(it.w >= 0)) { if (!it || it.eol || !it.str) cur = null; continue; }
-    if (!cur || Math.abs(it.base - cur.base) > it.h * 0.25 || it.x < cur.end - it.h * 0.5) { cur = { base: it.base, end: it.x, text: "", map: [] }; lines.push(cur); }
+    if (!cur || Math.abs(it.base - cur.base) > it.h * 0.25 || it.x < cur.end - it.h * 0.5) { cur = { base: it.base, end: it.x, h: 0, text: "", map: [] }; lines.push(cur); }
     else if (it.x - cur.end > it.h * 0.2) { cur.text += " "; cur.map.push(null); }
     const n = it.str.length, ws = [];
     for (let i = 0; i < n; i++) { const a = advance ? Number(advance(it.str[i], it.family || "", it.mf || "")) : 1; ws.push(Number.isFinite(a) && a > 0 ? a : 0); }
     let tot = ws.reduce((a, b) => a + b, 0);
     if (!(tot > 0)) { ws.fill(1); tot = n; }
     for (let i = 0, acc = 0; i < n; i++) { const x0 = it.x + (it.w * acc) / tot; acc += ws[i]; cur.text += it.str[i]; cur.map.push({ x0, x1: it.x + (it.w * acc) / tot, h: it.h, base: it.base, family: it.family || "", font: it.font || null }); }
-    cur.end = it.x + it.w;
+    cur.end = it.x + it.w; cur.h = Math.max(cur.h, it.h);
     if (it.eol) cur = null;
   }
+  return lines;
+}
+/* Textstücke einer Seite in Gerätekoordinaten ({str, x, base, w, h, eol, family}; Reihenfolge wie im PDF) → Zeilen → je Code ein Kasten
+   {code, x0, x1, base, h, family}. Stücke auf derselben Grundlinie werden verbunden (ein Code kann in mehreren Stücken stehen).
+   advance(Zeichen, family) = relative Breite eines Zeichens (im Browser gemessen) – so liegt der Kasten auch mitten in einem Satz in
+   Proportionalschrift richtig; ohne advance gelten alle Zeichen als gleich breit. */
+export function slideCodeBoxes(items, advance) {
+  const lines = slideTextLines(items, advance);
   const out = [];
   for (const l of lines) for (const c of codesInText(l.text)) {
     const cs = l.map.slice(c.start, c.end).filter(Boolean);
@@ -404,13 +413,59 @@ export function codeFontStyle(f) {
   const bold = f && (f.bold || f.black || /bold|black|heavy|extrabold|semibold|demi/i.test(name)) ? true : f && (f.name || f.loadedName) ? false : null;
   return { mono, serif, bold, italic: !!(f && (f.italic || /italic|oblique/i.test(name))) };
 }
-/* der Sitzungscode einer Präsentation: der größte Code auf Folie 1 (laut Prompt die Einstiegsfolie, mindestens 96 pt ≈ 18 % der Höhe);
+/* der Sitzungscode einer älteren Präsentation: der größte Code auf Folie 1 (laut Prompt vor dem 11.11.2026 die Einstiegsfolie, mindestens 96 pt ≈ 18 % der Höhe);
    opt.exclude = Codes, die es sicher nicht sind (verknüpfte Feibeitsblätter), opt.minH = Mindesthöhe (kleine Codes sind es nicht); "" = keiner */
 export function slideSessionCode(boxes, opt = {}) {
   const ex = new Set(opt.exclude || []), minH = Number(opt.minH) || 0;
   let b = null;
   for (const x of boxes || []) if (!ex.has(x.code) && x.h >= minH && (!b || x.h > b.h)) b = x;
   return b ? b.code : "";
+}
+
+/* ---------- Codefolien (Wunsch der Lehrkraft vom 11.11.2026) ----------
+ * Den Sitzungscode zeigt Unterricks live auf einer eigenen Folie (wie „Für den Beamer zeigen“: Code + QR-Code der aktuellen Sitzung) – beim
+ * Start der Präsentation vor Folie 1 und überall, wo die PDF eine Platzhalterfolie hat: eine Folie mit der Zeile CODE_SLIDE_MARK. Ihr
+ * übriger großer Text (Aufforderung, Materialtitel) wird zur Überschrift der Codefolie; kleine Zeilen (Fußzeile, Seitenzahl), Codes und
+ * der Erklärsatz zur Marke entfallen; die Zeilen bleiben, wie sie auf der Folie umbrochen sind. lines = slideTextLines(…) einer Seite →
+ * null (keine Platzhalterfolie) oder die Überschrift (0–4 Zeilen, von oben nach unten). */
+export const CODE_SLIDE_MARK = "Unterricks-Codefolie";
+export const CODE_SLIDE_LINE = CODE_SLIDE_MARK + ": Hier zeigt Unterricks den QR-Code und den Sitzungscode.";   // so steht sie laut Prompt auf der Folie
+export const CODE_SLIDE_LIMITS = { slides: 60, lines: 4, line: 160 };   // Prompt: höchstens drei Zeilen – eine umbrochene mehr geht noch
+const MARK_SRC = "u\\s?n\\s?t\\s?e\\s?r\\s?r\\s?i\\s?c\\s?k\\s?s\\s?[-\\u2010\\u2011\\u2013\\u2014]?\\s?c\\s?o\\s?d\\s?e\\s?f\\s?o\\s?l\\s?i\\s?e";   // auch gesperrt gesetzt (PDF.js fügt Leerzeichen ein)
+const MARK_RE = new RegExp(MARK_SRC, "i");
+const cleanSlideLine = (s, max) => String(s == null ? "" : s).normalize("NFC").replace(/[\u0000-\u001F\u007F-\u009F\u00AD\u200B-\u200F\u2028-\u202E\u2060-\u206F\uFEFF]/g, " ")
+  .replace(/\s+/g, " ").trim().slice(0, max).replace(/[\uD800-\uDBFF]$/, "").trim();
+const explains = (t) => /qr-?code|sitzungscode|hier zeigt unterricks/i.test(t);   // Erklärsatz zur Marke („Hier zeigt Unterricks den QR-Code …“), auch umgebrochen
+export function codeSlideLines(lines) {
+  const all = (lines || []).filter((l) => l && typeof l.text === "string");
+  if (!all.some((l) => MARK_RE.test(l.text))) return null;
+  const keep = [];
+  for (const l of all) {
+    let t = l.text;
+    if (MARK_RE.test(t)) {
+      t = t.replace(new RegExp(MARK_SRC, "gi"), " ").replace(/^[\s:·|–—-]+|[\s:·|–—-]+$/g, "");
+      if (t.split(/\s+/).filter((w) => /\p{L}/u.test(w)).length < 2 || explains(t)) continue;   // Marke allein bzw. mit Erklärsatz
+    }
+    if (!/\p{L}{2}/u.test(t) || codesInText(t).length || explains(t)) continue;   // Seitenzahl, Code, Erklärung
+    if (/^\s*[„“”"‚‘’'«»]/.test(t) && /[„“”"‚‘’'«»]\s*$/.test(t)) t = t.replace(/^\s*[„“”"‚‘’'«»]+|[„“”"‚‘’'«»]+\s*$/g, "");   // ganz in Anführungszeichen
+    const text = cleanSlideLine(t, CODE_SLIDE_LIMITS.line);
+    if (text) keep.push({ text, base: l.base, h: Number(l.h) || 0 });
+  }
+  const maxH = Math.max(0, ...keep.map((l) => l.h));
+  return keep.filter((l) => !(maxH > 0) || l.h >= maxH * 0.55).sort((a, b) => a.base - b.base).slice(0, CODE_SLIDE_LIMITS.lines).map((l) => l.text);
+}
+/* Codefolien aus fremden Daten (Browser → Server, Server → DO): [{n (1…pages, eindeutig), lines (0–3 Zeilen ≤ 160 Zeichen)}], nach n sortiert */
+export function cleanCodeSlides(raw, pages) {
+  if (!Array.isArray(raw) || !Number.isInteger(pages) || pages < 1) return [];
+  const seen = new Set(), out = [];
+  for (const x of raw.slice(0, 300)) {
+    const n = x && typeof x === "object" ? x.n : NaN;
+    if (!Number.isInteger(n) || n < 1 || n > pages || seen.has(n)) continue;
+    const lines = (Array.isArray(x.lines) ? x.lines.slice(0, 10) : []).filter((t) => typeof t === "string").map((t) => cleanSlideLine(t, CODE_SLIDE_LIMITS.line)).filter(Boolean).slice(0, CODE_SLIDE_LIMITS.lines);
+    seen.add(n); out.push({ n, lines });
+    if (out.length >= CODE_SLIDE_LIMITS.slides) break;
+  }
+  return out.sort((a, b) => a.n - b.n);
 }
 
 /* Öffentliche Adresse der Oberfläche (GitHub Pages mit eigener Domain) – für Hinweise im Schulportal */
@@ -731,17 +786,15 @@ const connectorHint = (ctx) => ctx.lessonId
     " auf (dort stehen alle aktuellen Daten), und speichere deine Ergebnisse auf Wunsch der Lehrkraft direkt mit `save_schulportal_entry`, `add_text_material` bzw. `propose_feibeitsblatt` in der Plattform."
   : "";
 
-/* QR-Code zu PUBLIC_URL als Modulmuster (29 × 29, Version 3, Fehlerkorrektur M; 1 = schwarz) – dasselbe wie public/qr-unterricks.svg
-   (qrMatrix aus public/fbanalog.js, Unit-Test vergleicht). Steht im Präsentations-Prompt, damit Claude ihn exakt zeichnet statt neu zu erzeugen. */
-export const QR_UNTERRICKS = ["11111110111000011100001111111", "10000010101100001111101000001", "10111010100010011010101011101", "10111010011110001101101011101", "10111010100010111011001011101", "10000010010010011110101000001", "11111110101010101010101111111", "00000000001011011001100000000", "10011111100101000101010010111", "01110000110101001011010110110", "11001110001111011010110010100", "01111100111001001101000011001", "11010111000001011000101100001", "01101100110101101110011111111", "11100010111001001111011010101", "00101000011010010001000110101", "00111111000110100001100001000", "10011000101001101011000010110", "11010110100000010101010101001", "11011100000010101000110101100", "11010110110111111101111111110", "00000000100110110011100011000", "11111110110100110101101011000", "10000010101010100101100010001", "10111010110101111001111111011", "10111010101101011000010000001", "10111010001001011111110110111", "10000010010110010010001111101", "11111110100000000011101011000"];
-
 export function claudePresentationPrompt(ctx, portalText, messages) {
   const L = ctx.lesson || {};
   const developed = (messages || []).filter((m) => m.role === "assistant").slice(-3).map((m) => String(m.content || "").trim()).join("\n\n---\n\n");
-  const code = ctx.code ? formatCode(ctx.code) : "", host = PUBLIC_URL.replace(/^https?:\/\//, "");
-  const codeText = code ? "„" + code + "“" : "der Sitzung (bitte bei der Lehrkraft erfragen)";
-  // Jahrgang 5/6: im Unterricht keine iPads – Material kommt auf Papier (ANALOG_RULE); Folie 1 bleibt trotzdem (Sitzung zu Hause finden)
+  // Der Sitzungscode steht nie im Prompt und nie auf den Folien: Unterricks zeigt ihn selbst auf seiner Codefolie (vor Folie 1 und an jeder
+  // Unterricks-Codefolie der PDF, CODE_SLIDE_LINE) – so bleibt die Präsentation zeitlos und zeigt in jeder Sitzung deren Code.
+  // Jahrgang 5/6: im Unterricht keine iPads – Material kommt auf Papier (ANALOG_RULE), Materialfolien sind gewöhnliche Folien; die Codefolie
+  // vor Folie 1 zeigt Unterricks trotzdem (Sitzung zu Hause finden).
   const analog = isAnalogClass(ctx.klass);
+  const where = analog ? "am Beamer" : "am Beamer und live auf den Geräten der Schüler:innen";
   // Beispiel für den Materialtitel: möglichst ein echtes Material dieser Sitzung (kein Notfall-Feibeitsblatt), ohne Dateiendung
   const matName = (area) => { const m = (ctx.materials || []).find((x) => x.area === area && !/^Notfall-Feibeitsblatt/.test(String(x.name || ""))); return m ? String(m.name).replace(/\.[a-z0-9]{2,4}$/i, "") : ""; };
   const exTitle = analog ? (matName("print") || matName("student") || "Arbeitsblatt: <Titel des Arbeitsblatts>") + " (auf Papier)"
@@ -751,37 +804,46 @@ export function claudePresentationPrompt(ctx, portalText, messages) {
       "Die PDF lade ich in der Unterrichtsplattform Unterricks hoch. Dort läuft sie während des Unterrichts am Beamer" +
       (analog ? " (die Schüler:innen dieser Jahrgangsstufe haben im Unterricht keine iPads)" : " und gleichzeitig live und synchron auf den Geräten der Schüler:innen") + "; " +
       "sie führt die Lehrkraft und die Schülerinnen und Schüler Schritt für Schritt durch die gesamte Stunde. Stelle mir die PDF-Datei zum Herunterladen bereit " +
-      "(Text als echter Text, nicht als Bild; Querformat, z. B. 33,867 × 19,05 cm).",
+      "(Text als echter Text, nicht als Bild; Querformat, z. B. 33,867 × 19,05 cm). " +
+      "Sitzungscode und QR-Code zu Unterricks gehören nicht in die PDF: Unterricks zeigt beides selbst, immer mit dem Code der Sitzung, in der die Präsentation gerade läuft (siehe „Unterricks-Codefolie“).",
     "",
-    "## Erste Folie (immer): Sitzungscode und QR-Code zu Unterricks",
-    "Mit dieser Folie beginnt jede Stunde – die Schüler:innen scannen den QR-Code, öffnen so Unterricks und geben den Sitzungscode ein" +
-      (analog ? " (in dieser Jahrgangsstufe ohne iPads zu Hause, um die Sitzung mit Hausaufgabe und Präsentation zu finden)." : "."),
-    "- Sehr groß und gut abschreibbar der Sitzungscode " + codeText + " (Festbreitenschrift, mindestens 96 pt, mit Bindestrich wie angegeben).",
-    "- Daneben der QR-Code zur Webseite " + PUBLIC_URL + ": mindestens ein Drittel der Folienhöhe groß, schwarz auf weiß, mit einem weißen Rand von 4 Modulen ringsum, scharfe Kanten (kein Weichzeichnen, keine Farbe, nichts darüber).",
-    "- Darunter die Adresse " + host + " als Text und der Satz „" + (analog ? "Zu Hause findest du diese Sitzung in Unterricks: Scanne den QR-Code oder öffne " + host + " und gib den Sitzungscode ein."
-      : "Scanne den QR-Code oder öffne " + host + " und gib den Sitzungscode ein.") + "“; Thema und Fach klein darüber (ohne Klasse und ohne Datum, siehe „Zeitlos gestalten“).",
-    "- Zeichne den QR-Code genau nach diesem Muster und erzeuge ihn nicht neu (29 × 29 Module, Zeile für Zeile von oben nach unten; 1 = schwarzes Quadrat, 0 = weiß):",
-    "```",
-    ...QR_UNTERRICKS,
-    "```",
-    "  Prüfe danach, wenn möglich, mit einem QR-Leser, dass er sich zu " + PUBLIC_URL + " auslesen lässt.",
+    "## Folie 1: gestaltete Titelfolie – ohne Sitzungscode und ohne QR-Code",
+    "Startet die Lehrkraft die Präsentation, zeigt Unterricks vor Folie 1 automatisch seine Codefolie mit dem Titel der Sitzung, dem Sitzungscode der aktuellen Sitzung und dem QR-Code zu Unterricks – " +
+      where + (analog ? " (in dieser Jahrgangsstufe, damit die Schüler:innen die Sitzung zu Hause finden)" : "") + ". Lege dafür keine eigene Folie an. Folie 1 ist die gestaltete Titelfolie der Stunde:",
+    "- das Thema bzw. die Leitfrage der Stunde groß, darunter klein das Fach (ohne Klasse und ohne Datum, siehe „Zeitlos gestalten“);",
+    "- ein ruhiges, zum Thema passendes Gestaltungselement im Layout der übrigen Folien (z. B. ein Symbol, eine Illustration oder eine Farbfläche);",
+    "- kein Sitzungscode, kein QR-Code, keine Adresse von Unterricks und keine Aufforderung, einen Code einzugeben.",
     "",
-    "## Materialfolien: Aufforderung, Titel des Materials" + (analog ? "" : ", QR-Code und Sitzungscode"),
+    "## Sitzungscode noch einmal zeigen: Unterricks-Codefolie",
+    "Der Sitzungscode ändert sich mit jeder Sitzung; die Codefolie von Unterricks gibt es in jeder Sitzung und zeigt immer deren Code. Schreibe den Sitzungscode deshalb auf keine Folie – " +
+      "auch nicht, wenn du ihn kennst (z. B. aus `get_lesson`) – und zeichne keinen QR-Code zu Unterricks. Wo die Schüler:innen den Sitzungscode noch einmal sehen sollen, setzt du eine " +
+      "Unterricks-Codefolie ein: Unterricks erkennt sie beim Hochladen und zeigt im Unterricht an ihrer Stelle – " + where + " – seine Codefolie mit dem Sitzungscode und dem QR-Code der aktuellen Sitzung. " +
+      "Eine Unterricks-Codefolie enthält:",
+    "- genau diese Zeile als echten Text – unverändert, ohne Anführungszeichen und in einer einzigen Zeile (kein Umbruch, keine Silbentrennung; klein am unteren Rand genügt, im Unterricht ist sie nicht zu sehen): " + CODE_SLIDE_LINE,
+    "- darüber höchstens drei kurze Zeilen, die Unterricks wörtlich als Überschrift über den Sitzungscode und den QR-Code setzt (bei Materialfolien die Aufforderung und den Titel des Materials, siehe unten); " +
+      "ohne solche Zeilen zeigt Unterricks dort den Titel der Sitzung;",
+    "- sonst keinen Text und keine Schrift in Bildern: keine Fußzeile, keine Foliennummer, keinen Code und keinen QR-Code – weiterer Text würde Teil der Überschrift. " +
+      "Gestalte die Folie trotzdem im Layout der übrigen Folien: In der PDF, die die Schüler:innen nach der Stunde selbst öffnen können, bleibt sie so stehen.",
+    analog ? "In dieser Jahrgangsstufe brauchen die Schüler:innen den Code nur zu Hause: Setze höchstens nach der Hausaufgabe eine Unterricks-Codefolie mit der Überschrift „Zu Hause findest du diese Sitzung in Unterricks.“ ein – Materialfolien sind hier gewöhnliche Folien."
+      : "Vor Folie 1 brauchst du keine (die zeigt Unterricks ohnehin). Jede Materialfolie mit Material aus Unterricks ist eine Unterricks-Codefolie (siehe unten); weitere setzt du nur dort ein, " +
+        "wo der Code wirklich gebraucht wird – z. B. nach der Hausaufgabe mit der Überschrift „Die Hausaufgabe und das Material findest du in Unterricks.“",
+    "",
+    "## Materialfolien: " + (analog ? "Aufforderung und Titel des Materials (auf Papier)" : "Unterricks-Codefolie mit Aufforderung und Titel des Materials"),
     "Immer wenn die Schüler:innen laut Stundenverlauf mit einem Material arbeiten sollen (Feibeitsblatt, Arbeitsblatt, Text, Link o. Ä.), bekommt dieser Schritt eine Materialfolie. " +
-      (analog ? "In dieser Jahrgangsstufe haben die Schüler:innen im Unterricht keine iPads und bekommen das Material auf Papier – die Folie zeigt deshalb nur:"
-        : "Das Material finden die Schüler:innen in Unterricks – die Folie zeigt deshalb nur:"),
+      (analog ? "In dieser Jahrgangsstufe haben die Schüler:innen im Unterricht keine iPads und bekommen das Material auf Papier – die Materialfolie ist deshalb eine gewöhnliche Folie (keine Unterricks-Codefolie) und zeigt nur:"
+        : "Das Material finden die Schüler:innen in Unterricks – die Materialfolie ist deshalb eine Unterricks-Codefolie (siehe oben) und enthält außer der Zeile „" + CODE_SLIDE_MARK + ": …“ nur:"),
     "- die Aufforderung, mit dem Material zu arbeiten, in ein bis zwei kurzen Sätzen an die Schüler:innen gerichtet (mit Sozialform und – wenn der Stundenverlauf sie nennt – den Aufgaben und der Zeit), " +
       "z. B. „Bearbeitet in Partnerarbeit die Aufgaben 1 bis 3.“;",
     "- den Titel des Materials groß und genau so, wie das Material in Unterricks heißt (siehe „Materialien und weitere Informationen“ unten; ohne Dateiendung wie „.pdf“), mit der Art davor, z. B. „" + exTitle + "“" +
-      (analog ? " – ohne QR-Code, ohne Sitzungscode und ohne Hinweis auf Unterricks." : ";"),
+      (analog ? " – ohne QR-Code, ohne Sitzungscode und ohne Hinweis auf Unterricks." : "."),
     ...(analog ? [] : [
-      "- denselben QR-Code zu Unterricks wie auf Folie 1 (dasselbe Muster, unverändert; mindestens ein Drittel der Folienhöhe groß, schwarz auf weiß mit weißem Rand) und daneben gut lesbar den Sitzungscode " +
-        codeText + " (Festbreitenschrift, mindestens 48 pt) mit dem Satz „Du findest das Material in Unterricks: QR-Code scannen oder " + host + " öffnen und den Sitzungscode eingeben.“",
+      "Unterricks zeigt Aufforderung und Titel dann als Überschrift über dem Sitzungscode und dem QR-Code der aktuellen Sitzung.",
       "Material, das unten als „von der Lehrkraft auszudrucken“ steht, teilt die Lehrkraft auf Papier aus – in Unterricks sehen die Schüler:innen es nicht. Arbeiten sie in einem Schritt nur mit solchem Material, " +
-        "steht hinter dem Titel „(auf Papier)“, und QR-Code, Sitzungscode und der Satz zu Unterricks entfallen; kommt in Unterricks bereitgestelltes Material dazu, bleiben sie, und nur beim ausgedruckten Material steht „(auf Papier)“.",
+        "ist die Materialfolie eine gewöhnliche Folie (keine Unterricks-Codefolie): Aufforderung und Titel mit „(auf Papier)“ dahinter, ohne Hinweis auf Unterricks; kommt in Unterricks bereitgestelltes Material dazu, " +
+        "bleibt es eine Unterricks-Codefolie, und nur beim ausgedruckten Material steht „(auf Papier)“.",
     ]),
     "Nicht auf die Materialfolie gehören die Aufgaben, Texte und Inhalte des Materials (sie stehen im Material selbst) und Lösungen" + (analog ? "." : " – und auch nicht der Code eines Feibeitsblatts, auch wenn der Stundenverlauf ihn nennt: " +
-      "Die Schüler:innen öffnen das Feibeitsblatt in Unterricks, das den Code dabei selbst kopiert; zwei Codes auf einer Folie würden sie leicht verwechseln. " +
+      "Die Schüler:innen öffnen das Feibeitsblatt in Unterricks, das den Code dabei selbst kopiert; neben dem Sitzungscode, den Unterricks auf der Codefolie zeigt, würden sie zwei Codes leicht verwechseln. " +
       "Notfall-Feibeitsblätter (nur für technische Probleme) nennst du nicht als Material – gemeint ist immer das Feibeitsblatt selbst."),
     analog ? "Steht ein Material, mit dem die Schüler:innen arbeiten sollen, unten nicht als „von der Lehrkraft auszudrucken“, nenne es mir zusätzlich im Chat – dann lege ich es zum Ausdrucken an."
       : "Steht ein Material, mit dem die Schüler:innen arbeiten sollen, unten gar nicht oder nur als Material „nur Lehrkraft“, nenne es mir zusätzlich im Chat – dann stelle ich es in Unterricks bereit.",
@@ -791,9 +853,9 @@ export function claudePresentationPrompt(ctx, portalText, messages) {
     "- kein Datum, das sich auf diese Lerngruppe bezieht – kein Datum der Stunde, keine Abgabe- oder Prüfungstermine, keine Wochentage („bis Donnerstag“), kein Schuljahr oder Halbjahr mit Jahreszahl; " +
       "Termine nur bezogen auf den Unterricht: Die Hausaufgabe ist „bis zur nächsten Unterrichtssitzung“ zu erledigen, auch wenn im Stundenverlauf oder bei der Hausaufgabe ein Datum steht;",
     "- nicht die Klasse (z. B. „" + (classShort(ctx.klass) || "8c") + "“) und keine Namen von Schüler:innen oder Lehrkräften – wo eine Angabe nötig ist, nur die Lerngruppe allgemein („" + (groupShort(ctx.klass) || "Jg. 8") + "“);",
-    "- Zeitgebundenes (z. B. wer gerade regiert, neueste Zahlen) nicht als „aktuell“ oder „derzeit“, sondern mit Jahreszahl und Quelle („Stand " + new Date().getFullYear() + ": …“); fachliche Jahreszahlen und Daten (z. B. historische Ereignisse) bleiben selbstverständlich.",
-    "Einzige Ausnahme ist der Sitzungscode auf Folie 1 und den Materialfolien: Er gehört zu dieser Sitzung – wird die Präsentation später in einer anderen Sitzung hochgeladen, " +
-      "setzt Unterricks auf den Folien automatisch deren Code ein. Schreibe ihn dafür überall genau wie angegeben (mit Bindestrich, waagerecht, als echten Text in einem Stück, ohne Sperrung bzw. zusätzlichen Zeichenabstand) und auf Folie 1 größer als jeden anderen Text.",
+    "- Zeitgebundenes (z. B. wer gerade regiert, neueste Zahlen) nicht als „aktuell“ oder „derzeit“, sondern mit Jahreszahl und Quelle („Stand " + new Date().getFullYear() + ": …“); fachliche Jahreszahlen und Daten (z. B. historische Ereignisse) bleiben selbstverständlich;",
+    "- kein Sitzungscode und kein QR-Code zu Unterricks: Beides gehört zu einer einzigen Sitzung. Unterricks zeigt es selbst – vor Folie 1 und auf jeder Unterricks-Codefolie, immer mit dem Code der aktuellen Sitzung –, " +
+      "so passt die Präsentation unverändert in jede spätere Sitzung.",
     "",
     "## Rahmendaten",
     "- Fach: " + subjectName(ctx.subject),
@@ -806,7 +868,7 @@ export function claudePresentationPrompt(ctx, portalText, messages) {
     "<<<",
     removeStops(portalText).trim(),
     ">>>",
-    L.homework ? "\nHausaufgabe (als letzte Folie zeigen – zu erledigen „bis zur nächsten Unterrichtssitzung“, ohne Datum): " + clip(L.homework, 3000) : "",
+    L.homework ? "\nHausaufgabe (als letzte Inhaltsfolie zeigen – zu erledigen „bis zur nächsten Unterrichtssitzung“, ohne Datum; danach darf eine Unterricks-Codefolie folgen): " + clip(L.homework, 3000) : "",
     "",
     "## Materialien und weitere Informationen",
     lessonContext(ctx, { portal: false, materialText: true, materialMax: 5000 }).split("\n").filter((l) => /^(- |  |Vorhandene|Feibeitsbl|Ideen|Präsentation)/.test(l)).join("\n") || "(keine)",
@@ -816,14 +878,15 @@ export function claudePresentationPrompt(ctx, portalText, messages) {
     developed ? clip(developed, 20000) : "(keine weiteren)",
     "",
     "## Anforderungen an die Präsentation",
-    "- Aufbau genau entlang des verbindlichen Stundenverlaufs: Folie 1 wie oben (Sitzungscode und QR-Code), dann Titel und kurze Stundenübersicht (Agenda), dann für jede Phase mindestens eine Folie in derselben Reihenfolge und Nummerierung; Phasen nach „--> Nächste Stunde“ als eigener, klar markierter Abschnitt am Ende.",
+    "- Aufbau genau entlang des verbindlichen Stundenverlaufs: Folie 1 ist die Titelfolie (siehe oben; die Codefolie davor zeigt Unterricks), dann eine kurze Stundenübersicht (Agenda), dann für jede Phase mindestens eine Folie in derselben Reihenfolge und Nummerierung; Phasen nach „--> Nächste Stunde“ als eigener, klar markierter Abschnitt am Ende.",
     "- Jede Arbeitsphase bekommt eine Auftragsfolie: Arbeiten die Schüler:innen dabei mit Material, ist das die Materialfolie (siehe oben); sonst Arbeitsauftrag mit Operatoren, " +
       "Sozialform (Einzel-, Partner-, Gruppenarbeit, Plenum) als Symbol und Wort, Zeitvorgabe in Minuten und erwartetes Ergebnis.",
     "- Leitfragen, Diskussionsfragen und Impulse groß und gut lesbar; Feibeitsblätter und anderes Material nur mit ihrem Titel auf der Materialfolie; Links, die nicht als Material in Unterricks stehen, " +
-      "als kurze Adresse (einen eigenen QR-Code dazu nur deutlich getrennt und mit seinem Ziel beschriftet, damit ihn niemand mit dem QR-Code zu Unterricks verwechselt).",
-    "- Sicherungsfolien (Tafelbild/Ergebnis), die zunächst leer bzw. mit Platzhaltern beginnen und auf einer Folgefolie die Musterlösung zeigen – keine Lösungen vor den Arbeitsphasen.",
-    "- Gestaltung für den Beamer: hoher Kontrast, Schrift mindestens 24 pt (Fließtext) bzw. 36 pt (Überschriften), höchstens 6 Zeilen pro Folie, ruhiges einheitliches Layout; keine Animationen oder Übergänge (PDF) – was nacheinander erscheinen soll, kommt auf aufeinanderfolgende Folien.",
-    "- Altersgerechte Sprache für " + gradeInfo(ctx.klass).text + "; fachlich korrekt; keine erfundenen Quellen, Zitate oder Statistiken (wo nötig: Platzhalter mit Hinweis für die Lehrkraft).",
+      "als kurze Adresse (einen eigenen QR-Code dazu nur deutlich getrennt und mit seinem Ziel beschriftet – nie auf einer Unterricks-Codefolie –, damit ihn niemand mit dem QR-Code zu Unterricks verwechselt).",
+    "- Sicherungsfolien (Tafelbild/Ergebnis), die zunächst leer bzw. mit Lücken beginnen und auf einer Folgefolie die Musterlösung zeigen – keine Lösungen vor den Arbeitsphasen.",
+    "- Gestaltung für den Beamer: hoher Kontrast, Schrift mindestens 24 pt (Fließtext) bzw. 36 pt (Überschriften), höchstens 6 Zeilen pro Folie (die Zeile „" + CODE_SLIDE_MARK + ": …“ zählt nicht mit und darf kleiner sein), " +
+      "ruhiges einheitliches Layout; keine Animationen oder Übergänge (PDF) – was nacheinander erscheinen soll, kommt auf aufeinanderfolgende Folien.",
+    "- Altersgerechte Sprache für " + gradeInfo(ctx.klass).text + "; fachlich korrekt; keine erfundenen Quellen, Zitate oder Statistiken (wo nötig: eine gekennzeichnete Lücke mit Hinweis für die Lehrkraft).",
     "- Hinweise für die Lehrkraft (Impulse, Zeit, Erwartungen) je Folie gibst du mir zusätzlich hier im Chat als kurze Liste – eine PDF hat keine Sprechernotizen.",
     "- Benenne die Datei sinnvoll und ebenfalls ohne Klasse und Datum, z. B. „" + (groupShort(ctx.klass) || "Jahrgang").replace(/\.?\s+/g, "-") + "_" + subjectName(ctx.subject).replace(/\s+/g, "-") + "_" + (L.topic || L.title || "Stunde").replace(/[^\wÄÖÜäöüß-]+/g, "-").slice(0, 40) + ".pdf“." +
       connectorHint(ctx).replace("speichere deine Ergebnisse auf Wunsch der Lehrkraft direkt mit `save_schulportal_entry`, `add_text_material` bzw. `propose_feibeitsblatt` in der Plattform",

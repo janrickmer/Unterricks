@@ -3,7 +3,7 @@ import assert from "node:assert/strict";
 import {
   SUBJECTS, ALL_CLASSES, isValidClass, gradeInfo, classShort, gradeKey, subjectConfig, classAllowed, classGroupsFor, isAnalogClass, ANALOG_RULE,
   COURSE_CLASSES, isCourseClass, courseMembers, courseOf, classLabel, homeworkForPortal, PUBLIC_URL, groupShort, fmtLongDay, normalizeCode, isValidCode, formatCode, renderPortalEntry, parsePortalMarkup, portalSafe,
-  validatePortalData, PORTAL_EXAMPLE, claudePresentationPrompt, QR_UNTERRICKS, planningSystemPrompt, SYSTEM_PROMPT_ROLE, extractJsonObject, normalizeFbDraft,
+  validatePortalData, PORTAL_EXAMPLE, claudePresentationPrompt, CODE_SLIDE_LINE, CODE_SLIDE_MARK, planningSystemPrompt, SYSTEM_PROMPT_ROLE, extractJsonObject, normalizeFbDraft,
 } from "../../public/shared.js";
 
 test("genau drei Fächer", () => {
@@ -116,65 +116,83 @@ test("Präsentations-Prompt basiert auf genau dem übergebenen Schulportal-Eintr
   assert.ok(!/\.pptx|PowerPoint-Präsentation|Sprechernotizen in jeder Folie/.test(p), "keine PowerPoint-Datei mehr");
 });
 
-test("Präsentations-Prompt: erste Folie mit Sitzungscode und QR-Code zu Unterricks (genaues Modulmuster)", async () => {
-  const p = claudePresentationPrompt({ ...ctx, code: "AEH4VY" }, "**1) Einstieg**", []);
-  const first = p.slice(p.indexOf("## Erste Folie"), p.indexOf("## Rahmendaten"));
-  assert.ok(first.includes("„AEH-4VY“") && first.includes(PUBLIC_URL) && first.includes("unterricks.janrickmer.de und gib den Sitzungscode ein"));
-  assert.ok(first.includes(QR_UNTERRICKS.join("\n")), "das Muster steht vollständig und unverändert im Prompt");
-  assert.ok(p.indexOf("## Erste Folie") < p.indexOf("## Anforderungen") && p.includes("Folie 1 wie oben (Sitzungscode und QR-Code)"));
-  // dasselbe Muster wie qrMatrix(PUBLIC_URL) bzw. die Beamer-Folie public/qr-unterricks.svg
-  const { qrMatrix } = await import("../../public/fbanalog.js");
-  const q = qrMatrix(PUBLIC_URL);
-  assert.equal(QR_UNTERRICKS.length, q.size);
-  assert.deepEqual(QR_UNTERRICKS, Array.from({ length: q.size }, (_, y) => Array.from({ length: q.size }, (_, x) => (q.dark[y * q.size + x] ? "1" : "0")).join("")));
-  const noCode = claudePresentationPrompt(ctx, "**1) Einstieg**", []);
-  assert.ok(noCode.includes("bitte bei der Lehrkraft erfragen"), "ohne Code: Hinweis statt leerer Angabe");
+test("Präsentations-Prompt: Folie 1 ist eine Titelfolie ohne Code – den Sitzungscode zeigt Unterricks selbst (zeitlos)", () => {
+  const p = claudePresentationPrompt({ ...ctx, code: "K7QM4X" }, "**1) Einstieg**", []);
+  const first = p.slice(p.indexOf("## Folie 1: gestaltete Titelfolie"), p.indexOf("## Sitzungscode noch einmal zeigen"));
+  assert.ok(p.indexOf("## Folie 1: gestaltete Titelfolie") > 0 && first.length > 100);
+  for (const t of ["zeigt Unterricks vor Folie 1 automatisch seine Codefolie", "dem Sitzungscode der aktuellen Sitzung und dem QR-Code zu Unterricks", "am Beamer und live auf den Geräten der Schüler:innen",
+    "Lege dafür keine eigene Folie an", "das Thema bzw. die Leitfrage der Stunde groß, darunter klein das Fach (ohne Klasse und ohne Datum",
+    "kein Sitzungscode, kein QR-Code, keine Adresse von Unterricks"]) assert.ok(first.includes(t), t);
+  assert.ok(p.includes("Sitzungscode und QR-Code zu Unterricks gehören nicht in die PDF"), "schon in der Einleitung");
+  assert.ok(p.includes("Folie 1 ist die Titelfolie (siehe oben; die Codefolie davor zeigt Unterricks), dann eine kurze Stundenübersicht (Agenda)"));
+  // der Code der Sitzung steht nie im Prompt: derselbe Prompt in jeder Sitzung, keine QR-Muster mehr
+  assert.ok(!p.includes("K7Q-M4X") && !p.includes("K7QM4X") && !p.includes("11111110111000011100001111111") && !p.includes("bitte bei der Lehrkraft erfragen"));
+  assert.equal(claudePresentationPrompt({ ...ctx, code: "P3T9RW" }, "**1) Einstieg**", []), p, "der Sitzungscode ändert den Prompt nicht");
 });
 
-test("Präsentations-Prompt: Materialfolien mit Aufforderung, Titel des Materials, QR-Code und Sitzungscode", () => {
+test("Präsentations-Prompt: Unterricks-Codefolie als Platzhalter (feste Zeile), Code nie selbst schreiben", () => {
+  const p = claudePresentationPrompt({ ...ctx, code: "K7QM4X" }, "**1) Einstieg**", []);
+  const cs = p.slice(p.indexOf("## Sitzungscode noch einmal zeigen: Unterricks-Codefolie"), p.indexOf("## Materialfolien"));
+  assert.equal(CODE_SLIDE_LINE, "Unterricks-Codefolie: Hier zeigt Unterricks den QR-Code und den Sitzungscode.");
+  assert.ok(CODE_SLIDE_LINE.startsWith(CODE_SLIDE_MARK));
+  for (const t of ["Schreibe den Sitzungscode deshalb auf keine Folie – auch nicht, wenn du ihn kennst (z. B. aus `get_lesson`)", "zeichne keinen QR-Code zu Unterricks",
+    "Unterricks erkennt sie beim Hochladen und zeigt im Unterricht an ihrer Stelle – am Beamer und live auf den Geräten der Schüler:innen – seine Codefolie",
+    "genau diese Zeile als echten Text – unverändert, ohne Anführungszeichen und in einer einzigen Zeile", ": " + CODE_SLIDE_LINE,
+    "höchstens drei kurze Zeilen, die Unterricks wörtlich als Überschrift", "keine Fußzeile, keine Foliennummer, keinen Code und keinen QR-Code",
+    "Vor Folie 1 brauchst du keine", "Jede Materialfolie mit Material aus Unterricks ist eine Unterricks-Codefolie"]) assert.ok(cs.includes(t), t);
+  assert.ok(!/Platzhalter/.test(p), "„Platzhalter“ nur intern – im Prompt heißt sie Unterricks-Codefolie (Sicherungsfolien haben „Lücken“)");
+  assert.ok(p.includes("mit Lücken beginnen") && p.includes("(die Zeile „Unterricks-Codefolie: …“ zählt nicht mit und darf kleiner sein)"));
+  assert.ok(p.includes("nie auf einer Unterricks-Codefolie –, damit ihn niemand mit dem QR-Code zu Unterricks verwechselt"));
+});
+
+test("Präsentations-Prompt: Materialfolien sind Unterricks-Codefolien mit Aufforderung und Titel des Materials", () => {
   const portal = "**3) Partnerarbeit**\n- Feibeitsblatt ~~Die wehrhafte Demokratie~~ mit dem Code ~~AEH-4VY~~";
   const p = claudePresentationPrompt({ ...ctx, code: "K7QM4X" }, portal, []);
-  const mat = p.slice(p.indexOf("## Materialfolien"), p.indexOf("## Rahmendaten"));
-  assert.ok(p.indexOf("## Erste Folie") < p.indexOf("## Materialfolien") && p.indexOf("## Materialfolien") < p.indexOf("## Rahmendaten"));
-  for (const s of ["Feibeitsblatt, Arbeitsblatt", "die Aufforderung, mit dem Material zu arbeiten", "den Titel des Materials", "genau so, wie das Material in Unterricks heißt",
-    "„Feibeitsblatt: Die wehrhafte Demokratie“", "denselben QR-Code zu Unterricks wie auf Folie 1", "Sitzungscode „K7Q-M4X“",
-    "Du findest das Material in Unterricks: QR-Code scannen oder unterricks.janrickmer.de öffnen und den Sitzungscode eingeben.",
-    "Inhalte des Materials", "auch nicht der Code eines Feibeitsblatts, auch wenn der Stundenverlauf ihn nennt", "Notfall-Feibeitsblätter"]) assert.ok(mat.includes(s), s);
-  assert.equal(p.split(QR_UNTERRICKS[0]).length, 2, "das Muster steht nur einmal im Prompt (die Materialfolien verweisen auf Folie 1)");
+  const mat = p.slice(p.indexOf("## Materialfolien"), p.indexOf("## Zeitlos gestalten"));
+  assert.ok(p.indexOf("## Folie 1: gestaltete Titelfolie") < p.indexOf("## Sitzungscode noch einmal zeigen") && p.indexOf("## Sitzungscode noch einmal zeigen") < p.indexOf("## Materialfolien") && p.indexOf("## Materialfolien") < p.indexOf("## Rahmendaten"));
+  assert.ok(p.includes("## Materialfolien: Unterricks-Codefolie mit Aufforderung und Titel des Materials"));
+  for (const s of ["Feibeitsblatt, Arbeitsblatt", "die Materialfolie ist deshalb eine Unterricks-Codefolie (siehe oben) und enthält außer der Zeile „Unterricks-Codefolie: …“ nur:",
+    "die Aufforderung, mit dem Material zu arbeiten", "den Titel des Materials", "genau so, wie das Material in Unterricks heißt", "„Feibeitsblatt: Die wehrhafte Demokratie“.",
+    "Unterricks zeigt Aufforderung und Titel dann als Überschrift über dem Sitzungscode und dem QR-Code der aktuellen Sitzung.",
+    "Inhalte des Materials", "auch nicht der Code eines Feibeitsblatts, auch wenn der Stundenverlauf ihn nennt", "neben dem Sitzungscode, den Unterricks auf der Codefolie zeigt", "Notfall-Feibeitsblätter"]) assert.ok(mat.includes(s), s);
+  assert.ok(!mat.includes("K7Q-M4X") && !mat.includes("denselben QR-Code") && !mat.includes("Du findest das Material in Unterricks: QR-Code scannen"));
   assert.ok(p.includes("Arbeiten die Schüler:innen dabei mit Material, ist das die Materialfolie"), "Arbeitsphasen mit Material: Materialfolie statt ausführlicher Auftragsfolie");
-  assert.ok(!p.includes("Feibeitsblätter mit Titel und Code"), "der Code eines Feibeitsblatts kommt nicht mehr auf Folien");
+  assert.ok(!p.includes("Feibeitsblätter mit Titel und Code"), "der Code eines Feibeitsblatts kommt nicht auf Folien");
   // Beispieltitel: ohne Feibeitsblatt ein Material für Schüler:innen (nie ein Notfall-Feibeitsblatt), sonst ein Platzhalter
   const nf = { name: "Notfall-Feibeitsblatt – X.pdf", area: "student", kind: "file" };
   assert.ok(claudePresentationPrompt({ ...ctx, sheets: [], materials: [nf, { name: "M1 Karikatur.pdf", area: "student", kind: "file" }] }, portal, []).includes("z. B. „M1 Karikatur“"), "Beispiel ohne Dateiendung");
   assert.ok(claudePresentationPrompt({ ...ctx, sheets: [], materials: [nf] }, portal, []).includes("z. B. „Arbeitsblatt: <Titel des Arbeitsblatts>“"));
-  assert.ok(claudePresentationPrompt(ctx, portal, []).includes("den Sitzungscode der Sitzung (bitte bei der Lehrkraft erfragen) (Festbreitenschrift, mindestens 48 pt)"), "ohne Code: Hinweis auch auf der Materialfolie");
-  // Druckmaterial („von der Lehrkraft auszudrucken“) sehen die Schüler:innen in Unterricks nicht: „(auf Papier)“, ohne QR-Code und ohne den Satz zu Unterricks
-  assert.ok(mat.includes("„von der Lehrkraft auszudrucken“") && mat.includes("„(auf Papier)“, und QR-Code, Sitzungscode und der Satz zu Unterricks entfallen"));
+  // Druckmaterial („von der Lehrkraft auszudrucken“) sehen die Schüler:innen in Unterricks nicht: gewöhnliche Folie mit „(auf Papier)“
+  assert.ok(mat.includes("„von der Lehrkraft auszudrucken“") && mat.includes("ist die Materialfolie eine gewöhnliche Folie (keine Unterricks-Codefolie): Aufforderung und Titel mit „(auf Papier)“ dahinter, ohne Hinweis auf Unterricks"));
+  assert.ok(mat.includes("bleibt es eine Unterricks-Codefolie, und nur beim ausgedruckten Material steht „(auf Papier)“"));
   assert.ok(mat.includes("unten gar nicht oder nur als Material „nur Lehrkraft“"), "Druckmaterial gilt nicht als fehlend");
 });
 
-test("Präsentations-Prompt: zeitlos – keine Daten der Lerngruppe, keine Klasse, Hausaufgabe bis zur nächsten Unterrichtssitzung", () => {
+test("Präsentations-Prompt: zeitlos – keine Daten der Lerngruppe, keine Klasse, kein Sitzungscode, Hausaufgabe bis zur nächsten Unterrichtssitzung", () => {
   const p = claudePresentationPrompt({ ...ctx, klass: "8C", lesson: { ...ctx.lesson, date: "2026-11-12", homework: "Lies M2 bis zum 19.11." } }, "**1) Einstieg**", []);
   const z = p.slice(p.indexOf("## Zeitlos gestalten"), p.indexOf("## Rahmendaten"));
   assert.ok(p.indexOf("## Materialfolien") < p.indexOf("## Zeitlos gestalten") && p.indexOf("## Zeitlos gestalten") < p.indexOf("## Rahmendaten"));
   for (const t of ["in ein paar Jahren noch passen, wenn eine andere Klasse dieses Jahrgangs das Thema lernt", "kein Datum, das sich auf diese Lerngruppe bezieht",
     "„bis zur nächsten Unterrichtssitzung“ zu erledigen, auch wenn im Stundenverlauf oder bei der Hausaufgabe ein Datum steht", "nicht die Klasse (z. B. „8C“)", "(„Jg. 8“)",
-    "nicht als „aktuell“ oder „derzeit“, sondern mit Jahreszahl und Quelle", "Einzige Ausnahme ist der Sitzungscode"]) assert.ok(z.includes(t), t);
-  assert.ok(!p.includes("12.11.2026") && !/^- Datum:/m.test(p), "das Datum der Stunde steht nicht mehr im Prompt");
-  assert.ok(p.includes("Hausaufgabe (als letzte Folie zeigen – zu erledigen „bis zur nächsten Unterrichtssitzung“, ohne Datum): Lies M2"));
-  assert.ok(p.includes("Thema und Fach klein darüber (ohne Klasse und ohne Datum") && !p.includes("Thema, Fach und Klasse klein darüber"));
+    "nicht als „aktuell“ oder „derzeit“, sondern mit Jahreszahl und Quelle", "kein Sitzungscode und kein QR-Code zu Unterricks: Beides gehört zu einer einzigen Sitzung",
+    "immer mit dem Code der aktuellen Sitzung –, so passt die Präsentation unverändert in jede spätere Sitzung"]) assert.ok(z.includes(t), t);
+  assert.ok(!z.includes("Ausnahme"), "keine Ausnahme mehr für den Sitzungscode");
+  assert.ok(!p.includes("12.11.2026") && !/^- Datum:/m.test(p), "das Datum der Stunde steht nicht im Prompt");
+  assert.ok(p.includes("Hausaufgabe (als letzte Inhaltsfolie zeigen – zu erledigen „bis zur nächsten Unterrichtssitzung“, ohne Datum; danach darf eine Unterricks-Codefolie folgen): Lies M2"));
   assert.ok(p.includes("„Jg-8_Politik-und-Wirtschaft_") && !p.includes("„8C_"), "Dateiname ohne Klasse");
   assert.ok(claudePresentationPrompt(ctx, "x", []).includes("„Q2-GK_Politik-und-Wirtschaft_"), "Oberstufe: Kurs als Lerngruppe");
 });
 
-test("Präsentations-Prompt Jahrgang 5/6 (keine iPads): Materialfolien nur mit Aufforderung und Titel, Folie 1 bleibt", () => {
+test("Präsentations-Prompt Jahrgang 5/6 (keine iPads): Materialfolien sind gewöhnliche Folien, die Codefolie vor Folie 1 zeigt Unterricks trotzdem", () => {
   const p = claudePresentationPrompt({ ...ctx, klass: "6B", code: "K7QM4X", sheets: [], materials: [{ name: "AB Kinderrechte.pdf", area: "print", kind: "file" }] }, "**1) Einstieg**", []);
   const mat = p.slice(p.indexOf("## Materialfolien"), p.indexOf("## Rahmendaten"));
-  assert.ok(mat.includes("keine iPads und bekommen das Material auf Papier") && mat.includes("z. B. „AB Kinderrechte (auf Papier)“ – ohne QR-Code, ohne Sitzungscode und ohne Hinweis auf Unterricks"));
-  assert.ok(!mat.includes("denselben QR-Code") && !mat.includes("Du findest das Material in Unterricks") && !mat.includes("K7Q-M4X") && mat.includes("lege ich es zum Ausdrucken an"));
-  assert.ok(!p.includes("synchron auf den Geräten der Schüler:innen") && p.includes("die Schüler:innen dieser Jahrgangsstufe haben im Unterricht keine iPads"));
-  const first = p.slice(p.indexOf("## Erste Folie"), p.indexOf("## Materialfolien"));
-  assert.ok(first.includes("„K7Q-M4X“") && first.includes(QR_UNTERRICKS.join("\n")) && first.includes("„Zu Hause findest du diese Sitzung in Unterricks: Scanne den QR-Code"), "Folie 1 bleibt immer: Code und QR-Code (für zu Hause)");
+  assert.ok(p.includes("## Materialfolien: Aufforderung und Titel des Materials (auf Papier)"));
+  assert.ok(mat.includes("keine iPads und bekommen das Material auf Papier – die Materialfolie ist deshalb eine gewöhnliche Folie (keine Unterricks-Codefolie)") && mat.includes("z. B. „AB Kinderrechte (auf Papier)“ – ohne QR-Code, ohne Sitzungscode und ohne Hinweis auf Unterricks"));
+  assert.ok(!mat.includes("Unterricks zeigt Aufforderung und Titel") && !p.includes("K7Q-M4X") && mat.includes("lege ich es zum Ausdrucken an"));
+  assert.ok(!p.includes("synchron auf den Geräten der Schüler:innen") && !p.includes("live auf den Geräten der Schüler:innen") && p.includes("die Schüler:innen dieser Jahrgangsstufe haben im Unterricht keine iPads"));
+  const first = p.slice(p.indexOf("## Folie 1: gestaltete Titelfolie"), p.indexOf("## Materialfolien"));
+  assert.ok(first.includes("zeigt Unterricks vor Folie 1 automatisch seine Codefolie") && first.includes("– am Beamer (in dieser Jahrgangsstufe, damit die Schüler:innen die Sitzung zu Hause finden)"), "die Codefolie gibt es auch hier (für zu Hause)");
+  assert.ok(first.includes("Setze höchstens nach der Hausaufgabe eine Unterricks-Codefolie mit der Überschrift „Zu Hause findest du diese Sitzung in Unterricks.“ ein – Materialfolien sind hier gewöhnliche Folien."));
   assert.ok(mat.includes("unten nicht als „von der Lehrkraft auszudrucken“, nenne es mir zusätzlich im Chat – dann lege ich es zum Ausdrucken an"), "Material ohne Druckvorlage wird gemeldet");
 });
 
@@ -406,4 +424,66 @@ test("Sitzungscode auf Folien: Schrift des alten Codes aus den Angaben von PDF.j
   assert.deepEqual(codeFontStyle({ name: "ABCDEF+Caladea-Italic", italic: true }), { mono: false, serif: true, bold: false, italic: true });
   assert.deepEqual(codeFontStyle({ name: "LiberationSans-Bold", fallbackName: "sans-serif", bold: true }), { mono: false, serif: false, bold: true, italic: false });
   assert.equal(codeFontStyle(null).bold, null, "ohne Angaben: Schnitt unbekannt (dann misst paintCode)");
+});
+
+import { slideTextLines, codeSlideLines, cleanCodeSlides, CODE_SLIDE_LIMITS } from "../../public/shared.js";
+// Textstücke wie aus presenter.js (Gerätekoordinaten: base = Grundlinie von oben, h = Schriftgröße)
+const piece = (str, x, base, h, extra = {}) => ({ str, x, base, w: str.length * h * 0.5, h, eol: false, ...extra });
+
+test("Codefolie: Platzhalterfolie an der Zeile „Unterricks-Codefolie“ erkennen – Überschrift = großer übriger Text von oben nach unten", () => {
+  const items = [
+    piece("Politik und Wirtschaft · Die wehrhafte Demokratie", 60, 1050, 14), piece("4", 1840, 1050, 14),   // Fußzeile und Seitenzahl: klein
+    piece("Feibeitsblatt: Die wehrhafte Demokratie", 120, 420, 56),
+    piece("Bearbeitet in Partnerarbeit die", 120, 260, 40), piece("Aufgaben 1 bis 3.", 760, 260, 40),   // eine Zeile in zwei Stücken
+    piece(CODE_SLIDE_LINE, 120, 980, 18),
+  ];
+  assert.deepEqual(codeSlideLines(slideTextLines(items)), ["Bearbeitet in Partnerarbeit die Aufgaben 1 bis 3.", "Feibeitsblatt: Die wehrhafte Demokratie"]);
+  // ohne die Zeile: gewöhnliche Folie
+  assert.equal(codeSlideLines(slideTextLines(items.filter((it) => it.str !== CODE_SLIDE_LINE))), null);
+  // nur die Zeile: Codefolie ohne Überschrift (Unterricks zeigt den Titel der Sitzung)
+  assert.deepEqual(codeSlideLines(slideTextLines([piece(CODE_SLIDE_LINE, 120, 980, 18)])), []);
+});
+
+test("Codefolie: Erkennung tolerant – gesperrt, anderer Strich, klein geschrieben, umbrochener Erklärsatz, Anführungszeichen, Codes", () => {
+  const spaced = "U n t e r r i c k s ‐ C o d e f o l i e : Hier zeigt Unterricks den QR-Code und den";
+  assert.deepEqual(codeSlideLines(slideTextLines([piece("Die Hausaufgabe und das Material findest du in Unterricks.", 100, 300, 44), piece(spaced, 100, 950, 16), piece("Sitzungscode.", 100, 975, 16)])),
+    ["Die Hausaufgabe und das Material findest du in Unterricks."], "Erklärsatz (auch umbrochen) entfällt, „Unterricks“ in der Überschrift bleibt");
+  assert.deepEqual(codeSlideLines([{ text: "unterricks – codefolie", base: 900, h: 14 }, { text: "„Feibeitsblatt: Kinderrechte“", base: 300, h: 40 }]), ["Feibeitsblatt: Kinderrechte"], "ganz in Anführungszeichen → ohne");
+  assert.deepEqual(codeSlideLines([{ text: "Feibeitsblatt: „Kinderrechte“", base: 300, h: 40 }, { text: CODE_SLIDE_MARK, base: 900, h: 14 }]), ["Feibeitsblatt: „Kinderrechte“"], "Anführungszeichen im Titel bleiben");
+  assert.deepEqual(codeSlideLines([{ text: "Sitzungscode: K7Q-M4X", base: 300, h: 80 }, { text: "Code AEH-4VY", base: 400, h: 60 }, { text: "Bearbeitet die Aufgaben.", base: 500, h: 40 }, { text: CODE_SLIDE_MARK, base: 900, h: 14 }]),
+    ["Bearbeitet die Aufgaben."], "Codes gehören nie in die Überschrift");
+  assert.deepEqual(codeSlideLines([{ text: "• " + CODE_SLIDE_MARK + " –", base: 300, h: 40 }]), [], "Marke mit Zeichen davor: ganze Zeile entfällt");
+  assert.deepEqual(codeSlideLines([{ text: "Lies den Text " + CODE_SLIDE_MARK, base: 300, h: 40 }]), ["Lies den Text"], "steht die Marke hinter Text, bleibt der Text");
+  const many = Array.from({ length: 7 }, (_, i) => ({ text: "Zeile " + (i + 1) + " mit Text", base: 100 + i * 60, h: 40 }));
+  assert.deepEqual(codeSlideLines([...many, { text: CODE_SLIDE_MARK, base: 950, h: 14 }]), many.slice(0, CODE_SLIDE_LIMITS.lines).map((l) => l.text), "höchstens vier Zeilen");
+  assert.equal(codeSlideLines([{ text: "x".repeat(400) + " lang", base: 100, h: 40 }, { text: CODE_SLIDE_MARK, base: 900, h: 14 }])[0].length, CODE_SLIDE_LIMITS.line);
+  assert.equal(codeSlideLines([]), null);
+  assert.equal(codeSlideLines(null), null);
+});
+
+test("Codefolie: Daten von außen (Browser → Server → Live) prüfen", () => {
+  assert.deepEqual(cleanCodeSlides([{ n: 3, lines: ["a\u0000b", "  ", " x  y ", 5, "‮umgedreht"] }, { n: 3 }, { n: 0 }, { n: 2.5 }, { n: 6 }, { n: 2, lines: "x" }, null, "x"], 5),
+    [{ n: 2, lines: [] }, { n: 3, lines: ["a b", "x y", "umgedreht"] }]);
+  assert.deepEqual(cleanCodeSlides({ n: 1 }, 5), []);
+  assert.deepEqual(cleanCodeSlides([{ n: 1, lines: ["a"] }], 0), []);
+  const big = Array.from({ length: 100 }, (_, i) => ({ n: i + 1, lines: Array.from({ length: 9 }, () => "y".repeat(500)) }));
+  const c = cleanCodeSlides(big, 300);
+  assert.equal(c.length, CODE_SLIDE_LIMITS.slides);
+  assert.ok(c.every((x) => x.lines.length === CODE_SLIDE_LIMITS.lines && x.lines.every((l) => l.length === CODE_SLIDE_LIMITS.line)));
+  assert.ok(JSON.stringify(c).length < 64000, "passt in die Anfrage an …/ready (readJson 64 000)");
+  assert.equal(cleanCodeSlides([{ n: 1, lines: ["a".repeat(159) + "😀"] }], 1)[0].lines[0].length, 159, "kein halbes Ersatzzeichenpaar am Ende");
+});
+
+test("Codefolie: Zeilenbildung bleibt für den Code-Ersatz dieselbe (slideTextLines liefert die Schriftgröße mit)", () => {
+  const l = slideTextLines([piece("Sitzungscode", 100, 200, 30), piece("AEH-4VY", 520, 200, 60), { str: "", eol: true }, piece("Zweite", 100, 300, 30)]);
+  assert.deepEqual(l.map((x) => [x.text, x.h]), [["Sitzungscode AEH-4VY", 60], ["Zweite", 30]]);
+  assert.deepEqual(slideCodeBoxes([piece("Sitzungscode", 100, 200, 30), piece("AEH-4VY", 520, 200, 60)]).map((b) => b.code), ["AEH4VY"]);
+});
+
+test("Codefolie: die Beispiel-Überschriften des Prompts übersteht die Erkennung unverändert", () => {
+  for (const head of ["Zu Hause findest du diese Sitzung in Unterricks.", "Die Hausaufgabe und das Material findest du in Unterricks."]) {
+    const p = claudePresentationPrompt({ ...ctx, klass: head.startsWith("Zu Hause") ? "6B" : "8C" }, "**1) Einstieg**", []);
+    assert.ok(p.includes("„" + head + "“"), head);
+    assert.deepEqual(codeSlideLines(slideTextLines([piece(head, 100, 300, 44), piece(CODE_SLIDE_LINE, 100, 980, 16)])), [head]);
+  }
 });

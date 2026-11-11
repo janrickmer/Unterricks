@@ -59,14 +59,18 @@ Feibeitsblatt braucht keine Änderung. Die Adressen stehen in `wrangler.jsonc` (
   Sitzung öffnen → **„Stunde mit Claude planen“** (Prompt kopieren, in claude.ai mit dem Connector einfügen; Claude speichert
   Schulportal-Eintrag, Hausaufgabe, Materialien und Feibeitsblatt-Entwurf auf Wunsch direkt in der Sitzung – beim Zurückkehren
   erscheinen sie) → Schulportal-Eintrag prüfen und kopieren → „Prompt für die Präsentation kopieren“ → in claude.ai einfügen →
-  die von Claude erzeugte **PDF** hochladen (Claude liefert nur die PDF, keine PowerPoint-Datei; Folie 1 zeigt immer den
-  Sitzungscode und den QR-Code zu Unterricks, ebenso jede Materialfolie – dort stehen nur die Aufforderung, mit dem Material zu
-  arbeiten, und sein Titel, z. B. der Name des Feibeitsblatts; ausgedrucktes Material und Jahrgang 5/6 ohne iPads: „(auf Papier)“,
-  ohne QR-Code; die Präsentation ist zeitlos – ohne Datum und Klasse, Hausaufgabe „bis zur nächsten Unterrichtssitzung“ –, damit sie
-  in ein paar Jahren in einer anderen Klasse desselben Jahrgangs wieder passt; lädt man sie dann in einer neuen Sitzung hoch, ersetzt
-  Unterricks den alten Sitzungscode auf den Folien automatisch durch den neuen; wo das nicht sicher geht, z. B. bei einem unruhigen
-  Foto hinter dem Code, bleibt die Folie unverändert und die Meldung nennt sie) → im Unterricht „Ich bin im Unterricht und starte
-  die Präsentation für alle.“ Den Sitzungscode zeigt „Für den Beamer zeigen“. Am Stundenende: Hausaufgabe eintragen und per
+  die von Claude erzeugte **PDF** hochladen (Claude liefert nur die PDF, keine PowerPoint-Datei; die Präsentation ist zeitlos –
+  ohne Datum, Klasse und Sitzungscode, Hausaufgabe „bis zur nächsten Unterrichtssitzung“ –, damit sie in ein paar Jahren in einer
+  anderen Klasse desselben Jahrgangs wieder passt; Folie 1 ist eine gestaltete Titelfolie) → im Unterricht „Ich bin im Unterricht und
+  starte die Präsentation für alle.“ Vor Folie 1 zeigt Unterricks dann automatisch die **Codefolie** – dieselbe wie „Für den Beamer
+  zeigen“, mit dem Sitzungscode und dem QR-Code der **aktuellen** Sitzung – am Beamer und live auf den iPads. Wo die Präsentation den
+  Code noch einmal zeigen soll, setzt Claude eine **Unterricks-Codefolie** (eine Folie mit der Zeile „Unterricks-Codefolie: …“); jede
+  Materialfolie mit Material aus Unterricks ist eine – mit der Aufforderung und dem Titel des Materials, z. B. dem Namen des
+  Feibeitsblatts, als Überschrift über Code und QR-Code (ausgedrucktes Material und Jahrgang 5/6 ohne iPads: gewöhnliche Folie mit
+  „(auf Papier)“). Unterricks erkennt diese Folien beim Hochladen (die Meldung nennt sie, im Folienstreifen tragen sie „Code“) und
+  zeigt im Unterricht an ihrer Stelle die Codefolie. „Sitzungscode zeigen“ (Taste C) blendet sie jederzeit ein. Ältere Präsentationen
+  mit einem Code auf den Folien: Unterricks ersetzt ihn beim Hochladen durch den Code dieser Sitzung (wo das nicht sicher geht, z. B.
+  bei einem unruhigen Foto hinter dem Code, bleibt die Folie unverändert und die Meldung nennt sie). Am Stundenende: Hausaufgabe eintragen und per
   Rechtsklick im Verlaufsplan „Zwischenstopp einfügen“, falls nicht alles geschafft wurde. „Für das Schulportal kopieren“ bei der
   Hausaufgabe liefert sie im Format der Lehrkraft: **Hausaufgabe zum 25. November 2026:** (Datum der nächsten Sitzung), eine
   Leerzeile, je Zeile ein Stichpunkt und zuletzt „Unter https://unterricks.janrickmer.de kannst du diese Sitzung mit dem Code …
@@ -82,7 +86,7 @@ Feibeitsblatt braucht keine Änderung. Die Adressen stehen in `wrangler.jsonc` (
   Sitzung ein. Schüler:innen sehen die Hausaufgabe ab 15 Minuten vor dem Ende und können die Präsentation 5 Minuten nach dem Ende selbst
   öffnen – ohne Beginn weder noch. Am Ende der Stunde markieren Sie die letzte gezeigte Folie (im Vollbild „Bis hier gezeigt“ oder in
   der Sitzung, auch per Rechtsklick); Schüler:innen bekommen dann nur die Folien bis dorthin. „Für den Beamer zeigen“ zeigt neben dem
-  Code einen QR-Code zu unterricks.janrickmer.de.
+  Code einen QR-Code zu unterricks.janrickmer.de – dieselbe Codefolie erscheint beim Start der Präsentation vor Folie 1.
 * **Material:** auch Links mit Titel (für Schüler:innen oder nur für Sie). Ganz unten in der Sitzung: **„Von der Lehrkraft
   auszudrucken“** – nur PDF, alles A4 (andere Formate rechnet Unterricks um), Name wie „28x - beidseitig - sw - Arbeitsblatt.pdf“,
   einzeln oder alle als ZIP; Claude kann Druckvorlagen über den Connector ablegen. Darunter **„Sitzung als Datei herunterladen“** und

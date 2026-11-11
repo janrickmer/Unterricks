@@ -1,6 +1,7 @@
 // presenter.js – Präsentation (PDF) in Folienbilder umwandeln und im Vollbild live für alle zeigen.
 import { h, clear, api, apiUrl, wsUrl, toast, errToast, icon } from "./ui.js";
-import { PUBLIC_URL, isValidCode, formatCode, slideCodeBoxes, slideSessionCode, codeCover, coverFill, codeFontStyle } from "./shared.js";
+import { isValidCode, formatCode, slideTextLines, slideCodeBoxes, slideSessionCode, codeCover, coverFill, codeFontStyle, codeSlideLines, cleanCodeSlides } from "./shared.js";
+import { codeSlideDom } from "./codeslide.js";
 
 let pdfjsP = null;
 async function pdfjs() {
@@ -19,9 +20,10 @@ function advance(ch, fam, mf) {
   if (!measured.has(k)) { measCtx ||= document.createElement("canvas").getContext("2d"); measCtx.font = f; measured.set(k, measCtx.measureText(ch).width); }
   return measured.get(k);
 }
-/* Codes auf einer Seite: Textstücke von PDF.js in Gerätekoordinaten (gedrehter Text zählt nicht) → slideCodeBoxes. Ein Strich, den eine
-   Schrift als Sonderglyphe ohne Unicode setzt (z. B. Inter zwischen Großbuchstaben: leeres Stück bzw. Privatzeichen), zählt als Bindestrich. */
-async function codeBoxes(lib, page, vp) {
+/* Textstücke einer Seite: von PDF.js in Gerätekoordinaten (gedrehter Text zählt nicht) – für Platzhalterfolien (codeSlideLines) und Codes
+   (slideCodeBoxes). Ein Strich, den eine Schrift als Sonderglyphe ohne Unicode setzt (z. B. Inter zwischen Großbuchstaben: leeres Stück bzw.
+   Privatzeichen), zählt als Bindestrich. */
+async function pageItems(lib, page, vp) {
   const tc = await page.getTextContent();
   const items = [], sx = Math.hypot(vp.transform[0], vp.transform[1]);   // Maßstab samt /UserUnit (vp.scale enthält ihn nicht)
   const fontOf = (name) => { try { return page.commonObjs.has(name) ? page.commonObjs.get(name) : null; } catch { return null; } };
@@ -35,7 +37,7 @@ async function codeBoxes(lib, page, vp) {
     items.push(turned ? { str: "", eol: true } : { str: dashLike ? "\u2010" : it.str, x: tx[4], base: tx[5], w, h: hgt, eol: !!it.hasEOL,
       family: ((tc.styles || {})[it.fontName] || {}).fontFamily || "", font: fontOf(it.fontName), mf: loaded(fontOf(it.fontName)) });
   }
-  return slideCodeBoxes(items, advance);
+  return items;
 }
 /* alten Code übermalen (Fläche und Farben misst codeCover, die Füllung verläuft wie der Hintergrund – coverFill) und den neuen genau auf
    die Fläche der alten Schrift setzen: gleiche Größe, Breite angeglichen (leicht gestaucht bzw. gestreckt), Schnitt und Familie wie vorher.
@@ -66,14 +68,15 @@ function paintCode(ctx, b, text) {
 }
 
 /* PDF im Browser rendern (PDF.js) und jede Seite als JPEG hochladen. onProgress(i, n).
-   opt.code = Code der Sitzung: steht auf Folie 1 ein anderer (Präsentation aus einer früheren Sitzung), wird er auf allen Folien ersetzt.
-   opt.exclude = Codes verknüpfter Feibeitsblätter (nie der Sitzungscode). Ergebnis swapped = {from, to, slides, missed} oder null (missed =
-   Folien, auf denen der alte Code steht, aber nicht sicher ersetzt werden konnte), noCode = auf Folie 1 kein Sitzungscode als Text gefunden.
-   Die hochgeladene PDF selbst bleibt unverändert. */
+   Platzhalterfolien (Zeile „Unterricks-Codefolie“, codeSlideLines) gehen als codeSlides [{n, lines}] mit an den Server – dort zeigt die
+   Live-Präsentation die Codefolie. Stiller Rückfall für ältere Präsentationen mit dem Code auf den Folien: opt.code = Code der Sitzung;
+   steht auf Folie 1 ein anderer (Präsentation aus einer früheren Sitzung), wird er auf allen Folien ersetzt. opt.exclude = Codes
+   verknüpfter Feibeitsblätter (nie der Sitzungscode). Ergebnis swapped = {from, to, slides, missed} oder null (missed = Folien, auf denen
+   der alte Code steht, aber nicht sicher ersetzt werden konnte). Die hochgeladene PDF selbst bleibt unverändert. */
 export async function rasterizeAndUpload(file, fileId, token, onProgress, opt = {}) {
   const want = isValidCode(opt.code) ? opt.code : "";
   let oldCode = "";
-  const swappedOn = [], missedOn = [];
+  const swappedOn = [], missedOn = [], codeSlides = [];
   const lib = await pdfjs();
   const doc = await lib.getDocument({ data: new Uint8Array(await file.arrayBuffer()), isEvalSupported: false, disableFontFace: false }).promise;
   const n = doc.numPages;
@@ -89,9 +92,15 @@ export async function rasterizeAndUpload(file, fileId, token, onProgress, opt = 
     const ctx = canvas.getContext("2d", { alpha: false });
     ctx.fillStyle = "#fff"; ctx.fillRect(0, 0, canvas.width, canvas.height);
     await page.render({ canvasContext: ctx, viewport: vp }).promise;
-    if (want) {
+    let items = null, placeholder = false;
+    try {   // Platzhalterfolie für die Codefolie? (eigener Versuch: ein Fehler hier schaltet den Rückfall nicht ab)
+      items = await pageItems(lib, page, vp);
+      const head = codeSlideLines(slideTextLines(items));
+      if (head) { placeholder = true; codeSlides.push({ n: i, lines: head }); }
+    } catch {}
+    if (want && items && !placeholder) {
       try {
-        const boxes = await codeBoxes(lib, page, vp);
+        const boxes = slideCodeBoxes(items, advance);
         if (i === 1) oldCode = slideSessionCode(boxes, { exclude: opt.exclude, minH: canvas.height * 0.06 });   // kleine Codes sind es nicht
         if (oldCode && oldCode !== want) {
           // derselbe Code doppelt übereinander (z. B. Schatten): nur einmal, und zwar den vordersten (zuletzt gezeichneten)
@@ -117,8 +126,10 @@ export async function rasterizeAndUpload(file, fileId, token, onProgress, opt = 
     if (onProgress) onProgress(i, n);
   }
   await doc.destroy();
-  const ready = await api("POST", "/api/teacher/files/" + fileId + "/ready", { token, body: { pages: n } });
-  return { pages: n, thumbs, file: ready.file, swapped: swappedOn.length || missedOn.length ? { from: oldCode, to: want, slides: swappedOn, missed: missedOn } : null, noCode: !!want && !oldCode };
+  const sent = cleanCodeSlides(codeSlides, n);
+  const ready = await api("POST", "/api/teacher/files/" + fileId + "/ready", { token, body: { pages: n, codeSlides: sent } });
+  return { pages: n, thumbs, file: ready.file, codeSlides: (ready.file && ready.file.codeSlides) || sent,
+    swapped: swappedOn.length || missedOn.length ? { from: oldCode, to: want, slides: swappedOn, missed: missedOn } : null };
 }
 
 /* ---------- Live-Verbindung der Lehrkraft ---------- */
@@ -143,7 +154,8 @@ export class TeacherLive {
   }
   send(m) {
     if (m.t === "start") this.want = { ...m };
-    else if (m.t === "goto" && this.want) this.want.slide = m.slide;
+    else if (m.t === "goto" && this.want) { this.want.slide = m.slide; this.want.codeShown = false; }
+    else if (m.t === "code" && this.want) this.want.codeShown = !!m.on;   // nach einer Wiederverbindung bleibt die eingeblendete Codefolie
     else if (m.t === "stop") this.want = null;
     const s = JSON.stringify(m);
     if (this.ws && this.ws.readyState === 1) this.ws.send(s); else this.queue.push(s);
@@ -155,12 +167,18 @@ export class TeacherLive {
 export async function fetchSlides(fileId, token) {
   return api("GET", "/api/teacher/files/" + fileId + "/slides", { token });
 }
-// slides vorab laden (fetchSlides), damit das Vollbild ohne Wartezeit direkt aus dem Klick angefordert werden kann
-export async function startPresenter({ lessonId, file, token, startSlide = 1, onEnd, slides, onMark, shownUntil = null }) {
+// slides vorab laden (fetchSlides), damit das Vollbild ohne Wartezeit direkt aus dem Klick angefordert werden kann.
+// Codefolie (code = Sitzungscode, title = Titel der Sitzung): Folie 0 vor Folie 1, an Platzhalterfolien (codeSlides) mit deren Überschrift
+// und über „Sitzungscode zeigen“ (peek) – bei allen live gleich. startSlide 0 = Start mit der Codefolie.
+export async function startPresenter({ lessonId, file, token, startSlide = 0, onEnd, slides, onMark, shownUntil = null, code = "", title = "" }) {
   const s = slides || (await fetchSlides(file.id, token));
   const urls = (s.urls || []).map(apiUrl), n = s.pages, pages = n;
-  let cur = Math.min(Math.max(1, startSlide), n), students = 0, connOk = true;
+  const withCode = isValidCode(code), first = withCode ? 0 : 1;
+  const holders = new Map(withCode ? cleanCodeSlides(s.codeSlides || (file && file.codeSlides) || [], n).map((c) => [c.n, c.lines]) : []);
+  let cur = Math.min(Math.max(first, startSlide), n), peek = false, students = 0, connOk = true;
   const img = h("img", { alt: "", draggable: "false" });
+  const stage = h("div", { class: "stage" }, img);
+  const isCode = () => withCode && (cur === 0 || peek || holders.has(cur));
   const counter = h("span", { class: "counter" });
   const info = h("span", { class: "small" });
   const fsBtn = h("button", { class: "btn small", type: "button", onclick: () => toggleFs() }, "Vollbild");
@@ -168,24 +186,36 @@ export async function startPresenter({ lessonId, file, token, startSlide = 1, on
   let marked = shownUntil, marking = false;
   const markState = h("span", { class: "small markstate", "aria-live": "polite" });
   const markBtn = onMark ? h("button", { class: "btn small", type: "button", onclick: async () => {
-    if (marking) return; marking = true; markBtn.disabled = true;
+    if (marking || cur === 0 || peek) return; marking = true; markBtn.disabled = true;
     const n = cur;
     try {
       await onMark(n, (m) => { markState.textContent = m; });
       marked = n >= pages ? null : n;
       markState.textContent = marked ? "Bis Folie " + n + " markiert" : "Letzte Folie: alle Folien freigegeben";
     } catch (e) { markState.textContent = "Nicht markiert: " + (e && e.message ? e.message : e); }
-    marking = false; markBtn.disabled = false; paintMark();
+    marking = false; paintMark();
   } }, "Bis hier gezeigt") : null;
-  function paintMark() { if (markBtn) markBtn.setAttribute("aria-label", "Folie " + cur + " als letzte im Unterricht gezeigte Folie markieren" + (marked ? " (bisher: Folie " + marked + ")" : "")); }
+  function paintMark() {
+    if (!markBtn) return;
+    markBtn.disabled = marking || cur === 0 || peek;   // die Codefolie ist keine Seite der PDF
+    markBtn.setAttribute("aria-label", "Folie " + cur + " als letzte im Unterricht gezeigte Folie markieren" + (marked ? " (bisher: Folie " + marked + ")" : ""));
+  }
+  // „Sitzungscode zeigen“: Codefolie über der aktuellen Folie – live bei allen; die nächste Bewegung (Pfeil, Klick, Wischen) kehrt zurück
+  const codeBtn = withCode ? h("button", { class: "btn small", type: "button", onclick: () => setPeek(!peek) }, "Sitzungscode zeigen") : null;
+  function paintCodeBtn() {
+    if (!codeBtn) return;
+    codeBtn.textContent = peek ? "Zurück zu Folie " + cur : "Sitzungscode zeigen";
+    codeBtn.disabled = !peek && cur === 0;
+  }
+  function setPeek(on) { if (on === peek || (on && cur === 0)) return; peek = on; paint(); live.send({ t: "code", on }); }
   const root = h("div", { class: "presenter", role: "dialog", "aria-label": "Präsentation läuft" },
-    h("div", { class: "stage" }, img),
+    stage,
     h("div", { class: "bar" },
       h("button", { class: "btn small", type: "button", onclick: () => goto(cur - 1), "aria-label": "Vorherige Folie" }, icon("left")),
       counter,
       h("button", { class: "btn small", type: "button", onclick: () => goto(cur + 1), "aria-label": "Nächste Folie" }, icon("right")),
       h("span", { class: "badge onair" }, h("span", { class: "dot" }), "LIVE für alle"), info,
-      h("span", { class: "grow" }), markBtn, markState,
+      h("span", { class: "grow" }), codeBtn, markBtn, markState,
       fsBtn,
       h("button", { class: "btn small onair", type: "button", onclick: () => end(true) }, "Präsentation für alle beenden"),
       h("button", { class: "btn small", type: "button", onclick: () => end(false), title: "Fenster schließen, Live-Anzeige läuft weiter" }, "Schließen")));
@@ -198,8 +228,16 @@ export async function startPresenter({ lessonId, file, token, startSlide = 1, on
     paintInfo();
   });
   function paintInfo() { clear(info).append(...(connOk ? [] : [icon("alert"), "Verbindung wird wiederhergestellt … · "]), students + " Schüler:in" + (students === 1 ? "" : "nen") + " verbunden"); }
-  function paint() { img.src = urls[cur - 1]; counter.textContent = cur + " / " + n; preload(cur + 1); preload(cur + 2); preload(cur - 1); paintMark(); }
-  function goto(k) { k = Math.min(Math.max(1, k), n); if (k === cur) return; cur = k; paint(); live.send({ t: "goto", slide: cur }); }
+  function paint() {
+    if (isCode()) stage.replaceChildren(codeSlideDom({ code, title, lines: cur === 0 || peek ? [] : holders.get(cur) }));
+    else { img.src = urls[cur - 1]; if (!img.isConnected) stage.replaceChildren(img); }
+    counter.textContent = cur === 0 || peek ? "Sitzungscode" : cur + " / " + n;
+    preload(cur + 1); preload(cur + 2); preload(cur - 1); paintMark(); paintCodeBtn();
+  }
+  function goto(k) {
+    if (peek) { setPeek(false); return; }   // erst zurück von der eingeblendeten Codefolie
+    k = Math.min(Math.max(first, k), n); if (k === cur) return; cur = k; paint(); live.send({ t: "goto", slide: cur });
+  }
   const isFs = () => !!(document.fullscreenElement || document.webkitFullscreenElement);
   function toggleFs() {
     if (isFs()) (document.exitFullscreen || document.webkitExitFullscreen).call(document);
@@ -208,8 +246,9 @@ export async function startPresenter({ lessonId, file, token, startSlide = 1, on
   const onKey = (e) => {
     if (["ArrowRight", "ArrowDown", "PageDown", " ", "Enter", "n"].includes(e.key)) { e.preventDefault(); goto(cur + 1); }
     else if (["ArrowLeft", "ArrowUp", "PageUp", "Backspace", "p"].includes(e.key)) { e.preventDefault(); goto(cur - 1); }
-    else if (e.key === "Home") goto(1); else if (e.key === "End") goto(n);
+    else if (e.key === "Home") goto(first); else if (e.key === "End") goto(n);
     else if (e.key === "f" || e.key === "F") toggleFs();
+    else if ((e.key === "c" || e.key === "C") && codeBtn) setPeek(!peek);
   };
   let idleT = null;
   const wake = () => { root.classList.remove("idle"); clearTimeout(idleT); idleT = setTimeout(() => root.classList.add("idle"), 2500); };
@@ -233,20 +272,16 @@ export async function startPresenter({ lessonId, file, token, startSlide = 1, on
   // Vollbild muss direkt aus dem Klick heraus angefordert werden (Aufrufer ruft startPresenter im Klick-Handler auf)
   toggleFs();
   live.connect();
-  live.send({ t: "start", fileId: file.id, pages: n, slide: cur });
+  live.send({ t: "start", fileId: file.id, pages: n, slide: cur, ...(withCode ? { code, title, codeSlides: [...holders].map(([k, lines]) => ({ n: k, lines })) } : {}) });
   return { end };
 }
 
-/* Sitzungscode groß für den Beamer – mit QR-Code zu Unterricks (public/qr-unterricks.svg, erzeugt von scripts/qr-unterricks.mjs) */
+/* Sitzungscode groß für den Beamer – dieselbe Codefolie wie in der Präsentation (codeslide.js), mit QR-Code zu Unterricks
+   (public/qr-unterricks.svg, erzeugt von scripts/qr-unterricks.mjs) */
 export function showCode(code, title) {
-  const site = PUBLIC_URL.replace(/^https:\/\//, "");
   const root = h("div", { class: "codeshow", role: "dialog", "aria-label": "Sitzungscode" },
-    h("div", null, h("div", { style: { fontSize: "1.4rem", opacity: .85 }, text: title || "Sitzungscode" }),
-      h("div", { class: "cs-grid" },
-        h("div", { class: "c", text: code }),
-        h("figure", { class: "qrbox" }, h("img", { class: "qr", src: "qr-unterricks.svg", alt: "QR-Code zu " + PUBLIC_URL, width: "296", height: "296" }), h("figcaption", { text: site }))),
-      h("p", { style: { fontSize: "1.2rem", opacity: .85 }, text: "QR-Code scannen oder " + site + " öffnen → Passwort → Klasse und Fach → Code eingeben" }),
-      h("button", { class: "btn", type: "button", onclick: () => close() }, "Schließen")));
+    codeSlideDom({ code, title }),
+    h("button", { class: "btn cs-close", type: "button", onclick: () => close() }, "Schließen"));
   const close = () => { root.remove(); document.removeEventListener("keydown", onKey); if (document.fullscreenElement) document.exitFullscreen().catch(() => {}); };
   const onKey = (e) => { if (e.key === "Escape") close(); };
   document.addEventListener("keydown", onKey);

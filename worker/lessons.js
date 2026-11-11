@@ -1,6 +1,6 @@
 // lessons.js – Unterrichtssitzungen (Lehrkraft): anlegen, planen (Chat), Schulportal-Eintrag, Feibeitsblatt-Entwürfe und -Verknüpfungen.
 import { HttpError, bad, json, readJson, randomId, generateCode, cleanText, cleanLine, isId, isDate, isObj } from "./lib.js";
-import { cleanWebUrl, cleanCopies } from "../public/shared.js";
+import { cleanWebUrl, cleanCopies, cleanCodeSlides } from "../public/shared.js";
 import { requireTeacher } from "./auth.js";
 import { callTask, PROVIDERS } from "./ai.js";
 import { getUnit, unitOut } from "./units.js";
@@ -20,9 +20,10 @@ export const lessonOut = (r, extra = {}) => ({
   createdAt: r.created_at, updatedAt: r.updated_at, ...extra,
 });
 export const printProps = (f) => ({ copies: f.print_copies || 1, duplex: f.print_duplex !== 0, color: f.print_color === 1 });
+export const codeSlidesOf = (f) => { try { return cleanCodeSlides(JSON.parse(f.code_slides || "[]"), f.pages || 0); } catch { return []; } };
 export const fileOut = (f, withText = true) => ({
   id: f.id, area: f.area, kind: f.kind, name: f.name, mime: f.mime, size: f.size, pages: f.pages ?? null, status: f.status, source: f.source || null,
-  fbCode: f.fb_code || null, fbSig: f.fb_sig || null, ...(f.area === "presentation" ? { shownUntil: f.shown_until ?? null, cut: !!f.cut_size } : {}),
+  fbCode: f.fb_code || null, fbSig: f.fb_sig || null, ...(f.area === "presentation" ? { shownUntil: f.shown_until ?? null, cut: !!f.cut_size, codeSlides: codeSlidesOf(f) } : {}),
   ...(f.area === "print" ? { print: printProps(f), printName: printFileName({ name: f.name, ...printProps(f) }) } : {}),
   createdAt: f.created_at, ...(withText && f.kind === "text" ? { text: f.text || "" } : {}), ...(f.kind === "link" ? { url: f.text || "" } : {}),
 });

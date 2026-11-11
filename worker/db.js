@@ -50,6 +50,7 @@ export const COLUMNS = [
   ["lessons", "start_time", "TEXT"],   // Beginn der Sitzung „HH:MM“ (Ortszeit): Hausaufgabe ab 15 min vor dem Ende, Präsentation ab 5 min nach dem Ende
   ["files", "shown_until", "INTEGER"], // Präsentation: letzte im Unterricht gezeigte Folie (Schüler:innen bekommen nur Folie 1 bis hier)
   ["files", "cut_size", "INTEGER"],    // … Größe der gekürzten PDF (in R2 unter fileKey + "-bis"), NULL = keine
+  ["files", "code_slides", "TEXT"],  // Präsentation: Platzhalterfolien für die Codefolie [{n, lines}] als JSON (cleanCodeSlides), NULL = keine
   ["lessons", "student_ai", "INTEGER NOT NULL DEFAULT 1"],   // KI-Begriffshilfe für Schüler:innen während der Stunde (1 = angeboten)
   // Druckliste „Von der Lehrkraft auszudrucken“ (area = 'print'): Anzahl, beidseitig (1) / einseitig (0), Farbe (1) / schwarz-weiß (0)
   ["files", "print_copies", "INTEGER"],

@@ -1,13 +1,15 @@
 // live.js – Live-Synchronisation der Präsentation: ein Durable Object je Sitzung (SQLite-Backend, im Free-Plan verfügbar) mit
 // WebSocket-Hibernation. Nur die Lehrkraft kann Folien wechseln; Schüler:innen erhalten nur die aktuelle Folie als signierten Link
 // (sie können also nicht vorblättern). Fällt der WebSocket aus, fragt der Browser den Stand alle 2 s über HTTP ab.
+// Codefolie (11.11.2026): Folie 0 = Sitzungscode mit QR-Code vor Folie 1, Platzhalterfolien (codeSlides) und „Sitzungscode zeigen“
+// (codeShown) erscheinen bei allen als Codefolie (view "code" mit code, title, lines) – Code, Titel und Platzhalter schickt die Lehrkraft beim Start.
 import { DurableObject } from "cloudflare:workers";
-import { HttpError, json, requireSecret, signLink, checkLink, isId } from "./lib.js";
+import { HttpError, json, requireSecret, signLink, checkLink } from "./lib.js";
+import { LIVE_IDLE as IDLE, liveReduce, liveView } from "./livestate.js";
 import { requireTeacher } from "./auth.js";
 import { getLesson } from "./lessons.js";
 import { slideUrl } from "./files.js";
 
-const IDLE = { active: false, fileId: null, pages: 0, slide: 1, startedAt: null, updatedAt: null, v: 0 };
 const SLIDE_TTL = 3 * 3600e3;
 
 export class LiveRoom extends DurableObject {
@@ -15,11 +17,13 @@ export class LiveRoom extends DurableObject {
     super(ctx, env);
     try { ctx.setWebSocketAutoResponse(new WebSocketRequestResponsePair("ping", "pong")); } catch {}
   }
-  async state() { return (await this.ctx.storage.get("state")) || { ...IDLE }; }
+  async state() { return { ...IDLE, ...((await this.ctx.storage.get("state")) || {}) }; }   // ältere Stände ohne die neuen Felder
   async message(role, st) {
     st = st || (await this.state());
     const out = { t: "state", active: !!st.active, slide: st.slide, pages: st.pages, v: st.v, updatedAt: st.updatedAt };
-    if (st.active && st.fileId) out.url = await slideUrl(requireSecret(this.env), st.fileId, st.slide, SLIDE_TTL);
+    const view = liveView(st);   // Folienbild nur für echte Seiten; Codefolie vor Folie 1, an Platzhalterfolien und bei „Sitzungscode zeigen“
+    if (view.slide) out.url = await slideUrl(requireSecret(this.env), st.fileId, view.slide, SLIDE_TTL);
+    if (view.code) Object.assign(out, { view: "code", ...view.code });
     if (role === "teacher") { out.fileId = st.fileId; out.students = this.ctx.getWebSockets("student").length; }
     return out;
   }
@@ -57,19 +61,13 @@ export class LiveRoom extends DurableObject {
     if (raw === "ping") { try { ws.send("pong"); } catch {} return; }
     if (!this.ctx.getTags(ws).includes("teacher")) return;   // Schüler:innen können nichts steuern
     let m; try { m = JSON.parse(String(raw)); } catch { return; }
+    if (!m || typeof m !== "object") return;
     const st = await this.state(), now = Date.now();
-    if (m.t === "start" && typeof m.fileId === "string" && isId(m.fileId) && Number.isInteger(m.pages) && m.pages >= 1 && m.pages <= 300) {
-      const slide = Number.isInteger(m.slide) ? Math.min(Math.max(1, m.slide), m.pages) : 1;
-      Object.assign(st, { active: true, fileId: m.fileId, pages: m.pages, slide, startedAt: now });
-    } else if (m.t === "goto" && st.active && Number.isInteger(m.slide)) {
-      st.slide = Math.min(Math.max(1, m.slide), st.pages);
-    } else if (m.t === "stop") {
-      Object.assign(st, { ...IDLE });
-    } else if (m.t === "hello") {
+    if (m.t === "hello") {
       try { ws.send(JSON.stringify(await this.message("teacher", st))); } catch {}
       return;
-    } else return;
-    st.v = (st.v || 0) + 1; st.updatedAt = now;
+    }
+    if (!liveReduce(st, m, now)) return;
     await this.ctx.storage.put("state", st);
     await this.broadcast(st);
   }

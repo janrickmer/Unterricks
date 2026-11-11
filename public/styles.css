@@ -391,7 +391,7 @@ main.narrow .homework { background: var(--gelb-t); border-color: color-mix(in sr
 
 /* ---------- Live-Fenster der Schüler:innen: die Projektionsfläche ---------- */
 .live { background: #0b111e; border-radius: var(--radius); overflow: hidden; position: relative; aspect-ratio: 16 / 9; display: grid; place-items: center; color: #cfd8e6; box-shadow: var(--shadow-lift); }
-.live img { width: 100%; height: 100%; object-fit: contain; display: block; background: #000; user-select: none; -webkit-user-drag: none; }
+.live > img { width: 100%; height: 100%; object-fit: contain; display: block; background: #000; user-select: none; -webkit-user-drag: none; }
 .live .placeholder { text-align: center; padding: 1.5rem; max-width: 34rem; }
 .live .placeholder .big { font-size: 1.25rem; font-weight: 800; color: #fff; margin-bottom: .35rem; }
 .live .status { position: absolute; top: .65rem; left: .65rem; display: flex; gap: .4rem; }
@@ -407,20 +407,40 @@ main.narrow .homework { background: var(--gelb-t); border-color: color-mix(in sr
 /* ---------- Präsentationsmodus und Beamer-Code ---------- */
 .presenter { position: fixed; inset: 0; z-index: 100; background: #000; display: grid; grid-template-rows: 1fr auto; }
 .presenter .stage { position: relative; display: grid; place-items: center; overflow: hidden; touch-action: pan-y; }
-.presenter .stage img { max-width: 100vw; max-height: 100%; width: 100%; height: 100%; object-fit: contain; user-select: none; -webkit-user-drag: none; }
+.presenter .stage > img { max-width: 100vw; max-height: 100%; width: 100%; height: 100%; object-fit: contain; user-select: none; -webkit-user-drag: none; }
 .presenter .bar { display: flex; gap: .5rem; align-items: center; padding: .55rem .85rem; background: rgba(11, 17, 30, .94); color: #e8edf6; flex-wrap: wrap; transition: opacity .3s var(--ease); }
 .presenter .bar .btn { background: #1d2840; color: #fff; border-color: #34405a; }
 .presenter .bar .btn.onair { background: var(--rot); border-color: var(--rot); }
 .presenter.idle .bar { opacity: 0; } .presenter.idle { cursor: none; }
 .presenter .counter { font-variant-numeric: tabular-nums; font-weight: 800; min-width: 5.5rem; text-align: center; }
-.codeshow { --ring: #fff; position: fixed; inset: 0; z-index: 90; isolation: isolate; overflow: hidden; background: var(--fach); color: #fff; display: grid; grid-template-columns: minmax(0, 1fr); place-items: center; text-align: center; padding: 2rem; }
-.codeshow::after { content: ""; position: absolute; z-index: -1; width: 70vmax; height: 46vmax; right: -16vmax; top: -12vmax; border-radius: 48px; background: var(--foil); mix-blend-mode: multiply; transform: rotate(-8deg); }
-.codeshow .c { font-family: var(--mono); font-weight: 800; font-size: clamp(2.4rem, 14vw, 12rem); letter-spacing: .1em; line-height: 1; max-width: 100%; }
-.codeshow .btn { background: rgba(10, 16, 30, .25); border-color: rgba(255, 255, 255, .6); color: #fff; }
-.codeshow .cs-grid { display: flex; flex-wrap: wrap; align-items: center; justify-content: center; gap: 2rem 5vmin; margin: 1.2rem 0 1rem; }
-.codeshow .qrbox { margin: 0; background: #fff; color: #13213b; border-radius: 18px; padding: clamp(.7rem, 1.6vmin, 1.2rem); display: grid; gap: .35rem; justify-items: center; box-shadow: 0 10px 30px rgba(10, 16, 30, .25); }
-.codeshow .qr { width: clamp(140px, 30vmin, 340px); height: auto; display: block; image-rendering: pixelated; }
-.codeshow .qrbox figcaption { font-weight: 800; font-size: clamp(.95rem, 1.8vmin, 1.25rem); letter-spacing: .01em; }
+/* Codefolie (codeslide.js): Sitzungscode + QR-Code – „Für den Beamer zeigen“ (Vollbild .codeshow), Präsentationsmodus (vor Folie 1, an
+   Platzhalterfolien, „Sitzungscode zeigen“) und Live-Kästchen der Schüler:innen. Größen relativ zur Fläche (Container-Einheiten cqw/cqh;
+   ohne Container-Abfragen gelten sie wie Bildschirmeinheiten). .cs-task = Platzhalterfolie mit Aufforderung und Materialtitel als Überschrift. */
+.codeslide { --ring: #fff; container-type: size; position: relative; isolation: isolate; overflow: hidden; width: 100%; height: 100%; place-self: stretch; background: var(--fach); color: #fff; display: grid; grid-template-columns: minmax(0, 1fr); place-items: center; text-align: center; }
+.codeslide::after { content: ""; position: absolute; z-index: -1; width: 70cqmax; height: 46cqmax; right: -16cqmax; top: -12cqmax; border-radius: 48px; background: var(--foil); mix-blend-mode: multiply; transform: rotate(-8deg); }
+.codeslide .cs-in { width: 100%; max-height: 100%; padding: 4cqh 5cqw; display: grid; justify-items: center; align-content: center; gap: 3.5cqh; min-width: 0; }
+.codeslide .cs-head { display: grid; gap: .8cqh; max-width: 92cqw; min-width: 0; }
+.codeslide .cs-line { font-size: max(.8rem, 4.2cqh); font-weight: 600; opacity: .88; line-height: 1.2; overflow-wrap: anywhere; display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 2; overflow: hidden; }
+.codeslide.cs-task .cs-line { font-size: max(.85rem, 5.6cqh); font-weight: 800; opacity: 1; line-height: 1.15; }
+.codeslide .cs-grid { display: flex; flex-wrap: nowrap; align-items: center; justify-content: center; gap: 6cqw; min-width: 0; }
+.codeslide .c { font-family: var(--mono); font-weight: 800; font-size: min(11cqw, 24cqh); letter-spacing: .1em; line-height: 1; white-space: nowrap; }
+.codeslide .qrbox { margin: 0; flex: none; background: #fff; color: #13213b; border-radius: min(18px, 2.4cqmin); padding: 1.6cqmin; display: grid; gap: .8cqmin; justify-items: center; box-shadow: 0 10px 30px rgba(10, 16, 30, .25); }
+.codeslide .qr { width: min(26cqw, 44cqh); height: auto; display: block; image-rendering: pixelated; }
+.codeslide.cs-task .qr { width: min(22cqw, 34cqh); }
+.codeslide .qrbox figcaption { font-weight: 800; font-size: max(.6rem, 2.4cqh); letter-spacing: .01em; white-space: nowrap; }
+.codeslide .cs-how { margin: 0; max-width: 90cqw; font-size: max(.7rem, 2.8cqh); opacity: .88; }
+@container (max-height: 260px) { .codeslide .cs-how { display: none; } .codeslide .cs-in { gap: 2.5cqh; } }
+@container (max-aspect-ratio: 1 / 1) {   /* hochkant (Handy): Code über dem QR-Code */
+  .codeslide .cs-grid { flex-direction: column; gap: 3cqh; }
+  .codeslide .c { font-size: min(14cqw, 9cqh); }
+  .codeslide .qr, .codeslide.cs-task .qr { width: min(52cqw, 30cqh); }
+  .codeslide .cs-line { font-size: max(.85rem, 2.6cqh); } .codeslide.cs-task .cs-line { font-size: max(.9rem, 3.2cqh); }
+  .codeslide .cs-how { font-size: max(.75rem, 2cqh); }
+}
+.live > .codeslide { border-radius: inherit; }
+.presenter .stage > .codeslide { cursor: inherit; }
+.codeshow { position: fixed; inset: 0; z-index: 90; display: grid; grid-template: minmax(0, 1fr) / minmax(0, 1fr); background: var(--fach); }
+.codeshow .cs-close { position: absolute; right: 1.25rem; bottom: 1.25rem; background: rgba(10, 16, 30, .25); border-color: rgba(255, 255, 255, .6); color: #fff; --ring: #fff; }
 
 /* ---------- Dialoge und Hinweise ---------- */
 .modal-back { position: fixed; inset: 0; z-index: 80; background: rgba(11, 17, 30, .55); display: grid; grid-template-columns: minmax(0, 1fr); place-items: center; padding: 1rem; }
@@ -511,7 +531,6 @@ details.box[open] > summary { margin-bottom: .55rem; }
   .btn { padding-inline: .8rem; }
   .btn.big { padding-inline: 1rem; font-size: 1.02rem; }
   .code-big { font-size: 2.1rem; letter-spacing: .05em; }
-  .codeshow { padding: 1.25rem .75rem; }
   .login .logo span { font-size: 1.8rem; }
   .tile { padding-right: 3.8rem; }
   .card { padding: .95rem .85rem; }

@@ -2,6 +2,7 @@
 import { h, $, clear, nn, store, deviceId, api, apiUrl, wsUrl, ApiError, toast, errToast, busy, copyText, fmtBytes, fmtDate, fmtClock, fileIcon, downloadUrl, downloadBlob, topbar, icon, setFach, pageHead, modal } from "./ui.js";
 import { SUBJECTS, CLASS_GROUPS, STUDENT_LOGIN_MIN, subjectName, formatCode, normalizeCode, fmtDay, classShort, isAnalogClass, webUrlLabel, fmtClockBerlin, fmtDayBerlin, slidesUpTo } from "./shared.js";
 import { paintPortalPreview } from "./portalview.js";
+import { codeSlideDom } from "./codeslide.js";
 import { renderMarkdown } from "./markdown.js";
 
 // Nie in fremden Seiten eingebettet anzeigen: Auf GitHub Pages fehlen die Schutz-Header (frame-ancestors gilt nicht als <meta>)
@@ -295,20 +296,31 @@ async function studentRoom(lessonId) {
   }
   paintKi();
   main.append(live, presRow, kiBox, hwBox);
-  let lastV = -1;
+  let lastV = -1, seq = 0, codeEl = null;
+  const dropCode = () => { if (codeEl) { codeEl.remove(); codeEl = null; } };
   function showState(st) {
     if (!st || typeof st !== "object") return;
     if (st.v !== undefined && st.v === lastV && st.active) return;
     lastV = st.v;
+    const my = ++seq;   // ein spät geladenes Folienbild überschreibt nie einen neueren Stand
     clear(status);
-    live.classList.toggle("idle", !(st.active && st.url));
-    if (st.active && st.url) {
-      status.append(h("span", { class: "badge onair" }, h("span", { class: "dot" }), "LIVE"), h("span", { class: "badge", text: "Folie " + st.slide + " / " + st.pages }));
+    // Codefolie (Sitzungscode + QR-Code): beim Start vor Folie 1, an Platzhalterfolien und über „Sitzungscode zeigen“ der Lehrkraft
+    const isCode = !!(st.active && st.view === "code" && st.code);
+    live.classList.toggle("idle", !(st.active && (st.url || isCode)));
+    const onair = () => h("span", { class: "badge onair" }, h("span", { class: "dot" }), "LIVE");
+    if (isCode) {
+      status.append(onair(), h("span", { class: "badge", text: st.slide >= 1 && !st.codeShown ? "Folie " + st.slide + " / " + st.pages : "Sitzungscode" }));
+      const el = codeSlideDom({ code: st.code, title: st.title, lines: Array.isArray(st.lines) ? st.lines : [] });
+      img.remove(); ph.remove();
+      if (codeEl) codeEl.replaceWith(el); else live.prepend(el);
+      codeEl = el;
+    } else if (st.active && st.url) {
+      status.append(onair(), h("span", { class: "badge", text: "Folie " + st.slide + " / " + st.pages }));
       const pre = new Image();
-      pre.onload = () => { img.src = pre.src; if (!img.isConnected) { ph.remove(); live.prepend(img); } };
+      pre.onload = () => { if (my !== seq) return; img.src = pre.src; dropCode(); if (!img.isConnected) { ph.remove(); live.prepend(img); } };
       pre.src = apiUrl(st.url);
     } else {
-      img.remove(); if (!ph.isConnected) live.prepend(ph);
+      img.remove(); dropCode(); if (!ph.isConnected) live.prepend(ph);
     }
   }
   // WebSocket mit Wiederverbindung; ersatzweise alle 2 s abfragen

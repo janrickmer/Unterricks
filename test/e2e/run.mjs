@@ -66,10 +66,19 @@ function escapeFixture() {
     finale: { ueberschrift: "Das Archiv ist gerettet", text: "Du hast alle Räume gelöst.", warum: "GERICH steht für das Gericht, das die Verfassung hütet.", rueckblick: ["Gewaltenteilung", "Organe", "Verfahren", "Grundgesetz", "Karlsruhe", "Schutz"], schluss: "Weiter zum Finale!" },
     feibeitsblatt: { titel: "Finale: Mission Gewaltenteilung", aufgaben: [{ text: "Beurteile, ob das BVerfG zu mächtig ist.", ki_auftrag: "Pro/Contra, eigenes Urteil" }] } };
 }
-async function pdf(pages, label, oldCode) {
-  const d = await PDFDocument.create(), f = await d.embedFont(StandardFonts.HelveticaBold), mono = await d.embedFont(StandardFonts.CourierBold);
+// holder = Nummer einer Unterricks-Codefolie (Platzhalter wie laut Prompt: Aufforderung, Materialtitel, die feste Zeile und eine kleine Fußzeile)
+async function pdf(pages, label, oldCode, holder) {
+  const d = await PDFDocument.create(), f = await d.embedFont(StandardFonts.HelveticaBold), mono = await d.embedFont(StandardFonts.CourierBold), reg = await d.embedFont(StandardFonts.Helvetica);
   for (let i = 1; i <= pages; i++) {
-    const p = d.addPage([960, 540]); p.drawRectangle({ x: 0, y: 0, width: 960, height: 540, color: rgb(0.12, 0.23, 0.37) }); p.drawText(label + " – Folie " + i, { x: 60, y: 260, size: 48, font: f, color: rgb(1, 1, 1) });
+    const p = d.addPage([960, 540]); p.drawRectangle({ x: 0, y: 0, width: 960, height: 540, color: rgb(0.12, 0.23, 0.37) });
+    if (i === holder) {
+      p.drawText("Bearbeitet in Partnerarbeit die Aufgaben 1 bis 3.", { x: 60, y: 380, size: 30, font: reg, color: rgb(1, 1, 1) });
+      p.drawText("Feibeitsblatt: Die wehrhafte Demokratie", { x: 60, y: 320, size: 36, font: f, color: rgb(1, 1, 1) });
+      p.drawText("Unterricks-Codefolie: Hier zeigt Unterricks den QR-Code und den Sitzungscode.", { x: 60, y: 60, size: 12, font: reg, color: rgb(1, 1, 1) });
+      p.drawText(label + " · " + i, { x: 60, y: 20, size: 9, font: reg, color: rgb(1, 1, 1) });
+      continue;
+    }
+    p.drawText(label + " – Folie " + i, { x: 60, y: 260, size: 48, font: f, color: rgb(1, 1, 1) });
     // Präsentation aus einer früheren Sitzung: Folie 1 mit großem Sitzungscode, Folie 2 als Materialfolie mit kleinem
     if (oldCode && i === 1) { p.drawText(oldCode, { x: 60, y: 100, size: 96, font: mono, color: rgb(1, 0.85, 0.3) }); p.drawText("Sitzungscode (bleibt stehen)", { x: 60, y: 172, size: 24, font: f, color: rgb(1, 1, 1) }); }
     if (oldCode && i === 2) p.drawText("Sitzungscode " + oldCode, { x: 60, y: 120, size: 32, font: f, color: rgb(1, 1, 1) });
@@ -282,12 +291,13 @@ async function main() {
     const presPrompt = await tp.evaluate(() => navigator.clipboard.readText());
     ok(presPrompt.includes("Manuell ergänzt: Hausaufgabe S. 12") && presPrompt.includes("Noch nicht gespeichert"), "Präsentations-Prompt nutzt exakt den aktuellen Textfeld-Inhalt");
     ok(presPrompt.includes("direkt als **PDF-Datei**") && !presPrompt.includes(".pptx") && presPrompt.includes("Politik und Wirtschaft") && presPrompt.includes("90 Minuten"), "Prompt fordert nur die PDF (keine PowerPoint) mit allen Rahmendaten an");
-    ok(presPrompt.includes("Sitzungscode „" + lesson0.code.slice(0, 3) + "-" + lesson0.code.slice(3) + "“") && presPrompt.includes("11111110111000011100001111111") && presPrompt.includes("Scanne den QR-Code oder öffne unterricks.janrickmer.de"),
-      "erste Folie: Sitzungscode dieser Sitzung und QR-Code zu Unterricks");
+    ok(presPrompt.includes("## Folie 1: gestaltete Titelfolie – ohne Sitzungscode und ohne QR-Code") && presPrompt.includes("zeigt Unterricks vor Folie 1 automatisch seine Codefolie")
+      && !presPrompt.includes(lesson0.code.slice(0, 3) + "-" + lesson0.code.slice(3)) && !presPrompt.includes("11111110111000011100001111111"),
+      "Folie 1 ist eine Titelfolie: kein Sitzungscode und kein QR-Code im Prompt (die Codefolie zeigt Unterricks selbst)");
     const matPart = presPrompt.slice(presPrompt.indexOf("## Materialfolien"), presPrompt.indexOf("## Rahmendaten"));
-    ok(matPart.includes("die Aufforderung, mit dem Material zu arbeiten") && matPart.includes("den Titel des Materials") && matPart.includes("denselben QR-Code zu Unterricks wie auf Folie 1") &&
-      matPart.includes("Sitzungscode „" + lesson0.code.slice(0, 3) + "-" + lesson0.code.slice(3) + "“") && presPrompt.split("11111110111000011100001111111").length === 2,
-      "Materialfolien: nur Aufforderung und Titel des Materials, dazu wieder QR-Code und Sitzungscode (Muster nur einmal im Prompt)");
+    ok(presPrompt.includes("Unterricks-Codefolie: Hier zeigt Unterricks den QR-Code und den Sitzungscode.") && matPart.includes("die Materialfolie ist deshalb eine Unterricks-Codefolie")
+      && matPart.includes("die Aufforderung, mit dem Material zu arbeiten") && matPart.includes("den Titel des Materials"),
+      "Materialfolien: Unterricks-Codefolie mit Aufforderung und Titel des Materials (feste Zeile im Prompt)");
     ok(presPrompt.includes("## Zeitlos gestalten") && presPrompt.includes("„bis zur nächsten Unterrichtssitzung“") && !/^- Datum:/m.test(presPrompt), "zeitlos: keine Daten der Lerngruppe, Hausaufgabe bis zur nächsten Unterrichtssitzung");
     await tp.locator('.save-state[data-state="ok"]', { hasText: /^Gespeichert \d\d:\d\d/ }).waitFor({ timeout: 10000 });
     ok((await T("GET", "/api/teacher/lessons/" + lessonId)).data.lesson.portal.includes("Noch nicht gespeichert"), "… und speichert diesen Stand sofort");
@@ -396,12 +406,27 @@ async function main() {
     }
 
     step("Präsentation (PDF) hochladen → Folienbilder");
-    // eine Präsentation aus einer früheren Sitzung (Sitzungscode ABC-234 auf Folie 1 und 2): Unterricks setzt den Code dieser Sitzung ein
-    await tp.locator("section.card", { hasText: "Präsentation für den Unterricht" }).locator("input[type=file]").first().setInputFiles({ name: "BVerfG.pdf", mimeType: "application/pdf", buffer: await pdf(3, "BVerfG", "ABC-234") });
+    // Folie 3 ist eine Unterricks-Codefolie (Materialfolie); dazu der stille Rückfall für ältere Präsentationen: Sitzungscode ABC-234 einer
+    // früheren Sitzung auf Folie 1 und 2 – Unterricks setzt den Code dieser Sitzung ein
+    await tp.locator("section.card", { hasText: "Präsentation für den Unterricht" }).locator("input[type=file]").first().setInputFiles({ name: "BVerfG.pdf", mimeType: "application/pdf", buffer: await pdf(3, "BVerfG", "ABC-234", 3) });
     await tp.getByRole("button", { name: "Ich bin im Unterricht und starte die Präsentation für alle." }).waitFor({ timeout: 40000 });
     ok(await tp.locator(".item", { hasText: "3 Folien" }).count() === 1, "3 Folien erzeugt, Start-Knopf unter der Präsentation");
     const swapToast = tp.locator(".toast", { hasText: "Den Sitzungscode ABC-234 einer früheren Sitzung hat Unterricks auf 2 Folien durch den Code dieser Sitzung " + lesson0.code.slice(0, 3) + "-" + lesson0.code.slice(3) + " ersetzt." });
     ok(await swapToast.waitFor({ timeout: 10000 }).then(() => true, () => false), "Präsentation aus einer früheren Sitzung: alter Sitzungscode auf Folie 1 und 2 durch den Code dieser Sitzung ersetzt");
+    ok(await tp.locator(".toast", { hasText: "Präsentation bereit (3 Folien). Auf Folie 3 zeigt Unterricks live den Sitzungscode dieser Sitzung (Platzhalterfolie)." }).count() === 1
+      && await tp.locator(".toast", { hasText: "keinen Sitzungscode als Text gefunden" }).count() === 0, "Meldung nennt die Unterricks-Codefolie (Folie 3)");
+    {
+      const pf = (await T("GET", "/api/teacher/lessons/" + lessonId)).data.files.find((f) => f.area === "presentation");
+      const want = JSON.stringify([{ n: 3, lines: ["Bearbeitet in Partnerarbeit die Aufgaben 1 bis 3.", "Feibeitsblatt: Die wehrhafte Demokratie"] }]);
+      const sl = await T("GET", "/api/teacher/files/" + pf.id + "/slides");
+      if (JSON.stringify(pf.codeSlides) !== want) console.log("    codeSlides:", JSON.stringify(pf.codeSlides));
+      ok(JSON.stringify(pf.codeSlides) === want && JSON.stringify(sl.data.codeSlides) === want, "Codefolie gespeichert: Folie 3 mit Aufforderung und Materialtitel als Überschrift (ohne Fußzeile und feste Zeile)");
+      ok(await tp.locator(".thumbs .thumb").nth(2).locator(".badge", { hasText: "Code" }).count() === 1, "Vorschaubild der Codefolie ist gekennzeichnet");
+      const bad = await T("POST", "/api/teacher/files/" + pf.id + "/ready", { pages: 3, codeSlides: [{ n: 9, lines: ["x"] }, { n: 2, lines: ["<b>ok</b>", "\u0000"] }] });
+      const pf2 = (await T("GET", "/api/teacher/lessons/" + lessonId)).data.files.find((f) => f.area === "presentation");
+      ok(bad.status === 200 && JSON.stringify(pf2.codeSlides) === JSON.stringify([{ n: 2, lines: ["<b>ok</b>"] }]), "Server prüft die Codefolien (nur Seiten der PDF, Zeilen nur als Text)");
+      await T("POST", "/api/teacher/files/" + pf.id + "/ready", { pages: 3, codeSlides: JSON.parse(want) });
+    }
     { // Folienbilder 1 und 2 zum Ansehen ablegen (die Textebene der hochgeladenen PDF bleibt unverändert)
       const presFile = (await T("GET", "/api/teacher/lessons/" + lessonId)).data.files.find((f) => f.area === "presentation");
       const sl = await T("GET", "/api/teacher/files/" + presFile.id + "/slides");
@@ -464,26 +489,66 @@ async function main() {
     ok((await SA("POST", "/api/student/lessons/" + lessonId + "/presentation-link", {})).status === 403, "… auch serverseitig gesperrt");
 
     step("Live-Präsentation: Lehrkraft startet, Schüler:in folgt");
+    const codeF = lesson0.code.slice(0, 3) + "-" + lesson0.code.slice(3);
     await tp.getByRole("button", { name: "Ich bin im Unterricht und starte die Präsentation für alle." }).click();
     await tp.locator(".presenter").waitFor();
-    await sp.locator(".live img").waitFor({ timeout: 15000 });
+    await tp.locator(".presenter .stage .codeslide .c", { hasText: codeF }).waitFor({ timeout: 10000 });
+    const markB = tp.locator(".presenter").getByRole("button", { name: /als letzte im Unterricht gezeigte Folie markieren/ });
+    ok((await tp.locator(".presenter .counter").textContent()) === "Sitzungscode" && await markB.isDisabled() && await tp.locator(".presenter .stage > img").count() === 0,
+      "Start: zuerst die Codefolie (vor Folie 1) – „Bis hier gezeigt“ gilt dort nicht");
+    await sp.locator(".live .codeslide .c", { hasText: codeF }).waitFor({ timeout: 15000 });
+    await sp.locator(".live .badge", { hasText: "Sitzungscode" }).waitFor({ timeout: 10000 });
+    await sp.waitForFunction(() => { const i = document.querySelector(".live .codeslide img.qr"); return !!i && i.complete && i.naturalWidth > 0; }, null, { timeout: 10000 }).catch(() => {});
+    ok((await sp.locator(".live .codeslide .cs-line").textContent()) === lesson0.title && await sp.locator(".live .codeslide img.qr").evaluate((i) => i.complete && i.naturalWidth > 0)
+      && (await sp.locator(".live .codeslide figcaption").textContent()) === "unterricks.janrickmer.de", "… live auch auf dem iPad: Titel, Sitzungscode dieser Sitzung und QR-Code zu Unterricks");
+    await sp.screenshot({ ...SHOT, path: join(OUT, "schueler-codefolie.png") });
+    await tp.screenshot({ ...SHOT, path: join(OUT, "lehrkraft-codefolie.png") });
+    await tp.keyboard.press("ArrowRight");
+    await sp.locator(".live > img").waitFor({ timeout: 15000 });
     await sp.locator(".live .badge", { hasText: "Folie 1 / 3" }).waitFor({ timeout: 10000 });
-    ok(true, "Folie 1 erscheint bei der Schülerin");
+    await sp.waitForFunction(() => !document.querySelector(".live .codeslide"), null, { timeout: 10000 });
+    ok((await tp.locator(".presenter .counter").textContent()) === "1 / 3", "Folie 1 erscheint bei der Schülerin");
     const t0 = Date.now();
     await tp.keyboard.press("ArrowRight");
     await sp.locator(".live .badge", { hasText: "Folie 2 / 3" }).waitFor({ timeout: 10000 });
     ok(true, "Folienwechsel kommt an (" + (Date.now() - t0) + " ms)");
-    await tp.locator(".presenter").getByRole("button", { name: /als letzte im Unterricht gezeigte Folie markieren/ }).click();
+    await markB.click();
     await tp.locator(".presenter .markstate", { hasText: "Bis Folie 2 markiert" }).waitFor({ timeout: 20000 });
     const presF = (await T("GET", "/api/teacher/lessons/" + lessonId)).data.files.find((f) => f.area === "presentation");
     ok(presF.shownUntil === 2 && presF.cut === true, "Vollbild „Bis hier gezeigt“: Folie 2 als letzte gezeigte Folie markiert, gekürzte PDF gespeichert");
     await tp.locator(".presenter .small", { hasText: "1 Schüler:in verbunden" }).waitFor({ timeout: 10000 });
     ok(true, "Lehrkraft sieht die Zahl der verbundenen Schüler:innen");
-    await sp.waitForFunction(() => /\/2\?/.test((document.querySelector(".live img") || {}).src || ""), null, { timeout: 10000 });
-    const src = await sp.locator(".live img").getAttribute("src");
+    await sp.waitForFunction(() => /\/2\?/.test((document.querySelector(".live > img") || {}).src || ""), null, { timeout: 10000 });
+    const src = await sp.locator(".live > img").getAttribute("src");
     ok((await fetch(new URL(src, BASE).href)).status === 200 && (await fetch(new URL(src, BASE).href.replace(/\/(\d+)\?/, "/3?"))).status === 403, "Schüler:innen können nicht vorblättern (Folie 3 gesperrt)");
     await sp.screenshot({ ...SHOT, path: join(OUT, "schueler-live.png") });
     await tp.screenshot({ ...SHOT, path: join(OUT, "lehrkraft-praesentation.png") });
+    // „Sitzungscode zeigen“: Codefolie über Folie 2 – bei allen; die nächste Taste kehrt zurück (nicht weiter)
+    await tp.locator(".presenter").getByRole("button", { name: "Sitzungscode zeigen" }).click();
+    await sp.locator(".live .badge", { hasText: "Sitzungscode" }).waitFor({ timeout: 10000 });
+    ok(await sp.locator(".live .codeslide .c", { hasText: codeF }).count() === 1 && await tp.locator(".presenter").getByRole("button", { name: "Zurück zu Folie 2" }).count() === 1
+      && (await tp.locator(".presenter .counter").textContent()) === "Sitzungscode" && await markB.isDisabled(), "„Sitzungscode zeigen“ blendet die Codefolie live bei allen ein");
+    await tp.keyboard.press("ArrowRight");
+    await sp.locator(".live .badge", { hasText: "Folie 2 / 3" }).waitFor({ timeout: 10000 });
+    await sp.waitForFunction(() => !document.querySelector(".live .codeslide") && /\/2\?/.test((document.querySelector(".live > img") || {}).src || ""), null, { timeout: 10000 });
+    ok((await tp.locator(".presenter .counter").textContent()) === "2 / 3", "… die nächste Taste kehrt zu Folie 2 zurück");
+    // Folie 3 ist eine Unterricks-Codefolie: bei allen die Codefolie mit Aufforderung und Materialtitel als Überschrift
+    await tp.keyboard.press("ArrowRight");
+    await sp.locator(".live .codeslide.cs-task").waitFor({ timeout: 10000 });
+    const lines = async (pg, sel) => (await pg.locator(sel + " .codeslide .cs-line").allTextContents()).join(" | ");
+    const head = "Bearbeitet in Partnerarbeit die Aufgaben 1 bis 3. | Feibeitsblatt: Die wehrhafte Demokratie";
+    ok(await lines(sp, ".live") === head && await lines(tp, ".presenter .stage") === head && await sp.locator(".live .badge", { hasText: "Folie 3 / 3" }).count() === 1
+      && await sp.locator(".live .codeslide .c", { hasText: codeF }).count() === 1 && (await tp.locator(".presenter .counter").textContent()) === "3 / 3",
+      "Unterricks-Codefolie (Folie 3): live die Codefolie mit Aufforderung und Materialtitel – beim Beamer und auf dem iPad");
+    await sp.screenshot({ ...SHOT, path: join(OUT, "schueler-codefolie-material.png") });
+    await tp.screenshot({ ...SHOT, path: join(OUT, "lehrkraft-codefolie-material.png") });
+    // Fenster schließen, Live-Anzeige läuft weiter; erneut öffnen → weiter an der laufenden Stelle (nicht wieder die Codefolie davor)
+    await tp.locator(".presenter").getByRole("button", { name: "Schließen", exact: true }).click();
+    await tp.locator("section.card", { hasText: "Präsentation für den Unterricht" }).locator(".small", { hasText: "Folie 3 / 3" }).waitFor({ timeout: 10000 });
+    await tp.getByRole("button", { name: "Ich bin im Unterricht und starte die Präsentation für alle." }).click();
+    await tp.locator(".presenter .stage .codeslide.cs-task").waitFor({ timeout: 10000 });
+    await tp.waitForTimeout(800);
+    ok((await tp.locator(".presenter .counter").textContent()) === "3 / 3" && await sp.locator(".live .badge", { hasText: "Folie 3 / 3" }).count() === 1, "erneut geöffnet: es geht an der laufenden Stelle weiter");
     await tp.getByRole("button", { name: "Präsentation für alle beenden" }).click();
     await sp.locator(".live .placeholder").waitFor({ timeout: 10000 });
     ok(true, "Beenden kommt bei allen an");
@@ -1072,9 +1137,9 @@ async function main() {
       ok(tl.lesson.title === srcL.title && tl.lesson.date === target.date && tl.lesson.durationMin === target.durationMin && (tl.lesson.startTime || null) === (target.startTime || null), "Inhalte übernommen; Datum, Beginn und Dauer der geöffneten Sitzung bleiben");
       ok(!tl.lesson.homework.includes(num(srcL.nextDate)) && (!tl.lesson.nextDate || tl.lesson.homework.includes(num(tl.lesson.nextDate))) && tl.lesson.ideas.includes(num(target.date)) && tl.lesson.ideas.includes("24.12.2030"),
         "Datumsangaben an die neue Sitzung angepasst (Hausaufgabe bis zur nächsten Sitzung, Datum der Sitzung)");
-      ok(tl.files.some((f) => f.area === "presentation" && f.status === "ready" && f.pages === 3) && tl.files.some((f) => f.kind === "link" && f.url === "https://www.bpb.de/mediathek/video/bverfg")
+      ok(tl.files.some((f) => f.area === "presentation" && f.status === "ready" && f.pages === 3 && JSON.stringify((f.codeSlides || []).map((c) => c.n)) === "[3]") && tl.files.some((f) => f.kind === "link" && f.url === "https://www.bpb.de/mediathek/video/bverfg")
         && tl.files.filter((f) => f.area === "print").length === 3 && tl.files.some((f) => f.name === "Erwartungshorizont GEHEIM.docx" && f.area === "teacher") && tl.drafts.some((d) => d.data && d.data.title === "Mock-Blatt BVerfG"),
-        "Präsentation (mit Folien), Links, Druckliste, Lehrkraft-Material und Feibeitsblatt-Entwurf übernommen");
+        "Präsentation (mit Folien und erkannter Codefolie), Links, Druckliste, Lehrkraft-Material und Feibeitsblatt-Entwurf übernommen");
     }
 
     /* ---------- Gespeicherte Feibeitsblatt-Verbindung auf weiteren Geräten ---------- */

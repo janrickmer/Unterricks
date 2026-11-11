@@ -348,7 +348,7 @@ export async function sessionPage(id) {
       "Beim Kopieren für das Schulportal setzt Unterricks die fette Überschrift „Hausaufgabe zum …:“ (Datum der nächsten Sitzung) davor, macht aus jeder Zeile einen Stichpunkt und ergänzt als letzten Stichpunkt „Unter " + PUBLIC_URL + " kannst du diese Sitzung mit dem Code " + formatCode(L().code) + " aufrufen …“ – in Unterricks sehen die Schüler:innen diesen Hinweis nicht." }));
 
   const presPromptCard = h("section", { class: "card" }, h("div", { class: "section-title" }, h("h2", { text: "Präsentation mit Claude erstellen" })),
-    h("p", { class: "small", text: "Erzeugt einen ausführlichen Prompt für Claude (claude.ai), der eine vollständige Präsentation für diese Stunde direkt als PDF anfordert – zum Hochladen hier in Unterricks, auf Grundlage des aktuellen Schulportal-Eintrags, der Materialien und Ihrer Planung. Die Präsentation wird zeitlos (ohne Datum und Klasse), damit sie in einer späteren Klasse desselben Jahrgangs wieder passt. Die erste Folie zeigt immer den Sitzungscode und den QR-Code zu Unterricks. " + (analog ? "Folien, auf denen die Schüler:innen mit Material arbeiten, zeigen nur die Aufforderung und den Titel des Materials (in Jahrgang 5/6 auf Papier, ohne QR-Code)." : "Ebenso jede Folie, auf der die Schüler:innen mit Material aus Unterricks arbeiten (dort nur die Aufforderung und der Titel des Materials; Material auf Papier ohne QR-Code).") }),
+    h("p", { class: "small", text: "Erzeugt einen ausführlichen Prompt für Claude (claude.ai), der eine vollständige Präsentation für diese Stunde direkt als PDF anfordert – zum Hochladen hier in Unterricks, auf Grundlage des aktuellen Schulportal-Eintrags, der Materialien und Ihrer Planung. Die Präsentation wird zeitlos (ohne Datum, Klasse und Sitzungscode), damit sie in einer späteren Klasse desselben Jahrgangs wieder passt; Folie 1 ist eine Titelfolie. Den Sitzungscode und den QR-Code zu Unterricks zeigt Unterricks beim Start selbst vor Folie 1 – immer den der aktuellen Sitzung. " + (analog ? "Folien, auf denen die Schüler:innen mit Material arbeiten, zeigen nur die Aufforderung und den Titel des Materials (in Jahrgang 5/6 auf Papier)." : "Folien, auf denen die Schüler:innen mit Material aus Unterricks arbeiten, setzt Claude als Platzhalterfolien („Unterricks-Codefolie“) mit der Aufforderung und dem Titel des Materials – dort zeigt Unterricks live dieselbe Codefolie mit dieser Überschrift (Material auf Papier: nur Aufforderung und Titel).") }),
     presPromptBtn, presPromptOut);
 
   /* ======================= Materialien ======================= */
@@ -475,7 +475,7 @@ export async function sessionPage(id) {
     const p = st.files.find((f) => f.area === "presentation");
     clear(presCard).append(h("div", { class: "section-title" }, h("h2", { text: "Präsentation für den Unterricht" })));
     const zone = dropZone(p ? "Andere Präsentation hochladen (ersetzt die bisherige)" : "PDF der Präsentation hier ablegen oder auswählen",
-      "Nur PDF – Claude liefert die Präsentation laut Prompt direkt als PDF (eigene PowerPoint-Dateien: „Datei → Exportieren → PDF“). Steht auf Folie 1 der Sitzungscode einer früheren Sitzung, setzt Unterricks auf den Folien den Code dieser Sitzung ein.", (fs) => uploadPres(fs[0]), "application/pdf,.pdf", false);
+      "Nur PDF – Claude liefert die Präsentation laut Prompt direkt als PDF (eigene PowerPoint-Dateien: „Datei → Exportieren → PDF“). Den Sitzungscode zeigt Unterricks live: vor Folie 1 und auf Platzhalterfolien mit der Zeile „Unterricks-Codefolie“. Steht in einer älteren Präsentation noch ein Code auf Folie 1, setzt Unterricks auf den Folien den Code dieser Sitzung ein.", (fs) => uploadPres(fs[0]), "application/pdf,.pdf", false);
     if (!p) { presCard.append(zone); return; }
     if (p.status !== "ready") {
       presCard.append(h("div", { class: "notice warn" }, "Die Folienbilder von „" + p.name + "“ wurden noch nicht vollständig erzeugt. Bitte die PDF erneut hochladen."), zone);
@@ -494,13 +494,14 @@ export async function sessionPage(id) {
     const slideMenu = (x, y, n) => contextMenu(x, y, [
       { label: n === p.pages ? "Letzte Folie: alle Folien freigeben" : "Bis hier gezeigt (Folie " + n + " als letzte gezeigte Folie markieren)", onClick: () => applyShown(n === p.pages ? null : n) },
       ...(shown ? [{ label: "Markierung aufheben (alle Folien)", onClick: () => applyShown(null) }] : [])]);
+    const holders = new Set(((st.slides && st.slides.codeSlides) || p.codeSlides || []).map((c) => c.n));   // Platzhalterfolien (live: Codefolie)
     const thumbs = h("div", { class: "thumbs", role: "list", "aria-label": "Folien der Präsentation" }, st.slides ? st.slides.urls.map((u, i) => {
       const n = i + 1, after = !!shown && n > shown;
       return h("figure", { class: "thumb" + (after ? " after" : "") + (shown === n ? " mark" : ""), role: "listitem", tabindex: "0",
-        "aria-label": "Folie " + n + (shown === n ? " – letzte gezeigte Folie" : after ? " – für Schüler:innen nicht freigegeben" : "") + ". Kontextmenü: als letzte gezeigte Folie markieren",
+        "aria-label": "Folie " + n + (holders.has(n) ? " – Codefolie: live zeigt Unterricks hier den Sitzungscode" : "") + (shown === n ? " – letzte gezeigte Folie" : after ? " – für Schüler:innen nicht freigegeben" : "") + ". Kontextmenü: als letzte gezeigte Folie markieren",
         oncontextmenu: (e) => { e.preventDefault(); slideMenu(e.clientX, e.clientY, n); },
         onkeydown: (e) => { if (e.key === "ContextMenu" || (e.shiftKey && e.key === "F10")) { e.preventDefault(); const r = e.currentTarget.getBoundingClientRect(); slideMenu(r.left + 8, r.bottom - 8, n); } } },
-        h("img", { src: apiUrl(u), alt: "", loading: "lazy" }), h("figcaption", null, String(n), shown === n ? h("span", { class: "badge ink", text: "bis hier" }) : null));
+        h("img", { src: apiUrl(u), alt: "", loading: "lazy" }), h("figcaption", null, String(n), holders.has(n) ? h("span", { class: "badge", text: "Code" }) : null, shown === n ? h("span", { class: "badge ink", text: "bis hier" }) : null));
     }) : null);
     const shownSel = h("select", { id: "shown-sel", "aria-describedby": "shown-hint" }, h("option", { value: "" }, "Keine Markierung – nach der Freigabe alle Folien"),
       Array.from({ length: Math.max(0, p.pages - 1) }, (_, i) => h("option", { value: String(i + 1), selected: shown === i + 1 ? true : null }, "Folie " + (i + 1))));
@@ -513,15 +514,17 @@ export async function sessionPage(id) {
     startBtn.addEventListener("click", async () => {
       try {
         const { startPresenter } = await import("./presenter.js");
-        await startPresenter({ lessonId: id, file: p, token: T.token, slides: st.slides, startSlide: liveState && liveState.active ? liveState.slide : 1, onEnd: () => { refreshLive(); paintPres(); },
-          shownUntil: shown, onMark: (n, onStep) => setShown(n >= p.pages ? null : n, onStep) });
+        // neu starten → Codefolie (0) vor Folie 1; läuft diese Präsentation schon, geht es an der laufenden Stelle weiter
+        const running = liveState && liveState.active && liveState.fileId === p.id;
+        await startPresenter({ lessonId: id, file: p, token: T.token, slides: st.slides, startSlide: running ? liveState.slide : 0, code: L().code, title: L().title,
+          onEnd: () => { refreshLive(); paintPres(); }, shownUntil: shown, onMark: (n, onStep) => setShown(n >= p.pages ? null : n, onStep) });
       } catch (e) { errToast(e); }
     });
     let liveState = null;
     async function refreshLive() {
       try {
         const r = await tapi("GET", "/api/teacher/lessons/" + id + "/live"); liveState = r.live;
-        clear(liveLine).append(liveState.active ? h("span", null, h("span", { class: "badge onair" }, h("span", { class: "dot" }), "LIVE"), " Folie " + liveState.slide + " / " + liveState.pages + " · " + liveState.students + " verbunden ",
+        clear(liveLine).append(liveState.active ? h("span", null, h("span", { class: "badge onair" }, h("span", { class: "dot" }), "LIVE"), " " + (liveState.view === "code" && (liveState.slide === 0 || liveState.codeShown) ? "Sitzungscode" : "Folie " + liveState.slide + " / " + liveState.pages) + " · " + liveState.students + " verbunden ",
           h("button", { class: "btn small danger", type: "button", onclick: async () => { try { await tapi("POST", "/api/teacher/lessons/" + id + "/live/stop"); refreshLive(); } catch (e) { errToast(e); } } }, "Für alle beenden")) : h("span", { class: "muted", text: "Gerade nicht live." }));
       } catch {}
     }
@@ -534,7 +537,7 @@ export async function sessionPage(id) {
             try { await tapi("DELETE", "/api/teacher/files/" + p.id); st.files = st.files.filter((x) => x !== p); st.slides = null; paintPres(); } catch (e) { errToast(e); }
           } }, icon("trash")))),
       thumbs, shownBox, presRel, startBtn, liveLine,
-      h("p", { class: "hint", text: "Startet das Vollbild hier und zeigt dieselbe Folie oben in der Schüleransicht aller freigeschalteten Schüler:innen. Weiter mit →, Leertaste, Bildtaste (Presenter) oder Tippen; Schüler:innen können nicht selbst blättern. Selbst öffnen können sie die Präsentation erst " + PRESENTATION_AFTER_END_MIN + " Minuten nach dem Ende der Sitzung – bei markierter letzter Folie nur bis dorthin." }),
+      h("p", { class: "hint", text: "Startet das Vollbild hier und zeigt dieselbe Folie oben in der Schüleransicht aller freigeschalteten Schüler:innen. Zuerst erscheint die Codefolie mit dem Sitzungscode und dem QR-Code dieser Sitzung; „Sitzungscode zeigen“ (Taste C) blendet sie jederzeit wieder ein. Weiter mit →, Leertaste, Bildtaste (Presenter) oder Tippen; Schüler:innen können nicht selbst blättern. Selbst öffnen können sie die Präsentation erst " + PRESENTATION_AFTER_END_MIN + " Minuten nach dem Ende der Sitzung – bei markierter letzter Folie nur bis dorthin." }),
       h("details", { class: "box" }, h("summary", null, "Andere Präsentation hochladen"), zone));
   }
   async function uploadPres(file, moreSheetCodes = []) {   // moreSheetCodes: Feibeitsblätter der Sitzung, aus der eine Sitzungsdatei stammt
@@ -551,12 +554,13 @@ export async function sessionPage(id) {
       const out = await rasterizeAndUpload(pendingPdf, r.file.id, T.token, (i, n) => { label.textContent = "Erzeuge Folie " + i + " von " + n + " …"; bar.style.width = (30 + Math.round((i / n) * 70)) + "%"; },
         { code: L().code, exclude: [...st.sheets.map((s) => s.code), ...moreSheetCodes] });
       Object.assign(r.file, out.file);
-      const sw = out.swapped;   // Präsentation aus einer früheren Sitzung: alter Code auf den Folien durch den dieser Sitzung ersetzt
+      const sw = out.swapped;   // stiller Rückfall: ältere Präsentation mit dem Code einer früheren Sitzung auf den Folien
       const folien = (l) => (l.length === 1 ? "Folie " + l[0] : "den Folien " + l.slice(0, -1).join(", ") + " und " + l[l.length - 1]);
-      const note = sw ? (sw.slides.length ? " Den Sitzungscode " + formatCode(sw.from) + " einer früheren Sitzung hat Unterricks auf " +
+      const holders = (out.codeSlides || []).map((c) => c.n);
+      const note = (holders.length ? " Auf " + folien(holders) + " zeigt Unterricks live den Sitzungscode dieser Sitzung (Platzhalterfolie)." : "") +
+        (sw ? (sw.slides.length ? " Den Sitzungscode " + formatCode(sw.from) + " einer früheren Sitzung hat Unterricks auf " +
           (sw.slides.length === 1 ? "Folie " + sw.slides[0] : sw.slides.length + " Folien") + " durch den Code dieser Sitzung " + formatCode(sw.to) + " ersetzt." : "") +
-          (sw.missed.length ? " Auf " + folien(sw.missed) + " steht noch der alte Sitzungscode " + formatCode(sw.from) + " – dort ließ er sich nicht sicher ersetzen; bitte die Folie ändern oder den Code dieser Sitzung (" + formatCode(sw.to) + ") ansagen." : "")
-        : out.noCode ? " Auf Folie 1 hat Unterricks keinen Sitzungscode als Text gefunden – steht dort einer, prüfen Sie, ob es " + formatCode(L().code) + " ist." : "";
+          (sw.missed.length ? " Auf " + folien(sw.missed) + " steht noch der alte Sitzungscode " + formatCode(sw.from) + " – dort ließ er sich nicht sicher ersetzen; bitte die Folie ändern oder den Code dieser Sitzung (" + formatCode(sw.to) + ") ansagen." : "") : "");
       toast("Präsentation bereit (" + out.pages + " Folien)." + note, sw && sw.missed.length ? "err" : "ok", note ? (sw && sw.missed.length ? 20000 : 12000) : undefined);
     } catch (e) { errToast(e); }
     pendingPdf = null; paintPres();

@@ -2,8 +2,8 @@
 // Downloads und Folienbilder laufen über kurzlebige signierte Links (funktionieren auch beim direkten Öffnen auf dem iPad).
 import { HttpError, bad, json, readJson, randomId, cleanLine, cleanText, isId, requireSecret, signLink, checkLink, contentDisposition, INLINE_SAFE } from "./lib.js";
 import { requireTeacher } from "./auth.js";
-import { getLesson, fileOut, LIMITS, printProps } from "./lessons.js";
-import { normalizeCode, isValidCode, cleanWebUrl, slidesUpTo, printFileName, cleanCopies, isAnalogClass } from "../public/shared.js";
+import { getLesson, fileOut, codeSlidesOf, LIMITS, printProps } from "./lessons.js";
+import { normalizeCode, isValidCode, cleanWebUrl, slidesUpTo, printFileName, cleanCopies, isAnalogClass, cleanCodeSlides } from "../public/shared.js";
 
 export const MAX_FILE = 100 * 1024 * 1024;         // Grenze einer Anfrage im Cloudflare-Free-Plan
 export const MAX_SLIDE = 4 * 1024 * 1024;
@@ -286,12 +286,13 @@ export async function routeSlideUpload(c, fileId, nRaw) {
 export async function routePresentationReady(c, fileId) {
   await requireTeacher(c);
   const f = await getFile(c.db, fileId);
-  const body = await readJson(c.request, 10000);
+  const body = await readJson(c.request, 64000);   // samt Platzhalterfolien (≤ 60 × 3 Zeilen × 160 Zeichen)
   const pages = Number(body.pages);
   if (f.area !== "presentation" || !Number.isInteger(pages) || pages < 1 || pages > MAX_SLIDES) throw bad("Ungültige Folienzahl.");
   const r = await c.db.prepare("SELECT COUNT(*) AS n FROM slides WHERE file_id=?1 AND n BETWEEN 1 AND ?2").bind(f.id, pages).first();
   if (((r || {}).n || 0) !== pages) throw bad("Es fehlen noch Folienbilder (" + ((r || {}).n || 0) + " von " + pages + "). Bitte erneut hochladen.");
-  await c.db.prepare("UPDATE files SET pages=?2, status='ready', updated_at=?3 WHERE id=?1").bind(f.id, pages, c.now).run();
+  const cs = cleanCodeSlides(body.codeSlides, pages);   // Platzhalterfolien für die Codefolie (erkannt im Browser)
+  await c.db.prepare("UPDATE files SET pages=?2, status='ready', code_slides=?4, updated_at=?3 WHERE id=?1").bind(f.id, pages, c.now, cs.length ? JSON.stringify(cs) : null).run();
   return json({ ok: true, file: fileOut(await getFile(c.db, f.id)) });
 }
 /* Letzte im Unterricht gezeigte Folie: Schüler:innen bekommen nach der Freigabe nur Folie 1 bis hier. Die gekürzte PDF erzeugt der Browser
@@ -322,7 +323,7 @@ export async function routeTeacherSlides(c, fileId) {
   if (f.area !== "presentation" || f.status !== "ready") throw bad("Die Präsentation ist noch nicht bereit.");
   const secret = requireSecret(c.env), urls = [];
   for (let n = 1; n <= f.pages; n++) urls.push(await slideUrl(secret, f.id, n, 12 * 3600e3, c.now));
-  return json({ ok: true, pages: f.pages, urls });
+  return json({ ok: true, pages: f.pages, urls, codeSlides: codeSlidesOf(f) });
 }
 export async function slideUrl(secret, fileId, n, ttl, now = Date.now()) {
   const { e, s } = await signLink(secret, ["slide", fileId, n], ttl, now);

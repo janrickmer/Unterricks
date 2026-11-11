@@ -35,6 +35,7 @@ implementiert und im End-to-End-Test geprüft (Ausnahmen unten ausdrücklich gen
 | Beginn der Sitzung (Ergänzung) | Uhrzeit **im Stundenplan der Einheit** je Wochentag (neue Sitzungen bekommen sie) und **in jeder Sitzung änderbar** |
 | Notfall-Feibeitsblätter bei Schüler:innen (Ergänzung) | **eigenes Kästchen unter dem Material**, kleinere Schrift, beginnt mit dem roten Hinweis „Achtung! Eigentlich sollst du …“ (Wortlaut der Lehrkraft; nur das Komma vor „soll“ entfernt) |
 | Beamer-Folie (Ergänzung) | Sitzungscode **mit QR-Code** zu https://unterricks.janrickmer.de |
+| Codefolie (Ergänzung vom 11.11.2026) | Die Präsentation enthält **keinen Sitzungscode und keinen QR-Code**: Folie 1 ist eine gestaltete Titelfolie; beim Start zeigt Unterricks **vor Folie 1 die Codefolie** (wie „Für den Beamer zeigen“, immer mit dem Code der **aktuellen** Sitzung) am Beamer und live auf den iPads; Folien mit der Zeile **„Unterricks-Codefolie: …“** (auch jede Materialfolie mit Material aus Unterricks) zeigt Unterricks live als Codefolie mit ihrem übrigen Text als Überschrift; Knopf **„Sitzungscode zeigen“** im Präsentationsmodus; das Ersetzen alter Codes auf den Folien bleibt als stiller Rückfall für ältere Präsentationen |
 | Links als Material (Ergänzung) | in **beiden Bereichen** (Schüler:innen / nur Lehrkraft) Links mit **Titel** und Internetadresse (nur http/https) |
 | Druckliste (Ergänzung) | Karte **„Von der Lehrkraft auszudrucken“** ganz unten: **nur PDF**, alles **A4** (andere Formate beim Hochladen umgerechnet, mit Hinweis), Name **„28x - beidseitig - sw - Name.pdf“**, einzeln oder **als ZIP**; Claude legt Vorlagen über den Connector ab (`add_print_material`), siehe 4i |
 | Sitzung als Datei (Ergänzung) | ganz unten **„Sitzung als Datei herunterladen“** („Unterrickssitzung - Fach - Jahrgang - Einheit - Sitzung Nr. n.zip“) und daneben **„Sitzung aus Datei laden“**; beim Laden bleiben Datum, Beginn und Dauer der geöffneten Sitzung, Datumsangaben in den Texten werden angepasst, siehe 4j |
@@ -105,7 +106,8 @@ implementiert und im End-to-End-Test geprüft (Ausnahmen unten ausdrücklich gen
 | | `public/pdfcut.js`, `public/a4.js`, `public/zip.js` | Präsentation kürzen, Druckvorlagen auf A4, ZIP schreiben/lesen |
 | | `public/sessionfile.js` | Sitzung als Datei: Name, Datumsanpassung, Feibeitsblatt → Entwurf, Prüfung |
 | | `public/notfall.js`, `public/fbanalog.js` | Notfall-Feibeitsblatt: Blatt, Checkliste und Bilder laden; das analoge Arbeitsblatt (aus dem Feibeitsblatt übernommen per `scripts/fbanalog-sync.mjs`) |
-| | `public/presenter.js` | PDF → Folienbilder, Präsentationsmodus, Beamer-Code |
+| | `public/presenter.js` | PDF → Folienbilder (Codefolien erkennen), Präsentationsmodus mit Codefolie, Beamer-Code |
+| | `public/codeslide.js` | die Codefolie (Sitzungscode + QR-Code) für Beamer, Präsentationsmodus und Live-Ansicht der Schüler:innen |
 | | `public/pdfmaker.js`, `public/markdown.js` | Textmaterial als PDF, sicheres Markdown |
 
 ## 4. Abläufe und Abhängigkeiten
@@ -141,26 +143,36 @@ implementiert und im End-to-End-Test geprüft (Ausnahmen unten ausdrücklich gen
    **aus dem aktuellen Inhalt des Textfelds** gebaut (einschließlich gerade getippter, noch nicht gespeicherter Änderungen),
    in die Zwischenablage kopiert und dieser Stand sofort gespeichert. Eine ältere Fassung kann so nicht hineingeraten.
    Claude soll die Präsentation **nur als PDF** liefern (16:9, eine Seite je Folie, Text als Text) – keine PowerPoint-Datei; die PDF
-   wird in Unterricks hochgeladen. **Folie 1 ist immer die Einstiegsfolie:** Sitzungscode der Sitzung (groß, Festbreitenschrift) und
-   der QR-Code zu https://unterricks.janrickmer.de samt Adresse als Text, damit die Schüler:innen scannen und den Code eingeben. Den
-   QR-Code bekommt Claude als genaues Modulmuster (`QR_UNTERRICKS`, 29 × 29, dasselbe wie `public/qr-unterricks.svg`; Unit-Test
-   vergleicht mit `qrMatrix`, ausgelesen mit zxing geprüft) und soll ihn danach zeichnen statt ihn neu zu erzeugen. **Materialfolien:**
-   Sollen die Schüler:innen mit Material arbeiten (Feibeitsblatt, Arbeitsblatt, Text, Link …), zeigt die Folie nur die Aufforderung
-   (Sozialform, ggf. Aufgaben und Zeit), den Titel des Materials genau wie in Unterricks (Beispiel aus den Materialien der Sitzung) und
-   wieder denselben QR-Code samt Sitzungscode – keine Inhalte oder Lösungen des Materials, keinen Code eines Feibeitsblatts (den kopiert
-   Unterricks beim Öffnen selbst; zwei Codes auf einer Folie verwechseln Schüler:innen leicht), keine Notfall-Feibeitsblätter. Material
-   „von der Lehrkraft auszudrucken“ sehen die Schüler:innen in Unterricks nicht (`area = 'print'`): Arbeiten sie nur damit, steht
-   „(auf Papier)“ beim Titel und QR-Code, Sitzungscode und Hinweis auf Unterricks entfallen. In Jahrgang 5/6 (keine iPads,
-   `isAnalogClass`) zeigen Materialfolien nur Aufforderung und Titel „(auf Papier)“; Folie 1 bleibt, mit dem Satz „Zu Hause findest du
-   diese Sitzung in Unterricks: …“. Fehlt ein Material ganz (oder steht es nur „nur Lehrkraft“; in Jg. 5/6: jedes, das nicht auf der
-   Druckliste steht), nennt Claude es im Chat. **Zeitlos:** Die Präsentation soll in ein paar Jahren in einer anderen Klasse desselben
-   Jahrgangs noch passen – keine Daten der Lerngruppe (das Datum der Stunde steht gar nicht mehr im Prompt; Hausaufgabe „bis zur nächsten
-   Unterrichtssitzung“), keine Klasse und keine Namen (höchstens `groupShort`, z. B. „Jg. 8“, auch im Dateinamen), Zeitgebundenes mit
-   Jahreszahl statt „aktuell“; einzige Ausnahme ist der Sitzungscode. **Alter Sitzungscode auf den Folien:** Wird eine Präsentation in einer
-   anderen Sitzung hochgeladen (auch per Sitzungsdatei), sucht `rasterizeAndUpload` (`public/presenter.js`, Option `code`) mit der Textebene
-   von PDF.js den größten Code auf Folie 1 (`slideCodeBoxes`/`slideSessionCode` in `shared.js`, Form wie `formatCode`, auch gesperrt gesetzt;
+   wird in Unterricks hochgeladen. **Sitzungscode und QR-Code stehen nicht in der PDF** (Wunsch der Lehrkraft vom 11.11.2026): Der Prompt
+   enthält den Code gar nicht (er ist in jeder Sitzung gleich); Claude soll ihn auch dann nicht auf Folien schreiben, wenn es ihn aus
+   `get_lesson` kennt. **Folie 1 ist eine gestaltete Titelfolie** (Thema bzw. Leitfrage, Fach). Den Sitzungscode zeigt Unterricks selbst
+   auf seiner **Codefolie** – beim Start der Präsentation vor Folie 1 und an jeder **Unterricks-Codefolie** der PDF: einer Folie mit der
+   festen Zeile `CODE_SLIDE_LINE` („Unterricks-Codefolie: Hier zeigt Unterricks den QR-Code und den Sitzungscode.“, klein, eine Zeile) und
+   höchstens drei kurzen Zeilen darüber, die Unterricks als Überschrift der Codefolie übernimmt; sonst kein Text (keine Fußzeile, kein Code).
+   Im Prompt heißt sie nur „Unterricks-Codefolie“ (Sicherungsfolien haben „Lücken“, nicht „Platzhalter“). **Materialfolien:** Sollen die
+   Schüler:innen mit Material arbeiten (Feibeitsblatt, Arbeitsblatt, Text, Link …), ist die Folie eine Unterricks-Codefolie mit der
+   Aufforderung (Sozialform, ggf. Aufgaben und Zeit) und dem Titel des Materials genau wie in Unterricks (Beispiel aus den Materialien der
+   Sitzung) – keine Inhalte oder Lösungen des Materials, keinen Code eines Feibeitsblatts (den kopiert Unterricks beim Öffnen selbst; neben
+   dem Sitzungscode verwechseln Schüler:innen zwei Codes leicht), keine Notfall-Feibeitsblätter. Material „von der Lehrkraft auszudrucken“
+   sehen die Schüler:innen in Unterricks nicht (`area = 'print'`): Arbeiten sie nur damit, ist die Materialfolie eine gewöhnliche Folie mit
+   „(auf Papier)“ beim Titel. In Jahrgang 5/6 (keine iPads, `isAnalogClass`) sind Materialfolien gewöhnliche Folien mit Aufforderung und
+   Titel „(auf Papier)“; die Codefolie vor Folie 1 zeigt Unterricks trotzdem (die Sitzung zu Hause finden), höchstens nach der Hausaufgabe
+   folgt eine Unterricks-Codefolie „Zu Hause findest du diese Sitzung in Unterricks.“ Fehlt ein Material ganz (oder steht es nur „nur
+   Lehrkraft“; in Jg. 5/6: jedes, das nicht auf der Druckliste steht), nennt Claude es im Chat. **Zeitlos:** Die Präsentation soll in ein
+   paar Jahren in einer anderen Klasse desselben Jahrgangs noch passen – keine Daten der Lerngruppe (das Datum der Stunde steht gar nicht im
+   Prompt; Hausaufgabe „bis zur nächsten Unterrichtssitzung“), keine Klasse und keine Namen (höchstens `groupShort`, z. B. „Jg. 8“, auch im
+   Dateinamen), Zeitgebundenes mit Jahreszahl statt „aktuell“, kein Sitzungscode und kein QR-Code – ohne Ausnahme.
+   **Erkennen beim Hochladen:** `rasterizeAndUpload` (`public/presenter.js`) liest die Textebene jeder Seite mit PDF.js
+   (`slideTextLines`); `codeSlideLines` (`shared.js`) erkennt die Marke tolerant (gesperrt, andere Striche, Groß-/Kleinschreibung) und
+   nimmt den übrigen großen Text von oben nach unten als Überschrift (höchstens 4 Zeilen × 160 Zeichen; kleine Zeilen wie Fußzeile und
+   Seitenzahl, Codes und der Erklärsatz zur Marke entfallen, auch umbrochen). Ergebnis `codeSlides = [{n, lines}]` geht mit `POST
+   …/ready` an den Server; `cleanCodeSlides` prüft dort (n = Seite der PDF, Zeilen nur als Text) und speichert in `files.code_slides`
+   (`fileOut` und `GET …/slides` liefern `codeSlides`). Die Meldung nach dem Hochladen nennt die erkannten Codefolien.
+   **Rückfall für ältere Präsentationen** (Prompt vor dem 11.11.2026, Code auf Folie 1 und den Materialfolien): Wird eine solche Präsentation in
+   einer anderen Sitzung hochgeladen (auch per Sitzungsdatei), sucht `rasterizeAndUpload` (Option `code`) den größten Code auf Folie 1
+   (`slideCodeBoxes`/`slideSessionCode` in `shared.js`, Form wie `formatCode`, auch gesperrt gesetzt;
    mindestens 6 % der Folienhöhe; nie der Code eines verknüpften Feibeitsblatts – auch nicht aus der Sitzungsdatei) und ersetzt ihn auf allen
-   Folienbildern durch den Code der aktuellen Sitzung. Zeichenbreiten misst der Browser in der Schrift des PDF (Lage im Satz).
+   Folienbildern (außer Codefolien) durch den Code der aktuellen Sitzung. Zeichenbreiten misst der Browser in der Schrift des PDF (Lage im Satz).
    `codeCover` bestimmt die zwei Hauptfarben im Band der Großbuchstaben; welche der Hintergrund ist, entscheiden Streifen links, rechts
    und über dem Code per Mehrheit, abgesichert durch die Form (mehrere schmale Buchstaben, sonst vertauscht prüfen). Übermalt werden nur
    die Buchstaben selbst – zusammenhängende Flächen, die das mittlere Band erreichen, samt 2 px Rand und weichem Schein/Schatten
@@ -169,12 +181,20 @@ implementiert und im End-to-End-Test geprüft (Ausnahmen unten ausdrücklich gen
    Schnitt, Kursiv und Familie wie vorher (`codeFontStyle`, Angaben von PDF.js). Nicht sicher – unruhiger oder zweifarbiger Grund,
    Schein ohne Ende, Code nicht ganz auf der Folie – bleibt die Folie, wie sie ist, und steht in `swapped.missed`. Breite mit `/UserUnit`.
    Die hochgeladene PDF selbst (Schüler:innen öffnen sie nach der Stunde) bleibt unverändert; die Lehrkraft sieht eine Meldung, auf
-   welchen Folien ersetzt wurde, auf welchen der alte Code noch steht – bzw. dass auf Folie 1 kein Code als Text zu finden war. Hinweise für die
+   welchen Folien ersetzt wurde und auf welchen der alte Code noch steht; ohne Code auf Folie 1 (der Normalfall) gibt es keine Meldung. Hinweise für die
    Lehrkraft (statt Sprechernotizen) gibt Claude im Chat bzw. auf Wunsch über `add_text_material` (nur für die Lehrkraft).
 6. **Präsentation und Live-Synchronisation.** Upload der PDF → der Browser der Lehrkraft rendert jede Seite mit PDF.js
    (1920 px) und lädt sie als Bild hoch. „Ich bin im Unterricht …“ öffnet das Vollbild und meldet die Folie an das Durable
    Object. Alle Schüler:innen der Sitzung bekommen per WebSocket die aktuelle Folie als **signierten Link nur für diese Folie** –
-   sie können nicht vorblättern. Die PDF zum Selbstöffnen gibt der Server erst 5 Minuten nach dem Ende der Sitzung frei – bei markierter
+   sie können nicht vorblättern. **Codefolie** (`public/codeslide.js`, dieselbe wie „Für den Beamer zeigen“): Ein Neustart beginnt mit
+   Folie 0 = Codefolie (Titel der Sitzung, Code, QR-Code), → geht zu Folie 1; eine schon laufende Präsentation öffnet an der laufenden
+   Stelle. An Codefolien der PDF zeigt der Präsentationsmodus statt des Bildes die Codefolie mit deren Überschrift; „Sitzungscode zeigen“
+   (Taste C) blendet sie über der aktuellen Folie ein, die nächste Bewegung kehrt zurück. Die Lehrkraft schickt Code, Titel und
+   `codeSlides` im `start` mit (das DO prüft mit `isValidCode`/`cleanCodeSlides`; Folie 0 nur mit Code); `goto` erlaubt 0…Seiten, `code`
+   `{on}` schaltet `codeShown`. Die Nachricht `state` trägt dann `view: "code"`, `code`, `title`, `lines` – die Schüler:innen-Seite zeigt
+   daraus dieselbe Codefolie (Abzeichen „Sitzungscode“ bzw. „Folie n / m“). Folie 0 hat kein Folienbild (kein `url`); an Codefolien der
+   PDF bleibt `url` als Rückfall für ältere, gecachte Seiten. „Bis hier gezeigt“ ist auf der Codefolie gesperrt (keine Seite der PDF);
+   `v` bleibt auch über „Präsentation für alle beenden“ hinweg monoton. Die PDF zum Selbstöffnen gibt der Server erst 5 Minuten nach dem Ende der Sitzung frei – bei markierter
    letzter Folie nur gekürzt (siehe 4h).
 7. **Material.** Zwei Bereiche (Schüler:innen / nur Lehrkraft). Jede Schüler-Abfrage filtert serverseitig auf den
    Schülerbereich; Downloads laufen über kurzlebige signierte Links. KI-Material wird mit „Als Material übernehmen“ als
