@@ -1162,8 +1162,14 @@ async function main() {
     await ep.fill("#tp", T_PW); await ep.getByRole("button", { name: "Anmelden" }).click({ trial: false }).catch(() => {});
     await sleep(800);
     ok(!ep.url().includes("#/lk"), "… auch mit richtigem Passwort während der Sperre");
+    // Das Token von tp ist seit dem Passwortwechsel auf Gerät 2 ungültig: Abmelden darf die Anmeldeseite trotzdem nur einmal aufbauen
+    // (früher führte schon die 401 der Abmeldung dorthin und go() baute sie ein zweites Mal auf – das leerte das gerade ausgefüllte Formular)
+    await tp.evaluate(() => { window.__loginForms = 0; new MutationObserver((ms) => { for (const m of ms) for (const n of m.addedNodes) if (n.nodeType === 1 && (n.matches("form.login") || n.querySelector("form.login"))) window.__loginForms++; }).observe(document.body, { childList: true, subtree: true }); });
     await tp.getByRole("button", { name: "Abmelden" }).click();
     await tp.fill("#tu", "feindt"); await tp.fill("#tp", T_PW);
+    await sleep(1500);
+    ok(await tp.inputValue("#tu") === "feindt" && await tp.inputValue("#tp") === T_PW && await tp.evaluate(() => window.__loginForms) === 1,
+      "Abmelden mit schon ungültigem Token (Passwortwechsel auf einem anderen Gerät): Anmeldeseite nur einmal aufgebaut, Eingaben bleiben");
     tLogin = Date.now(); await tp.getByRole("button", { name: "Anmelden" }).click();
     await waitTeacherHome(tp, tLogin, "Anmeldung");
     ok(true, "eigenes, bekanntes Gerät bleibt nutzbar");

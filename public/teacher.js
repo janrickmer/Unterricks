@@ -20,8 +20,11 @@ export async function tapi(method, path, o = {}) {
   try { return await api(method, path, { ...o, token: tok }); }
   // 401 meldet nur ab, wenn die Anfrage mit der jetzigen Anmeldung lief – eine späte Antwort aus der Zeit vor dem Ab- und wieder
   // Anmelden (z. B. vom Nachholen der Notfall-Feibeitsblätter im Hintergrund) darf die neue Anmeldung nicht beenden
-  catch (e) { if (e.status === 401 && path !== "/api/teacher/login" && T.token === tok) { T.token = null; go("#/lehrkraft"); } throw e; }
+  catch (e) { if (e.status === 401 && path !== "/api/teacher/login" && T.token === tok) { T.token = null; toLogin(); } throw e; }
 }
+/* Zur Anmeldeseite – aber nie ein zweites Mal, wenn sie schon da ist: go() baut eine gleiche Adresse neu auf, und das leerte ein Formular,
+   in das man schon tippt (z. B. Abmelden mit einem Token, das nach einem Passwortwechsel auf einem anderen Gerät schon ungültig ist). */
+const toLogin = () => { if (location.hash !== "#/lehrkraft") go("#/lehrkraft"); };
 export async function config() {
   if (!T.config) { try { T.config = await api("GET", "/api/config"); } catch { T.config = { feibeitsblattApi: "https://feibeitsblatt.feindt.workers.dev", feibeitsblattUrl: "https://feibeitsblatt.janrickmer.de/" }; } }
   if (!T.fb) T.fb = new FbClient(T.config.feibeitsblattApi);
@@ -208,12 +211,16 @@ export function teacherBar(active) {
   return topbar({ home: "#/lk" }, [link("#/lk", "Unterricht", "lessons"), link("#/lk/grundlagen", "Planungsgrundlagen", "bases"), link("#/lk/einstellungen", "Einstellungen", "settings"),
     h("button", { type: "button", onclick: logout }, "Abmelden")]);
 }
+/* Die Anmeldung endet zuerst hier, die Abmeldung beim Server läuft ohne tapi (ihre 401 bei einem schon ungültigen Token führt nicht
+   vorzeitig zur Anmeldeseite) und am Ende geht es nur einmal dorthin (toLogin). */
 async function logout() {
-  try { await tapi("POST", "/api/teacher/logout"); } catch {}
-  T.token = null; if (T.fb) T.fb.disconnect();
+  const tok = T.token;
+  T.token = null;
+  try { if (tok) await api("POST", "/api/teacher/logout", { token: tok }); } catch {}
+  if (T.fb) T.fb.disconnect();
   T.wrapKey = null; T.fbLink = { state: "checking" }; fbAuto = null; await forgetKey();   // dieses Gerät vergisst den Schlüssel
   nfReset();   // ein laufendes Nachholen endet
-  go("#/lehrkraft");
+  toLogin();
 }
 
 /* ---------- Anmeldung / Einrichtung ---------- */
