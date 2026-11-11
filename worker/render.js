@@ -198,7 +198,7 @@ export async function renderPdf(c, html, { waitMs = 25000 } = {}) {
   const now0 = Date.now(), q = await quotaUntil(db, now0);
   if (q) throw new RenderError("quota", QUOTA_TEXT);
   const fonts = await fontCss(env);
-  let body = pdfRequest(html, fonts, jsFieldRejected);
+  let body = pdfRequest(html, fonts, jsFieldRejected), noJsTried = false;
   const gap = gapOf(env), deadline = now0 + waitMs;
   for (let attempt = 1; ; attempt++) {
     const now = Date.now();
@@ -215,13 +215,14 @@ export async function renderPdf(c, html, { waitMs = 25000 } = {}) {
       // die Bindung wirft statt einer Antwort: lokal ohne Cloudflare („does not implement the method“), sonst Fehlertext mit Code
       const m = String((e && e.message) || e || "").slice(0, 300);
       if (/does not implement|run remotely|not supported in local/i.test(m)) throw new RenderError("config", "Der PDF-Druck läuft nur auf dem Cloudflare-Server (lokal fehlt Browser Run).");
-      const code = Number((/\b(4\d\d|5\d\d)\b/.exec(m) || [])[1]) || 503;
+      const code = /setJavaScriptEnabled/i.test(m) ? 400 : Number((/\b(4\d\d|5\d\d)\b/.exec(m) || [])[1]) || 503;
       r = new Response(m, { status: code });
     }
     // Browserzeit: die Antwort der Bindung nennt sie nicht (X-Browser-Ms-Used fehlt dort) – dann zählt die gemessene Dauer als Schätzung
     const used = Number(r.headers.get("x-browser-ms-used")) || (r.ok ? Date.now() - t0 : 0);
     if (used || r.ok) { try { await db.prepare("INSERT INTO render_usage(day, ms, n) VALUES(?1, ?2, ?3) ON CONFLICT(day) DO UPDATE SET ms = ms + ?2, n = n + ?3").bind(utcDay(Date.now()), used, r.ok ? 1 : 0).run(); } catch {} }
     if (r.ok) {
+      if (noJsTried && !("setJavaScriptEnabled" in body)) jsFieldRejected = true;
       const u8 = new Uint8Array(await r.arrayBuffer());
       if (u8.length < 5 || String.fromCharCode(u8[0], u8[1], u8[2], u8[3], u8[4]) !== "%PDF-") throw new RenderError("failed", "Der PDF-Drucker hat keine PDF-Datei geliefert.");
       if (u8.length > PDF_MAX) throw new RenderError("failed", "Die PDF-Datei wäre größer als 20 MB. Bitte Grafiken einfacher halten (z. B. SVG statt großer Fotos).");
@@ -243,8 +244,9 @@ export async function renderPdf(c, html, { waitMs = 25000 } = {}) {
       if (attempt < 2 && left > gap + 5000) continue;
       throw new RenderError("busy", "Der PDF-Drucker hat gerade nicht geantwortet (Fehler " + r.status + ").", 20);
     }
-    // kennt der Drucker das Feld setJavaScriptEnabled nicht, ohne es erneut (Skripte und Ereignis-Attribute hat cleanDesignHtml entfernt)
-    if (r.status === 400 && !jsFieldRejected && /setJavaScriptEnabled|unrecognized|unknown key|additional propert/i.test(text)) { jsFieldRejected = true; body = pdfRequest(html, fonts, true); continue; }
+    // Ablehnung (400) mit setJavaScriptEnabled: einmal ohne das Feld versuchen (Skripte und Ereignis-Attribute hat cleanDesignHtml
+    // entfernt). Klappt es dann, merkt sich die Instanz das; scheitert auch das, lag es am Material.
+    if (r.status === 400 && "setJavaScriptEnabled" in body && !noJsTried) { noJsTried = true; body = pdfRequest(html, fonts, true); continue; }
     throw new RenderError("failed", "Der PDF-Drucker hat das Material abgelehnt (Fehler " + r.status + (text ? ": " + text.replace(/\s+/g, " ").slice(0, 200) : "") + ").");
   }
 }
@@ -273,8 +275,10 @@ export async function routeHealthPdf(c) {
   const t0 = Date.now();
   try {
     const r = await renderPdf(c, HEALTH_HTML, { waitMs: 25000 });
-    if (wantPdf) return new Response(r.bytes, { headers: { "Content-Type": "application/pdf", "Cache-Control": "no-store", "Content-Disposition": 'inline; filename="unterricks-testseite.pdf"' } });
-    return json({ ok: true, pages: r.pages, bytes: r.bytes.length, browserMs: r.ms, ms: Date.now() - t0, fonts: (await fontCss(c.env)).length > 1000 }, 200, { "Cache-Control": "no-store" });
+    // javascript: „aus“, wenn der Drucker setJavaScriptEnabled angenommen hat, sonst „an“ (dann schützt nur cleanDesignHtml)
+    const js = jsFieldRejected ? "an" : "aus";
+    if (wantPdf) return new Response(r.bytes, { headers: { "Content-Type": "application/pdf", "Cache-Control": "no-store", "Content-Disposition": 'inline; filename="unterricks-testseite.pdf"', "X-Unterricks-Javascript": js } });
+    return json({ ok: true, pages: r.pages, bytes: r.bytes.length, browserMs: r.ms, ms: Date.now() - t0, fonts: (await fontCss(c.env)).length > 1000, javascript: js }, 200, { "Cache-Control": "no-store" });
   } catch (e) {
     try { await c.db.prepare("UPDATE render_gate SET until=?1 WHERE k='health'").bind(Date.now() + 300e3).run(); } catch {}   // nach einem Fehler früher erneut prüfbar
     return json({ ok: false, code: e.code || "error", error: e.message || String(e) }, e.status || 500, { "Cache-Control": "no-store" });

@@ -178,6 +178,13 @@ test("Drucken über die Bindung: lokal ohne Cloudflare „nicht eingerichtet“,
 test("Drucken: lehnt der Drucker setJavaScriptEnabled ab, druckt Unterricks ohne das Feld (einmal je Instanz gemerkt)", async () => {
   const c = await ctx();
   const calls = [], orig = globalThis.fetch;
+  // eine Ablehnung, die am Material liegt: einmal ohne das Feld versucht, dann Fehler – und nicht gemerkt
+  globalThis.fetch = async (url, init) => { calls.push(JSON.parse(init.body)); return new Response("Bad Request: invalid html", { status: 400 }); };
+  try {
+    await assert.rejects(R.renderPdf(c, "<p>x</p>"), (e) => e.code === "render_failed");
+    assert.equal(calls.length, 2); assert.ok("setJavaScriptEnabled" in calls[0] && !("setJavaScriptEnabled" in calls[1]));
+  } finally { globalThis.fetch = orig; }
+  calls.length = 0;
   globalThis.fetch = async (url, init) => {
     const b = JSON.parse(init.body); calls.push(b);
     return "setJavaScriptEnabled" in b ? new Response('Unrecognized key(s) in object: "setJavaScriptEnabled"', { status: 400 }) : new Response(PDF(1));
