@@ -1,5 +1,7 @@
-// pdfmaker.js – Textmaterial (Markdown) im Browser als A4-PDF erzeugen (pdf-lib, Standardschriften; für GoodNotes & Co.).
-import { parseBlocks, parseInline } from "./markdown.js";
+// pdfmaker.js – Textmaterial (Markdown) im Browser als A4-PDF erzeugen (pdf-lib, Standardschriften; für GoodNotes & Co.). Rückfall: Material
+// gestaltet sonst Claude selbst (HTML, Druck auf dem Server, worker/render.js). Die Standardschriften kennen nur WinAnsi (Westeuropa) –
+// Griechisch oder Hebräisch erscheinen hier als „?“.
+import { parseBlocks, parseInline, plainInline } from "./markdown.js";
 
 let libP = null;
 const lib = () => (libP = libP || import("/vendor/pdf-lib.esm.min.js"));
@@ -11,6 +13,8 @@ function sanitizer(font) {
   return (s) => {
     let out = "";
     for (const ch of String(s)) {
+      if (ch === "\n") { out += ch; continue; }   // Zeilenwechsel bleibt (para() bricht dort um) – sonst stünde ein „?“ da
+      if (ch === "\t") { out += " "; continue; }
       if (REPL[ch] !== undefined) { out += REPL[ch]; continue; }
       if (!ok.has(ch)) { try { font.encodeText(ch); ok.set(ch, true); } catch { ok.set(ch, false); } }
       out += ok.get(ch) ? ch : (/\p{Extended_Pictographic}/u.test(ch) ? "" : "?");
@@ -36,7 +40,9 @@ export async function markdownToPdf(title, md, opt = {}) {
   // Läufe in Zeilen umbrechen und schreiben
   function para(runs, size, { indent = 0, gap = 6, lineH = 1.35, color = rgb(0.08, 0.1, 0.15), maxW = CW - indent } = {}) {
     const words = [];
-    for (const r of runs) {
+    for (const r0 of runs) {
+      // Links: auf Papier zählt die Adresse – „Text (https://…)“, wenn der Linktext sie nicht schon zeigt
+      const r = r0.href && r0.text.trim() !== r0.href ? { ...r0, text: r0.text + " (" + r0.href + ")" } : r0;
       const f = fontOf(r), parts = clean(r.text).split(/(\s+)/);
       for (const p of parts) { if (p === "") continue; if (/\n/.test(p)) { words.push({ br: true }); continue; } words.push({ t: p, f, space: /^\s+$/.test(p) }); }
     }
@@ -63,31 +69,62 @@ export async function markdownToPdf(title, md, opt = {}) {
     y -= gap;
   }
 
-  // Kopf: Titel + Name/Datum-Zeile (zum Ausfüllen in GoodNotes)
+  // Schreiblinien (8 mm Abstand) über die ganze Breite ab Einzug x0
+  const LINE_GAP = 22.7;
+  function writeLines(n, x0 = M) {
+    for (let k = 0; k < n; k++) {
+      ensure(LINE_GAP + 2);
+      y -= LINE_GAP;
+      page.drawLine({ start: { x: x0, y }, end: { x: W - M, y }, thickness: 0.5, color: rgb(0.55, 0.58, 0.64) });
+    }
+    y -= 8;
+  }
+  const box = (x, yy, checked) => {
+    page.drawRectangle({ x, y: yy, width: 8.5, height: 8.5, borderColor: rgb(0.2, 0.22, 0.28), borderWidth: 0.7 });
+    if (checked) { page.drawLine({ start: { x: x + 1.5, y: yy + 4.5 }, end: { x: x + 3.6, y: yy + 2 }, thickness: 1 }); page.drawLine({ start: { x: x + 3.6, y: yy + 2 }, end: { x: x + 7.2, y: yy + 7.2 }, thickness: 1 }); }
+  };
+
+  // Kopf: Titel + Name/Klasse/Datum (zum Ausfüllen in GoodNotes; nicht bei Material nur für die Lehrkraft)
   para([{ text: title || "Material", b: true }], 18, { gap: 4 });
   if (opt.subtitle) para([{ text: opt.subtitle }], 9.5, { color: rgb(0.35, 0.4, 0.48), gap: 2 });
   if (opt.nameLine !== false) {
-    ensure(26);
-    page.drawText("Name: ______________________________     Datum: ______________", { x: M, y: y - 14, size: 10.5, font: F.r, color: rgb(0.3, 0.33, 0.4) });
-    y -= 26;
+    ensure(30);
+    const ly = y - 20, col = rgb(0.3, 0.33, 0.4), seg = [["Name:", 0, 0.5], ["Klasse:", 0.53, 0.72], ["Datum:", 0.75, 1]];
+    for (const [lab, a, z] of seg) {
+      const x = M + CW * a, wl = F.r.widthOfTextAtSize(lab, 10.5);
+      page.drawText(lab, { x, y: ly, size: 10.5, font: F.r, color: col });
+      page.drawLine({ start: { x: x + wl + 4, y: ly - 2 }, end: { x: M + CW * z - 6, y: ly - 2 }, thickness: 0.5, color: rgb(0.55, 0.58, 0.64) });
+    }
+    y -= 30;
   }
   page.drawLine({ start: { x: M, y }, end: { x: W - M, y }, thickness: 0.8, color: rgb(0.75, 0.78, 0.84) });
   y -= 14;
 
-  for (const b of parseBlocks(md)) {
+  // eine erste Überschrift, die nur den Titel wiederholt, entfällt (der Kopf zeigt ihn schon)
+  const norm = (t) => String(t || "").toLowerCase().replace(/[^\p{L}\p{N}]+/gu, "");
+  const blocks = parseBlocks(md);
+  if (blocks[0] && blocks[0].type === "h" && norm(plainInline(blocks[0].text)) === norm(title)) blocks.shift();
+
+  for (const b of blocks) {
     if (b.type === "h") { ensure(40); y -= 4; para(parseInline(b.text).map((r) => ({ ...r, b: true })), b.level <= 1 ? 15 : b.level === 2 ? 13 : 11.5, { gap: 4 }); }
     else if (b.type === "p") para(parseInline(b.text), 11, { gap: 7 });
     else if (b.type === "quote") para(parseInline(b.text).map((r) => ({ ...r, i: true })), 11, { indent: 14, gap: 7, color: rgb(0.3, 0.33, 0.4) });
     else if (b.type === "code") para([{ text: b.text, code: true }], 9.5, { gap: 7 });
     else if (b.type === "hr") { ensure(16); page.drawLine({ start: { x: M, y: y - 6 }, end: { x: W - M, y: y - 6 }, thickness: 0.6, color: rgb(0.8, 0.82, 0.86) }); y -= 16; }
+    else if (b.type === "write") writeLines(b.n);
     else if (b.type === "list") {
-      let n = 0;
+      // Zähler je Ebene; die Nummer der ersten Zeile ist der Start (Markdown zählt „1. 1. 1.“ als 1, 2, 3); Platz für zweistellige Nummern
+      const count = [], markW = (it) => (it.ordered ? F.r.widthOfTextAtSize("00.", 11) + 6 : 13);
       for (const it of b.items) {
-        const ind = 16 + it.depth * 16;
-        n = it.ordered ? (it.num || n + 1) : n;
+        count.length = it.depth + 1;
+        count[it.depth] = it.ordered ? (count[it.depth] === undefined ? (it.num || 1) : count[it.depth] + 1) : 0;
+        const ind = 4 + it.depth * 18 + markW(it);
         ensure(16);
-        const mark = it.ordered ? n + "." : "•";
-        page.drawText(mark, { x: M + ind - 13, y: y - 11, size: 11, font: it.ordered ? F.r : F.b });
+        if (it.box) box(M + ind - 13, y - 10.5, it.box === "x");
+        else {
+          const mark = it.ordered ? count[it.depth] + "." : "•", font = it.ordered ? F.r : F.b;
+          page.drawText(mark, { x: M + ind - 5 - font.widthOfTextAtSize(mark, 11), y: y - 11, size: 11, font });
+        }
         para(parseInline(it.text), 11, { indent: ind, gap: 3 });
       }
       y -= 4;
@@ -97,10 +134,16 @@ export async function markdownToPdf(title, md, opt = {}) {
       const drawRow = (cells, bold) => {
         // Höhe bestimmen: Zeilen je Zelle
         const wrap = (txt, f) => {
-          const out = []; let line = "";
-          for (const word of clean(txt).split(/\s+/)) {
+          const out = [], max = cw - 2 * pad; let line = "";
+          for (let word of clean(txt).replace(/\n/g, " ").split(/\s+/)) {
+            // zu lange Wörter (Komposita, Adressen) hart trennen, damit nichts über den Zellenrand läuft
+            while (f.widthOfTextAtSize(word, size) > max && word.length > 1) {
+              let k = 1; while (k < word.length && f.widthOfTextAtSize(word.slice(0, k + 1) + "-", size) <= max) k++;
+              if (line) { out.push(line); line = ""; }
+              out.push(word.slice(0, k) + "-"); word = word.slice(k);
+            }
             const t = line ? line + " " + word : word;
-            if (f.widthOfTextAtSize(t, size) > cw - 2 * pad && line) { out.push(line); line = word; } else line = t;
+            if (f.widthOfTextAtSize(t, size) > max && line) { out.push(line); line = word; } else line = t;
           }
           if (line) out.push(line); return out.length ? out : [""];
         };

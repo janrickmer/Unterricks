@@ -45,8 +45,28 @@ export async function buildSessionZip(detail, { fb = T.fb, onStep = () => {}, ho
     try { return await fetchFileBytes(f); }
     catch (e) { if (!full) throw e; missing.push("„" + f.name + "“: " + e.message); return null; }
   };
+  const grabHtml = async (f) => {
+    if (cancelled()) { const e = new Error("Abgebrochen."); e.cancelled = true; throw e; }
+    try { return (await retry(() => tapi("GET", "/api/teacher/files/" + f.id + "/html"))).html; }
+    catch (e) { if (!full) throw e; missing.push("„" + f.name + "“ (Gestaltung): " + e.message); return null; }
+  };
+  let g = 0;
   for (const f of detail.files || []) {
     if (f.source === "notfall") continue;   // Notfall-Feibeitsblätter entstehen neu
+    // von Claude gestaltet: die HTML-Gestaltung als eigene Datei (lässt sich auch im Browser öffnen), die PDF nur, wenn sie zur Gestaltung passt
+    if (f.design && f.area !== "archive" && f.area !== "presentation") {
+      const html = await grabHtml(f);
+      if (html == null) continue;
+      const design = "gestaltung/" + (++g) + " - " + safeName(f.name.replace(/\.pdf$/i, "")) + ".html";
+      entries.push({ name: design, data: te.encode(html) });
+      const base = { area: f.area, kind: "file", name: f.name, mime: "application/pdf", design, ...(f.print ? { print: f.print } : {}) };
+      if (f.status === "ready" && !f.design.outdated) {
+        const data = await grab(f);
+        if (data) { const path = "dateien/" + (++k) + " - " + safeName(f.name); entries.push({ name: path, data }); files.push({ ...base, path, rendered: true }); continue; }
+      }
+      files.push(base);
+      continue;
+    }
     const base = { area: f.area, kind: f.kind, name: f.name, mime: f.mime, ...(f.print ? { print: f.print } : {}) };
     if (f.area === "archive") {   // ursprüngliches Material einer vertretenen Sitzung – nur in der Sicherung
       if (!full) continue;
@@ -139,10 +159,25 @@ export async function applySessionImport(lessonId, plan, data, byPath, { onStep 
   await tapi("POST", "/api/teacher/lessons/" + lessonId + "/import", { body: { lesson: plan.lesson, chat: data.chat, texts: plan.texts, links: plan.links, prints: plan.prints, drafts: data.drafts } });
   const missing = [], sheetCodes = data.sheets.map((s) => s.code);
   for (const f of plan.bins) {
+    // von Claude gestaltet: mit gedruckter PDF hochladen und die Gestaltung anhängen, sonst nur die Gestaltung (die Sitzungsseite druckt sie)
+    const html = f.design && byPath.get(f.design) ? new TextDecoder().decode(byPath.get(f.design)) : null;
+    if (html !== null && (!f.path || !byPath.get(f.path))) {
+      onStep("Übernehme „" + f.name + "“ (Gestaltung) …");
+      try { await retry(() => tapi("POST", "/api/teacher/lessons/" + lessonId + "/designs", { body: { area: f.area, title: f.name, html, print: f.print || {}, source: "uebernommen" } })); }
+      catch (e) { missing.push(f.name + " (" + e.message + ")"); }
+      continue;
+    }
     const bytes = byPath.get(f.path);
     if (!bytes) { missing.push(f.name); continue; }
     onStep("Lade „" + f.name + "“ hoch …");
     try {
+      if (html !== null) {
+        const r = f.area === "print"
+          ? await upload("/api/teacher/lessons/" + lessonId + "/print?name=" + encodeURIComponent(f.name) + "&copies=" + f.print.copies + "&duplex=" + (f.print.duplex ? 1 : 0) + "&color=" + (f.print.color ? 1 : 0) + "&source=uebernommen", new Blob([bytes], { type: "application/pdf" }), T.token, null, "application/pdf")
+          : await upload("/api/teacher/lessons/" + lessonId + "/files?area=" + f.area + "&name=" + encodeURIComponent(f.name) + "&source=uebernommen", new Blob([bytes], { type: "application/pdf" }), T.token, null, "application/pdf");
+        await retry(() => tapi("PATCH", "/api/teacher/files/" + r.file.id, { body: { html, rendered: f.rendered === true } }));
+        continue;
+      }
       if (f.area === "presentation") {
         const file = new File([bytes], f.name, { type: "application/pdf" });
         if (uploadPres) await uploadPres(file, sheetCodes);

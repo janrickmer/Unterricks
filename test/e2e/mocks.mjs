@@ -129,3 +129,33 @@ export async function startMockFeibeitsblatt(port, password, doorCode = "1104") 
   await new Promise((r) => srv.listen(port, "127.0.0.1", r));
   return { srv, sheets, addSubmission };
 }
+
+/* ---------- Drucker-Attrappe für Cloudflare Browser Run (Quick Action „pdf“, siehe worker/render.js) ----------
+ * Nimmt denselben Auftrag an (html, rejectRequestPattern, gotoOptions, pdfOptions) und druckt mit dem Chromium von Playwright.
+ * mode: "ok" | "busy" (503) | "rate" (429 ein Mal, dann ok) | "fail" (422) | "quota" (Tageskontingent aufgebraucht) */
+export function startMockPrinter(port, browser) {
+  const st = { calls: [], blocked: [], mode: "ok" };
+  const srv = http.createServer(async (req, res) => {
+    if (req.method !== "POST") { res.writeHead(405); res.end(); return; }
+    const body = JSON.parse(await readBody(req));
+    st.calls.push(body);
+    const mode = st.mode;
+    if (mode === "rate") st.mode = "ok";
+    if (mode === "busy") { res.writeHead(503); res.end("Service unavailable"); return; }
+    if (mode === "rate") { res.writeHead(429); res.end("Too many requests"); return; }
+    if (mode === "fail") { res.writeHead(422); res.end("Unprocessable: Navigation timeout of 30000 ms exceeded"); return; }
+    if (mode === "quota") { res.writeHead(429); res.end("Error processing the request: Unable to create new browser: code: 429: message: Browser time limit exceeded for today"); return; }
+    const t0 = Date.now(), ctx = await browser.newContext();
+    try {
+      const page = await ctx.newPage();
+      const pats = (body.rejectRequestPattern || []).map((p) => new RegExp(p));
+      await page.route("**/*", (route) => { const u = route.request().url(); if (pats.some((p) => p.test(u))) { st.blocked.push(u); return route.abort(); } return route.continue(); });
+      await page.setContent(body.html, { waitUntil: (body.gotoOptions && body.gotoOptions.waitUntil) || "load", timeout: 30000 });
+      const o = body.pdfOptions || {};
+      const pdf = await page.pdf({ format: o.format || "a4", printBackground: !!o.printBackground, preferCSSPageSize: !!o.preferCSSPageSize, margin: o.margin });
+      res.writeHead(200, { "content-type": "application/pdf", "x-browser-ms-used": String(Date.now() - t0) }); res.end(pdf);
+    } catch (e) { res.writeHead(500); res.end(String(e && e.message)); }
+    finally { await ctx.close(); }
+  });
+  return new Promise((r) => srv.listen(port, "127.0.0.1", () => r({ srv, get calls() { return st.calls; }, get blocked() { return st.blocked; }, set mode(m) { st.mode = m; }, get mode() { return st.mode; } })));
+}

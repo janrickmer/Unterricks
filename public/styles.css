@@ -184,6 +184,7 @@ input[type=checkbox], input[type=radio] { width: 1.15rem; height: 1.15rem; }
 @keyframes spin { to { transform: rotate(360deg); } }
 .btn.iconbtn { min-width: 36px; padding-inline: .5rem; }
 .err { color: var(--err); font-weight: 700; } .ok { color: var(--ok); } .warnc { color: var(--warn); font-weight: 700; }
+.item.design-err .meta { color: var(--err); font-weight: 600; }
 .warnc::before, .notice.warn::before { content: ""; display: inline-block; width: 1.05em; height: 1.05em; margin-right: .35em; vertical-align: -.17em; background: currentColor;
   -webkit-mask: var(--ico-alert) center / contain no-repeat; mask: var(--ico-alert) center / contain no-repeat; }
 .notice { border-radius: var(--radius-s); padding: .75rem .95rem; background: var(--fach-t); color: var(--text); border: 1px solid color-mix(in srgb, var(--fach) 22%, transparent); font-size: .95rem; }
@@ -332,6 +333,8 @@ a.item:hover { border-color: color-mix(in srgb, var(--fach-text) 55%, var(--line
 .md pre { background: var(--surface-2); padding: .75rem; border-radius: 10px; white-space: pre-wrap; overflow-wrap: anywhere; }
 .md pre code { background: none; padding: 0; }
 .md blockquote { margin: .5em 0; padding: .45rem .8rem; background: var(--fach-t); border-radius: 10px; color: var(--text); }
+.md .md-lines { height: calc(var(--n, 1) * 2em); margin: .3em 0 .8em; background: repeating-linear-gradient(to bottom, transparent 0 calc(2em - 1px), var(--line-ui) calc(2em - 1px) 2em); opacity: .7; }
+.md li.md-box { list-style: none; margin-left: -1.1rem; }
 .md hr { border: 0; border-top: 1px solid var(--line); margin: 1em 0; }
 
 /* ---------- Schulportal-Eintrag mit Abdeckblatt ---------- */

@@ -4,6 +4,7 @@ import { HttpError, bad, json, readJson, randomId, cleanLine, cleanText, isId, r
 import { requireTeacher } from "./auth.js";
 import { getLesson, fileOut, codeSlidesOf, LIMITS, printProps } from "./lessons.js";
 import { normalizeCode, isValidCode, cleanWebUrl, slidesUpTo, printFileName, cleanCopies, isAnalogClass, cleanCodeSlides } from "../public/shared.js";
+import { cleanDesignHtml, renderPdf, htmlText, keepImages, shortImages, HTML_MAX, RenderError, renderUsage, printerConfigured } from "./render.js";
 
 export const MAX_FILE = 100 * 1024 * 1024;         // Grenze einer Anfrage im Cloudflare-Free-Plan
 export const MAX_SLIDE = 4 * 1024 * 1024;
@@ -184,6 +185,101 @@ export async function insertPrintText(db, lessonId, title, text, p, source, now)
   return getFile(db, id);
 }
 
+/* ---------- Von Claude gestaltetes Material (HTML → PDF, render.js; Wunsch der Lehrkraft vom 11.11.2026) ----------
+ * Eine normale PDF-Datei (kind 'file', PDF in R2) mit Claudes Gestaltung in html: status 'pending', bis sie zum ersten Mal gedruckt ist
+ * (Schüler:innen sehen sie erst dann); html_at/pdf_at zeigen, ob die PDF zur aktuellen Gestaltung passt (eine geänderte Gestaltung
+ * druckt Unterricks neu, bis dahin bleibt die bisherige PDF sichtbar). text = Klartext für die KI-Hilfe im Planungschat. */
+export const DESIGN_AREAS = new Set(["student", "teacher", "print"]);
+const pdfFileName = (t) => (cleanLine(t, 190).replace(/\.pdf$/i, "").trim() || "Material") + ".pdf";
+export const designOutdated = (f) => !!f.html && (!f.pdf_at || (f.html_at || 0) > f.pdf_at);
+function designHtml(raw) {
+  const html = cleanDesignHtml(raw);
+  if (new TextEncoder().encode(html).length > HTML_MAX) throw bad("Das Material ist zu groß (höchstens 1,5 MB HTML). Bitte Grafiken als SVG statt als eingebettete Fotos anlegen oder das Material aufteilen.");
+  return html;
+}
+/* neu anlegen (fileId fehlt) oder die Gestaltung eines vorhandenen Materials dieser Sitzung ersetzen */
+export async function saveDesign(c, lessonId, { area, title, html, print = {}, source = "claude", fileId = null }) {
+  if (fileId) {
+    const f = await getFile(c.db, fileId);
+    if (f.lesson_id !== lessonId || f.html == null) throw bad("file_id gehört zu keinem gestalteten Material dieser Sitzung (siehe get_lesson).");
+    if (f.area === "archive") throw bad("Dieses Material gehört zur archivierten Planung (Krankheitsvertretung) und lässt sich nicht mehr ändern.");
+    if (area && area !== f.area && (area === "print" || f.area === "print")) throw bad("Ein Material lässt sich nicht zwischen Druckliste und Material der Sitzung verschieben – bitte neu anlegen.");
+    const h = designHtml(keepImages(html, f.html)), at = Math.max(c.now, (f.pdf_at || 0) + 1, (f.html_at || 0) + 1);
+    const sets = ["html=?2", "html_at=?3", "text=?4", "render_error=NULL", "updated_at=?5"], args = [fileId, h, at, htmlText(h), c.now];
+    if (title) { args.push(pdfFileName(title)); sets.push("name=?" + args.length); }
+    if (area && area !== f.area) { args.push(area); sets.push("area=?" + args.length); }
+    if (f.area === "print") {
+      const n = cleanCopies(print.copies); if (n) { args.push(n); sets.push("print_copies=?" + args.length); }
+      if (typeof print.duplex === "boolean") { args.push(print.duplex ? 1 : 0); sets.push("print_duplex=?" + args.length); }
+      if (typeof print.color === "boolean") { args.push(print.color ? 1 : 0); sets.push("print_color=?" + args.length); }
+    }
+    await c.db.prepare("UPDATE files SET " + sets.join(", ") + " WHERE id=?1").bind(...args).run();
+    return getFile(c.db, fileId);
+  }
+  if (!DESIGN_AREAS.has(area)) throw bad("Bitte den Bereich wählen: für Schüler:innen, nur für die Lehrkraft oder zum Ausdrucken.");
+  const h = designHtml(html), id = randomId(8);
+  const copies = area === "print" ? cleanCopies(print.copies) || (await lastCopies(c.db, lessonId)) : null;
+  await c.db.prepare("INSERT INTO files(id, lesson_id, area, kind, name, mime, size, text, status, source, html, html_at, print_copies, print_duplex, print_color, created_at, updated_at) " +
+    "VALUES(?1, ?2, ?3, 'file', ?4, 'application/pdf', 0, ?5, 'pending', ?6, ?7, ?8, ?9, ?10, ?11, ?8, ?8)")
+    .bind(id, lessonId, area, pdfFileName(title), htmlText(h), source, h, c.now, copies, area === "print" ? (print.duplex === false ? 0 : 1) : null, area === "print" ? (print.color === true ? 1 : 0) : null).run();
+  return getFile(c.db, id);
+}
+/* Gestaltung drucken (PDF in R2) – Ergebnis die aktuelle Zeile; Fehler des Druckers bleiben in render_error stehen und werden geworfen */
+export async function renderDesign(c, fileOrId, { waitMs = 25000 } = {}) {
+  const f = typeof fileOrId === "string" ? await getFile(c.db, fileOrId) : fileOrId;
+  if (f.html == null) throw bad("Diese Datei ist kein gestaltetes Material.");
+  const at = f.html_at || 0;
+  let out;
+  try { out = await renderPdf(c, f.html, { waitMs }); }
+  catch (e) {
+    const msg = e instanceof RenderError ? e.message : "Der PDF-Druck ist fehlgeschlagen.";
+    // gemerkt werden nur Fehler, bei denen ein neuer Versuch mit derselben Gestaltung nichts ändert (die Sitzungsseite druckt sonst selbst nach)
+    if (!(e instanceof RenderError) || e.renderCode === "failed" || e.renderCode === "config") {
+      try { await c.db.prepare("UPDATE files SET render_error=?2 WHERE id=?1 AND COALESCE(html_at,0)=?3").bind(f.id, msg, at).run(); } catch {}
+    }
+    throw e instanceof HttpError ? e : new RenderError("failed", msg);
+  }
+  await checkStorage(c, Math.max(0, out.bytes.length - (f.size || 0)));
+  const key = fileKey(f.lesson_id, f.id);
+  await c.env.FILES.put(key, out.bytes, { httpMetadata: { contentType: "application/pdf" } });
+  const done = await c.db.prepare("UPDATE files SET status='ready', size=?2, pages=?3, pdf_at=?4, render_error=NULL, updated_at=?5 WHERE id=?1 AND COALESCE(html_at,0)=?4")
+    .bind(f.id, out.bytes.length, out.pages || null, at, Date.now()).run();
+  const cur = await c.db.prepare("SELECT * FROM files WHERE id=?1").bind(f.id).first();
+  if (!cur) { await c.env.FILES.delete(key); throw new HttpError(404, "not_found", "Das Material wurde inzwischen gelöscht."); }
+  return { file: cur, pages: out.pages, bytes: out.bytes.length, current: !!(done.meta && done.meta.changes) };
+}
+/* Lehrkraft: (erneut) drucken – Sitzungsseite und Druckliste rufen das für ausstehende Materialien selbst auf */
+export async function routeFileRender(c, fileId) {
+  await requireTeacher(c);
+  const f = await getFile(c.db, fileId);
+  if (f.html == null) throw bad("Diese Datei ist kein gestaltetes Material.");
+  const body = await readJson(c.request, 2000).catch(() => ({}));
+  if (!designOutdated(f) && f.status === "ready" && !(body && body.force)) return json({ ok: true, file: fileOut(f), rendered: false });
+  const r = await renderDesign(c, f, { waitMs: 25000 });
+  return json({ ok: true, file: fileOut(r.file), rendered: true });
+}
+
+/* Lehrkraft: gestaltetes Material ohne PDF anlegen (Laden einer gesicherten Sitzung, deren PDF noch nicht gedruckt war) – druckt die Sitzungsseite */
+export async function routeDesignCreate(c, lessonId) {
+  await requireTeacher(c);
+  await getLesson(c.db, lessonId);
+  const body = await readJson(c.request, 3_200_000);
+  const f = await saveDesign(c, lessonId, { area: body.area, title: body.title, html: body.html, print: body.print && typeof body.print === "object" ? body.print : {}, source: cleanLine(body.source, 40) || "uebernommen" });
+  return json({ ok: true, file: fileOut(f) });
+}
+export async function routeRenderUsage(c) {
+  await requireTeacher(c);
+  return json({ ok: true, usage: await renderUsage(c.db, c.now), configured: printerConfigured(c.env) });
+}
+/* Claudes Gestaltung lesen (Sicherung der Sitzung; mit short=1 eingebettete Bilder als Platzhalter) */
+export async function routeFileHtml(c, fileId) {
+  await requireTeacher(c);
+  const f = await getFile(c.db, fileId);
+  if (f.html == null) throw new HttpError(404, "not_found", "Diese Datei ist kein gestaltetes Material.");
+  const short = new URL(c.request.url).searchParams.get("short") === "1";
+  return json({ ok: true, html: short ? shortImages(f.html) : f.html, htmlAt: f.html_at || null, pdfAt: f.pdf_at || null });
+}
+
 /* ---------- Links zu Internetseiten als Material (kind = 'link': Titel in name, Adresse in text) ---------- */
 export async function insertLink(db, lessonId, area, title, url, source, now) {
   if (!AREAS.has(area)) throw bad("Bitte den Bereich wählen (für Schüler:innen oder nur für die Lehrkraft).");
@@ -210,7 +306,7 @@ export async function routeTextCreate(c, lessonId) {
 export async function routeFilePatch(c, fileId) {
   await requireTeacher(c);
   const f = await getFile(c.db, fileId);
-  const body = await readJson(c.request, 600000);
+  const body = await readJson(c.request, 3_200_000);
   const sets = [], args = [];
   if (body.area !== undefined) {
     if (f.area === "presentation" || f.area === "print" || !AREAS.has(body.area)) throw bad("Ungültiger Bereich.");
@@ -232,6 +328,14 @@ export async function routeFilePatch(c, fileId) {
     if (f.kind !== "text") throw bad("Nur Text-Material lässt sich bearbeiten.");
     const t = cleanText(body.text, LIMITS.textMaterial).trim(); if (!t) throw bad("Das Material ist leer.");
     args.push(t); sets.push("text=?" + (args.length + 1)); args.push(new TextEncoder().encode(t).length); sets.push("size=?" + (args.length + 1));
+  }
+  // Claudes Gestaltung anhängen bzw. ersetzen (z. B. beim Laden einer gesicherten Sitzung: rendered = die hochgeladene PDF ist schon ihr Druck)
+  if (body.html !== undefined) {
+    if (f.kind !== "file" || f.mime !== "application/pdf" || f.area === "presentation" || f.area === "archive") throw bad("Eine Gestaltung gibt es nur bei PDF-Material der Sitzung.");
+    const hh = designHtml(keepImages(body.html, f.html)), at = Math.max(c.now, (f.pdf_at || 0) + 1, (f.html_at || 0) + 1);
+    args.push(hh); sets.push("html=?" + (args.length + 1)); args.push(htmlText(hh)); sets.push("text=?" + (args.length + 1));
+    args.push(at); sets.push("html_at=?" + (args.length + 1)); sets.push("render_error=NULL");
+    if (body.rendered === true && f.status === "ready") { args.push(at); sets.push("pdf_at=?" + (args.length + 1)); }
   }
   if (!sets.length) return json({ ok: true, file: fileOut(f) });
   args.push(c.now); sets.push("updated_at=?" + (args.length + 1));

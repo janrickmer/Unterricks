@@ -21,11 +21,16 @@ export const lessonOut = (r, extra = {}) => ({
 });
 export const printProps = (f) => ({ copies: f.print_copies || 1, duplex: f.print_duplex !== 0, color: f.print_color === 1 });
 export const codeSlidesOf = (f) => { try { return cleanCodeSlides(JSON.parse(f.code_slides || "[]"), f.pages || 0); } catch { return []; } };
+/* Spalten einer Dateiliste ohne Claudes Gestaltung (html bis 1,5 MB je Material – nur '' als Kennzeichen „gestaltet“) */
+export const FILE_COLS = "id, lesson_id, area, kind, name, mime, size, CASE WHEN kind IN ('text','link') THEN text END AS text, pages, status, source, created_at, updated_at, " +
+  "fb_code, fb_sig, shown_until, cut_size, code_slides, print_copies, print_duplex, print_color, html_at, pdf_at, render_error, CASE WHEN html IS NULL THEN NULL ELSE '' END AS html";
 export const fileOut = (f, withText = true) => ({
   id: f.id, area: f.area, kind: f.kind, name: f.name, mime: f.mime, size: f.size, pages: f.pages ?? null, status: f.status, source: f.source || null,
   fbCode: f.fb_code || null, fbSig: f.fb_sig || null, ...(f.area === "presentation" ? { shownUntil: f.shown_until ?? null, cut: !!f.cut_size, codeSlides: codeSlidesOf(f) } : {}),
   ...(f.area === "print" ? { print: printProps(f), printName: printFileName({ name: f.name, ...printProps(f) }) } : {}),
   createdAt: f.created_at, ...(withText && f.kind === "text" ? { text: f.text || "" } : {}), ...(f.kind === "link" ? { url: f.text || "" } : {}),
+  // von Claude gestaltet (HTML → PDF): ob die PDF zur aktuellen Gestaltung passt und die letzte Meldung des Druckers
+  ...(f.html != null ? { design: { outdated: !f.pdf_at || (f.html_at || 0) > f.pdf_at, error: f.render_error || null, htmlAt: f.html_at || null, pdfAt: f.pdf_at || null } } : {}),
 });
 const msgOut = (m) => ({ id: m.id, role: m.role, content: m.content, model: m.model || null, mode: m.mode || null, createdAt: m.created_at });
 const draftOut = (d) => { let data = null; try { data = JSON.parse(d.data); } catch {} return { id: d.id, data, source: d.source, status: d.status, sheetCode: d.sheet_code || null, createdAt: d.created_at, updatedAt: d.updated_at }; };
@@ -169,7 +174,7 @@ export async function routeLessonGet(c, id) {
   const l = await getLesson(c.db, id);
   const full = new URL(c.request.url).searchParams.get("full") === "1";   // Sicherung: ganzer Planungsverlauf und alle Entwürfe
   const [files, sheets, drafts, students] = await c.db.batch([
-    c.db.prepare("SELECT * FROM files WHERE lesson_id=?1 ORDER BY created_at").bind(id),
+    c.db.prepare("SELECT " + FILE_COLS + " FROM files WHERE lesson_id=?1 ORDER BY created_at").bind(id),
     c.db.prepare("SELECT code, title, kind, created_at FROM fb_sheets WHERE lesson_id=?1 ORDER BY created_at").bind(id),
     c.db.prepare("SELECT * FROM fb_drafts WHERE lesson_id=?1 ORDER BY created_at DESC LIMIT ?2").bind(id, full ? 500 : 50),
     c.db.prepare("SELECT COUNT(*) AS n FROM student_access WHERE lesson_id=?1").bind(id),
@@ -342,8 +347,10 @@ const MODE_HINT = {
   planning: "",
   ideas: "\n\nModus der aktuellen Anfrage: Unterrichtsidee weiterentwickeln. Prüfe die bisherige Idee kritisch (Stimmigkeit, Zeit, Aktivierung, Differenzierung, Sicherung), " +
     "schlage 2–3 überzeugende Alternativen bzw. Verbesserungen vor und begründe sie knapp.",
-  material: "\n\nModus der aktuellen Anfrage: Unterrichtsmaterial erstellen. Formuliere das gewünschte Material vollständig und druckfertig aus (Markdown: Überschrift, " +
-    "Arbeitsaufträge mit Operatoren, ggf. Texte, Tabellen, Platz für Antworten). Gib nur das Material aus, ohne Vorrede, damit es direkt als Datei übernommen werden kann.",
+  material: "\n\nModus der aktuellen Anfrage: Unterrichtsmaterial erstellen. Formuliere das gewünschte Material vollständig und druckfertig aus – Material für Schüler:innen duzt sie (du bzw. ihr). " +
+    "Markdown: eine Überschrift mit # (der Titel), Abschnitte mit ##, Arbeitsaufträge als nummerierte Liste mit Operator in **fett** und Anforderungsbereich (AFB I–III), ggf. Texte mit Quellenangabe, Tabellen. " +
+    "Platz für Antworten als eigene Zeile [[Linien: n]] (n = Zahl der Schreiblinien, z. B. [[Linien: 6]]); Ankreuzkästchen als „[ ]“ am Zeilenanfang. Links mit voller Adresse. " +
+    "Gib nur das Material aus, ohne Vorrede, damit es direkt als Datei übernommen werden kann.",
 };
 export async function routeChatPost(c, id) {
   await requireTeacher(c);

@@ -81,12 +81,17 @@ export function cleanSessionFile(raw) {
   const files = (Array.isArray(raw.files) ? raw.files : []).slice(0, SESSION_LIMITS.files).map((f) => {
     const kind = f && (f.kind === "text" || f.kind === "link") ? f.kind : "file";
     const o = { area: area(f && f.area), kind, name: str(f && f.name, 200).trim() || "Datei", mime: str(f && f.mime, 120) };
-    if (kind === "file") o.path = str(f && f.path, 300);
+    if (kind === "file") {
+      o.path = str(f && f.path, 300);
+      // von Claude gestaltet: Pfad der HTML-Gestaltung in der Datei (fehlt path, war die PDF beim Sichern noch nicht gedruckt)
+      const d = o.area !== "presentation" ? str(f && f.design, 300) : "";
+      if (d) { o.design = d; o.rendered = !!(f && f.rendered === true && o.path); }
+    }
     if (kind === "text") o.text = str(f && f.text, SESSION_LIMITS.text);
     if (kind === "link") o.url = cleanWebUrl(f && f.url) || "";
     if (o.area === "print") o.print = { copies: cleanCopies(f && f.print && f.print.copies) || 1, duplex: !(f && f.print && f.print.duplex === false), color: !!(f && f.print && f.print.color === true) };
     return o;
-  }).filter((f) => (f.kind === "file" ? !!f.path : f.kind === "text" ? !!f.text.trim() : !!f.url) && !(f.area === "presentation" && f.kind !== "file"));
+  }).filter((f) => (f.kind === "file" ? !!(f.path || f.design) : f.kind === "text" ? !!f.text.trim() : !!f.url) && !(f.area === "presentation" && (f.kind !== "file" || !f.path)));
   const drafts = [];
   for (const d of (Array.isArray(raw.drafts) ? raw.drafts : []).slice(0, SESSION_LIMITS.drafts)) { try { drafts.push(normalizeFbDraft(d)); } catch {} }
   return {

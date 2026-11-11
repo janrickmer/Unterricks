@@ -39,6 +39,10 @@ export const SCHEMA = [
   "CREATE TABLE IF NOT EXISTS substitutes (lesson_id TEXT PRIMARY KEY, status TEXT NOT NULL, proposal TEXT NOT NULL, archive TEXT, created_at INTEGER NOT NULL, updated_at INTEGER NOT NULL, confirmed_at INTEGER)",
   // Zurücksetzen (reset.js): Kennungen gelöschter Sitzungen, deren Dateien in R2 und Live-Zustand noch zu löschen sind
   "CREATE TABLE IF NOT EXISTS reset_queue (lesson_id TEXT PRIMARY KEY, queued_at INTEGER NOT NULL)",
+  // PDF-Druck von Claudes Gestaltung (render.js): k = 'slot' (nächster freier Auftrag – Cloudflare erlaubt kostenlos 1 je 10 s) bzw.
+  // 'quota' (Tageskontingent aufgebraucht bis …); Verbrauch je UTC-Tag (Browserzeit in ms, Zahl der PDFs)
+  "CREATE TABLE IF NOT EXISTS render_gate (k TEXT PRIMARY KEY, until INTEGER NOT NULL)",
+  "CREATE TABLE IF NOT EXISTS render_usage (day TEXT PRIMARY KEY, ms INTEGER NOT NULL DEFAULT 0, n INTEGER NOT NULL DEFAULT 0)",
 ];
 
 // Nachträglich ergänzte Spalten (bestehende Datenbanken bekommen sie per ALTER TABLE, nur additiv)
@@ -59,6 +63,12 @@ export const COLUMNS = [
   ["files", "print_duplex", "INTEGER"],
   ["files", "print_color", "INTEGER"],
   ["student_devices", "auth_until", "INTEGER"],   // Anmeldung gilt bis hier (90 min nach der Passworteingabe); NULL = Passwort nötig
+  // Von Claude gestaltetes Material (kind 'file', PDF in R2): html = Claudes Gestaltung, html_at = ihr Stand, pdf_at = Stand der gedruckten
+  // PDF (fehlt oder älter = noch nicht bzw. veraltet gedruckt), render_error = letzte Meldung des Druckers
+  ["files", "html", "TEXT"],
+  ["files", "html_at", "INTEGER"],
+  ["files", "pdf_at", "INTEGER"],
+  ["files", "render_error", "TEXT"],
 ];
 
 // Indizes über nachträglich ergänzte Spalten (nach den Spalten angelegt; ein Fehler – z. B. alte Doppelungen – hält den Betrieb nicht auf)
@@ -98,5 +108,6 @@ export function cleanupStatements(db, now) {
   return [
     db.prepare("DELETE FROM teacher_tokens WHERE expires_at < ?1").bind(now),
     db.prepare("DELETE FROM locks WHERE locked_until < ?1 AND window_start < ?2").bind(now, now - 2 * 86400e3),
+    db.prepare("DELETE FROM render_usage WHERE day < ?1").bind(new Date(now - 30 * 86400e3).toISOString().slice(0, 10)),
   ];
 }

@@ -1,6 +1,6 @@
 // planning.js – Unterrichtseinheiten (Leupold-Schema + Ablaufplan), Terminberechnung, Krankheitsvertretung, Claude-Prompts.
 // Gemeinsam für Browser und Worker (keine DOM-Zugriffe).
-import { subjectName, gradeInfo, classShort, isAnalogClass, ANALOG_RULE, fmtDay, addDays, isIsoDate, isClockTime, PORTAL_RULES, PORTAL_EXAMPLE, FEIBEITSBLATT_INFO,
+import { subjectName, gradeInfo, classShort, isAnalogClass, ANALOG_RULE, fmtDay, addDays, isIsoDate, isClockTime, PORTAL_RULES, PORTAL_EXAMPLE, FEIBEITSBLATT_INFO, materialDesignText,
   SYSTEM_PROMPT_ROLE, UNIT_RULE_BASE, STOP_LINE, lessonContext, teacherWishes, groupShort, subjectShort, isValidSubject, isValidClass, clockMinutes, minutesClock, mondayOf, isWeekend } from "./shared.js";
 import { ESCAPE_FORMAT_HINT } from "./escape-data.js";
 export { UNIT_RULE } from "./shared.js";
@@ -257,8 +257,9 @@ export function claudeLessonPrompt(ctx) {
   const saves = [
     "   - Stundenverlauf → `save_schulportal_entry` (Schulportal-Zeichen: " + PORTAL_RULES.join("; ") + "; Aufbau genau wie in der Vorlage unten; übergib `base_version` aus `get_lesson` – meldet die Plattform eine neuere Fassung, rufe `get_lesson` erneut auf und berücksichtige meine Änderungen).",
     "   - Ausgearbeiteter Stundenentwurf (Verlauf mit Minuten, Begründung, Erwartungen) → `save_planning_result` (erscheint im Planungsverlauf der Sitzung; darauf bauen der Präsentations-Prompt und spätere Planungen auf).",
-    "   - Materialien → `add_text_material` (`bereich` \"schueler\": für die Schüler:innen, als PDF herunterladbar" + (analog ? " bzw. von mir ausgedruckt" : "") + "; \"lehrkraft\": nur für mich, z. B. Erwartungshorizont oder Tafelbild).",
-    "   - Alles, was ich vor der Stunde ausdrucken muss (z. B. Arbeitsblätter" + (analog ? " – in dieser Jahrgangsstufe alles Material für die Schüler:innen" : "") + ", Karten, Schaubilder oder Kärtchen für die Tafel) → `add_print_material` mit `anzahl` (frag mich nach der Klassengröße, wenn du sie nicht kennst), `beidseitig` (false, wenn geschnitten wird) und `farbe` (nur, wenn Farbe unbedingt nötig ist – an der Schule wird fast immer schwarz-weiß gedruckt). Gedruckt wird nur A4.",
+    "   - Arbeitsblätter und alle anderen Materialien als Datei gestaltest du selbst als HTML-Seite (Gestaltungsregeln unten) und legst sie mit `add_material_pdf` ab – Unterricks druckt sie unverändert als A4-PDF und meldet dir die Seitenzahl. `bereich` \"schueler\": für die Schüler:innen" + (analog ? " (in dieser Jahrgangsstufe nur, wenn ich es ausdrücklich möchte – sonst \"druck\")" : ", z. B. für GoodNotes") + "; \"lehrkraft\": nur für mich, z. B. Erwartungshorizont, Lösungen oder Tafelbild.",
+    "   - Alles, was ich vor der Stunde ausdrucken muss (z. B. Arbeitsblätter" + (analog ? " – in dieser Jahrgangsstufe alles Material für die Schüler:innen" : "") + ", Karten, Schaubilder oder Kärtchen für die Tafel) → `add_material_pdf` mit `bereich` \"druck\", `anzahl` (frag mich nach der Klassengröße, wenn du sie nicht kennst), `beidseitig` (false, wenn geschnitten wird) und `farbe` (nur, wenn Farbe unbedingt nötig ist – an der Schule wird fast immer schwarz-weiß gedruckt). Gedruckt wird nur A4.",
+    "   - Meldet `add_material_pdf` einen Druckfehler, korrigiere die Gestaltung und sende sie mit `file_id` erneut. Nur wenn der PDF-Druck gar nicht funktioniert, nimm als Rückfall `add_text_material` bzw. `add_print_material` (Markdown, ohne eigene Gestaltung).",
     analog ? null : "   - Feibeitsblatt → `propose_feibeitsblatt` (nur ein Entwurf: Ich prüfe ihn in der Plattform und lege das Blatt dort an).",
     "   - Hausaufgabe bis zur nächsten Sitzung → `update_lesson` mit `hausaufgabe` (für die Schüler:innen sichtbar; Schulportal-Zeichen erlaubt). Geänderte Sitzungsdaten (Titel, Thema, Dauer) ebenfalls mit `update_lesson`.",
     unit ? "   - Abgestimmte Abweichung von der Einheit (Stundenfrage, grober Ablauf) → `update_unit_row`." : null,
@@ -287,6 +288,10 @@ export function claudeLessonPrompt(ctx) {
       : "- Schlage bewusst auch vor, statt eines klassischen Arbeitsblatts ein Feibeitsblatt zu erstellen, wenn es didaktisch passt. " + FEIBEITSBLATT_INFO +
         " Für ein Lernprodukt (z. B. ein Plakat) kann eine Aufgabe die Antwortart „foto“ haben: Die Schüler:innen geben ein Foto ihres Produkts ab (nie an die KI, ohne „Auftrag an die KI“; höchstens 3 Foto-Aufgaben je Feibeitsblatt).",
     "- Erfinde keine Quellen, Links oder Videos; kennzeichne Vorschläge, die ich prüfen sollte.",
+    "",
+    "## Gestaltungsregeln für Materialien (add_material_pdf)",
+    materialDesignText(),
+    analog ? "- Diese Lerngruppe ist " + gradeInfo(ctx.klass).text + ": Grundschrift mindestens 13 pt, große Schreiblinien (10–11 mm), viel Weißraum, kurze Sätze." : null,
     "",
     "## Vorgehen",
     "0. Dieser Chat soll „" + chatName + "“ heißen. Beginne deine erste Antwort mit der Zeile „Chat-Name: " + chatName + "“ (umbenennen kann ich den Chat in claude.ai nur selbst).",
@@ -335,7 +340,7 @@ export function claudeSubstitutePrompt(ctx) {
     "3. Entwickle mit diesen Antworten sowie Fach und Jahrgangsstufe etwas, das die Schüler:innen in der Vertretungsstunde ohne Lehrkraft bearbeiten können (ca. " + work + " Minuten).",
     ...formats,
     "4. Schreibe eine klare, chronologische Anleitung für die Schüler:innen: nummerierte Schritte mit Minutenangabe, was genau zu tun ist, welches Material, und wann bzw. wie abgegeben wird.",
-    "5. Formuliere alle Materialien vollständig aus, dazu einen Schulportal-Eintrag für die Vertretungsstunde (Schulportal-Zeichen: " + PORTAL_RULES.join("; ") + "; Aufbau wie in diesem Beispiel:\n" + PORTAL_EXAMPLE + "\n) und kurze Hinweise für die Vertretungslehrkraft.",
+    "5. Formuliere alle Materialien vollständig aus und gestalte sie als HTML-Seiten (Feld `materialien` mit `html`; Unterricks druckt sie nach meiner Bestätigung als A4-PDF – Material, das die Vertretungslehrkraft austeilen muss, mit `bereich` \"druck\" und `anzahl`). Gestaltungsregeln:\n" + materialDesignText("   - ") + "\n   Dazu einen Schulportal-Eintrag für die Vertretungsstunde (Schulportal-Zeichen: " + PORTAL_RULES.join("; ") + "; Aufbau wie in diesem Beispiel:\n" + PORTAL_EXAMPLE + "\n) und kurze Hinweise für die Vertretungslehrkraft.",
     "6. Fasse mir den Vorschlag kurz zusammen und speichere ihn mit `save_substitute_plan` für die Sitzung " + ctx.lessonId + ". Ich prüfe ihn in der Plattform; erst wenn ich ihn bestätige, tauscht die Plattform das Material aus und zeigt den Schüler:innen den Vertretungshinweis.",
   ].filter((l) => l !== "").join("\n");
 }
@@ -353,8 +358,14 @@ export function normalizeSubstitute(raw) {
       minuten: Number.isInteger(Number(x && x.minuten)) ? Number(x.minuten) : null, abgabe: !!(x && x.abgabe) })).filter((x) => x.anleitung || x.titel),
     abgabe: str(p.abgabe, 1000).trim(),
     schulportal: str(p.schulportal, 30000).trim(),
-    materialien: (Array.isArray(p.materialien) ? p.materialien : []).slice(0, 12).map((m) => ({
-      titel: str(m && m.titel, 200).trim() || "Material", bereich: m && m.bereich === "lehrkraft" ? "teacher" : "student", markdown: str(m && m.markdown, 200000).trim() })).filter((m) => m.markdown),
+    // gestaltet (html → PDF nach der Bestätigung) oder als Rückfall Markdown; „druck“ nur gestaltet (Liste „Von der Lehrkraft auszudrucken“)
+    materialien: (Array.isArray(p.materialien) ? p.materialien : []).slice(0, 12).map((m) => {
+      const html = str(m && m.html, 1600000).trim(), b = m && (m.bereich === "lehrkraft" || m.bereich === "teacher") ? "teacher" : m && (m.bereich === "druck" || m.bereich === "print") && html ? "print" : "student";
+      const o = { titel: str(m && m.titel, 200).trim() || "Material", bereich: b, markdown: html ? "" : str(m && m.markdown, 200000).trim() };
+      if (html) o.html = html;
+      if (b === "print") o.druck = { anzahl: Number.isInteger(m.anzahl) && m.anzahl >= 1 && m.anzahl <= 500 ? m.anzahl : null, beidseitig: m.beidseitig !== false, farbe: m.farbe === true };
+      return o;
+    }).filter((m) => m.html || m.markdown),
     feibeitsblatt: fb,
     escape_room: p.escape_room && typeof p.escape_room === "object" ? p.escape_room : null,
     vertretung: str(p.hinweise_vertretung || p.vertretung, 4000).trim(),

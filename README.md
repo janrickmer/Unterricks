@@ -14,7 +14,8 @@ direkt mit den Sitzungen arbeitet.
    (Plan wählen; kostenlos bis 10 GB/Monat, Cloudflare verlangt dafür ein hinterlegtes Zahlungsmittel).
 2. **API-Token** anlegen (Dashboard → Mein Profil → API-Tokens): Vorlage *„Cloudflare Workers bearbeiten“* und zusätzlich
    *Konto → D1 → Bearbeiten* – wie beim Feibeitsblatt. Fehlt in der Vorlage *Workers R2 Storage: Bearbeiten*, bitte ergänzen.
-   Das vorhandene Feibeitsblatt-Token funktioniert, wenn es diese Rechte hat.
+   Das vorhandene Feibeitsblatt-Token funktioniert, wenn es diese Rechte hat. Scheitert der Deploy an der Bindung `BROWSER`
+   (PDF-Druck mit Cloudflare Browser Run), dem Token zusätzlich *Konto → Browser Rendering → Bearbeiten* geben.
 3. Im GitHub-Repository unter *Settings → Secrets and variables → Actions* anlegen:
    - `CLOUDFLARE_API_TOKEN` (Pflicht), `CLOUDFLARE_ACCOUNT_ID` (optional),
    - `SETUP_CODE` (empfohlen: ein beliebiger Code, der die Ersteinrichtung des Lehrkraft-Zugangs schützt).
@@ -97,9 +98,19 @@ Feibeitsblatt braucht keine Änderung. Die Adressen stehen in `wrangler.jsonc` (
   öffnen – ohne Beginn weder noch. Am Ende der Stunde markieren Sie die letzte gezeigte Folie (im Vollbild „Bis hier gezeigt“ oder in
   der Sitzung, auch per Rechtsklick); Schüler:innen bekommen dann nur die Folien bis dorthin. „Für den Beamer zeigen“ zeigt neben dem
   Code einen QR-Code zu unterricks.janrickmer.de – dieselbe Codefolie erscheint beim Start der Präsentation vor Folie 1.
+* **Arbeitsblätter und Material von Claude:** Claude gestaltet Arbeitsblätter, Texte, Schaubilder, Kärtchen und Erwartungshorizonte
+  selbst als HTML-Seite und legt sie über den Connector ab (`add_material_pdf`); Unterricks druckt sie unverändert mit Chromium als
+  A4-PDF (Cloudflare Browser Run, kostenlos bis 10 Minuten Browserzeit am Tag – das reicht für weit über hundert Seiten). Für
+  Schüler:innen, nur für Sie oder in die Druckliste. Schüler:innen sehen ein Material, sobald seine PDF gedruckt ist; in der Sitzung
+  steht dann „PDF, von Claude gestaltet · 2 Seiten“. Ist der Drucker gerade ausgelastet, druckt die Sitzungsseite selbst nach
+  („wartet auf den PDF-Drucker …“); meldet er einen Fehler, steht dort „Druck fehlgeschlagen“ mit „Erneut drucken“ – Claude kann die
+  Gestaltung dann mit derselben Datei überarbeiten. Bei einer Krankheitsvertretung gibt es vor dem Bestätigen „Vorschau als PDF“. Der
+  Chat mit kostenloser KI bleibt der Rückfall: „Als Material übernehmen“ setzt daraus eine einfache PDF ohne eigene Gestaltung.
+  Nach dem Ausrollen prüft `https://<Worker-Adresse>/api/health/pdf` den Druck (höchstens einmal je Stunde; `?pdf=1` zeigt die
+  Testseite).
 * **Material:** auch Links mit Titel (für Schüler:innen oder nur für Sie). Ganz unten in der Sitzung: **„Von der Lehrkraft
   auszudrucken“** – nur PDF, alles A4 (andere Formate rechnet Unterricks um), Name wie „28x - beidseitig - sw - Arbeitsblatt.pdf“,
-  einzeln oder alle als ZIP; Claude kann Druckvorlagen über den Connector ablegen. Darunter **„Sitzung als Datei herunterladen“** und
+  einzeln oder alle als ZIP; Claude gestaltet Druckvorlagen über den Connector selbst (mit Anzahl, beidseitig und Farbe). Darunter **„Sitzung als Datei herunterladen“** und
   **„Sitzung aus Datei laden“**, um eine gehaltene Sitzung in einer anderen Lerngruppe erneut durchzuführen (Datum, Beginn und Dauer
   bleiben, Datumsangaben in den Texten werden angepasst, Feibeitsblätter kommen als Entwürfe).
 * **Einheit als Datei:** Auf der Planungsseite einer Einheit, Karte **„Einheit als Datei“**, gibt es zwei Knöpfe.

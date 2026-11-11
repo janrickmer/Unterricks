@@ -116,7 +116,8 @@ implementiert und im End-to-End-Test geprüft (Ausnahmen unten ausdrücklich gen
 | | `public/presenter.js` | PDF → Folienbilder (Codefolien erkennen), Präsentationsmodus mit Codefolie und Vorschau der nächsten Folie, Beamer-Code |
 | | `public/beamer.js` | Beamerfenster (`#/beamer`): nur die aktuelle Folie, verbunden mit dem Präsentationsfenster per `BroadcastChannel` |
 | | `public/codeslide.js` | die Codefolie (Sitzungscode + QR-Code) für Beamer, Präsentationsmodus und Live-Ansicht der Schüler:innen |
-| | `public/pdfmaker.js`, `public/markdown.js` | Textmaterial als PDF, sicheres Markdown |
+| | `public/pdfmaker.js`, `public/markdown.js` | Textmaterial als PDF (Rückfall), sicheres Markdown |
+| | `worker/render.js`, `public/designrender.js` | Claudes Gestaltung (HTML) als PDF drucken (Browser Run), Stand und Nachdruck auf der Sitzungsseite (4m) |
 
 ## 4. Abläufe und Abhängigkeiten
 
@@ -460,8 +461,9 @@ implementiert und im End-to-End-Test geprüft (Ausnahmen unten ausdrücklich gen
   Querformat wie die Seite, auch gedrehte Seiten) und meldet, wie viele Seiten betroffen waren.
 * Name beim Herunterladen `printFileName`: „28x - beidseitig - sw - Name.pdf“; neue Vorlagen übernehmen die zuletzt verwendete Anzahl
   der Klasse, sonst 1, beidseitig, schwarz-weiß. „Alle herunterladen (ZIP)“ packt im Browser (`public/zip.js`, ohne Kompression).
-* Claude legt Vorlagen mit `add_print_material` an (Markdown → A4-PDF beim Herunterladen, mit Anzahl, beidseitig und Farbe); der
-  Prompt „Stunde mit Claude planen“ nennt das Werkzeug. Bei einer Vertretung kommt die Druckliste mit ins Archiv.
+* Claude gestaltet Vorlagen selbst und legt sie mit `add_material_pdf` (bereich „druck“, mit Anzahl, beidseitig und Farbe) ab – der
+  Server druckt sie als A4-PDF (4m); `add_print_material` (Markdown) bleibt als Rückfall. Bei einer Vertretung kommt die Druckliste mit
+  ins Archiv.
 
 ## 4j. Sitzung als Datei (Ergänzung vom 10.11.2026)
 
@@ -528,6 +530,62 @@ implementiert und im End-to-End-Test geprüft (Ausnahmen unten ausdrücklich gen
     Fehlversuche.
   * Neue Sitzungen sind nie betroffen (nur gemerkte Kennungen).
   * Nicht gelöscht: `teacher`, `teacher_tokens`, `trusted_devices`, `locks`, `settings`, `bases`, `base_pages`, `student_devices`.
+
+## 4m. Material von Claude gestaltet, vom Server gedruckt (Ergänzung vom 11.11.2026)
+
+Wunsch der Lehrkraft: Arbeitsblätter und alle anderen PDF-Dateien, die Schüler:innen sehen, entwickelt Claude. Entscheidungen (Rückfragen
+vom 11.11.2026): **Claude gestaltet, der Server druckt**; gilt für Material für Schüler:innen, Druckvorlagen, Vertretungsmaterial und
+Material nur für die Lehrkraft; der Chat mit kostenloser KI bleibt **nur als Rückfall**; der alte Markdown-Baustein wird trotzdem repariert.
+
+* **Warum so:** Die Fehler der bisherigen PDFs (doppelter Titel, „?“ an Zeilenumbrüchen, Unterstriche als Fettdruck, fehlende Bilder
+  und Link-Adressen, keine Schreiblinien) machte nicht die KI, sondern der einfache Markdown-Setzer im Browser (`public/pdfmaker.js`,
+  Standardschriften nur WinAnsi). Claude gestaltet deshalb selbst eine vollständige **HTML-Seite mit CSS**; Unterricks ändert daran
+  nichts und druckt sie mit **Chromium** als A4-PDF. Claude kann eine PDF in claude.ai nicht direkt in Unterricks hochladen (der Connector
+  überträgt nur Text) – das HTML ist dieser Text.
+* **Drucker:** Cloudflare **Browser Run** (früher Browser Rendering), Quick Action `pdf` über die Bindung `BROWSER`
+  (`env.BROWSER.quickAction("pdf", {html, …})`, ab Kompatibilitätsdatum 2026-03-24, ohne API-Token). Kostenlos: **10 Minuten
+  Browserzeit am Tag** (eine Seite braucht etwa 1–4 s) und **1 Auftrag je 10 s** für das ganze Konto; lokal nicht verfügbar
+  (Tests: `RENDER_MOCK_URL` mit Chromium von Playwright).
+* **Auftrag** (`worker/render.js`, `pdfRequest`): nur dokumentierte Felder – `html`, `rejectRequestPattern` (jede Adresse mit http(s),
+  ws(s), ftp, file wird abgewiesen: Bilder und Schriften nur eingebettet), `gotoOptions`, `pdfOptions {format a4, printBackground,
+  preferCSSPageSize}`. Vorn im `<head>` setzt Unterricks die Grundeinstellungen (A4 mit Rändern, Schrift **Atkinson Hyperlegible Next**
+  und Mono als `@font-face` mit data:-Adressen aus `public/fonts`, Farben wie am Bildschirm) – Claudes eigene Regeln stehen danach und
+  gehen vor. `cleanDesignHtml` entfernt vorher Skripte, Ereignis-Attribute, `javascript:`, eingebettete Seiten, `<base>` und
+  Weiterleitungen; höchstens 1,5 MB HTML, 20 MB PDF, 40 Seiten. Eingebettete Bilder werden dabei mit `indexOf` statt mit regulären
+  Ausdrücken übersprungen (10 ms CPU im Free-Plan).
+* **Warteschlange und Kontingent:** `render_gate` (`slot` = nächster freier Auftrag, atomar per Upsert … RETURNING; `quota` = bis 0 Uhr
+  UTC gesperrt, wenn Cloudflare „Browser time limit exceeded for today“ meldet) und `render_usage` (Browserzeit je Tag aus
+  `X-Browser-Ms-Used`, Zahl der PDFs). Wer zu lange warten müsste, bekommt 429 `render_busy` mit `retryAfter`.
+* **Ablage:** eine normale PDF-Datei (`files.kind = 'file'`, R2) mit `files.html` (Claudes Gestaltung), `html_at`/`pdf_at` (passt die
+  PDF zur Gestaltung?) und `render_error` (nur Fehler, bei denen ein neuer Versuch mit derselben Gestaltung nichts ändert). Neu angelegt
+  ist sie `pending` – Schüler:innen sehen sie erst nach dem ersten Druck; eine überarbeitete Gestaltung druckt Unterricks neu, bis dahin
+  bleibt die bisherige PDF sichtbar. `files.text` = Klartext der Gestaltung (Kontext für die KI-Hilfe im Planungschat). Listen lesen
+  `html` nicht mit (`FILE_COLS`).
+* **Connector:** `add_material_pdf` (lesson_id, bereich schueler | lehrkraft | druck, titel, html, bei druck anzahl/beidseitig/farbe,
+  optional file_id zum Ersetzen) speichert und druckt sofort; die Antwort nennt Seitenzahl und Größe oder die Meldung des Druckers.
+  `get_material` liefert die Gestaltung zum Überarbeiten – lange eingebettete Bilder als Platzhalter `data:unterricks-bild,n`, die beim
+  Zurückschicken wieder eingesetzt werden (`shortImages`/`keepImages`). `get_lesson` nennt alle gestalteten Materialien mit Stand.
+  `add_text_material`/`add_print_material` heißen „Rückfall“. Die **Gestaltungsregeln** (`MATERIAL_DESIGN_RULES` in `public/shared.js`)
+  stehen im Werkzeug und in den Prompts „Stunde mit Claude planen“ und Krankheitsvertretung: vollständige HTML-Seite, kein JavaScript,
+  keine externen Dateien, Schrift, `@page` und Seitenumbrüche, Kopf mit Name/Klasse/Datum (nicht bei Lehrkraft-Material), M1/M2 mit
+  Quelle, Aufgaben mit Operator und AFB, du-Form, Schreiblinien, Schriftgrößen je Jahrgang, schwarz-weiß lesbar, Selbstprüfung.
+* **Sitzungsseite** (`public/designrender.js`): zeigt je Datei den Stand („wird als PDF gedruckt …“, „wartet auf den PDF-Drucker (noch
+  12 s)“, „Druck fehlgeschlagen: …“ mit „Erneut drucken“, sonst „PDF, von Claude gestaltet · n Seiten“) und druckt Ausstehendes
+  nacheinander selbst nach (`POST /api/teacher/files/:id/render`; bei „ausgelastet“ mit der genannten Wartezeit, beim Tageskontingent
+  hört sie auf). Beim Zurückkehren übernimmt sie neue und geänderte Gestaltungen.
+* **Krankheitsvertretung:** `materialien[].html` (zusammen ≤ 1,5 MB im Vorschlag; `bereich` auch „druck“). Vor dem Bestätigen
+  „Vorschau als PDF“ (`POST …/substitute/preview`, gedruckt, nicht gespeichert); beim Bestätigen entstehen ausstehende Materialien, die
+  die Sitzungsseite gleich druckt; „Wiederherstellen“ löscht sie samt PDF.
+* **Sitzung als Datei / Sicherung / Einheit:** die Gestaltung liegt als `gestaltung/n - Name.html` in der ZIP-Datei (im Browser zu
+  öffnen), die PDF unter `dateien/`, wenn sie zur Gestaltung passt (`rendered`). Beim Laden wird die PDF hochgeladen und die Gestaltung
+  angehängt (`PATCH /api/teacher/files/:id {html, rendered}`) – ohne neuen Druck; fehlt die PDF, entsteht ein ausstehendes Material
+  (`POST /api/teacher/lessons/:id/designs`).
+* **Prüfung nach dem Ausrollen:** `GET /api/health/pdf` druckt eine feste Testseite (Umlaute, Griechisch, Hebräisch, SVG, Tabelle,
+  Schreiblinien) höchstens einmal je Stunde (`?pdf=1` liefert die PDF), sonst nur, wann es wieder geht.
+* **Rückfall (Markdown, `public/pdfmaker.js`):** repariert – Zeilenumbrüche, keine Wiederholung des Titels, Lücken aus Unterstrichen
+  bleiben Text, Schreiblinien (`[[Linien: n]]` bzw. Zeilen nur aus Unterstrichen), Ankreuzkästchen, Bilder als „[Abbildung: …]“,
+  Links mit Adresse, Name/Klasse/Datum nicht bei Lehrkraft-Material, zweistellige Listennummern und Zähler je Ebene, lange Wörter in
+  Tabellenzellen. Griechisch/Hebräisch kann er weiterhin nicht (Standardschriften) – dafür ist der Druck aus HTML da.
 
 ## 4k. KI-Begriffshilfe für Schüler:innen (Ergänzung vom 10.11.2026)
 
@@ -662,6 +720,7 @@ stattdessen der von Anthropic vorgesehene Weg in umgekehrter Richtung (Connector
 | R2 | 10 GB/Monat | Aktivierung mit Zahlungsmittel; Plattform begrenzt auf 9 GB |
 | Durable Objects | im Free-Plan (SQLite-Backend) | ein Objekt je Sitzung |
 | Workers AI | 10 000 Neurons/Tag (konto­weit, geteilt mit Feibeitsblatt) | Rückfall ohne Schlüssel |
+| Browser Run (PDF-Druck) | 10 Minuten Browserzeit/Tag, 1 Auftrag je 10 s (kontoweit) | Claudes Gestaltung → PDF; eine Seite ≈ 1–4 s; Stand in `GET /api/teacher/render` |
 | Groq (Backup nach Claude) | laut Groq-Tabelle für `openai/gpt-oss-120b`: 30 Anfragen/Minute, 1 000/Tag, 8 000 Token/Minute, 200 000 Token/Tag | genaue Werte des eigenen Kontos: console.groq.com → Settings → Limits; Grenzen ändern sich |
 | Gemini / Cerebras / OpenRouter | Gratis-Kontingente der Anbieter | optional als Ausweichmodelle; Grenzen ändern sich |
 | Claude | Ihr Pro-Abo (Connector) | keine API-Kosten |

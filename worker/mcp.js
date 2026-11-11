@@ -10,9 +10,10 @@ import { getUnit, unitFull, applyPlan, updateRow } from "./units.js";
 import { planningBasis } from "./bases.js";
 import { saveProposal, getSubstitute } from "./substitute.js";
 import { paramsText, lessonSlots } from "../public/planning.js";
-import { insertTextMaterial, insertPrintText } from "./files.js";
+import { insertTextMaterial, insertPrintText, saveDesign, renderDesign, getFile } from "./files.js";
+import { shortImages } from "./render.js";
 import { ESCAPE_FORMAT_HINT, PART_TYPES } from "../public/escape-data.js";
-import { SUBJECTS, ALL_CLASSES, subjectName, gradeInfo, formatCode, lessonContext, chatTranscript, PORTAL_RULES, PORTAL_EXAMPLE, SYSTEM_PROMPT_ROLE, FEIBEITSBLATT_INFO, classShort, fmtDay } from "../public/shared.js";
+import { SUBJECTS, ALL_CLASSES, subjectName, gradeInfo, formatCode, lessonContext, chatTranscript, PORTAL_RULES, PORTAL_EXAMPLE, SYSTEM_PROMPT_ROLE, FEIBEITSBLATT_INFO, classShort, fmtDay, materialDesignText, printFileName } from "../public/shared.js";
 
 const MODERN = "2026-07-28";
 const LEGACY = ["2025-11-25", "2025-06-18", "2025-03-26", "2024-11-05"];
@@ -22,6 +23,7 @@ const INSTRUCTIONS = "Unterricks ist die Unterrichtsplattform der Lehrkraft (Fä
   "Planungsgrundlagen (Schulcurriculum, KCGO, E-Phasen-Curriculum, Abiturerlass je Kurs) liefert get_planning_basis. In den Jahrgängen 5 und 6 gibt es keine iPads: dort nur analoges, ausdruckbares Material. " +
   "Jede Unterrichtssitzung hat Fach, Klasse, Thema, Dauer, Ideen der Lehrkraft, einen Planungsverlauf (Chat), Materialien, Feibeitsblätter und einen Schulportal-Eintrag. " +
   "Lies vor dem Planen immer zuerst die Sitzung mit get_lesson. Speichere Ergebnisse nur, wenn die Lehrkraft das möchte. " +
+  "Arbeitsblätter und alle anderen Materialien als Datei (für Schüler:innen, nur für die Lehrkraft oder zum Ausdrucken) gestaltest du selbst als HTML-Seite und legst sie mit add_material_pdf ab – Unterricks druckt sie unverändert als A4-PDF; add_text_material und add_print_material (Markdown) nur als Rückfall, wenn der PDF-Druck nicht funktioniert. " +
   "Ist die Lehrkraft krank, legst du mit save_substitute_plan einen Vertretungsvorschlag ab (mit Abgabe: Feibeitsblatt oder ein Escape-Room nach der Vorlage der Plattform mit Feibeitsblatt-Finale); die Lehrkraft prüft und bestätigt ihn in der Plattform. " +
   "Eine Zeile „⏸ Zwischenstopp“ im Schulportal-Eintrag ist eine interne Markierung der Lehrkraft: Bis dorthin wurde die Stunde geschafft, ab dort ist der Inhalt offen (sie wird beim Kopieren ins Schulportal entfernt). " +
   "Der Schulportal-Eintrag verwendet die Schulportal-Zeichen (" + PORTAL_RULES.join("; ") + ") und folgt dieser Vorlage:\n" + PORTAL_EXAMPLE;
@@ -76,13 +78,28 @@ const TOOLS = [
     description: "Ersetzt den Schulportal-Eintrag der Sitzung. Format: Schulportal-Zeichen (**fett**, ~~kursiv~~, __unterstrichen__, --durchgestrichen--, Zeilen mit \"- \"), Struktur wie in der Vorlage (nummerierte fette Phasen, Stichpunkte, „--> Nächste Stunde“). " +
       "Übergib base_version aus get_lesson, damit keine neuere Änderung der Lehrkraft überschrieben wird.",
     inputSchema: { type: "object", properties: { lesson_id: ID_ARG, text: { type: "string", maxLength: 30000 }, base_version: { type: "integer", minimum: 0 } }, required: ["lesson_id", "text"], additionalProperties: false } },
-  { name: "add_text_material", title: "Textmaterial hinzufügen", annotations: wr,
-    description: "Legt ein Unterrichtsmaterial als Text (Markdown: Überschriften, Listen, Tabellen, **fett**) in der Sitzung ab. Schüler:innen laden es als PDF herunter (z. B. für GoodNotes). " +
+  { name: "add_material_pdf", title: "Material gestalten (PDF)", annotations: wr,
+    description: "Legt ein von dir gestaltetes Material als PDF-Datei in der Sitzung ab: Arbeitsblätter, Texte und Quellen, Schaubilder, Tafelbilder, Kärtchen, Erwartungshorizonte – alles, was Schüler:innen oder die Lehrkraft als Datei bekommen. " +
+      "Du gestaltest es als HTML-Seite; Unterricks druckt sie unverändert mit Chromium als A4-PDF und legt die PDF ab. bereich: \"schueler\" (für die Schüler:innen, sichtbar sobald die PDF gedruckt ist; sie laden sie z. B. in GoodNotes), " +
+      "\"lehrkraft\" (nur für die Lehrkraft, z. B. Erwartungshorizont, Lösungen, Tafelbild) oder \"druck\" (Liste „Von der Lehrkraft auszudrucken“: in Jg. 5/6 alles Material für die Schüler:innen, sonst Kärtchen, Karten, Plakate; " +
+      "dazu anzahl – frag nach der Klassengröße, wenn du sie nicht kennst –, beidseitig (false, wenn geschnitten wird) und farbe (nur, wenn Farbe unbedingt nötig ist; gedruckt wird fast immer schwarz-weiß)). " +
+      "Mit file_id (aus get_lesson) ersetzt du die Gestaltung eines vorhandenen Materials – lies sie vorher mit get_material; eingebettete Bilder stehen dort als Platzhalter „data:unterricks-bild,n“ und bleiben erhalten, wenn du die Platzhalter stehen lässt. " +
+      "Die Antwort nennt die Seitenzahl der gedruckten PDF oder die Meldung des Druckers. Ein Material = eine Datei (mehrere Materialien M1, M2 … für dieselbe Aufgabe dürfen in einer Datei stehen).\n\nGestaltungsregeln:\n" + materialDesignText(),
+    inputSchema: { type: "object", properties: { lesson_id: ID_ARG, bereich: { type: "string", enum: ["schueler", "lehrkraft", "druck"], description: "bei file_id nur angeben, wenn er sich ändert (schueler ↔ lehrkraft)" },
+      titel: { type: "string", maxLength: 160, description: "Dateiname ohne Endung, z. B. „Arbeitsblatt – Gewaltenteilung“" }, html: { type: "string", maxLength: 1600000, description: "vollständige HTML-Seite mit <style>" },
+      anzahl: { type: "integer", minimum: 1, maximum: 500, description: "nur bei bereich druck" }, beidseitig: { type: "boolean", description: "nur bei bereich druck" }, farbe: { type: "boolean", description: "nur bei bereich druck" },
+      file_id: { type: "string", pattern: "^[a-f0-9]{16}$", description: "Gestaltung eines vorhandenen Materials ersetzen" } },
+      required: ["lesson_id", "titel", "html"], additionalProperties: false } },
+  { name: "get_material", title: "Gestaltetes Material lesen", annotations: ro,
+    description: "Liefert die HTML-Gestaltung eines Materials, das mit add_material_pdf angelegt wurde (file_id aus get_lesson), damit du es überarbeiten kannst. Lange eingebettete Bilder stehen dort als Platzhalter „data:unterricks-bild,n“.",
+    inputSchema: { type: "object", properties: { file_id: { type: "string", pattern: "^[a-f0-9]{16}$" } }, required: ["file_id"], additionalProperties: false } },
+  { name: "add_text_material", title: "Textmaterial hinzufügen (Rückfall)", annotations: wr,
+    description: "RÜCKFALL – nur verwenden, wenn add_material_pdf nicht funktioniert. Legt ein Unterrichtsmaterial als Text (Markdown: Überschriften, Listen, Tabellen, **fett**) in der Sitzung ab; Unterricks setzt daraus eine einfache PDF (ohne eigene Gestaltung). Schüler:innen laden es als PDF herunter. " +
       "bereich: \"schueler\" (für Schüler:innen sichtbar) oder \"lehrkraft\" (nur für die Lehrkraft, z. B. Erwartungshorizont).",
     inputSchema: { type: "object", properties: { lesson_id: ID_ARG, bereich: { type: "string", enum: ["schueler", "lehrkraft"] }, titel: { type: "string", maxLength: 200 }, markdown: { type: "string", maxLength: 200000 } },
       required: ["lesson_id", "bereich", "titel", "markdown"], additionalProperties: false } },
-  { name: "add_print_material", title: "Druckvorlage für die Lehrkraft hinzufügen", annotations: wr,
-    description: "Legt eine Vorlage in die Liste „Von der Lehrkraft auszudrucken“ der Sitzung (Markdown; die Plattform erzeugt daraus eine A4-PDF – gedruckt wird nur A4). Für alles, was vor der Stunde ausgedruckt " +
+  { name: "add_print_material", title: "Druckvorlage hinzufügen (Rückfall)", annotations: wr,
+    description: "RÜCKFALL – nur verwenden, wenn add_material_pdf (bereich \"druck\") nicht funktioniert. Legt eine Vorlage in die Liste „Von der Lehrkraft auszudrucken“ der Sitzung (Markdown; die Plattform erzeugt daraus eine einfache A4-PDF – gedruckt wird nur A4). Für alles, was vor der Stunde ausgedruckt " +
       "werden muss: Arbeitsblätter in Jg. 5/6, Karten, Schaubilder oder Kärtchen für die Tafel. anzahl: wie oft (z. B. Zahl der Schüler:innen – frag die Lehrkraft, wenn du sie nicht kennst); " +
       "beidseitig: false, wenn geschnitten wird oder Rückseiten stören; farbe: nur true, wenn Farbe unbedingt nötig ist (an der Schule wird fast immer schwarz-weiß gedruckt). " +
       "Der Dateiname entsteht automatisch, z. B. „28x - beidseitig - sw - Titel.pdf“.",
@@ -128,7 +145,10 @@ const TOOLS = [
       hinweis_schueler: { type: "string", maxLength: 1000, description: "Hinweis für die Schüler:innen, dass die Lehrkraft nicht da ist" },
       schritte: { type: "array", minItems: 1, maxItems: 20, items: { type: "object", properties: { titel: { type: "string" }, anleitung: { type: "string" }, minuten: { type: "integer" }, abgabe: { type: "boolean" } }, required: ["titel", "anleitung"] } },
       abgabe: { type: "string", description: "Was wird wie abgegeben?" }, schulportal: { type: "string", description: "Schulportal-Eintrag der Vertretungsstunde (Schulportal-Zeichen)" },
-      materialien: { type: "array", maxItems: 12, items: { type: "object", properties: { titel: { type: "string" }, bereich: { type: "string", enum: ["schueler", "lehrkraft"] }, markdown: { type: "string" } }, required: ["titel", "bereich", "markdown"] } },
+      materialien: { type: "array", maxItems: 12, description: "Materialien der Vertretung: gestaltet als HTML-Seite (html, Gestaltungsregeln wie bei add_material_pdf – Unterricks druckt sie nach der Bestätigung als PDF; zusammen höchstens 1,5 MB) oder nur als Rückfall in Markdown (markdown)",
+        items: { type: "object", properties: { titel: { type: "string" }, bereich: { type: "string", enum: ["schueler", "lehrkraft", "druck"], description: "druck = Liste „Von der Lehrkraft auszudrucken“ (nur mit html)" },
+          html: { type: "string", description: "vollständige HTML-Seite mit <style>" }, markdown: { type: "string", description: "Rückfall ohne eigene Gestaltung" },
+          anzahl: { type: "integer", minimum: 1, maximum: 500 }, beidseitig: { type: "boolean" }, farbe: { type: "boolean" } }, required: ["titel", "bereich"] } },
       feibeitsblatt: { type: "object", properties: { titel: { type: "string" }, aufgaben: { type: "array", items: { type: "object", properties: { text: { type: "string" }, material: { type: "string" }, ki_auftrag: { type: "string" },
         antwort: { description: "\"text\", \"foto\" (Foto z. B. eines Lernprodukts; nie an die KI, ohne ki_auftrag; höchstens 3 je Blatt) oder Tabelle {tabelle: [...], zeilen}" } }, required: ["text"] } } }, required: ["titel", "aufgaben"] },
       escape_room: ESCAPE_ROOM,
@@ -152,6 +172,14 @@ async function lessonDump(db, l) {
   if (ds.length) {
     parts.push("", "## Feibeitsblatt-Entwürfe");
     for (const d of ds) parts.push("- " + d.id + " (" + d.status + (d.sheet_code ? ", Code " + formatCode(d.sheet_code) : "") + "): " + d.data.slice(0, 4000));
+  }
+  const des = await db.prepare("SELECT id, area, name, status, pages, html_at, pdf_at, render_error FROM files WHERE lesson_id=?1 AND html IS NOT NULL AND area<>'archive' ORDER BY created_at").bind(l.id).all();
+  if ((des.results || []).length) {
+    parts.push("", "## Gestaltete Materialien (HTML → PDF; lesen mit get_material, ändern mit add_material_pdf und file_id)");
+    for (const f of des.results) {
+      const state = f.render_error && (!f.pdf_at || f.html_at > f.pdf_at) ? "Druck fehlgeschlagen: " + f.render_error : f.status !== "ready" ? "wartet auf den Druck" : f.html_at > f.pdf_at ? "gedruckt, neue Gestaltung wartet auf den Druck" : "gedruckt" + (f.pages ? ", " + f.pages + (f.pages === 1 ? " Seite" : " Seiten") : "");
+      parts.push("- file_id " + f.id + ": „" + f.name + "“ (" + (f.area === "student" ? "für Schüler:innen" : f.area === "teacher" ? "nur Lehrkraft" : "zum Ausdrucken") + "; " + state + ")");
+    }
   }
   const sub = await getSubstitute(db, l.id);
   if (sub) parts.push("", "## Krankheitsvertretung", "Status: " + sub.status + (sub.status === "aktiv" ? " (die ursprüngliche Planung ist archiviert)" : " (Vorschlag liegt der Lehrkraft vor)"));
@@ -256,6 +284,30 @@ async function callTool(c, name, a) {
         if (e instanceof HttpError && e.code === "portal_conflict") return toolError("Der Eintrag wurde inzwischen geändert (aktuelle Version " + e.extra.current.version + "). Bitte get_lesson erneut aufrufen und die Änderungen der Lehrkraft berücksichtigen.");
         throw e;
       }
+    }
+    case "add_material_pdf": {
+      await getLesson(c.db, a.lesson_id);
+      const area = { schueler: "student", lehrkraft: "teacher", druck: "print" }[a.bereich] || "";
+      if (!a.file_id && !area) return toolError("Bitte bereich angeben: schueler, lehrkraft oder druck.");
+      const f = await saveDesign(c, a.lesson_id, { area, title: a.titel, html: a.html, print: { copies: a.anzahl, duplex: a.beidseitig, color: a.farbe }, source: "claude", fileId: a.file_id || null });
+      const where = f.area === "student" ? "für die Schüler:innen" : f.area === "teacher" ? "nur für die Lehrkraft" : "in der Liste „Von der Lehrkraft auszudrucken“ als „" + printFileName({ name: f.name, copies: f.print_copies, duplex: f.print_duplex !== 0, color: f.print_color === 1 }) + "“";
+      try {
+        const r = await renderDesign(c, f, { waitMs: 30000 });
+        const kb = Math.max(1, Math.round(r.bytes / 1024));
+        return toolText("„" + r.file.name + "“ " + (a.file_id ? "überarbeitet" : "gespeichert") + " und als PDF gedruckt: " + (r.pages ? r.pages + (r.pages === 1 ? " Seite" : " Seiten") : "Seitenzahl unbekannt") + ", " + kb + " KB, " + where + "." +
+          (r.current ? "" : " (Inzwischen kam eine neuere Gestaltung an – Unterricks druckt sie nach.)") + " Ändern: add_material_pdf mit file_id " + f.id + ".", { file_id: f.id, pages: r.pages || null, bytes: r.bytes, status: "gedruckt" });
+      } catch (e) {
+        const code = e && e.code ? String(e.code) : "";
+        const later = code === "render_busy" || code === "render_quota" || code === "render_config";
+        return toolText("„" + f.name + "“ ist " + (a.file_id ? "überarbeitet" : "gespeichert") + " (" + where + "), aber noch nicht als PDF gedruckt: " + (e && e.message ? e.message : "Fehler beim Druck") + " " +
+          (later ? "Unterricks druckt es automatisch nach, sobald die Lehrkraft die Sitzung öffnet; bis dahin sehen die Schüler:innen " + (a.file_id ? "die bisherige Fassung." : "es noch nicht.")
+            : "Bitte die Gestaltung prüfen und mit add_material_pdf (file_id " + f.id + ") korrigiert erneut senden."), { file_id: f.id, status: later ? "wartet auf den Druck" : "Druckfehler", error: e && e.message ? e.message : null });
+      }
+    }
+    case "get_material": {
+      const f = await getFile(c.db, a.file_id);
+      if (f.html == null || f.area === "archive") return toolError("Zu dieser file_id gibt es kein gestaltetes Material (siehe get_lesson).");
+      return toolText("# " + f.name + " (" + (f.area === "student" ? "für Schüler:innen" : f.area === "teacher" ? "nur für die Lehrkraft" : "zum Ausdrucken") + ", Sitzung " + f.lesson_id + ")\n\n" + shortImages(f.html), { file_id: f.id, lesson_id: f.lesson_id });
     }
     case "add_text_material": {
       await getLesson(c.db, a.lesson_id);

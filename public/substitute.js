@@ -1,8 +1,8 @@
 // substitute.js – Krankheitsvertretung in der Sitzungsansicht: Knopf „Lehrkraft ist zu dieser Sitzung krank – Alternative entwickeln“
 // (Claude in claude.ai über den Connector; Modell und Aufwand werden vorher erfragt), Prüfung des Vorschlags, Bestätigen (die
 // ursprüngliche Planung wird archiviert, die Sitzung umgestellt), Wiederherstellen und Übernahme der Planung in eine andere Sitzung.
-import { h, clear, toast, errToast, busy, modal, confirmDialog, fmtTime, store, nn } from "./ui.js";
-import { tapi } from "./teacher.js";
+import { h, clear, toast, errToast, busy, modal, confirmDialog, fmtTime, store, nn, apiUrl, downloadBlob } from "./ui.js";
+import { T, tapi } from "./teacher.js";
 import { go } from "./app.js";
 import { formatCode, fmtDay } from "./shared.js";
 import { claudeSubstitutePrompt, SUBSTITUTE_SHARE } from "./planning.js";
@@ -48,8 +48,19 @@ export function substituteCards({ id, st, L, ctx, fb, analog, reload, openDraft,
   }
   function materialsNode(mats) {
     if (!mats || !mats.length) return h("p", { class: "muted small", text: "Kein zusätzliches Material." });
-    return h("div", { class: "list" }, mats.map((m) => h("div", { class: "item" }, h("div", { class: "main" }, h("div", { class: "name", text: m.titel }), h("div", { class: "meta", text: m.bereich === "teacher" ? "nur für Lehrkräfte" : "für Schüler:innen · als PDF herunterladbar" })),
-      h("div", { class: "acts" }, h("button", { class: "btn small", type: "button", onclick: () => modal({ title: m.titel, wide: true, body: (el) => el.append(renderMarkdown(m.markdown)) }) }, "Ansehen")))));
+    const where = (m) => (m.bereich === "teacher" ? "nur für Lehrkräfte" : m.bereich === "print" ? "von Ihnen auszudrucken" + (m.druck && m.druck.anzahl ? " (" + m.druck.anzahl + "×)" : "") : "für Schüler:innen");
+    // gestaltet (HTML): Unterricks druckt die PDF nach dem Bestätigen; die Vorschau druckt sie einmal zur Ansicht (wird nicht gespeichert)
+    const preview = (i, m) => async (e) => busy(e.currentTarget, async () => {
+      try {
+        const res = await fetch(apiUrl("/api/teacher/lessons/" + id + "/substitute/preview"), { method: "POST", headers: { Authorization: "Bearer " + T.token, "Content-Type": "application/json" }, body: JSON.stringify({ index: i }), credentials: "omit" });
+        if (!res.ok) { let d = null; try { d = await res.json(); } catch {} throw new Error((d && d.error) || "Die Vorschau ließ sich nicht erstellen (Fehler " + res.status + ")."); }
+        downloadBlob(await res.blob(), (m.titel || "Material") + " (Vorschau).pdf");
+      } catch (err) { errToast(err); }
+    }, "Wird gedruckt …");
+    return h("div", { class: "list" }, mats.map((m, i) => h("div", { class: "item" }, h("div", { class: "main" }, h("div", { class: "name", text: m.titel }),
+      h("div", { class: "meta", text: where(m) + (m.html ? " · von Claude gestaltet, PDF entsteht beim Bestätigen" : " · einfache PDF (Text)") })),
+      h("div", { class: "acts" }, m.html ? h("button", { class: "btn small", type: "button", onclick: preview(i, m) }, "Vorschau als PDF")
+        : h("button", { class: "btn small", type: "button", onclick: () => modal({ title: m.titel, wide: true, body: (el) => el.append(renderMarkdown(m.markdown)) }) }, "Ansehen")))));
   }
 
   // Escape-Room im Vorschlag bzw. in der aktiven Vertretung: Stationen, Lösungswort, Vorschau

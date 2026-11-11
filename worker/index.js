@@ -12,6 +12,7 @@ import * as B from "./bases.js";
 import * as U from "./units.js";
 import * as SUB from "./substitute.js";
 import * as R from "./reset.js";
+import * as RN from "./render.js";
 
 export { LiveRoom } from "./live.js";
 
@@ -21,6 +22,7 @@ const ID = "([a-f0-9]{16})";
 
 const ROUTES = [
   ["GET", "/api/health", async () => json({ ok: true, service: "unterricks" }), { noDb: true }],
+  ["GET", "/api/health/pdf", RN.routeHealthPdf],
   ["GET", "/api/config", async (c) => json({ ok: true, feibeitsblattApi: fbApi(c.env), feibeitsblattUrl: c.env.FEIBEITSBLATT_URL || DEFAULT_FB_URL }), { noDb: true }],
   // Lehrkraft: Zugang
   ["POST", "/api/teacher/status", A.routeTeacherStatus],
@@ -73,6 +75,7 @@ const ROUTES = [
   // Krankheitsvertretung
   ["POST", "/api/teacher/lessons/" + ID + "/substitute/confirm", SUB.routeSubstituteConfirm],
   ["POST", "/api/teacher/lessons/" + ID + "/substitute/discard", SUB.routeSubstituteDiscard],
+  ["POST", "/api/teacher/lessons/" + ID + "/substitute/preview", SUB.routeSubstitutePreview],
   ["POST", "/api/teacher/lessons/" + ID + "/substitute/restore", SUB.routeSubstituteRestore],
   ["POST", "/api/teacher/lessons/" + ID + "/substitute/transfer", SUB.routeSubstituteTransfer],
   ["GET", "/api/teacher/lessons/" + ID + "/escape", SUB.routeTeacherEscape],
@@ -104,6 +107,10 @@ const ROUTES = [
   ["POST", "/api/teacher/lessons/" + ID + "/print", F.routePrintUpload],
   ["POST", "/api/teacher/lessons/" + ID + "/import", L.routeLessonImport],
   ["PATCH", "/api/teacher/files/" + ID, F.routeFilePatch],
+  ["POST", "/api/teacher/files/" + ID + "/render", F.routeFileRender],
+  ["POST", "/api/teacher/lessons/" + ID + "/designs", F.routeDesignCreate],
+  ["GET", "/api/teacher/files/" + ID + "/html", F.routeFileHtml],
+  ["GET", "/api/teacher/render", F.routeRenderUsage],
   ["DELETE", "/api/teacher/files/" + ID, F.routeFileDelete],
   ["POST", "/api/teacher/files/" + ID + "/link", F.routeTeacherFileLink],
   ["POST", "/api/teacher/lessons/" + ID + "/presentation", F.routePresentationUpload],

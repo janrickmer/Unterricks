@@ -445,6 +445,8 @@ Leuchtfläche und Tinte.
 **Body Font:** Atkinson Hyperlegible Next (dieselbe Familie, aufrecht und kursiv)
 **Label/Mono Font:** Atkinson Hyperlegible Mono, eingebunden als „Atkinson Mono“ (Rückfall ui-monospace, „SF Mono“, Menlo, Consolas, monospace) – nur für Codes, IDs, Tastenkürzel und den Rohtext des Schulportal-Eintrags
 
+**Gedrucktes Material (PDF):** Arbeitsblätter und weiteres Material gestaltet Claude als HTML-Seite; der Server druckt sie mit Chromium (`worker/render.js`). Dieselbe Schrift wie die Oberfläche – Unterricks reicht dem Drucker Atkinson Hyperlegible Next und Mono als eingebettete `@font-face` (Ausweichschrift DejaVu Sans für Griechisch, Hebräisch u. a.). Die Gestaltungsregeln für Claude (`MATERIAL_DESIGN_RULES` in `public/shared.js`): A4 mit 15–18 mm Rand, Kopf mit Name/Klasse/Datum, M1/M2 mit Quelle, Aufgaben mit fettem Operator und AFB, Schreiblinien 8–9 mm (Jg. 5/6: 10–11 mm), ab Jg. 7 11–12 pt (Jg. 5/6 ≥ 13 pt), in Schwarz-Weiß vollständig lesbar, Farbe nur als Akzent.
+
 **Character:** Eine Schrift, die für Lesbarkeit gebaut ist: Ähnliche Zeichen wie 0 und O oder I und l bleiben unterscheidbar, am Beamer wie auf dem iPad, freundlich, ohne kindlich zu wirken. Die Mono-Schwester macht Codes zu Kennungen, die man aus der letzten Reihe abtippen kann.
 
 ### Hierarchy

@@ -17,6 +17,9 @@
   "migrations": [{ "tag": "v1", "new_sqlite_classes": ["LiveRoom"] }],
   // Cloudflare Workers AI als kostenloser Rückfall ohne Schlüssel (kein AI Gateway)
   "ai": { "binding": "AI", "remote": true },
+  // Cloudflare Browser Run: druckt Claudes Gestaltung (HTML) als PDF – Quick Action „pdf“ über env.BROWSER.quickAction (ohne API-Token,
+  // kostenlos 10 Minuten Browserzeit am Tag, 1 Auftrag je 10 s; lokal nicht verfügbar – Tests nutzen RENDER_MOCK_URL)
+  "browser": { "binding": "BROWSER", "remote": true },
   "vars": {
     "FEIBEITSBLATT_API": "https://feibeitsblatt.feindt.workers.dev",
     "FEIBEITSBLATT_URL": "https://feibeitsblatt.janrickmer.de/",

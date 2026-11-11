@@ -8,7 +8,7 @@ import { tmpdir } from "node:os";
 import { join, extname } from "node:path";
 import { createRequire } from "node:module";
 import { PDFDocument, StandardFonts, rgb } from "pdf-lib";
-import { startMockAI, startMockFeibeitsblatt } from "./mocks.mjs";
+import { startMockAI, startMockFeibeitsblatt, startMockPrinter } from "./mocks.mjs";
 import { readZip } from "../../public/zip.js";
 import { horizontalIssues, strayTexts } from "./mobile-audit.mjs";
 
@@ -17,6 +17,15 @@ const { chromium, devices } = require("playwright");
 const ROOT = new URL("../..", import.meta.url).pathname;
 const PORT = 8787, AI_PORT = 8790, FB_PORT = 8788, BASE = "http://localhost:" + PORT, FB = "http://localhost:" + FB_PORT;
 const PAGES_PORT = 8792, PAGES = "http://localhost:" + PAGES_PORT;   // Nachbau von GitHub Pages: andere Herkunft, keine eigenen Header
+const PRINT_PORT = 8794;   // Drucker-Attrappe für Cloudflare Browser Run (Chromium von Playwright)
+// ein von „Claude“ gestaltetes Arbeitsblatt (HTML mit eigenem CSS, SVG, Schreiblinien, Umlaute, Griechisch; versucht ein Bild aus dem Netz zu laden)
+const SHEET_HTML = '<!doctype html><html lang="de"><head><meta charset="utf-8"><style>@page{size:A4;margin:16mm}body{font-family:"Atkinson Hyperlegible Next";font-size:12pt}' +
+  'h1{font-size:20pt}.kopf{display:flex;gap:8mm}.kopf span{flex:1;border-bottom:.6pt solid #555}.aufgabe{break-inside:avoid;margin:5mm 0}' +
+  '.linien{height:36mm;background:repeating-linear-gradient(transparent 0 8.8mm,#888 8.8mm 9mm)}</style></head><body>' +
+  '<div class="kopf"><span>Name:</span><span>Klasse:</span><span>Datum:</span></div><h1>Gewaltenteilung – „Wer kontrolliert wen?“</h1>' +
+  '<p><b>M1</b> Ἐν ἀρχῇ · Größe · Übung (Autorentext)</p><img src="https://example.org/fremd.png" alt="">' +
+  '<svg width="160" height="60" viewBox="0 0 160 60"><rect x="5" y="5" width="150" height="50" fill="none" stroke="#000"/><text x="20" y="35">Legislative</text></svg>' +
+  '<div class="aufgabe"><p><b>1. Erkläre</b> (AFB II) die Gewaltenteilung.</p><div class="linien"></div></div><script>document.body.innerHTML="kaputt"</script></body></html>';
 const OUT = join(ROOT, "test-results"); mkdirSync(OUT, { recursive: true });
 const FB_PW = "Feibeitsblatt-Testpasswort", T_PW = "Lehrkraft-Passwort-2026";
 // Bildschirmfotos ohne kurzzeitige Meldungen (Toasts) und mit abgeschlossenen Einblendungen – sonst verdecken sie Teile der Seite
@@ -106,12 +115,13 @@ async function main() {
   for (let i = 0; i < 20; i++) { try { await fetch(BASE + "/api/health"); await sleep(1000); } catch { break; } }
   const persist = mkdtempSync(join(process.env.E2E_TMP || tmpdir(), "unterricks-e2e-"));
   const wd = spawn("npx", ["wrangler", "dev", "--local", "--port", String(PORT), "--persist-to", persist, "--var", "SETTINGS_SECRET:e2e-geheimnis-1234567890",
-    "--var", "DEV_ALLOW_HTTP_AI:1", "--var", "FEIBEITSBLATT_API:" + FB, "--var", "FEIBEITSBLATT_URL:" + FB + "/", "--var", "PAGES_ORIGINS:" + PAGES], { cwd: ROOT, env: { ...process.env, WRANGLER_SEND_METRICS: "false" }, stdio: ["ignore", "pipe", "pipe"], detached: true });
+    "--var", "DEV_ALLOW_HTTP_AI:1", "--var", "RENDER_MOCK_URL:http://127.0.0.1:" + PRINT_PORT + "/pdf", "--var", "RENDER_GAP_MS:0", "--var", "FEIBEITSBLATT_API:" + FB, "--var", "FEIBEITSBLATT_URL:" + FB + "/", "--var", "PAGES_ORIGINS:" + PAGES], { cwd: ROOT, env: { ...process.env, WRANGLER_SEND_METRICS: "false" }, stdio: ["ignore", "pipe", "pipe"], detached: true });
   const stopWrangler = () => { try { process.kill(-wd.pid, "SIGTERM"); } catch {} };
   process.on("exit", stopWrangler);
   let wlog = ""; wd.stdout.on("data", (d) => (wlog += d)); wd.stderr.on("data", (d) => (wlog += d));
   for (let i = 0; i < 60; i++) { try { if ((await fetch(BASE + "/api/health")).ok) break; } catch {} await sleep(1000); }
   const browser = await chromium.launch();
+  const printer = await startMockPrinter(PRINT_PORT, browser);
   const pageErrors = [];
   const watch = (p, who) => { p.on("pageerror", (e) => pageErrors.push(who + ": " + e.message)); };
   try {
@@ -708,6 +718,70 @@ async function main() {
     await tp.locator("#printcard .printrow .name", { hasText: "14x - einseitig - sw - Kärtchen Gewaltenteilung.pdf" }).waitFor({ timeout: 10000 });
     ok(true, "… erscheint beim Zurückkehren in der Druckliste der Sitzung");
 
+    /* ---------- Von Claude gestaltetes Material: HTML → PDF (Server druckt) ---------- */
+    step("Claude gestaltet Material als HTML, der Server druckt es als PDF (Chromium); Nachdrucken auf der Sitzungsseite; Testseite");
+    r = await rpc({ jsonrpc: "2.0", id: 11, method: "tools/list" });
+    const tAdd = r.data.result.tools.find((t) => t.name === "add_material_pdf");
+    ok(tAdd && /Atkinson Hyperlegible Next/.test(tAdd.description) && r.data.result.tools.some((t) => t.name === "get_material") && /^RÜCKFALL/.test(r.data.result.tools.find((t) => t.name === "add_text_material").description),
+      "Werkzeug add_material_pdf mit Gestaltungsregeln; Markdown-Werkzeuge nur als Rückfall");
+    const nCalls = printer.calls.length;
+    r = await tool("add_material_pdf", { lesson_id: lessonId, bereich: "schueler", titel: "Arbeitsblatt Gewaltenteilung", html: SHEET_HTML });
+    ok(!r.isError && /gespeichert und als PDF gedruckt: 1 Seite, \d+ KB, für die Schüler:innen\./.test(r.content[0].text), "Claude legt das Material ab; die Antwort nennt Seitenzahl und Größe");
+    const designId = r.structuredContent.file_id;
+    const pjob = printer.calls[nCalls];
+    ok(pjob && !pjob.html.includes("<script") && pjob.html.includes("@font-face{font-family:'Atkinson Hyperlegible Next'") && pjob.pdfOptions.format === "a4" && pjob.pdfOptions.preferCSSPageSize === true,
+      "Druckauftrag: ohne Skripte, mit der Unterricks-Schrift, A4 (Claudes @page gilt)");
+    ok(printer.blocked.some((u) => u.startsWith("https://example.org/")), "Netzzugriffe aus der Gestaltung werden beim Druck blockiert");
+    await tp.evaluate(() => document.dispatchEvent(new Event("visibilitychange")));
+    const dRow = tp.locator("#app .item", { hasText: "Arbeitsblatt Gewaltenteilung.pdf" });
+    await dRow.locator(".meta", { hasText: "PDF, von Claude gestaltet · 1 Seite" }).waitFor({ timeout: 10000 });
+    ok(true, "Sitzungsseite: Material „PDF, von Claude gestaltet · 1 Seite“");
+    let dlp = tp.waitForEvent("download");
+    await dRow.getByRole("button", { name: "Herunterladen" }).click();
+    const designPdf = readFileSync(await (await dlp).path());
+    const dTxt = designPdf.toString("latin1");
+    ok(dTxt.startsWith("%PDF-") && /AtkinsonHyperlegibleNext/.test(dTxt), "die PDF ist da und enthält die Schrift Atkinson Hyperlegible Next");
+    writeFileSync(join(OUT, "claude-gestaltet.pdf"), designPdf);
+    ok((await SA("GET", "/api/student/lessons/" + lessonId)).data.files.some((f) => f.name === "Arbeitsblatt Gewaltenteilung.pdf" && f.kind === "file" && !f.text), "Schüler:innen sehen die gedruckte PDF (ohne die Gestaltung)");
+    r = await tool("get_material", { file_id: designId });
+    ok(r.content[0].text.includes("Wer kontrolliert wen?") && !r.isError, "get_material liefert Claude die Gestaltung zum Überarbeiten");
+    // Drucker gerade nicht erreichbar: gespeichert, die Sitzungsseite druckt nach, sobald es wieder geht
+    printer.mode = "busy";
+    r = await tool("add_material_pdf", { lesson_id: lessonId, bereich: "lehrkraft", titel: "Erwartungshorizont", html: "<h1>Erwartungshorizont</h1><p>Nur für die Lehrkraft</p>" });
+    ok(/noch nicht als PDF gedruckt/.test(r.content[0].text) && /druckt es automatisch nach/.test(r.content[0].text), "Drucker gestört: gespeichert, Antwort kündigt den Nachdruck an");
+    ok(!(await SA("GET", "/api/student/lessons/" + lessonId)).data.files.some((f) => f.name === "Erwartungshorizont.pdf"), "Material nur für die Lehrkraft ist für Schüler:innen nie sichtbar");
+    await tp.evaluate(() => document.dispatchEvent(new Event("visibilitychange")));
+    const eRow = tp.locator("#app .item", { hasText: "Erwartungshorizont.pdf" });
+    await eRow.waitFor({ timeout: 10000 });
+    await eRow.locator(".meta", { hasText: /wartet auf den PDF-Drucker|wird als PDF gedruckt/ }).waitFor({ timeout: 15000 });
+    ok(true, "… die Sitzungsseite zeigt „wartet auf den PDF-Drucker“ und versucht es erneut");
+    printer.mode = "ok";
+    await eRow.locator(".meta", { hasText: "PDF, von Claude gestaltet" }).waitFor({ timeout: 30000 });
+    ok(true, "… und druckt es, sobald der Drucker wieder antwortet");
+    // überarbeiten mit file_id: der Drucker lehnt ab → Fehler sichtbar, „Erneut drucken“
+    printer.mode = "fail";
+    r = await tool("add_material_pdf", { lesson_id: lessonId, titel: "Arbeitsblatt Gewaltenteilung", html: SHEET_HTML.replace("Wer kontrolliert wen?", "Wer kontrolliert die Macht?"), file_id: designId });
+    ok(/Bitte die Gestaltung prüfen/.test(r.content[0].text), "Druckfehler nach dem Überarbeiten: Claude soll die Gestaltung korrigieren");
+    ok((await SA("GET", "/api/student/lessons/" + lessonId)).data.files.some((f) => f.name === "Arbeitsblatt Gewaltenteilung.pdf"), "… die Schüler:innen sehen bis dahin die bisherige Fassung");
+    await tp.evaluate(() => document.dispatchEvent(new Event("visibilitychange")));
+    await dRow.locator(".meta", { hasText: "Druck fehlgeschlagen" }).waitFor({ timeout: 10000 });
+    printer.mode = "ok";
+    await dRow.getByRole("button", { name: "Erneut drucken" }).click();
+    await dRow.locator(".meta", { hasText: "PDF, von Claude gestaltet" }).waitFor({ timeout: 20000 });
+    ok(true, "Sitzungsseite: „Druck fehlgeschlagen“ mit „Erneut drucken“ – danach gedruckt");
+    await tp.locator("#app .item", { hasText: "Arbeitsblatt Gewaltenteilung.pdf" }).screenshot({ ...SHOT, path: join(OUT, "lehrkraft-material-claude.png") });
+    // Druckliste
+    r = await tool("add_material_pdf", { lesson_id: lessonId, bereich: "druck", titel: "Kärtchen Gewalten", html: "<div style='display:grid;grid-template-columns:1fr 1fr;gap:10mm'><div>Legislative</div><div>Exekutive</div></div>", anzahl: 28, beidseitig: false, farbe: false });
+    ok(!r.isError && r.content[0].text.includes("„28x - einseitig - sw - Kärtchen Gewalten.pdf“"), "Druckvorlage gestaltet (bereich druck) mit Anzahl und Druckart");
+    await tp.evaluate(() => document.dispatchEvent(new Event("visibilitychange")));
+    await tp.locator("#printcard .printrow", { hasText: "28x - einseitig - sw - Kärtchen Gewalten.pdf" }).locator(".meta", { hasText: "PDF, von Claude gestaltet" }).waitFor({ timeout: 10000 });
+    ok(true, "… erscheint gedruckt in der Druckliste");
+    // Prüfung nach dem Ausrollen: Testseite höchstens einmal je Stunde
+    let hp = await (await fetch(BASE + "/api/health/pdf")).json();
+    ok(hp.ok && hp.pages === 1 && hp.fonts === true, "Testseite /api/health/pdf: gedruckt, 1 Seite, mit Schrift");
+    hp = await (await fetch(BASE + "/api/health/pdf")).json();
+    ok(hp.ok && hp.skipped === true && hp.nextAt > Date.now(), "… ein zweiter Aufruf druckt nicht (höchstens einmal je Stunde)");
+
     /* ---------- Feibeitsblatt ---------- */
     step("Feibeitsblatt: verbinden, Entwurf prüfen, anlegen, Abgaben einsehen");
     await tp.reload();
@@ -969,7 +1043,7 @@ async function main() {
     const plan = { lesson_id: l2.id, analyse: { kompetenz: "Urteilskompetenz: die Rolle des BVerfG beurteilen", stundenfrage: "Wie arbeitet das Bundesverfassungsgericht?", inhalte: ["Verfahrensarten", "Normenkontrolle"] },
       format: "Feibeitsblatt", bearbeitungszeit: 70, hinweis_schueler: "Eure Lehrkraft ist heute krank. Arbeitet bitte selbstständig.",
       schritte: [{ titel: "Material lesen", anleitung: "Lies **M1** gründlich.", minuten: 20 }, { titel: "Feibeitsblatt bearbeiten", anleitung: "Öffne das Feibeitsblatt und bearbeite die Aufgabe.", minuten: 50, abgabe: true }],
-      abgabe: "Feibeitsblatt bis zum Ende der Stunde abgeben", schulportal: "**1) Vertretung**\n- Selbstlernphase mit Feibeitsblatt", materialien: [{ titel: "M1 Verfahren des BVerfG", bereich: "schueler", markdown: "# M1\nNormenkontrolle …" }],
+      abgabe: "Feibeitsblatt bis zum Ende der Stunde abgeben", schulportal: "**1) Vertretung**\n- Selbstlernphase mit Feibeitsblatt", materialien: [{ titel: "M1 Verfahren des BVerfG", bereich: "schueler", markdown: "# M1\nNormenkontrolle …" }, { titel: "M2 Schaubild Normenkontrolle", bereich: "schueler", html: SHEET_HTML }],
       hinweise_vertretung: "Bitte für eine ruhige Arbeitsatmosphäre sorgen." };
     r = await tool("save_substitute_plan", plan);
     ok(r.isError && /braucht eine Abgabe/.test(r.content[0].text), "ohne Abgabe (Feibeitsblatt) lehnt die Plattform den Vorschlag ab");
@@ -981,6 +1055,11 @@ async function main() {
     await prop.waitFor({ timeout: 10000 });
     const propTxt = await prop.textContent();
     ok(propTxt.includes("Urteilskompetenz") && propTxt.includes("Material lesen") && propTxt.includes("Vertretung: Verfahren des BVerfG") && propTxt.includes("Ziel: ca. 72 Minuten"), "Vorschlag mit Analyse, Anleitung, Material und Feibeitsblatt zur Prüfung");
+    const m2 = prop.locator(".item", { hasText: "M2 Schaubild Normenkontrolle" });
+    ok((await m2.textContent()).includes("von Claude gestaltet, PDF entsteht beim Bestätigen"), "gestaltetes Vertretungsmaterial: PDF entsteht beim Bestätigen");
+    dlp = tp.waitForEvent("download");
+    await m2.getByRole("button", { name: "Vorschau als PDF" }).click();
+    ok(readFileSync(await (await dlp).path()).toString("latin1").startsWith("%PDF-"), "… „Vorschau als PDF“ druckt es zur Ansicht");
     await SA("POST", "/api/student/join", { code: l2.code });
     const before = (await SA("GET", "/api/student/lessons/" + l2.id)).data;
     ok(!before.substitute && before.files.some((f) => f.name === "Original-Arbeitsblatt") && !(await tp.locator(".item", { hasText: "Anleitung zur Vertretungsstunde" }).count()), "vor der Bestätigung ändert sich nichts (auch nicht für Schüler:innen)");
@@ -1009,6 +1088,8 @@ async function main() {
     const sTxt = await sp.locator("main").textContent();
     ok(sTxt.includes("Heute ohne deine Lehrkraft") && sTxt.includes("Eure Lehrkraft ist heute krank.") && (await sbox.locator(".sub-steps > li").count()) === 2, "Schüler:innen: Hinweis auf die Abwesenheit und chronologische Anleitung ganz oben");
     ok(sTxt.includes("Anleitung zur Vertretungsstunde") && sTxt.includes("M1 Verfahren des BVerfG") && sTxt.includes("Vertretung: Verfahren des BVerfG") && !sTxt.includes("Original-Arbeitsblatt"), "… mit dem Vertretungsmaterial und Feibeitsblatt (ursprüngliches Material ausgeblendet)");
+    await tp.locator("#app .item", { hasText: "M2 Schaubild Normenkontrolle.pdf" }).locator(".meta", { hasText: "PDF, von Claude gestaltet" }).waitFor({ timeout: 30000 });
+    ok((await SA("GET", "/api/student/lessons/" + l2.id)).data.files.some((f) => f.name === "M2 Schaubild Normenkontrolle.pdf"), "gestaltetes Vertretungsmaterial: nach dem Bestätigen gedruckt und für Schüler:innen sichtbar");
     await sp.screenshot({ ...SHOT, path: join(OUT, "schueler-vertretung.png"), fullPage: true });
     await tp.locator(".substitute.active").getByRole("button", { name: "Ursprüngliche Planung in eine andere Sitzung übernehmen" }).click();
     await tp.locator(".modal", { hasText: "Ursprüngliche Planung übernehmen" }).getByRole("button", { name: "Übernehmen" }).click();
@@ -1019,6 +1100,7 @@ async function main() {
     await tp.locator(".toast", { hasText: "wiederhergestellt" }).waitFor({ timeout: 20000 });
     await sp.reload(); await sp.locator(".item", { hasText: "Original-Arbeitsblatt" }).waitFor({ timeout: 10000 });
     ok(await sp.locator(".substitute.student").count() === 0 && !(await sp.locator("main").textContent()).includes("Anleitung zur Vertretungsstunde"), "wiederhergestellt: ursprüngliche Planung wieder sichtbar, Vertretung entfernt");
+    ok(!(await T("GET", "/api/teacher/lessons/" + l2.id)).data.files.some((f) => f.name === "M2 Schaubild Normenkontrolle.pdf"), "… auch das gestaltete Vertretungsmaterial ist entfernt");
 
     step("Krankheit mit Escape-Room: Vorschau, Bestätigen, Schüler:in spielt alle 6 Stationen, Überblick-PDF, Tunnel ins Feibeitsblatt");
     const escRoom = escapeFixture();
@@ -1253,6 +1335,9 @@ async function main() {
       ok(okFiles, "Datei enthält Planung, Materialien, Links, Präsentation und Druckliste (ohne Notfall-Feibeitsblatt)");
       if (!sj.drafts.some((d) => d.title === "Mock-Blatt BVerfG")) console.log("    Entwürfe:", JSON.stringify(sj.drafts.map((d) => d.title)), "Hinweise:", JSON.stringify(sj.notes));
       ok(sj.drafts.some((d) => d.title === "Mock-Blatt BVerfG" && d.tasks.length === 2), "… und das verknüpfte Feibeitsblatt als Entwurf (Inhalt aus dem Feibeitsblatt)");
+      const sDes = sj.files.find((f) => f.name === "Arbeitsblatt Gewaltenteilung.pdf");
+      ok(sDes && sDes.design && sDes.rendered === true && sDes.path && new TextDecoder().decode(sz.find((x) => x.name === sDes.design).data).includes("Wer kontrolliert die Macht?"),
+        "von Claude gestaltetes Material: Gestaltung als HTML-Datei (gestaltung/…) und die gedruckte PDF");
       const target = (await T("GET", "/api/teacher/lessons/" + byRow(4).id)).data.lesson;   // hat eine nächste Sitzung (Fälligkeit)
       await tp.goto(BASE + "/#/lk/s/" + target.id); await tp.locator(".sessionio").waitFor();
       await tp.locator(".sessionio input[type=file]").setInputFiles(sfile);
@@ -1268,8 +1353,11 @@ async function main() {
       ok(!tl.lesson.homework.includes(num(srcL.nextDate)) && (!tl.lesson.nextDate || tl.lesson.homework.includes(num(tl.lesson.nextDate))) && tl.lesson.ideas.includes(num(target.date)) && tl.lesson.ideas.includes("24.12.2030"),
         "Datumsangaben an die neue Sitzung angepasst (Hausaufgabe bis zur nächsten Sitzung, Datum der Sitzung)");
       ok(tl.files.some((f) => f.area === "presentation" && f.status === "ready" && f.pages === 3 && JSON.stringify((f.codeSlides || []).map((c) => c.n)) === "[3]") && tl.files.some((f) => f.kind === "link" && f.url === "https://www.bpb.de/mediathek/video/bverfg")
-        && tl.files.filter((f) => f.area === "print").length === 3 && tl.files.some((f) => f.name === "Erwartungshorizont GEHEIM.docx" && f.area === "teacher") && tl.drafts.some((d) => d.data && d.data.title === "Mock-Blatt BVerfG"),
+        && tl.files.filter((f) => f.area === "print").length === 4 && tl.files.some((f) => f.name === "Erwartungshorizont GEHEIM.docx" && f.area === "teacher") && tl.drafts.some((d) => d.data && d.data.title === "Mock-Blatt BVerfG"),
         "Präsentation (mit Folien und erkannter Codefolie), Links, Druckliste, Lehrkraft-Material und Feibeitsblatt-Entwurf übernommen");
+      const tDes = tl.files.find((f) => f.name === "Arbeitsblatt Gewaltenteilung.pdf"), tPrint = tl.files.find((f) => f.area === "print" && /Kärtchen Gewalten\.pdf$/.test(f.name));
+      ok(tDes && tDes.status === "ready" && tDes.design && !tDes.design.outdated && tPrint && tPrint.design && tPrint.print.copies === 28,
+        "gestaltetes Material übernommen: PDF und Gestaltung, ohne neuen Druck (auch in der Druckliste mit Anzahl)");
     }
 
     /* ---------- Einheit als Datei ---------- */

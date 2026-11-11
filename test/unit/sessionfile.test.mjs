@@ -50,3 +50,16 @@ test("Datei prüfen: nur Unterrickssitzungen, Bereiche und Druckangaben bereinig
   assert.deepEqual(d.files[0].print, { copies: 1, duplex: false, color: true });
   assert.equal(d.drafts.length, 1); assert.deepEqual(d.sheets.map((s) => s.code), ["ABC234"]);
 });
+
+test("Sitzungsdatei: gestaltetes Material (Claude, HTML → PDF) mit und ohne gedruckte PDF; Präsentation nie als Gestaltung", () => {
+  const d = cleanSessionFile({ kind: "unterricks-sitzung", v: 1, source: {}, lesson: {}, files: [
+    { area: "student", kind: "file", name: "AB.pdf", mime: "application/pdf", path: "dateien/1 - AB.pdf", design: "gestaltung/1 - AB.html", rendered: true },
+    { area: "print", kind: "file", name: "Kärtchen.pdf", mime: "application/pdf", design: "gestaltung/2 - Kärtchen.html", rendered: true, print: { copies: 28, duplex: false } },
+    { area: "presentation", kind: "file", name: "P.pdf", design: "gestaltung/3 - P.html" },
+    { area: "teacher", kind: "file", name: "ohne alles" },
+  ] });
+  assert.equal(d.files.length, 2);
+  assert.deepEqual(d.files[0], { area: "student", kind: "file", name: "AB.pdf", mime: "application/pdf", path: "dateien/1 - AB.pdf", design: "gestaltung/1 - AB.html", rendered: true });
+  assert.equal(d.files[1].path, ""); assert.equal(d.files[1].rendered, false, "ohne PDF nie „gedruckt“");
+  assert.deepEqual(d.files[1].print, { copies: 28, duplex: false, color: false });
+});

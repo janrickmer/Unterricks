@@ -771,6 +771,25 @@ export const FEIBEITSBLATT_INFO = "Feibeitsblatt ist das digitale Arbeitsblatt-W
   "schreiben ihre Antworten (Textfeld oder Tabelle), können einmal freiwillig KI-Feedback zu ihren Antworten erhalten, überarbeiten und geben verschlüsselt ab; " +
   "die Lehrkraft sieht alle Abgaben. Ein Feibeitsblatt ersetzt ein klassisches Arbeitsblatt, besonders bei Schreib-, Analyse- und Urteilsaufgaben.";
 
+/* Gestaltungsregeln für Material, das Claude selbst gestaltet (HTML, Unterricks druckt es als PDF – Wunsch der Lehrkraft vom 11.11.2026):
+   im Connector-Werkzeug add_material_pdf und in den Prompts „Stunde mit Claude planen“ und Krankheitsvertretung */
+export const MATERIAL_DESIGN_RULES = [
+  "Gestalte jedes Material als vollständige HTML-Seite mit eingebettetem CSS (<style>). Unterricks druckt sie mit Chromium als PDF (A4) – so, wie du sie gestaltest; nichts wird umgebaut.",
+  "Kein JavaScript und keine externen Dateien oder Adressen (werden beim Druck blockiert): Grafiken, Schaubilder, Diagramme und Symbole als Inline-SVG; Fotos nur, wenn nötig, als data:-Adresse (höchstens 1,5 MB HTML je Material).",
+  "Schrift: font-family: 'Atkinson Hyperlegible Next', 'DejaVu Sans', sans-serif (Atkinson stellt Unterricks bereit, gut lesbar; DejaVu Sans setzt Zeichen, die Atkinson nicht hat, z. B. Griechisch oder Hebräisch); für Code 'Atkinson Hyperlegible Mono', 'DejaVu Sans Mono', monospace.",
+  "Seite: @page { size: A4; margin: 15–18mm } (Querformat nur, wenn das Material es braucht: size: A4 landscape). Seitenumbrüche bewusst steuern: break-inside: avoid für Aufgaben, Kästen, Tabellen und Abbildungen, break-after: avoid für Überschriften, break-before: page für neue Teile. Mehrseitig: Seitenzahl über @page { @bottom-right { content: \"Seite \" counter(page) \" von \" counter(pages); font-size: 9pt } }.",
+  "Kopf auf Seite 1: Titel (Thema) und Felder Name / Klasse / Datum zum Ausfüllen – bei Material nur für die Lehrkraft ohne diese Felder, dafür deutlich „Nur für die Lehrkraft“.",
+  "Materialien als M1, M2 … mit Überschrift und Quellenangabe (selbst verfasste Texte: „Autorentext“). Erfinde keine Quellen, Zitate, Statistiken oder Links; Zahlen mit Quelle und Stand oder klar als fiktives Beispiel. Längere Texte, mit denen gearbeitet wird, mit Zeilennummern (alle 5 Zeilen).",
+  "Aufgaben nummeriert, Operator fett, mit Anforderungsbereich (AFB I–III) gemäß den Operatoren des Fachs; bei Bedarf Sozialform und Zeit. Differenzierung: Hilfen als abgesetzter Kasten (z. B. Satzanfänge, Fachbegriffe), eine Zusatzaufgabe für Schnelle.",
+  "Schüler:innen werden geduzt (du bzw. ihr).",
+  "Platz zum Schreiben direkt unter der Aufgabe: Linien mit 8–9 mm Abstand (Jg. 5/6: 10–11 mm) und so viele, wie die erwartete Antwort braucht; Tabellen mit hohen leeren Zellen; Ankreuzkästchen als gezeichnete Kästchen.",
+  "Schriftgröße: Jg. 5/6 mindestens 13 pt, kurze Sätze, viel Weißraum; ab Jg. 7 11–12 pt; nie unter 9 pt. Zeilenabstand 1,4–1,5, linksbündig, klare Hierarchie (h1, h2, h3).",
+  "Druckfreundlich: in Schwarz-Weiß vollständig lesbar (hoher Kontrast, keine Information nur über Farbe), keine vollflächig dunklen Hintergründe; Farbe nur sparsam als Akzent.",
+  "Links ausgeschrieben (auf Papier nicht anklickbar). Keine QR-Codes zeichnen.",
+  "Prüfe vor dem Speichern Rechtschreibung, Nummerierung, Seitenumbrüche und ob jede Aufgabe mit dem Material lösbar ist. Unterricks meldet nach dem Druck die Seitenzahl: Passt sie nicht (z. B. eine fast leere letzte Seite), überarbeite das Material mit file_id.",
+];
+export const materialDesignText = (prefix = "- ") => MATERIAL_DESIGN_RULES.map((r) => prefix + r).join("\n");
+
 const clip = (s, n) => { s = String(s == null ? "" : s); return s.length > n ? s.slice(0, n) + " […gekürzt]" : s; };
 const areaLabel = (a) => (a === "student" ? "für Schüler:innen" : a === "teacher" ? "nur Lehrkraft" : a === "presentation" ? "Präsentation" : a === "print" ? "von der Lehrkraft auszudrucken" : a);
 
@@ -791,8 +810,9 @@ export function lessonContext(ctx, opt = {}) {
   if (mats.length) {
     lines.push("Vorhandene Materialien:");
     for (const m of mats) {
-      lines.push("- " + m.name + " (" + areaLabel(m.area) + (m.kind === "text" ? ", Text" : m.kind === "link" ? ", Link: " + clip(m.text, 300) : "") + ")");
-      if (opt.materialText && m.kind === "text" && m.text) lines.push("  Inhalt:\n" + clip(m.text, opt.materialMax || 3000).replace(/^/gm, "  "));
+      lines.push("- " + m.name + " (" + areaLabel(m.area) + (m.kind === "text" ? ", Text" : m.kind === "link" ? ", Link: " + clip(m.text, 300) : m.kind === "file" && m.text ? ", PDF von Claude gestaltet" : "") + ")");
+      // Inhalt: Text-Material im Wortlaut, bei gestalteten PDFs der Klartext der Gestaltung
+      if (opt.materialText && (m.kind === "text" || m.kind === "file") && m.text) lines.push("  Inhalt:\n" + clip(m.text, opt.materialMax || 3000).replace(/^/gm, "  "));
     }
   }
   const pres = (ctx.materials || []).find((m) => m.area === "presentation");
@@ -821,7 +841,7 @@ export const UNIT_RULE = UNIT_RULE_BASE + " Schlägst du eine geänderte Stunden
 export function planningSystemPrompt(ctx) {
   return SYSTEM_PROMPT_ROLE + "\n\n" +
     "Weitere feste Hinweise:\n" +
-    "- Antworte auf Deutsch, siezend, klar gegliedert (Markdown erlaubt: Überschriften, Listen, Tabellen, **fett**).\n" +
+    "- Antworte auf Deutsch und sieze die Lehrkraft, klar gegliedert (Markdown erlaubt: Überschriften, Listen, Tabellen, **fett**). Material für Schüler:innen (Arbeitsaufträge, Arbeitsblätter) duzt die Schüler:innen.\n" +
     "- Plane mit Minutenangaben je Phase, die zusammen die Dauer der Sitzung ergeben, und nenne Methode und Sozialform.\n" +
     "- Formuliere Materialien (Arbeitsaufträge, Texte, Tafelbilder) vollständig aus, wenn die Lehrkraft das möchte, damit sie direkt übernommen werden können.\n" +
     (isAnalogClass(ctx.klass) ? "- " + ANALOG_RULE + "\n" :
@@ -884,7 +904,7 @@ export function teacherWishes(messages, max = 8000) {
 /* ---------- Prompts für Claude (claude.ai, Pro-Abo – Kopieren & Einfügen) ---------- */
 const connectorHint = (ctx) => ctx.lessonId
   ? "\n\nFalls in diesem Chat der Connector „Unterricks“ verfügbar ist: Rufe zuerst `get_lesson` mit der Sitzungs-ID " + ctx.lessonId +
-    " auf (dort stehen alle aktuellen Daten), und speichere deine Ergebnisse auf Wunsch der Lehrkraft direkt mit `save_schulportal_entry`, `add_text_material` bzw. `propose_feibeitsblatt` in der Plattform."
+    " auf (dort stehen alle aktuellen Daten), und speichere deine Ergebnisse auf Wunsch der Lehrkraft direkt mit `save_schulportal_entry`, `add_material_pdf` (Material als gestaltete HTML-Seite, Unterricks druckt sie als PDF) bzw. `propose_feibeitsblatt` in der Plattform."
   : "";
 
 export function claudePresentationPrompt(ctx, portalText, messages) {
@@ -990,8 +1010,8 @@ export function claudePresentationPrompt(ctx, portalText, messages) {
     "- Altersgerechte Sprache für " + gradeInfo(ctx.klass).text + "; fachlich korrekt; keine erfundenen Quellen, Zitate oder Statistiken (wo nötig: eine gekennzeichnete Lücke mit Hinweis für die Lehrkraft).",
     "- Hinweise für die Lehrkraft (Impulse, Zeit, Erwartungen) je Folie gibst du mir zusätzlich hier im Chat als kurze Liste – eine PDF hat keine Sprechernotizen.",
     "- Benenne die Datei sinnvoll und ebenfalls ohne Klasse und Datum, z. B. „" + (groupShort(ctx.klass) || "Jahrgang").replace(/\.?\s+/g, "-") + "_" + subjectName(ctx.subject).replace(/\s+/g, "-") + "_" + (L.topic || L.title || "Stunde").replace(/[^\wÄÖÜäöüß-]+/g, "-").slice(0, 40) + ".pdf“." +
-      connectorHint(ctx).replace("speichere deine Ergebnisse auf Wunsch der Lehrkraft direkt mit `save_schulportal_entry`, `add_text_material` bzw. `propose_feibeitsblatt` in der Plattform",
-        "verändere den Schulportal-Eintrag dabei nicht; die Hinweise für die Lehrkraft kannst du auf Wunsch mit `add_text_material` (bereich „lehrkraft“) in der Sitzung ablegen"),
+      connectorHint(ctx).replace("speichere deine Ergebnisse auf Wunsch der Lehrkraft direkt mit `save_schulportal_entry`, `add_material_pdf` (Material als gestaltete HTML-Seite, Unterricks druckt sie als PDF) bzw. `propose_feibeitsblatt` in der Plattform",
+        "verändere den Schulportal-Eintrag dabei nicht; die Hinweise für die Lehrkraft kannst du auf Wunsch mit `add_material_pdf` (bereich „lehrkraft“, als gestaltete HTML-Seite) in der Sitzung ablegen"),
   ].filter((l) => l !== null && l !== undefined).join("\n").replace(/\n{3,}/g, "\n\n");
 }
 

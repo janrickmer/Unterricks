@@ -1,13 +1,14 @@
 // substitute.js – Krankheitsvertretung: Claude legt über den Connector einen Vorschlag ab (save_substitute_plan); die Lehrkraft prüft ihn
 // und bestätigt im Browser. Dann archiviert die Plattform die ursprüngliche Planung (Schulportal-Eintrag, Hausaufgabe, Material,
 // Feibeitsblätter), tauscht das Material aus und zeigt den Schüler:innen den Vertretungshinweis mit der chronologischen Anleitung.
-import { HttpError, bad, json, readJson, randomId, isId } from "./lib.js";
+import { HttpError, bad, json, readJson, randomId, isId, contentDisposition } from "./lib.js";
 import { requireTeacher } from "./auth.js";
 import { requireAccess } from "./student.js";
 import { normalizeEscapeRoom } from "../public/escape-data.js";
 import { getLesson, savePortal, insertDraft } from "./lessons.js";
-import { insertTextMaterial, fileKey, checkStorage, deleteNotfallFiles } from "./files.js";
+import { insertTextMaterial, fileKey, checkStorage, deleteNotfallFiles, saveDesign, deleteFileObjects } from "./files.js";
 import { normalizeSubstitute } from "../public/planning.js";
+import { cleanDesignHtml, renderPdf } from "./render.js";
 import { isAnalogClass, normalizeCode, isValidCode, subjectName, classShort } from "../public/shared.js";
 
 export const ESCAPE_ROOMS_AVAILABLE = true;   // Escape-Room-Vorlage der Plattform (public/escape.js, Finale im Feibeitsblatt)
@@ -24,6 +25,7 @@ export async function saveProposal(db, lessonId, raw, now) {
   const p = normalizeSubstitute(raw);
   if (p.escape_room && !ESCAPE_ROOMS_AVAILABLE) throw bad("Escape-Rooms kann die Plattform noch nicht bereitstellen. Bitte ein Feibeitsblatt (bei einem Lernprodukt mit Foto-Abgabe) verwenden.");
   if (!p.schritte.length) throw bad("Der Vorschlag braucht eine chronologische Anleitung (schritte).");
+  p.materialien.forEach((m, i) => { if (m.html) { try { m.html = cleanDesignHtml(m.html); } catch (e) { throw bad("Material " + (i + 1) + " („" + m.titel + "“): " + e.message); } } });
   // Escape-Room: Inhalte streng prüfen (Fehlerliste geht an Claude zurück); das Finale ist ein Feibeitsblatt mit Escape-Kennung
   if (p.escape_room && !isAnalogClass(l.klass)) {
     try { p.escape_room = normalizeEscapeRoom(p.escape_room, { id: "unterricks-" + lessonId.slice(0, 8) + "-" + randomId(3), fach: subjectName(l.subject), klasse: classShort(l.klass) }); }
@@ -40,6 +42,8 @@ export async function saveProposal(db, lessonId, raw, now) {
     draftId = d.id;
   }
   const proposal = { ...p, draftId };
+  // D1 speichert höchstens 2 MB je Zeile – gestaltete Materialien mit großen eingebetteten Bildern passen sonst nicht in den Vorschlag
+  if (new TextEncoder().encode(JSON.stringify(proposal)).length > 1_900_000) throw bad("Der Vorschlag ist zu groß (vor allem die gestalteten Materialien, zusammen höchstens etwa 1,5 MB). Bitte Grafiken als SVG statt als eingebettete Fotos anlegen oder Materialien kürzen.");
   await db.prepare("INSERT INTO substitutes(lesson_id, status, proposal, created_at, updated_at) VALUES(?1, 'vorschlag', ?2, ?3, ?3) " +
     "ON CONFLICT(lesson_id) DO UPDATE SET status='vorschlag', proposal=excluded.proposal, updated_at=excluded.updated_at").bind(lessonId, JSON.stringify(proposal), now).run();
   if (cur && cur.status === "vorschlag") {
@@ -74,7 +78,11 @@ export async function routeSubstituteConfirm(c, lessonId) {
   const guide = "# Vertretungsstunde: " + l.title + "\n\n" + p.hinweis + "\n\n" + p.schritte.map((x, i) => "## " + (i + 1) + ". " + x.titel + (x.minuten ? " (ca. " + x.minuten + " Minuten)" : "") +
     "\n\n" + x.anleitung + (x.abgabe ? "\n\n**Abgabe:** " + (p.abgabe || "siehe Anleitung") : "")).join("\n\n") + (p.abgabe ? "\n\n---\n\n**Was du abgibst:** " + p.abgabe : "");
   await insertTextMaterial(c.db, lessonId, "student", "Anleitung zur Vertretungsstunde", guide, "vertretung", c.now);
-  for (const m of p.materialien || []) await insertTextMaterial(c.db, lessonId, m.bereich, m.titel, m.markdown, "vertretung", c.now);
+  // gestaltete Materialien warten auf den Druck (die Sitzungsseite druckt sie gleich danach), Markdown-Materialien wie bisher als Text
+  for (const m of p.materialien || []) {
+    if (m.html) await saveDesign(c, lessonId, { area: m.bereich, title: m.titel, html: m.html, print: m.druck ? { copies: m.druck.anzahl, duplex: m.druck.beidseitig, color: m.druck.farbe } : {}, source: "vertretung" });
+    else await insertTextMaterial(c.db, lessonId, m.bereich === "teacher" ? "teacher" : "student", m.titel, m.markdown, "vertretung", c.now);
+  }
   if (p.vertretung) await insertTextMaterial(c.db, lessonId, "teacher", "Hinweise für die Vertretungslehrkraft", "# Hinweise für die Vertretungslehrkraft\n\n" + p.vertretung, "vertretung", c.now);
   // 3) Schulportal-Eintrag der Vertretung, Feibeitsblatt verknüpfen
   if (p.schulportal) await savePortal(c.db, lessonId, p.schulportal, null, "vertretung", Date.now());
@@ -86,6 +94,18 @@ export async function routeSubstituteConfirm(c, lessonId) {
   }
   await c.db.prepare("UPDATE substitutes SET status='aktiv', proposal=?2, archive=?3, confirmed_at=?4, updated_at=?4 WHERE lesson_id=?1").bind(lessonId, JSON.stringify(p), JSON.stringify(archive), c.now).run();
   return json({ ok: true });
+}
+
+/* Vorschau eines gestalteten Vertretungsmaterials als PDF (vor der Bestätigung; nicht gespeichert) */
+export async function routeSubstitutePreview(c, lessonId) {
+  await requireTeacher(c);
+  const s = await getSubstitute(c.db, lessonId);
+  if (!s || s.status !== "vorschlag") throw bad("Es liegt kein Vertretungsvorschlag vor.");
+  const p = parseJ(s.proposal, {}), body = await readJson(c.request, 1000);
+  const m = (p.materialien || [])[Number(body.index)];
+  if (!m || !m.html) throw bad("Dieses Material ist nicht gestaltet.");
+  const r = await renderPdf(c, m.html, { waitMs: 25000 });
+  return new Response(r.bytes, { headers: { "Content-Type": "application/pdf", "Cache-Control": "no-store", "Content-Disposition": contentDisposition(String(m.titel || "Material").slice(0, 150) + ".pdf", false) } });
 }
 
 export async function routeSubstituteDiscard(c, lessonId) {
@@ -107,6 +127,9 @@ export async function routeSubstituteRestore(c, lessonId) {
   const s = await getSubstitute(c.db, lessonId);
   if (!s || s.status !== "aktiv") throw bad("Für diese Sitzung ist keine Vertretung aktiv.");
   const a = parseJ(s.archive, {}), p = parseJ(s.proposal, {});
+  // gestaltete Vertretungsmaterialien samt ihrer PDF in R2
+  const designed = await c.db.prepare("SELECT * FROM files WHERE lesson_id=?1 AND source='vertretung' AND kind='file' AND html IS NOT NULL AND area<>'archive'").bind(lessonId).all();
+  for (const f of designed.results || []) await deleteFileObjects(c, f);
   const stmts = [
     c.db.prepare("DELETE FROM files WHERE lesson_id=?1 AND source='vertretung' AND kind='text'").bind(lessonId),
     c.db.prepare("UPDATE lessons SET homework=?2, updated_at=?3 WHERE id=?1").bind(lessonId, a.homework || "", c.now),
@@ -150,9 +173,10 @@ export async function routeSubstituteTransfer(c, lessonId) {
       if (!obj) continue;
       await c.env.FILES.put(fileKey(target.id, id), obj.body, { httpMetadata: { contentType: f.mime } });
     }
-    ins.push(c.db.prepare("INSERT INTO files(id, lesson_id, area, kind, name, mime, size, text, status, source, print_copies, print_duplex, print_color, created_at, updated_at) " +
-      "VALUES(?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, 'ready', 'uebernommen', ?9, ?10, ?11, ?12, ?12)")
-      .bind(id, target.id, f0.area === "teacher" || f0.area === "print" ? f0.area : "student", f.kind, f.name, f.mime, f.size, f.text, f.print_copies ?? null, f.print_duplex ?? null, f.print_color ?? null, c.now));
+    ins.push(c.db.prepare("INSERT INTO files(id, lesson_id, area, kind, name, mime, size, text, status, source, print_copies, print_duplex, print_color, created_at, updated_at, html, html_at, pdf_at, pages) " +
+      "VALUES(?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, 'ready', 'uebernommen', ?9, ?10, ?11, ?12, ?12, ?13, ?14, ?15, ?16)")
+      .bind(id, target.id, f0.area === "teacher" || f0.area === "print" ? f0.area : "student", f.kind, f.name, f.mime, f.size, f.text, f.print_copies ?? null, f.print_duplex ?? null, f.print_color ?? null, c.now,
+        f.html ?? null, f.html_at ?? null, f.pdf_at ?? null, f.pages ?? null));
   }
   if (ins.length) await c.db.batch(ins);
   if (from === 0 && a.portal && body.portal !== false) {

@@ -67,7 +67,7 @@ export async function requireAccess(c, lessonId) {
 export async function routeStudentLesson(c, lessonId) {
   const { lesson, joinedAt } = await requireAccess(c, lessonId);
   const [files, sheets, pres] = await c.db.batch([
-    c.db.prepare("SELECT id, kind, name, mime, size, text, source, created_at FROM files WHERE lesson_id=?1 AND area='student' AND status='ready' ORDER BY created_at").bind(lessonId),
+    c.db.prepare("SELECT id, kind, name, mime, size, CASE WHEN kind IN ('text','link') THEN text END AS text, source, created_at FROM files WHERE lesson_id=?1 AND area='student' AND status='ready' ORDER BY created_at").bind(lessonId),
     c.db.prepare("SELECT code, title, kind FROM fb_sheets WHERE lesson_id=?1 ORDER BY created_at").bind(lessonId),
     c.db.prepare("SELECT id, name, pages, shown_until, cut_size FROM files WHERE lesson_id=?1 AND area='presentation' AND status='ready' LIMIT 1").bind(lessonId),
   ]);
