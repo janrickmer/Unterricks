@@ -202,6 +202,7 @@ export async function renderPdf(c, html, { waitMs = 25000 } = {}) {
     if (slot.start === null) throw new RenderError("busy", "Der PDF-Drucker ist gerade ausgelastet (mehrere Materialien warten).", Math.max(5, Math.ceil((slot.retryAt - now) / 1000)));
     if (slot.start > now) await sleep(slot.start - now);
     let r;
+    const t0 = Date.now();
     try {
       const res = await callPrinter(env, body);
       r = res instanceof Response ? res : new Response(res);
@@ -213,11 +214,11 @@ export async function renderPdf(c, html, { waitMs = 25000 } = {}) {
       const code = Number((/\b(4\d\d|5\d\d)\b/.exec(m) || [])[1]) || 503;
       r = new Response(m, { status: code });
     }
-    const used = Number(r.headers.get("x-browser-ms-used")) || 0;
-    if (used) { try { await db.prepare("INSERT INTO render_usage(day, ms, n) VALUES(?1, ?2, ?3) ON CONFLICT(day) DO UPDATE SET ms = ms + ?2, n = n + ?3").bind(utcDay(Date.now()), used, r.ok ? 1 : 0).run(); } catch {} }
+    // Browserzeit: die Antwort der Bindung nennt sie nicht (X-Browser-Ms-Used fehlt dort) – dann zählt die gemessene Dauer als Schätzung
+    const used = Number(r.headers.get("x-browser-ms-used")) || (r.ok ? Date.now() - t0 : 0);
+    if (used || r.ok) { try { await db.prepare("INSERT INTO render_usage(day, ms, n) VALUES(?1, ?2, ?3) ON CONFLICT(day) DO UPDATE SET ms = ms + ?2, n = n + ?3").bind(utcDay(Date.now()), used, r.ok ? 1 : 0).run(); } catch {} }
     if (r.ok) {
       const u8 = new Uint8Array(await r.arrayBuffer());
-      if (!used) { try { await db.prepare("INSERT INTO render_usage(day, ms, n) VALUES(?1, 0, 1) ON CONFLICT(day) DO UPDATE SET n = n + 1").bind(utcDay(Date.now())).run(); } catch {} }
       if (u8.length < 5 || String.fromCharCode(u8[0], u8[1], u8[2], u8[3], u8[4]) !== "%PDF-") throw new RenderError("failed", "Der PDF-Drucker hat keine PDF-Datei geliefert.");
       if (u8.length > PDF_MAX) throw new RenderError("failed", "Die PDF-Datei wäre größer als 20 MB. Bitte Grafiken einfacher halten (z. B. SVG statt großer Fotos).");
       const pages = pdfPageCount(u8);
