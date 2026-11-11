@@ -231,7 +231,7 @@ async function main() {
       const ev9 = monCol.locator(".wk-ev", { hasText: "9B" }), ev10 = monCol.locator(".wk-ev", { hasText: "10C" });
       const [b9, b10, bc] = [await ev9.boundingBox(), await ev10.boundingBox(), await monCol.boundingBox()];
       ok((await ev9.textContent()).includes("08:00–09:30") && (await ev10.textContent()).includes("08:30–09:15") && b9.x + b9.width <= b10.x + 1 && b9.x >= bc.x - 1 && b10.x + b10.width <= bc.x + bc.width + 1
-        && Math.abs(b9.y - b10.y) < 40 && await ev9.getAttribute("data-fach") === "evrel" && await ev10.getAttribute("data-fach") === "ethik",
+        && b10.y > b9.y && b10.y < b9.y + b9.height && await ev9.getAttribute("data-fach") === "evrel" && await ev10.getAttribute("data-fach") === "ethik",
         "Uhrzeit-Raster: Ev. Religion 9B und Ethik 10C am Montag nebeneinander (Überschneidung), Fachfarbe je Eintrag");
       ok((await tp.locator(".wk-day").nth(2).locator(".wk-off").textContent()).includes("Ev. Religion 9B (Ausfall)") && await tp.locator(".wk-day").nth(3).locator(".wk-untimed .wk-ev", { hasText: "10C" }).count() === 1,
         "Ausfall laut Einheit als „Entfällt“, Donnerstag ohne Uhrzeit in der eigenen Zeile");

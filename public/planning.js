@@ -51,10 +51,13 @@ export function weekSchedule(units, monday) {
     const p = normalizeParams(u.params);
     if (!p.start || !p.end || p.end < p.start || !p.weekdays.length || p.end < monday || p.start > friday) continue;
     const from = p.start > monday ? p.start : monday, to = p.end < friday ? p.end : friday;
+    const nth = new Map();   // zwei Stunden derselben Einheit am selben Tag (auch ohne Uhrzeit) bleiben zwei Einträge
     for (const s of computeSlots({ ...p, start: from, end: to })) {
       const day = days.find((d) => d.date === s.date);
       if (!day) continue;
-      const key = u.subject + "|" + u.klass + "|" + s.date + "|" + (s.time || "");
+      const base = u.subject + "|" + u.klass + "|" + s.date + "|" + (s.time || ""), k = (nth.get(base) || 0) + 1;
+      nth.set(base, k);
+      const key = base + "#" + k;   // die k-te Stunde dieser Klasse zu dieser Zeit – gleich in überlappenden Einheiten
       const old = byKey.get(key);
       if (old) {   // dieselbe Klasse zur selben Zeit aus einer zweiten Einheit
         if (!old.unitIds.includes(u.id)) old.unitIds.push(u.id);

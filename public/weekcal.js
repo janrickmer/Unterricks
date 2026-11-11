@@ -5,23 +5,27 @@ import { h, clear, icon } from "./ui.js";
 import { addDays, berlinToday, isoWeek, minutesClock } from "./shared.js";
 import { weekSchedule, assignLanes, calendarWeek, weekRangeText, dayMonthText } from "./planning.js";
 
-const MIN_SPAN = 40;   // Mindesthöhe eines Eintrags im Raster in Minuten (≈ 44 px bei --ppm 1.1px)
+const MIN_SPAN = 40;   // Mindesthöhe eines Eintrags im Raster in Minuten (54 px bei --ppm 1.35px)
 const setVars = (el, vars) => { for (const [k, v] of Object.entries(vars)) el.style.setProperty(k, String(v)); return el; };
 
-/* load() → Promise mit den Einheiten (GET /api/teacher/schedule); today = Datum an der Schule (für Tests einstellbar) */
-export function weekCard(load, { today = berlinToday() } = {}) {
-  const home = calendarWeek(today);
-  let monday = home, units = null;
+/* load() → Promise mit den Einheiten (GET /api/teacher/schedule); today = Datum an der Schule (für Tests fest einstellbar, sonst jedes Mal neu –
+   ein Tab, der übers Wochenende offen bleibt, zeigt danach die richtige Woche) */
+export function weekCard(load, { today: fixed = null } = {}) {
+  let today = fixed || berlinToday(), home = calendarWeek(today), monday = home, units = null;
+  const refresh = () => { const t = fixed || berlinToday(); if (t === today) return false; const wasHome = monday === home; today = t; home = calendarWeek(t); if (wasHome) monday = home; return true; };
   const range = h("p", { class: "wk-range", id: "wk-range", "aria-live": "polite" });
   const prev = h("button", { class: "btn ghost iconbtn", type: "button", "aria-label": "Vorige Woche", onclick: () => move(-7) }, icon("left"));
   const next = h("button", { class: "btn ghost iconbtn", type: "button", "aria-label": "Nächste Woche", onclick: () => move(7) }, icon("right"));
   // aria-disabled statt disabled: der Knopf behält beim Klicken den Fokus
-  const back = h("button", { class: "btn ghost small", type: "button", onclick: () => { if (monday !== home) { monday = home; paint(); } } }, "Heute");
+  const back = h("button", { class: "btn ghost small", type: "button", onclick: () => { refresh(); if (monday !== home) monday = home; paint(); } }, "Heute");
   const body = h("div", { class: "wk-body skeleton", text: "Lade den Wochenkalender …" });
   const card = h("section", { class: "card weekcal", "aria-labelledby": "wk-h" },
     h("div", { class: "section-title" }, h("h2", { id: "wk-h", text: "Ihre Woche" }), h("div", { class: "wk-nav" }, prev, range, next, back)),
     body);
-  function move(n) { monday = addDays(monday, n); paint(); }
+  function move(n) { refresh(); monday = addDays(monday, n); paint(); }
+  // zurück im Tab (z. B. am nächsten Morgen): neues Datum übernehmen; ohne Karte im Dokument meldet sich der Zuhörer ab
+  const onVis = () => { if (!card.isConnected) { document.removeEventListener("visibilitychange", onVis); return; } if (document.visibilityState === "visible" && refresh()) paint(); };
+  document.addEventListener("visibilitychange", onVis);
   function paint() {
     range.textContent = weekRangeText(monday) + " · KW " + isoWeek(monday);
     back.setAttribute("aria-disabled", String(monday === home));
@@ -75,11 +79,15 @@ function weekBody(w, today) {
   return out;
 }
 
+// Im Raster: short = zu niedrig für die Titelzeile (entfällt dort), lane = Spur geteilt mit einer Überschneidung (die Zeitzeile entfällt, die Lage
+// am Raster zeigt die Zeit; Fach und Klasse dürfen umbrechen). Uhrzeit, Klausur und Titel stehen immer im Linktext (sr-only) und im Tooltip.
 function entry(e, d) {
-  const exam = e.kind === "klausur";
-  return h("a", { class: "wk-ev" + (exam ? " exam" : ""), href: e.href, dataset: { fach: e.subject }, title: e.subjectShort + " " + e.label + (e.title ? " – " + e.title : "") },
-    h("span", { class: "sr-only", text: d.name + ", " + dayMonthText(d.date) + ": " }),
-    h("span", { class: "wk-time", text: e.time ? e.time + "–" + e.endTime : "ohne Uhrzeit · " + e.minutes + " Min." }),
-    h("span", { class: "wk-who" }, h("span", { class: "ftag", dataset: { fach: e.subject }, text: e.subjectShort }), h("strong", { text: e.label }), exam ? h("span", { class: "badge", text: "Klausur" }) : null),
+  const exam = e.kind === "klausur", short = !e.time || e.minutes < 56, lane = (e.lanes || 1) > 1;
+  const when = e.time ? e.time + "–" + e.endTime : "ohne Uhrzeit, " + e.minutes + " Minuten";
+  return h("a", { class: "wk-ev" + (exam ? " exam" : "") + (short ? " short" : "") + (lane ? " lane" : ""), href: e.href, dataset: { fach: e.subject },
+    title: (e.time ? e.time + "–" + e.endTime + " " : "") + e.subjectShort + " " + e.label + (exam ? " – Klausur" : "") + (e.title ? " – " + e.title : "") },
+    h("span", { class: "sr-only", text: d.name + ", " + dayMonthText(d.date) + ", " + when + (exam ? ", Klausur" : "") + ": " }),
+    h("span", { class: "wk-time", "aria-hidden": "true" }, exam ? h("span", { class: "wk-exam", text: "Klausur" }) : null, exam ? " · " : null, e.time ? e.time + "–" + e.endTime : "ohne Uhrzeit · " + e.minutes + " Min."),
+    h("span", { class: "wk-who" }, h("span", { class: "ftag", dataset: { fach: e.subject }, text: e.subjectShort }), h("strong", { text: e.label }), exam ? h("span", { class: "wk-exam wk-exam-l", "aria-hidden": "true", text: "Klausur" }) : null),
     e.title ? h("span", { class: "wk-t", text: e.title }) : null);
 }

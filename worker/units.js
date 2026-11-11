@@ -70,7 +70,7 @@ export async function routeUnitsList(c) {
 export async function routeSchedule(c) {
   await requireTeacher(c);
   const cfgs = await loadSubjectConfigs(c.db);
-  const r = await c.db.prepare("SELECT id, subject, klass, title, params FROM units ORDER BY created_at LIMIT 2000").all();
+  const r = await c.db.prepare("SELECT id, subject, klass, title, params FROM units ORDER BY created_at DESC LIMIT 2000").all();   // die neuesten zuerst
   const units = [];
   for (const x of r.results || []) {
     if (!isValidSubject(x.subject) || !classAllowed(cfgs[x.subject], x.klass)) continue;

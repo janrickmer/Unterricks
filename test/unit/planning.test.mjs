@@ -219,7 +219,8 @@ test("Wochenkalender: überlappende Einheiten derselben Klasse einmal, Sortierun
   const w = weekSchedule([unit("a", "powi", "Q2-GK", { ...base, breaks: [{ from: "2026-11-09", to: "2026-11-09", label: "Ausfall" }] }), unit("b", "powi", "Q2-GK", { ...base, weekdays: [{ day: 1, minutes: 90, time: "07:45" }] }),
     unit("c", "ethik", "7-K", { ...base, weekdays: [{ day: 1, minutes: 45, time: "07:45" }, { day: 1, minutes: 45, time: "07:45" }] }), unit("d", "evrel", "9B", { ...base, weekdays: [{ day: 1, minutes: 45, time: "07:00" }] })], "2026-11-09");
   const mo = w.days[0];
-  assert.deepEqual(mo.timed.map((e) => [e.time, e.subjectShort, e.label, e.unitIds.join(",")]), [["07:00", "Ev. Religion", "9B", "d"], ["07:45", "Ethik", "Kurs Jg. 7", "c"], ["07:45", "PoWi", "Q2 GK", "b"]]);
+  assert.deepEqual(mo.timed.map((e) => [e.time, e.subjectShort, e.label, e.unitIds.join(",")]), [["07:00", "Ev. Religion", "9B", "d"], ["07:45", "Ethik", "Kurs Jg. 7", "c"], ["07:45", "Ethik", "Kurs Jg. 7", "c"], ["07:45", "PoWi", "Q2 GK", "b"]],
+    "zweimal dieselbe Zeit in einer Einheit bleibt zweimal (so zählt sie auch die Einheit) – überlappende Einheiten derselben Klasse einmal");
   assert.deepEqual(mo.off, [], "Q2 GK findet über die zweite Einheit statt – kein „Entfällt“");
   const w2 = weekSchedule([unit("a", "powi", "Q2-GK", base), unit("b", "powi", "Q2-GK", { ...base, weekdays: [{ day: 1, minutes: 90, time: "07:45" }] })], "2026-11-09");
   assert.deepEqual(w2.days[0].timed.map((e) => [e.unitIds.join(","), e.minutes, e.endTime]), [["a,b", 90, "09:15"]], "gleiche Klasse, gleiche Zeit: ein Eintrag mit der längeren Dauer");
@@ -232,4 +233,15 @@ test("Wochenkalender: Überschneidungen in Spuren nebeneinander (mit Mindesthöh
   assert.deepEqual(assignLanes([e(465, 510), e(515, 560)], 40).map((x) => [x.lane, x.lanes]), [[0, 1], [0, 1]]);
   assert.deepEqual(assignLanes([e(480, 600), e(480, 525), e(490, 535), e(540, 585)], 0).map((x) => [x.lane, x.lanes]), [[0, 3], [1, 3], [2, 3], [1, 3]]);
   assert.deepEqual(assignLanes([]), []);
+});
+
+test("Wochenkalender: zwei Stunden derselben Einheit am selben Tag ohne Uhrzeit bleiben zwei Einträge (wie in der Einheit gezählt)", () => {
+  const p = { start: "2026-11-02", end: "2026-11-30", weekdays: [{ day: 2, minutes: 45 }, { day: 2, minutes: 90 }, { day: 4, minutes: 45, time: "08:00" }, { day: 4, minutes: 45 }] };
+  const w = weekSchedule([unit("a", "powi", "8C", p)], "2026-11-09");
+  assert.deepEqual(w.days[1].untimed.map((e) => e.minutes), [45, 90]);
+  assert.deepEqual([w.days[3].timed.length, w.days[3].untimed.length], [1, 1]);
+  assert.equal(w.days.reduce((n, d) => n + d.timed.length + d.untimed.length, 0), computeSlots({ ...p, start: "2026-11-09", end: "2026-11-13" }).length);
+  // dieselbe Einheit zweimal (z. B. eine Kopie): die k-te Stunde fällt mit der k-ten zusammen
+  const w2 = weekSchedule([unit("a", "powi", "8C", p), unit("b", "powi", "8C", p)], "2026-11-09");
+  assert.deepEqual(w2.days[1].untimed.map((e) => [e.minutes, e.unitIds.join(",")]), [[45, "a,b"], [90, "a,b"]]);
 });
