@@ -330,3 +330,36 @@ test("Sitzungscode auf Folien: mit gemessenen Zeichenbreiten liegt der Kasten au
   assert.ok(Math.abs(real.x0 - (400 * 26) / 46) < 0.01 && Math.abs(real.x1 - 400) < 0.01, "mit Messung: genau dort, wo der Code steht");
   assert.equal(slideCodeBoxes([item], () => 0)[0].x0, even.x0, "unbrauchbare Messung: wie ohne");
 });
+
+import { codeCover } from "../../public/shared.js";
+
+test("Sitzungscode auf Folien: gesperrt gesetzter Code (PDF.js fügt Leerzeichen ein), Feibeitsblatt-Codes und kleine Codes ausgenommen", () => {
+  assert.deepEqual(codesInText("A E H - 4 V Y"), [{ start: 0, end: 13, code: "AEH4VY" }]);
+  assert.deepEqual(codesInText("Code: A E H – 4 V Y!").map((c) => c.code), ["AEH4VY"]);
+  assert.equal(codesInText("A E H 4 V Y").length + codesInText("A  E H - 4 V Y").length + codesInText("XA E H - 4 V Y").length, 0);
+  const spaced = slideCodeBoxes([{ str: "A E H - 4 V Y", x: 100, base: 300, w: 1300, h: 120, eol: true }]);
+  assert.ok(spaced.length === 1 && spaced[0].x0 === 100 && Math.abs(spaced[0].x1 - 1400) < 0.01, "Kasten vom ersten bis zum letzten Zeichen");
+  const boxes = [{ code: "K7QM4X", h: 200 }, { code: "AEH4VY", h: 150 }, { code: "BCD234", h: 20 }];
+  assert.equal(slideSessionCode(boxes, { exclude: ["K7QM4X"] }), "AEH4VY", "Code eines verknüpften Feibeitsblatts ist nie der Sitzungscode");
+  assert.equal(slideSessionCode([{ code: "BCD234", h: 20 }], { minH: 64 }), "", "kleiner Code auf Folie 1 ist nicht der Sitzungscode");
+});
+
+test("Sitzungscode auf Folien: codeCover misst Fläche und Farben an den Pixeln (Text darüber bleibt)", () => {
+  // 200 × 120 Pixel, Hintergrund dunkelblau; „Code“ als gelber Block von x 40–160, y 50–90 (Grundlinie 90, Schriftgröße 60);
+  // darüber eine weiße Zeile bei y 20–28 (z. B. „Thema“) – sie darf nicht übermalt werden
+  const rw = 200, rh = 120, d = new Uint8ClampedArray(rw * rh * 4);
+  const set = (x, y, c) => { const i = (y * rw + x) * 4; d[i] = c[0]; d[i + 1] = c[1]; d[i + 2] = c[2]; d[i + 3] = 255; };
+  for (let y = 0; y < rh; y++) for (let x = 0; x < rw; x++) set(x, y, [32, 59, 94]);
+  for (let y = 50; y <= 90; y++) for (let x = 40; x <= 160; x++) if ((x - 40) % 20 < 12) set(x, y, [255, 217, 77]);   // Zeichen mit Lücken
+  for (let y = 20; y <= 28; y++) for (let x = 40; x <= 160; x++) set(x, y, [255, 255, 255]);
+  const c = codeCover(d, rw, rh, { x0: 40, x1: 160, base: 90, h: 60 });
+  assert.deepEqual(c.bg.map(Math.round), [32, 59, 94]);
+  assert.deepEqual(c.fg, [255, 217, 77]);
+  assert.ok(c.y > 28 && c.y <= 48, "oben nur bis kurz über die Schrift – die Zeile darüber bleibt (y " + c.y + ")");
+  assert.ok(c.y + c.h >= 91 && c.y + c.h <= 95, "unten bis zur Grundlinie");
+  assert.ok(c.x <= 40 && c.x >= 36 && c.x + c.w >= 160 && c.x + c.w <= 165, "seitlich bis zur Schrift");
+  assert.equal(c.bold, true);
+  // ohne Schrift an der Stelle (Code nur in der Textebene): nichts übermalen
+  const empty = new Uint8ClampedArray(rw * rh * 4).fill(200);
+  assert.equal(codeCover(empty, rw, rh, { x0: 40, x1: 160, base: 90, h: 60 }), null);
+});

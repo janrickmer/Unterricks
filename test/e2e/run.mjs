@@ -71,7 +71,7 @@ async function pdf(pages, label, oldCode) {
   for (let i = 1; i <= pages; i++) {
     const p = d.addPage([960, 540]); p.drawRectangle({ x: 0, y: 0, width: 960, height: 540, color: rgb(0.12, 0.23, 0.37) }); p.drawText(label + " – Folie " + i, { x: 60, y: 260, size: 48, font: f, color: rgb(1, 1, 1) });
     // Präsentation aus einer früheren Sitzung: Folie 1 mit großem Sitzungscode, Folie 2 als Materialfolie mit kleinem
-    if (oldCode && i === 1) p.drawText(oldCode, { x: 60, y: 100, size: 96, font: mono, color: rgb(1, 0.85, 0.3) });
+    if (oldCode && i === 1) { p.drawText(oldCode, { x: 60, y: 100, size: 96, font: mono, color: rgb(1, 0.85, 0.3) }); p.drawText("Sitzungscode (bleibt stehen)", { x: 60, y: 172, size: 24, font: f, color: rgb(1, 1, 1) }); }
     if (oldCode && i === 2) p.drawText("Sitzungscode " + oldCode, { x: 60, y: 120, size: 32, font: f, color: rgb(1, 1, 1) });
   }
   return Buffer.from(await d.save());

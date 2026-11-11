@@ -1,6 +1,6 @@
 // presenter.js – Präsentation (PDF) in Folienbilder umwandeln und im Vollbild live für alle zeigen.
 import { h, clear, api, apiUrl, wsUrl, toast, errToast, icon } from "./ui.js";
-import { PUBLIC_URL, isValidCode, formatCode, slideCodeBoxes, slideSessionCode } from "./shared.js";
+import { PUBLIC_URL, isValidCode, formatCode, slideCodeBoxes, slideSessionCode, codeCover } from "./shared.js";
 
 let pdfjsP = null;
 async function pdfjs() {
@@ -19,43 +19,32 @@ function advance(ch, fam) {
 /* Codes auf einer Seite: Textstücke von PDF.js in Gerätekoordinaten (gedrehter Text zählt nicht) → slideCodeBoxes */
 async function codeBoxes(lib, page, vp) {
   const tc = await page.getTextContent();
-  const items = [];
+  const items = [], sx = Math.hypot(vp.transform[0], vp.transform[1]);   // Maßstab samt /UserUnit (vp.scale enthält ihn nicht)
   for (const it of tc.items || []) {
     if (typeof it.str !== "string") continue;   // Markierungen ohne Text
     const tx = lib.Util.transform(vp.transform, it.transform), hgt = Math.hypot(tx[2], tx[3]);
     const turned = Math.abs(tx[1]) > hgt * 0.02 || Math.abs(tx[2]) > hgt * 0.02;
-    items.push(turned ? { str: "", eol: true } : { str: it.str, x: tx[4], base: tx[5], w: it.width * vp.scale, h: hgt, eol: !!it.hasEOL, family: ((tc.styles || {})[it.fontName] || {}).fontFamily || "" });
+    items.push(turned ? { str: "", eol: true } : { str: it.str, x: tx[4], base: tx[5], w: it.width * sx, h: hgt, eol: !!it.hasEOL, family: ((tc.styles || {})[it.fontName] || {}).fontFamily || "" });
   }
   return slideCodeBoxes(items, advance);
 }
-/* alten Code übermalen und den neuen hineinschreiben: Hintergrund = häufigste Farbe am Rand des Kastens, Schrift = die davon am weitesten
-   entfernte Farbe im Kasten; fett, wenn der alte Code viel Farbe hatte; gleiche Größe, notfalls schmaler (gleiche Breite). */
+/* alten Code übermalen und den neuen hineinschreiben (Fläche, Hintergrund- und Schriftfarbe misst codeCover an den Pixeln); gleiche Größe,
+   notfalls schmaler (gleiche Breite), fett, wenn der alte Code fett war. false = an dieser Stelle keine erkennbare Schrift. */
 function paintCode(ctx, b, text) {
   const W = ctx.canvas.width, H = ctx.canvas.height;
-  const x = Math.max(0, Math.floor(b.x0 - b.h * 0.12)), y = Math.max(0, Math.floor(b.base - b.h * 0.95));
-  const w = Math.min(W, Math.ceil(b.x1 + b.h * 0.12)) - x, hh = Math.min(H, Math.ceil(b.base + b.h * 0.3)) - y;
-  if (w < 3 || hh < 3) return false;
-  const d = ctx.getImageData(x, y, w, hh).data, px = (i) => [d[i], d[i + 1], d[i + 2]];
-  const buckets = new Map();
-  const add = (cx, cy) => { const c = px((cy * w + cx) * 4), k = (c[0] >> 4) * 256 + (c[1] >> 4) * 16 + (c[2] >> 4), e = buckets.get(k) || [0, 0, 0, 0]; e[0]++; e[1] += c[0]; e[2] += c[1]; e[3] += c[2]; buckets.set(k, e); };
-  for (let cx = 0; cx < w; cx++) { add(cx, 0); add(cx, hh - 1); }
-  for (let cy = 1; cy < hh - 1; cy++) { add(0, cy); add(w - 1, cy); }
-  let top = null; for (const e of buckets.values()) if (!top || e[0] > top[0]) top = e;
-  const bg = [top[1] / top[0], top[2] / top[0], top[3] / top[0]];
-  const dist = (c) => Math.hypot(c[0] - bg[0], c[1] - bg[1], c[2] - bg[2]);
-  let fg = [0, 0, 0], far = 0;
-  for (let i = 0; i < d.length; i += 4) { const c = px(i), q = dist(c); if (q > far) { far = q; fg = c; } }
-  if (far < 40) return false;   // kein erkennbarer Text an dieser Stelle (z. B. Code nur in der Textebene)
-  let ink = 0; for (let i = 0; i < d.length; i += 4) if (dist(px(i)) > far * 0.5) ink++;
-  const weight = ink / (d.length / 4) > 0.2 ? "bold" : "normal";
-  const fam = genericFont(b.family);
+  const rx = Math.max(0, Math.floor(b.x0 - b.h * 0.25)), ry = Math.max(0, Math.floor(b.base - b.h * 1.0));
+  const rw = Math.min(W, Math.ceil(b.x1 + b.h * 0.25)) - rx, rh = Math.min(H, Math.ceil(b.base + b.h * 0.35)) - ry;
+  if (rw < 4 || rh < 4) return false;
+  const c = codeCover(ctx.getImageData(rx, ry, rw, rh).data, rw, rh, { x0: b.x0 - rx, x1: b.x1 - rx, base: b.base - ry, h: b.h });
+  if (!c) return false;
+  const fam = genericFont(b.family), weight = c.bold ? "bold" : "normal";
   ctx.save();
-  ctx.fillStyle = "rgb(" + bg.map(Math.round).join(",") + ")"; ctx.fillRect(x, y, w, hh);
+  ctx.fillStyle = "rgb(" + c.bg.map(Math.round).join(",") + ")"; ctx.fillRect(rx + c.x, ry + c.y, c.w, c.h);
   const bw = b.x1 - b.x0;
   let size = b.h; ctx.font = weight + " " + size + "px " + fam;
   let tw = ctx.measureText(text).width;
   if (tw > bw * 1.04) { size = (size * bw) / tw; ctx.font = weight + " " + size + "px " + fam; tw = ctx.measureText(text).width; }
-  ctx.fillStyle = "rgb(" + fg.join(",") + ")"; ctx.textBaseline = "alphabetic";
+  ctx.fillStyle = "rgb(" + c.fg.join(",") + ")"; ctx.textBaseline = "alphabetic";
   ctx.fillText(text, b.x0 + (bw - tw) / 2, b.base);
   ctx.restore();
   return true;
@@ -63,7 +52,8 @@ function paintCode(ctx, b, text) {
 
 /* PDF im Browser rendern (PDF.js) und jede Seite als JPEG hochladen. onProgress(i, n).
    opt.code = Code der Sitzung: steht auf Folie 1 ein anderer (Präsentation aus einer früheren Sitzung), wird er auf allen Folien ersetzt.
-   Ergebnis swapped = {from, to, slides} oder null. Die hochgeladene PDF selbst bleibt unverändert. */
+   opt.exclude = Codes verknüpfter Feibeitsblätter (nie der Sitzungscode). Ergebnis swapped = {from, to, slides} oder null, noCode = auf
+   Folie 1 kein Sitzungscode als Text gefunden. Die hochgeladene PDF selbst bleibt unverändert. */
 export async function rasterizeAndUpload(file, fileId, token, onProgress, opt = {}) {
   const want = isValidCode(opt.code) ? opt.code : "";
   let oldCode = "";
@@ -86,7 +76,7 @@ export async function rasterizeAndUpload(file, fileId, token, onProgress, opt = 
     if (want) {
       try {
         const boxes = await codeBoxes(lib, page, vp);
-        if (i === 1) oldCode = slideSessionCode(boxes);
+        if (i === 1) oldCode = slideSessionCode(boxes, { exclude: opt.exclude, minH: canvas.height * 0.06 });   // kleine Codes sind es nicht
         if (oldCode && oldCode !== want) { let k = 0; for (const b of boxes) if (b.code === oldCode && paintCode(ctx, b, formatCode(want))) k++; if (k) swappedOn.push(i); }
       } catch {}   // ohne lesbare Textebene: Folie bleibt, wie sie ist
     }
@@ -105,7 +95,7 @@ export async function rasterizeAndUpload(file, fileId, token, onProgress, opt = 
   }
   await doc.destroy();
   const ready = await api("POST", "/api/teacher/files/" + fileId + "/ready", { token, body: { pages: n } });
-  return { pages: n, thumbs, file: ready.file, swapped: swappedOn.length ? { from: oldCode, to: want, slides: swappedOn } : null };
+  return { pages: n, thumbs, file: ready.file, swapped: swappedOn.length ? { from: oldCode, to: want, slides: swappedOn } : null, noCode: !!want && !oldCode };
 }
 
 /* ---------- Live-Verbindung der Lehrkraft ---------- */

@@ -537,7 +537,7 @@ export async function sessionPage(id) {
       h("p", { class: "hint", text: "Startet das Vollbild hier und zeigt dieselbe Folie oben in der Schüleransicht aller freigeschalteten Schüler:innen. Weiter mit →, Leertaste, Bildtaste (Presenter) oder Tippen; Schüler:innen können nicht selbst blättern. Selbst öffnen können sie die Präsentation erst " + PRESENTATION_AFTER_END_MIN + " Minuten nach dem Ende der Sitzung – bei markierter letzter Folie nur bis dorthin." }),
       h("details", { class: "box" }, h("summary", null, "Andere Präsentation hochladen"), zone));
   }
-  async function uploadPres(file) {
+  async function uploadPres(file, moreSheetCodes = []) {   // moreSheetCodes: Feibeitsblätter der Sitzung, aus der eine Sitzungsdatei stammt
     if (!file) return;
     if (!/\.pdf$/i.test(file.name) && file.type !== "application/pdf") { toast("Bitte eine PDF-Datei wählen.", "err"); return; }
     pendingPdf = file;
@@ -548,11 +548,13 @@ export async function sessionPage(id) {
       const r = await upload("/api/teacher/lessons/" + id + "/presentation?name=" + encodeURIComponent(file.name), file, T.token, (p) => { bar.style.width = Math.round(p * 30) + "%"; }, "application/pdf");
       st.files = st.files.filter((f) => f.area !== "presentation"); st.files.push(r.file); st.slides = null;
       const { rasterizeAndUpload } = await import("./presenter.js");
-      const out = await rasterizeAndUpload(pendingPdf, r.file.id, T.token, (i, n) => { label.textContent = "Erzeuge Folie " + i + " von " + n + " …"; bar.style.width = (30 + Math.round((i / n) * 70)) + "%"; }, { code: L().code });
+      const out = await rasterizeAndUpload(pendingPdf, r.file.id, T.token, (i, n) => { label.textContent = "Erzeuge Folie " + i + " von " + n + " …"; bar.style.width = (30 + Math.round((i / n) * 70)) + "%"; },
+        { code: L().code, exclude: [...st.sheets.map((s) => s.code), ...moreSheetCodes] });
       Object.assign(r.file, out.file);
       const sw = out.swapped;   // Präsentation aus einer früheren Sitzung: alter Code auf den Folien durch den dieser Sitzung ersetzt
       toast("Präsentation bereit (" + out.pages + " Folien)." + (sw ? " Den Sitzungscode " + formatCode(sw.from) + " einer früheren Sitzung hat Unterricks auf " +
-        (sw.slides.length === 1 ? "Folie " + sw.slides[0] : sw.slides.length + " Folien") + " durch den Code dieser Sitzung " + formatCode(sw.to) + " ersetzt." : ""), "ok", sw ? 12000 : undefined);
+        (sw.slides.length === 1 ? "Folie " + sw.slides[0] : sw.slides.length + " Folien") + " durch den Code dieser Sitzung " + formatCode(sw.to) + " ersetzt." : out.noCode ? " Auf Folie 1 hat Unterricks keinen Sitzungscode als Text gefunden – steht dort einer, prüfen Sie, ob es " +
+        formatCode(L().code) + " ist." : ""), "ok", sw || out.noCode ? 12000 : undefined);
     } catch (e) { errToast(e); }
     pendingPdf = null; paintPres();
   }
@@ -1189,7 +1191,7 @@ export async function sessionPage(id) {
       if (!bytes) { missing.push(f.name); continue; }
       onStep("Lade „" + f.name + "“ hoch …");
       try {
-        if (f.area === "presentation") await uploadPres(new File([bytes], f.name, { type: "application/pdf" }));
+        if (f.area === "presentation") await uploadPres(new File([bytes], f.name, { type: "application/pdf" }), data.sheets.map((s) => s.code));
         else if (f.area === "print") await upload("/api/teacher/lessons/" + id + "/print?name=" + encodeURIComponent(f.name) + "&copies=" + f.print.copies + "&duplex=" + (f.print.duplex ? 1 : 0) + "&color=" + (f.print.color ? 1 : 0) + "&source=uebernommen", new Blob([bytes], { type: "application/pdf" }), T.token, null, "application/pdf");
         else await upload("/api/teacher/lessons/" + id + "/files?area=" + f.area + "&name=" + encodeURIComponent(f.name) + "&source=uebernommen", new Blob([bytes], { type: f.mime || "application/octet-stream" }), T.token, null, f.mime || "application/octet-stream");
       } catch (e) { missing.push(f.name + " (" + e.message + ")"); }

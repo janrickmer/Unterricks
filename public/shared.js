@@ -178,12 +178,13 @@ export const formatCode = (c) => (c && c.length === 6 ? c.slice(0, 3) + "-" + c.
  * Präsentationen sind zeitlos und werden in späteren Sitzungen wiederverwendet; Folie 1 und die Materialfolien zeigen aber den Sitzungscode.
  * Beim Erzeugen der Folienbilder (presenter.js) findet Unterricks den Code auf Folie 1 (den größten dort) und ersetzt ihn auf allen Folien
  * durch den Code der aktuellen Sitzung. codesInText: Codes wie formatCode („AEH-4VY“, Bindestrich oder Gedankenstrich), nicht mitten in Wörtern. */
-const CODE_IN_TEXT = /(^|[^A-Za-z0-9])([A-Z0-9]{3})[-\u2010\u2011\u2013\u2014]([A-Z0-9]{3})(?![A-Za-z0-9])/g;
+/* auch gesperrt gesetzt: PDF.js fügt bei erweitertem Zeichenabstand (ab etwa 0,1 em) Leerzeichen ein – „A E H - 4 V Y“ */
+const CODE_IN_TEXT = /(^|[^A-Za-z0-9])(?:([A-Z0-9]{3})[-\u2010\u2011\u2013\u2014]([A-Z0-9]{3})|([A-Z0-9]) ([A-Z0-9]) ([A-Z0-9]) [-\u2010\u2011\u2013\u2014] ([A-Z0-9]) ([A-Z0-9]) ([A-Z0-9]))(?![A-Za-z0-9])/g;
 export function codesInText(s) {
   const out = [];
   for (const m of String(s == null ? "" : s).matchAll(CODE_IN_TEXT)) {
-    const code = m[2] + m[3], start = m.index + m[1].length;
-    if (isValidCode(code)) out.push({ start, end: start + 7, code });
+    const code = m[2] ? m[2] + m[3] : m.slice(4, 10).join(""), start = m.index + m[1].length;
+    if (isValidCode(code)) out.push({ start, end: m.index + m[0].length, code });
   }
   return out;
 }
@@ -212,8 +213,54 @@ export function slideCodeBoxes(items, advance) {
   }
   return out;
 }
-/* der Sitzungscode einer Präsentation: der größte Code auf Folie 1 (laut Prompt die Einstiegsfolie); "" = keiner */
-export const slideSessionCode = (boxes) => { let b = null; for (const x of boxes || []) if (!b || x.h > b.h) b = x; return b ? b.code : ""; };
+/* Wo genau steht der alte Code im Bild? d = RGBA-Pixel eines Ausschnitts (Breite rw, Höhe rh), b = Kasten im Ausschnitt {x0, x1, base, h}.
+   Hintergrund = häufigste Farbe im Streifen knapp unter der Grundlinie (Codes haben keine Unterlängen; so stimmt sie auch in einem farbigen
+   Kästchen und bei sehr fetter Schrift), ersatzweise im Kasten; Schrift = die davon am weitesten entfernte Farbe.
+   Die Fläche zum Übermalen wird an den Pixeln gemessen: nach oben nur so weit, wie Zeilen Schrift enthalten (Text darüber bleibt), nach
+   unten bis zur Grundlinie und eine Unterlänge weit, seitlich bis zur ersten leeren Spalte. null = an dieser Stelle keine erkennbare Schrift. */
+export function codeCover(d, rw, rh, b) {
+  const h = b.h, base = Math.round(b.base), cx0 = Math.max(0, Math.floor(b.x0)), cx1 = Math.min(rw - 1, Math.ceil(b.x1) - 1);
+  const ry0 = Math.max(0, Math.round(base - 0.75 * h)), ry1 = Math.min(rh - 1, base);
+  if (cx1 - cx0 < 2 || ry1 - ry0 < 2) return null;
+  const at = (x, y) => (y * rw + x) * 4;
+  const common = (ya, yb) => {
+    const buckets = new Map();
+    for (let y = ya; y <= yb; y++) for (let x = cx0; x <= cx1; x++) {
+      const i = at(x, y), k = (d[i] >> 4) * 256 + (d[i + 1] >> 4) * 16 + (d[i + 2] >> 4), e = buckets.get(k) || [0, 0, 0, 0];
+      e[0]++; e[1] += d[i]; e[2] += d[i + 1]; e[3] += d[i + 2]; buckets.set(k, e);
+    }
+    let t = null; for (const e of buckets.values()) if (!t || e[0] > t[0]) t = e;
+    return t;
+  };
+  const sy0 = Math.round(base + 0.06 * h), sy1 = Math.min(rh - 1, Math.round(base + 0.16 * h));
+  const top = (sy1 >= sy0 && common(sy0, sy1)) || common(ry0, ry1);
+  const bg = [top[1] / top[0], top[2] / top[0], top[3] / top[0]];
+  const dist = (i) => Math.hypot(d[i] - bg[0], d[i + 1] - bg[1], d[i + 2] - bg[2]);
+  let fg = [0, 0, 0], far = 0, ink = 0, all = 0;
+  for (let y = ry0; y <= ry1; y++) for (let x = cx0; x <= cx1; x++) { const i = at(x, y), q = dist(i); if (q > far) { far = q; fg = [d[i], d[i + 1], d[i + 2]]; } }
+  if (far < 40) return null;
+  const thr = Math.max(30, far * 0.35);
+  for (let y = ry0; y <= ry1; y++) for (let x = cx0; x <= cx1; x++) { all++; if (dist(at(x, y)) > thr) ink++; }
+  const rowInk = (y, xa, xb) => { for (let x = xa; x <= xb; x++) if (dist(at(x, y)) > thr) return true; return false; };
+  let t = Math.min(ry1, Math.round(base - 0.3 * h)); const tMin = Math.max(0, Math.round(base - 0.9 * h)), tForce = base - 0.45 * h;
+  while (t - 1 >= tMin && (t - 1 > tForce || rowInk(t - 1, cx0, cx1))) t--;
+  let bt = Math.min(rh - 1, Math.round(base - 0.05 * h)); const bMax = Math.min(rh - 1, Math.round(base + 0.25 * h));
+  while (bt + 1 <= bMax && (bt + 1 <= base || rowInk(bt + 1, cx0, cx1))) bt++;
+  const colInk = (x) => { for (let y = t; y <= bt; y++) if (dist(at(x, y)) > thr) return true; return false; };
+  const side = Math.round(0.2 * h);
+  let l = cx0; while (l - 1 >= Math.max(0, cx0 - side) && colInk(l) && colInk(l - 1)) l--;
+  let r = cx1; while (r + 1 <= Math.min(rw - 1, cx1 + side) && colInk(r) && colInk(r + 1)) r++;
+  const x = Math.max(0, l - 2), y = Math.max(0, t - 2);
+  return { bg, fg, bold: ink / all > 0.2, x, y, w: Math.min(rw, r + 3) - x, h: Math.min(rh, bt + 3) - y };
+}
+/* der Sitzungscode einer Präsentation: der größte Code auf Folie 1 (laut Prompt die Einstiegsfolie, mindestens 96 pt ≈ 18 % der Höhe);
+   opt.exclude = Codes, die es sicher nicht sind (verknüpfte Feibeitsblätter), opt.minH = Mindesthöhe (kleine Codes sind es nicht); "" = keiner */
+export function slideSessionCode(boxes, opt = {}) {
+  const ex = new Set(opt.exclude || []), minH = Number(opt.minH) || 0;
+  let b = null;
+  for (const x of boxes || []) if (!ex.has(x.code) && x.h >= minH && (!b || x.h > b.h)) b = x;
+  return b ? b.code : "";
+}
 
 /* Öffentliche Adresse der Oberfläche (GitHub Pages mit eigener Domain) – für Hinweise im Schulportal */
 export const PUBLIC_URL = "https://unterricks.janrickmer.de";
@@ -595,7 +642,7 @@ export function claudePresentationPrompt(ctx, portalText, messages) {
     "- nicht die Klasse (z. B. „" + (classShort(ctx.klass) || "8c") + "“) und keine Namen von Schüler:innen oder Lehrkräften – wo eine Angabe nötig ist, nur die Lerngruppe allgemein („" + (groupShort(ctx.klass) || "Jg. 8") + "“);",
     "- Zeitgebundenes (z. B. wer gerade regiert, neueste Zahlen) nicht als „aktuell“ oder „derzeit“, sondern mit Jahreszahl und Quelle („Stand " + new Date().getFullYear() + ": …“); fachliche Jahreszahlen und Daten (z. B. historische Ereignisse) bleiben selbstverständlich.",
     "Einzige Ausnahme ist der Sitzungscode auf Folie 1 und den Materialfolien: Er gehört zu dieser Sitzung – wird die Präsentation später in einer anderen Sitzung hochgeladen, " +
-      "setzt Unterricks auf den Folien automatisch deren Code ein. Schreibe ihn dafür überall genau wie angegeben (mit Bindestrich, waagerecht, als echten Text in einem Stück) und auf Folie 1 größer als alles andere.",
+      "setzt Unterricks auf den Folien automatisch deren Code ein. Schreibe ihn dafür überall genau wie angegeben (mit Bindestrich, waagerecht, als echten Text in einem Stück, ohne Sperrung bzw. zusätzlichen Zeichenabstand) und auf Folie 1 größer als jeden anderen Text.",
     "",
     "## Rahmendaten",
     "- Fach: " + subjectName(ctx.subject),

@@ -158,10 +158,13 @@ implementiert und im End-to-End-Test geprüft (Ausnahmen unten ausdrücklich gen
    Unterrichtssitzung“), keine Klasse und keine Namen (höchstens `groupShort`, z. B. „Jg. 8“, auch im Dateinamen), Zeitgebundenes mit
    Jahreszahl statt „aktuell“; einzige Ausnahme ist der Sitzungscode. **Alter Sitzungscode auf den Folien:** Wird eine Präsentation in einer
    anderen Sitzung hochgeladen (auch per Sitzungsdatei), sucht `rasterizeAndUpload` (`public/presenter.js`, Option `code`) mit der Textebene
-   von PDF.js den größten Code auf Folie 1 (`slideCodeBoxes`/`slideSessionCode` in `shared.js`, Form wie `formatCode`) und ersetzt ihn auf allen
-   Folienbildern durch den Code der aktuellen Sitzung: Hintergrund = häufigste Randfarbe des Kastens, Schrift = die davon am weitesten entfernte
-   Farbe, gleiche Größe (notfalls schmaler), Festbreitenschrift, wenn das PDF eine hatte. Die hochgeladene PDF selbst (Schüler:innen öffnen sie
-   nach der Stunde) bleibt unverändert; die Lehrkraft sieht eine Meldung, auf welchen Folien ersetzt wurde. Hinweise für die
+   von PDF.js den größten Code auf Folie 1 (`slideCodeBoxes`/`slideSessionCode` in `shared.js`, Form wie `formatCode`, auch gesperrt gesetzt;
+   mindestens 6 % der Folienhöhe; nie der Code eines verknüpften Feibeitsblatts – auch nicht aus der Sitzungsdatei) und ersetzt ihn auf allen
+   Folienbildern durch den Code der aktuellen Sitzung. Zeichenbreiten werden im Browser gemessen (Lage im Satz), die Fläche zum Übermalen misst
+   `codeCover` an den Pixeln (Text darüber bleibt), Hintergrund = häufigste Farbe knapp unter der Grundlinie, Schrift = die davon am weitesten
+   entfernte Farbe, gleiche Größe (notfalls schmaler), Festbreitenschrift, wenn das PDF eine hatte; Breite mit `/UserUnit`. Die hochgeladene PDF
+   selbst (Schüler:innen öffnen sie nach der Stunde) bleibt unverändert; die Lehrkraft sieht eine Meldung, auf welchen Folien ersetzt wurde –
+   bzw. dass auf Folie 1 kein Code als Text zu finden war. Hinweise für die
    Lehrkraft (statt Sprechernotizen) gibt Claude im Chat bzw. auf Wunsch über `add_text_material` (nur für die Lehrkraft).
 6. **Präsentation und Live-Synchronisation.** Upload der PDF → der Browser der Lehrkraft rendert jede Seite mit PDF.js
    (1920 px) und lädt sie als Bild hoch. „Ich bin im Unterricht …“ öffnet das Vollbild und meldet die Folie an das Durable
