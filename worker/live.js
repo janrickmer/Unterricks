@@ -4,7 +4,7 @@
 // Codefolie (11.11.2026): Folie 0 = Sitzungscode mit QR-Code vor Folie 1, Platzhalterfolien (codeSlides) und „Sitzungscode zeigen“
 // (codeShown) erscheinen bei allen als Codefolie (view "code" mit code, title, lines) – Code, Titel und Platzhalter schickt die Lehrkraft beim Start.
 import { DurableObject } from "cloudflare:workers";
-import { HttpError, json, requireSecret, signLink, checkLink } from "./lib.js";
+import { HttpError, json, requireSecret, signLink, checkLink, isId } from "./lib.js";
 import { LIVE_IDLE as IDLE, liveReduce, liveView } from "./livestate.js";
 import { requireTeacher } from "./auth.js";
 import { getLesson } from "./lessons.js";
