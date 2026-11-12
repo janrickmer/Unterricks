@@ -146,6 +146,7 @@ export const LOCKS = {
   askDevice: { max: 12, windowMs: 10 * 60e3, lockMs: 10 * 60e3 },               // KI-Begriffshilfe: je Gerät 12 Fragen je 10 Minuten
   askLesson: { max: 300, windowMs: 3600e3, lockMs: 15 * 60e3 },                // … je Sitzung 300 Fragen je Stunde (Kontingent der kostenlosen KI)
   setup: { max: 10, windowMs: 3600e3, lockMs: 3600e3 },
+  parentIp: { max: 30, windowMs: 10 * 60e3, lockMs: 10 * 60e3 },               // Elternansicht: ungültige Links je IP
 };
 export async function lockedFor(db, key, now = Date.now()) {
   const r = await db.prepare("SELECT locked_until FROM locks WHERE k=?1").bind(key).first();

@@ -887,3 +887,19 @@ img.sub-photo { max-width: 100%; max-height: 60vh; border-radius: 12px; border: 
 .cs-preview { margin: .2rem 0 .4rem; }
 .cs-preview > summary { cursor: pointer; font-weight: 700; padding: .65rem 0; }
 .cs-preview .cardview { margin-top: .5rem; max-width: 760px; }
+/* Elternansicht (Grundschule, #/eltern/…) und ihre Vorschau für die Lehrkraft */
+.parents-bar .pv-badge { margin-left: auto; font-weight: 700; color: var(--muted); }
+.parents-view { display: grid; gap: 1rem; }
+.parents-view > h1 { margin: .4rem 0 0; overflow-wrap: anywhere; }
+.parents-view > h1:focus { outline: none; } .parents-view > h1:focus-visible { outline: 2px solid var(--fach); outline-offset: 3px; }
+.pv-meta { margin: -.5rem 0 0; font-weight: 700; color: var(--muted); }
+.parent-note h2 { color: #fff; font-size: 1.1rem; margin: 0 0 .25rem; }
+.parent-note p { margin: 0; }
+.prewrap { white-space: pre-wrap; overflow-wrap: anywhere; }
+.pv-cards .cardview { max-width: 760px; }
+.pv-filelist, .pv-sessions { list-style: none; margin: 0; padding: 0; display: grid; gap: .25rem; }
+.pv-filelist a, .pv-sessions a, .pv-sessions span, .pv-back { display: inline-flex; align-items: center; min-height: 44px; overflow-wrap: anywhere; }
+.pv-prev .btn { min-height: 44px; }
+.pv-banner { margin-bottom: 1rem; }
+.parents-foot { max-width: 780px; margin: 0 auto; padding: 0 1rem 2.5rem; }
+.gs-renew { margin-top: .6rem; } .gs-renew > summary { cursor: pointer; font-weight: 700; padding: .65rem 0; min-height: 44px; }

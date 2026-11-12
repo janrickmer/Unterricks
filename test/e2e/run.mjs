@@ -1767,6 +1767,150 @@ async function main() {
       await tp.screenshot({ ...SHOT, path: join(OUT, "lehrkraft-grundschulsitzung.png"), fullPage: true });
     }
 
+    /* ---------- Elternansicht (Grundschule) ---------- */
+    step("Elternansicht: geheimer Link, erst nach dem Ende, Bildkarten, Material bis zum Zwischenstopp, vorherige Sitzungen");
+    let parentToken = null, parentLessonId = null, parentCardId = null;
+    {
+      const gl = (await T("GET", "/api/teacher/lessons?subject=gs&klass=" + gsRelId)).data.lessons.slice().sort((a, b) => (a.date < b.date ? -1 : a.date > b.date ? 1 : 0));
+      const [les1, les2] = gl;
+      parentLessonId = les2.id;
+      const g1 = (await T("GET", "/api/teacher/lessons/" + les1.id)).data, g2 = (await T("GET", "/api/teacher/lessons/" + les2.id)).data;
+      const fileId = (d, name) => (d.files.find((f) => f.name === name) || {}).id;
+      const vorId = fileId(g1, "Vorlesetext Josef.pdf"), abId = fileId(g2, "Arbeitsblatt Josef in Ägypten.pdf"), raeId = fileId(g2, "Rätsel Pyramide.pdf"), cardId = fileId(g2, "Bildkarten – Josef in Ägypten.pdf");
+      parentCardId = cardId;
+      ok(!!(vorId && abId && raeId && cardId), "Material und Bildkarten aus dem vorigen Schritt vorhanden");
+      // Verlaufsplan: die Geschichte (Bildkarten) und das Arbeitsblatt vor dem Zwischenstopp, das Rätsel danach
+      const plan = "**1) Ankommen im Sitzkreis (5 Min.)**\n- Begrüßungslied\n**2) Erzählung mit Bildkarten (15 Min., Sitzkreis)**\n- __Lehrkraft liest [[pdf:" + vorId + "]] vor.__\n- [[pdf:" + cardId + "]] Karten der Reihe nach zeigen\n" +
+        "**3) Arbeitsblatt (15 Min., Einzelarbeit)**\n- [[pdf:" + abId + "]]\n⏸ Zwischenstopp\n**4) Rätsel (10 Min., Partnerarbeit)**\n- [[pdf:" + raeId + "]]";
+      let g = await tool("save_verlaufsplan", { lesson_id: les2.id, text: plan, base_version: g2.lesson.portalVersion });
+      ok(!g.isError && g.content[0].text.includes("Eltern sehen nach der Stunde: „Bildkarten – Josef in Ägypten.pdf“, „Arbeitsblatt Josef in Ägypten.pdf“."), "Verlaufsplan: Bildkarten und Arbeitsblatt vor dem Zwischenstopp");
+      const day = (n) => berlinAt(Date.now() + n * 86400e3).date;
+      await T("PATCH", "/api/teacher/lessons/" + les2.id, { date: day(1), startTime: "08:00" });   // noch nicht stattgefunden
+      // a) Lehrkraft kopiert den Link (Zwischenablage), Rückfall: markiertes Feld zum Kopieren
+      await tp.goto(BASE + "/#/lk/s/" + les2.id);
+      await tp.locator("#gs-copy").waitFor({ timeout: 15000 });
+      await tp.evaluate(() => navigator.clipboard.writeText(""));
+      await tp.locator("#gs-copy").click();
+      await tp.locator(".toast", { hasText: "Sitzungslink für Eltern kopiert." }).waitFor({ timeout: 10000 });
+      const url = await tp.evaluate(() => navigator.clipboard.readText());
+      ok(new RegExp("^" + BASE + "/#/eltern/[A-Za-z0-9_-]{32}$").test(url), "„Sitzungslink für Eltern kopieren“: geheimer Link in der Zwischenablage");
+      parentToken = url.split("/").pop();
+      const lrow = (await T("GET", "/api/teacher/lessons/" + les2.id)).data;
+      ok(lrow.lesson.hasParentLink === true && !JSON.stringify(lrow).includes(parentToken), "Sitzung: hat einen Elternlink, das Token steht nie in der Antwort");
+      ok((await tool("get_lesson", { lesson_id: les2.id })).content[0].text.includes(parentToken) === false, "get_lesson ohne Token");
+      await tp.evaluate(() => { navigator.clipboard.writeText = () => Promise.reject(new Error("verweigert")); document.execCommand = () => false; });
+      await tp.locator("#gs-copy").click();
+      const lm = tp.locator(".modal", { hasText: "Die Zwischenablage ließ sich nicht verwenden" });
+      await lm.waitFor({ timeout: 10000 });
+      await tp.waitForFunction(() => { const i = document.getElementById("gs-link-input"); return i && document.activeElement === i && i.selectionStart === 0 && i.selectionEnd === i.value.length; }, null, { timeout: 5000 }).catch(() => {});
+      ok(await lm.locator("#gs-link-input").inputValue() === url && await lm.locator("#gs-link-input").getAttribute("readonly") !== null
+        && await tp.evaluate(() => { const i = document.getElementById("gs-link-input"); return document.activeElement === i && i.selectionEnd - i.selectionStart === i.value.length; }),
+        "Zwischenablage gesperrt: Dialog „Sitzungslink für Eltern“ mit markiertem, schreibgeschütztem Link");
+      await lm.locator("footer").getByRole("button", { name: "Schließen" }).click();
+      await tp.reload();
+      // b) Eltern: frischer Browser ohne gespeicherte Daten; vor dem Ende nur „noch nicht stattgefunden“
+      const ectx = await browser.newContext({ viewport: { width: 1180, height: 900 } }); const ep = await ectx.newPage(); watch(ep, "Eltern");
+      const ereq = []; ep.on("request", (r) => ereq.push(r.url()));
+      await ep.goto(url);
+      await ep.locator(".parents-view h1").waitFor({ timeout: 15000 });
+      let etext = await ep.locator("main").textContent();
+      ok(etext.includes("Diese Unterrichtssitzung hat noch nicht stattgefunden. Sie können sie hier ab 08:45 Uhr ansehen.") && (await ep.locator("h1").textContent()).startsWith("Unterrichtssitzung am ")
+        && !etext.includes("Malstifte") && !etext.includes(g2.lesson.title) && await ep.locator(".cardview").count() === 0 && (await ep.locator(".topbar").textContent()).includes("Elternansicht")
+        && await ep.locator(".topbar a").count() === 0, "vor dem Ende: „Diese Unterrichtssitzung hat noch nicht stattgefunden.“ – kein Inhalt, keine Links in andere Bereiche");
+      // c) nach dem Ende (gestern): Hinweis rot ganz oben, Bildkarten, Inhalt, Hausaufgabe, nur das Material bis zum Zwischenstopp
+      await T("PATCH", "/api/teacher/lessons/" + les1.id, { date: day(-2), startTime: "08:00" });
+      await T("PATCH", "/api/teacher/lessons/" + les2.id, { date: day(-1), startTime: "08:00" });
+      await ep.reload();
+      await ep.locator(".parents-view h1", { hasText: g2.lesson.title }).waitFor({ timeout: 15000 });
+      const heads = await ep.locator(".parents-view h1, .parents-view h2").allTextContents();
+      ok(JSON.stringify(heads) === JSON.stringify(["Hinweis der Lehrkraft", g2.lesson.title, "Die Geschichte zum Nacherzählen", "Inhalt der Unterrichtsstunde", "Hausaufgabe", "Material für die Schüler"])
+        && await ep.evaluate(() => { const n = document.querySelector(".parents-view").firstElementChild; return n.matches("section.alarm") && n.getAttribute("role") === "note" && getComputedStyle(n).backgroundColor !== "rgba(0, 0, 0, 0)"; })
+        && (await ep.locator(".parent-note").textContent()).includes("Bitte Malstifte mitgeben."), "Reihenfolge: Hinweis der Lehrkraft (rot) ganz oben, Titel, Bildkarten, Inhalt, Hausaufgabe, Material");
+      ok((await ep.locator(".pv-meta").textContent()).startsWith("Religion · Jahrgang 2 (Klassen 2a, 2b) · ") && (await ep.locator(".pv-summary").textContent()).includes("Wir haben gehört, wie Josef nach Ägypten kam.")
+        && (await ep.locator(".pv-homework").textContent()).includes("Male ein Bild von Josef.") && await ep.title() === "Unterricht am " + day(-1).split("-").reverse().join("."),
+        "Kurs, Inhalt der Unterrichtsstunde, Hausaufgabe, Titel des Tabs");
+      const cv = ep.locator(".pv-cards figure.cardview");
+      await cv.locator(".cv-count", { hasText: "Karte 1 von 3" }).waitFor({ timeout: 10000 });
+      ok(await ep.locator(".pv-cards").getAttribute("aria-label") === "Bildkarten: Bildkarten – Josef in Ägypten" && (await cv.locator("figcaption").textContent()) === "Josef kommt nach Ägypten."
+        && await cv.getByRole("button", { name: "Vorherige Karte" }).getAttribute("aria-disabled") === "true", "Bildkarten: Karte 1 von 3 mit dem Erzähltext");
+      await cv.getByRole("button", { name: "Nächste Karte" }).focus();
+      await ep.keyboard.press("ArrowRight");
+      await cv.locator(".cv-count", { hasText: "Karte 2 von 3" }).waitFor({ timeout: 5000 });
+      ok((await cv.locator("figcaption").textContent()) === "Josef erklärt dem Pharao seine Träume." && await cv.locator("img").evaluate((im) => (im.complete ? im.naturalWidth > 0 : new Promise((r) => { im.onload = () => r(im.naturalWidth > 0); im.onerror = () => r(false); }))),
+        "Pfeiltaste → Karte 2 von 3 mit Erzähltext, Bild geladen (signierter Link)");
+      await ep.screenshot({ ...SHOT, path: join(OUT, "eltern-sitzung.png"), fullPage: true });
+      const flinks = await ep.locator(".pv-files a").allTextContents();
+      ok(flinks.length === 1 && flinks[0].startsWith("Arbeitsblatt Josef in Ägypten.pdf (PDF") && !etext.includes("Rätsel") && !(await ep.locator("main").textContent()).includes("Rätsel Pyramide")
+        && !(await ep.locator("main").textContent()).includes("Vorlesetext") && await ep.locator(".pv-files a").getAttribute("target") === "_blank",
+        "Material: nur das Arbeitsblatt vor dem Zwischenstopp (kein Rätsel danach, kein Material der Lehrkraft), Link in einen neuen Tab");
+      const dlReq = ectx.waitForEvent("request", { predicate: (q) => q.url().includes("/api/dl/" + abId), timeout: 20000 }).catch(() => null);
+      const [np] = await Promise.all([ectx.waitForEvent("page"), ep.locator(".pv-files a").first().click()]);
+      const q = await dlReq, res = q ? await fetch(q.url()) : null;
+      ok(res && res.status === 200 && res.headers.get("content-type") === "application/pdf" && /^inline/.test(res.headers.get("content-disposition") || ""), "PDF der Kinder öffnet sich im neuen Tab (signierter Link)");
+      await np.close().catch(() => {});
+      // Hausaufgabe nur, wenn eine eingetragen ist
+      await T("PATCH", "/api/teacher/lessons/" + les2.id, { homework: "" });
+      await ep.reload();
+      await ep.locator(".parents-view h1", { hasText: g2.lesson.title }).waitFor({ timeout: 15000 });
+      ok(await ep.locator(".pv-homework").count() === 0 && !(await ep.locator("main").textContent()).includes("Hausaufgabe"), "ohne Hausaufgabe: kein Abschnitt „Hausaufgabe“");
+      await T("PATCH", "/api/teacher/lessons/" + les2.id, { homework: "Male ein Bild von Josef." });
+      // d) vorherige Sitzungen dieses Schuljahres → eine andere Sitzung öffnen
+      await ep.reload();
+      await ep.getByRole("button", { name: "Vorherige Unterrichtssitzungen dieses Schuljahres ansehen" }).click();
+      await ep.locator("h2", { hasText: "Unterrichtssitzungen dieses Schuljahres" }).waitFor({ timeout: 10000 });
+      const items = await ep.locator(".pv-sessions li").allTextContents();
+      ok(items.length === 2 && items[0].includes(g2.lesson.title) && items[0].includes("(diese Sitzung)") && items[1].includes(g1.lesson.title) && await ep.locator(".pv-sessions a").count() === 1,
+        "Liste: diese und die vorige Sitzung (keine künftigen, kein anderer Kurs)");
+      await ep.locator(".pv-sessions a").click();
+      await ep.waitForURL(new RegExp("#/eltern/" + parentToken + "/s/" + les1.id + "$"));
+      await ep.locator(".parents-view h1", { hasText: g1.lesson.title }).waitFor({ timeout: 15000 });
+      ok(await ep.evaluate(() => document.activeElement && document.activeElement.tagName === "H1") && (await ep.locator(".pv-back").textContent()) === "← Zur Sitzung vom " + day(-1).split("-").reverse().join(".")
+        && !(await ep.locator("main").textContent()).includes("Vorlesetext"), "andere Sitzung: Fokus auf der Überschrift, „← Zur Sitzung vom …“, kein Material der Lehrkraft");
+      await ep.locator(".pv-back").click();
+      await ep.locator(".parents-view h1", { hasText: g2.lesson.title }).waitFor({ timeout: 15000 });
+      // e) Schutz: veränderter Link, fremde Sitzung, keine internen Felder, Kopfzeilen, nur eigene Herkunft, nichts gespeichert
+      const P = (path, body, ip) => fetch(BASE + path, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) }).then(async (x) => ({ status: x.status, headers: x.headers, data: await x.json().catch(() => null) }));
+      const pj = await P("/api/eltern/sitzung", { token: parentToken });
+      ok(pj.status === 200 && pj.headers.get("x-robots-tag") === "noindex, nofollow" && pj.headers.get("cache-control") === "no-store" && !("ideas" in pj.data) && !("portal" in pj.data)
+        && !JSON.stringify(pj.data).includes("Zwischenstopp") && !JSON.stringify(pj.data).includes(g2.lesson.code || "§§"), "Antwort an Eltern: keine Ideen, kein Verlaufsplan, kein Code; no-store und X-Robots-Tag");
+      ok((await P("/api/eltern/sitzung", { token: parentToken, lessonId })).status === 403 && (await P("/api/eltern/sitzung", { token: parentToken, lessonId: gl[2].id })).status === 403,
+        "Sitzung eines anderen Kurses bzw. eine spätere: 403");
+      ok((await P("/api/eltern/datei", { token: parentToken, lessonId: les2.id, fileId: raeId })).status === 404 && (await P("/api/eltern/datei", { token: parentToken, lessonId: les2.id, fileId: abId })).status === 200,
+        "PDF-Link nur für sichtbares Material (nicht für das Rätsel nach dem Zwischenstopp)");
+      ok(((await fetch(BASE + "/")).headers.get("x-robots-tag") || "") === "noindex, nofollow" && await ep.locator('meta[name="robots"][content="noindex, nofollow"]').count() === 1, "Seite: X-Robots-Tag und <meta robots> noindex");
+      const bad = parentToken.slice(0, -1) + (parentToken.endsWith("A") ? "B" : "A");
+      await ep.goto(BASE + "/#/eltern/" + bad);
+      await ep.locator(".notice.err").waitFor({ timeout: 15000 });
+      ok((await ep.locator(".notice.err").textContent()) === "Dieser Link ist ungültig oder wurde von der Lehrkraft erneuert. Bitte fragen Sie die Lehrkraft nach dem aktuellen Link.", "veränderter Link: Meldung „ungültig oder erneuert“");
+      ok(ereq.every((u) => u.startsWith(BASE + "/") || u.startsWith("data:") || u.startsWith("blob:")) && ereq.some((u) => u.includes("/api/card/")), "Elternansicht: nur Anfragen an den eigenen Server (" + ereq.length + ")");
+      ok(await ep.evaluate(() => localStorage.length === 0 && sessionStorage.length === 0) && (await ectx.cookies()).length === 0, "Elternansicht speichert nichts im Browser");
+      await ectx.close();
+      // f) Vorschau der Lehrkraft („Elternansicht ausprobieren“), Bildkarten ohne Freigabe sind für Eltern unsichtbar
+      const [pv] = await Promise.all([tctx.waitForEvent("page"), tp.locator("#gs-try").click()]);
+      watch(pv, "Vorschau Eltern");
+      await pv.locator(".pv-banner").waitFor({ timeout: 15000 });
+      ok((await pv.locator(".pv-banner").textContent()).startsWith("Vorschau: So sehen Eltern diese Sitzung nach dem Unterricht (freigeschaltet ab ") && await pv.locator(".pv-cards").count() === 1
+        && await pv.locator('.topbar nav a[aria-current="page"]').textContent() === "Grundschule" && await pv.locator(".pv-files a").getAttribute("href") === "#/lk/datei/" + abId,
+        "„Elternansicht ausprobieren“: Vorschau mit Hinweis, Bildkarten und Material (Dateien über die Lehrkraft)");
+      let cg = (await T("GET", "/api/teacher/files/" + cardId + "/cards")).data;
+      await T("PUT", "/api/teacher/files/" + cardId + "/cards", { share: false, rev: cg.rev });
+      await pv.reload();
+      await pv.locator(".pv-banner").waitFor({ timeout: 15000 });
+      ok(await pv.locator(".pv-cards").count() === 0 && !(await P("/api/eltern/sitzung", { token: parentToken })).data.cards, "Bildkarten ohne Freigabe: Eltern sehen sie nicht");
+      cg = (await T("GET", "/api/teacher/files/" + cardId + "/cards")).data;
+      await T("PUT", "/api/teacher/files/" + cardId + "/cards", { share: true, rev: cg.rev });
+      await pv.close();
+      // g) „Link erneuern“: der bisherige Link funktioniert danach nicht mehr
+      await tp.locator("#gs-parents details.gs-renew > summary").click();
+      await tp.locator("#gs-renew").click();
+      await tp.locator(".modal").getByRole("button", { name: "Neuen Link erzeugen" }).click();
+      await tp.locator(".toast", { hasText: "Neuer Sitzungslink erzeugt" }).waitFor({ timeout: 10000 });
+      const t2 = (await T("GET", "/api/teacher/lessons/" + les2.id + "/parent-link")).data.token;
+      ok(t2 && t2 !== parentToken && (await P("/api/eltern/sitzung", { token: parentToken })).status === 404 && (await P("/api/eltern/sitzung", { token: t2 })).status === 200, "„Link erneuern“: neuer Link, der alte ist ungültig");
+      parentToken = t2;
+      await tp.screenshot({ ...SHOT, path: join(OUT, "lehrkraft-grundschulsitzung-eltern.png"), fullPage: false });
+    }
+
     /* ---------- GitHub Pages: dieselbe Oberfläche von einer anderen Herkunft ---------- */
     step("GitHub Pages: Oberfläche von anderer Herkunft (CORS, Live-Verbindung, Links zum Worker, Schutz gegen Einbetten)");
     execFileSync("node", ["scripts/build.mjs"], { cwd: ROOT, env: { ...process.env, PAGES_API: BASE, FEIBEITSBLATT_API: FB }, stdio: "ignore" });
@@ -1813,6 +1957,24 @@ async function main() {
         ok(u.startsWith(BASE + "/api/dl/") && res.status === 200 && res.headers.get("content-type") === "application/pdf" && /inline/.test(res.headers.get("content-disposition") || ""),
           "„PDF ansehen“ auf Pages: öffnet die PDF beim Worker (kein 404)");
         for (const pg of ptc.pages()) if (pg !== ptp) await pg.close().catch(() => {});
+      }
+      { // Elternansicht auf Pages: Seite von Pages, Daten, Kartenbilder und PDF vom Worker
+        const ectx = await browser.newContext({ ...devices["iPad (gen 7)"] }); const ep = await ectx.newPage(); watch(ep, "Pages-Eltern");
+        ep.on("console", (m) => { if (m.type() === "error" && /Content Security Policy|CORS|Access-Control/i.test(m.text())) cspErr.push(m.text()); });
+        const ereq = []; ep.on("request", (r) => ereq.push(r.url()));
+        await ep.goto(PAGES + "/#/eltern/" + parentToken);
+        const cv = ep.locator(".pv-cards figure.cardview");
+        await cv.locator(".cv-count", { hasText: "Karte 1 von 3" }).waitFor({ timeout: 20000 });
+        const imgOk = await cv.locator("img").evaluate((im) => (im.complete ? im.naturalWidth > 0 : new Promise((r) => { im.onload = () => r(im.naturalWidth > 0); im.onerror = () => r(false); })));
+        ok(imgOk && (await cv.locator("img").getAttribute("src")).startsWith(BASE + "/api/card/"), "Elternansicht auf Pages: Bildkarten vom Worker geladen");
+        const dlReq = ectx.waitForEvent("request", { predicate: (q) => q.url().startsWith(BASE + "/api/dl/"), timeout: 20000 }).catch(() => null);
+        const [np] = await Promise.all([ectx.waitForEvent("page"), ep.locator(".pv-files a").first().click()]);
+        const q = await dlReq, res = q ? await fetch(q.url()) : null;
+        ok(res && res.status === 200 && res.headers.get("content-type") === "application/pdf", "Elternansicht auf Pages: PDF beim Worker (kein 404)");
+        await np.close().catch(() => {});
+        ok(ereq.filter((u) => u.includes("/api/")).every((u) => u.startsWith(BASE + "/api/")) && ereq.every((u) => u.startsWith(PAGES + "/") || u.startsWith(BASE + "/") || /^(data|blob):/.test(u)),
+          "Elternansicht auf Pages: nur Pages und der Worker, keine fremden Server");
+        await ectx.close();
       }
       ok(cspErr.length === 0, "keine CSP- oder CORS-Fehler auf Pages" + (cspErr.length ? ": " + cspErr.slice(0, 3).join(" | ") : ""));
       const fctx = await browser.newContext(); const fp = await fctx.newPage();
@@ -2069,7 +2231,8 @@ async function main() {
       const T_PAGES = [["Fächer", "#/lk"], ["Klassen PoWi", "#/lk/f/powi"], ["Kurse Ethik", "#/lk/f/ethik"], ["Sitzungen Q2 GK", "#/lk/f/powi/Q2-GK"], ["Unterrichtseinheit", "#/lk/u/" + unitId],
         ["Sitzung", "#/lk/s/" + lessonId], ["Sitzung mit Vertretung", "#/lk/s/" + l2.id], ["Sitzung mit Escape-Room", "#/lk/s/" + l3.id], ["Planungsgrundlagen", "#/lk/grundlagen"],
         ["Planungsgrundlagen PoWi", "#/lk/grundlagen/powi"], ["Einstellungen", "#/lk/einstellungen"], ["Escape-Room-Vorschau", "#/lk/escape/" + l3.id],
-        ["Planungsgrundlagen Ev. Religion", "#/lk/grundlagen/evrel"], ["Planungsgrundlage (Text)", "#/lk/grundlage/" + txtBaseId]];
+        ["Planungsgrundlagen Ev. Religion", "#/lk/grundlagen/evrel"], ["Planungsgrundlage (Text)", "#/lk/grundlage/" + txtBaseId], ["Elternansicht (Vorschau)", "#/lk/eltern/" + parentLessonId]];
+      const P_PAGES = [["Elternansicht", "#/eltern/" + parentToken]];
       const S_PAGES = [["Sitzungsliste", "#/schueler"], ["Sitzung (Schüler:in)", "#/schueler/s/" + lessonId], ["Vertretung (Schüler:in)", "#/schueler/s/" + l2.id], ["Escape-Room", "#/schueler/escape/" + l3.id]];
       for (const dev of ["iPhone SE", "iPhone 13", "iPad (gen 7)"]) {
         await audit(dev, "Startseite", null, "#/");
@@ -2077,6 +2240,7 @@ async function main() {
         await audit(dev, "Anmeldung Lehrkraft", null, "#/lehrkraft");
         for (const [label, hash] of T_PAGES) await audit(dev, label, tStore, hash);
         for (const [label, hash] of S_PAGES) await audit(dev, label, sStore, hash);
+        for (const [label, hash] of P_PAGES) await audit(dev, label, null, hash);   // Eltern: ohne gespeicherte Daten
       }
       for (const dev of ["iPhone SE", "iPhone 13"]) {
         await audit(dev, "Dialog „Stunde mit Claude planen“", tStore, "#/lk/s/" + lessonId, async (p) => { await p.getByRole("button", { name: "Stunde mit Claude planen" }).first().click(); await p.locator(".modal").waitFor(); });
@@ -2134,6 +2298,7 @@ async function main() {
       await tp.locator("#resetcard [role=status]", { hasText: "Alle Unterrichtsinhalte sind gelöscht." }).waitFor({ timeout: 180000 });
       const after = (await TR("GET", "/api/teacher/reset")).data, all = (await TR("GET", "/api/teacher/lessons")).data;
       ok(after.units === 0 && after.lessons === 0 && after.files === 0 && after.pending === 0 && all.lessons.length === 0, "alle Einheiten, Sitzungen und Dateien gelöscht (keine offenen Aufräumrunden)");
+      ok((await fetch(BASE + "/api/eltern/sitzung", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ token: parentToken }) })).status === 404, "Elternlink nach dem Zurücksetzen ungültig (404)");
       const slide = await fetch(new URL(src, BASE).href);
       ok(slide.status === 404 || slide.status === 410, "Folienbilder gelöscht (Link einer Folie: " + slide.status + ")");
       ok(((await TR("GET", "/api/teacher/bases")).data.bases || []).length === basesN && JSON.stringify((await TR("GET", "/api/teacher/subjects")).data.subjects) === subjBefore

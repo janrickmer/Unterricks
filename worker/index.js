@@ -16,6 +16,7 @@ import * as RN from "./render.js";
 import * as CS from "./courses.js";
 import * as GS from "./gs.js";
 import * as CA from "./cards.js";
+import * as PA from "./parents.js";
 
 export { LiveRoom } from "./live.js";
 
@@ -138,6 +139,14 @@ const ROUTES = [
   ["GET", "/api/teacher/files/" + ID + "/cards", CA.routeCardsGet],
   ["PUT", "/api/teacher/files/" + ID + "/cards", CA.routeCardsPut],
   ["GET", "/api/teacher/cards/pending", CA.routeCardsPending],
+  // Elternansicht (Grundschule): Link der Sitzung, Vorschau der Lehrkraft; öffentlich nur über das geheime Token im POST-Rumpf
+  ["GET", "/api/teacher/lessons/" + ID + "/parent-link", PA.routeTeacherParentLink],
+  ["POST", "/api/teacher/lessons/" + ID + "/parent-link", PA.routeTeacherParentLink],
+  ["GET", "/api/teacher/lessons/" + ID + "/parents", PA.routeTeacherParentPreview],
+  ["GET", "/api/teacher/lessons/" + ID + "/parents/previous", PA.routeTeacherParentPrevious],
+  ["POST", "/api/eltern/sitzung", PA.routeParentLesson],
+  ["POST", "/api/eltern/verlauf", PA.routeParentPrevious],
+  ["POST", "/api/eltern/datei", PA.routeParentFile],
   ["PUT", "/api/teacher/files/" + ID + "/shown", F.routeShownPut],
   ["DELETE", "/api/teacher/files/" + ID + "/shown", F.routeShownDelete],
   ["POST", "/api/teacher/lessons/" + ID + "/live-ticket", LV.routeTeacherLiveTicket],
@@ -188,6 +197,12 @@ function errorResponse(e) {
   return fail(500, "server_error", "Interner Fehler. Bitte erneut versuchen.");
 }
 
+function withHeaders(res, extra) {
+  const h = new Headers(res.headers);
+  for (const [k, v] of Object.entries(extra)) h.set(k, v);
+  return new Response(res.body, { status: res.status, statusText: res.statusText, headers: h });
+}
+
 function securityHeaders(res, request, env) {
   const h = new Headers(res.headers);
   h.set("X-Content-Type-Options", "nosniff");
@@ -202,6 +217,7 @@ function securityHeaders(res, request, env) {
       "object-src 'none'", "base-uri 'none'", "form-action 'self'", "frame-ancestors 'none'",
     ].join("; "));
     h.set("Cache-Control", "no-cache");
+    h.set("X-Robots-Tag", "noindex, nofollow");   // die Seite (auch die Elternansicht) nie in Suchmaschinen
   }
   return new Response(res.body, { status: res.status, statusText: res.statusText, headers: h });
 }
@@ -225,8 +241,10 @@ export default {
       if (path === "/api" || path.startsWith("/api/")) {
         const cors = corsHeaders(request, env);
         if (request.method === "OPTIONS") return new Response(null, { status: cors ? 204 : 403, headers: cors || {} });
-        try { return withCors(await handleApi(request, env, ctx, path), cors); }
-        catch (e) { return withCors(errorResponse(e), cors); }
+        // Elternansicht: alle Antworten (auch Fehler) nie zwischenspeichern und nie in Suchmaschinen
+        const robots = path.startsWith("/api/eltern/") ? (res) => withHeaders(res, PA.PARENT_HEADERS) : (res) => res;
+        try { return withCors(robots(await handleApi(request, env, ctx, path)), cors); }
+        catch (e) { return withCors(robots(errorResponse(e)), cors); }
       }
     } catch (e) { return errorResponse(e); }
     const res = await env.ASSETS.fetch(request);

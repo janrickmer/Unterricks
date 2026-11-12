@@ -428,6 +428,9 @@ const ROUTES = [
   [/^#\/schueler$/, () => studentHome()],
   [/^#\/schueler\/s\/([a-f0-9]{16})$/, (m) => studentRoom(m[1])],
   [/^#\/schueler\/escape\/([a-f0-9]{16})$/, (m) => import("./escape.js").then((x) => x.escapePage(m[1])).catch((e) => { render(h("main", null, h("p", { class: "err", text: "Der Escape-Room konnte nicht geladen werden: " + e.message }))); })],
+  // Elternansicht (Grundschule): geheimer Link der Lehrkraft, ohne Anmeldung; lädt keine Module der Lehrkraft
+  [/^#\/eltern\/([A-Za-z0-9_-]{32})(?:\/(s|pdf)\/([a-f0-9]{16})(?:\/([a-f0-9]{16}))?)?$/, (m) => import("./parents.js").then((p) => p.parentsPage(m[1], m[2] || null, m[3] || null, m[4] || null)).catch((e) => { render(h("main", null, h("p", { class: "err", text: "Die Elternansicht konnte nicht geladen werden: " + e.message }))); })],
+  [/^#\/eltern(?:\/.*)?$/, () => import("./parents.js").then((p) => p.parentsPage("", null, null, null)).catch(() => go("#/"))],   // beschädigter Link: Meldung des Servers
   [/^#\/beamer$/, () => import("./beamer.js").then((b) => b.beamerPage()).catch((e) => { render(h("main", null, h("p", { class: "err", text: "Das Beamerfenster konnte nicht geladen werden: " + e.message }))); })],
   [/^#\/(lehrkraft|lk)(\/.*)?$/, () => import("./teacher.js").then((t) => t.route(location.hash)).catch((e) => { render(h("main", null, h("p", { class: "err", text: "Die Lehrkräfteansicht konnte nicht geladen werden: " + e.message }))); })],
 ];

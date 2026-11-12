@@ -3,7 +3,7 @@
 // Einordnung in die Einheit, „Stunde mit Claude planen“, der Materialkasten (für die Kinder / nur für Sie) mit dem Hinweis, was Eltern sehen,
 // die Druckliste, „Inhalt der Unterrichtsstunde“ und „Hausaufgabe“, ganz unten die Elternansicht (Sitzungslink, Ausprobieren, Hinweis der
 // Lehrkraft). Keine Live-Präsentation, kein Schulportal-Eintrag, kein Sitzungscode, keine Feibeitsblätter, kein Planungschat.
-import { h, clear, nn, toast, errToast, modal, confirmDialog, fmtTime, icon, pageHead, stateLine } from "./ui.js";
+import { h, clear, nn, toast, errToast, modal, confirmDialog, copyText, fmtTime, icon, pageHead, stateLine } from "./ui.js";
 import { render, go, onLeave } from "./app.js";
 import { tapi, teacherBar, markNav } from "./teacher.js";
 import { fmtDay, insertStop, removeStops, hasStop, isStopLine, parsePlanMarkup, parentMaterial, parentOpensAt, pdfRef, lessonTimes, fmtClockBerlin } from "./shared.js";
@@ -234,7 +234,8 @@ export async function gsSessionPage(id, d) {
   /* ======================= Material und Druckliste (materialbox.js) ======================= */
   const badgeEls = new Map();   // Datei-ID → Abzeichen „Eltern sehen sie“ …
   let parentsQueued = false;
-  const parentsNow = () => parentMaterial(ta.value, [...st.files.map((f) => ({ ...f, lessonId: id })), ...st.refFiles], id);
+  // wie der Server (worker/parents.js): Verweise nur auf PDFs früherer Sitzungen des Kurses zählen für Eltern
+  const parentsNow = () => parentMaterial(ta.value, [...st.files.map((f) => ({ ...f, lessonId: id })), ...st.refFiles.filter((f) => f.date && L().date && f.date <= L().date)], id);
   const BADGE = { "nach dem Zwischenstopp": "nach dem Zwischenstopp – Eltern sehen sie nicht",
     "nicht im Verlaufsplan genannt (wegen des Zwischenstopps)": "nicht im Verlaufsplan genannt – Eltern sehen sie nicht (wegen des Zwischenstopps)",
     "PDF wird noch erstellt": "PDF wird noch erstellt – Eltern sehen sie danach", "keine PDF-Datei": "keine PDF-Datei – Eltern sehen sie nicht" };
@@ -300,14 +301,43 @@ export async function gsSessionPage(id, d) {
   const noteTA = h("textarea", { id: "gs-note", rows: "3", maxlength: "2000", value: L().parentNote || "", "aria-describedby": "gs-note-h" });
   const noteState = h("span", { class: "save-state" });
   const noteF = autoField(noteTA, "parentNote", "parentNote", noteState);
-  const copyBtn = h("button", { class: "btn primary", type: "button", id: "gs-copy", onclick: () => toast("Den Sitzungslink für Eltern gibt es, sobald die Elternansicht freigeschaltet ist.", "", 6000) }, icon("link"), "Sitzungslink für Eltern kopieren");
+  // Sitzungslink: beim Aufbau schon geholt, damit das Kopieren im Klick selbst geschieht (Safari erlaubt die Zwischenablage nur dort)
+  let linkToken = null;
+  const linkUrl = (t) => location.origin + location.pathname + "#/eltern/" + t;
+  tapi("GET", "/api/teacher/lessons/" + id + "/parent-link").then((r) => { if (r.token) linkToken = r.token; }).catch(() => {});
+  function linkModal(url) {
+    modal({ title: "Sitzungslink für Eltern", body: (el) => {
+      const inp = h("input", { id: "gs-link-input", readonly: true, value: url, "aria-describedby": "gs-link-h", onfocus: (e) => e.target.select() });
+      el.append(h("div", { class: "field" }, h("label", { for: "gs-link-input" }, "Sitzungslink für Eltern"), inp),
+        h("p", { class: "hint", id: "gs-link-h", text: "Die Zwischenablage ließ sich nicht verwenden. Der Link ist markiert – kopieren Sie ihn mit Strg+C (Mac: ⌘+C) bzw. lange drücken und „Kopieren“." }));
+      setTimeout(() => { if (!el.contains(document.activeElement)) inp.focus(); inp.select(); }, 40);
+    }, actions: [{ label: "Schließen", class: "primary" }] });
+  }
+  async function copyLink() {
+    try {
+      if (!linkToken) { const r = await tapi("POST", "/api/teacher/lessons/" + id + "/parent-link", { body: {} }); linkToken = r.token; L().hasParentLink = true; }
+      const url = linkUrl(linkToken);
+      if (await copyText(url)) toast("Sitzungslink für Eltern kopiert.", "ok"); else linkModal(url);
+    } catch (e) { errToast(e); }
+  }
+  const copyBtn = h("button", { class: "btn primary", type: "button", id: "gs-copy", onclick: copyLink }, icon("link"), "Sitzungslink für Eltern kopieren");
+  const renewBtn = h("button", { class: "btn small danger", type: "button", id: "gs-renew", onclick: async () => {
+    if (!(await confirmDialog("Link erneuern", "Neuen Link erzeugen? Der bisherige Link funktioniert danach nicht mehr.", "Neuen Link erzeugen", true))) return;
+    try {
+      const r = await tapi("POST", "/api/teacher/lessons/" + id + "/parent-link", { body: { renew: true } });
+      linkToken = r.token; L().hasParentLink = true;
+      toast("Neuer Sitzungslink erzeugt – der bisherige funktioniert nicht mehr. Kopieren Sie ihn mit „Sitzungslink für Eltern kopieren“.", "ok", 8000);
+    } catch (e) { errToast(e); }
+  } }, "Neuen Link erzeugen");
   const parentsCard = h("section", { class: "card gs-parents", id: "gs-parents", "aria-labelledby": "gs-parents-h" }, h("h2", { id: "gs-parents-h", text: "Elternansicht" }),
     parentsWhen, parentsSee,
     h("div", { class: "row" }, copyBtn,
       h("a", { class: "btn", id: "gs-try", href: "#/lk/eltern/" + id, target: "_blank", rel: "noopener" }, "Elternansicht ausprobieren", h("span", { class: "sr-only", text: " (öffnet in neuem Tab)" }))),
     h("p", { class: "hint", text: "Wer den Link hat, sieht diese Sitzung und alle vorherigen Sitzungen dieses Kurses im Schuljahr." }),
     h("div", { class: "field" }, h("div", { class: "row between" }, h("label", { for: "gs-note" }, "Hinweis der Lehrkraft (optional)"), noteState), noteTA,
-      h("p", { class: "hint", id: "gs-note-h", text: "Erscheint für die Eltern ganz oben in einem roten Feld. Bitte keine Namen von Kindern." })));
+      h("p", { class: "hint", id: "gs-note-h", text: "Erscheint für die Eltern ganz oben in einem roten Feld. Bitte keine Namen von Kindern." })),
+    h("details", { class: "gs-renew" }, h("summary", { text: "Link erneuern" }),
+      h("p", { class: "small", text: "Ist der Link in falsche Hände geraten? Nach dem Erneuern funktioniert der bisherige Link nicht mehr – die Eltern brauchen dann den neuen." }), renewBtn));
 
   /* ======================= Sitzungsdaten (Seitenleiste) ======================= */
   const fTitle = h("input", { value: L().title, maxlength: "200" }), fTopic = h("input", { value: L().topic, maxlength: "500" });

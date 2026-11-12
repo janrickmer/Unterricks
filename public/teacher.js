@@ -865,13 +865,6 @@ export async function fileOpenPage(id) {
   try { const r = await tapi("POST", "/api/teacher/files/" + id + "/link", { body: { inline: true } }); location.replace(apiUrl(r.url)); }
   catch (e) { stateLine(st, e.message, "err"); main.append(h("p", { class: "small muted", text: "Sie können diesen Tab schließen." })); }
 }
-/* Vorschau der Elternansicht – folgt mit der Elternansicht (Platzhalter, damit der Link „Elternansicht ausprobieren“ nicht ins Leere führt) */
-function parentsPreviewStub(id) {
-  render(teacherBar("primary"), h("main", { class: "narrow" }, pageHead({ fach: "gs", title: "Elternansicht (Vorschau)" }),
-    h("p", { class: "notice", text: "Die Vorschau der Elternansicht ist noch nicht freigeschaltet. Sobald es sie gibt, sehen Sie hier, was Eltern zu dieser Sitzung nach dem Unterricht sehen." }),
-    h("a", { class: "btn", href: "#/lk/s/" + id }, "Zur Sitzung")));
-}
-
 /* ---------- Router der Lehrkräfteansicht ---------- */
 export async function route(hash) {
   await config();
@@ -890,7 +883,7 @@ export async function route(hash) {
   if ((m = /^#\/lk\/grundschule\/k\/(gs[a-f0-9]{8})$/.exec(hash))) return (await import("./grundschule.js")).gsCoursePage(m[1]);
   if ((m = /^#\/lk\/grundlage\/([a-f0-9]{16})$/.exec(hash))) return (await import("./bases.js")).baseDocPage(m[1]);
   if ((m = /^#\/lk\/datei\/([a-f0-9]{16})$/.exec(hash))) return fileOpenPage(m[1]);
-  if ((m = /^#\/lk\/eltern\/([a-f0-9]{16})(?:\/([a-f0-9]{16}))?$/.exec(hash))) return parentsPreviewStub(m[1]);
+  if ((m = /^#\/lk\/eltern\/([a-f0-9]{16})(?:\/([a-f0-9]{16}))?$/.exec(hash))) return (await import("./grundschule.js")).parentsPreviewPage(m[1], m[2] || null);
   if (hash === "#/lk/grundlagen") return (await import("./bases.js")).basesOverview();
   if ((m = /^#\/lk\/grundlagen\/([a-z]+)$/.exec(hash))) return (await import("./bases.js")).basesPage(m[1]);
   go("#/lk");

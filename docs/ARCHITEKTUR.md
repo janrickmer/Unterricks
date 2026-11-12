@@ -100,6 +100,7 @@ implementiert und im End-to-End-Test geprüft (Ausnahmen unten ausdrücklich gen
 | | `worker/units.js` | Unterrichtseinheiten (Versionsschutz), Sitzungen aus der Einheit, Stundenpläne für den Wochenkalender |
 | | `worker/courses.js` | Kurseinstellungen aller Kurse (Stundenplan, Schülerzahl): lesen, speichern, Standard für neue Einheiten und Ausdrucke |
 | | `worker/gs.js` | Grundschulkurse (Jahrgang, Klassen a–c, Fach, Beschreibung, Schuljahr): anlegen, ändern, löschen; Planungsgrundlagen eines Kurses |
+| | `worker/parents.js` | Elternansicht der Grundschule: geheimer Link je Sitzung (nur Hash + verschlüsselte Kopie in D1), öffentliche Routen `/api/eltern/*` (Zeitsperre bis zum Ende der Sitzung, Material bis zum Zwischenstopp, vorherige Sitzungen des Schuljahres, PDF-Links, Sperre je IP), Vorschau der Lehrkraft |
 | | `worker/cards.js` | Bildkarten der Grundschule: PDF hochladen (eine Seite = eine Karte), Kartenbilder mit Stand der PDF, Erzähltexte und Freigabe für Eltern, signierte Bilder (`/api/card/…`), von Claude gestaltete Bildkarten |
 | | `public/weekcal.js` | Wochenkalender auf der Startseite der Lehrkraft (Raster bzw. Liste je Tag) |
 | | `worker/substitute.js` | Krankheitsvertretung: Vorschlag, Bestätigen (Archiv), Wiederherstellen, Übertragen |
@@ -110,7 +111,9 @@ implementiert und im End-to-End-Test geprüft (Ausnahmen unten ausdrücklich gen
 | | `public/grundschule.js` | Bereich „Grundschule“ (Menüpunkt zwischen „Gymnasium“ und „Planungsgrundlagen“): Übersicht mit dem Wochenkalender beider Schulformen, den Kursen und „Neuen Kurs anlegen“ (Knopf im Kopf der Seite führt zum Formular; Jahrgang 1–4, Religion oder ein anderes Fach mit Namen); Kursseite (Einheiten, Kurseinstellungen, Fach/Klassen, Planungsgrundlagen) |
 | | `public/gsplanning.js` | Prompts für Claude in der Grundschule (Einheit und Stunde planen, Verlaufsplan-Regeln; nur analoges Material) |
 | | `public/gssession.js` | Sitzungsseite der Grundschule: Verlaufsplan ganz oben (PDF-Namen gelb markiert als Links in einen neuen Tab, Zwischenstopp per Dialog und Kontextmenü), Materialkasten mit dem Hinweis, was Eltern sehen, Druckliste, Inhalt und Hausaufgabe für die Eltern, Karte „Elternansicht“ – kein Schulportal-Eintrag, keine Präsentation, kein Sitzungscode |
-| | `public/cards.js` | Bildkarten: Betrachter zum Durchklicken (Lehrkraft und Eltern), Karte „Bildkarten“ der Grundschul-Sitzung (Erzähltexte, Freigabe, Hochladen), Kartenbilder im Browser erstellen (PDF.js, nacheinander) |
+| | `public/parents.js` | Elternansicht (`#/eltern/<Token>`): eigene Kopfzeile, Hinweis der Lehrkraft (rot), Bildkarten, Inhalt, Hausaufgabe, Material, vorherige Sitzungen – speichert nichts im Browser, lädt keine Module der Lehrkraft; `parentViewDom` auch für die Vorschau (`grundschule.js`, `#/lk/eltern/<id>`) |
+| | `public/cardview.js` | Betrachter der Bildkarten (Durchklicken, Erzähltext darunter) – eigenes Modul für Lehrkraft und Eltern |
+| | `public/cards.js` | Bildkarten: Betrachter (aus `cardview.js`), Karte „Bildkarten“ der Grundschul-Sitzung (Erzähltexte, Freigabe, Hochladen), Kartenbilder im Browser erstellen (PDF.js, nacheinander) |
 | | `public/units.js`, `public/bases.js` | Seite der Unterrichtseinheit (Leupold-Schema, Tabelle), Planungsgrundlagen |
 | | `public/substitute.js`, `public/claude.js` | Krankheitsvertretung in der Sitzung; Übergabe an Claude (Modell/Aufwand) |
 | | `public/escape.js`, `public/escape-data.js` | Escape-Room-Vorlage (Oberfläche, Überblick-PDF); Prüfen/Bewerten, Zwischenstand, Feibeitsblatt-Datensatz |
@@ -305,6 +308,20 @@ implementiert und im End-to-End-Test geprüft (Ausnahmen unten ausdrücklich gen
   (`COALESCE(pdf_at, created_at)`). Fehlen sie oder passen sie nicht mehr (neu gestaltet), holen die Sitzungsseite und beide Startseiten sie nach
   (`GET /api/teacher/cards/pending`). Eltern sehen Bildkarten nur freigegeben und mit aktuellen Bildern; die Bilder kommen über einen signierten
   Link je Kartensatz (`/api/card/<id>/<n>`, eine Signatur für alle Karten). Erzähltexte schützt `rev` vor dem Überschreiben einer neueren Fassung.
+
+* **Grundschule: Elternansicht (Ergänzung vom 12.11.2026).** Auf der Sitzungsseite kopiert „Sitzungslink für Eltern kopieren“ einen geheimen
+  Link `…#/eltern/<Token>` (192 Bit, `randomToken(24)`); in D1 stehen nur `lessons.parent_hash` (SHA-256 von `eltern|v1|<Token>`, zum
+  Nachschlagen) und `parent_sealed` (mit `SETTINGS_SECRET` verschlüsselt, damit derselbe Link erneut kopiert werden kann). „Link erneuern“
+  ersetzt ihn (der alte ergibt 404); Löschen der Sitzung und Zurücksetzen beenden ihn. Das Token steht nur im Hash der Adresse und im
+  POST-Rumpf (`/api/eltern/sitzung`, `/verlauf`, `/datei`), nie in einem Pfad oder Protokoll. Wer den Link hat, sieht diese Sitzung und die
+  vorherigen desselben Kurses im Schuljahr (1. August bis 31. Juli) – jede erst nach ihrem geplanten Ende (ohne Beginn oder Dauer ab dem
+  Folgetag), vorher nur „Diese Unterrichtssitzung hat noch nicht stattgefunden.“. Inhalt: Hinweis der Lehrkraft (rot, ganz oben), Bildkarten
+  (nur freigegeben, mit aktuellen Bildern, nur bis zum Zwischenstopp), „Inhalt der Unterrichtsstunde“, „Hausaufgabe“ (nur, wenn eingetragen),
+  die PDFs der Kinder (`parentMaterial`, dieselbe Regel wie im Browser der Lehrkraft; Verweise nur auf PDFs früherer Sitzungen des Kurses).
+  Nie Ideen, Verlaufsplan, Chat, Code, Beschreibung des Kurses oder Material der Lehrkraft. Ungültige Links zählen je IP (30 in 10 Minuten →
+  10 Minuten gesperrt, geprüft vor dem Nachschlagen); alle Antworten `no-store` und `X-Robots-Tag: noindex, nofollow`; die Seite lädt nur
+  vom eigenen Server und speichert nichts im Browser. „Elternansicht ausprobieren“ zeigt der Lehrkraft dieselbe Ansicht ohne Zeitsperre
+  (`GET /api/teacher/lessons/<id>/parents`).
 
 * **Fächer und Jahrgänge.** Unter *Planungsgrundlagen → Fach → Fach-Einstellungen* steht, in welchen Jahrgängen ein Fach
   unterrichtet wird. Vorgabe für Politik und Wirtschaft: Jahrgänge 6, 8, 9, 10 (Hinweis: nur 1. Halbjahr), E-Phase und Q-Phase;

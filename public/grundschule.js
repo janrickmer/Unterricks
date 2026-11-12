@@ -1,14 +1,15 @@
 // grundschule.js – Bereich „Grundschule“ der Lehrkraft: Übersicht mit dem Wochenkalender beider Schulformen und den Kursen der
 // Jahrgänge 1–4 (gruppiert nach Jahrgang, aktuelles Schuljahr zuerst), neuen Kurs anlegen, Kursseite (Einheiten mit ihren Sitzungen,
 // Kurseinstellungen, Fach/Klassen/Beschreibung, Planungsgrundlagen, neue Einheit). Fach der Einheiten und Sitzungen: „gs“, Klasse = Kurs-ID.
-import { h, clear, nn, pageHead, toast, errToast, busy, confirmDialog, icon, stateLine } from "./ui.js";
+import { h, clear, nn, pageHead, toast, errToast, busy, confirmDialog, icon, stateLine, setFach } from "./ui.js";
 import { render, go } from "./app.js";
-import { tapi, teacherBar, printPending, cardsPendingRun } from "./teacher.js";
-import { berlinToday, schoolYearOf, gsCourseShort, normalizeGsCourse, GS_CLASS_LETTERS, GS_LIMITS, fmtDay, clockMinutes, minutesClock, addDays } from "./shared.js";
+import { tapi, teacherBar, markNav, printPending, cardsPendingRun } from "./teacher.js";
+import { fmtClockBerlin, berlinToday, schoolYearOf, gsCourseShort, normalizeGsCourse, GS_CLASS_LETTERS, GS_LIMITS, fmtDay, clockMinutes, minutesClock, addDays } from "./shared.js";
 import { WEEKDAYS, normalizeCourseSettings } from "./planning.js";
 import { weekCard } from "./weekcal.js";
 import { weekdayRows, courseSettingsCard } from "./coursecard.js";
 import { baseLink, uploadBaseFile, editBase } from "./bases.js";
+import { parentViewDom } from "./parents.js";
 
 const GS_GONE = "Diesen Grundschulkurs gibt es nicht (mehr).";
 const wdShort = (d) => ((WEEKDAYS.find((w) => w.d === d) || {}).n || "").slice(0, 2);
@@ -292,3 +293,37 @@ export async function gsCoursePage(id) {
   }
   paint();
 }
+
+/* ---------- Vorschau der Elternansicht #/lk/eltern/<Sitzung>[/<vorherige Sitzung>] ----------
+   Zeigt der Lehrkraft, was Eltern nach dem Unterricht sehen – ohne Zeitsperre und ohne Link (Dateien öffnen über #/lk/datei/<id>). */
+const longWhen = (ms) => new Date(ms).toLocaleDateString("de-DE", { weekday: "long", day: "2-digit", month: "2-digit", year: "numeric", timeZone: "Europe/Berlin" }) + ", " + fmtClockBerlin(ms) + " Uhr";
+export async function parentsPreviewPage(id, other = null) {
+  const main = h("main", { class: "narrow parents parents-preview" }, h("div", { class: "skeleton", text: "Lade …" }));
+  render(teacherBar("primary"), main);
+  markNav("primary");
+  const target = other && other !== id ? other : id;
+  const load = () => tapi("GET", "/api/teacher/lessons/" + target + "/parents" + (target !== id ? "?anchor=" + id : ""));
+  let d;
+  try { d = await load(); }
+  catch (e) {
+    clear(main).append(pageHead({ fach: "gs", title: "Elternansicht (Vorschau)" }), h("p", { class: "notice err", role: "alert", text: e.message }),
+      h("p", null, h("a", { class: "btn", href: "#/lk/s/" + id }, "Zur Sitzung")));
+    return;
+  }
+  if (!main.isConnected) return;
+  const when = d.opensAt ? "freigeschaltet ab " + longWhen(d.opensAt) : "freigeschaltet erst, wenn ein Termin eingetragen ist";
+  const view = parentViewDom(d, {
+    isAnchor: target === id,
+    openFileHref: (fid) => "#/lk/datei/" + fid,
+    sessionHref: (lid) => "#/lk/eltern/" + id + (lid && lid !== id ? "/" + lid : ""),
+    loadPrevious: () => tapi("GET", "/api/teacher/lessons/" + id + "/parents/previous"),
+    reload: load,
+  });
+  clear(main).append(
+    h("div", { class: "notice pv-banner", role: "note", text: "Vorschau: So sehen Eltern diese Sitzung nach dem Unterricht (" + when + "). Den Link bekommen Sie mit „Sitzungslink für Eltern kopieren“." }),
+    view,
+    h("p", { class: "small" }, h("a", { href: "#/lk/s/" + target }, "Zur Sitzung (Lehreransicht)")));
+  setFach("gs");
+  if (other && (!document.activeElement || document.activeElement === document.body)) view.focusHeading();
+}
+
