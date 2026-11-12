@@ -196,19 +196,24 @@ async function lessonDump(db, l) {
     parts.push("", "## Feibeitsblatt-Entwürfe");
     for (const d of ds) parts.push("- " + d.id + " (" + d.status + (d.sheet_code ? ", Code " + formatCode(d.sheet_code) : "") + "): " + d.data.slice(0, 4000));
   }
-  const des = await db.prepare("SELECT id, area, name, status, pages, html_at, pdf_at, render_error FROM files WHERE lesson_id=?1 AND html IS NOT NULL AND area<>'archive' ORDER BY created_at").bind(l.id).all();
-  if ((des.results || []).length) {
-    parts.push("", "## Gestaltete Materialien (HTML → PDF; lesen mit get_material, ändern mit add_material_pdf und file_id)");
-    for (const f of des.results) {
-      const state = f.render_error && (!f.pdf_at || f.html_at > f.pdf_at) ? "Druck fehlgeschlagen: " + f.render_error : f.status !== "ready" ? "wartet auf den Druck" : f.html_at > f.pdf_at ? "gedruckt, neue Gestaltung wartet auf den Druck" : "gedruckt" + (f.pages ? ", " + f.pages + (f.pages === 1 ? " Seite" : " Seiten") : "");
-      parts.push("- file_id " + f.id + ": „" + f.name + "“ (" + (f.area === "student" ? "für Schüler:innen" : f.area === "teacher" ? "nur Lehrkraft" : "zum Ausdrucken") + "; " + state + ")");
-    }
-  }
+  parts.push(...(await designedSection(db, l.id, (a) => (a === "student" ? "für Schüler:innen" : a === "teacher" ? "nur Lehrkraft" : "zum Ausdrucken"))));
   const sub = await getSubstitute(db, l.id);
   if (sub) parts.push("", "## Krankheitsvertretung", "Status: " + sub.status + (sub.status === "aktiv" ? " (die ursprüngliche Planung ist archiviert)" : " (Vorschlag liegt der Lehrkraft vor)"));
   if (l.unit_id) parts.push("", "Unterrichtseinheit: " + l.unit_id + " (Details mit get_unit; Planungsgrundlagen mit get_planning_basis)");
   parts.push("", "## Rolle des Planungsassistenten der Plattform (zur Orientierung)", SYSTEM_PROMPT_ROLE);
   return parts.join("\n");
+}
+
+/* Abschnitt „Gestaltete Materialien“ von get_lesson (Gymnasium und Grundschule; areaText = Bezeichnung des Bereichs) */
+async function designedSection(db, lessonId, areaText) {
+  const des = await db.prepare("SELECT id, area, name, status, pages, html_at, pdf_at, render_error FROM files WHERE lesson_id=?1 AND html IS NOT NULL AND area<>'archive' ORDER BY created_at").bind(lessonId).all();
+  if (!(des.results || []).length) return [];
+  const out = ["", "## Gestaltete Materialien (HTML → PDF; lesen mit get_material, ändern mit add_material_pdf und file_id)"];
+  for (const f of des.results) {
+    const state = f.render_error && (!f.pdf_at || f.html_at > f.pdf_at) ? "Druck fehlgeschlagen: " + f.render_error : f.status !== "ready" ? "wartet auf den Druck" : f.html_at > f.pdf_at ? "gedruckt, neue Gestaltung wartet auf den Druck" : "gedruckt" + (f.pages ? ", " + f.pages + (f.pages === 1 ? " Seite" : " Seiten") : "");
+    out.push("- file_id " + f.id + ": „" + f.name + "“ (" + areaText(f.area) + "; " + state + ")");
+  }
+  return out;
 }
 
 /* get_lesson einer Grundschul-Sitzung: Kurs statt Klasse, Verlaufsplan statt Schulportal-Eintrag, Inhalt und Hinweis für die Eltern, die PDF-Dateien
@@ -238,6 +243,7 @@ async function gsLessonDump(db, l) {
     "", "## PDF-Dateien des Kurses für Verweise ([[pdf:<file_id>]])", "Diese Sitzung:", ...(own.length ? own.map(gsFileLine) : ["(noch keine)"]),
   ];
   if (prev) parts.push("Vorige Sitzung „" + prev.title + "“" + (prev.lesson_date ? " (" + fmtDay(prev.lesson_date) + ")" : "") + ":", ...(before.length ? before.map(gsFileLine) : ["(keine)"]));
+  parts.push(...(await designedSection(db, l.id, (a) => (a === "student" ? "für die Kinder" : a === "teacher" ? "nur Lehrkraft" : "zum Ausdrucken"))));
   if (results.length) parts.push("", "## Gespeicherter Stundenentwurf (save_planning_result)", results[results.length - 1].content.slice(0, 20000));
   if (l.unit_id) parts.push("", "Unterrichtseinheit: " + l.unit_id + " (Details mit get_unit; Planungsgrundlagen mit get_planning_basis)");
   return parts.join("\n");

@@ -69,7 +69,7 @@ export async function gsSessionPage(id, d) {
     unstopBtn.classList.toggle("hidden", !hasStop(ta.value));
     paintParents(); paintSummaryHint();
   }
-  function schedulePlan() { plan.dirty = true; stateLine(planState, "Ungespeicherte Änderungen …"); clearTimeout(plan.timer); plan.timer = setTimeout(() => flushPlan(), 1200); }
+  function schedulePlan() { plan.dirty = true; if (planState.textContent !== "Ungespeicherte Änderungen …") stateLine(planState, "Ungespeicherte Änderungen …"); clearTimeout(plan.timer); plan.timer = setTimeout(() => flushPlan(), 1200); }
   function setPlanText(t) { ta.value = t; paintPlan(); schedulePlan(); }
   function flushPlan(force) {
     clearTimeout(plan.timer);
@@ -273,11 +273,14 @@ export async function gsSessionPage(id, d) {
   const parentsSee = h("p", { class: "small" });
   function paintParents() {
     const l = L(), times = lessonTimes({ date: l.date, startTime: l.startTime, durationMin: l.durationMin });
-    parentsWhen.textContent = !l.date ? "Diese Sitzung hat noch keinen Termin – Eltern sehen sie erst, wenn ein Datum eingetragen ist."
+    // Live-Region nur bei einer echten Änderung neu füllen (paintParents läuft bei jeder Eingabe im Verlaufsplan)
+    const when = !l.date ? "Diese Sitzung hat noch keinen Termin – Eltern sehen sie erst, wenn ein Datum eingetragen ist."
       : times ? "Eltern sehen diese Sitzung ab " + longWhen(parentOpensAt({ date: l.date, startTime: l.startTime, durationMin: l.durationMin })) + " – vorher steht dort " + NOT_YET
         : "Eltern sehen diese Sitzung ab dem Folgetag (Beginn oder Dauer fehlen) – vorher steht dort " + NOT_YET;
+    if (parentsWhen.textContent !== when) parentsWhen.textContent = when;
     const pm = parentsNow(), names = [...pm.cards, ...pm.files].map((fid) => "„" + ((fileOf(fid) || {}).name || "PDF") + "“");
-    parentsSee.textContent = "Eltern sehen von dieser Sitzung: " + (names.join(", ") || "noch kein Material");
+    const see = "Eltern sehen von dieser Sitzung: " + (names.join(", ") || "noch kein Material");
+    if (parentsSee.textContent !== see) parentsSee.textContent = see;
     for (const [fid, el] of badgeEls) { if (el.isConnected) fillBadge(el, fid, pm); else badgeEls.delete(fid); }
   }
   const noteTA = h("textarea", { id: "gs-note", rows: "3", maxlength: "2000", value: L().parentNote || "", "aria-describedby": "gs-note-h" });

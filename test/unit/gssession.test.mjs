@@ -184,6 +184,8 @@ test("Connector (Grundschule): get_lesson, save_verlaufsplan, update_lesson inha
   assert.ok(r.isError && r.content[0].text === "Nur bei Sitzungen der Grundschule.");
   r = await mcp("get_lesson", { lesson_id: l2.id });
   assert.ok(r.content[0].text.includes("## Inhalt der Unterrichtsstunde (für die Eltern)\nWir haben gehört, wie Josef nach Ägypten kam."));
+  // gestaltete Materialien wie am Gymnasium (lesen mit get_material), Bereich in Grundschul-Worten
+  assert.ok(r.content[0].text.includes("## Gestaltete Materialien (HTML → PDF; lesen mit get_material, ändern mit add_material_pdf und file_id)\n- file_id " + abId + ": „Arbeitsblatt Josef.pdf“ (für die Kinder; wartet auf den Druck)"), r.content[0].text);
   assert.equal(r.structuredContent.verlaufsplan_version, 3);
   // Gymnasium: get_lesson unverändert mit Sitzungscode
   r = await mcp("get_lesson", { lesson_id: sek.id });

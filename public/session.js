@@ -24,7 +24,8 @@ export async function sessionPage(id) {
   try { [d, cfg] = await Promise.all([tapi("GET", "/api/teacher/lessons/" + id), tapi("GET", "/api/teacher/subjects").then((r) => r.subjects).catch(() => null)]); }
   catch (e) { clear(main).append(h("div", { class: "card" }, h("p", { class: "err", text: e.message }), h("a", { class: "btn", href: "#/lk" }, "Zur Übersicht"))); return; }
   // Grundschule: eigene Sitzungsseite (Verlaufsplan statt Schulportal-Eintrag, keine Präsentation, Elternansicht)
-  if (isGsLesson(d.lesson)) return (await import("./gssession.js")).gsSessionPage(id, d);
+  // (nur, wenn die Seite noch angezeigt wird – sonst würde sie eine inzwischen geöffnete andere Seite überschreiben)
+  if (isGsLesson(d.lesson)) { const gs = await import("./gssession.js"); return main.isConnected ? gs.gsSessionPage(id, d) : undefined; }
   const st = { lesson: d.lesson, messages: d.messages, files: d.files, sheets: d.sheets, drafts: d.drafts, slides: null, unit: d.unit, sub: d.substitute };
   const L = () => st.lesson;
   const analog = isAnalogClass(d.lesson.klass);
