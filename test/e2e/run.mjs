@@ -1609,6 +1609,103 @@ async function main() {
       await tp.setViewportSize(vp);
     }
 
+    step("Grundschul-Sitzung: Verlaufsplan, PDF-Verweise, Zwischenstopp (Connector)");
+    {
+      const gl = (await T("GET", "/api/teacher/lessons?subject=gs&klass=" + gsRelId)).data.lessons.slice().sort((a, b) => (a.date < b.date ? -1 : a.date > b.date ? 1 : 0));
+      const [les1, les2] = gl;
+      // a) Claude über den Connector: get_lesson ohne Sitzungscode, kein Schulportal-Eintrag, Material mit Anzahl, Verlaufsplan, Inhalt für die Eltern
+      let g = await tool("get_lesson", { lesson_id: les2.id });
+      ok(g.content[0].text.includes("## Verlaufsplan") && g.content[0].text.includes("Schülerzahl laut Kurseinstellungen: 22") && !g.content[0].text.includes("Sitzungscode"),
+        "get_lesson (Grundschule): Verlaufsplan und 22 Kinder, kein Sitzungscode");
+      ok((await tool("save_schulportal_entry", { lesson_id: les2.id, text: "**1) x**" })).isError === true, "save_schulportal_entry: in der Grundschule abgelehnt");
+      g = await tool("add_material_pdf", { lesson_id: les1.id, bereich: "lehrkraft", titel: "Vorlesetext Josef", html: "<h1>Vorlesetext</h1><p>Josef hatte elf Brüder.</p>" });
+      const vorId = g.structuredContent.file_id;
+      g = await tool("add_material_pdf", { lesson_id: les2.id, bereich: "schueler", titel: "Arbeitsblatt Josef in Ägypten", html: "<h1>Josef in Ägypten</h1><p>Male ein Bild.</p>", anzahl: 22 });
+      const abId = g.structuredContent.file_id;
+      ok(!g.isError && g.content[0].text.includes("„22x - beidseitig - sw - Arbeitsblatt Josef in Ägypten.pdf“") && g.content[0].text.includes("Verweis im Verlaufsplan: [[pdf:" + abId + "]]"),
+        "add_material_pdf (Kinder, anzahl 22): auch auf der Druckliste, Antwort nennt den Verweis");
+      g = await tool("add_material_pdf", { lesson_id: les2.id, bereich: "schueler", titel: "Rätsel Pyramide", html: "<h1>Rätsel</h1>", anzahl: 22 });
+      const raeId = g.structuredContent.file_id;
+      const PLAN = (bad) => "**1) Ankommen im Sitzkreis (5 Min.)**\n- Begrüßungslied, Kerze anzünden\n**2) Erzählung (15 Min., Sitzkreis)**\n- __Lehrkraft liest [[pdf:" + vorId + "|Vorlesetext]] vor.__\n" +
+        "**3) Arbeitsblatt (15 Min., Einzelarbeit)**\n- [[pdf:" + (bad || abId) + "]]\n**4) Rätsel (10 Min., Partnerarbeit)**\n- [[pdf:" + raeId + "]]";
+      g = await tool("save_verlaufsplan", { lesson_id: les2.id, text: PLAN("0123456789abcdef"), base_version: 0 });
+      ok(!g.isError && g.content[0].text.includes("Achtung: Diese Verweise gehören zu keiner PDF des Kurses: [[pdf:0123456789abcdef]]") && g.content[0].text.includes(abId + " („Arbeitsblatt Josef in Ägypten.pdf“)"),
+        "save_verlaufsplan: unbekannter Verweis gespeichert, aber gemeldet (mit den gültigen file_id)");
+      g = await tool("save_verlaufsplan", { lesson_id: les2.id, text: PLAN(), base_version: 1 });
+      ok(!g.isError && g.content[0].text.startsWith("Verlaufsplan gespeichert (Version 2).") && g.content[0].text.includes("Eltern sehen nach der Stunde: „Arbeitsblatt Josef in Ägypten.pdf“, „Rätsel Pyramide.pdf“."),
+        "save_verlaufsplan: gültig; Eltern sehen nach der Stunde die beiden Blätter der Kinder");
+      ok(!(await tool("update_lesson", { lesson_id: les2.id, inhalt_eltern: "Wir haben gehört, wie Josef nach Ägypten kam." })).isError
+        && (await tool("update_lesson", { lesson_id: lessonId, inhalt_eltern: "x" })).isError === true, "update_lesson inhalt_eltern: Grundschule ja, Gymnasium abgelehnt");
+      // b) Sitzungsseite der Lehrkraft: Verlaufsplan ganz oben, PDF-Namen gelb markiert als Links in einen neuen Tab
+      await tp.goto(BASE + "/#/lk/s/" + les2.id);
+      const plan = tp.locator("#gsplan");
+      await plan.locator("a.pdfref").nth(2).waitFor({ timeout: 15000 });
+      ok(await tp.evaluate(() => { const s = document.querySelector(".gs-session > .stack"); return !!s && s.firstElementChild && s.firstElementChild.id === "gsplan"; })
+        && await tp.locator('.topbar nav a[aria-current="page"]').textContent() === "Grundschule" && (await plan.locator(".save-state").textContent()).includes("Version 2 · zuletzt von Claude"),
+        "Sitzungsseite: Verlaufsplan als erste Karte, Menüpunkt Grundschule, „Version 2 · zuletzt von Claude“");
+      const refs = await plan.locator("a.pdfref").evaluateAll((els) => els.map((e) => ({ t: e.firstChild.textContent, bg: getComputedStyle(e).backgroundColor, u: getComputedStyle(e).textDecorationLine, tg: e.target, h: e.getAttribute("href") })));
+      ok(refs.length === 3 && refs.map((r) => r.t).join("|") === "Vorlesetext Josef.pdf|Arbeitsblatt Josef in Ägypten.pdf|Rätsel Pyramide.pdf" && refs.every((r) => r.bg === "rgb(255, 212, 59)" && r.u.includes("underline") && r.tg === "_blank")
+        && refs[1].h === "#/lk/datei/" + abId && await plan.locator("u a.pdfref").count() === 1, "PDF-Namen im Verlaufsplan: gelb markiert, unterstrichen, Link in einen neuen Tab (Aufforderung an die Lehrkraft unterstrichen)");
+      const dlReq = tctx.waitForEvent("request", { predicate: (q) => q.url().includes("/api/dl/" + abId), timeout: 20000 }).catch(() => null);
+      const [np] = await Promise.all([tctx.waitForEvent("page"), plan.locator("a.pdfref").nth(1).click()]);
+      const q = await dlReq, res = q ? await fetch(q.url()) : null;
+      ok(res && res.status === 200 && res.headers.get("content-type") === "application/pdf" && /^inline/.test(res.headers.get("content-disposition") || ""), "Klick auf den PDF-Namen: neuer Tab mit der PDF (signierter Link, inline)");
+      await np.close().catch(() => {});
+      ok(await tp.locator("#backupchat, #portal, #fbcard, .code-big, .presrel, .sessionio").count() === 0 && !(await tp.locator("#app main").textContent()).includes("Sitzungscode")
+        && !(await tp.locator("#app main").textContent()).includes("Schulportal"), "keine Live-Präsentation, kein Chat, kein Schulportal-Eintrag, kein Sitzungscode, kein Feibeitsblatt");
+      // c) Material: Hinweis, was Eltern sehen; Druckliste mit den Blättern der Kinder
+      const mat = tp.locator("#gs-material");
+      await mat.locator(".gs-parents-badge").nth(1).waitFor({ timeout: 10000 });
+      ok(JSON.stringify(await mat.locator(".gs-parents-badge").allTextContents()) === JSON.stringify(["Eltern sehen sie", "Eltern sehen sie"]) && await mat.getByText("Material für die Kinder (Eltern sehen die PDF-Dateien nach der Stunde)").count() === 1
+        && await mat.locator(".printtoggle input:checked").count() === 2 && (await mat.locator(".printtoggle").first().textContent()) === "Auch ausdrucken (22×)", "Materialkasten: „Eltern sehen sie“ und „Auch ausdrucken (22×)“");
+      const prn = await tp.locator("#printcard .printrow .name").allTextContents();
+      ok(prn.includes("22x - beidseitig - sw - Arbeitsblatt Josef in Ägypten.pdf") && prn.includes("22x - beidseitig - sw - Rätsel Pyramide.pdf"), "Druckliste: die Blätter der Kinder mit 22 Exemplaren");
+      ok((await tp.locator("#gs-parents").textContent()).includes("Eltern sehen von dieser Sitzung: „Arbeitsblatt Josef in Ägypten.pdf“, „Rätsel Pyramide.pdf“")
+        && await tp.locator("#gs-summary").inputValue() === "Wir haben gehört, wie Josef nach Ägypten kam.", "Elternansicht-Karte nennt das Material; Inhalt der Unterrichtsstunde von Claude");
+      // d) Zwischenstopp per Tastatur (Dialog „Wo haben Sie aufgehört?“): vor „4) Rätsel“
+      await plan.getByRole("button", { name: "Zwischenstopp eintragen …" }).focus();
+      await tp.keyboard.press("Enter");
+      const sd = tp.locator(".modal", { hasText: "Wo haben Sie aufgehört?" });
+      await sd.waitFor();
+      ok(await tp.evaluate(() => document.activeElement && document.activeElement.name === "gs-stop" && document.activeElement.checked), "Dialog: Fokus auf der gewählten Zeile");
+      for (let i = 0; i < 6; i++) await tp.keyboard.press("ArrowDown");
+      await tp.keyboard.press("Enter");
+      await tp.locator(".toast", { hasText: "Zwischenstopp eingetragen" }).waitFor({ timeout: 10000 });
+      let stopped = "";
+      for (let i = 0; i < 30 && !stopped.includes("⏸"); i++) { await sleep(300); stopped = (await T("GET", "/api/teacher/lessons/" + les2.id)).data.lesson.portal; }
+      ok(stopped.split("\n")[6] === "⏸ Zwischenstopp" && stopped.split("\n")[7] === "**4) Rätsel (10 Min., Partnerarbeit)**", "Zwischenstopp vor „4) Rätsel“ gespeichert");
+      ok(JSON.stringify(await mat.locator(".gs-parents-badge").allTextContents()) === JSON.stringify(["Eltern sehen sie", "nach dem Zwischenstopp – Eltern sehen sie nicht"]) && await plan.locator(".stopfield").count() === 1
+        && (await tp.locator("#gs-parents").textContent()).includes("Eltern sehen von dieser Sitzung: „Arbeitsblatt Josef in Ägypten.pdf““".slice(0, -1)) && !(await tp.locator("#gs-parents").textContent()).includes("Rätsel Pyramide")
+        && await tp.locator("#gs-summary-stop").isVisible(), "nach dem Zwischenstopp: Rätsel „Eltern sehen sie nicht“, Hinweis beim Inhalt der Unterrichtsstunde");
+      // Kontextmenü auf einer Zeile der Vorschau
+      await plan.locator('.portal-preview [data-line="1"]').click({ button: "right" });
+      ok(await tp.locator(".ctxmenu").getByRole("menuitem", { name: "Zwischenstopp einfügen" }).count() === 1 && await tp.locator(".ctxmenu").getByRole("menuitem", { name: "Zwischenstopp entfernen" }).count() === 1,
+        "Rechtsklick auf eine Zeile: „Zwischenstopp einfügen“ / „Zwischenstopp entfernen“");
+      await tp.keyboard.press("Escape");
+      // e) Bearbeiten: Textfeld mit Vorschau, PDF-Verweis aus der vorigen Sitzung an der Schreibmarke einfügen
+      await plan.getByRole("button", { name: "Bearbeiten" }).click();
+      const pta = tp.locator("#gsplan-text");
+      await pta.waitFor();
+      await pta.evaluate((e) => { e.focus(); e.setSelectionRange(e.value.length, e.value.length); });
+      await plan.getByRole("button", { name: "PDF-Verweis einfügen …" }).click();
+      await tp.locator(".ctxmenu").getByRole("menuitem", { name: "Vorlesetext Josef.pdf (vorige Sitzung)" }).click();
+      ok((await pta.inputValue()).endsWith("[[pdf:" + vorId + "]]") && await plan.getByLabel("Verlaufsplan (wird automatisch gespeichert)").count() === 1, "Bearbeiten: Verweis an der Schreibmarke eingefügt");
+      await plan.getByRole("button", { name: "Fertig" }).click();
+      let saved = "";
+      for (let i = 0; i < 30 && !saved.endsWith("[[pdf:" + vorId + "]]"); i++) { await sleep(300); saved = (await T("GET", "/api/teacher/lessons/" + les2.id)).data.lesson.portal; }
+      ok(saved.endsWith("[[pdf:" + vorId + "]]") && await pta.count() === 0, "„Fertig“: gespeichert, wieder die feste Ansicht");
+      // f) Hausaufgabe und Hinweis der Lehrkraft (für die Eltern) speichern automatisch
+      await tp.locator("#gs-homework").fill("Male ein Bild von Josef.");
+      await tp.locator("#gs-note").fill("Bitte Malstifte mitgeben.");
+      await tp.locator("#gs-summary").focus();
+      let gl2 = null;
+      for (let i = 0; i < 30 && !(gl2 && gl2.parentNote && gl2.homework); i++) { await sleep(300); gl2 = (await T("GET", "/api/teacher/lessons/" + les2.id)).data.lesson; }
+      ok(gl2.parentNote === "Bitte Malstifte mitgeben." && gl2.homework === "Male ein Bild von Josef." && gl2.parentSummary === "Wir haben gehört, wie Josef nach Ägypten kam.", "Hausaufgabe und Hinweis der Lehrkraft gespeichert");
+      ok((await T("PATCH", "/api/teacher/lessons/" + lessonId, { parentNote: "x" })).status === 400, "Gymnasium: kein Hinweis für Eltern (400)");
+      ok(await tp.locator("#gs-copy").textContent() === "Sitzungslink für Eltern kopieren" && await tp.locator("#gs-try").getAttribute("target") === "_blank", "Knöpfe „Sitzungslink für Eltern kopieren“ und „Elternansicht ausprobieren“ ganz unten");
+      await tp.screenshot({ ...SHOT, path: join(OUT, "lehrkraft-grundschulsitzung.png"), fullPage: true });
+    }
+
     /* ---------- GitHub Pages: dieselbe Oberfläche von einer anderen Herkunft ---------- */
     step("GitHub Pages: Oberfläche von anderer Herkunft (CORS, Live-Verbindung, Links zum Worker, Schutz gegen Einbetten)");
     execFileSync("node", ["scripts/build.mjs"], { cwd: ROOT, env: { ...process.env, PAGES_API: BASE, FEIBEITSBLATT_API: FB }, stdio: "ignore" });

@@ -635,6 +635,12 @@ export const PORTAL_EXAMPLE = [
   "- Während der Diskussion muss das weiter gefüllt werden.",
 ].join("\n");
 
+/* Aufforderung an die Lehrkraft, auf eigenes Material zurückzugreifen (Wunsch der Lehrkraft vom 12.11.2026): eigener Stichpunkt, unterstrichen;
+   Materialtitel darin bleiben kursiv. Gilt für neu geschriebene Einträge (Claude und kostenlose KI). */
+export const PORTAL_TEACHER_RULE = "Muss die Lehrkraft an einer Stelle auf Material zurückgreifen, das nur sie hat (Material nur für die Lehrkraft, z. B. ein Vorlesetext, ein Erzähltext oder eine Lösung), " +
+  "steht diese Aufforderung als eigener Stichpunkt in der passenden Phase und ist unterstrichen (__…__); der Materialtitel darin bleibt kursiv, z. B. „- __Lehrkraft liest den Vorlesetext ~~Die Arche Noah~~ vor.__“. " +
+  "Unterstrichen wird nur diese Aufforderung – Titel von Materialien, Feibeitsblättern und Videos, Leitfragen und Codes bleiben kursiv.";
+
 /* Text aus der KI entschärfen: Zeichenfolgen, die im Schulportal ungewollt formatieren würden, ersetzen.
  * «…» bzw. »…« (Titel, Leitfragen, Codes) wird anschließend zu ~~…~~ (kursiv). */
 export function portalSafe(s) {
@@ -652,7 +658,9 @@ export function portalItalics(s) {
   // «x» oder »x« → ~~x~~ (Inhalt ohne äußere Leerzeichen)
   return s.replace(/«\s*([^«»]+?)\s*»/g, "~~$1~~").replace(/»\s*([^«»]+?)\s*«/g, "~~$1~~");
 }
-const portalItem = (s) => portalItalics(portalSafe(s));
+/* ‹x› (einfache Guillemets) → __x__ (unterstrichen): Aufforderung an die Lehrkraft, auf eigenes Material zurückzugreifen; «…» darin bleibt kursiv */
+export const portalUnderline = (s) => s.replace(/‹\s*([^‹›]+?)\s*›/g, "__$1__");
+const portalItem = (s) => portalUnderline(portalItalics(portalSafe(s)));
 
 /* Strukturierte Planung → fertiger Schulportal-Text.
  * data = { phasen: [{ titel, punkte: [string] }], naechsteStundeAb: Nummer der ersten Phase für die nächste Stunde | null } */
@@ -1013,7 +1021,10 @@ export function portalMessages(ctx, chatText) {
     "Regeln: Jede Phase ist ein Unterrichtsschritt in der geplanten Reihenfolge; „titel“ ist kurz und nennt Methode/Sozialform oder Inhalt " +
     "(z. B. „Blitzlicht ohne iPad“, „Partnerarbeit“, „Video: Das Bundesverfassungsgericht“). „punkte“ sind knappe Stichpunkte (0–4) mit dem, was passiert. " +
     "Setze Titel von Materialien und Arbeitsblättern, Leitfragen/Diskussionsfragen und Codes in «» (sie werden kursiv), z. B. „Einstieg: «Wie kann man sich helfen, wenn Demokratiefeinde regieren?»“ " +
-    "oder „Feibeitsblatt «Die wehrhafte Demokratie» mit dem Code «AEH-4VY»“. Links nur, wenn sie in der Planung wörtlich stehen, als vollständige https://-Adresse. " +
+    "oder „Feibeitsblatt «Die wehrhafte Demokratie» mit dem Code «AEH-4VY»“. " +
+    "Muss die Lehrkraft an einer Stelle auf Material zurückgreifen, das nur sie hat (Material nur für die Lehrkraft, z. B. ein Vorlesetext, ein Erzähltext oder eine Lösung), ist diese Aufforderung ein eigener Stichpunkt in der passenden Phase " +
+    "und steht ganz in ‹› (sie wird unterstrichen); der Materialtitel darin bleibt in «», z. B. „‹Lehrkraft liest den Vorlesetext «Die Arche Noah» vor.›“. Sonst nie ‹›. " +
+    "Links nur, wenn sie in der Planung wörtlich stehen, als vollständige https://-Adresse. " +
     "Keine Minutenangaben, keine Markdown-Zeichen (*, _, ~, #), keine Nummerierung im Titel. " +
     "„naechsteStundeAb“: Nummer der ersten Phase, die laut Planung erst in der nächsten Stunde drankommt, sonst null.";
   const user = "Formatvorlage der Lehrkraft (so sieht der fertige Eintrag aus):\n<<<\n" + PORTAL_EXAMPLE + "\n>>>\n\n" +
@@ -1139,7 +1150,7 @@ export function claudePresentationPrompt(ctx, portalText, messages) {
     "- Dauer: " + (L.durationMin ? L.durationMin + " Minuten" : "(nicht angegeben)"),
     "",
     "## Verbindlicher Stundenverlauf (aktueller Schulportal-Eintrag der Lehrkraft – genau diese Fassung gilt, auch wenn ältere Planungen abweichen)",
-    "Formatierung im Text: **…** = fett, ~~…~~ = kursiv (Titel, Leitfragen, Codes), Zeilen mit „- “ = Stichpunkte, „--> Nächste Stunde“ = ab hier folgt der Teil für die nächste Stunde.",
+    "Formatierung im Text: **…** = fett, ~~…~~ = kursiv (Titel, Leitfragen, Codes), __…__ = unterstrichen (Aufforderung an mich, auf Material zurückzugreifen, das nur ich habe), Zeilen mit „- “ = Stichpunkte, „--> Nächste Stunde“ = ab hier folgt der Teil für die nächste Stunde.",
     "<<<",
     removeStops(portalText).trim(),
     ">>>",

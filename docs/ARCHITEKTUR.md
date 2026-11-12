@@ -107,7 +107,8 @@ implementiert und im End-to-End-Test geprüft (Ausnahmen unten ausdrücklich gen
 | | `public/materialbox.js` | Materialkasten einer Sitzung (Material für Schüler:innen und Lehrkräfte, Druckliste) – aus `session.js` ausgelagert |
 | | `public/coursecard.js` | Karte „Kurseinstellungen“ auf der Klassen- bzw. Kursseite (Termine pro Woche, Schülerzahl) |
 | | `public/grundschule.js` | Bereich „Grundschule“ (Menüpunkt zwischen „Gymnasium“ und „Planungsgrundlagen“): Übersicht mit dem Wochenkalender beider Schulformen, den Kursen und „Neuen Kurs anlegen“ (Knopf im Kopf der Seite führt zum Formular; Jahrgang 1–4, Religion oder ein anderes Fach mit Namen); Kursseite (Einheiten, Kurseinstellungen, Fach/Klassen, Planungsgrundlagen) |
-| | `public/gsplanning.js` | Prompts für Claude in der Grundschule (Einheit planen; nur analoges Material) |
+| | `public/gsplanning.js` | Prompts für Claude in der Grundschule (Einheit und Stunde planen, Verlaufsplan-Regeln; nur analoges Material) |
+| | `public/gssession.js` | Sitzungsseite der Grundschule: Verlaufsplan ganz oben (PDF-Namen gelb markiert als Links in einen neuen Tab, Zwischenstopp per Dialog und Kontextmenü), Materialkasten mit dem Hinweis, was Eltern sehen, Druckliste, Inhalt und Hausaufgabe für die Eltern, Karte „Elternansicht“ – kein Schulportal-Eintrag, keine Präsentation, kein Sitzungscode |
 | | `public/units.js`, `public/bases.js` | Seite der Unterrichtseinheit (Leupold-Schema, Tabelle), Planungsgrundlagen |
 | | `public/substitute.js`, `public/claude.js` | Krankheitsvertretung in der Sitzung; Übergabe an Claude (Modell/Aufwand) |
 | | `public/escape.js`, `public/escape-data.js` | Escape-Room-Vorlage (Oberfläche, Überblick-PDF); Prüfen/Bewerten, Zwischenstand, Feibeitsblatt-Datensatz |

@@ -4,7 +4,7 @@ import { HttpError, bad, json, readJson, randomId, cleanLine, cleanText, isId, r
 import { courseClassSize } from "./courses.js";
 import { requireTeacher } from "./auth.js";
 import { getLesson, fileOut, codeSlidesOf, LIMITS, printProps } from "./lessons.js";
-import { normalizeCode, isValidCode, cleanWebUrl, slidesUpTo, printFileName, cleanCopies, isAnalogClass, cleanCodeSlides } from "../public/shared.js";
+import { normalizeCode, isValidCode, cleanWebUrl, slidesUpTo, printFileName, cleanCopies, isAnalogClass, cleanCodeSlides, GS_SUBJECT } from "../public/shared.js";
 import { cleanDesignHtml, renderPdf, htmlText, keepImages, shortImages, HTML_MAX, RenderError, renderUsage, printerConfigured } from "./render.js";
 
 export const MAX_FILE = 100 * 1024 * 1024;         // Grenze einer Anfrage im Cloudflare-Free-Plan
@@ -204,7 +204,8 @@ export function designHtml(raw) {
   return html;
 }
 /* neu anlegen (fileId fehlt) oder die Gestaltung eines vorhandenen Materials dieser Sitzung ersetzen */
-export async function saveDesign(c, lessonId, { area, title, html, print = {}, source = "claude", fileId = null }) {
+/* gsPrint: Grundschule – ein Arbeitsblatt der Kinder (area student) mit Anzahl steht zusätzlich auf der Druckliste */
+export async function saveDesign(c, lessonId, { area, title, html, print = {}, source = "claude", fileId = null, gsPrint = false }) {
   if (fileId) {
     const f = await getFile(c.db, fileId);
     if (f.lesson_id !== lessonId || f.html == null) throw bad("file_id gehört zu keinem gestalteten Material dieser Sitzung (siehe get_lesson).");
@@ -218,7 +219,7 @@ export async function saveDesign(c, lessonId, { area, title, html, print = {}, s
       // für Schüler:innen erst mit der neuen PDF (die bisherige war nur für die Lehrkraft gedacht)
       if (area === "student") sets.push("status='pending'");
     }
-    if (f.area === "print") {
+    if (f.area === "print" || (gsPrint && (area || f.area) === "student" && (cleanCopies(print.copies) || f.print_copies != null))) {
       const n = cleanCopies(print.copies); if (n) { args.push(n); sets.push("print_copies=?" + args.length); }
       if (typeof print.duplex === "boolean") { args.push(print.duplex ? 1 : 0); sets.push("print_duplex=?" + args.length); }
       if (typeof print.color === "boolean") { args.push(print.color ? 1 : 0); sets.push("print_color=?" + args.length); }
@@ -228,10 +229,11 @@ export async function saveDesign(c, lessonId, { area, title, html, print = {}, s
   }
   if (!DESIGN_AREAS.has(area)) throw bad("Bitte den Bereich wählen: für Schüler:innen, nur für die Lehrkraft oder zum Ausdrucken.");
   const h = designHtml(html), id = randomId(8);
-  const copies = area === "print" ? cleanCopies(print.copies) || (await defaultCopies(c.db, lessonId)) : null;
+  const copies = area === "print" ? cleanCopies(print.copies) || (await defaultCopies(c.db, lessonId)) : gsPrint && area === "student" ? cleanCopies(print.copies) : null;
+  const printed = area === "print" || !!copies;
   await c.db.prepare("INSERT INTO files(id, lesson_id, area, kind, name, mime, size, text, status, source, html, html_at, print_copies, print_duplex, print_color, created_at, updated_at) " +
     "VALUES(?1, ?2, ?3, 'file', ?4, 'application/pdf', 0, ?5, 'pending', ?6, ?7, ?8, ?9, ?10, ?11, ?8, ?8)")
-    .bind(id, lessonId, area, pdfFileName(title), htmlText(h), source, h, c.now, copies, area === "print" ? (print.duplex === false ? 0 : 1) : null, area === "print" ? (print.color === true ? 1 : 0) : null).run();
+    .bind(id, lessonId, area, pdfFileName(title), htmlText(h), source, h, c.now, copies, printed ? (print.duplex === false ? 0 : 1) : null, printed ? (print.color === true ? 1 : 0) : null).run();
   return getFile(c.db, id);
 }
 /* Gestaltung drucken (PDF in R2) – Ergebnis die aktuelle Zeile; Fehler des Druckers bleiben in render_error stehen und werden geworfen */
@@ -336,10 +338,16 @@ export async function routeFilePatch(c, fileId) {
   }
   if (body.name !== undefined) { const n = cleanLine(body.name, 200); if (!n) throw bad("Der Name darf nicht leer sein."); args.push(n); sets.push("name=?" + (args.length + 1)); }
   if (body.copies !== undefined || body.duplex !== undefined || body.color !== undefined) {
-    if (f.area !== "print") throw bad("Anzahl, beidseitig und Farbe gibt es nur bei Dateien zum Ausdrucken.");
-    if (body.copies !== undefined) { const n = cleanCopies(body.copies); if (!n) throw bad("Bitte eine Anzahl zwischen 1 und 500 angeben."); args.push(n); sets.push("print_copies=?" + (args.length + 1)); }
-    if (body.duplex !== undefined) { args.push(body.duplex ? 1 : 0); sets.push("print_duplex=?" + (args.length + 1)); }
-    if (body.color !== undefined) { args.push(body.color ? 1 : 0); sets.push("print_color=?" + (args.length + 1)); }
+    // Grundschule: PDFs der Kinder stehen mit einer Anzahl zusätzlich auf der Druckliste (copies: null nimmt sie wieder herunter)
+    const gsStudent = f.area === "student" && f.kind === "file" && f.mime === "application/pdf" && (await c.db.prepare("SELECT subject FROM lessons WHERE id=?1").bind(f.lesson_id).first() || {}).subject === GS_SUBJECT;
+    if (f.area !== "print" && !gsStudent) throw bad("Anzahl, beidseitig und Farbe gibt es nur bei Dateien zum Ausdrucken.");
+    if (gsStudent && body.copies === null) sets.push("print_copies=NULL", "print_duplex=NULL", "print_color=NULL");
+    else {
+      if (body.copies !== undefined) { const n = cleanCopies(body.copies); if (!n) throw bad("Bitte eine Anzahl zwischen 1 und 500 angeben."); args.push(n); sets.push("print_copies=?" + (args.length + 1)); }
+      if (gsStudent && body.copies === undefined && f.print_copies == null) throw bad("Bitte zuerst die Anzahl der Ausdrucke angeben.");
+      if (body.duplex !== undefined) { args.push(body.duplex ? 1 : 0); sets.push("print_duplex=?" + (args.length + 1)); }
+      if (body.color !== undefined) { args.push(body.color ? 1 : 0); sets.push("print_color=?" + (args.length + 1)); }
+    }
   }
   if (body.url !== undefined) {
     if (f.kind !== "link") throw bad("Nur bei Links lässt sich die Adresse ändern.");

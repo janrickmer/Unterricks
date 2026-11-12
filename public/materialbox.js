@@ -21,7 +21,14 @@ export function dropZone(label, hint, onFiles, accept, multiple = true) {
   return z;
 }
 
-export function materialBox({ lessonId: id, st, L }) {
+/* Grundschule (gs: true): eigene Überschriften und Hinweise (labels), Dateien ausblenden (exclude, z. B. Bildkarten), ein Abzeichen je Datei
+   (fileBadge(f) → Element, z. B. „Eltern sehen sie“), je PDF der Kinder „Auch ausdrucken (n×)“ (printCopies = Anzahl beim Einschalten) –
+   solche PDFs stehen zusätzlich auf der Druckliste; subtitle/groupLabel für Text-PDFs und den Namen der ZIP-Datei. */
+export function materialBox({ lessonId: id, st, L, gs = false, labels = {}, exclude = null, fileBadge = null, printCopies = null, subtitle = null, groupLabel = null }) {
+  const lb = { student: "Für Schüler:innen zugänglich", teacher: "Nur für Lehrkräfte", toStudent: "Für Schüler:innen", toTeacher: "Nur für Lehrkraft",
+    nowStudent: "Jetzt für Schüler:innen sichtbar.", nowTeacher: "Jetzt nur noch für Lehrkräfte.", teacherHint: "Wird Schüler:innen nie angezeigt", hint: null, ...labels };
+  const shown = (f) => !exclude || !exclude(f);
+  const textSub = () => subtitle || subjectName(L().subject) + " · " + L().klass;
   /* ======================= Materialien ======================= */
   const lists = { student: h("div", { class: "list" }), teacher: h("div", { class: "list" }) };
   /* von Claude gestaltetes Material: ausstehende und geänderte Gestaltungen nacheinander auf dem Server drucken lassen (gemeinsame
@@ -76,14 +83,14 @@ export function materialBox({ lessonId: id, st, L }) {
         h("button", { class: "btn small", type: "button", onclick: () => editLink(f) }, "Bearbeiten"));
     } else if (f.kind === "text") {
       acts.append(h("button", { class: "btn small", type: "button", onclick: () => editText(f) }, "Ansehen/Bearbeiten"),
-        h("button", { class: "btn small", type: "button", onclick: (e) => busy(e.currentTarget, async () => { try { const { markdownToPdf, pdfName } = await import("./pdfmaker.js"); downloadBlob(await markdownToPdf(f.name, f.text, { subtitle: subjectName(L().subject) + " · " + L().klass, nameLine: f.area !== "teacher" }), pdfName(f.name)); } catch (err) { errToast(err); } }) }, "PDF"));
+        h("button", { class: "btn small", type: "button", onclick: (e) => busy(e.currentTarget, async () => { try { const { markdownToPdf, pdfName } = await import("./pdfmaker.js"); downloadBlob(await markdownToPdf(f.name, f.text, { subtitle: textSub(), nameLine: f.area !== "teacher" }), pdfName(f.name)); } catch (err) { errToast(err); } }) }, "PDF"));
     } else {
       acts.append(h("button", { class: "btn small", type: "button", onclick: (e) => busy(e.currentTarget, async () => { try { const r = await tapi("POST", "/api/teacher/files/" + f.id + "/link", { body: {} }); downloadUrl(r.url, f.name); } catch (err) { errToast(err); } }) }, "Herunterladen"));
     }
     acts.append(...nn(
       h("button", { class: "btn small", type: "button", title: "In den anderen Bereich verschieben", onclick: async () => {
-        try { const r = await tapi("PATCH", "/api/teacher/files/" + f.id, { body: { area: other } }); Object.assign(f, r.file); paintFiles(); toast(other === "student" ? "Jetzt für Schüler:innen sichtbar." : "Jetzt nur noch für Lehrkräfte.", "ok"); } catch (e) { errToast(e); }
-      } }, icon("right"), other === "student" ? "Für Schüler:innen" : "Nur für Lehrkraft"),
+        try { const r = await tapi("PATCH", "/api/teacher/files/" + f.id, { body: { area: other } }); Object.assign(f, r.file); if (!r.file.print) delete f.print; paintFiles(); if (gs) paintPrint(); toast(other === "student" ? lb.nowStudent : lb.nowTeacher, "ok"); } catch (e) { errToast(e); }
+      } }, icon("right"), other === "student" ? lb.toStudent : lb.toTeacher),
       f.kind === "link" ? null : h("button", { class: "btn small ghost", type: "button", "aria-label": "Umbenennen", onclick: async () => {
         const n = prompt("Neuer Name:", f.name); if (!n) return;
         try { const r = await tapi("PATCH", "/api/teacher/files/" + f.id, { body: { name: n } }); Object.assign(f, r.file); paintFiles(); } catch (e) { errToast(e); }
@@ -95,13 +102,31 @@ export function materialBox({ lessonId: id, st, L }) {
     const src = (f.source === "claude" ? " · von Claude" : f.source === "chat" ? " · aus dem Chat" : f.source === "vertretung" ? " · Vertretung" : f.source === "uebernommen" ? " · übernommen" : f.source === "notfall" ? " · Notfall-Feibeitsblatt (automatisch aus dem Feibeitsblatt " + formatCode(f.fbCode || "") + ")" : "") + " · " + fmtTime(f.createdAt);
     const row = h("div", { class: "item" + (des && des.error ? " design-err" : "") }, fileIcon(f.name, f.mime, f.kind), h("div", { class: "main" }, h("div", { class: "name", text: f.name }),
       des ? h("div", { class: "meta" }, des.meta, (des.d.ok ? " · " + fmtBytes(f.size) : "") + (f.source === "vertretung" ? " · Vertretung" : f.source === "uebernommen" ? " · übernommen" : "") + " · " + fmtTime(f.createdAt))
-        : h("div", { class: "meta", text: (f.kind === "link" ? "Link: " + webUrlLabel(f.url) : f.kind === "text" ? "Text (PDF-Download)" : fmtBytes(f.size)) + src })), acts);
+        : h("div", { class: "meta", text: (f.kind === "link" ? "Link: " + webUrlLabel(f.url) : f.kind === "text" ? "Text (PDF-Download)" : fmtBytes(f.size)) + src }),
+      ...nn(fileBadge ? fileBadge(f) : null, gs ? printToggle(f) : null)), acts);
     rowEls.set(f.id, row);
     return row;
   }
+  /* Grundschule: ein PDF der Kinder zusätzlich auf die Druckliste setzen („Auch ausdrucken (22×)“) bzw. wieder herunternehmen */
+  function printToggle(f) {
+    if (f.area !== "student" || f.kind !== "file" || f.mime !== "application/pdf") return null;
+    const n = f.print ? f.print.copies : printCopies ? printCopies() || 1 : 1;
+    const cb = h("input", { type: "checkbox", checked: f.print ? true : null });
+    cb.addEventListener("change", async () => {
+      cb.disabled = true;
+      try {
+        const r = await tapi("PATCH", "/api/teacher/files/" + f.id, { body: { copies: cb.checked ? n : null } });
+        Object.assign(f, r.file); if (!r.file.print) delete f.print;
+        toast(cb.checked ? "„" + f.name + "“ steht jetzt auch auf der Druckliste (" + f.print.copies + "×)." : "„" + f.name + "“ steht nicht mehr auf der Druckliste.", "ok");
+        paintPrint();
+      } catch (e) { cb.checked = !cb.checked; errToast(e); }
+      cb.disabled = false;
+    });
+    return h("label", { class: "checkrow small printtoggle" }, cb, h("span", { text: "Auch ausdrucken (" + n + "×)" }));
+  }
   function paintFiles() {
     for (const area of ["student", "teacher"]) {
-      const fs = st.files.filter((f) => f.area === area);
+      const fs = st.files.filter((f) => f.area === area && shown(f));
       clear(lists[area]).append(...(fs.length ? fs.map(fileRow) : [h("p", { class: "muted small", text: "Noch nichts hochgeladen." })]));
     }
   }
@@ -148,25 +173,25 @@ export function materialBox({ lessonId: id, st, L }) {
     };
   }
   const progS = h("div", { class: "stack" }), progT = h("div", { class: "stack" });
-  const filesCard = h("section", { class: "card" }, h("div", { class: "section-title" }, h("h2", { text: "Material" })), printNote,
+  const filesCard = h("section", { class: "card" + (gs ? " gs-material" : ""), id: gs ? "gs-material" : null }, h("div", { class: "section-title" }, h("h2", { text: "Material" })), printNote,
     h("div", { class: "zones" },
-      h("div", { class: "stack" }, h("h3", { text: "Für Schüler:innen zugänglich" }), dropZone("Dateien hier ablegen oder auswählen", "PDF, Bilder, Word, PowerPoint, Excel u. a. – bis 100 MB je Datei", uploadInto("student", progS)),
+      h("div", { class: "stack" }, h("h3", { text: lb.student }), dropZone("Dateien hier ablegen oder auswählen", "PDF, Bilder, Word, PowerPoint, Excel u. a. – bis 100 MB je Datei", uploadInto("student", progS)),
         h("div", { class: "row" }, h("button", { class: "btn small", type: "button", onclick: () => editLink(null, "student") }, icon("plus"), "Link hinzufügen")), progS, lists.student),
-      h("div", { class: "stack" }, h("h3", { text: "Nur für Lehrkräfte" }), dropZone("Dateien hier ablegen oder auswählen", "Wird Schüler:innen nie angezeigt", uploadInto("teacher", progT)),
+      h("div", { class: "stack" }, h("h3", { text: lb.teacher }), dropZone("Dateien hier ablegen oder auswählen", lb.teacherHint, uploadInto("teacher", progT)),
         h("div", { class: "row" }, h("button", { class: "btn small", type: "button", onclick: () => editLink(null, "teacher") }, icon("plus"), "Link hinzufügen")), progT, lists.teacher)),
-    h("p", { class: "hint", text: "Arbeitsblätter und weiteres Material gestaltet Claude über den Connector selbst; Unterricks druckt es unverändert als PDF (A4) und legt es hier ab – Schüler:innen sehen es, sobald die PDF fertig ist. " +
+    h("p", { class: "hint", text: lb.hint || "Arbeitsblätter und weiteres Material gestaltet Claude über den Connector selbst; Unterricks druckt es unverändert als PDF (A4) und legt es hier ab – Schüler:innen sehen es, sobald die PDF fertig ist. " +
       "Aus dem Backup-Chat mit kostenloser KI übernehmen Sie Material mit „Als Material übernehmen“ unter einer Antwort (einfache PDF ohne eigene Gestaltung)." }));
   paintFiles();
 
   /* ======================= Von der Lehrkraft auszudrucken (ganz unten) ======================= */
   // nur PDF, gedruckt wird nur A4 (andere Formate rechnet a4.js beim Hochladen um); Dateiname „28x - beidseitig - sw - Name.pdf“
   const printList = h("div", { class: "list" }), printProg = h("div", { class: "stack" });
-  const printFiles = () => st.files.filter((f) => f.area === "print");
+  const printFiles = () => st.files.filter((f) => f.area === "print" || (gs && f.area === "student" && f.print && shown(f)));
   const pdfLib = () => import("/vendor/pdf-lib.esm.min.js");
   async function printBytes(f) {
     if (f.kind === "text") {
       const { markdownToPdf } = await import("./pdfmaker.js");
-      return new Uint8Array(await (await markdownToPdf(f.name, f.text, { subtitle: subjectName(L().subject) + " · " + classShort(L().klass) })).arrayBuffer());
+      return new Uint8Array(await (await markdownToPdf(f.name, f.text, { subtitle: subtitle || subjectName(L().subject) + " · " + classShort(L().klass) })).arrayBuffer());
     }
     const r = await tapi("POST", "/api/teacher/files/" + f.id + "/link", { body: {} });
     const res = await fetch(apiUrl(r.url), { credentials: "omit", cache: "no-store" });
@@ -205,6 +230,9 @@ export function materialBox({ lessonId: id, st, L }) {
         if (!n || !n.trim()) return;
         await save({ name: n.trim() + (f.kind === "file" ? ".pdf" : "") }); paintPrint();
       } }, icon("edit")),
+      f.area === "student" ? h("button", { class: "btn small ghost", type: "button", onclick: async () => {
+        try { const r = await tapi("PATCH", "/api/teacher/files/" + f.id, { body: { copies: null } }); Object.assign(f, r.file); delete f.print; paintPrint(); paintFiles(); toast("„" + f.name + "“ steht nicht mehr auf der Druckliste (das Material für die Kinder bleibt).", "ok"); } catch (e) { errToast(e); }
+      } }, "Nicht ausdrucken") :
       h("button", { class: "btn small ghost danger", type: "button", "aria-label": "Löschen – " + f.name, onclick: async () => {
         if (!(await confirmDialog("Druckvorlage löschen", "„" + (f.printName || f.name) + "“ endgültig löschen?", "Löschen", true))) return;
         try { await tapi("DELETE", "/api/teacher/files/" + f.id); st.files = st.files.filter((x) => x !== f); paintPrint(); } catch (e) { errToast(e); }
@@ -234,7 +262,7 @@ export function materialBox({ lessonId: id, st, L }) {
       row.remove();
     }
   }
-  const zipName = () => "Von der Lehrkraft auszudrucken - " + subjectShort(L().subject) + " - " + classShort(L().klass) + (L().date ? " - " + L().date : "") + ".zip";
+  const zipName = () => "Von der Lehrkraft auszudrucken - " + (groupLabel || subjectShort(L().subject) + " - " + classShort(L().klass)) + (L().date ? " - " + L().date : "") + ".zip";
   const zipBtn = h("button", { class: "btn", type: "button", onclick: (e) => busy(e.currentTarget, async () => {
     try {
       const all = printFiles(); if (!all.length) return;
@@ -261,6 +289,6 @@ export function materialBox({ lessonId: id, st, L }) {
     h("p", { class: "hint", text: "Claude gestaltet über den Connector auch Druckvorlagen selbst (mit Vorschlag für Anzahl, beidseitig und Farbe); Unterricks druckt sie als PDF – Sie prüfen sie hier." }));
   paintPrint();
   // Schlüssel des Dateistands: neue, gelöschte, umbenannte und (von Claude) neu gestaltete oder inzwischen gedruckte Dateien
-  const filesKey = (fs) => fs.map((f) => f.id + ":" + f.status + ":" + f.name + ":" + f.area + (f.design ? ":" + f.design.htmlAt + "/" + f.design.pdfAt + "/" + (f.design.error || "") : "")).join("|");
+  const filesKey = (fs) => fs.map((f) => f.id + ":" + f.status + ":" + f.name + ":" + f.area + (f.design ? ":" + f.design.htmlAt + "/" + f.design.pdfAt + "/" + (f.design.error || "") : "") + (gs && f.print ? ":p" + f.print.copies : "")).join("|");
   return { filesCard, printCard, paintFiles, paintPrint, repaintFile, filesKey };
 }

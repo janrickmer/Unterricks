@@ -7,18 +7,22 @@ import { getUnit, unitOut } from "./units.js";
 import { loadSubjectConfigs } from "./bases.js";
 import { deleteNotfallFiles } from "./files.js";
 import { courseSettingsStmt, courseSettingsOut, courseInfo, courseRef } from "./courses.js";
+import { gsCourseStmt, gsCourseOut } from "./gs.js";
 import {
   isValidClass, isValidSubject, isValidCode, normalizeCode, greetingText, planningSystemPrompt, portalMessages, feibeitsblattMessages,
   chatTranscript, extractJsonObject, validatePortalData, renderPortalEntry, normalizeFbDraft, isIsoDate, hasStop, gradeKey, isClockTime, printFileName, GS_SUBJECT,
+  planRefs, parentOpensAt,
 } from "../public/shared.js";
 import { unitContext } from "../public/planning.js";
 
-export const LIMITS = { title: 200, topic: 500, ideas: 20000, homework: 10000, portal: 30000, message: 30000, answer: 100000, textMaterial: 200000 };
+export const LIMITS = { title: 200, topic: 500, ideas: 20000, homework: 10000, portal: 30000, message: 30000, answer: 100000, textMaterial: 200000, parentSummary: 800, parentNote: 2000 };
 
 export const lessonOut = (r, extra = {}) => ({
   id: r.id, subject: r.subject, klass: r.klass, title: r.title, topic: r.topic, durationMin: r.duration_min ?? null, date: r.lesson_date || null, startTime: r.start_time || null, studentAi: r.student_ai === undefined || r.student_ai === null ? true : !!r.student_ai,
   ideas: r.ideas, homework: r.homework || "", code: r.code, unitId: r.unit_id || null, unitRow: r.unit_row || null, portal: r.portal, portalVersion: r.portal_version, portalUpdatedAt: r.portal_updated_at ?? null, portalSource: r.portal_source || null,
-  createdAt: r.created_at, updatedAt: r.updated_at, ...extra,
+  createdAt: r.created_at, updatedAt: r.updated_at,
+  // Grundschule: Inhalt und Hinweis für die Eltern, Ausfall-Eintrag, ob es einen Elternlink gibt (nie der Link selbst)
+  ...(r.subject === GS_SUBJECT ? { parentSummary: r.parent_summary || "", parentNote: r.parent_note || "", cancelled: !!r.cancelled, hasParentLink: !!r.parent_hash } : {}), ...extra,
 });
 export const printProps = (f) => ({ copies: f.print_copies || 1, duplex: f.print_duplex !== 0, color: f.print_color === 1 });
 export const codeSlidesOf = (f) => { try { return cleanCodeSlides(JSON.parse(f.code_slides || "[]"), f.pages || 0); } catch { return []; } };
@@ -29,7 +33,7 @@ export const FILE_COLS = "id, lesson_id, area, kind, name, mime, size, CASE WHEN
 export const fileOut = (f, withText = true) => ({
   id: f.id, area: f.area, kind: f.kind, name: f.name, mime: f.mime, size: f.size, pages: f.pages ?? null, status: f.status, source: f.source || null,
   fbCode: f.fb_code || null, fbSig: f.fb_sig || null, ...(f.area === "presentation" ? { shownUntil: f.shown_until ?? null, cut: !!f.cut_size, codeSlides: codeSlidesOf(f) } : {}),
-  ...(f.area === "print" ? { print: printProps(f), printName: printFileName({ name: f.name, ...printProps(f) }) } : {}),
+  ...(f.area === "print" || (f.area === "student" && f.print_copies != null) ? { print: printProps(f), printName: printFileName({ name: f.name, ...printProps(f) }) } : {}),
   createdAt: f.created_at, ...(withText && f.kind === "text" ? { text: f.text || "" } : {}), ...(f.kind === "link" ? { url: f.text || "" } : {}),
   // von Claude gestaltet (HTML → PDF): ob die PDF zur aktuellen Gestaltung passt und die letzte Meldung des Druckers
   // text = Klartext der Gestaltung (gekürzt) für die Prompts (z. B. Präsentation)
@@ -48,12 +52,16 @@ export async function getLesson(db, id) {
 
 /* Kontext für KI und Prompts aus der Datenbank */
 export async function lessonCtx(db, lesson) {
-  const [files, sheets, cs] = await db.batch([
-    db.prepare("SELECT name, area, kind, pages, substr(text, 1, 6000) AS text FROM files WHERE lesson_id=?1 AND status='ready' ORDER BY created_at").bind(lesson.id),
+  const gs = lesson.subject === GS_SUBJECT;
+  const [files, sheets, cs, gc] = await db.batch([
+    gs ? db.prepare(GS_CTX_FILES + " WHERE lesson_id=?1 AND area NOT IN ('archive','presentation') ORDER BY created_at").bind(lesson.id)
+      : db.prepare("SELECT name, area, kind, pages, substr(text, 1, 6000) AS text FROM files WHERE lesson_id=?1 AND status='ready' ORDER BY created_at").bind(lesson.id),
     db.prepare("SELECT code, title FROM fb_sheets WHERE lesson_id=?1 ORDER BY created_at").bind(lesson.id),
     courseSettingsStmt(db, lesson.subject, lesson.klass),
+    ...(gs ? [gsCourseStmt(db, lesson.klass)] : []),
   ]);
   const settings = courseSettingsOut((cs.results || [])[0]);
+  if (gs) return gsLessonCtx(db, lesson, files.results || [], settings, gsCourseOut((gc.results || [])[0]));
   let unit = null;
   if (lesson.unit_id) { try { unit = unitOut(await getUnit(db, lesson.unit_id)); } catch {} }
   const cfg = (await loadSubjectConfigs(db))[lesson.subject] || { gradeNotes: {} };
@@ -63,6 +71,21 @@ export async function lessonCtx(db, lesson) {
     materials: (files.results || []).filter((f) => f.area !== "archive").map((f) => ({ name: f.name, area: f.area, kind: f.kind, pages: f.pages, text: f.text || "" })),
     sheets: sheets.results || [], portal: lesson.portal,
     unit, unitText: unit ? unitContext(unit, lesson.unit_row) : "", gradeNote: (cfg.gradeNotes || {})[gradeKey(lesson.klass)] || "",
+    classSize: settings ? settings.classSize : null,
+  };
+}
+/* Grundschule: alle Dateien der Sitzung (auch noch nicht gedruckte) mit Kennung – für Verweise im Verlaufsplan und die Elternansicht */
+export const GS_CTX_FILES = "SELECT id, lesson_id, name, area, kind, mime, pages, status, source, cards, card_pages, card_img_at, pdf_at, html_at, render_error, created_at, " +
+  "print_copies, print_duplex, print_color, (html IS NOT NULL) AS designed, substr(text, 1, 6000) AS text FROM files";
+async function gsLessonCtx(db, lesson, files, settings, course) {
+  let unit = null;
+  if (lesson.unit_id) { try { unit = unitOut(await getUnit(db, lesson.unit_id)); } catch {} }
+  return {
+    lessonId: lesson.id, subject: lesson.subject, klass: lesson.klass, course,
+    lesson: { title: lesson.title, topic: lesson.topic, durationMin: lesson.duration_min, date: lesson.lesson_date, startTime: lesson.start_time || null, ideas: lesson.ideas,
+      homework: lesson.homework || "", parentSummary: lesson.parent_summary || "", parentNote: lesson.parent_note || "" },
+    materials: files.map((f) => ({ id: f.id, name: f.name, area: f.area, kind: f.kind, mime: f.mime, pages: f.pages, status: f.status, text: f.text || "" })), files,
+    sheets: [], portal: lesson.portal, unit, unitText: unit ? unitContext(unit, lesson.unit_row) : "", gradeNote: "",
     classSize: settings ? settings.classSize : null,
   };
 }
@@ -83,6 +106,9 @@ function lessonFields(body, partial) {
     f.duration_min = d;
   }
   if (partial && body.studentAi !== undefined) f.student_ai = body.studentAi ? 1 : 0;
+  // Grundschule: „Inhalt der Unterrichtsstunde“ und „Hinweis der Lehrkraft“ für die Elternansicht
+  if (partial && body.parentSummary !== undefined) f.parent_summary = cleanText(body.parentSummary, LIMITS.parentSummary).trim();
+  if (partial && body.parentNote !== undefined) f.parent_note = cleanText(body.parentNote, LIMITS.parentNote).trim();
   // Beginn (Uhrzeit, freiwillig): ohne ihn sehen Schüler:innen weder Hausaufgabe noch Präsentation (siehe lessonTimes)
   if (!partial || body.startTime !== undefined) {
     const t = body.startTime === undefined || body.startTime === null ? "" : String(body.startTime).trim();
@@ -203,6 +229,8 @@ export async function routeLessonGet(c, id) {
   const messages = await chatMessages(c.db, id, full ? 5000 : 200);
   const [prev, nextDate, course] = await Promise.all([previousLesson(c.db, l), nextLessonDate(c.db, l), courseInfo(c.db, l.subject, l.klass)]);
   const previousStop = prev && hasStop(prev.portal) ? { id: prev.id, title: prev.title, date: prev.lesson_date, portal: prev.portal } : null;
+  // Grundschule: PDFs anderer Sitzungen des Kurses, auf die der Verlaufsplan (oder der der vorigen Sitzung) verweist, und die der vorigen Sitzung
+  const gs = l.subject === GS_SUBJECT ? { refFiles: await gsRefFiles(c.db, l, prev), opensAt: parentOpensAt({ date: l.lesson_date, startTime: l.start_time, durationMin: l.duration_min }) } : {};
   let unit = null;
   if (l.unit_id) { try { unit = unitOut(await getUnit(c.db, l.unit_id)); } catch {} }
   const sub = await c.db.prepare("SELECT status, proposal, archive, created_at, updated_at, confirmed_at FROM substitutes WHERE lesson_id=?1").bind(id).first();
@@ -210,9 +238,22 @@ export async function routeLessonGet(c, id) {
   if (sub) { try { proposal = JSON.parse(sub.proposal); } catch {} try { archive = sub.archive ? JSON.parse(sub.archive) : null; } catch {} }
   const substitute = sub ? { status: sub.status, proposal, createdAt: sub.created_at, updatedAt: sub.updated_at, confirmedAt: sub.confirmed_at ?? null,
     archive: archive ? { portal: archive.portal || "", homework: archive.homework || "", sheets: archive.sheets || [], files: (archive.files || []).map((f) => f.id), at: archive.at || null } : null } : null;
-  return json({ ok: true, lesson: lessonOut(l, { studentCount: (students.results[0] || {}).n || 0, nextDate }), previousStop, unit, course, substitute, messages: messages.map(msgOut),
+  return json({ ok: true, lesson: lessonOut(l, { studentCount: (students.results[0] || {}).n || 0, nextDate }), previousStop, unit, course, substitute, ...gs, messages: messages.map(msgOut),
     files: (files.results || []).map((f) => fileOut(f)), sheets: (sheets.results || []).map((s) => ({ code: s.code, title: s.title, kind: s.kind || "", createdAt: s.created_at })),
     drafts: (drafts.results || []).map(draftOut) });
+}
+
+/* PDF-Dateien des Kurses aus anderen Sitzungen (eine Abfrage): die der vorigen Sitzung und alle, auf die der Verlaufsplan dieser oder der
+   vorigen Sitzung verweist – für die Namen im Verlaufsplan, „PDF-Verweis einfügen …“ und die Elternansicht */
+export async function gsRefFiles(db, l, prev) {
+  const ids = [...new Set([...planRefs(l.portal).all, ...(prev ? planRefs(prev.portal).all : [])])].slice(0, 200);
+  const r = await db.prepare("SELECT f.id, f.lesson_id, f.name, f.area, f.kind, f.mime, f.status, f.source, f.pages, f.cards, f.card_pages, f.card_img_at, f.pdf_at, f.created_at, " +
+    "(f.html IS NOT NULL) AS designed, l.lesson_date, l.title AS lesson_title FROM files f JOIN lessons l ON l.id = f.lesson_id " +
+    "WHERE l.subject='gs' AND l.klass=?1 AND f.lesson_id<>?2 AND f.kind='file' AND f.mime='application/pdf' AND f.area NOT IN ('archive','presentation') " +
+    "AND (f.lesson_id=?3 OR f.id IN (SELECT value FROM json_each(?4))) ORDER BY l.lesson_date, f.created_at LIMIT 300").bind(l.klass, l.id, prev ? prev.id : "", JSON.stringify(ids)).all();
+  return (r.results || []).map((f) => ({ id: f.id, name: f.name, lessonId: f.lesson_id, lessonTitle: f.lesson_title || "", date: f.lesson_date || null, area: f.area, kind: f.kind, mime: f.mime,
+    status: f.status, source: f.source || null, pages: f.pages ?? null, designed: !!f.designed, cards: f.cards, cardPages: f.card_pages ?? null, cardImgAt: f.card_img_at ?? null,
+    pdfAt: f.pdf_at ?? null, createdAt: f.created_at, previous: !!prev && f.lesson_id === prev.id }));
 }
 
 /* Nachbarsitzungen derselben Klasse im selben Fach (nach Datum, bei gleichem Datum nach Anlegezeit) */
@@ -236,6 +277,7 @@ export async function updateLesson(db, id, body, now) {
   if (!keys.length) return { lesson: await getLesson(db, id) };
   if (f.title !== undefined && !f.title) throw bad("Der Titel darf nicht leer sein.");
   const old = await getLesson(db, id);
+  if ((f.parent_summary !== undefined || f.parent_note !== undefined) && old.subject !== GS_SUBJECT) throw bad("Nur bei Sitzungen der Grundschule.");
   const sets = keys.map((k, i) => k + "=?" + (i + 2)).join(", ");
   await db.prepare("UPDATE lessons SET " + sets + ", updated_at=?" + (keys.length + 2) + " WHERE id=?1").bind(id, ...keys.map((k) => f[k]), now).run();
   if (old.unit_id && old.unit_row && ((f.lesson_date && f.lesson_date !== old.lesson_date) || (f.duration_min !== undefined && f.duration_min !== old.duration_min) ||
@@ -353,6 +395,7 @@ export async function routePortalGenerate(c, id) {
   await requireTeacher(c);
   const body = await readJson(c.request, 10000);
   const l = await getLesson(c.db, id);
+  if (l.subject === GS_SUBJECT) throw bad("In der Grundschule gibt es keinen Schulportal-Eintrag.");
   const ctx = await lessonCtx(c.db, l);
   const msgs = await chatMessages(c.db, id);
   if (!msgs.some((m) => m.role === "user")) throw bad("Bitte planen Sie die Stunde zuerst im Chat – der Eintrag entsteht aus der Planung.");

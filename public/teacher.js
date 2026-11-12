@@ -1,5 +1,5 @@
 // teacher.js – Lehrkräfteansicht: Anmeldung/Einrichtung, Fach- und Klassenauswahl, Sitzungslisten, Einstellungen.
-import { h, clear, store, deviceId, api, toast, errToast, busy, modal, confirmDialog, copyText, fmtDate, fmtTime, topbar, nn, pageHead, setFach, icon, downloadBlob, fmtBytes, stateLine } from "./ui.js";
+import { h, clear, store, deviceId, api, apiUrl, toast, errToast, busy, modal, confirmDialog, copyText, fmtDate, fmtTime, topbar, nn, pageHead, setFach, icon, downloadBlob, fmtBytes, stateLine } from "./ui.js";
 import { render, go, onLeave } from "./app.js";
 import { SUBJECTS, subjectName, gradeInfo, isValidClass, isValidSubject, formatCode, fmtDay, classGroupsFor, classAllowed, classShort, gradeKey, isAnalogClass, ANALOG_RULE,
   COURSE_GRADES, courseKey, isCourseClass, courseMembers } from "./shared.js";
@@ -839,6 +839,23 @@ function notfallBox() {
     h("p", { class: "hint", text: "Fehlende Notfall-Feibeitsblätter ergänzt Unterricks automatisch in Ihrem Browser, sobald Sie angemeldet und mit Feibeitsblatt verbunden sind – auch für Sitzungen, deren Feibeitsblätter schon vorher verknüpft waren. Lassen Sie Unterricks dafür geöffnet, bis hier „Alle verknüpften Feibeitsblätter haben ein Notfall-Feibeitsblatt.“ steht; ein unterbrochener Lauf geht beim nächsten Öffnen weiter. Die Schüler:innen finden sie im Kästchen „Notfall-Feibeitsblätter“ ganz unten. „Alle prüfen und aktualisieren“ erneuert zusätzlich veraltete, z. B. nach dem Bestätigen der Checkliste (dann mit QR-Code). Nicht für das Finale eines Escape-Rooms und nicht in den Jahrgängen 5 und 6." }));
 }
 
+/* ---------- PDF-Datei in einem neuen Tab öffnen (#/lk/datei/<id>, z. B. aus dem Verlaufsplan der Grundschule) ----------
+ * Ein echter Link (target _blank) statt window.open: kein Pop-up-Blocker, langes Drücken am iPad geht, und auf GitHub Pages führt er über den
+ * signierten Link zum Worker (apiUrl). */
+export async function fileOpenPage(id) {
+  const st = h("p", { role: "status", text: "Die PDF wird geöffnet …" });
+  const main = h("main", { class: "narrow" }, pageHead({ title: "PDF öffnen" }), st);
+  render(teacherBar(null), main);
+  try { const r = await tapi("POST", "/api/teacher/files/" + id + "/link", { body: { inline: true } }); location.replace(apiUrl(r.url)); }
+  catch (e) { stateLine(st, e.message, "err"); main.append(h("p", { class: "small muted", text: "Sie können diesen Tab schließen." })); }
+}
+/* Vorschau der Elternansicht – folgt mit der Elternansicht (Platzhalter, damit der Link „Elternansicht ausprobieren“ nicht ins Leere führt) */
+function parentsPreviewStub(id) {
+  render(teacherBar("primary"), h("main", { class: "narrow" }, pageHead({ fach: "gs", title: "Elternansicht (Vorschau)" }),
+    h("p", { class: "notice", text: "Die Vorschau der Elternansicht ist noch nicht freigeschaltet. Sobald es sie gibt, sehen Sie hier, was Eltern zu dieser Sitzung nach dem Unterricht sehen." }),
+    h("a", { class: "btn", href: "#/lk/s/" + id }, "Zur Sitzung")));
+}
+
 /* ---------- Router der Lehrkräfteansicht ---------- */
 export async function route(hash) {
   await config();
@@ -856,6 +873,8 @@ export async function route(hash) {
   if (hash === "#/lk/grundschule" || hash === "#/lk/grundschule/") return (await import("./grundschule.js")).gsOverviewPage();
   if ((m = /^#\/lk\/grundschule\/k\/(gs[a-f0-9]{8})$/.exec(hash))) return (await import("./grundschule.js")).gsCoursePage(m[1]);
   if ((m = /^#\/lk\/grundlage\/([a-f0-9]{16})$/.exec(hash))) return (await import("./bases.js")).baseDocPage(m[1]);
+  if ((m = /^#\/lk\/datei\/([a-f0-9]{16})$/.exec(hash))) return fileOpenPage(m[1]);
+  if ((m = /^#\/lk\/eltern\/([a-f0-9]{16})(?:\/([a-f0-9]{16}))?$/.exec(hash))) return parentsPreviewStub(m[1]);
   if (hash === "#/lk/grundlagen") return (await import("./bases.js")).basesOverview();
   if ((m = /^#\/lk\/grundlagen\/([a-z]+)$/.exec(hash))) return (await import("./bases.js")).basesPage(m[1]);
   go("#/lk");

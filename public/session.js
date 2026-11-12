@@ -5,7 +5,7 @@ import { T, tapi, teacherBar, fbAutoConnect, fbUnlock, fbStore, fbForget, askTea
 import { subjectName, gradeInfo, formatCode, claudePresentationPrompt, PORTAL_RULES, portalForCopy, insertStop, removeStops, hasStop, isStopLine,
   fmtDay, classShort, gradeKey, isAnalogClass, ANALOG_RULE, isCourseClass, courseMembers, homeworkForPortal, PUBLIC_URL,
   lessonTimes, fmtClockBerlin, fmtDayBerlin, HOMEWORK_BEFORE_END_MIN, PRESENTATION_AFTER_END_MIN, slidesUpTo, subjectShort,
-  withAgeExpectation, looksLikeSolution } from "./shared.js";
+  withAgeExpectation, looksLikeSolution, isGsLesson } from "./shared.js";
 import { extractUnitChange, stripUnitBlock, unitContext, claudeLessonPrompt, lessonChatName } from "./planning.js";
 import { claudeHandoff } from "./claude.js";
 import { leupoldView } from "./units.js";
@@ -23,6 +23,8 @@ export async function sessionPage(id) {
   let d, cfg = null;
   try { [d, cfg] = await Promise.all([tapi("GET", "/api/teacher/lessons/" + id), tapi("GET", "/api/teacher/subjects").then((r) => r.subjects).catch(() => null)]); }
   catch (e) { clear(main).append(h("div", { class: "card" }, h("p", { class: "err", text: e.message }), h("a", { class: "btn", href: "#/lk" }, "Zur Übersicht"))); return; }
+  // Grundschule: eigene Sitzungsseite (Verlaufsplan statt Schulportal-Eintrag, keine Präsentation, Elternansicht)
+  if (isGsLesson(d.lesson)) return (await import("./gssession.js")).gsSessionPage(id, d);
   const st = { lesson: d.lesson, messages: d.messages, files: d.files, sheets: d.sheets, drafts: d.drafts, slides: null, unit: d.unit, sub: d.substitute };
   const L = () => st.lesson;
   const analog = isAnalogClass(d.lesson.klass);

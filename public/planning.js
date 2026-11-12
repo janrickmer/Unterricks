@@ -1,6 +1,6 @@
 // planning.js – Unterrichtseinheiten (Leupold-Schema + Ablaufplan), Terminberechnung, Krankheitsvertretung, Claude-Prompts.
 // Gemeinsam für Browser und Worker (keine DOM-Zugriffe).
-import { subjectName, gradeInfo, classShort, isAnalogClass, ANALOG_RULE, fmtDay, addDays, isIsoDate, isClockTime, PORTAL_RULES, PORTAL_EXAMPLE, FEIBEITSBLATT_INFO, materialDesignText,
+import { subjectName, gradeInfo, classShort, isAnalogClass, ANALOG_RULE, fmtDay, addDays, isIsoDate, isClockTime, PORTAL_RULES, PORTAL_EXAMPLE, PORTAL_TEACHER_RULE, FEIBEITSBLATT_INFO, materialDesignText,
   SYSTEM_PROMPT_ROLE, UNIT_RULE_BASE, STOP_LINE, lessonContext, teacherWishes, groupShort, subjectShort, isValidSubject, isValidClass, clockMinutes, minutesClock, mondayOf, isWeekend,
   GS_SUBJECT, isGsCourseId } from "./shared.js";
 import { ESCAPE_FORMAT_HINT } from "./escape-data.js";
@@ -277,7 +277,7 @@ export function claudeLessonPrompt(ctx) {
   const lastAnswers = chat.filter((m) => m.role === "assistant").slice(-2).map((m) => str(m.content).trim()).join("\n\n---\n\n");
   const ps = ctx.previousStop;
   const saves = [
-    "   - Stundenverlauf → `save_schulportal_entry` (Schulportal-Zeichen: " + PORTAL_RULES.join("; ") + "; Aufbau genau wie in der Vorlage unten; übergib `base_version` aus `get_lesson` – meldet die Plattform eine neuere Fassung, rufe `get_lesson` erneut auf und berücksichtige meine Änderungen).",
+    "   - Stundenverlauf → `save_schulportal_entry` (Schulportal-Zeichen: " + PORTAL_RULES.join("; ") + "; Aufbau genau wie in der Vorlage unten; " + PORTAL_TEACHER_RULE + " übergib `base_version` aus `get_lesson` – meldet die Plattform eine neuere Fassung, rufe `get_lesson` erneut auf und berücksichtige meine Änderungen).",
     "   - Ausgearbeiteter Stundenentwurf (Verlauf mit Minuten, Begründung, Erwartungen) → `save_planning_result` (erscheint im Planungsverlauf der Sitzung; darauf bauen der Präsentations-Prompt und spätere Planungen auf).",
     "   - Arbeitsblätter und alle anderen Materialien als Datei gestaltest du selbst als HTML-Seite (Gestaltungsregeln unten) und legst sie mit `add_material_pdf` ab – Unterricks druckt sie unverändert als A4-PDF und meldet dir die Seitenzahl. `bereich` \"schueler\": für die Schüler:innen" + (analog ? " (in dieser Jahrgangsstufe nur, wenn ich es ausdrücklich möchte – sonst \"druck\")" : ", z. B. für GoodNotes") + "; \"lehrkraft\": nur für mich, z. B. Erwartungshorizont, Lösungen oder Tafelbild.",
     "   - Alles, was ich vor der Stunde ausdrucken muss (z. B. Arbeitsblätter" + (analog ? " – in dieser Jahrgangsstufe alles Material für die Schüler:innen" : "") + ", Karten, Schaubilder oder Kärtchen für die Tafel) → `add_material_pdf` mit `bereich` \"druck\", " + (Number.isInteger(ctx.classSize) ? "`anzahl` (laut Kurseinstellungen " + ctx.classSize + " Schüler:innen)" : "`anzahl` (frag mich nach der Klassengröße, wenn du sie nicht kennst)") + ", `beidseitig` (false, wenn geschnitten wird) und `farbe` (nur, wenn Farbe unbedingt nötig ist – an der Schule wird fast immer schwarz-weiß gedruckt). Gedruckt wird nur A4.",
@@ -362,7 +362,7 @@ export function claudeSubstitutePrompt(ctx) {
     "3. Entwickle mit diesen Antworten sowie Fach und Jahrgangsstufe etwas, das die Schüler:innen in der Vertretungsstunde ohne Lehrkraft bearbeiten können (ca. " + work + " Minuten).",
     ...formats,
     "4. Schreibe eine klare, chronologische Anleitung für die Schüler:innen: nummerierte Schritte mit Minutenangabe, was genau zu tun ist, welches Material, und wann bzw. wie abgegeben wird.",
-    "5. Formuliere alle Materialien vollständig aus und gestalte sie als HTML-Seiten (Feld `materialien` mit `html`; Unterricks druckt sie nach meiner Bestätigung als A4-PDF – Material, das die Vertretungslehrkraft austeilen muss, mit `bereich` \"druck\" und `anzahl`). Gestaltungsregeln:\n" + materialDesignText("   - ") + "\n   Dazu einen Schulportal-Eintrag für die Vertretungsstunde (Schulportal-Zeichen: " + PORTAL_RULES.join("; ") + "; Aufbau wie in diesem Beispiel:\n" + PORTAL_EXAMPLE + "\n) und kurze Hinweise für die Vertretungslehrkraft.",
+    "5. Formuliere alle Materialien vollständig aus und gestalte sie als HTML-Seiten (Feld `materialien` mit `html`; Unterricks druckt sie nach meiner Bestätigung als A4-PDF – Material, das die Vertretungslehrkraft austeilen muss, mit `bereich` \"druck\" und `anzahl`). Gestaltungsregeln:\n" + materialDesignText("   - ") + "\n   Dazu einen Schulportal-Eintrag für die Vertretungsstunde (Schulportal-Zeichen: " + PORTAL_RULES.join("; ") + "; Aufbau wie in diesem Beispiel:\n" + PORTAL_EXAMPLE + "\n" + PORTAL_TEACHER_RULE + ") und kurze Hinweise für die Vertretungslehrkraft.",
     "6. Fasse mir den Vorschlag kurz zusammen und speichere ihn mit `save_substitute_plan` für die Sitzung " + ctx.lessonId + ". Ich prüfe ihn in der Plattform; erst wenn ich ihn bestätige, tauscht die Plattform das Material aus und zeigt den Schüler:innen den Vertretungshinweis.",
   ].filter((l) => l !== "").join("\n");
 }

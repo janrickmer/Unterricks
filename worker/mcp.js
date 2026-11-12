@@ -5,7 +5,7 @@
 import { HttpError, json, readJson, sha256Hex, timingSafeEqual, randomToken, LOCKS, lockedFor, registerFail, cleanText, cleanLine } from "./lib.js";
 import { getSetting, setSetting } from "./db.js";
 import { requireTeacher } from "./auth.js";
-import { getLesson, lessonCtx, chatMessages, updateLesson, savePortal, insertDraft, lessonOut, fileOut, LIMITS } from "./lessons.js";
+import { getLesson, lessonCtx, chatMessages, updateLesson, savePortal, insertDraft, lessonOut, fileOut, LIMITS, previousLesson, GS_CTX_FILES } from "./lessons.js";
 import { getUnit, unitFull, applyPlan, updateRow } from "./units.js";
 import { planningBasis } from "./bases.js";
 import { gsCourseMap, gsCourseOut, getGsCourse, planningBasisGs } from "./gs.js";
@@ -14,7 +14,9 @@ import { paramsText, lessonSlots, WEEKDAYS } from "../public/planning.js";
 import { insertTextMaterial, insertPrintText, saveDesign, renderDesign, getFile } from "./files.js";
 import { shortImages } from "./render.js";
 import { ESCAPE_FORMAT_HINT, PART_TYPES } from "../public/escape-data.js";
-import { SUBJECTS, ALL_CLASSES, subjectName, gradeInfo, formatCode, lessonContext, chatTranscript, PORTAL_RULES, PORTAL_EXAMPLE, SYSTEM_PROMPT_ROLE, FEIBEITSBLATT_INFO, classShort, fmtDay, materialDesignText, printFileName, GS_SUBJECT } from "../public/shared.js";
+import { SUBJECTS, ALL_CLASSES, subjectName, gradeInfo, formatCode, lessonContext, chatTranscript, PORTAL_RULES, PORTAL_EXAMPLE, PORTAL_TEACHER_RULE, SYSTEM_PROMPT_ROLE, FEIBEITSBLATT_INFO, classShort, fmtDay, materialDesignText, printFileName, GS_SUBJECT,
+  STOP_LINE, hasStop, planRefs, parentMaterial, pdfRef } from "../public/shared.js";
+import { gsLessonContext, GS_MATERIAL_RULES, VERLAUFSPLAN_EXAMPLE, VERLAUFSPLAN_RULES } from "../public/gsplanning.js";
 
 const MODERN = "2026-07-28";
 const LEGACY = ["2025-11-25", "2025-06-18", "2025-03-26", "2024-11-05"];
@@ -27,10 +29,11 @@ const INSTRUCTIONS = "Unterricks ist die Unterrichtsplattform der Lehrkraft (Fä
   "Arbeitsblätter und alle anderen Materialien als Datei (für Schüler:innen, nur für die Lehrkraft oder zum Ausdrucken) gestaltest du selbst als HTML-Seite und legst sie mit add_material_pdf ab – Unterricks druckt sie unverändert als A4-PDF; add_text_material und add_print_material (Markdown) nur als Rückfall, wenn der PDF-Druck nicht funktioniert. " +
   "Ist die Lehrkraft krank, legst du mit save_substitute_plan einen Vertretungsvorschlag ab (mit Abgabe: Feibeitsblatt oder ein Escape-Room nach der Vorlage der Plattform mit Feibeitsblatt-Finale); die Lehrkraft prüft und bestätigt ihn in der Plattform. " +
   "Eine Zeile „⏸ Zwischenstopp“ im Schulportal-Eintrag ist eine interne Markierung der Lehrkraft: Bis dorthin wurde die Stunde geschafft, ab dort ist der Inhalt offen (sie wird beim Kopieren ins Schulportal entfernt). " +
-  "Der Schulportal-Eintrag verwendet die Schulportal-Zeichen (" + PORTAL_RULES.join("; ") + ") und folgt dieser Vorlage:\n" + PORTAL_EXAMPLE + "\n\n" +
+  "Der Schulportal-Eintrag verwendet die Schulportal-Zeichen (" + PORTAL_RULES.join("; ") + ") und folgt dieser Vorlage:\n" + PORTAL_EXAMPLE + "\n" + PORTAL_TEACHER_RULE + "\n\n" +
   "Grundschule: Die Lehrkraft unterrichtet außerdem an einer Grundschule in Hessen. Dort gibt es Kurse (Kennung gs…, Liste mit list_gs_courses) der Jahrgänge 1–4 mit einer bis drei Klassen (a–c), Fach meist Religion, sonst ein frei benanntes Fach mit optionaler Beschreibung des Kursziels; ihre Einheiten und Sitzungen haben das Fach „gs“. " +
   "Die Kinder arbeiten nicht digital: nur ausdruckbares, analoges Material. Grundschul-Sitzungen haben keinen Schulportal-Eintrag, keine Präsentation, keine Feibeitsblätter, keinen Sitzungscode und keine Vertretungsstunde. " +
   "Stattdessen speicherst du mit save_verlaufsplan den Verlaufsplan (Phasen mit Minuten und Sozialform); jede PDF-Datei steht genau an der Stelle, an der sie benutzt wird, als [[pdf:<file_id>]] – lege das Material vorher an (add_material_pdf, Bildkarten mit add_picture_cards und einem gekürzten Erzähltext je Karte). " +
+  "Muss die Lehrkraft dabei auf Material zurückgreifen, das nur sie hat (z. B. ein Vorlesetext), steht diese Aufforderung als eigener, unterstrichener Stichpunkt in der Phase: „- __Lehrkraft liest [[pdf:<file_id>|Vorlesetext – Die Arche Noah]] vor.__“. " +
   "Für die Eltern formulierst du mit update_lesson (inhalt_eltern) 2–3 Sätze zu Inhalt und Lernziel. Nenne in allem, was Eltern sehen, nie Namen von Kindern. " +
   "Ist die Lehrkraft krank, verschiebt Unterricks die Stunden; danach überarbeitest du auf Wunsch die Einheit (get_unit zeigt Ausfälle, Stunden ohne Termin und die uid jeder Stunde; save_unit_plan mit uid). " +
   "Die Schülerzahl jedes Kurses (auch am Gymnasium) steht – wenn eingetragen – in get_lesson und get_unit; nimm sie als anzahl beim Ausdrucken.";
@@ -81,13 +84,20 @@ const TOOLS = [
     inputSchema: { type: "object", properties: { lesson_id: ID_ARG, titel: { type: "string", maxLength: 200 }, thema: { type: "string", maxLength: 500 },
       dauer_minuten: { type: "integer", minimum: 5, maximum: 600 }, datum: { type: "string", pattern: "^\\d{4}-\\d{2}-\\d{2}$" },
       beginn: { type: "string", pattern: "^([01]\\d|2[0-3]):[0-5]\\d$", description: "Uhrzeit des Unterrichtsbeginns, z. B. 07:45" }, ideen: { type: "string", maxLength: 20000 },
-      hausaufgabe: { type: "string", maxLength: 10000, description: "Schulportal-Zeichen erlaubt; leer = keine Hausaufgabe" } }, required: ["lesson_id"], additionalProperties: false } },
+      hausaufgabe: { type: "string", maxLength: 10000, description: "Schulportal-Zeichen erlaubt; leer = keine Hausaufgabe (Grundschule: schlichter Text für Eltern und Kinder, ohne Schulportal-Zeichen; Eltern sehen sie nach der Stunde)" },
+      inhalt_eltern: { type: "string", maxLength: 800, description: "nur Grundschule: Inhalt der Unterrichtsstunde für die Eltern – 2–3 Sätze, elternverständlich: worum es ging und was die Kinder lernen sollten; nie Namen von Kindern" } }, required: ["lesson_id"], additionalProperties: false } },
   { name: "save_planning_result", title: "Planungsergebnis in der Sitzung speichern", annotations: wr,
     description: "Speichert ein Planungsergebnis (z. B. den ausgearbeiteten Stundenentwurf) als Nachricht „Claude“ im Planungsverlauf der Sitzung, damit Schulportal-Eintrag und Präsentations-Prompt der Plattform darauf aufbauen.",
     inputSchema: { type: "object", properties: { lesson_id: ID_ARG, text: { type: "string", description: "Markdown", maxLength: 100000 } }, required: ["lesson_id", "text"], additionalProperties: false } },
   { name: "save_schulportal_entry", title: "Schulportal-Eintrag speichern", annotations: { ...wr, destructiveHint: true },
-    description: "Ersetzt den Schulportal-Eintrag der Sitzung. Format: Schulportal-Zeichen (**fett**, ~~kursiv~~, __unterstrichen__, --durchgestrichen--, Zeilen mit \"- \"), Struktur wie in der Vorlage (nummerierte fette Phasen, Stichpunkte, „--> Nächste Stunde“). " +
+    description: "Ersetzt den Schulportal-Eintrag der Sitzung. Format: Schulportal-Zeichen (**fett**, ~~kursiv~~, __unterstrichen__, --durchgestrichen--, Zeilen mit \"- \"), Struktur wie in der Vorlage (nummerierte fette Phasen, Stichpunkte, „--> Nächste Stunde“). " + PORTAL_TEACHER_RULE + " " +
       "Übergib base_version aus get_lesson, damit keine neuere Änderung der Lehrkraft überschrieben wird.",
+    inputSchema: { type: "object", properties: { lesson_id: ID_ARG, text: { type: "string", maxLength: 30000 }, base_version: { type: "integer", minimum: 0 } }, required: ["lesson_id", "text"], additionalProperties: false } },
+  { name: "save_verlaufsplan", title: "Verlaufsplan speichern (Grundschule)", annotations: { ...wr, destructiveHint: true },
+    description: "Nur für Sitzungen der Grundschule (statt des Schulportal-Eintrags): ersetzt den Verlaufsplan der Sitzung. Format: " + VERLAUFSPLAN_RULES + " " +
+      "Lege das Material vorher an (add_material_pdf, Bildkarten mit add_picture_cards) und nimm seine file_id aus der Antwort oder aus get_lesson. " +
+      "Eine Zeile „" + STOP_LINE + "“ setzt nur die Lehrkraft (bis dorthin wurde die Stunde geschafft): Eltern sehen nur das Material bis zum Zwischenstopp – setze selbst keinen. " +
+      "Übergib base_version aus get_lesson, damit keine neuere Änderung der Lehrkraft überschrieben wird. Beispiel:\n" + VERLAUFSPLAN_EXAMPLE,
     inputSchema: { type: "object", properties: { lesson_id: ID_ARG, text: { type: "string", maxLength: 30000 }, base_version: { type: "integer", minimum: 0 } }, required: ["lesson_id", "text"], additionalProperties: false } },
   { name: "add_material_pdf", title: "Material gestalten (PDF)", annotations: wr,
     description: "Legt ein von dir gestaltetes Material als PDF-Datei in der Sitzung ab: Arbeitsblätter, Texte und Quellen, Schaubilder, Tafelbilder, Kärtchen, Erwartungshorizonte – alles, was Schüler:innen oder die Lehrkraft als Datei bekommen. " +
@@ -95,10 +105,12 @@ const TOOLS = [
       "\"lehrkraft\" (nur für die Lehrkraft, z. B. Erwartungshorizont, Lösungen, Tafelbild) oder \"druck\" (Liste „Von der Lehrkraft auszudrucken“: in Jg. 5/6 alles Material für die Schüler:innen, sonst Kärtchen, Karten, Plakate; " +
       "dazu anzahl – Standard: Schülerzahl laut Kurseinstellungen (siehe get_lesson); fehlt sie, frag nach der Klassengröße –, beidseitig (false, wenn geschnitten wird) und farbe (nur, wenn Farbe unbedingt nötig ist; gedruckt wird fast immer schwarz-weiß)). " +
       "Mit file_id (aus get_lesson) ersetzt du die Gestaltung eines vorhandenen Materials – lies sie vorher mit get_material; eingebettete Bilder stehen dort als Platzhalter „data:unterricks-bild,n“ und bleiben erhalten, wenn du die Platzhalter stehen lässt. " +
-      "Die Antwort nennt die Seitenzahl der gedruckten PDF oder die Meldung des Druckers. Ein Material = eine Datei (mehrere Materialien M1, M2 … für dieselbe Aufgabe dürfen in einer Datei stehen).\n\nGestaltungsregeln:\n" + materialDesignText(),
+      "Die Antwort nennt die Seitenzahl der gedruckten PDF oder die Meldung des Druckers. Ein Material = eine Datei (mehrere Materialien M1, M2 … für dieselbe Aufgabe dürfen in einer Datei stehen).\n\nGestaltungsregeln:\n" + materialDesignText() +
+      "\n\nGrundschule: bereich \"schueler\" = Arbeitsblätter der Kinder (Eltern sehen sie nach der Stunde, wenn der Verlaufsplan sie vor einem Zwischenstopp nennt); gib dort anzahl an (und, wenn nötig, beidseitig und farbe), dann steht das Blatt auch auf der Druckliste. " +
+      "bereich \"druck\" nur für Material, das Eltern nicht sehen sollen (Tafel- und Bodenbilder, Kärtchen). Zusätzliche Gestaltungsregeln Grundschule (gehen vor):\n" + GS_MATERIAL_RULES.map((r) => "- " + r).join("\n"),
     inputSchema: { type: "object", properties: { lesson_id: ID_ARG, bereich: { type: "string", enum: ["schueler", "lehrkraft", "druck"], description: "bei file_id nur angeben, wenn er sich ändert (schueler ↔ lehrkraft)" },
       titel: { type: "string", maxLength: 160, description: "Dateiname ohne Endung, z. B. „Arbeitsblatt – Gewaltenteilung“" }, html: { type: "string", maxLength: 1600000, description: "vollständige HTML-Seite mit <style>" },
-      anzahl: { type: "integer", minimum: 1, maximum: 500, description: "nur bei bereich druck" }, beidseitig: { type: "boolean", description: "nur bei bereich druck" }, farbe: { type: "boolean", description: "nur bei bereich druck" },
+      anzahl: { type: "integer", minimum: 1, maximum: 500, description: "nur bei bereich druck (Grundschule: auch bei schueler)" }, beidseitig: { type: "boolean", description: "nur bei bereich druck (Grundschule: auch bei schueler)" }, farbe: { type: "boolean", description: "nur bei bereich druck (Grundschule: auch bei schueler)" },
       file_id: { type: "string", pattern: "^[a-f0-9]{16}$", description: "Gestaltung eines vorhandenen Materials ersetzen" } },
       required: ["lesson_id", "titel", "html"], additionalProperties: false } },
   { name: "get_material", title: "Gestaltetes Material lesen", annotations: ro,
@@ -199,6 +211,38 @@ async function lessonDump(db, l) {
   return parts.join("\n");
 }
 
+/* get_lesson einer Grundschul-Sitzung: Kurs statt Klasse, Verlaufsplan statt Schulportal-Eintrag, Inhalt und Hinweis für die Eltern, die PDF-Dateien
+   des Kurses für Verweise – ohne Sitzungscode, Feibeitsblätter und Vertretung, nie ein Elternlink */
+const GS_AREA = { student: "für die Kinder – Eltern sehen sie nach der Stunde", teacher: "nur Lehrkraft", print: "zum Ausdrucken" };
+function gsFileLine(f) {
+  const st = f.status !== "ready" ? (f.render_error ? "Druck fehlgeschlagen: " + f.render_error : "wartet auf den Druck") : f.pages ? f.pages + (f.pages === 1 ? " Seite" : " Seiten") : "fertig";
+  const pr = f.area === "student" && f.print_copies != null ? "; auch auf der Druckliste: " + printFileName({ name: f.name, copies: f.print_copies, duplex: f.print_duplex !== 0, color: f.print_color === 1 }) : "";
+  return "- file_id " + f.id + ": „" + f.name + "“ (" + (GS_AREA[f.area] || f.area) + "; " + st + pr + ") → " + pdfRef(f.id);
+}
+async function gsLessonDump(db, l) {
+  const ctx = await lessonCtx(db, l);
+  const prev = await previousLesson(db, l);
+  const [msgs, prevFiles] = await Promise.all([chatMessages(db, l.id, 40),
+    prev ? db.prepare(GS_CTX_FILES + " WHERE lesson_id=?1 AND kind='file' AND mime='application/pdf' AND area NOT IN ('archive','presentation') ORDER BY created_at").bind(prev.id).all() : null]);
+  const own = ctx.files.filter((f) => f.kind === "file" && f.mime === "application/pdf");
+  const before = (prevFiles && prevFiles.results) || [];
+  const pm = parentMaterial(l.portal, [...ctx.files, ...before], l.id), name = new Map([...ctx.files, ...before].map((f) => [f.id, f.name]));
+  const results = msgs.filter((m) => m.mode === "claude" && m.role === "assistant");
+  const parts = [
+    "# Sitzung " + l.id + " (Grundschule)", gsLessonContext(ctx, { materialText: true, materialMax: 20000 }),
+    "", "## Verlaufsplan (Version " + l.portal_version + (l.portal_source ? ", zuletzt von " + l.portal_source : "") + ")", l.portal || "(noch leer – speichere ihn mit save_verlaufsplan)",
+    ...(hasStop(l.portal) ? ["(„" + STOP_LINE + "“ hat die Lehrkraft gesetzt: bis dorthin wurde die Stunde geschafft, alles danach ist noch offen.)"] : []),
+    "Eltern sehen nach der Stunde: " + ([...pm.cards, ...pm.files].map((id) => "„" + name.get(id) + "“").join(", ") || "noch kein Material"),
+    "", "## Inhalt der Unterrichtsstunde (für die Eltern)", l.parent_summary || "(noch leer – formuliere ihn mit update_lesson und inhalt_eltern)",
+    "", "## Hinweis der Lehrkraft für die Eltern (nur lesen)", l.parent_note || "(keiner)",
+    "", "## PDF-Dateien des Kurses für Verweise ([[pdf:<file_id>]])", "Diese Sitzung:", ...(own.length ? own.map(gsFileLine) : ["(noch keine)"]),
+  ];
+  if (prev) parts.push("Vorige Sitzung „" + prev.title + "“" + (prev.lesson_date ? " (" + fmtDay(prev.lesson_date) + ")" : "") + ":", ...(before.length ? before.map(gsFileLine) : ["(keine)"]));
+  if (results.length) parts.push("", "## Gespeicherter Stundenentwurf (save_planning_result)", results[results.length - 1].content.slice(0, 20000));
+  if (l.unit_id) parts.push("", "Unterrichtseinheit: " + l.unit_id + " (Details mit get_unit; Planungsgrundlagen mit get_planning_basis)");
+  return parts.join("\n");
+}
+
 /* Filter der Listen: fach (auch „gs“ = alle Kurse der Grundschule), klasse (Gymnasium), kurs (ein Grundschulkurs) */
 function listFilter(a) {
   const where = [], args = [];
@@ -251,6 +295,7 @@ async function callTool(c, name, a) {
     }
     case "get_lesson": {
       const l = await getLesson(c.db, a.lesson_id);
+      if (l.subject === GS_SUBJECT) return toolText(await gsLessonDump(c.db, l), { lesson_id: l.id, portal_version: l.portal_version, verlaufsplan_version: l.portal_version });
       return toolText(await lessonDump(c.db, l), { lesson_id: l.id, portal_version: l.portal_version });
     }
     case "list_units": {
@@ -322,6 +367,7 @@ async function callTool(c, name, a) {
       if (a.beginn !== undefined) b.startTime = a.beginn;
       if (a.ideen !== undefined) b.ideas = a.ideen;
       if (a.hausaufgabe !== undefined) b.homework = a.hausaufgabe;
+      if (a.inhalt_eltern !== undefined) b.parentSummary = a.inhalt_eltern;
       const { lesson: l } = await updateLesson(c.db, a.lesson_id, b, c.now);
       return toolText("Gespeichert.", { lesson: lessonOut(l) });
     }
@@ -347,28 +393,55 @@ async function callTool(c, name, a) {
       }
     }
     case "add_material_pdf": {
-      await getLesson(c.db, a.lesson_id);
+      const gs = (await getLesson(c.db, a.lesson_id)).subject === GS_SUBJECT;
       const area = { schueler: "student", lehrkraft: "teacher", druck: "print" }[a.bereich] || "";
       if (!a.file_id && !area) return toolError("Bitte bereich angeben: schueler, lehrkraft oder druck.");
-      const f = await saveDesign(c, a.lesson_id, { area, title: a.titel, html: a.html, print: { copies: a.anzahl, duplex: a.beidseitig, color: a.farbe }, source: "claude", fileId: a.file_id || null });
-      const where = f.area === "student" ? "für die Schüler:innen" : f.area === "teacher" ? "nur für die Lehrkraft" : "in der Liste „Von der Lehrkraft auszudrucken“ als „" + printFileName({ name: f.name, copies: f.print_copies, duplex: f.print_duplex !== 0, color: f.print_color === 1 }) + "“";
+      const f = await saveDesign(c, a.lesson_id, { area, title: a.titel, html: a.html, print: { copies: a.anzahl, duplex: a.beidseitig, color: a.farbe }, source: "claude", fileId: a.file_id || null, gsPrint: gs });
+      const pName = () => printFileName({ name: f.name, copies: f.print_copies, duplex: f.print_duplex !== 0, color: f.print_color === 1 });
+      const where = gs && f.area === "student" ? "für die Kinder (Eltern sehen es nach der Stunde)" + (f.print_copies != null ? " und in der Liste „Von der Lehrkraft auszudrucken“ als „" + pName() + "“" : "")
+        : f.area === "student" ? "für die Schüler:innen" : f.area === "teacher" ? "nur für die Lehrkraft" : "in der Liste „Von der Lehrkraft auszudrucken“ als „" + pName() + "“";
+      const ref = gs ? " Verweis im Verlaufsplan: " + pdfRef(f.id) + "." : "";
       try {
         const r = await renderDesign(c, f, { waitMs: 30000 });
         const kb = Math.max(1, Math.round(r.bytes / 1024));
         return toolText("„" + r.file.name + "“ " + (a.file_id ? "überarbeitet" : "gespeichert") + " und als PDF gedruckt: " + (r.pages ? r.pages + (r.pages === 1 ? " Seite" : " Seiten") : "Seitenzahl unbekannt") + ", " + kb + " KB, " + where + "." +
-          (r.current ? "" : " (Inzwischen kam eine neuere Gestaltung an – Unterricks druckt sie nach.)") + " Ändern: add_material_pdf mit file_id " + f.id + ".", { file_id: f.id, pages: r.pages || null, bytes: r.bytes, status: "gedruckt" });
+          (r.current ? "" : " (Inzwischen kam eine neuere Gestaltung an – Unterricks druckt sie nach.)") + " Ändern: add_material_pdf mit file_id " + f.id + "." + ref, { file_id: f.id, pages: r.pages || null, bytes: r.bytes, status: "gedruckt" });
       } catch (e) {
         const code = e && e.code ? String(e.code) : "";
         const later = code === "render_busy" || code === "render_quota" || code === "render_config";
         return toolText("„" + f.name + "“ ist " + (a.file_id ? "überarbeitet" : "gespeichert") + " (" + where + "), aber noch nicht als PDF gedruckt: " + (e && e.message ? e.message : "Fehler beim Druck") + " " +
           (later ? "Unterricks druckt es automatisch nach, sobald die Lehrkraft Unterricks öffnet; bis dahin sehen die Schüler:innen " + (a.file_id && f.status === "ready" ? "die bisherige Fassung." : "es noch nicht.")
-            : "Bitte die Gestaltung prüfen und mit add_material_pdf (file_id " + f.id + ") korrigiert erneut senden."), { file_id: f.id, status: later ? "wartet auf den Druck" : "Druckfehler", error: e && e.message ? e.message : null });
+            : "Bitte die Gestaltung prüfen und mit add_material_pdf (file_id " + f.id + ") korrigiert erneut senden.") + ref, { file_id: f.id, status: later ? "wartet auf den Druck" : "Druckfehler", error: e && e.message ? e.message : null });
       }
     }
     case "get_material": {
       const f = await getFile(c.db, a.file_id);
       if (f.html == null || f.area === "archive") return toolError("Zu dieser file_id gibt es kein gestaltetes Material (siehe get_lesson).");
       return toolText("# " + f.name + " (" + (f.area === "student" ? "für Schüler:innen" : f.area === "teacher" ? "nur für die Lehrkraft" : "zum Ausdrucken") + ", Sitzung " + f.lesson_id + ")\n\n" + shortImages(f.html), { file_id: f.id, lesson_id: f.lesson_id });
+    }
+    case "save_verlaufsplan": {
+      const l = await getLesson(c.db, a.lesson_id);
+      if (l.subject !== GS_SUBJECT) return toolError("Nur für Grundschul-Sitzungen – sonst save_schulportal_entry.");
+      if (typeof a.text !== "string" || !a.text.trim()) return toolError("Der Verlaufsplan ist leer.");
+      // Verweise prüfen (eine Abfrage): PDFs aus Sitzungen dieses Kurses
+      const fr = await c.db.prepare("SELECT f.id, f.lesson_id, f.name, f.area, f.kind, f.mime, f.status, f.source, f.cards, f.card_pages, f.card_img_at, f.pdf_at, f.created_at, l.lesson_date " +
+        "FROM files f JOIN lessons l ON l.id = f.lesson_id WHERE l.subject='gs' AND l.klass=?1 AND f.kind='file' AND f.mime='application/pdf' AND f.area NOT IN ('archive','presentation') " +
+        "ORDER BY (f.lesson_id=?2) DESC, l.lesson_date DESC, f.created_at LIMIT 500").bind(l.klass, l.id).all();
+      const files = fr.results || [], known = new Set(files.map((f) => f.id));
+      const unknown = planRefs(a.text).all.filter((id) => !known.has(id));
+      let p;
+      try { p = await savePortal(c.db, l.id, a.text, Number.isInteger(a.base_version) ? a.base_version : null, "claude", c.now); }
+      catch (e) {
+        if (e instanceof HttpError && e.code === "portal_conflict") return toolError("Der Verlaufsplan wurde inzwischen geändert (aktuelle Version " + e.extra.current.version + "). Bitte get_lesson erneut aufrufen und die Änderungen der Lehrkraft berücksichtigen.");
+        throw e;
+      }
+      const pm = parentMaterial(p.text, files, l.id), byId = new Map(files.map((f) => [f.id, f.name]));
+      const parentsSee = [...pm.cards, ...pm.files].map((id) => "„" + byId.get(id) + "“").join(", ") || "noch kein Material";
+      const valid = files.slice(0, 20).map((f) => f.id + " („" + f.name + "“)").join(", ");
+      return toolText("Verlaufsplan gespeichert (Version " + p.version + ")." +
+        (unknown.length ? " Achtung: Diese Verweise gehören zu keiner PDF des Kurses: " + unknown.map(pdfRef).join(", ") + ". Gültige file_id: " + (valid || "(noch keine PDF-Dateien im Kurs)") +
+          ". Bitte korrigieren (save_verlaufsplan mit base_version " + p.version + ")." : "") +
+        " Eltern sehen nach der Stunde: " + parentsSee + ".", { version: p.version, unknown_refs: unknown });
     }
     case "add_text_material": {
       await getLesson(c.db, a.lesson_id);
