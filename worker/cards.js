@@ -107,7 +107,7 @@ export async function routeCardsGet(c, fileId) {
 export async function routeCardsPut(c, fileId) {
   await requireTeacher(c);
   const f = await cardFile(c.db, fileId);
-  const body = await readJson(c.request, 120000);
+  const body = await readJson(c.request, 300000);   // 40 × 1200 Zeichen, auch mehrbytige
   const cur = cardData(f);
   if (!Number.isInteger(body.rev)) throw bad("Der Stand der Erzähltexte (rev) fehlt.");
   const next = { v: 1, texts: body.texts !== undefined ? cleanCardTexts(body.texts) : cur.texts, share: body.share !== undefined ? body.share === true : cur.share, rev: cur.rev + 1 };

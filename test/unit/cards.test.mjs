@@ -67,6 +67,11 @@ test("Bildkarten hochladen: nur Grundschule, nur PDF; Lehrkraft-Datei mit Freiga
   // Kartenbilder (höchstens 40), dann fertig melden
   for (const n of [1, 2, 3, 4]) assert.equal((await slide(c, f.id, n)).status, 200);
   assert.equal((await slide(c, f.id, 41)).status, 400);
+  // Bild einer älteren Fassung (Stand v passt nicht mehr) überschreibt nie die Bilder der neueren (Prüfung)
+  let sv = await put(c, F.routeSlideUpload, "/api/teacher/files/" + f.id + "/slides/1?w=1600&h=1131&v=" + (f.createdAt - 5), IMG, "image/jpeg", f.id, "1");
+  assert.equal(sv.status, 409); assert.equal(sv.data.code, "stale");
+  sv = await put(c, F.routeSlideUpload, "/api/teacher/files/" + f.id + "/slides/1?w=1600&h=1131&v=" + f.createdAt, IMG, "image/jpeg", f.id, "1");
+  assert.equal(sv.status, 200);
   r = await call(c, CA.routeCardsReady, "POST", "/api/teacher/files/" + f.id + "/cards/ready", { pages: 3, version: f.createdAt + 1 }, f.id);
   assert.equal(r.status, 409); assert.equal(r.data.code, "stale");
   r = await call(c, CA.routeCardsReady, "POST", "/api/teacher/files/" + f.id + "/cards/ready", { pages: 5, version: f.createdAt }, f.id);
@@ -110,6 +115,10 @@ test("Erzähltexte und Freigabe: rev schützt vor dem Überschreiben; signierte 
   assert.deepEqual(r.data.cards, { texts: ["Noah baut eine Arche.", "Die Tiere kommen."], share: true, rev: 2 });
   lf = (await call(c, L.routeLessonGet, "GET", "/x", undefined, l.id)).data.files.find((x) => x.id === f.id);
   assert.deepEqual(pm(lf).cards, [f.id], "freigegeben und aktuell → Eltern sehen sie");
+  // 40 volle Texte in mehrbytiger Schrift passen in eine Anfrage (Prüfung: vorher 120 000 Bytes zu wenig)
+  const long = Array.from({ length: 40 }, () => "漢".repeat(1200));
+  r = await call(c, CA.routeCardsPut, "PUT", "/x", { texts: long, rev: 2 }, f.id);
+  assert.equal(r.status, 200); assert.equal(r.data.cards.texts.length, 40); assert.equal(r.data.cards.rev, 3);
   // nie im Materialbereich der Kinder; Bereich nicht änderbar
   assert.equal((await call(c, F.routeFilePatch, "PATCH", "/x", { area: "student" }, f.id)).status, 400);
   // Löschen entfernt PDF und Bilder

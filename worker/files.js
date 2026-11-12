@@ -3,7 +3,7 @@
 import { HttpError, bad, json, readJson, randomId, cleanLine, cleanText, isId, requireSecret, signLink, checkLink, contentDisposition, INLINE_SAFE } from "./lib.js";
 import { courseClassSize } from "./courses.js";
 import { requireTeacher } from "./auth.js";
-import { getLesson, fileOut, codeSlidesOf, LIMITS, printProps } from "./lessons.js";
+import { getLesson, fileOut, codeSlidesOf, LIMITS, printProps, cardVersion } from "./lessons.js";
 import { normalizeCode, isValidCode, cleanWebUrl, slidesUpTo, printFileName, cleanCopies, isAnalogClass, cleanCodeSlides, GS_SUBJECT } from "../public/shared.js";
 import { cleanDesignHtml, renderPdf, htmlText, keepImages, shortImages, HTML_MAX, RenderError, renderUsage, printerConfigured } from "./render.js";
 
@@ -408,9 +408,16 @@ export async function routePresentationUpload(c, lessonId) {
 }
 export async function routeSlideUpload(c, fileId, nRaw) {
   await requireTeacher(c);
-  const f = await getFile(c.db, fileId), n = Number(nRaw), cards = f.cards != null;   // auch Kartenbilder der Bildkarten (Grundschule)
+  // nur die nötigen Spalten (gestaltete Bildkarten tragen bis 1,6 MB HTML – je Kartenbild gelesen kostete das CPU)
+  if (!isId(fileId)) throw new HttpError(404, "not_found", "Datei nicht gefunden.");
+  const f = await c.db.prepare("SELECT id, lesson_id, area, cards, pdf_at, created_at FROM files WHERE id=?1").bind(fileId).first();
+  if (!f) throw new HttpError(404, "not_found", "Datei nicht gefunden.");
+  const n = Number(nRaw), cards = f.cards != null;   // auch Kartenbilder der Bildkarten (Grundschule)
   if (f.area !== "presentation" && !cards) throw bad("Keine Präsentation.");
   if (cards && (!Number.isInteger(n) || n < 1 || n > MAX_CARDS)) throw bad("Ungültige Kartennummer (höchstens " + MAX_CARDS + " Bildkarten).");
+  // Bilder einer älteren Fassung der Bildkarten (anderer Tab, inzwischen neu gestaltet) überschreiben nie die der neueren
+  const v = new URL(c.request.url).searchParams.get("v");
+  if (cards && v != null && Number(v) !== cardVersion(f)) throw new HttpError(409, "stale", "Die Bildkarten wurden inzwischen neu gestaltet – die Bilder werden neu erstellt.");
   if (!Number.isInteger(n) || n < 1 || n > MAX_SLIDES) throw bad("Ungültige Foliennummer (höchstens " + MAX_SLIDES + " Folien).");
   const len = uploadLength(c, MAX_SLIDE);
   const type = String(c.request.headers.get("content-type") || "").toLowerCase();

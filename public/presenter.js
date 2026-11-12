@@ -69,6 +69,12 @@ function paintCode(ctx, b, text) {
   return true;
 }
 
+/* Seitenzahl einer PDF (Bildkarten: vor dem Hochladen prüfen, ob es höchstens 40 Karten sind und sich die PDF lesen lässt) */
+export async function pdfPageCount(file) {
+  const lib = await pdfjs();
+  const doc = await lib.getDocument({ data: new Uint8Array(await file.arrayBuffer()), isEvalSupported: false }).promise;
+  try { return doc.numPages; } finally { await doc.destroy(); }
+}
 /* PDF im Browser rendern (PDF.js) und jede Seite als JPEG hochladen. onProgress(i, n).
    Platzhalterfolien (Zeile „Unterricks-Codefolie“, codeSlideLines) gehen als codeSlides [{n, lines}] mit an den Server – dort zeigt die
    Live-Präsentation die Codefolie. Stiller Rückfall für ältere Präsentationen mit dem Code auf den Folien: opt.code = Code der Sitzung;
@@ -122,11 +128,11 @@ export async function rasterizeAndUpload(file, fileId, token, onProgress, opt = 
     const blob = await new Promise((res) => canvas.toBlob(res, "image/jpeg", 0.86));
     for (let attempt = 0; ; attempt++) {
       try {
-        const r = await fetch(apiUrl("/api/teacher/files/" + fileId + "/slides/" + i + "?w=" + canvas.width + "&h=" + canvas.height), { method: "PUT", headers: { Authorization: "Bearer " + token, "Content-Type": "image/jpeg" }, body: blob });
+        const r = await fetch(apiUrl("/api/teacher/files/" + fileId + "/slides/" + i + "?w=" + canvas.width + "&h=" + canvas.height + (cards ? "&v=" + encodeURIComponent(opt.version) : "")), { method: "PUT", headers: { Authorization: "Bearer " + token, "Content-Type": "image/jpeg" }, body: blob });
         const d = await r.json().catch(() => null);
-        if (!r.ok || !d || !d.ok) throw new Error((d && d.error) || "Folie " + i + " konnte nicht gespeichert werden.");
+        if (!r.ok || !d || !d.ok) { const err = new Error((d && d.error) || (cards ? "Kartenbild " : "Folie ") + i + " konnte nicht gespeichert werden."); err.code = (d && d.code) || ""; throw err; }
         break;
-      } catch (e) { if (attempt >= 2) throw e; await new Promise((r) => setTimeout(r, 800 * (attempt + 1))); }
+      } catch (e) { if (attempt >= 2 || (cards && e.code === "stale")) { if (cards) await doc.destroy(); throw e; } await new Promise((r) => setTimeout(r, 800 * (attempt + 1))); }
     }
     if (i <= 40) { const t = document.createElement("canvas"); const k = 120 / canvas.height; t.width = Math.round(canvas.width * k); t.height = 120; t.getContext("2d").drawImage(canvas, 0, 0, t.width, t.height); thumbs.push(t.toDataURL("image/jpeg", 0.7)); }
     page.cleanup();

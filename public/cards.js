@@ -9,6 +9,7 @@ import { designState, printQueue } from "./designrender.js";
 const CARD_TEXT_LABEL = (n) => "Erzähltext zu Karte " + n + " (für Eltern sichtbar – gekürzt zum Nacherzählen)";
 const PUBLISHER_HINT = "Bildkarten von Verlagen dürfen meist nicht online weitergegeben werden – zeigen Sie Eltern nur selbst erstellte oder ausdrücklich freigegebene Karten. Claude gestaltet Bildkarten beim Planen auch selbst.";
 const SHARE_LABEL = "Eltern dürfen diese Bildkarten sehen";
+const MAX_CARDS = 40;   // wie der Server (worker/files.js)
 
 /* ---------- Betrachter: der Reihe nach durch die Karten klicken, darunter der Erzähltext (auch in der Elternansicht) ----------
    images = {base, q} (Bild n = base + n + q), reload() → neue {images} (einmal bei einem Ladefehler, z. B. abgelaufene Signatur) */
@@ -135,6 +136,12 @@ export function cardsCard({ lessonId, st, insertRef, onChange = () => {} }) {
     if (!/pdf$/i.test(file.type) && !/\.pdf$/i.test(file.name)) { stateLine(upState, "Bitte eine PDF-Datei wählen (eine Seite = eine Karte).", "err"); return; }
     pickBtn.disabled = true;
     try {
+      // vorher prüfen: lesbar und höchstens 40 Seiten (sonst ließen sich die Bilder nie erstellen – und jede Startseite versuchte es erneut)
+      stateLine(upState, "„" + file.name + "“ wird geprüft …");
+      let pages = 0;
+      try { pages = await (await import("./presenter.js")).pdfPageCount(file); }
+      catch { stateLine(upState, "Diese PDF-Datei lässt sich nicht lesen. Bitte eine andere PDF-Datei wählen (eine Seite = eine Karte).", "err"); return; }
+      if (pages > MAX_CARDS) { stateLine(upState, "Die PDF hat " + pages + " Seiten – höchstens " + MAX_CARDS + " Bildkarten je PDF (eine Seite = eine Karte).", "err"); return; }
       stateLine(upState, "„" + file.name + "“ wird hochgeladen …");
       const r = await upload("/api/teacher/lessons/" + lessonId + "/cards?name=" + encodeURIComponent(file.name) + "&share=" + (share.checked ? "1" : "0"), file, T.token,
         (p) => stateLine(upState, "„" + file.name + "“ wird hochgeladen … " + Math.round(p * 100) + " %"), "application/pdf");
@@ -185,8 +192,11 @@ export function cardsCard({ lessonId, st, insertRef, onChange = () => {} }) {
     const list = warnings(f, data.get(id));
     clear(w).append(...list.map((t) => h("p", { class: "small warnc", text: t })));
   }
+  // gestaltete Bildkarten: Druck fehlgeschlagen bzw. Tageskontingent des Druckers erschöpft (dann gibt es „Erneut drucken“)
+  const printFail = (f, des) => (des && des.error ? des.text : des && des.need && rq.failed(f) ? "Druck fehlgeschlagen: " + rq.failed(f) : des && des.need && rq.quota ? "Noch nicht gedruckt: " + rq.quota : null);
   function stateText(f, d) {
-    const p = prog.get(f.id), des = designState(f);
+    const p = prog.get(f.id), des = designState(f), pf = printFail(f, des);
+    if (pf) return pf;
     if (des && des.need && !des.ok) return "PDF wird gedruckt …";
     if (p && p.state === "run") return "Bilder werden erstellt" + (p.n ? " (" + p.i + "/" + p.n + ")" : "") + " …";
     if (p && p.state === "wait") return "Bilder werden gleich erstellt …";
@@ -232,6 +242,7 @@ export function cardsCard({ lessonId, st, insertRef, onChange = () => {} }) {
       h("a", { class: "btn small", href: "#/lk/datei/" + f.id, target: "_blank", rel: "noopener" }, "Als PDF ansehen", h("span", { class: "sr-only", text: " (öffnet in neuem Tab)" })),
       insertRef ? h("button", { class: "btn small", type: "button", onclick: () => insertRef(f.id) }, icon("plus"), "In den Verlaufsplan einfügen") : null,
       failMsg ? h("button", { class: "btn small", type: "button", onclick: () => { prog.delete(f.id); queueCards({ id: f.id, version: f.cards.version }, { again: true }); paintSet(f.id); } }, "Bilder erneut erstellen") : null,
+      printFail(f, designState(f)) ? h("button", { class: "btn small", type: "button", onclick: () => { if (f.design) f.design = { ...f.design, error: null }; rq.again(f); paintSet(f.id); } }, "Erneut drucken") : null,
       h("button", { class: "btn small danger", type: "button", onclick: async () => {
         if (!(await confirmDialog("Bildkarten löschen", "„" + f.name + "“ mit allen Kartenbildern und Erzähltexten endgültig löschen? Ein Verweis im Verlaufsplan zeigt danach „PDF nicht gefunden“.", "Endgültig löschen", true))) return;
         try { await tapi("DELETE", "/api/teacher/files/" + f.id); st.files = st.files.filter((x) => x.id !== f.id); data.delete(f.id); paint(); onChange(); toast("Bildkarten gelöscht.", "ok"); } catch (e) { errToast(e); }
@@ -289,7 +300,8 @@ export function cardsCard({ lessonId, st, insertRef, onChange = () => {} }) {
     if (ev.state === "fail") { paintSet(ev.id); return; }
     if (s) { const t = stateText(f, data.get(ev.id)); if (s.textContent !== t) s.textContent = t; }
   });
-  const unq = rq.on({ done: (nf) => { const f = fileOfSet(nf.id); if (!f) return; Object.assign(f, nf); reloadSet(nf.id).then(() => { ensure(f); onChange(); }); } });
+  const unq = rq.on({ done: (nf) => { const f = fileOfSet(nf.id); if (!f) return; Object.assign(f, nf); reloadSet(nf.id).then(() => { ensure(f); onChange(); }); },
+    fail: (f0, e, quota) => { if (quota) { for (const f of setsOf()) paintSet(f.id); } else if (fileOfSet(f0.id)) paintSet(f0.id); } });
   onLeave(() => {
     unsub(); unq();
     for (const [id, ed] of editing) if (ed.timer || ed.dirty) { const box = el.querySelector("#cs-" + id); if (box) saveTexts(id, box); }
