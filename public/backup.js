@@ -21,7 +21,7 @@ const unitLessons = (unit) => (unit.lessons || []).map((l) => ({ id: l.id, date:
 
 /* Einheitsordner in eine ZIP-Datei schreiben (prefix = Ordner, "" = oben): Sitzungen chronologisch, dann die Einheitsdatei.
    → {sessions, notes, missing} */
-async function addUnit(zip, prefix, unit, lessons, { fb, onStep = () => {}, cancelled = () => false, full = true } = {}) {
+async function addUnit(zip, prefix, unit, lessons, { fb, onStep = () => {}, cancelled = () => false, full = true, gsShort = null } = {}) {
   const list = UF.chronoLessons(lessons, unit.rows || []), width = Math.max(2, String(list.length).length), paths = new Map();
   const notes = [], missing = [], at = (p) => (prefix ? prefix + "/" : "") + p;
   let n = 0;
@@ -38,15 +38,16 @@ async function addUnit(zip, prefix, unit, lessons, { fb, onStep = () => {}, canc
     notes.push(...s.notes.map((x) => folder + ": " + x)); missing.push(...s.missing.map((x) => folder + ": " + x));
   }
   if (cancelled()) throw new Cancelled();
-  if (unit.id) zip.add(at(UF.unitJsonName(unit)), te.encode(JSON.stringify(UF.unitFileData(unit, paths), null, 1)));
+  if (unit.id) zip.add(at(UF.unitJsonName(unit, gsShort)), te.encode(JSON.stringify(UF.unitFileData(unit, paths), null, 1)));
   return { sessions: list.length, notes, missing };
 }
 
 /* Einheit als Datei: unit = unitFull (mit lessons) → {blob, name, sessions, notes, missing} */
 export async function buildUnitZip(unit, { onStep, cancelled } = {}) {
   const zip = new ZipBlob(), fb = await fbReady();
-  const r = await addUnit(zip, "", unit, unitLessons(unit), { fb, onStep, cancelled, full: false });
-  return { blob: zip.finish(), name: UF.unitBaseName(unit) + ".zip", ...r };
+  const gsShort = unit.course && unit.course.gs ? unit.course.gs.short : null;
+  const r = await addUnit(zip, "", unit, unitLessons(unit), { fb, onStep, cancelled, full: false, gsShort });
+  return { blob: zip.finish(), name: UF.unitBaseName(unit, 80, gsShort) + ".zip", ...r };
 }
 
 /* ---------- Gesicherte Sitzungen bis zum Anlegen der Sitzungen (IndexedDB, nur auf diesem Gerät) ---------- */
@@ -153,6 +154,8 @@ export async function buildBackup({ onStep = () => {}, onProgress = () => {}, ca
   onStep("Lese die Übersicht …");
   const idx = await retry(() => tapi("GET", "/api/teacher/backup")), fb = await fbReady();
   const units = idx.units || [], lessons = idx.lessons || [], unitIds = new Set(units.map((u) => u.id));
+  // Grundschulkurse: Ordner „Grundschule/Religion 2ab - …“ (Kurzname des Kurses statt der Kennung)
+  const gsShort = (klass) => { const k = (idx.gsCourses || []).find((x) => x && x.id === klass); return k ? k.short : null; };
   const zip = new ZipBlob(), notes = [], missing = [], total = lessons.length, tot = idx.totals || {};
   if ((tot.units || 0) > units.length) missing.push((tot.units - units.length) + " Unterrichtseinheiten (zu viele für eine Sicherung)");
   if ((tot.lessons || 0) > lessons.length) missing.push((tot.lessons - lessons.length) + " Sitzungen (zu viele für eine Sicherung)");
@@ -163,17 +166,17 @@ export async function buildBackup({ onStep = () => {}, onProgress = () => {}, ca
   // Einheiten: Fach / „8B - Titel“
   for (const u of [...units].sort((a, b) => order(a, b) || String((a.params || {}).start || "").localeCompare(String((b.params || {}).start || "")) || String(a.title).localeCompare(String(b.title), "de"))) {
     if (cancelled()) throw new Cancelled();
-    const prefix = zip.unique(UF.subjectFolderName(u.subject) + "/" + UF.unitFolderName(u), true);
+    const prefix = zip.unique(UF.subjectFolderName(u.subject) + "/" + UF.unitFolderName(u, gsShort(u.klass)), true);
     const mine = lessons.filter((l) => l.unitId === u.id);
     const fullU = (await retry(() => tapi("GET", "/api/teacher/units/" + u.id))).unit;   // Plan und Zeilen je Einheit (die Übersicht bleibt klein)
-    const r = await addUnit(zip, prefix, fullU, mine, { fb, cancelled, onStep: (m) => step(UF.subjectFolderName(u.subject) + " · " + m) });
+    const r = await addUnit(zip, prefix, fullU, mine, { fb, cancelled, gsShort: gsShort(u.klass), onStep: (m) => step(UF.subjectFolderName(u.subject) + " · " + m) });
     track(r);
   }
   // Sitzungen ohne (vorhandene) Einheit: Fach / „8B - Sitzungen ohne Einheit“
   const loose = lessons.filter((l) => !l.unitId || !unitIds.has(l.unitId)), groups = new Map();
   for (const l of loose) { const k = l.subject + "|" + l.klass; if (!groups.has(k)) groups.set(k, []); groups.get(k).push(l); }
   for (const g of [...groups.values()].sort((a, b) => order(a[0], b[0]))) {
-    const prefix = zip.unique(UF.subjectFolderName(g[0].subject) + "/" + UF.looseFolderName(g[0].klass), true);
+    const prefix = zip.unique(UF.subjectFolderName(g[0].subject) + "/" + UF.looseFolderName(g[0].klass, gsShort(g[0].klass)), true);
     track(await addUnit(zip, prefix, { title: "", rows: [] }, g, { fb, cancelled, onStep: (m) => step(UF.subjectFolderName(g[0].subject) + " · " + m) }));
   }
   if (cancelled()) throw new Cancelled();

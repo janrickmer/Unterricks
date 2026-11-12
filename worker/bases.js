@@ -3,10 +3,11 @@
 // Jahrgänge, Fachteil des Erlasses) erkennt ebenfalls der Browser (public/bases-detect.js), die Lehrkraft kann sie korrigieren.
 import { HttpError, bad, json, readJson, randomId, cleanText, cleanLine, isId, isObj, requireSecret, signLink, checkLink, contentDisposition } from "./lib.js";
 import { courseSettingsCopyStmt } from "./courses.js";
+import { planningBasisGs, getGsCourse, gsCourseOut } from "./gs.js";
 import { checkStorage, uploadLength, MAX_FILE } from "./files.js";
 import { getSetting, setSetting } from "./db.js";
 import { requireTeacher } from "./auth.js";
-import { SUBJECTS, isValidSubject, subjectName, subjectConfig, isValidClass, gradeKey, Q_COURSES, GRADE_KEYS, COURSE_GRADES, courseKey, courseMembersClean, isCourseSubject, classShort, isGsCourseId } from "../public/shared.js";
+import { SUBJECTS, isValidSubject, subjectName, subjectConfig, isValidClass, gradeKey, Q_COURSES, GRADE_KEYS, COURSE_GRADES, courseKey, courseMembersClean, isCourseSubject, classShort, isGsCourseId, GS_SUBJECT } from "../public/shared.js";
 import { BASE_KINDS, wantedSections, missingFor as missingForLabel } from "../public/bases-detect.js";
 
 export const KINDS = Object.fromEntries(Object.entries(BASE_KINDS).map(([k, v]) => [k, v.label]));
@@ -268,6 +269,10 @@ export function rangeText(nums) {
 export async function routeBasisPreview(c) {
   await requireTeacher(c);
   const u = new URL(c.request.url), subject = u.searchParams.get("subject"), klass = u.searchParams.get("klass");
+  if (subject === GS_SUBJECT) {   // Grundschulkurs: Curriculum Ev. Religion (Jahrgang des Kurses) bzw. die Grundlagen des Kurses
+    const b = await planningBasisGs(c.db, gsCourseOut(await getGsCourse(c.db, klass)), 60000);
+    return json({ ok: true, rules: b.rules, gradeNote: b.gradeNote, complete: b.complete, docs: b.docs, missing: b.missing, truncated: b.truncated, chars: b.text.length, description: b.description });
+  }
   if (!isValidSubject(subject) || !isValidClass(klass)) throw bad("Fach oder Klasse ungültig.");
   const b = await planningBasis(c.db, subject, klass, 60000);
   return json({ ok: true, rules: b.rules, gradeNote: b.gradeNote, complete: b.complete, docs: b.docs, missing: b.missing, truncated: b.truncated, chars: b.text.length });

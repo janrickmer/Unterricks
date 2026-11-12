@@ -293,3 +293,34 @@ test("Schulcurriculum Grundschule (Ev. Religion Jg. 1–4): Jahrgänge erkennen,
   // das Gymnasium bleibt, wie es war: ein Grundschul-Curriculum ersetzt kein Schulcurriculum der Sek I
   assert.deepEqual(missingFor([b], "evrel", "Evangelische Religion", "5A"), ["Schulcurriculum Evangelische Religion für Jahrgang 5"]);
 });
+
+/* ---------- Grundschule: Wochenkalender beider Schulformen, Prompt der Einheit ---------- */
+import { claudeGsUnitPrompt, GS_RULE } from "../../public/gsplanning.js";
+import { paramsText } from "../../public/planning.js";
+test("Wochenkalender: Grundschul-Einheiten mit Kurs (Kennzeichnung „Grundschule“, Klick öffnet den Kurs); ohne Kurs nichts; Gymnasium unverändert", () => {
+  const P = { start: "2026-11-02", end: "2026-11-30", weekdays: [{ day: 2, minutes: 45, time: "08:00" }], breaks: [{ from: "2026-11-17", to: "2026-11-17", label: "Studientag" }] };
+  const gs = { ...unit("g", "gs", "gs1a2b3c4d", P, "Josef"), course: { id: "gs1a2b3c4d", short: "Religion 2ab", label: "Religion · Jahrgang 2 (Klassen 2a, 2b)" } };
+  const sek = unit("s", "powi", "8C", P, "Wahlen");
+  const before = weekSchedule([sek], "2026-11-09");
+  const w = weekSchedule([gs, sek, unit("x", "gs", "gs1a2b3c4d", P), { ...unit("y", "gs", "4A", P), course: { short: "x" } }], "2026-11-09");
+  const di = w.days[1].timed;
+  assert.equal(di.length, 2);
+  const g = di.find((e) => e.subject === "gs");
+  assert.deepEqual([g.subjectShort, g.label, g.href, g.gs, g.title, g.time, g.endTime], ["Grundschule", "Religion 2ab", "#/lk/grundschule/k/gs1a2b3c4d", true, "Josef", "08:00", "08:45"]);
+  assert.deepEqual(di.find((e) => e.subject === "powi"), before.days[1].timed[0], "Eintrag des Gymnasiums unverändert");
+  assert.equal(before.days[1].timed[0].gs, undefined);
+  assert.deepEqual(weekSchedule([gs], "2026-11-16").days[1].off, [{ subject: "gs", subjectShort: "Grundschule", klass: "gs1a2b3c4d", label: "Religion 2ab", reason: "Studientag" }]);
+});
+test("Prompt „Einheit mit Claude planen“ (Grundschule): Hessen, Kurs, Schülerzahl, keine Klausur, kein Gymnasium; paramsText ohne Klausur", () => {
+  const P = { start: "2026-11-09", end: "2026-11-13", exam: "2026-11-12", weekdays: [{ day: 2, minutes: 45, time: "08:00" }, { day: 4, minutes: 45, time: "09:50" }] };
+  const course = { id: "gs1a2b3c4d", subjectName: "Religion", description: "Wir lernen Geschichten aus der Bibel kennen.", gradeText: "Jahrgangsstufe 2 der Grundschule, Kurs mit Kindern aus den Klassen 2a und 2b" };
+  const p = claudeGsUnitPrompt({ unitId: "0123456789abcdef", course, title: "Josef", params: P, slots: computeSlots({ ...P, exam: null }), bases: ["Schulcurriculum evRel GS"], missing: [], classSize: 22 });
+  for (const x of ["für Religion an einer Grundschule in Hessen", "- Lerngruppe: Jahrgangsstufe 2 der Grundschule, Kurs mit Kindern aus den Klassen 2a und 2b", "- Schülerzahl: 22 Kinder (laut Kurseinstellungen)",
+    "- Ziel des Unterrichts in diesem Kurs (Beschreibung der Lehrkraft): Wir lernen Geschichten aus der Bibel kennen.", "get_planning_basis", "**drei** zentrale Lernaufgaben", "genau 2 Zeilen", "save_unit_plan",
+    "- " + GS_RULE, "Leupold-Schema", "1. Di, 10.11.2026 08:00 (45 min)"]) assert.ok(p.includes(x), x);
+  for (const x of ["Klausur", "Gymnasium", "Feibeitsblatt-", "Schulportal", "PoWi"]) assert.ok(!p.includes(x), x);
+  assert.ok(!claudeGsUnitPrompt({ unitId: "0123456789abcdef", course: { ...course, description: "" }, params: P, slots: [] }).includes("Schülerzahl"));
+  assert.ok(!paramsText(P, { exam: false }).includes("Klausur"));
+  assert.equal(paramsText(P), paramsText(P, { exam: true }), "Vorgabe wie bisher");
+  assert.ok(paramsText(P).includes("Klausurtermin: "));
+});

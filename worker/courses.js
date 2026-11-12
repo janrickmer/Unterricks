@@ -6,12 +6,13 @@ import { requireTeacher } from "./auth.js";
 import { loadSubjectConfigs } from "./bases.js";
 import { isValidSubject, classAllowed, GS_SUBJECT, isGsCourseId } from "../public/shared.js";
 import { normalizeCourseSettings } from "../public/planning.js";
+import { gsCourseOut } from "./gs.js";
 
 const parseJ = (s, d) => { try { const v = JSON.parse(s); return v ?? d; } catch { return d; } };
 const GS_GONE = "Diesen Grundschulkurs gibt es nicht (mehr).";
 
 /* Kurs prüfen: Gymnasium nur mit Fach und einer laut Fach-Einstellungen unterrichteten Klasse (wie bisher), Grundschule nur einen
-   vorhandenen Kurs. → {gs:false, cfg} | {gs:true, course: Zeile aus gs_courses} */
+   vorhandenen Kurs. → {gs:false, cfg} | {gs:true, course: gsCourseOut} */
 export async function courseRef(db, subject, klass) {
   if (isValidSubject(subject)) {
     const cfg = (await loadSubjectConfigs(db))[subject];
@@ -19,7 +20,7 @@ export async function courseRef(db, subject, klass) {
   } else if (subject === GS_SUBJECT && isGsCourseId(klass)) {
     const course = await db.prepare("SELECT * FROM gs_courses WHERE id=?1").bind(klass).first();
     if (!course) throw new HttpError(404, "not_found", GS_GONE);
-    return { gs: true, course };
+    return { gs: true, course: gsCourseOut(course) };
   }
   throw bad("Fach oder Klasse ungültig.");
 }
@@ -37,11 +38,11 @@ export async function getCourseSettings(db, subject, klass) {
   return courseSettingsOut(await courseSettingsStmt(db, subject, klass).first());
 }
 /* Kurs-Angaben für Einheit und Sitzung: {weekdays, classSize, gs} oder null (keine Einstellungen und kein Grundschulkurs).
-   gs = Zeile des Grundschulkurses (die aufbereitete Form ergänzt die Grundschul-Erweiterung). */
+   gs = Grundschulkurs (gsCourseOut) oder null. */
 export async function courseInfo(db, subject, klass) {
   const gs = subject === GS_SUBJECT && isGsCourseId(klass);
   const res = await db.batch([courseSettingsStmt(db, subject, klass), ...(gs ? [db.prepare("SELECT * FROM gs_courses WHERE id=?1").bind(klass)] : [])]);
-  const s = courseSettingsOut((res[0].results || [])[0]), course = gs ? (res[1].results || [])[0] || null : null;
+  const s = courseSettingsOut((res[0].results || [])[0]), course = gs ? gsCourseOut((res[1].results || [])[0]) : null;
   if (!s && !course) return null;
   return { weekdays: s ? s.weekdays : [], classSize: s ? s.classSize : null, gs: course };
 }

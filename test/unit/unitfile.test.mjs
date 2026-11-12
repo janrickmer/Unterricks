@@ -121,3 +121,17 @@ test("ZIP lesen: Namen ohne UTF-8-Kennzeichen in Codepage 437 (Windows „ZIP-ko
   const back = await readZip(z);
   assert.equal(back[0].name.trim(), "Wählen.txt"); assert.equal(back[1].name.trim(), "Prüfung/ä.zip");
 });
+
+test("Sicherung: Grundschul-Einheiten unter „Grundschule/<Kurs> - <Titel>“ (Kurzname des Kurses statt der Kennung)", () => {
+  const u = { subject: "gs", klass: "gs1a2b3c4d", title: "Josef und seine Brüder" };
+  assert.equal(UF.subjectFolderName("gs"), "Grundschule");
+  assert.equal(UF.unitFolderName(u, "Religion 2ab"), "Religion 2ab - Josef und seine Brüder");
+  assert.equal(UF.unitJsonName(u, "Religion 2ab"), "Unterrichtseinheit - Grundschule - Religion 2ab - Josef und seine Brüder.json");
+  assert.equal(UF.unitFolderName(u, "Deutsch/Kunst 3c"), "Deutsch Kunst 3c - Josef und seine Brüder", "„/“ nie im Ordnernamen");
+  assert.equal(UF.looseFolderName("gs1a2b3c4d", "Religion 2ab"), "Religion 2ab - Sitzungen ohne Einheit");
+  assert.equal(UF.unitFolderName(u), "Kurs - Josef und seine Brüder");
+  // Gymnasium unverändert
+  assert.equal(UF.unitFolderName({ klass: "8B", title: "Wahlen" }, "egal"), "8B - Wahlen");
+  assert.equal(UF.unitJsonName({ subject: "powi", klass: "8B", title: "Wahlen" }, "egal"), UF.unitJsonName({ subject: "powi", klass: "8B", title: "Wahlen" }));
+  assert.ok(UF.subjectOrder("powi") < UF.subjectOrder("gs") && UF.subjectOrder("gs") < UF.subjectOrder("mathe"));
+});

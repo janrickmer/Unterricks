@@ -14,12 +14,14 @@ import * as SUB from "./substitute.js";
 import * as R from "./reset.js";
 import * as RN from "./render.js";
 import * as CS from "./courses.js";
+import * as GS from "./gs.js";
 
 export { LiveRoom } from "./live.js";
 
 const DEFAULT_FB_API = "https://feibeitsblatt.feindt.workers.dev";
 const DEFAULT_FB_URL = "https://feibeitsblatt.janrickmer.de/";
 const ID = "([a-f0-9]{16})";
+const GSID = "(gs[a-f0-9]{8})";
 
 const ROUTES = [
   ["GET", "/api/health", async () => json({ ok: true, service: "unterricks" }), { noDb: true }],
@@ -73,6 +75,12 @@ const ROUTES = [
   ["GET", "/api/teacher/course-settings", CS.routeCourseSettingsGet],
   ["PUT", "/api/teacher/course-settings", CS.routeCourseSettingsPut],
   ["POST", "/api/teacher/units", U.routeUnitCreate],
+  // Grundschule: Kurse der Jahrgänge 1–4
+  ["GET", "/api/teacher/gs/courses", GS.routeGsCourses],
+  ["POST", "/api/teacher/gs/courses", GS.routeGsCourseCreate],
+  ["GET", "/api/teacher/gs/courses/" + GSID, GS.routeGsCourseGet],
+  ["PATCH", "/api/teacher/gs/courses/" + GSID, GS.routeGsCoursePatch],
+  ["DELETE", "/api/teacher/gs/courses/" + GSID, GS.routeGsCourseDelete],
   ["GET", "/api/teacher/units/" + ID, U.routeUnitGet],
   ["PATCH", "/api/teacher/units/" + ID, U.routeUnitPatch],
   ["DELETE", "/api/teacher/units/" + ID, U.routeUnitDelete],

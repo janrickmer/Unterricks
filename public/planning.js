@@ -1,7 +1,8 @@
 // planning.js – Unterrichtseinheiten (Leupold-Schema + Ablaufplan), Terminberechnung, Krankheitsvertretung, Claude-Prompts.
 // Gemeinsam für Browser und Worker (keine DOM-Zugriffe).
 import { subjectName, gradeInfo, classShort, isAnalogClass, ANALOG_RULE, fmtDay, addDays, isIsoDate, isClockTime, PORTAL_RULES, PORTAL_EXAMPLE, FEIBEITSBLATT_INFO, materialDesignText,
-  SYSTEM_PROMPT_ROLE, UNIT_RULE_BASE, STOP_LINE, lessonContext, teacherWishes, groupShort, subjectShort, isValidSubject, isValidClass, clockMinutes, minutesClock, mondayOf, isWeekend } from "./shared.js";
+  SYSTEM_PROMPT_ROLE, UNIT_RULE_BASE, STOP_LINE, lessonContext, teacherWishes, groupShort, subjectShort, isValidSubject, isValidClass, clockMinutes, minutesClock, mondayOf, isWeekend,
+  GS_SUBJECT, isGsCourseId } from "./shared.js";
 import { ESCAPE_FORMAT_HINT } from "./escape-data.js";
 export { UNIT_RULE } from "./shared.js";
 
@@ -63,7 +64,10 @@ export function weekSchedule(units, monday) {
   const days = WEEKDAYS.map((w, i) => ({ date: addDays(monday, i), day: w.d, name: w.n, timed: [], untimed: [], off: [] }));
   const byKey = new Map();
   for (const u of Array.isArray(units) ? units : []) {
-    if (!u || !isValidSubject(u.subject) || !isValidClass(u.klass)) continue;
+    // Grundschule: Kurs „gs…“ mit Namen aus der Übersicht (u.course.short); beschriftet mit „Grundschule“, Klick öffnet den Kurs
+    const gs = !!u && u.subject === GS_SUBJECT && isGsCourseId(u.klass) && !!u.course && typeof u.course.short === "string";
+    if (!u || (!gs && (!isValidSubject(u.subject) || !isValidClass(u.klass)))) continue;
+    const who = gs ? { subjectShort: "Grundschule", label: str(u.course.short, 60), gs: true } : { subjectShort: subjectShort(u.subject), label: classShort(u.klass) };
     const p = normalizeParams(u.params);
     if (!p.start || !p.end || p.end < p.start || !p.weekdays.length || p.end < monday || p.start > friday) continue;
     const from = p.start > monday ? p.start : monday, to = p.end < friday ? p.end : friday;
@@ -83,8 +87,8 @@ export function weekSchedule(units, monday) {
       }
       const start = clockMinutes(s.time), end = start == null ? null : Math.min(24 * 60, start + s.minutes);
       const e = { key, date: s.date, day: day.day, time: s.time || null, endTime: end == null ? null : minutesClock(end), start, end, minutes: s.minutes, kind: s.kind,
-        subject: u.subject, subjectShort: subjectShort(u.subject), klass: u.klass, label: classShort(u.klass), title: str(u.title, 200), unitIds: [u.id],
-        href: "#/lk/f/" + u.subject + "/" + u.klass };
+        subject: u.subject, ...who, klass: u.klass, title: str(u.title, 200), unitIds: [u.id],
+        href: gs ? "#/lk/grundschule/k/" + u.klass : "#/lk/f/" + u.subject + "/" + u.klass };
       byKey.set(key, e);
       (e.time ? day.timed : day.untimed).push(e);
     }
@@ -93,7 +97,7 @@ export function weekSchedule(units, monday) {
       if (day.date < from || day.date > to || !p.weekdays.some((w) => w.day === day.day)) continue;
       const b = p.breaks.find((x) => day.date >= x.from && day.date <= x.to);
       if (b && !day.off.some((o) => o.subject === u.subject && o.klass === u.klass))
-        day.off.push({ subject: u.subject, subjectShort: subjectShort(u.subject), klass: u.klass, label: classShort(u.klass), reason: b.label || "" });
+        day.off.push({ subject: u.subject, subjectShort: who.subjectShort, klass: u.klass, label: who.label, reason: b.label || "" });
     }
   }
   const order = (a, b) => (a.subjectShort < b.subjectShort ? -1 : a.subjectShort > b.subjectShort ? 1 : a.label.localeCompare(b.label, "de", { numeric: true }));
@@ -131,12 +135,13 @@ export function assignLanes(entries, minSpan = 0) {
   flush();
   return entries;
 }
-export function paramsText(raw) {
+/* exam: false = ohne Zeile „Klausurtermin“ (Grundschule) */
+export function paramsText(raw, { exam = true } = {}) {
   const p = normalizeParams(raw);
   const lines = [];
   if (p.weekdays.length) lines.push("Stundenplan: " + p.weekdays.map((w) => wdName(w.day) + (w.time ? " ab " + w.time + " Uhr" : "") + " (" + w.minutes + " Minuten)").join(", "));
   if (p.start || p.end) lines.push("Zeitraum der Einheit: " + (p.start ? fmtDay(p.start) : "?") + " bis " + (p.end ? fmtDay(p.end) : "?") + " (bis dahin soll die Einheit abgeschlossen sein)");
-  lines.push("Klausurtermin: " + (p.exam ? fmtDay(p.exam) : "keiner angegeben"));
+  if (exam) lines.push("Klausurtermin: " + (p.exam ? fmtDay(p.exam) : "keiner angegeben"));
   if (p.breaks.length) lines.push("Ferien/Ausfälle: " + p.breaks.map((b) => (b.label ? b.label + " " : "") + fmtDay(b.from) + (b.to !== b.from ? "–" + fmtDay(b.to) : "")).join("; "));
   if (p.notes) lines.push("Hinweise der Lehrkraft: " + p.notes);
   return lines.join("\n");

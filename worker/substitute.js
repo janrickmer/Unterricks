@@ -9,10 +9,13 @@ import { getLesson, savePortal, insertDraft } from "./lessons.js";
 import { insertTextMaterial, fileKey, checkStorage, deleteNotfallFiles, saveDesign, deleteFileObjects, designHtml } from "./files.js";
 import { normalizeSubstitute } from "../public/planning.js";
 import { renderPdf } from "./render.js";
-import { isAnalogClass, normalizeCode, isValidCode, subjectName, classShort } from "../public/shared.js";
+import { isAnalogClass, normalizeCode, isValidCode, subjectName, classShort, GS_SUBJECT } from "../public/shared.js";
 
 export const ESCAPE_ROOMS_AVAILABLE = true;   // Escape-Room-Vorlage der Plattform (public/escape.js, Finale im Feibeitsblatt)
 const parseJ = (s, d) => { try { const v = JSON.parse(s); return v ?? d; } catch { return d; } };
+// Grundschule: kein Vertretungsmaterial – bei Krankheit verschiebt Unterricks die Stunden (Wunsch der Lehrkraft vom 12.11.2026)
+export const GS_NO_SUBSTITUTE = "In der Grundschule gibt es keine Vertretungsstunde – bei Krankheit verschiebt Unterricks die Stunden.";
+const noGs = (l) => { if (l && l.subject === GS_SUBJECT) throw bad(GS_NO_SUBSTITUTE, "not_gs"); };
 export async function getSubstitute(db, lessonId) {
   return db.prepare("SELECT * FROM substitutes WHERE lesson_id=?1").bind(lessonId).first();
 }
@@ -20,6 +23,7 @@ export async function getSubstitute(db, lessonId) {
 /* Vorschlag ablegen (Connector) – ersetzt einen offenen Vorschlag, nie eine aktive Vertretung */
 export async function saveProposal(db, lessonId, raw, now) {
   const l = await getLesson(db, lessonId);
+  noGs(l);
   const cur = await getSubstitute(db, lessonId);
   if (cur && cur.status === "aktiv") throw new HttpError(409, "active", "Für diese Sitzung ist bereits eine Vertretung aktiv. Die Lehrkraft muss zuerst die ursprüngliche Planung wiederherstellen.");
   const p = normalizeSubstitute(raw);
@@ -59,6 +63,7 @@ export async function saveProposal(db, lessonId, raw, now) {
 export async function routeSubstituteConfirm(c, lessonId) {
   await requireTeacher(c);
   const l = await getLesson(c.db, lessonId);
+  noGs(l);
   const s = await getSubstitute(c.db, lessonId);
   if (!s || s.status !== "vorschlag") throw bad("Es liegt kein Vertretungsvorschlag zur Bestätigung vor.");
   const p = parseJ(s.proposal, {});
@@ -106,6 +111,7 @@ export async function routeSubstituteConfirm(c, lessonId) {
 /* Vorschau eines gestalteten Vertretungsmaterials als PDF (vor der Bestätigung; nicht gespeichert) */
 export async function routeSubstitutePreview(c, lessonId) {
   await requireTeacher(c);
+  noGs(await getLesson(c.db, lessonId));
   const s = await getSubstitute(c.db, lessonId);
   if (!s || s.status !== "vorschlag") throw bad("Es liegt kein Vertretungsvorschlag vor.");
   const p = parseJ(s.proposal, {}), body = await readJson(c.request, 1000);

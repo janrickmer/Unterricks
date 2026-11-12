@@ -7,7 +7,7 @@ import { getFile, downloadUrl } from "./files.js";
 import { nextLessonDate } from "./lessons.js";
 import { getSubstitute, substituteForStudents } from "./substitute.js";
 import { liveTicket, liveState } from "./live.js";
-import { normalizeCode, isValidCode, subjectName, classShort, isCourseClass, courseMembers, cleanWebUrl, lessonTimes, fmtClockBerlin, studentHelpPrompt, STUDENT_HELP_LIMITS } from "../public/shared.js";
+import { normalizeCode, isValidCode, subjectName, classShort, isCourseClass, courseMembers, cleanWebUrl, lessonTimes, fmtClockBerlin, studentHelpPrompt, STUDENT_HELP_LIMITS, GS_SUBJECT } from "../public/shared.js";
 import { loadSubjectConfigs } from "./bases.js";
 
 /* Zeitpunkte der Sitzung (Vorgabe der Lehrkraft vom 10.11.2026): die Hausaufgabe erst ab 15 Minuten vor dem Ende, die ganze Präsentation
@@ -36,7 +36,8 @@ export async function routeStudentJoin(c) {
   if (ms) throw lockedError(ms, "Gerade wurden sehr viele falsche Codes eingegeben. Bitte warte " + fmtWait(ms) + ".");
   const code = normalizeCode(body.code);
   const l = isValidCode(code) ? await c.db.prepare("SELECT " + LESSON_COLS + " FROM lessons l WHERE l.code=?1").bind(code).first() : null;
-  if (!l) {
+  // Sitzungen der Grundschule haben keinen Schülerzugang: ihr Code gilt wie ein unbekannter (kein Hinweis auf eine andere Klasse)
+  if (!l || l.subject === GS_SUBJECT) {
     await registerFail(c.db, devKey, LOCKS.joinDevice, c.now);
     await registerFail(c.db, ipKey, LOCKS.joinIp, c.now);
     throw new HttpError(404, "unknown_code", "Diesen Sitzungscode gibt es nicht. Bitte prüfe die Eingabe.");

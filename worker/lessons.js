@@ -6,10 +6,10 @@ import { callTask, PROVIDERS } from "./ai.js";
 import { getUnit, unitOut } from "./units.js";
 import { loadSubjectConfigs } from "./bases.js";
 import { deleteNotfallFiles } from "./files.js";
-import { courseSettingsStmt, courseSettingsOut, courseInfo } from "./courses.js";
+import { courseSettingsStmt, courseSettingsOut, courseInfo, courseRef } from "./courses.js";
 import {
   isValidClass, isValidSubject, isValidCode, normalizeCode, greetingText, planningSystemPrompt, portalMessages, feibeitsblattMessages,
-  chatTranscript, extractJsonObject, validatePortalData, renderPortalEntry, normalizeFbDraft, isIsoDate, hasStop, gradeKey, isClockTime, printFileName,
+  chatTranscript, extractJsonObject, validatePortalData, renderPortalEntry, normalizeFbDraft, isIsoDate, hasStop, gradeKey, isClockTime, printFileName, GS_SUBJECT,
 } from "../public/shared.js";
 import { unitContext } from "../public/planning.js";
 
@@ -99,8 +99,12 @@ function lessonFields(body, partial) {
 }
 
 export async function createLesson(db, body, now) {
-  if (!isValidSubject(body.subject)) throw bad("Bitte eines der drei Fächer wählen.");
-  if (!isValidClass(body.klass)) throw bad("Bitte eine gültige Klasse wählen.");
+  const gs = body.subject === GS_SUBJECT;
+  if (gs) await courseRef(db, body.subject, body.klass);   // Grundschulkurs muss existieren
+  else {
+    if (!isValidSubject(body.subject)) throw bad("Bitte eines der drei Fächer wählen.");
+    if (!isValidClass(body.klass)) throw bad("Bitte eine gültige Klasse wählen.");
+  }
   const f = lessonFields(body, false);
   if (!f.title) f.title = f.topic || "Sitzung vom " + new Date(now).toLocaleDateString("de-DE", { timeZone: "Europe/Berlin" });
   const id = randomId(8);
@@ -110,7 +114,8 @@ export async function createLesson(db, body, now) {
       "VALUES(?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?13, ?14) ON CONFLICT(code) DO NOTHING")
       .bind(id, body.subject, body.klass, f.title, f.topic, f.duration_min, f.lesson_date, f.ideas, f.homework, code, body.unitId || null, body.unitRow || null, now, f.start_time).run();
     if (r.meta && r.meta.changes) {
-      await db.prepare("INSERT INTO chat(lesson_id, role, content, model, created_at) VALUES(?1, 'assistant', ?2, 'begruessung', ?3)")
+      // Begrüßung des Planungschats – in der Grundschule gibt es keinen Chat (geplant wird mit Claude)
+      if (!gs) await db.prepare("INSERT INTO chat(lesson_id, role, content, model, created_at) VALUES(?1, 'assistant', ?2, 'begruessung', ?3)")
         .bind(id, greetingText({ subject: body.subject, klass: body.klass, durationMin: f.duration_min }), now).run();
       return getLesson(db, id);
     }
@@ -136,7 +141,7 @@ export async function createLessonsBulk(db, base, items, now) {
     // nicht eingefügt: Code zufällig schon vergeben (neuer Versuch mit neuem Code) oder Zeile hat schon eine Sitzung (eindeutiger Index)
     pending = pending.filter((x) => !ok.has(x.id)).map((x) => ({ ...x, id: randomId(8) }));
   }
-  if (done.length) {
+  if (done.length && base.subject !== GS_SUBJECT) {   // Grundschule: kein Planungschat, also keine Begrüßung
     await db.prepare("INSERT INTO chat(lesson_id, role, content, model, created_at) SELECT json_extract(value,'$.id'), 'assistant', json_extract(value,'$.g'), 'begruessung', ?2 FROM json_each(?1)")
       .bind(JSON.stringify(done.map((x) => ({ id: x.id, g: greetingText({ subject: base.subject, klass: base.klass, durationMin: x.durationMin ?? null }) }))), now).run();
   }
@@ -146,19 +151,28 @@ export async function createLessonsBulk(db, base, items, now) {
 export async function routeLessonsList(c) {
   await requireTeacher(c);
   const u = new URL(c.request.url);
-  const subject = u.searchParams.get("subject"), klass = u.searchParams.get("klass");
+  const subject = u.searchParams.get("subject"), klass = u.searchParams.get("klass"), school = u.searchParams.get("school");
   let q = "SELECT l.id, l.subject, l.klass, l.title, l.topic, l.lesson_date, l.duration_min, l.code, l.unit_id, l.created_at, l.updated_at, length(l.portal) > 0 AS has_portal, " +
     "(SELECT s.status FROM substitutes s WHERE s.lesson_id = l.id) AS sub_status, " +
     "(instr(l.portal, '⏸') > 0 AND instr(l.portal, 'Zwischenstopp') > 0) AS has_stop, length(l.homework) > 0 AS has_homework, " +
-    "(SELECT COUNT(*) FROM student_access a WHERE a.lesson_id = l.id) AS students FROM lessons l";
-  const args = [];
-  if (subject) { if (!isValidSubject(subject)) throw bad("Unbekanntes Fach."); args.push(subject); q += " WHERE l.subject=?" + args.length; }
-  if (klass) { if (!isValidClass(klass)) throw bad("Unbekannte Klasse."); args.push(klass); q += (args.length > 1 ? " AND" : " WHERE") + " l.klass=?" + args.length; }
-  q += " ORDER BY COALESCE(l.lesson_date, '') DESC, l.created_at DESC LIMIT 2000";
+    "(SELECT COUNT(*) FROM student_access a WHERE a.lesson_id = l.id) AS students, l.start_time, l.cancelled, l.parent_hash IS NOT NULL AS has_link, length(l.parent_summary) > 0 AS has_summary FROM lessons l";
+  const args = [], where = [];
+  if (subject === GS_SUBJECT) {   // Sitzungen eines Grundschulkurses
+    await courseRef(c.db, subject, klass);
+    args.push(klass); where.push("l.subject='gs' AND l.klass=?" + args.length);
+  } else if (school === "gs" && !subject) where.push("l.subject='gs'");   // alle Sitzungen der Grundschule
+  else {
+    // ohne Fach: nur das Gymnasium (Startseite, „Zuletzt bearbeitet“) – die Grundschule hat ihren eigenen Bereich
+    if (subject) { if (!isValidSubject(subject)) throw bad("Unbekanntes Fach."); args.push(subject); where.push("l.subject=?" + args.length); }
+    else where.push("l.subject <> 'gs'");
+    if (klass) { if (!isValidClass(klass)) throw bad("Unbekannte Klasse."); args.push(klass); where.push("l.klass=?" + args.length); }
+  }
+  q += " WHERE " + where.join(" AND ") + " ORDER BY COALESCE(l.lesson_date, '') DESC, l.created_at DESC LIMIT 2000";
   const r = await c.db.prepare(q).bind(...args).all();
   return json({ ok: true, lessons: (r.results || []).map((x) => ({ id: x.id, subject: x.subject, klass: x.klass, title: x.title, topic: x.topic, date: x.lesson_date, durationMin: x.duration_min,
     code: x.code, unitId: x.unit_id || null, substitute: x.sub_status || null, createdAt: x.created_at, updatedAt: x.updated_at, hasPortal: !!x.has_portal,
-    hasStop: !!x.has_stop, hasHomework: !!x.has_homework, studentCount: x.students || 0 })) });
+    hasStop: !!x.has_stop, hasHomework: !!x.has_homework, studentCount: x.students || 0,
+    ...(x.subject === GS_SUBJECT ? { startTime: x.start_time || null, cancelled: !!x.cancelled, hasParentLink: !!x.has_link, hasSummary: !!x.has_summary } : {}) })) });
 }
 
 // Sitzungen entstehen aus einer Unterrichtseinheit („Erst wenn die Einheit geplant ist, kann die Stundenplanung beginnen“)

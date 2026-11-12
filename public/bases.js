@@ -95,6 +95,54 @@ const SECTION_KEYS = {
 // Klassen, für die der Status angezeigt wird: je Jahrgang eine Beispielklasse, in der Q-Phase jeder Kurs
 const statusRows = (grades) => grades.flatMap((g) => (g === "Q" ? Q_COURSES.map((k) => ({ klass: k, label: classShort(k) })) : [{ klass: g === "E" ? "EA" : g + "A", label: g === "E" ? "E-Phase" : "Jahrgang " + g }]));
 
+/* Geltungsbereich (Kurse/Jahrgänge) je Art */
+function scopePickerFor(kind, current, grades = []) {
+  const sel = new Set(current || []);
+  const opts = kind === "abiturerlass" ? Q_COURSES.map((k) => [k, classShort(k)])
+    : kind === "gs-curriculum" ? ["1", "2", "3", "4"].map((g) => [g, "Jg. " + g])
+    : kind === "schulcurriculum" ? ["5", "6", "7", "8", "9", "10"].map((g) => [g, "Jg. " + g])
+    : kind === "sonstiges" ? [...grades.filter((g) => g !== "Q").map((g) => [g, g === "E" ? "E-Phase" : "Jg. " + g]), ...(grades.includes("Q") ? Q_COURSES.map((k) => [k, classShort(k)]) : [])] : [];
+  const box = h("div", { class: "row" }, opts.map(([v, l]) => h("label", { class: "chk" }, h("input", { type: "checkbox", value: v, checked: sel.has(v) ? true : null, onchange: (e) => { if (e.target.checked) sel.add(v); else sel.delete(v); } }), l)));
+  const hint = kind === "abiturerlass" ? "Für welche Kurse gilt dieser Erlass? (Ein Erlass gilt für einen Abiturjahrgang – z. B. Q1/Q2 des einen und Q3/Q4 des anderen Jahrgangs.)"
+    : kind === "schulcurriculum" ? "Optional: nur für diese Jahrgänge verwenden (leer = nach den erkannten Abschnitten)."
+    : kind === "gs-curriculum" ? "Optional: nur für diese Jahrgänge (leer = nach den erkannten Abschnitten)."
+    : kind === "sonstiges" ? "Für welche Jahrgänge bzw. Kurse gilt diese Vorgabe?" : "";
+  return { el: opts.length ? h("div", { class: "field" }, h("label", null, "Gilt für"), box, hint ? h("p", { class: "hint", text: hint }) : null) : null, value: () => [...sel] };
+}
+/* Abschnitte als Seitenbereiche bearbeiten */
+function sectionsEditorFor(kind, sections, pages) {
+  const cur = Object.entries(sections || {}).map(([k, v]) => ({ k, s: formatRanges(v) }));
+  const box = h("div", { class: "stack" });
+  const paintS = () => {
+    clear(box);
+    if (!cur.length) box.append(h("p", { class: "muted small", text: kind === "sonstiges" ? "Das ganze Dokument wird verwendet." : "Keine Abschnitte erkannt – ohne Abschnitte verwendet die Plattform das ganze Dokument." }));
+    cur.forEach((x, i) => box.append(h("div", { class: "row" }, h("span", { class: "small", style: { minWidth: "12rem" }, text: sectionLabel(x.k) }),
+      h("input", { value: x.s, style: { maxWidth: "14rem" }, "aria-label": "Seiten für " + sectionLabel(x.k), placeholder: "z. B. 12–24, 31", oninput: (e) => { x.s = e.target.value; } }),
+      h("button", { class: "btn small ghost", type: "button", "aria-label": "Abschnitt entfernen", onclick: () => { cur.splice(i, 1); paintS(); } }, icon("x")))));
+    const free = (SECTION_KEYS[kind] || []).filter((k) => !cur.some((x) => x.k === k));
+    if (free.length) {
+      const add = h("select", { style: { width: "auto" }, "aria-label": "Abschnitt hinzufügen" }, h("option", { value: "" }, "+ Abschnitt hinzufügen …"), free.map((k) => h("option", { value: k }, sectionLabel(k))));
+      add.addEventListener("change", () => { if (add.value) { cur.push({ k: add.value, s: "" }); paintS(); } });
+      box.append(add);
+    }
+  };
+  paintS();
+  return { el: box, value: () => Object.fromEntries(cur.map((x) => [x.k, parseRanges(x.s, pages)]).filter(([, v]) => v.length)) };
+}
+
+/* Planungsgrundlage bearbeiten (Titel, Geltungsbereich, Abschnitte, Hinweis) – auch von der Seite eines Grundschulkurses.
+   grades = Jahrgänge des Fachs (für „Sonstiges“: wofür die Vorgabe gilt; Grundschulkurs: keine) */
+export function editBase(b, { grades = [], onSaved = () => {} } = {}) {
+  const title = h("input", { value: b.title, maxlength: "200" }), note = h("textarea", { rows: "2", value: b.note || "" });
+  const scope = scopePickerFor(b.kind, b.scope, grades), secs = sectionsEditorFor(b.kind, b.sections, b.pages);
+  modal({ title: "Planungsgrundlage bearbeiten", wide: true, body: (el) => el.append(h("p", { class: "small muted", text: b.kindLabel + " · " + b.pages + " Seiten" }),
+    h("div", { class: "field" }, h("label", null, "Titel"), title), scope.el, h("div", { class: "field" }, h("label", null, "Abschnitte (Seitenangaben)"), secs.el), h("div", { class: "field" }, h("label", null, "Hinweis"), note)),
+    actions: [{ label: "Abbrechen" }, { label: "Speichern", class: "primary", onClick: async () => {
+      try { await tapi("PATCH", "/api/teacher/bases/" + b.id, { body: { title: title.value, note: note.value, scope: scope.value(), sections: secs.value() } }); toast("Gespeichert.", "ok"); onSaved(); }
+      catch (e) { errToast(e); return false; }
+    } }] });
+}
+
 /* ---------- Übersicht über alle Fächer ---------- */
 export async function basesOverview() {
   const main = h("main", null, h("div", { class: "skeleton", text: "Lade …" }));
@@ -176,7 +224,7 @@ export async function basesPage(subject) {
         h("div", { class: "acts" },
           h("a", { class: "btn small", href: "#/lk/grundlage/" + b.id, target: "_blank", rel: "noopener", "aria-label": "„" + b.title + "“ öffnen (öffnet in neuem Tab)" }, "Öffnen"),
           pdfButton(b),
-          h("button", { class: "btn small", type: "button", onclick: () => editBase(b) }, "Bearbeiten"),
+          h("button", { class: "btn small", type: "button", onclick: () => editBase(b, { grades: cfg.grades, onSaved: reload }) }, "Bearbeiten"),
           h("button", { class: "btn small", type: "button", onclick: () => viewText(b) }, "Text ansehen"),
           h("button", { class: "btn small ghost danger", type: "button", "aria-label": "Löschen", onclick: async () => {
             if (!(await confirmDialog("Planungsgrundlage löschen", "„" + b.title + "“ mit allen Seitentexten löschen? Bereits geplante Einheiten bleiben erhalten.", "Löschen", true))) return;
@@ -208,40 +256,8 @@ export async function basesPage(subject) {
     return h("span", { class: "pdfpick" }, btn, inp);
   }
 
-  /* Geltungsbereich (Kurse/Jahrgänge) je Art */
-  function scopePicker(kind, current) {
-    const sel = new Set(current || []);
-    const opts = kind === "abiturerlass" ? Q_COURSES.map((k) => [k, classShort(k)])
-      : kind === "gs-curriculum" ? ["1", "2", "3", "4"].map((g) => [g, "Jg. " + g])
-      : kind === "schulcurriculum" ? ["5", "6", "7", "8", "9", "10"].map((g) => [g, "Jg. " + g])
-      : kind === "sonstiges" ? [...cfg.grades.filter((g) => g !== "Q").map((g) => [g, g === "E" ? "E-Phase" : "Jg. " + g]), ...(cfg.grades.includes("Q") ? Q_COURSES.map((k) => [k, classShort(k)]) : [])] : [];
-    const box = h("div", { class: "row" }, opts.map(([v, l]) => h("label", { class: "chk" }, h("input", { type: "checkbox", value: v, checked: sel.has(v) ? true : null, onchange: (e) => { if (e.target.checked) sel.add(v); else sel.delete(v); } }), l)));
-    const hint = kind === "abiturerlass" ? "Für welche Kurse gilt dieser Erlass? (Ein Erlass gilt für einen Abiturjahrgang – z. B. Q1/Q2 des einen und Q3/Q4 des anderen Jahrgangs.)"
-      : kind === "schulcurriculum" ? "Optional: nur für diese Jahrgänge verwenden (leer = nach den erkannten Abschnitten)."
-      : kind === "gs-curriculum" ? "Optional: nur für diese Jahrgänge (leer = nach den erkannten Abschnitten)."
-      : kind === "sonstiges" ? "Für welche Jahrgänge bzw. Kurse gilt diese Vorgabe?" : "";
-    return { el: opts.length ? h("div", { class: "field" }, h("label", null, "Gilt für"), box, hint ? h("p", { class: "hint", text: hint }) : null) : null, value: () => [...sel] };
-  }
-  /* Abschnitte als Seitenbereiche bearbeiten */
-  function sectionsEditor(kind, sections, pages) {
-    const cur = Object.entries(sections || {}).map(([k, v]) => ({ k, s: formatRanges(v) }));
-    const box = h("div", { class: "stack" });
-    const paintS = () => {
-      clear(box);
-      if (!cur.length) box.append(h("p", { class: "muted small", text: kind === "sonstiges" ? "Das ganze Dokument wird verwendet." : "Keine Abschnitte erkannt – ohne Abschnitte verwendet die Plattform das ganze Dokument." }));
-      cur.forEach((x, i) => box.append(h("div", { class: "row" }, h("span", { class: "small", style: { minWidth: "12rem" }, text: sectionLabel(x.k) }),
-        h("input", { value: x.s, style: { maxWidth: "14rem" }, "aria-label": "Seiten für " + sectionLabel(x.k), placeholder: "z. B. 12–24, 31", oninput: (e) => { x.s = e.target.value; } }),
-        h("button", { class: "btn small ghost", type: "button", "aria-label": "Abschnitt entfernen", onclick: () => { cur.splice(i, 1); paintS(); } }, icon("x")))));
-      const free = (SECTION_KEYS[kind] || []).filter((k) => !cur.some((x) => x.k === k));
-      if (free.length) {
-        const add = h("select", { style: { width: "auto" }, "aria-label": "Abschnitt hinzufügen" }, h("option", { value: "" }, "+ Abschnitt hinzufügen …"), free.map((k) => h("option", { value: k }, sectionLabel(k))));
-        add.addEventListener("change", () => { if (add.value) { cur.push({ k: add.value, s: "" }); paintS(); } });
-        box.append(add);
-      }
-    };
-    paintS();
-    return { el: box, value: () => Object.fromEntries(cur.map((x) => [x.k, parseRanges(x.s, pages)]).filter(([, v]) => v.length)) };
-  }
+  const scopePicker = (kind, current) => scopePickerFor(kind, current, cfg.grades);
+  const sectionsEditor = sectionsEditorFor;
 
   function uploadCard() {
     let kind = subject === "powi" ? "kcgo" : "schulcurriculum", texts = null, file = null;
@@ -306,17 +322,6 @@ export async function basesPage(subject) {
       h("div", { class: "field" }, h("label", null, "Titel"), title), scopeBox, detail, h("div", { class: "field" }, h("label", null, "Hinweis"), note),
       h("div", { class: "row end" }, btn),
       h("p", { class: "hint", text: "Ihr Browser liest den Text Seite für Seite aus; die KI arbeitet nur mit diesem Text. Zusätzlich speichert Unterricks die Original-PDF in Ihrer Plattform (nur für Sie sichtbar), damit Sie sie aus der Planung heraus öffnen können." }));
-  }
-
-  function editBase(b) {
-    const title = h("input", { value: b.title, maxlength: "200" }), note = h("textarea", { rows: "2", value: b.note || "" });
-    const scope = scopePicker(b.kind, b.scope), secs = sectionsEditor(b.kind, b.sections, b.pages);
-    modal({ title: "Planungsgrundlage bearbeiten", wide: true, body: (el) => el.append(h("p", { class: "small muted", text: b.kindLabel + " · " + b.pages + " Seiten" }),
-      h("div", { class: "field" }, h("label", null, "Titel"), title), scope.el, h("div", { class: "field" }, h("label", null, "Abschnitte (Seitenangaben)"), secs.el), h("div", { class: "field" }, h("label", null, "Hinweis"), note)),
-      actions: [{ label: "Abbrechen" }, { label: "Speichern", class: "primary", onClick: async () => {
-        try { await tapi("PATCH", "/api/teacher/bases/" + b.id, { body: { title: title.value, note: note.value, scope: scope.value(), sections: secs.value() } }); toast("Gespeichert.", "ok"); reload(); }
-        catch (e) { errToast(e); return false; }
-      } }] });
   }
 
   function viewText(b) {

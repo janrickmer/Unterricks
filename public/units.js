@@ -2,10 +2,11 @@
 // Sitzungen anlegen. Außerdem: Darstellung des Leupold-Schemas (auch in der Sitzungsansicht, aktuelle Stunde fett).
 import { h, clear, toast, errToast, busy, confirmDialog, fmtTime, nn, icon, pageHead, modal, stateLine, downloadBlob, fmtBytes } from "./ui.js";
 import { render, go, onLeave } from "./app.js";
-import { T, tapi, teacherBar } from "./teacher.js";
-import { subjectName, gradeInfo, classShort, fmtDay, isAnalogClass } from "./shared.js";
+import { T, tapi, teacherBar, markNav } from "./teacher.js";
+import { subjectName, gradeInfo, classShort, fmtDay, isAnalogClass, GS_SUBJECT } from "./shared.js";
 import { WEEKDAYS, computeSlots, lessonSlots, claudeUnitPrompt, normalizeParams } from "./planning.js";
 import { claudeHandoff } from "./claude.js";
+import { claudeGsUnitPrompt } from "./gsplanning.js";
 import { baseLink } from "./bases.js";
 
 /* ---------- Leupold-Schema (links Ausgangslage, Mitte Lernschritte, rechts Lernaufgabe) ---------- */
@@ -29,6 +30,10 @@ export async function unitPage(id) {
   let u;
   try { u = (await tapi("GET", "/api/teacher/units/" + id)).unit; }
   catch (e) { clear(main).append(h("div", { class: "card" }, h("p", { class: "err", text: e.message }), h("a", { class: "btn", href: "#/lk" }, "Zur Übersicht"))); return; }
+  // Grundschule: Kurs statt Klasse, ohne Klausur, eigener Prompt; Menüpunkt „Grundschule“
+  const gs = u.subject === GS_SUBJECT, gsc = gs && u.course && u.course.gs ? u.course.gs : null;
+  const coursePage = "#/lk/grundschule/k/" + u.klass;
+  if (gs) markNav("primary");
   let rows = u.rows.map((r) => ({ ...r })), plan = JSON.parse(JSON.stringify(u.plan || {}));
   let dirty = false;
   // gesicherte Sitzungen aus „Einheit aus Datei laden“, bis die Sitzungen angelegt sind (backup.js, IndexedDB dieses Geräts)
@@ -42,10 +47,14 @@ export async function unitPage(id) {
 
   const paint = () => {
     clear(main);
-    main.append(pageHead({ fach: u.subject, crumbs: [["#/lk", "Fächer"], ["#/lk/f/" + u.subject, subjectName(u.subject)], ["#/lk/f/" + u.subject + "/" + u.klass, classShort(u.klass)], u.title || "Neue Einheit"],
-        title: u.title || "Neue Unterrichtseinheit", aside: h("span", { class: "badge " + (u.status === "geplant" ? "ok" : ""), text: u.status === "geplant" ? "festgelegt · Sitzungen angelegt" : "Entwurf" }),
+    const badge = h("span", { class: "badge " + (u.status === "geplant" ? "ok" : ""), text: u.status === "geplant" ? "festgelegt · Sitzungen angelegt" : "Entwurf" });
+    main.append(...nn(gs
+      ? pageHead({ fach: "gs", crumbs: [["#/lk/grundschule", "Grundschule"], [coursePage, gsc ? gsc.short : "Kurs"], u.title || "Neue Einheit"],
+        title: u.title || "Neue Unterrichtseinheit", aside: badge, sub: gsc ? gsc.label + " · " + gsc.gradeText : "Grundschule" })
+      : pageHead({ fach: u.subject, crumbs: [["#/lk", "Fächer"], ["#/lk/f/" + u.subject, subjectName(u.subject)], ["#/lk/f/" + u.subject + "/" + u.klass, classShort(u.klass)], u.title || "Neue Einheit"],
+        title: u.title || "Neue Unterrichtseinheit", aside: badge,
         sub: subjectName(u.subject) + " · " + classShort(u.klass) + " · " + gradeInfo(u.klass).text }),
-      paramsCard(), basisCard(), claudeCard(), schemaCard(), tableCard(), finishCard(), ioCard());
+      paramsCard(), basisCard(), claudeCard(), schemaCard(), tableCard(), finishCard(), gs ? null : ioCard()));
   };
 
   /* 1) Rahmendaten */
@@ -90,12 +99,12 @@ export async function unitPage(id) {
         h("div", { class: "field" }, h("label", null, "Ferien und bekannte Ausfälle im Zeitraum"), brBox),
         h("div", { class: "field" }, h("label", null, "Beginn der Einheit"), start),
         h("div", { class: "field" }, h("label", null, "Abgeschlossen sein bis"), end),
-        h("div", { class: "field" }, h("label", null, "Klausurtermin (falls vorhanden)"), exam),
+        gs ? null : h("div", { class: "field" }, h("label", null, "Klausurtermin (falls vorhanden)"), exam),
         h("div", { class: "field" }, h("label", null, "Hinweise"), notes)),
       h("div", { class: "row between" }, slotInfo,
         h("button", { class: "btn primary", type: "button", onclick: (e) => busy(e.currentTarget, async () => {
           try {
-            const params = { weekdays: wds, breaks: brs.filter((b) => b.from), start: start.value || null, end: end.value || null, exam: exam.value || null, notes: notes.value };
+            const params = { weekdays: wds, breaks: brs.filter((b) => b.from), start: start.value || null, end: end.value || null, exam: gs ? null : exam.value || null, notes: notes.value };
             u = (await tapi("PATCH", "/api/teacher/units/" + id, { body: { title: title.value, params } })).unit;
             toast(lessonSlots(computeSlots(u.params)).length + " Sitzungen verfügbar.", "ok"); paint();
           } catch (err) { errToast(err); }
@@ -105,14 +114,17 @@ export async function unitPage(id) {
   /* 2) Planungsgrundlagen */
   function basisCard() {
     const box = h("div", { class: "small muted", text: "Lade …" });
+    // Grundschule: Religionskurse nutzen das Curriculum bei Ev. Religion, andere Fächer die Planungsgrundlagen auf der Kursseite
+    const manage = gs ? (gsc && !gsc.religion ? coursePage : "#/lk/grundlagen/evrel") : "#/lk/grundlagen/" + u.subject;
     tapi("GET", "/api/teacher/basis?subject=" + u.subject + "&klass=" + u.klass).then((b) => {
       clear(box).classList.remove("muted");
-      box.append(...nn(b.docs.length ? h("ul", null, b.docs.map((d) => h("li", null, baseLink(d)))) : h("p", { class: "warnc", text: "Für diese Klasse ist noch keine Planungsgrundlage hinterlegt." }),
-        b.missing.length ? h("div", { class: "notice warn" }, "Es fehlen noch: " + b.missing.join("; ") + ". ", h("a", { href: "#/lk/grundlagen/" + u.subject }, "Jetzt hochladen")) : null,
+      box.append(...nn(b.docs.length ? h("ul", null, b.docs.map((d) => h("li", null, baseLink(d)))) : h("p", { class: "warnc", text: gs ? "Für diesen Kurs ist noch keine Planungsgrundlage hinterlegt." : "Für diese Klasse ist noch keine Planungsgrundlage hinterlegt." }),
+        b.missing.length ? h("div", { class: "notice warn" }, "Es fehlen noch: " + b.missing.join("; ") + ". ", h("a", { href: manage }, "Jetzt hochladen")) : null,
         b.gradeNote ? h("p", null, h("strong", { text: "Hinweis: " }), b.gradeNote) : null,
-        isAnalogClass(u.klass) ? h("p", { class: "warnc", text: "Jahrgang 5/6: keine iPads – die KI plant nur analoge, ausdruckbare Materialien." }) : null));
+        gs ? h("p", { class: "warnc", text: "Grundschule: keine Tablets – die KI plant nur analoges, ausdruckbares Material." })
+          : isAnalogClass(u.klass) ? h("p", { class: "warnc", text: "Jahrgang 5/6: keine iPads – die KI plant nur analoge, ausdruckbare Materialien." }) : null));
     }).catch((e) => { box.textContent = e.message; });
-    return h("section", { class: "card" }, h("div", { class: "section-title" }, h("h2", { text: "2. Planungsgrundlagen" }), h("a", { class: "btn small", href: "#/lk/grundlagen/" + u.subject }, "Verwalten")), box);
+    return h("section", { class: "card" }, h("div", { class: "section-title" }, h("h2", { text: "2. Planungsgrundlagen" }), h("a", { class: "btn small", href: manage }, "Verwalten")), box);
   }
 
   /* 3) Mit Claude planen */
@@ -122,6 +134,14 @@ export async function unitPage(id) {
     btn.addEventListener("click", async () => {
       let b = { docs: [], missing: [], rules: "", gradeNote: "" };
       try { b = await tapi("GET", "/api/teacher/basis?subject=" + u.subject + "&klass=" + u.klass); } catch {}
+      if (gs) {
+        claudeHandoff({ title: "Unterrichtseinheit mit Claude planen",
+          intro: "Claude klärt mit Ihnen Thema und Schwerpunkt, schlägt drei zentrale Lernaufgaben vor und erstellt danach Leupold-Schema und Ablauftabelle für " + ls.length + " Sitzungen.",
+          after: "Wenn Claude den Plan mit „save_unit_plan“ gespeichert hat, kommen Sie hierher zurück: Leupold-Schema und Tabelle erscheinen unten und lassen sich bearbeiten.",
+          prompt: () => claudeGsUnitPrompt({ unitId: u.id, course: gsc, title: u.title, params: u.params, slots: computeSlots(u.params), bases: b.docs.map((d) => d.title), missing: b.missing,
+            classSize: u.course ? u.course.classSize : null }) });
+        return;
+      }
       const cfg = (await tapi("GET", "/api/teacher/subjects")).subjects[u.subject];
       claudeHandoff({ title: "Unterrichtseinheit mit Claude planen",
         intro: "Claude fragt Sie zuerst" + (u.subject === "powi" ? " nach der Planungsgrundlage (mit priorisiertem und sekundärem Vorschlag), " : " ") + "dann nach der zentralen Lernaufgabe (drei Vorschläge) und erstellt danach Leupold-Schema und Ablauftabelle für " + ls.length + " Sitzungen.",
@@ -226,7 +246,7 @@ export async function unitPage(id) {
         waiting && !open ? h("button", { class: "btn", type: "button", disabled: filling ? true : null, onclick: () => fillSessions() }, "Gesicherte Inhalte in " + waiting + " Sitzung" + (waiting === 1 ? "" : "en") + " übernehmen") : null,
         u.lessons.length ? null : h("button", { class: "btn danger", type: "button", onclick: async () => {
           if (!(await confirmDialog("Einheit löschen", "Diese Einheit mit Plan und Tabelle löschen?", "Löschen", true))) return;
-          try { await tapi("DELETE", "/api/teacher/units/" + id); go("#/lk/f/" + u.subject + "/" + u.klass); } catch (e) { errToast(e); }
+          try { await tapi("DELETE", "/api/teacher/units/" + id); go(gs ? coursePage : "#/lk/f/" + u.subject + "/" + u.klass); } catch (e) { errToast(e); }
         } }, "Einheit löschen")));
   }
 

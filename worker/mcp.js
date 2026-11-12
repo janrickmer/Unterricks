@@ -8,12 +8,13 @@ import { requireTeacher } from "./auth.js";
 import { getLesson, lessonCtx, chatMessages, updateLesson, savePortal, insertDraft, lessonOut, fileOut, LIMITS } from "./lessons.js";
 import { getUnit, unitFull, applyPlan, updateRow } from "./units.js";
 import { planningBasis } from "./bases.js";
+import { gsCourseMap, gsCourseOut, getGsCourse, planningBasisGs } from "./gs.js";
 import { saveProposal, getSubstitute } from "./substitute.js";
-import { paramsText, lessonSlots } from "../public/planning.js";
+import { paramsText, lessonSlots, WEEKDAYS } from "../public/planning.js";
 import { insertTextMaterial, insertPrintText, saveDesign, renderDesign, getFile } from "./files.js";
 import { shortImages } from "./render.js";
 import { ESCAPE_FORMAT_HINT, PART_TYPES } from "../public/escape-data.js";
-import { SUBJECTS, ALL_CLASSES, subjectName, gradeInfo, formatCode, lessonContext, chatTranscript, PORTAL_RULES, PORTAL_EXAMPLE, SYSTEM_PROMPT_ROLE, FEIBEITSBLATT_INFO, classShort, fmtDay, materialDesignText, printFileName } from "../public/shared.js";
+import { SUBJECTS, ALL_CLASSES, subjectName, gradeInfo, formatCode, lessonContext, chatTranscript, PORTAL_RULES, PORTAL_EXAMPLE, SYSTEM_PROMPT_ROLE, FEIBEITSBLATT_INFO, classShort, fmtDay, materialDesignText, printFileName, GS_SUBJECT } from "../public/shared.js";
 
 const MODERN = "2026-07-28";
 const LEGACY = ["2025-11-25", "2025-06-18", "2025-03-26", "2024-11-05"];
@@ -26,9 +27,16 @@ const INSTRUCTIONS = "Unterricks ist die Unterrichtsplattform der Lehrkraft (Fä
   "Arbeitsblätter und alle anderen Materialien als Datei (für Schüler:innen, nur für die Lehrkraft oder zum Ausdrucken) gestaltest du selbst als HTML-Seite und legst sie mit add_material_pdf ab – Unterricks druckt sie unverändert als A4-PDF; add_text_material und add_print_material (Markdown) nur als Rückfall, wenn der PDF-Druck nicht funktioniert. " +
   "Ist die Lehrkraft krank, legst du mit save_substitute_plan einen Vertretungsvorschlag ab (mit Abgabe: Feibeitsblatt oder ein Escape-Room nach der Vorlage der Plattform mit Feibeitsblatt-Finale); die Lehrkraft prüft und bestätigt ihn in der Plattform. " +
   "Eine Zeile „⏸ Zwischenstopp“ im Schulportal-Eintrag ist eine interne Markierung der Lehrkraft: Bis dorthin wurde die Stunde geschafft, ab dort ist der Inhalt offen (sie wird beim Kopieren ins Schulportal entfernt). " +
-  "Der Schulportal-Eintrag verwendet die Schulportal-Zeichen (" + PORTAL_RULES.join("; ") + ") und folgt dieser Vorlage:\n" + PORTAL_EXAMPLE;
+  "Der Schulportal-Eintrag verwendet die Schulportal-Zeichen (" + PORTAL_RULES.join("; ") + ") und folgt dieser Vorlage:\n" + PORTAL_EXAMPLE + "\n\n" +
+  "Grundschule: Die Lehrkraft unterrichtet außerdem an einer Grundschule in Hessen. Dort gibt es Kurse (Kennung gs…, Liste mit list_gs_courses) der Jahrgänge 1–4 mit einer bis drei Klassen (a–c), Fach meist Religion, sonst ein frei benanntes Fach mit optionaler Beschreibung des Kursziels; ihre Einheiten und Sitzungen haben das Fach „gs“. " +
+  "Die Kinder arbeiten nicht digital: nur ausdruckbares, analoges Material. Grundschul-Sitzungen haben keinen Schulportal-Eintrag, keine Präsentation, keine Feibeitsblätter, keinen Sitzungscode und keine Vertretungsstunde. " +
+  "Stattdessen speicherst du mit save_verlaufsplan den Verlaufsplan (Phasen mit Minuten und Sozialform); jede PDF-Datei steht genau an der Stelle, an der sie benutzt wird, als [[pdf:<file_id>]] – lege das Material vorher an (add_material_pdf, Bildkarten mit add_picture_cards und einem gekürzten Erzähltext je Karte). " +
+  "Für die Eltern formulierst du mit update_lesson (inhalt_eltern) 2–3 Sätze zu Inhalt und Lernziel. Nenne in allem, was Eltern sehen, nie Namen von Kindern. " +
+  "Ist die Lehrkraft krank, verschiebt Unterricks die Stunden; danach überarbeitest du auf Wunsch die Einheit (get_unit zeigt Ausfälle, Stunden ohne Termin und die uid jeder Stunde; save_unit_plan mit uid). " +
+  "Die Schülerzahl jedes Kurses (auch am Gymnasium) steht – wenn eingetragen – in get_lesson und get_unit; nimm sie als anzahl beim Ausdrucken.";
 
-const SUBJECT_ARG = { type: "string", description: "Fach: powi (Politik und Wirtschaft), evrel (Evangelische Religion) oder ethik", enum: SUBJECTS.map((s) => s.id) };
+const SUBJECT_ARG = { type: "string", description: "Fach: powi (Politik und Wirtschaft), evrel (Evangelische Religion), ethik oder gs (alle Kurse der Grundschule)", enum: [...SUBJECTS.map((s) => s.id), GS_SUBJECT] };
+const KURS_ARG = { type: "string", description: "Grundschulkurs (Kennung gs…, aus list_gs_courses)", pattern: "^gs[a-f0-9]{8}$" };
 const CLASS_ARG = { type: "string", description: "Klasse/Kurs, z. B. 7B, EA, Q2-GK oder 8-K (Kurs Jg. 8 in Ev. Religion/Ethik)", enum: ALL_CLASSES };
 const UNIT_ID = { type: "string", description: "ID der Unterrichtseinheit (16 Hex-Zeichen, aus list_units)", pattern: "^[a-f0-9]{16}$" };
 const ID_ARG = { type: "string", description: "Sitzungs-ID (16 Hex-Zeichen, aus list_lessons)", pattern: "^[a-f0-9]{16}$" };
@@ -60,8 +68,11 @@ const ESCAPE_ROOM = { type: "object", description: "Escape-Room nach der Vorlage
 
 const TOOLS = [
   { name: "list_lessons", title: "Unterrichtssitzungen auflisten", annotations: ro,
-    description: "Listet die Unterrichtssitzungen der Lehrkraft, optional gefiltert nach Fach und Klasse (neueste zuerst).",
-    inputSchema: { type: "object", properties: { fach: SUBJECT_ARG, klasse: CLASS_ARG }, additionalProperties: false } },
+    description: "Listet die Unterrichtssitzungen der Lehrkraft, optional gefiltert nach Fach und Klasse bzw. Grundschulkurs (neueste zuerst).",
+    inputSchema: { type: "object", properties: { fach: SUBJECT_ARG, klasse: CLASS_ARG, kurs: KURS_ARG }, additionalProperties: false } },
+  { name: "list_gs_courses", title: "Grundschulkurse auflisten", annotations: ro,
+    description: "Listet die Kurse der Grundschule (Jahrgänge 1–4): Kennung, Fach, Jahrgang und Klassen, Schuljahr, Stundenplan, Zahl der Kinder und – falls beschrieben – das Ziel des Kurses.",
+    inputSchema: { type: "object", properties: {}, additionalProperties: false } },
   { name: "get_lesson", title: "Sitzung lesen", annotations: ro,
     description: "Liefert alle aktuellen Daten einer Sitzung: Fach, Klasse/Jahrgang, Thema, Dauer, Ideen, Planungsverlauf, Schulportal-Eintrag (mit Version), Materialien (Textmaterial im Wortlaut), Feibeitsblätter und Entwürfe.",
     inputSchema: { type: "object", properties: { lesson_id: ID_ARG }, required: ["lesson_id"], additionalProperties: false } },
@@ -115,8 +126,8 @@ const TOOLS = [
         antwort: { description: "\"text\" (Normalfall), \"foto\" (Foto z. B. eines Lernprodukts; nie an die KI, ohne ki_auftrag; höchstens 3 je Blatt) oder Tabelle", oneOf: [{ type: "string", enum: ["text", "foto"] }, { type: "object", properties: { tabelle: { type: "array", items: { type: "string", maxLength: 60 }, minItems: 1, maxItems: 8 }, zeilen: { type: "integer", minimum: 1, maximum: 30 } }, required: ["tabelle"] }] } },
         required: ["text"] } } }, required: ["lesson_id", "titel", "aufgaben"], additionalProperties: false } },
   { name: "list_units", title: "Unterrichtseinheiten auflisten", annotations: ro,
-    description: "Listet die Unterrichtseinheiten, optional nach Fach und Klasse/Kurs.",
-    inputSchema: { type: "object", properties: { fach: SUBJECT_ARG, klasse: CLASS_ARG }, additionalProperties: false } },
+    description: "Listet die Unterrichtseinheiten, optional nach Fach und Klasse/Kurs bzw. Grundschulkurs.",
+    inputSchema: { type: "object", properties: { fach: SUBJECT_ARG, klasse: CLASS_ARG, kurs: KURS_ARG }, additionalProperties: false } },
   { name: "get_unit", title: "Unterrichtseinheit lesen", annotations: ro,
     description: "Liefert eine Unterrichtseinheit: Rahmendaten, verfügbare Termine, Plan (Planungsgrundlage, Lernaufgabe, Ausgangslage, Lernschritte), Ablauf-Zeilen und die angelegten Sitzungen.",
     inputSchema: { type: "object", properties: { unit_id: UNIT_ID }, required: ["unit_id"], additionalProperties: false } },
@@ -188,31 +199,71 @@ async function lessonDump(db, l) {
   return parts.join("\n");
 }
 
+/* Filter der Listen: fach (auch „gs“ = alle Kurse der Grundschule), klasse (Gymnasium), kurs (ein Grundschulkurs) */
+function listFilter(a) {
+  const where = [], args = [];
+  if (a.fach) { args.push(a.fach); where.push("subject=?" + args.length); }
+  if (a.klasse) { args.push(a.klasse); where.push("klass=?" + args.length); }
+  if (a.kurs) { args.push(a.kurs); where.push("subject='gs' AND klass=?" + args.length); }
+  return { where: where.length ? " WHERE " + where.join(" AND ") : "", args };
+}
+/* get_unit einer Grundschul-Einheit: Kurs im Kopf, ohne Klausur, jede Stunde mit uid und Sitzung (bzw. „[ohne Termin]“) */
+function gsUnitText(u) {
+  const g = (u.course && u.course.gs) || null, n = u.course && Number.isInteger(u.course.classSize) ? u.course.classSize : null;
+  const byRow = new Map(u.lessons.map((l) => [l.row, l]));
+  const slots = lessonSlots(u.slots);
+  const lines = ["# Unterrichtseinheit " + u.id + " (Grundschule: " + (g ? g.label + " – " + g.gradeText : "Kurs " + u.klass) + (n ? ", " + n + " Kinder" : "") + ", Status: " + u.status + ", Version " + u.version + ")",
+    "Titel: " + (u.title || "(offen)"), ...(n ? ["Schülerzahl laut Kurseinstellungen: " + n] : []), ...(g && g.description ? ["Ziel des Kurses: " + g.description] : []),
+    paramsText(u.params, { exam: false }), "Verfügbare Sitzungen: " + slots.length, ...slots.map((x, i) => "  " + (i + 1) + ". " + fmtDay(x.date) + (x.time ? " " + x.time : "") + " (" + x.minutes + " min)"),
+    "", "## Plan", JSON.stringify(u.plan, null, 1), "", "## Ablauf (Zeilen; uid = Kennung der Stunde)",
+    ...u.rows.map((r, i) => { const l = byRow.get(r.uid);
+      return (i + 1) + ". [uid " + r.uid + "] " + (r.date ? fmtDay(r.date) + (r.time ? " " + r.time : "") : "[ohne Termin]") + (r.minutes ? " (" + r.minutes + " min)" : "") + ": " + r.stundenfrage +
+        (r.schritt != null ? " [Lernschritt " + (r.schritt + 1) + "]" : "") + (l ? " (Sitzung " + l.id + ")" : "") + (r.ablauf.length ? "\n   - " + r.ablauf.join("\n   - ") : ""); }),
+    "", "## Sitzungen", ...(u.lessons.length ? u.lessons.map((l) => "- " + l.id + " " + (l.date ? fmtDay(l.date) : "[ohne Termin]") + ": " + l.title) : ["(noch keine)"])];
+  return lines.join("\n");
+}
+
 async function callTool(c, name, a) {
   a = a && typeof a === "object" ? a : {};
   switch (name) {
     case "list_lessons": {
-      let q = "SELECT id, subject, klass, title, topic, lesson_date, duration_min, updated_at FROM lessons", args = [];
-      if (a.fach) { args.push(a.fach); q += " WHERE subject=?1"; }
-      if (a.klasse) { args.push(a.klasse); q += (args.length > 1 ? " AND" : " WHERE") + " klass=?" + args.length; }
-      const r = await c.db.prepare(q + " ORDER BY updated_at DESC LIMIT 100").bind(...args).all();
-      const rows = (r.results || []).map((x) => ({ id: x.id, fach: subjectName(x.subject), klasse: x.klass, jahrgang: gradeInfo(x.klass).text, titel: x.title, thema: x.topic, datum: x.lesson_date, dauer_minuten: x.duration_min }));
-      return toolText(rows.length ? rows.map((x) => "- " + x.id + ": " + x.titel + " (" + x.fach + ", " + x.klasse + (x.datum ? ", " + x.datum : "") + ")").join("\n") : "Keine Sitzungen gefunden.", { lessons: rows });
+      const { where, args } = listFilter(a);
+      const r = await c.db.prepare("SELECT id, subject, klass, title, topic, lesson_date, duration_min, updated_at, cancelled FROM lessons" + where + " ORDER BY updated_at DESC LIMIT 100").bind(...args).all();
+      const list = r.results || [], gs = list.some((x) => x.subject === GS_SUBJECT) ? await gsCourseMap(c.db) : null;
+      const rows = list.map((x) => {
+        if (x.subject !== GS_SUBJECT) return { id: x.id, fach: subjectName(x.subject), klasse: x.klass, jahrgang: gradeInfo(x.klass).text, titel: x.title, thema: x.topic, datum: x.lesson_date, dauer_minuten: x.duration_min };
+        const k = gs.get(x.klass);
+        return { id: x.id, fach: "Grundschule", klasse: k ? k.short : x.klass, kurs: x.klass, jahrgang: k ? k.gradeText : "", titel: x.title, thema: x.topic, datum: x.lesson_date, dauer_minuten: x.duration_min, ausgefallen: !!x.cancelled };
+      });
+      return toolText(rows.length ? rows.map((x) => "- " + x.id + ": " + x.titel + " (" + (x.kurs ? "Grundschule: " + x.klasse : x.fach + ", " + x.klasse) + (x.datum ? ", " + x.datum : "") + ")" + (x.ausgefallen ? " (ausgefallen)" : "")).join("\n") : "Keine Sitzungen gefunden.", { lessons: rows });
+    }
+    case "list_gs_courses": {
+      const r = await c.db.prepare("SELECT g.*, s.weekdays AS w, s.class_size AS n FROM gs_courses g LEFT JOIN course_settings s ON s.subject='gs' AND s.klass=g.id ORDER BY g.school_year DESC, g.grade, g.created_at LIMIT 200").all();
+      const rows = (r.results || []).map((x) => {
+        const k = gsCourseOut(x);
+        let wd = []; try { wd = JSON.parse(x.w || "[]"); } catch {}
+        const when = (Array.isArray(wd) ? wd : []).map((w) => (WEEKDAYS.find((d) => d.d === w.day) || { n: "?" }).n.slice(0, 2) + (w.time ? " " + w.time : "") + " (" + w.minutes + " Min.)");
+        return { kurs: k.id, bezeichnung: k.label, kurz: k.short, jahrgang: k.grade, klassen: k.classes.map((y) => k.grade + y), fach: k.subjectName, religion: k.religion, schuljahr: k.schoolYear,
+          termine: when, kinder: Number.isInteger(x.n) ? x.n : null, ziel: k.description || null };
+      });
+      return toolText(rows.length ? rows.map((x) => "- " + x.kurs + ": " + x.bezeichnung + (x.schuljahr ? ", Schuljahr " + x.schuljahr : "") + "; " + (x.termine.length ? x.termine.join(", ") : "kein Stundenplan eingetragen") +
+        (x.kinder ? "; " + x.kinder + " Kinder" : "") + (x.ziel ? " – Ziel: " + x.ziel.replace(/\s*\n\s*/g, " ") : "")).join("\n") : "Es gibt noch keine Grundschulkurse.", { courses: rows });
     }
     case "get_lesson": {
       const l = await getLesson(c.db, a.lesson_id);
       return toolText(await lessonDump(c.db, l), { lesson_id: l.id, portal_version: l.portal_version });
     }
     case "list_units": {
-      let q = "SELECT id, subject, klass, title, status, rows FROM units", args = [];
-      if (a.fach) { args.push(a.fach); q += " WHERE subject=?1"; }
-      if (a.klasse) { args.push(a.klasse); q += (args.length > 1 ? " AND" : " WHERE") + " klass=?" + args.length; }
-      const r = await c.db.prepare(q + " ORDER BY updated_at DESC LIMIT 100").bind(...args).all();
-      const rows = (r.results || []).map((x) => ({ id: x.id, fach: subjectName(x.subject), klasse: classShort(x.klass), titel: x.title, status: x.status, stunden: JSON.parse(x.rows || "[]").length }));
+      const { where, args } = listFilter(a);
+      const r = await c.db.prepare("SELECT id, subject, klass, title, status, rows FROM units" + where + " ORDER BY updated_at DESC LIMIT 100").bind(...args).all();
+      const list = r.results || [], gs = list.some((x) => x.subject === GS_SUBJECT) ? await gsCourseMap(c.db) : null;
+      const rows = list.map((x) => (x.subject !== GS_SUBJECT ? { id: x.id, fach: subjectName(x.subject), klasse: classShort(x.klass), titel: x.title, status: x.status, stunden: JSON.parse(x.rows || "[]").length }
+        : { id: x.id, fach: "Grundschule", klasse: "Grundschule: " + (gs.get(x.klass) ? gs.get(x.klass).short : x.klass), kurs: x.klass, titel: x.title, status: x.status, stunden: JSON.parse(x.rows || "[]").length }));
       return toolText(rows.length ? rows.map((x) => "- " + x.id + ": " + (x.titel || "(ohne Titel)") + " (" + x.fach + ", " + x.klasse + ", " + x.status + ", " + x.stunden + " Stunden)").join("\n") : "Keine Einheiten gefunden.", { units: rows });
     }
     case "get_unit": {
       const u = await unitFull(c.db, await getUnit(c.db, a.unit_id));
+      if (u.subject === GS_SUBJECT) return toolText(gsUnitText(u), { unit_id: u.id, version: u.version });
       const lines = ["# Unterrichtseinheit " + u.id + " (" + subjectName(u.subject) + ", " + classShort(u.klass) + " – " + gradeInfo(u.klass).text + ", Status: " + u.status + ", Version " + u.version + ")",
         "Titel: " + (u.title || "(offen)"), ...(u.course && Number.isInteger(u.course.classSize) ? ["Schülerzahl laut Kurseinstellungen: " + u.course.classSize] : []), paramsText(u.params), "Verfügbare Sitzungen: " + lessonSlots(u.slots).length, ...lessonSlots(u.slots).map((x, i) => "  " + (i + 1) + ". " + fmtDay(x.date) + " (" + x.minutes + " min)"),
         "", "## Plan", JSON.stringify(u.plan, null, 1), "", "## Ablauf (Zeilen)", ...u.rows.map((r, i) => (i + 1) + ". " + (r.date ? fmtDay(r.date) + ": " : "") + r.stundenfrage + (r.schritt != null ? " [Lernschritt " + (r.schritt + 1) + "]" : "") + "\n   - " + r.ablauf.join("\n   - ")),
@@ -224,6 +275,14 @@ async function callTool(c, name, a) {
       if (a.unit_id) { const u = await getUnit(c.db, a.unit_id); subject = u.subject; klass = u.klass; }
       else if (a.lesson_id) { const l = await getLesson(c.db, a.lesson_id); subject = l.subject; klass = l.klass; }
       else return toolError("Bitte unit_id oder lesson_id angeben.");
+      if (subject === GS_SUBJECT) {   // Grundschulkurs: Curriculum des Jahrgangs (Religion) bzw. die Grundlagen des Kurses
+        const course = gsCourseOut(await getGsCourse(c.db, klass));
+        const b = await planningBasisGs(c.db, course, a.max_zeichen || 180000);
+        const head = ["# Planungsgrundlagen für " + course.label + " (Grundschule)", "Lerngruppe: " + course.gradeText,
+          course.description ? "## Ziel des Kurses\n" + course.description : "",
+          b.missing.length ? "## Fehlende Planungsgrundlagen\n- " + b.missing.join("\n- ") : "", b.truncated ? "(Gekürzt – weitere Seiten über max_zeichen anfordern.)" : ""].filter(Boolean);
+        return toolText(head.join("\n\n") + "\n\n" + (b.text || "(Es sind noch keine passenden Dokumente hochgeladen.)"), { docs: b.docs, missing: b.missing });
+      }
       const b = await planningBasis(c.db, subject, klass, a.max_zeichen || 180000);
       const head = ["# Planungsgrundlagen für " + subjectName(subject) + ", " + classShort(klass) + " – " + gradeInfo(klass).text,
         b.rules ? "## Planungsregeln der Lehrkraft\n" + b.rules : "", b.gradeNote ? "Hinweis zum Jahrgang: " + b.gradeNote : "",
@@ -247,6 +306,7 @@ async function callTool(c, name, a) {
       return toolText("In der Einheit festgehalten: " + row.stundenfrage);
     }
     case "save_substitute_plan": {
+      if ((await getLesson(c.db, a.lesson_id)).subject === GS_SUBJECT) return toolError("In der Grundschule gibt es keine Vertretungsstunde – bei Krankheit verschiebt Unterricks die Stunden; danach überarbeitest du die Einheit.");
       const p = await saveProposal(c.db, a.lesson_id, a, c.now);
       return toolText("Vertretungsvorschlag gespeichert (" + p.schritte.length + " Schritte" + (p.escape_room ? ", Escape-Room „" + p.escape_room.name + "“ mit Lösungswort " + p.escape_room.wort + " und Feibeitsblatt-Finale" : p.draftId ? ", Feibeitsblatt-Entwurf" : "") +
         "). Die Lehrkraft prüft und bestätigt ihn in der Plattform" + (p.escape_room ? " (mit Vorschau des Escape-Rooms)." : "."));
@@ -275,7 +335,7 @@ async function callTool(c, name, a) {
       return toolText("Im Planungsverlauf der Sitzung gespeichert.");
     }
     case "save_schulportal_entry": {
-      await getLesson(c.db, a.lesson_id);
+      if ((await getLesson(c.db, a.lesson_id)).subject === GS_SUBJECT) return toolError("In der Grundschule gibt es keinen Schulportal-Eintrag – speichere den Verlaufsplan mit save_verlaufsplan.");
       if (typeof a.text !== "string" || !a.text.trim()) return toolError("Der Eintrag ist leer.");
       try {
         const p = await savePortal(c.db, a.lesson_id, a.text, Number.isInteger(a.base_version) ? a.base_version : null, "claude", c.now);
@@ -322,7 +382,7 @@ async function callTool(c, name, a) {
       return toolText("Druckvorlage gespeichert: „" + o.printName + "“ (Liste „Von der Lehrkraft auszudrucken“).", { file_id: f.id, file_name: o.printName });
     }
     case "propose_feibeitsblatt": {
-      await getLesson(c.db, a.lesson_id);
+      if ((await getLesson(c.db, a.lesson_id)).subject === GS_SUBJECT) return toolError("In der Grundschule gibt es keine Feibeitsblätter.");
       const d = await insertDraft(c.db, a.lesson_id, { title: a.titel, tasks: a.aufgaben }, "claude", c.now);
       return toolText("Entwurf gespeichert (" + d.data.tasks.length + " Aufgaben). Die Lehrkraft prüft ihn in der Plattform unter „Feibeitsblatt“ und legt das Blatt dort an.", { draft_id: d.id });
     }

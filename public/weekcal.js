@@ -43,7 +43,7 @@ export function weekCard(load, { today: fixed = null } = {}) {
 function weekBody(w, today) {
   const all = w.days.flatMap((d) => [...d.timed, ...d.untimed]);
   if (!all.length && !w.days.some((d) => d.off.length))
-    return [h("p", { class: "muted wk-empty", text: "In dieser Woche ist kein Unterricht eingetragen. Wochentag, Uhrzeit und Dauer sowie Beginn und Ende tragen Sie in jeder Unterrichtseinheit unter „1. Rahmendaten der Einheit“ ein." })];
+    return [h("p", { class: "muted wk-empty", text: "In dieser Woche ist kein Unterricht eingetragen. Den Stundenplan übernehmen neue Unterrichtseinheiten aus den Kurseinstellungen; ändern lässt er sich in jeder Einheit unter „1. Rahmendaten der Einheit“." })];
   const timed = w.days.flatMap((d) => d.timed), urows = Math.max(0, ...w.days.map((d) => d.untimed.length));
   const from = timed.length ? Math.floor(Math.min(...timed.map((e) => e.start)) / 60) * 60 : 0;
   const to = timed.length ? Math.min(24 * 60, Math.ceil(Math.max(...timed.map((e) => Math.max(e.end, e.start + MIN_SPAN))) / 60) * 60) : 0;
@@ -84,9 +84,11 @@ function weekBody(w, today) {
 function entry(e, d) {
   const exam = e.kind === "klausur", short = !e.time || e.minutes < 56, lane = (e.lanes || 1) > 1;
   const when = e.time ? e.time + "–" + e.endTime : "ohne Uhrzeit, " + e.minutes + " Minuten";
+  // Grundschule (Kennzeichnung „Grundschule“ vor allem anderen, auch im Tooltip und für Screenreader)
+  const gs = e.gs ? "Grundschule, " : "";
   return h("a", { class: "wk-ev" + (exam ? " exam" : "") + (short ? " short" : "") + (lane ? " lane" : ""), href: e.href, dataset: { fach: e.subject },
-    title: (e.time ? e.time + "–" + e.endTime + " " : "") + e.subjectShort + " " + e.label + (exam ? " – Klausur" : "") + (e.title ? " – " + e.title : "") },
-    h("span", { class: "sr-only", text: d.name + ", " + dayMonthText(d.date) + ", " + when + (exam ? ", Klausur" : "") + ": " }),
+    title: gs + (e.time ? e.time + "–" + e.endTime + " " : "") + (e.gs ? "" : e.subjectShort + " ") + e.label + (exam ? " – Klausur" : "") + (e.title ? " – " + e.title : "") },
+    h("span", { class: "sr-only", text: gs + d.name + ", " + dayMonthText(d.date) + ", " + when + (exam ? ", Klausur" : "") + ": " }),
     h("span", { class: "wk-time", "aria-hidden": "true" }, exam ? h("span", { class: "wk-exam", text: "Klausur" }) : null, exam ? " · " : null, e.time ? e.time + "–" + e.endTime : "ohne Uhrzeit · " + e.minutes + " Min."),
     h("span", { class: "wk-who" }, h("span", { class: "ftag", dataset: { fach: e.subject }, text: e.subjectShort }), h("strong", { text: e.label }), exam ? h("span", { class: "wk-exam wk-exam-l", "aria-hidden": "true", text: "Klausur" }) : null),
     e.title ? h("span", { class: "wk-t", text: e.title }) : null);

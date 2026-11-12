@@ -99,13 +99,15 @@ implementiert und im End-to-End-Test geprüft (Ausnahmen unten ausdrücklich gen
 | | `worker/bases.js` | Fach-Einstellungen, Planungsgrundlagen (Seitentexte), Zusammenstellung je Klasse/Kurs |
 | | `worker/units.js` | Unterrichtseinheiten (Versionsschutz), Sitzungen aus der Einheit, Stundenpläne für den Wochenkalender |
 | | `worker/courses.js` | Kurseinstellungen aller Kurse (Stundenplan, Schülerzahl): lesen, speichern, Standard für neue Einheiten und Ausdrucke |
+| | `worker/gs.js` | Grundschulkurse (Jahrgang, Klassen a–c, Fach, Beschreibung, Schuljahr): anlegen, ändern, löschen; Planungsgrundlagen eines Kurses |
 | | `public/weekcal.js` | Wochenkalender auf der Startseite der Lehrkraft (Raster bzw. Liste je Tag) |
 | | `worker/substitute.js` | Krankheitsvertretung: Vorschlag, Bestätigen (Archiv), Wiederherstellen, Übertragen |
 | Oberfläche | `public/app.js` | Router, Startseite, Schüleransicht |
 | | `public/teacher.js`, `public/session.js` | Lehrkräfteansicht (Fach → Klasse/Kurs → Einheiten), Sitzungsansicht |
 | | `public/materialbox.js` | Materialkasten einer Sitzung (Material für Schüler:innen und Lehrkräfte, Druckliste) – aus `session.js` ausgelagert |
 | | `public/coursecard.js` | Karte „Kurseinstellungen“ auf der Klassen- bzw. Kursseite (Termine pro Woche, Schülerzahl) |
-| | `public/grundschule.js` | Bereich „Grundschule“ (Menüpunkt zwischen „Gymnasium“ und „Planungsgrundlagen“): Übersicht mit dem Wochenkalender beider Schulformen und den Kursen |
+| | `public/grundschule.js` | Bereich „Grundschule“ (Menüpunkt zwischen „Gymnasium“ und „Planungsgrundlagen“): Übersicht mit dem Wochenkalender beider Schulformen, den Kursen und „Neuen Kurs anlegen“; Kursseite (Einheiten, Kurseinstellungen, Fach/Klassen, Planungsgrundlagen) |
+| | `public/gsplanning.js` | Prompts für Claude in der Grundschule (Einheit planen; nur analoges Material) |
 | | `public/units.js`, `public/bases.js` | Seite der Unterrichtseinheit (Leupold-Schema, Tabelle), Planungsgrundlagen |
 | | `public/substitute.js`, `public/claude.js` | Krankheitsvertretung in der Sitzung; Übergabe an Claude (Modell/Aufwand) |
 | | `public/escape.js`, `public/escape-data.js` | Escape-Room-Vorlage (Oberfläche, Überblick-PDF); Prüfen/Bewerten, Zwischenstand, Feibeitsblatt-Datensatz |
@@ -278,6 +280,18 @@ implementiert und im End-to-End-Test geprüft (Ausnahmen unten ausdrücklich gen
   Prompts („Schülerzahl laut Kurseinstellungen: 24“ – ohne Angabe sind alle Texte wie bisher) und ist der Standard für die Zahl der
   Ausdrucke (`anzahl`; ohne Schülerzahl wie bisher die zuletzt verwendete Anzahl der Klasse). Ziehen Klassen in den Kurs ihres Jahrgangs
   um (Ev. Religion, Ethik), übernimmt der Kurs die Einstellungen der ersten Klasse, wenn er noch keine hat.
+
+* **Grundschule: Kurse und Einheiten (Ergänzung vom 12.11.2026).** Im Bereich *Grundschule* legt die Lehrkraft Kurse an (`gs_courses`,
+  `worker/gs.js`, `/api/teacher/gs/courses`): Jahrgang 1–4, eine bis drei Klassen (a–c), Fach (Religion oder ein frei benanntes Fach mit
+  optionaler Beschreibung des Kursziels für Claude), Schuljahr, dazu im selben Schritt Stundenplan (mit Uhrzeit) und Zahl der Kinder. Ist das
+  Fach nicht Religion, lässt sich beim Anlegen gleich ein Curriculum oder eine andere Planungsgrundlage hochladen (`bases.subject` = Kurs-ID).
+  Einheiten und Sitzungen eines Kurses haben das Fach `gs` und als Klasse die Kurs-ID (`gs` + 8 Hex); sie erscheinen nie in den Listen des
+  Gymnasiums (`GET /api/teacher/lessons` ohne Fach), nie bei Schüler:innen (der Code gilt als unbekannt), nie bei den Notfall-Feibeitsblättern
+  und bekommen keine Vertretungsstunde. Planungsgrundlage eines Religionskurses ist das Schulcurriculum Ev. Religion (Grundschule) mit den
+  Seiten seines Jahrgangs, sonst die Grundlagen des Kurses (`planningBasisGs`). Der Wochenkalender zeigt auf beiden Startseiten die Termine
+  beider Schulformen (Grundschule gekennzeichnet, Klick öffnet den Kurs). Claude: `list_gs_courses`, Filter `fach: "gs"` bzw. `kurs`,
+  `get_unit` mit Kurs und uid je Stunde, `get_planning_basis` mit dem Ziel des Kurses. In der Sicherung liegen die Einheiten unter
+  „Grundschule/<Kurs> - <Titel>/…“.
 
 * **Fächer und Jahrgänge.** Unter *Planungsgrundlagen → Fach → Fach-Einstellungen* steht, in welchen Jahrgängen ein Fach
   unterrichtet wird. Vorgabe für Politik und Wirtschaft: Jahrgänge 6, 8, 9, 10 (Hinweis: nur 1. Halbjahr), E-Phase und Q-Phase;

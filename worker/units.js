@@ -5,8 +5,9 @@ import { HttpError, bad, json, readJson, randomId, cleanLine, isId, isObj } from
 import { requireTeacher } from "./auth.js";
 import { createLessonsBulk, lessonOut } from "./lessons.js";
 import { loadSubjectConfigs } from "./bases.js";
-import { courseInfo, getCourseSettings } from "./courses.js";
-import { isValidSubject, isValidClass, classAllowed, subjectName, classShort } from "../public/shared.js";
+import { courseInfo, getCourseSettings, courseRef } from "./courses.js";
+import { gsCourseOut } from "./gs.js";
+import { isValidSubject, isValidClass, classAllowed, subjectName, classShort, GS_SUBJECT } from "../public/shared.js";
 import { normalizeParams, computeSlots, normalizePlan, normalizeRows, assignDates, lessonSlots } from "../public/planning.js";
 
 const newUid = () => randomId(4);
@@ -62,32 +63,46 @@ export async function applyPlan(db, u, planRaw, rowsRaw, baseVersion, source, no
 export async function routeUnitsList(c) {
   await requireTeacher(c);
   const u = new URL(c.request.url), subject = u.searchParams.get("subject"), klass = u.searchParams.get("klass");
-  if (!isValidSubject(subject) || !isValidClass(klass)) throw bad("Fach oder Klasse ungültig.");
+  if (subject === GS_SUBJECT) await courseRef(c.db, subject, klass);   // Grundschule: der Kurs muss existieren
+  else if (!isValidSubject(subject) || !isValidClass(klass)) throw bad("Fach oder Klasse ungültig.");
   const r = await c.db.prepare("SELECT u.*, (SELECT COUNT(*) FROM lessons l WHERE l.unit_id=u.id) AS n FROM units u WHERE subject=?1 AND klass=?2 ORDER BY created_at DESC").bind(subject, klass).all();
   return json({ ok: true, units: (r.results || []).map((x) => { const o = unitOut(x, { lessonCount: x.n || 0 }); return { ...o, slotCount: lessonSlots(computeSlots(o.params)).length }; }) });
 }
-/* Wochenkalender der Startseite: alle Einheiten mit Stundenplan und Zeitraum (nur Rahmendaten – nie Plan, Ablauf oder Notizen), nur Klassen,
-   die laut Fach-Einstellungen unterrichtet werden. Die Wochen rechnet der Browser (weekSchedule in public/planning.js). */
+/* Wochenkalender der Startseite (beider Schulformen): alle Einheiten mit Stundenplan und Zeitraum (nur Rahmendaten – nie Plan, Ablauf oder
+   Notizen), am Gymnasium nur Klassen, die laut Fach-Einstellungen unterrichtet werden, in der Grundschule nur vorhandene Kurse (mit ihrem
+   Namen in course). Die Wochen rechnet der Browser (weekSchedule in public/planning.js). */
 export async function routeSchedule(c) {
   await requireTeacher(c);
   const cfgs = await loadSubjectConfigs(c.db);
-  const r = await c.db.prepare("SELECT id, subject, klass, title, params FROM units ORDER BY created_at DESC LIMIT 2000").all();   // die neuesten zuerst
+  const [r, g] = await c.db.batch([
+    c.db.prepare("SELECT id, subject, klass, title, params FROM units ORDER BY created_at DESC LIMIT 2000"),   // die neuesten zuerst
+    c.db.prepare("SELECT * FROM gs_courses"),
+  ]);
+  const gs = new Map((g.results || []).map((x) => [x.id, gsCourseOut(x)]));
   const units = [];
   for (const x of r.results || []) {
-    if (!isValidSubject(x.subject) || !classAllowed(cfgs[x.subject], x.klass)) continue;
+    const course = x.subject === GS_SUBJECT ? gs.get(x.klass) : null;
+    if (course === undefined) continue;
+    if (!course && (!isValidSubject(x.subject) || !classAllowed(cfgs[x.subject], x.klass))) continue;
     const p = normalizeParams(parseJ(x.params, {}));
     if (!p.start || !p.end || p.end < p.start || !p.weekdays.length) continue;
-    units.push({ id: x.id, subject: x.subject, klass: x.klass, title: x.title, params: { start: p.start, end: p.end, exam: p.exam, weekdays: p.weekdays, breaks: p.breaks } });
+    units.push({ id: x.id, subject: x.subject, klass: x.klass, title: x.title, params: { start: p.start, end: p.end, exam: p.exam, weekdays: p.weekdays, breaks: p.breaks },
+      ...(course ? { course: { id: course.id, short: course.short, label: course.label } } : {}) });
   }
   return json({ ok: true, units });
 }
 export async function routeUnitCreate(c) {
   await requireTeacher(c);
   const body = await readJson(c.request, 50000);
-  if (!isValidSubject(body.subject)) throw bad("Bitte eines der drei Fächer wählen.");
-  const cfg = (await loadSubjectConfigs(c.db))[body.subject];
-  if (!classAllowed(cfg, body.klass)) throw bad(subjectName(body.subject) + " wird in " + classShort(body.klass) + " laut Fach-Einstellungen nicht unterrichtet.");
+  const gs = body.subject === GS_SUBJECT;
+  if (gs) await courseRef(c.db, body.subject, body.klass);   // Grundschulkurs muss existieren
+  else {
+    if (!isValidSubject(body.subject)) throw bad("Bitte eines der drei Fächer wählen.");
+    const cfg = (await loadSubjectConfigs(c.db))[body.subject];
+    if (!classAllowed(cfg, body.klass)) throw bad(subjectName(body.subject) + " wird in " + classShort(body.klass) + " laut Fach-Einstellungen nicht unterrichtet.");
+  }
   const id = randomId(8), params = normalizeParams(body.params);
+  if (gs) params.exam = null;   // in der Grundschule gibt es keine Klausuren
   // ohne eigenen Stundenplan übernimmt die neue Einheit den aus den Kurseinstellungen (in der Einheit änderbar)
   if (!params.weekdays.length) { const cs = await getCourseSettings(c.db, body.subject, body.klass); if (cs && cs.weekdays.length) params.weekdays = cs.weekdays; }
   await c.db.prepare("INSERT INTO units(id, subject, klass, title, params, created_at, updated_at) VALUES(?1, ?2, ?3, ?4, ?5, ?6, ?6)")
@@ -104,7 +119,7 @@ export async function routeUnitPatch(c, id) {
   const body = await readJson(c.request, 400000);
   const fields = {};
   if (body.title !== undefined) fields.title = cleanLine(body.title, 200);
-  if (body.params !== undefined) fields.params = JSON.stringify(normalizeParams(body.params));
+  if (body.params !== undefined) fields.params = JSON.stringify(u.subject === GS_SUBJECT ? { ...normalizeParams(body.params), exam: null } : normalizeParams(body.params));
   if (body.plan !== undefined) fields.plan = JSON.stringify(normalizePlan(body.plan));
   if (body.rows !== undefined) {
     let rows = normalizeRows(body.rows, newUid);

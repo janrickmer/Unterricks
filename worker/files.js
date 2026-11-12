@@ -100,7 +100,7 @@ export async function routeNotfallList(c) {
   const r = await c.db.prepare("SELECT s.lesson_id, s.code, s.title, l.title AS lesson_title, l.subject, l.klass, l.lesson_date, " +
     "(SELECT f.id FROM files f WHERE f.lesson_id=s.lesson_id AND f.fb_code=s.code AND f.area<>'archive' ORDER BY f.rowid DESC LIMIT 1) AS file_id, " +
     "(SELECT f.fb_sig FROM files f WHERE f.lesson_id=s.lesson_id AND f.fb_code=s.code AND f.area<>'archive' ORDER BY f.rowid DESC LIMIT 1) AS file_sig " +
-    "FROM fb_sheets s JOIN lessons l ON l.id = s.lesson_id WHERE s.kind<>'escape' ORDER BY COALESCE(l.lesson_date, '') DESC, s.created_at DESC LIMIT 3000").all();
+    "FROM fb_sheets s JOIN lessons l ON l.id = s.lesson_id WHERE s.kind<>'escape' AND l.subject<>'gs' ORDER BY COALESCE(l.lesson_date, '') DESC, s.created_at DESC LIMIT 3000").all();
   const items = (r.results || []).filter((x) => !isAnalogClass(x.klass)).map((x) => ({ lessonId: x.lesson_id, code: x.code, title: x.title, lessonTitle: x.lesson_title,
     subject: x.subject, klass: x.klass, date: x.lesson_date || null, fileId: x.file_id || null, sig: x.file_sig || null }));
   return json({ ok: true, items });

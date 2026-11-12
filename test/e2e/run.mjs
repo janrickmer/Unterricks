@@ -1433,6 +1433,153 @@ async function main() {
       ok(evb.docs.every((d) => d.kind !== "gs-curriculum"), "Planungsbasis eines Kurses des Gymnasiums ohne Grundschul-Curriculum");
     }
 
+    /* ---------- Grundschule: Kurse, Einheit, Wochenkalender beider Schulformen ---------- */
+    step("Grundschule: Menü, Kurse, Einheit, Wochenkalender beider Schulformen");
+    let gsRelId = null, gsUnitId = null;
+    {
+      const { berlinToday } = await import("../../public/shared.js");
+      const { calendarWeek } = await import("../../public/planning.js");
+      const navCur = async () => (await tp.locator('.topbar nav a[aria-current="page"]').allTextContents()).join("|");
+      // a) neuer Kurs Religion Jg. 2 (2a, 2b), Mo–Fr 08:00 je 45 Minuten, 22 Kinder – mit Fehlermeldungen
+      await tp.goto(BASE + "/#/lk/grundschule");
+      const nf = tp.locator("form.gs-new");
+      await nf.waitFor({ timeout: 15000 });
+      ok(await navCur() === "Grundschule" && await nf.locator("h2").textContent() === "Neuen Kurs anlegen" && await nf.getByLabel("Religion (evangelisch)").isChecked(), "Übersicht: Formular „Neuen Kurs anlegen“ (Religion vorgewählt)");
+      await nf.getByLabel("Jahrgang 2", { exact: true }).check();
+      ok(await nf.getByLabel("2a", { exact: true }).count() === 1 && await nf.getByLabel("2c", { exact: true }).count() === 1, "Klassen folgen dem Jahrgang: 2a, 2b, 2c");
+      await nf.getByRole("button", { name: "Kurs anlegen" }).click();
+      await nf.getByText("Bitte mindestens eine Klasse wählen (höchstens drei: a, b, c).").waitFor({ timeout: 10000 });
+      ok(await tp.evaluate(() => document.activeElement && document.activeElement.type) === "checkbox", "ohne Klasse: Hinweis, Fokus auf die Klassen");
+      await nf.getByLabel("2a", { exact: true }).check(); await nf.getByLabel("2b", { exact: true }).check();
+      for (let i = 0; i < 5; i++) await nf.getByRole("button", { name: "+ Termin pro Woche" }).click();
+      for (let i = 1; i <= 4; i++) await nf.getByLabel("Beginn des Termins " + i + " (Uhrzeit)").fill("08:00");
+      await nf.getByLabel("Zahl der Kinder im Kurs").fill("22");
+      await nf.getByRole("button", { name: "Kurs anlegen" }).click();
+      await nf.getByText("Bitte bei jedem Termin die Uhrzeit eintragen – daraus ergibt sich, ab wann Eltern eine Sitzung sehen können.").waitFor({ timeout: 10000 });
+      ok(await tp.evaluate(() => document.activeElement && document.activeElement.getAttribute("aria-label")) === "Beginn des Termins 5 (Uhrzeit)"
+        && ((await T("GET", "/api/teacher/gs/courses")).data.courses || []).length === 0, "Termin ohne Uhrzeit: Hinweis, Fokus ins Feld, nichts angelegt");
+      await nf.getByLabel("Beginn des Termins 5 (Uhrzeit)").fill("08:00");
+      await nf.getByRole("button", { name: "Kurs anlegen" }).click();
+      await tp.waitForURL(/#\/lk\/grundschule\/k\/gs[a-f0-9]{8}$/, { timeout: 15000 });
+      gsRelId = tp.url().split("/").pop();
+      await tp.locator("h1", { hasText: "Religion · Jahrgang 2 (Klassen 2a, 2b)" }).waitFor({ timeout: 15000 });
+      const WD5 = [1, 2, 3, 4, 5].map((d) => ({ day: d, minutes: 45, time: "08:00" }));
+      const csRel = (await T("GET", "/api/teacher/course-settings?subject=gs&klass=" + gsRelId)).data.settings;
+      ok(JSON.stringify(csRel.weekdays) === JSON.stringify(WD5) && csRel.classSize === 22, "Kurs angelegt, Kurseinstellungen gespeichert (Mo–Fr 08:00, 45 Minuten, 22 Kinder)");
+      ok(await navCur() === "Grundschule" && (await tp.locator(".pagehead .pagesub").textContent()).includes("Jahrgang 2 · 22 Kinder · Mo 08:00–08:45, Di 08:00–08:45")
+        && await tp.locator("section.cs-card").getByLabel("Zahl der Kinder im Kurs").inputValue() === "22" && await tp.locator("section.gs-edit h2").textContent() === "Fach, Klassen und Beschreibung",
+        "Kursseite: Menüpunkt markiert, Kopfzeile mit Kindern und Stundenplan, Kurseinstellungen, Fach/Klassen/Beschreibung");
+      ok((await tp.locator("section.gs-bases").textContent()).includes("Das Schulcurriculum Ev. Religion (Grundschule) für Jahrgang 2 liegt vor."), "Religion: Curriculum der Grundschule (Ev. Religion) liegt vor");
+      // b) Ev. Religion: Stand der Jahrgänge 1–4 – „fehlt“ bei einem Religionskurs, dessen Jahrgang das Curriculum nicht abdeckt
+      const gsCur = (await T("GET", "/api/teacher/bases?subject=evrel")).data.bases.find((b) => b.kind === "gs-curriculum");
+      await T("PATCH", "/api/teacher/bases/" + gsCur.id, { scope: ["3", "4"] });
+      await tp.goto(BASE + "/#/lk/grundlagen/evrel");
+      await tp.locator(".gs-basis tbody tr").nth(3).waitFor({ timeout: 15000 });
+      const st = (await tp.locator(".gs-basis tbody tr").allTextContents()).map((t) => t.replace(/\s+/g, " ").trim());
+      ok(st[1].endsWith("fehlt: Schulcurriculum Ev. Religion (Grundschule) für Jahrgang 2") && st[0].endsWith("–") && st[2].endsWith("vollständig"), "Planungsgrundlagen Ev. Religion: „fehlt“ nur beim Jahrgang des Religionskurses (" + st[1] + ")");
+      await T("PATCH", "/api/teacher/bases/" + gsCur.id, { scope: [] });
+      // c) zweiter Kurs: Sachunterricht Jg. 3 (3c) mit Beschreibung und Curriculum als PDF
+      await tp.goto(BASE + "/#/lk/grundschule");
+      await nf.waitFor({ timeout: 15000 });
+      await nf.getByLabel("Jahrgang 3", { exact: true }).check(); await nf.getByLabel("3c", { exact: true }).check();
+      await nf.getByLabel("Anderes Fach").check();
+      await nf.getByLabel("Name des Fachs").fill("Sachunterricht");
+      await nf.getByLabel("Beschreibung des Fachs (optional)").fill("Wir erkunden Natur und Technik in unserer Umgebung.");
+      await nf.getByRole("button", { name: "+ Termin pro Woche" }).click();
+      await nf.getByLabel("Wochentag des Termins 1").selectOption("3"); await nf.getByLabel("Beginn des Termins 1 (Uhrzeit)").fill("09:50");
+      ok(await nf.getByLabel("Planungsgrundlage (optional)").isVisible(), "anderes Fach: Planungsgrundlage optional beim Anlegen");
+      await nf.getByLabel("PDF-Datei (optional)").setInputFiles({ name: "Curriculum_Sachunterricht.pdf", mimeType: "application/pdf", buffer: await textPdf([["Schulcurriculum Sachunterricht"], ["Klasse 3", "Wasser im Alltag"], ["Klasse 4", "Strom und Magnetismus"]]) });
+      await nf.getByRole("button", { name: "Kurs anlegen" }).click();
+      await tp.waitForURL((u) => /#\/lk\/grundschule\/k\/gs[a-f0-9]{8}$/.test(u.href) && !u.href.endsWith(gsRelId), { timeout: 30000 });
+      const sachId = tp.url().split("/").pop();
+      await tp.locator("h1", { hasText: "Sachunterricht · Jahrgang 3 (Klasse 3c)" }).waitFor({ timeout: 15000 });
+      await tp.locator("section.gs-bases a.baselink", { hasText: "Curriculum Sachunterricht" }).waitFor({ timeout: 15000 });
+      const sb = (await T("GET", "/api/teacher/basis?subject=gs&klass=" + sachId)).data;
+      const sk = (await T("GET", "/api/teacher/gs/courses/" + sachId)).data.course;
+      ok(sk.description === "Wir erkunden Natur und Technik in unserer Umgebung." && sb.docs.length === 1 && sb.docs[0].kind === "gs-curriculum" && sb.docs[0].pdf && !sb.missing.length,
+        "Sachunterricht 3c: Beschreibung gespeichert, Curriculum mit Original-PDF (Seiten des Jahrgangs 3: " + (sb.docs[0] && sb.docs[0].pages) + ")");
+      await tp.goto(BASE + "/#/lk/grundschule");
+      await tp.locator(".gs-courses .tile").nth(1).waitFor({ timeout: 15000 });
+      const tiles = (await tp.locator(".gs-courses .tile").allTextContents()).join(" | ");
+      ok(await tp.locator(".gs-courses h3", { hasText: "Jahrgang 2" }).count() === 1 && await tp.locator(".gs-courses h3", { hasText: "Jahrgang 3" }).count() === 1
+        && tiles.includes("Religion 2ab") && tiles.includes("Mo 08:00, Di 08:00, Mi 08:00, Do 08:00, Fr 08:00 · 22 Kinder · 0 Sitzungen") && tiles.includes("Sachunterricht 3c"),
+        "Übersicht: Kurse nach Jahrgang („" + tiles + "“)");
+      // d) Einheit im Religionskurs: Stundenplan mit Uhrzeit aus den Kurseinstellungen, keine Klausur, Grundschul-Curriculum, eigener Prompt
+      await tp.goto(BASE + "/#/lk/grundschule/k/" + gsRelId);
+      await tp.getByLabel("Thema der neuen Einheit").fill("Josef und seine Brüder");
+      await tp.getByRole("button", { name: "Einheit anlegen" }).click();
+      await tp.waitForURL(/#\/lk\/u\/[a-f0-9]{16}$/);
+      gsUnitId = tp.url().split("/").pop();
+      await tp.locator('select[aria-label="Wochentag"]').first().waitFor({ timeout: 15000 });
+      const tv = await tp.locator('input[aria-label="Uhrzeit (Beginn)"]').evaluateAll((els) => els.map((e) => e.value));
+      ok(JSON.stringify(tv) === JSON.stringify(["08:00", "08:00", "08:00", "08:00", "08:00"]) && await tp.locator('input[aria-label="Klausurtermin"]').count() === 0 && await navCur() === "Grundschule"
+        && (await tp.locator(".crumbs").textContent()).includes("Religion 2ab"), "Grundschul-Einheit: fünf Termine mit Uhrzeit aus den Kurseinstellungen, kein Klausurtermin, Menüpunkt Grundschule");
+      const mon = calendarWeek(berlinToday());
+      await tp.locator('input[aria-label="Beginn"]').fill(mon); await tp.locator('input[aria-label="Ende"]').fill(addDays(mon, 4));
+      await tp.getByRole("button", { name: "Speichern und Termine berechnen" }).click();
+      await tp.locator(".toast", { hasText: "5 Sitzungen verfügbar." }).waitFor({ timeout: 10000 });
+      const gbl = tp.locator("section.card", { hasText: "2. Planungsgrundlagen" });
+      await gbl.locator("a.baselink").first().waitFor({ timeout: 15000 });
+      ok((await gbl.locator("a.baselink").first().textContent()).includes("Schulcurriculum evRel GS") && (await gbl.textContent()).includes("Grundschule: keine Tablets – die KI plant nur analoges, ausdruckbares Material.")
+        && await gbl.getByRole("link", { name: "Verwalten" }).getAttribute("href") === "#/lk/grundlagen/evrel", "Planungsgrundlagen der Einheit: Curriculum der Grundschule (Ev. Religion), nur analoges Material");
+      await tp.getByRole("button", { name: "Einheit mit Claude planen" }).click();
+      const gm = tp.locator(".modal", { hasText: "Welches Sprachmodell?" });
+      await gm.waitFor();
+      await gm.getByRole("button", { name: "Prompt kopieren" }).click();
+      const gsPrompt = await tp.evaluate(() => navigator.clipboard.readText());
+      ok(gsPrompt.includes("an einer Grundschule in Hessen") && gsPrompt.includes("22 Kinder") && gsPrompt.includes(gsUnitId) && gsPrompt.includes("genau 5 Zeilen") && !gsPrompt.includes("Gymnasium") && !gsPrompt.includes("Klausur"),
+        "Prompt der Grundschul-Einheit: Grundschule in Hessen, 22 Kinder, 5 Stunden – ohne Gymnasium und Klausur");
+      await gm.getByRole("button", { name: "Schließen", exact: true }).getByText("Schließen").click();
+      // e) Claude über den Connector: Kurse, Planungsgrundlage, Einheit (mit uid je Stunde), Plan speichern
+      let g = await tool("list_gs_courses", {});
+      ok(g.content[0].text.includes("- " + gsRelId + ": Religion · Jahrgang 2 (Klassen 2a, 2b)") && g.content[0].text.includes("; 22 Kinder") && g.content[0].text.includes("Sachunterricht · Jahrgang 3 (Klasse 3c)") && g.content[0].text.includes("Ziel: Wir erkunden"),
+        "list_gs_courses: beide Kurse mit Stundenplan, Kindern und Ziel");
+      g = await tool("get_planning_basis", { unit_id: gsUnitId });
+      ok(g.content[0].text.startsWith("# Planungsgrundlagen für Religion · Jahrgang 2 (Klassen 2a, 2b) (Grundschule)") && g.content[0].text.includes("Josef und seine Brueder")
+        && !g.content[0].text.includes("Jesus erzaehlt") && !g.content[0].text.includes("Konjunkturpolitik"), "get_planning_basis: Curriculum der Grundschule für Jahrgang 2 – kein KCGO, nicht Jg. 3/4");
+      g = await tool("save_unit_plan", { unit_id: gsUnitId, plan: { titel: "Josef und seine Brüder", planungsgrundlage: { name: "Schulcurriculum Ev. Religion (Grundschule)" }, lernaufgabe: "Bodenbild zur Josefsgeschichte gestalten",
+        ausgangslage: "Die Kinder kennen erste Geschichten aus der Bibel.", schritte: [{ titel: "Josef kennenlernen", beschreibung: "Geschichte hören und nacherzählen" }, { titel: "Versöhnung", beschreibung: "Gefühle der Brüder darstellen" }] },
+        stunden: [{ stundenfrage: "Wer war Josef?", ablauf: ["Sitzkreis", "Erzählung"], schritt: 0 }, { stundenfrage: "Warum sind die Brüder neidisch?", ablauf: ["Rollenspiel"], schritt: 0 },
+          { stundenfrage: "Josef in Ägypten", ablauf: ["Bildkarten"], schritt: 1 }, { stundenfrage: "Josef verzeiht", ablauf: ["Bodenbild"], schritt: 1 }] });
+      ok(!g.isError, "save_unit_plan (4 Stunden) über den Connector");
+      g = await tool("get_unit", { unit_id: gsUnitId });
+      const gu = g.content[0].text;
+      ok(gu.startsWith("# Unterrichtseinheit " + gsUnitId + " (Grundschule: Religion · Jahrgang 2 (Klassen 2a, 2b) – Jahrgangsstufe 2 der Grundschule, Kurs mit Kindern aus den Klassen 2a und 2b, 22 Kinder,")
+        && (gu.match(/\n\d\. \[uid [a-f0-9]{8}\] /g) || []).length === 4 && !gu.includes("Klausur"), "get_unit: Kopf mit Kurs und 22 Kindern, jede Stunde mit uid, ohne Klausur");
+      await tp.reload();
+      await tp.locator(".unit-table tbody tr").nth(3).waitFor({ timeout: 15000 });
+      await tp.getByRole("button", { name: "Einheit festlegen und Sitzungen anlegen" }).click();
+      await tp.locator(".toast", { hasText: "4 Sitzung(en) angelegt." }).waitFor({ timeout: 20000 });
+      const gsLessons = (await T("GET", "/api/teacher/lessons?subject=gs&klass=" + gsRelId)).data.lessons;
+      const sekList = (await T("GET", "/api/teacher/lessons")).data.lessons;
+      ok(gsLessons.length === 4 && gsLessons.every((l) => l.startTime === "08:00" && l.durationMin === 45) && sekList.length > 0 && sekList.every((l) => l.subject !== "gs"),
+        "4 Sitzungen der Grundschule (08:00, 45 Minuten); die Sitzungsliste des Gymnasiums enthält sie nicht");
+      ok((await SA("POST", "/api/student/join", { code: gsLessons[0].code })).status === 404, "Schüler:innen: der Code einer Grundschul-Sitzung gilt als unbekannt (404)");
+      ok((await tool("propose_feibeitsblatt", { lesson_id: gsLessons[0].id, titel: "x", aufgaben: [{ text: "a" }] })).isError === true
+        && (await tool("save_substitute_plan", { lesson_id: gsLessons[0].id, analyse: { kompetenz: "a", stundenfrage: "b", inhalte: [] }, schritte: [{ titel: "a", anleitung: "b" }], abgabe: "x" })).isError === true,
+        "Connector: kein Feibeitsblatt und keine Vertretungsstunde in der Grundschule");
+      // f) Kursseite: Einheit mit ihren Sitzungen (ohne Sitzungscode und Schüler:innen)
+      await tp.goto(BASE + "/#/lk/grundschule/k/" + gsRelId);
+      const uc = tp.locator(".unit-card", { hasText: "Josef und seine Brüder" });
+      await uc.locator(".item").nth(3).waitFor({ timeout: 15000 });
+      ok(await uc.locator(".item").count() === 4 && !(await uc.textContent()).includes("SuS") && await uc.locator(".item .badge", { hasText: "Inhalt für Eltern fehlt" }).count() === 4
+        && await uc.locator('a.item[href="#/lk/s/' + gsLessons[0].id + '"]').count() === 1, "Kursseite: Einheit mit 4 Sitzungen (ohne Code und Schüler:innen, „Inhalt für Eltern fehlt“)");
+      // g) Wochenkalender auf beiden Startseiten: Termine beider Schulformen, Klick öffnet den Grundschulkurs
+      for (const [hash, label] of [["#/lk", "Startseite Gymnasium"], ["#/lk/grundschule", "Grundschule"]]) {
+        await tp.goto(BASE + "/" + hash);
+        await tp.locator('.weekcal .wk-ev[data-fach="gs"]').first().waitFor({ timeout: 15000 });
+        const gev = tp.locator('.weekcal .wk-ev[data-fach="gs"]').first();
+        ok(await tp.locator('.weekcal .wk-ev[data-fach="gs"]').count() === 5 && await gev.locator(".ftag").textContent() === "Grundschule" && await gev.locator(".ftag").getAttribute("data-fach") === "gs"
+          && (await gev.locator("strong").textContent()) === "Religion 2ab" && (await gev.getAttribute("title")).startsWith("Grundschule, 08:00–08:45 Religion 2ab")
+          && await tp.locator('.weekcal .wk-ev:not([data-fach="gs"])').count() > 0, label + ": Wochenkalender mit den Terminen beider Schulformen (Grundschule gekennzeichnet)");
+      }
+      await tp.locator('.weekcal .wk-ev[data-fach="gs"]').first().click();
+      await tp.waitForURL(new RegExp("#/lk/grundschule/k/" + gsRelId + "$"));
+      await tp.locator("h1", { hasText: "Religion · Jahrgang 2 (Klassen 2a, 2b)" }).waitFor({ timeout: 10000 });
+      ok(true, "Klick auf den Grundschul-Eintrag öffnet den Kurs");
+      await tp.screenshot({ ...SHOT, path: join(OUT, "lehrkraft-grundschulkurs.png"), fullPage: true });
+    }
+
     /* ---------- GitHub Pages: dieselbe Oberfläche von einer anderen Herkunft ---------- */
     step("GitHub Pages: Oberfläche von anderer Herkunft (CORS, Live-Verbindung, Links zum Worker, Schutz gegen Einbetten)");
     execFileSync("node", ["scripts/build.mjs"], { cwd: ROOT, env: { ...process.env, PAGES_API: BASE, FEIBEITSBLATT_API: FB }, stdio: "ignore" });
@@ -1787,6 +1934,8 @@ async function main() {
         "1. Ebene Fächer, 2. Ebene Einheiten mit Einheitsdatei, 3. Ebene Sitzungen (chronologisch nummeriert, je eine Sitzungsdatei)");
       ok(names.some((n) => n.startsWith("Politik und Wirtschaft/Q2 GK - Gewaltenteilung und BVerfG/01 - ")) && names.some((n) => n.startsWith("Politik und Wirtschaft/Q2 GK - Gewaltenteilung und BVerfG (2)/") || n.startsWith("Politik und Wirtschaft/Q2 GK - Gewaltenteilung und BVerfG/"))
         && names.some((n) => n.startsWith("Ethik/")), "Ordner je Fach und Einheit, gleichnamige Einheiten getrennt (z. B. „Politik und Wirtschaft/Q2 GK - Gewaltenteilung und BVerfG/01 - …“)");
+      ok(names.some((n) => n.startsWith("Grundschule/Religion 2ab - Josef und seine Brüder/Unterrichtseinheit - Grundschule - Religion 2ab - Josef und seine Brüder.json"))
+        && names.filter((n) => n.startsWith("Grundschule/Religion 2ab - Josef und seine Brüder/") && n.endsWith("/Unterrickssitzung.zip")).length === 4, "Grundschule: „Grundschule/Religion 2ab - Josef und seine Brüder/…“ mit Einheitsdatei und 4 Sitzungen");
       const anyS = await readZip(bz.find((x) => x.name === sess[0]).data);
       ok(anyS.some((x) => x.name === "sitzung.json"), "jede Sitzung ist eine Sitzungsdatei, die sich mit „Sitzung aus Datei laden“ wieder laden lässt");
       const cm = tp.locator(".modal", { hasText: "Sicherung heruntergeladen – jetzt löschen?" }); await cm.waitFor({ timeout: 60000 });
@@ -1803,6 +1952,9 @@ async function main() {
       ok(((await TR("GET", "/api/teacher/bases")).data.bases || []).length === basesN && JSON.stringify((await TR("GET", "/api/teacher/subjects")).data.subjects) === subjBefore
         && (await TR("GET", "/api/teacher/student-settings")).data.password === spwBefore && (await TR("GET", "/api/teacher/me")).status === 200,
         "es bleiben: Zugang (weiter angemeldet), Planungsgrundlagen, Fach-Einstellungen mit Kursen, Schülerpasswort");
+      const gsAfter = (await TR("GET", "/api/teacher/gs/courses")).data.courses || [];
+      ok(gsAfter.length === 2 && gsAfter.every((k) => k.counts.units === 0 && k.counts.lessons === 0) && gsAfter.some((k) => k.settings && k.settings.classSize === 22),
+        "Grundschulkurse und ihre Kurseinstellungen bleiben; ihre Einheiten und Sitzungen sind gelöscht");
       await tp.goto(BASE + "/#/lk"); await tp.locator("main").first().waitFor();
       ok((await TR("POST", "/api/teacher/reset", { authKey: "x".repeat(43) })).status === 403, "der Server verlangt das Passwort auch selbst (ohne richtiges Passwort kein Zurücksetzen)");
     }

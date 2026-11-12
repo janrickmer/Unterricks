@@ -4,7 +4,7 @@
 //   jede Zeile nennt den Pfad ihrer gesicherten Sitzung (relativ zur Einheitsdatei) oder null.
 //   Einheit als Datei (ZIP): die Einheitsdatei + je Sitzung ein Ordner „01 - 12.11.2026 - <Stundenfrage>“ mit der Sitzungsdatei (sessionfile.js),
 //   chronologisch nummeriert. Die große Sicherung legt genau diese Ordner unter Fach/Einheit ab.
-import { SUBJECTS, subjectName, subjectShort, groupShort, classShort, isIsoDate, isValidSubject, isValidClass } from "./shared.js";
+import { SUBJECTS, subjectName, subjectShort, groupShort, classShort, isIsoDate, isValidSubject, isValidClass, GS_SUBJECT, isGsCourseId } from "./shared.js";
 import { normalizePlan, normalizeRows } from "./planning.js";
 import { zipPath } from "./zip.js";
 
@@ -21,24 +21,28 @@ const part = (s, max) => {
 };
 const dmy = (iso) => (isIsoDate(iso) ? iso.slice(8, 10) + "." + iso.slice(5, 7) + "." + iso.slice(0, 4) : "");
 
-/* „Unterrichtseinheit - PoWi - Jg. 8 - Gewaltenteilung“ (ohne Endung) */
-export function unitBaseName({ subject, klass, title }, max = 80) {
+/* „Unterrichtseinheit - PoWi - Jg. 8 - Gewaltenteilung“ (ohne Endung); Grundschule (gsShort = Kurzname des Kurses, z. B. „Religion 2ab“):
+   „Unterrichtseinheit - Grundschule - Religion 2ab - Josef“ */
+export function unitBaseName({ subject, klass, title }, max = 80, gsShort = null) {
+  if (subject === GS_SUBJECT) return ["Unterrichtseinheit", "Grundschule", part(gsShort, 40) || "Kurs", part(title, max) || "ohne Titel"].join(" - ");
   return ["Unterrichtseinheit", subjectShort(subject) || subjectName(subject) || "Fach", groupShort(klass) || "Lerngruppe", part(title, max) || "ohne Titel"].join(" - ");
 }
 /* Einheitsdatei im Einheitsordner (kürzer – der Ordner nennt Klasse und Titel schon) */
-export const unitJsonName = (u) => unitBaseName(u, 40) + ".json";
+export const unitJsonName = (u, gsShort = null) => unitBaseName(u, 40, gsShort) + ".json";
 /* Sitzungsdatei im Sitzungsordner (kurz – Fach, Einheit, Nummer, Datum und Stundenfrage nennen die Ordner) */
 export const SESSION_IN_FOLDER = "Unterrickssitzung.zip";
 /* Ordner einer Einheit in der Sicherung: „8B - Gewaltenteilung“ (Klasse bzw. Kurs, damit gleiche Titel verschiedener Klassen getrennt bleiben) */
-export const unitFolderName = ({ klass, title }) => (classShort(klass) || "Lerngruppe") + " - " + (part(title, 40) || "ohne Titel");
-export const looseFolderName = (klass) => (classShort(klass) || "Lerngruppe") + " - Sitzungen ohne Einheit";
+// Grundschule: der Kurzname des Kurses statt der Klasse („Religion 2ab - Josef“)
+const groupOf = (klass, gsShort) => (isGsCourseId(klass) ? part(gsShort, 40) || "Kurs" : classShort(klass) || "Lerngruppe");
+export const unitFolderName = ({ klass, title }, gsShort = null) => groupOf(klass, gsShort) + " - " + (part(title, 40) || "ohne Titel");
+export const looseFolderName = (klass, gsShort = null) => groupOf(klass, gsShort) + " - Sitzungen ohne Einheit";
 /* Ordner einer Sitzung: „03 - 12.11.2026 - Wer kontrolliert wen“ (n = chronologische Nummer, width = Stellen) */
 export function sessionFolderName(n, { date, title }, width = 2) {
   return String(n).padStart(width, "0") + " - " + (dmy(date) || "ohne Datum") + (part(title, 30) ? " - " + part(title, 30) : "");
 }
 export const backupFileName = (iso) => "Unterricks-Sicherung - " + (isIsoDate(iso) ? iso : "ohne Datum") + ".zip";
-export const subjectFolderName = (id) => clean(subjectName(id)) || "Fach";
-export const subjectOrder = (id) => { const i = SUBJECTS.findIndex((s) => s.id === id); return i < 0 ? 99 : i; };
+export const subjectFolderName = (id) => (id === GS_SUBJECT ? "Grundschule" : clean(subjectName(id)) || "Fach");
+export const subjectOrder = (id) => { const i = SUBJECTS.findIndex((s) => s.id === id); return i < 0 ? (id === GS_SUBJECT ? 50 : 99) : i; };
 
 /* Sitzungen chronologisch: Datum (ohne Datum zuletzt), dann Lage der Zeile in der Einheit, dann Anlage */
 export function chronoLessons(lessons, rows = []) {
