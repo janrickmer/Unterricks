@@ -3,7 +3,8 @@ import assert from "node:assert/strict";
 import { normalizeParams, computeSlots, lessonSlots, normalizePlan, normalizeRows, assignDates, extractUnitChange, stripUnitBlock, unitContext,
   claudeUnitPrompt, claudeSubstitutePrompt, claudeLessonPrompt, lessonChatName, normalizeSubstitute, SUBSTITUTE_SHARE } from "../../public/planning.js";
 import { SYSTEM_PROMPT_ROLE, UNIT_RULE_BASE, ANALOG_RULE, PORTAL_EXAMPLE } from "../../public/shared.js";
-import { detectKcgo, detectErlass, detectCurriculum, detectECurriculum, parseRanges, formatRanges, pageText, wantedSections, missingFor } from "../../public/bases-detect.js";
+import { detectKcgo, detectErlass, detectCurriculum, detectECurriculum, parseRanges, formatRanges, pageText, wantedSections, missingFor,
+  detectGsCurriculum, detectSections, wantedGsSections, missingForGs, BASE_KINDS } from "../../public/bases-detect.js";
 
 let n = 0;
 const uid = () => (n++).toString(16).padStart(8, "0");
@@ -268,4 +269,27 @@ test("normalizeCourseSettings: Stundenplan wie die Rahmendaten, Schülerzahl 1�
   assert.equal(normalizeCourseSettings({ classSize: "" }).classSize, null);
   assert.throws(() => normalizeCourseSettings({ weekdays: [{ day: 2, minutes: 45 }] }, { requireTime: true }), /Bitte bei jedem Termin die Uhrzeit eintragen/);
   assert.deepEqual(normalizeCourseSettings({ weekdays: [{ day: 2, minutes: 45, time: "08:00" }] }, { requireTime: true }).weekdays, [{ day: 2, minutes: 45, time: "08:00" }]);
+});
+
+test("Schulcurriculum Grundschule (Ev. Religion Jg. 1–4): Jahrgänge erkennen, Seiten je Jahrgang, nie für das Gymnasium", () => {
+  const pages = ["Schulcurriculum Ev. Religion\nGrundschule", "Jahrgangsstufe 1/2\nGott begleitet uns", "weiter", "Jahrgangsstufe 3/4\nJesus erzählt", "Klasse 3\nSchöpfung",
+    "Übersicht Jahrgang 1, Jahrgang 2 und Jahrgang 3", "Klasse 12 – kein Jahrgang der Grundschule", "(2_1) Einheit Freundschaft", "Jg. 4 und 1"];
+  const s = detectGsCurriculum(pages);
+  assert.deepEqual(s, { allgemein: [1, 6, 7], 1: [2, 3, 9], 2: [2, 3, 8], 3: [4, 5], 4: [4, 9] });
+  assert.deepEqual(detectSections("gs-curriculum", "Evangelische Religion", pages), s);
+  assert.deepEqual(detectGsCurriculum(["Klasse 3\nThema", "weiter"]), { 3: [1, 2] });
+  assert.equal(BASE_KINDS["gs-curriculum"].label, "Schulcurriculum Grundschule (Jahrgänge 1–4)");
+  const b = { kind: "gs-curriculum", pages: 9, sections: s, scope: [] };
+  assert.deepEqual(wantedGsSections(b, "3").map((w) => w.n + w.part), ["43", "53", "1allgemein", "6allgemein", "7allgemein"]);
+  assert.deepEqual(wantedGsSections({ ...b, scope: ["1", "2"] }, "3"), [], "Geltungsbereich");
+  assert.deepEqual(wantedGsSections({ ...b, sections: { 1: [2] } }, "4"), [], "andere Jahrgänge erkannt, dieser nicht");
+  assert.deepEqual(wantedGsSections({ ...b, pages: 2, sections: {} }, 4).map((w) => w.n), [1, 2], "ohne Abschnitte: alles");
+  for (const k of ["5A", "8C", "EA", "Q2-GK", "7-K"]) assert.deepEqual(wantedSections(b, k), []);
+  // fehlt: nur für Religionskurse, nur das Curriculum von Ev. Religion zählt
+  assert.deepEqual(missingForGs([b], { religion: true, grade: 3 }), []);
+  assert.deepEqual(missingForGs([{ ...b, scope: ["1"] }], { religion: true, grade: 2 }), ["Schulcurriculum Ev. Religion (Grundschule) für Jahrgang 2"]);
+  assert.deepEqual(missingForGs([{ ...b, subject: "gs1a2b3c4d" }], { religion: true, grade: 3 }), ["Schulcurriculum Ev. Religion (Grundschule) für Jahrgang 3"]);
+  assert.deepEqual(missingForGs([], { religion: false, grade: 3 }), []);
+  // das Gymnasium bleibt, wie es war: ein Grundschul-Curriculum ersetzt kein Schulcurriculum der Sek I
+  assert.deepEqual(missingFor([b], "evrel", "Evangelische Religion", "5A"), ["Schulcurriculum Evangelische Religion für Jahrgang 5"]);
 });

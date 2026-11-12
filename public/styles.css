@@ -635,6 +635,14 @@ details.box[open] > summary { margin-bottom: .55rem; }
 @media (max-width: 800px) { .lp-grid { grid-template-columns: minmax(0, 1fr); } .lp-row { grid-template-columns: minmax(0, 1fr); } }
 /* Planungsgrundlagen */
 pre.basetext { white-space: pre-wrap; font-size: .85rem; background: var(--surface-2); border-radius: 10px; padding: .65rem; max-height: 40vh; overflow: auto; margin: .2rem 0 0; }
+/* Planungsgrundlage als Text (neuer Tab, ältere ohne Original-PDF) */
+.basepages { margin-top: 1rem; }
+.basepage { margin: 0 0 1.6rem; scroll-margin-top: 5rem; }
+.basepage h2 { font-size: 1.05rem; margin: 0 0 .4rem; }
+div.basetext { white-space: pre-wrap; overflow-wrap: anywhere; max-width: 72ch; line-height: 1.6; }
+a.baselink { overflow-wrap: anywhere; }
+.gs-basis { margin-top: 1.2rem; }
+.gs-basis h3 { margin: 0 0 .5rem; }
 /* Krankheitsvertretung */
 .btn.sickbtn { width: 100%; white-space: normal; text-align: left; justify-content: flex-start; font-weight: 800; }
 .substitute { background: var(--surface); border: 2px solid var(--ink); }
@@ -819,6 +827,7 @@ img.sub-photo { max-width: 100%; max-height: 60vh; border-radius: 12px; border: 
 .cs-card input.cs-min { max-width: 6rem; }
 .cs-card #cs-size { max-width: 8rem; }
 .cs-card .cs-row .iconbtn { min-width: 44px; min-height: 44px; }
+.cs-card .cs-add { min-height: 44px; }
 /* Klassenseite: mit der Karte „Kurseinstellungen“ ist die rechte Spalte oft höher als der Bildschirm – dann nicht kleben (sonst bliebe
    das Formular „Neue Unterrichtseinheit planen“ unter dem unteren Rand, bis man ans Seitenende scrollt) */
 .side:has(> .cs-card) { position: static; }

@@ -170,3 +170,77 @@ test("D1-Anweisungen: Kurseinstellungen lesen 1 + Fach-Einstellungen, courseInfo
   c.db.counter.n = 0; await CS.courseInfo(c.db, "gs", id); assert.equal(c.db.counter.n, 2);
   c.db.counter.n = 0; await CS.courseClassSize(c.db, "ab12cd34ef56ab78"); assert.equal(c.db.counter.n, 1);
 });
+
+/* ---------- Planungsgrundlagen: Original-PDF in R2, Grundschul-Curriculum bei Ev. Religion ---------- */
+const PDF = new TextEncoder().encode("%PDF-1.7\n1 0 obj<<>>endobj\n%%EOF\n");
+const rawCall = async (c, fn, path, bytes, ...args) => {
+  const req = new Request("https://unterricks.test" + path, { method: "POST", headers: { Authorization: "Bearer " + TOKEN, "Content-Type": "application/pdf", "Content-Length": String(bytes.length) }, body: bytes });
+  try { const res = await fn({ ...c, request: req, waitUntil: () => {} }, ...args); return { status: res.status, data: await res.json() }; }
+  catch (e) { return { status: e.status || 500, data: { error: e.message, code: e.code } }; }
+};
+const newBase = async (c, body) => {
+  const r = await call(c, B.routeBaseCreate, "POST", "/api/teacher/bases", { pages: 2, title: "Dokument", ...body });
+  if (r.status === 200) await call(c, B.routeBasePages, "PUT", "/api/teacher/bases/x/pages", { from: 1, texts: ["Seite eins", "Seite zwei"] }, r.data.base.id);
+  return r;
+};
+
+test("Planungsgrundlage: Original-PDF hochladen, signierter Link, Ausliefern, Speichergrenze, Löschen entfernt die PDF", async () => {
+  const c = await ctx();
+  c.env.SETTINGS_SECRET = "geheimnis-fuer-signierte-links";
+  const b = (await newBase(c, { subject: "powi", kind: "kcgo", fileName: "KCGO.pdf", sections: { regeln: [1], Q2: [2] } })).data.base;
+  assert.equal(b.pdf, false); assert.equal(b.pdfSize, null);
+  let r = await call(c, B.routeBaseGet, "GET", "/api/teacher/bases/" + b.id, undefined, b.id);
+  assert.equal(r.data.base.id, b.id); assert.equal(r.data.base.pdf, false);
+  assert.equal((await call(c, B.routeBaseLink, "POST", "/api/teacher/bases/" + b.id + "/link", {}, b.id)).status, 404, "ohne PDF kein Link");
+  // keine PDF → abgelehnt, nichts gespeichert
+  r = await rawCall(c, B.routeBasePdf, "/api/teacher/bases/" + b.id + "/pdf", new TextEncoder().encode("<html>nein</html>"), b.id);
+  assert.equal(r.status, 400); assert.equal(c.env.FILES.m.has("b/" + b.id + ".pdf"), false);
+  r = await rawCall(c, B.routeBasePdf, "/api/teacher/bases/" + b.id + "/pdf?name=KCGO_neu.pdf", PDF, b.id);
+  assert.equal(r.status, 200, JSON.stringify(r.data));
+  assert.equal(r.data.base.pdf, true); assert.equal(r.data.base.pdfSize, PDF.length); assert.equal(r.data.base.fileName, "KCGO_neu.pdf");
+  assert.deepEqual([...c.env.FILES.m.get("b/" + b.id + ".pdf")], [...PDF]);
+  // Planungsbasis: docs mit pdf (Text unverändert)
+  const pb = await B.planningBasis(c.db, "powi", "Q2-GK");
+  assert.equal(pb.docs[0].pdf, true);
+  // Link → Ausliefern (inline, Kopfzeilen wie /api/dl)
+  r = await call(c, B.routeBaseLink, "POST", "/api/teacher/bases/" + b.id + "/link", {}, b.id);
+  assert.match(r.data.url, new RegExp("^/api/base/" + b.id + "\\?e=\\d+&s="));
+  const res = await B.routeBaseFile({ ...c, request: new Request("https://unterricks.test" + r.data.url) }, b.id);
+  assert.equal(res.headers.get("content-type"), "application/pdf");
+  assert.match(res.headers.get("content-disposition"), /^inline; filename="KCGO_neu\.pdf"/);
+  assert.match(res.headers.get("content-security-policy"), /^sandbox;/);
+  assert.equal(res.headers.get("cache-control"), "private, max-age=300");
+  assert.deepEqual(new Uint8Array(await res.arrayBuffer()), PDF);
+  // falsche Signatur bzw. abgelaufen
+  await assert.rejects(B.routeBaseFile({ ...c, request: new Request("https://unterricks.test" + r.data.url.replace(/s=[^&]+/, "s=falsch")) }, b.id), (e) => e.status === 403);
+  await assert.rejects(B.routeBaseFile({ ...c, now: c.now + 11 * 60e3, request: new Request("https://unterricks.test" + r.data.url) }, b.id), (e) => e.status === 403);
+  // Speichergrenze zählt die PDFs der Planungsgrundlagen
+  const F = await import("../../worker/files.js");
+  await F.checkStorage({ ...c, env: { ...c.env, STORAGE_LIMIT_BYTES: String(PDF.length) } }, 0);
+  await assert.rejects(F.checkStorage({ ...c, env: { ...c.env, STORAGE_LIMIT_BYTES: String(PDF.length) } }, 1), (e) => e.status === 507);
+  // Löschen entfernt auch die PDF
+  assert.equal((await call(c, B.routeBaseDelete, "DELETE", "/api/teacher/bases/" + b.id, undefined, b.id)).status, 200);
+  assert.equal(c.env.FILES.m.has("b/" + b.id + ".pdf"), false);
+});
+
+test("Ev. Religion Jg. 1–4: Schulcurriculum der Grundschule nur bei evrel (oder einem Grundschulkurs); das Gymnasium sieht es nie", async () => {
+  const c = await ctx();
+  const sek = (await newBase(c, { subject: "evrel", kind: "schulcurriculum", sections: { 7: [1], 8: [2] } })).data.base;
+  const before = await B.planningBasis(c.db, "evrel", "8A");
+  for (const subject of ["powi", "ethik"]) {
+    const r = await newBase(c, { subject, kind: "gs-curriculum" });
+    assert.equal(r.status, 400); assert.equal(r.data.error, "Das Schulcurriculum der Grundschule gehört zu Ev. Religion oder zu einem Grundschulkurs.");
+  }
+  const r = await newBase(c, { subject: "evrel", kind: "gs-curriculum", scope: ["2", "5", "Q1-GK", 3], sections: { 1: [1], 2: [1], 3: [2], 4: [2] } });
+  assert.equal(r.status, 200);
+  assert.deepEqual(r.data.base.scope, ["2", "3"], "Geltungsbereich nur Jahrgänge 1–4");
+  assert.deepEqual(await B.planningBasis(c.db, "evrel", "8A"), before, "Planungsbasis des Gymnasiums unverändert");
+  for (const k of ["5A", "EA", "Q1-GK", "8-K"]) assert.equal((await B.planningBasis(c.db, "evrel", k)).docs.some((d) => d.kind === "gs-curriculum"), false);
+  // Grundschulkurs: nur das Curriculum oder Sonstiges; unbekannter Kurs → 404
+  const id = await gsCourse(c);
+  assert.equal((await newBase(c, { subject: id, kind: "gs-curriculum" })).status, 200);
+  assert.equal((await newBase(c, { subject: id, kind: "sonstiges", scope: ["1"] })).status, 200);
+  assert.equal((await newBase(c, { subject: id, kind: "kcgo" })).status, 400);
+  assert.equal((await newBase(c, { subject: "gs0000ffff", kind: "gs-curriculum" })).status, 404);
+  assert.ok(sek.id);
+});

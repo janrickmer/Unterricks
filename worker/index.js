@@ -63,6 +63,9 @@ const ROUTES = [
   ["PATCH", "/api/teacher/bases/" + ID, B.routeBasePatch],
   ["DELETE", "/api/teacher/bases/" + ID, B.routeBaseDelete],
   ["GET", "/api/teacher/bases/" + ID + "/text", B.routeBaseText],
+  ["GET", "/api/teacher/bases/" + ID, B.routeBaseGet],
+  ["POST", "/api/teacher/bases/" + ID + "/pdf", B.routeBasePdf],
+  ["POST", "/api/teacher/bases/" + ID + "/link", B.routeBaseLink],
   ["GET", "/api/teacher/basis", B.routeBasisPreview],
   // Unterrichtseinheiten
   ["GET", "/api/teacher/units", U.routeUnitsList],
@@ -138,6 +141,7 @@ const ROUTES = [
   ["GET", "/api/student/lessons/" + ID + "/live", S.routeStudentLiveState],
   // Ausliefern über signierte Links und Live-Verbindung
   ["GET", "/api/dl/" + ID, F.routeDownload],
+  ["GET", "/api/base/" + ID, B.routeBaseFile],
   ["GET", "/api/slide/" + ID + "/(\\d{1,3})", F.routeSlide],
   ["GET", "/api/live/" + ID, LV.routeLiveSocket],
 ].map(([method, pat, handler, opts]) => ({ method, re: new RegExp("^" + pat + "$"), handler, opts: opts || {} }));

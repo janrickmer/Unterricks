@@ -1315,6 +1315,12 @@ async function main() {
       await tp.reload();
       await csCard.getByLabel("Beginn des Termins 2 (Uhrzeit)").waitFor({ timeout: 15000 });
       ok(await csCard.getByLabel("Schülerzahl", { exact: true }).inputValue() === "24" && await csCard.getByLabel("Beginn des Termins 2 (Uhrzeit)").inputValue() === "09:50", "nach dem Neuladen wieder da");
+      // ungültige Dauer: Hinweis statt still weggelassenem Termin, nichts gespeichert
+      await csCard.getByLabel("Dauer des Termins 2 in Minuten").fill("10");
+      await csCard.getByRole("button", { name: "Kurseinstellungen speichern" }).click();
+      await csCard.getByText("Termin 2: Bitte eine Dauer zwischen 20 und 240 Minuten eintragen.").waitFor({ timeout: 10000 });
+      ok(await tp.evaluate(() => document.activeElement && document.activeElement.getAttribute("aria-label")) === "Dauer des Termins 2 in Minuten"
+        && JSON.stringify((await T("GET", "/api/teacher/course-settings?subject=ethik&klass=7-K")).data.settings.weekdays) === JSON.stringify(WD7), "Dauer 10 Minuten: Hinweis beim Termin, Fokus im Feld, nichts gespeichert");
       // neue Einheit: übernimmt den Stundenplan (der Knopf zum Übernehmen fehlt, weil beide gleich sind)
       await tp.fill("#ut", "Verantwortung");
       await tp.getByRole("button", { name: "Einheit anlegen" }).click();
@@ -1341,6 +1347,90 @@ async function main() {
       ok(!am.isError && am.content[0].text.includes("„24x - beidseitig - sw - Gerechtigkeitskärtchen.pdf“"), "add_material_pdf (druck) ohne anzahl: " + am.content[0].text.slice(0, 160));
       const pf = (await T("GET", "/api/teacher/lessons/" + old7a.id)).data.files.find((f) => f.area === "print" && f.name.startsWith("Gerechtigkeitskärtchen"));
       ok(pf && pf.printName.startsWith("24x - "), "Druckliste: „" + (pf && pf.printName) + "“");
+    }
+
+    step("Planungsgrundlagen: Original-PDF in neuem Tab, ältere nur als Text; Ev. Religion Jg. 1–4");
+    let txtBaseId = null;
+    {
+      // a) Einheit Q2 GK: die Planungsgrundlagen sind Links in einen neuen Tab; KCGO und Erlass wurden über die Oberfläche hochgeladen → Original-PDF
+      await tp.goto(BASE + "/#/lk/u/" + unitId);
+      const bl = tp.locator("section.card", { hasText: "2. Planungsgrundlagen" }).locator("a.baselink").first();
+      await bl.waitFor({ timeout: 15000 });
+      ok(await bl.getAttribute("target") === "_blank" && /^#\/lk\/grundlage\/[a-f0-9]{16}$/.test(await bl.getAttribute("href")) && /\(S\. [0-9–, ]+\)/.test(await bl.textContent())
+        && (await bl.textContent()).includes("(öffnet in neuem Tab)"), "Einheit: Planungsgrundlage als Link in einen neuen Tab („" + (await bl.textContent()) + "“)");
+      const baseReq = tctx.waitForEvent("request", { predicate: (q) => q.url().includes("/api/base/"), timeout: 20000 }).catch(() => null);
+      const [np] = await Promise.all([tctx.waitForEvent("page"), bl.click()]);
+      const q = await baseReq, res = q ? await fetch(q.url()) : null;
+      ok(res && res.status === 200 && res.headers.get("content-type") === "application/pdf" && /^inline/.test(res.headers.get("content-disposition") || "")
+        && Buffer.from(await res.arrayBuffer()).subarray(0, 5).toString() === "%PDF-", "neuer Tab öffnet die Original-PDF (signierter Link /api/base/…)");
+      await np.close().catch(() => {});
+      // b) ältere Planungsgrundlagen (nur Text, z. B. vor dieser Erweiterung hochgeladen) – hier über die Schnittstelle angelegt
+      const mk = async (title, scope, texts) => {
+        const b = (await T("POST", "/api/teacher/bases", { subject: "ethik", kind: "sonstiges", title, scope, pages: texts.length, fileName: title + ".pdf" })).data.base;
+        await T("PUT", "/api/teacher/bases/" + b.id + "/pages", { from: 1, texts });
+        return b;
+      };
+      const txt = await mk("Fachkonferenzbeschluss Ethik", ["Q4-LK"], ["Beschluss der Fachkonferenz\nIn Q4 wird das Thema Verantwortung vertieft.", "Seite zwei:\nLeistungsbewertung"]);
+      txtBaseId = txt.id;
+      const tp2 = await tctx.newPage(); watch(tp2, "Lehrkraft (Textseite)");
+      await tp2.goto(BASE + "/#/lk/grundlage/" + txt.id);
+      await tp2.locator("section#seite-2 h2", { hasText: "Seite 2" }).waitFor({ timeout: 20000 });
+      ok(await tp2.locator("h1", { hasText: "Fachkonferenzbeschluss Ethik" }).count() === 1 && await tp2.locator("section#seite-1 h2").textContent() === "Seite 1"
+        && await tp2.locator("section#seite-1 .basetext").textContent() === "Beschluss der Fachkonferenz\nIn Q4 wird das Thema Verantwortung vertieft."
+        && await tp2.getByText("Für diese Planungsgrundlage ist nur der Text gespeichert (so liest ihn auch die KI). Laden Sie unter „Planungsgrundlagen“ mit „Original-PDF hinzufügen“ dieselbe PDF hoch – dann öffnet sich hier das Original.").count() === 1
+        && await tp2.getByText("Sonstige Vorgabe · 2 Seiten").count() === 1, "ältere Planungsgrundlage ohne PDF: Textseite mit „Seite 1“, „Seite 2“ und dem Hinweis");
+      await tp2.getByLabel("Zu Seite springen").fill("2"); await tp2.getByLabel("Zu Seite springen").press("Enter");
+      ok(await tp2.evaluate(() => document.activeElement && document.activeElement.id) === "seite-2", "„Zu Seite springen“ führt zu Seite 2");
+      await tp2.close();
+      // c) „Original-PDF hinzufügen“: nur dieselbe Datei (gleiche Seitenzahl); danach öffnet sich das Original
+      const add = await mk("Fachkonferenzbeschluss Ethik (alt)", ["Q3-LK"], ["Alt eins", "Alt zwei"]);
+      await tp.goto(BASE + "/#/lk/grundlagen/ethik");
+      const item = tp.locator(".item", { hasText: "Fachkonferenzbeschluss Ethik (alt)" });
+      await item.waitFor({ timeout: 15000 });
+      ok(await tp.getByRole("button", { name: /hochladen/i }).count() === 1 && await item.getByText("nur Text gespeichert").count() === 1, "Dokumente: „nur Text gespeichert“; kein weiterer Knopf mit „Hochladen“");
+      let [fc] = await Promise.all([tp.waitForEvent("filechooser"), item.getByRole("button", { name: /^Original-PDF hinzufügen/ }).click()]);
+      await fc.setFiles({ name: "Beschluss.pdf", mimeType: "application/pdf", buffer: await textPdf([["Eins"], ["Zwei"], ["Drei"]]) });
+      await tp.locator(".toast", { hasText: "Diese PDF hat 3 Seiten, gespeichert sind 2. Bitte dieselbe Datei wählen." }).waitFor({ timeout: 15000 });
+      ok(!(await T("GET", "/api/teacher/bases/" + add.id)).data.base.pdf, "falsche Seitenzahl: abgelehnt, nichts gespeichert");
+      const addPdf = await textPdf([["Alt eins"], ["Alt zwei"]]);
+      [fc] = await Promise.all([tp.waitForEvent("filechooser"), item.getByRole("button", { name: /^Original-PDF hinzufügen/ }).click()]);
+      await fc.setFiles({ name: "Beschluss.pdf", mimeType: "application/pdf", buffer: addPdf });
+      await tp.locator(".toast", { hasText: "Original-PDF zu „Fachkonferenzbeschluss Ethik (alt)“ gespeichert." }).waitFor({ timeout: 15000 });
+      await item.getByRole("button", { name: /^Original-PDF ersetzen/ }).waitFor({ timeout: 10000 });
+      const lk = (await T("POST", "/api/teacher/bases/" + add.id + "/link", {})).data;
+      const got = await fetch(BASE + lk.url);
+      ok(got.status === 200 && Buffer.compare(Buffer.from(await got.arrayBuffer()), addPdf) === 0 && (await T("GET", "/api/teacher/bases/" + add.id)).data.base.pdfSize === addPdf.length,
+        "richtige Datei: Original-PDF gespeichert, der Link liefert sie byte-genau; Knopf heißt jetzt „Original-PDF ersetzen“");
+      ok((await T("DELETE", "/api/teacher/bases/" + add.id)).status === 200 && (await fetch(BASE + lk.url)).status === 404, "Löschen entfernt auch die Original-PDF");
+      // d) Ev. Religion: Schulcurriculum der Grundschule (Jahrgänge 1–4)
+      await tp.goto(BASE + "/#/lk/grundlagen/powi");
+      await tp.locator('select[aria-label="Art der Planungsgrundlage"]').waitFor({ timeout: 15000 });
+      ok(!(await tp.locator('select[aria-label="Art der Planungsgrundlage"] option').evaluateAll((o) => o.map((x) => x.value))).includes("gs-curriculum"), "Politik und Wirtschaft: keine Art „Schulcurriculum Grundschule“");
+      await tp.goto(BASE + "/#/lk/grundlagen/evrel");
+      await tp.locator('select[aria-label="Art der Planungsgrundlage"]').selectOption("gs-curriculum");
+      await tp.getByText("Fachcurriculum der Grundschule für die Jahrgänge 1–4.", { exact: false }).waitFor();
+      ok(await tp.getByLabel("Jg. 1", { exact: true }).count() === 1 && await tp.getByLabel("Jg. 4", { exact: true }).count() === 1 && await tp.getByText("Optional: nur für diese Jahrgänge (leer = nach den erkannten Abschnitten).").count() === 1, "Geltungsbereich „Jg. 1“ … „Jg. 4“");
+      const gsPdf = await textPdf([["Schulcurriculum Evangelische Religion", "Grundschule"], ["Jahrgangsstufe 1/2", "Gott begleitet uns: Josef und seine Brueder"], ["Jahrgangsstufe 3/4", "Jesus erzaehlt Gleichnisse"]]);
+      await tp.locator('input[aria-label="PDF-Datei"]').setInputFiles({ name: "Schulcurriculum_evRel_GS.pdf", mimeType: "application/pdf", buffer: gsPdf });
+      await tp.locator(".small", { hasText: "3 Seiten" }).first().waitFor({ timeout: 30000 });
+      const secVals = [];
+      for (const g of [1, 2, 3, 4]) secVals.push(await tp.locator('input[aria-label="Seiten für Jahrgang ' + g + '"]').inputValue());
+      ok(JSON.stringify(secVals) === JSON.stringify(["2", "2", "3", "3"]) && await tp.locator('input[aria-label="Seiten für Allgemein/Übersicht"]').inputValue() === "1", "Abschnitte erkannt: Jg. 1/2 → S. 2, Jg. 3/4 → S. 3, Übersicht S. 1");
+      await tp.getByRole("button", { name: "Hochladen" }).click();
+      await tp.locator(".toast", { hasText: "(3 Seiten)" }).waitFor({ timeout: 20000 });
+      const gsRows = tp.locator(".gs-basis tbody tr");
+      await gsRows.nth(3).waitFor({ timeout: 15000 });
+      const rowTexts = (await gsRows.allTextContents()).map((t) => t.replace(/\s+/g, " ").trim());
+      ok(await tp.locator(".gs-basis h3").textContent() === "Grundschule (Jahrgänge 1–4)" && rowTexts.length === 4
+        && rowTexts[0].startsWith("Grundschule Jg. 1") && rowTexts[0].includes("(S. 1–2)") && rowTexts[3].startsWith("Grundschule Jg. 4") && rowTexts[3].includes("(S. 1, 3)")
+        && rowTexts.every((t) => t.includes("Schulcurriculum evRel GS") && t.endsWith("vollständig")), "Status „Grundschule (Jahrgänge 1–4)“: " + rowTexts.join(" | "));
+      const sekRows = (await tp.locator(".unit-table").first().locator("tbody tr").allTextContents()).join(" | ");
+      ok(sekRows.length > 0 && !sekRows.includes("Schulcurriculum evRel GS"), "Tabelle des Gymnasiums (Ev. Religion) listet das Grundschul-Curriculum nicht");
+      const gsBase = (await T("GET", "/api/teacher/bases?subject=evrel")).data.bases.find((b) => b.kind === "gs-curriculum");
+      ok(gsBase && gsBase.pdf && gsBase.pdfSize === gsPdf.length && JSON.stringify(gsBase.sections) === JSON.stringify({ 1: [2], 2: [2], 3: [3], 4: [3], allgemein: [1] }),
+        "gespeichert mit Original-PDF und Abschnitten 1–4");
+      const evb = (await T("GET", "/api/teacher/basis?subject=evrel&klass=8-K")).data;
+      ok(evb.docs.every((d) => d.kind !== "gs-curriculum"), "Planungsbasis eines Kurses des Gymnasiums ohne Grundschul-Curriculum");
     }
 
     /* ---------- GitHub Pages: dieselbe Oberfläche von einer anderen Herkunft ---------- */
@@ -1644,7 +1734,8 @@ async function main() {
       };
       const T_PAGES = [["Fächer", "#/lk"], ["Klassen PoWi", "#/lk/f/powi"], ["Kurse Ethik", "#/lk/f/ethik"], ["Sitzungen Q2 GK", "#/lk/f/powi/Q2-GK"], ["Unterrichtseinheit", "#/lk/u/" + unitId],
         ["Sitzung", "#/lk/s/" + lessonId], ["Sitzung mit Vertretung", "#/lk/s/" + l2.id], ["Sitzung mit Escape-Room", "#/lk/s/" + l3.id], ["Planungsgrundlagen", "#/lk/grundlagen"],
-        ["Planungsgrundlagen PoWi", "#/lk/grundlagen/powi"], ["Einstellungen", "#/lk/einstellungen"], ["Escape-Room-Vorschau", "#/lk/escape/" + l3.id]];
+        ["Planungsgrundlagen PoWi", "#/lk/grundlagen/powi"], ["Einstellungen", "#/lk/einstellungen"], ["Escape-Room-Vorschau", "#/lk/escape/" + l3.id],
+        ["Planungsgrundlagen Ev. Religion", "#/lk/grundlagen/evrel"], ["Planungsgrundlage (Text)", "#/lk/grundlage/" + txtBaseId]];
       const S_PAGES = [["Sitzungsliste", "#/schueler"], ["Sitzung (Schüler:in)", "#/schueler/s/" + lessonId], ["Vertretung (Schüler:in)", "#/schueler/s/" + l2.id], ["Escape-Room", "#/schueler/escape/" + l3.id]];
       for (const dev of ["iPhone SE", "iPhone 13", "iPad (gen 7)"]) {
         await audit(dev, "Startseite", null, "#/");

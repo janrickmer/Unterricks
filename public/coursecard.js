@@ -43,6 +43,13 @@ export function courseSettingsCard({ subject, klass, settings, gs = false, onSav
   if (settings && settings.updatedAt) stateLine(state, "Zuletzt gespeichert: " + fmtTime(settings.updatedAt));
   const save = h("button", { class: "btn primary", type: "button" }, "Kurseinstellungen speichern");
   save.addEventListener("click", () => busy(save, async () => {
+    // ungültige Dauer: nicht still weglassen (der Server verwirft solche Termine), sondern sagen, welcher Termin es ist
+    const badRow = list.findIndex((w) => !Number.isInteger(w.minutes) || w.minutes < 20 || w.minutes > 240);
+    if (badRow >= 0) {
+      stateLine(state, "Termin " + (badRow + 1) + ": Bitte eine Dauer zwischen 20 und 240 Minuten eintragen.", "err");
+      const el = rows.querySelectorAll("input.cs-min")[badRow]; if (el) el.focus();
+      return;
+    }
     try {
       const r = await tapi("PUT", "/api/teacher/course-settings", { body: { subject, klass, weekdays: list, classSize: size.value.trim() === "" ? null : size.value.trim() } });
       list.splice(0, list.length, ...r.settings.weekdays.map((w) => ({ ...w })));

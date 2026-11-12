@@ -854,6 +854,7 @@ export async function route(hash) {
   if ((m = /^#\/lk\/escape\/([a-f0-9]{16})$/.exec(hash))) return (await import("./escape.js")).escapePage(m[1], { teacher: true });
   if (hash === "#/lk/grundschule" || hash === "#/lk/grundschule/") return (await import("./grundschule.js")).gsOverviewPage();
   if ((m = /^#\/lk\/grundschule\/k\/(gs[a-f0-9]{8})$/.exec(hash))) return (await import("./grundschule.js")).gsCoursePage(m[1]);
+  if ((m = /^#\/lk\/grundlage\/([a-f0-9]{16})$/.exec(hash))) return (await import("./bases.js")).baseDocPage(m[1]);
   if (hash === "#/lk/grundlagen") return (await import("./bases.js")).basesOverview();
   if ((m = /^#\/lk\/grundlagen\/([a-z]+)$/.exec(hash))) return (await import("./bases.js")).basesPage(m[1]);
   go("#/lk");

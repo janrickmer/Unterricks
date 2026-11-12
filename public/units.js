@@ -6,6 +6,7 @@ import { T, tapi, teacherBar } from "./teacher.js";
 import { subjectName, gradeInfo, classShort, fmtDay, isAnalogClass } from "./shared.js";
 import { WEEKDAYS, computeSlots, lessonSlots, claudeUnitPrompt, normalizeParams } from "./planning.js";
 import { claudeHandoff } from "./claude.js";
+import { baseLink } from "./bases.js";
 
 /* ---------- Leupold-Schema (links Ausgangslage, Mitte Lernschritte, rechts Lernaufgabe) ---------- */
 export function leupoldView(unit, highlight) {
@@ -106,7 +107,7 @@ export async function unitPage(id) {
     const box = h("div", { class: "small muted", text: "Lade …" });
     tapi("GET", "/api/teacher/basis?subject=" + u.subject + "&klass=" + u.klass).then((b) => {
       clear(box).classList.remove("muted");
-      box.append(...nn(b.docs.length ? h("ul", null, b.docs.map((d) => h("li", { text: d.title + " (S. " + d.pages + ")" }))) : h("p", { class: "warnc", text: "Für diese Klasse ist noch keine Planungsgrundlage hinterlegt." }),
+      box.append(...nn(b.docs.length ? h("ul", null, b.docs.map((d) => h("li", null, baseLink(d)))) : h("p", { class: "warnc", text: "Für diese Klasse ist noch keine Planungsgrundlage hinterlegt." }),
         b.missing.length ? h("div", { class: "notice warn" }, "Es fehlen noch: " + b.missing.join("; ") + ". ", h("a", { href: "#/lk/grundlagen/" + u.subject }, "Jetzt hochladen")) : null,
         b.gradeNote ? h("p", null, h("strong", { text: "Hinweis: " }), b.gradeNote) : null,
         isAnalogClass(u.klass) ? h("p", { class: "warnc", text: "Jahrgang 5/6: keine iPads – die KI plant nur analoge, ausdruckbare Materialien." }) : null));

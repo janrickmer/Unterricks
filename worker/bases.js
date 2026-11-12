@@ -1,11 +1,12 @@
 // bases.js – Fach-Einstellungen und Planungsgrundlagen (Schulcurriculum, KCGO, E-Phasen-Curriculum, Abiturerlass je Q-Kurs, Sonstiges).
 // Der Text je Seite wird im Browser der Lehrkraft aus der PDF gezogen (PDF.js) und hier gespeichert; die Abschnitte (Kurshalbjahre,
 // Jahrgänge, Fachteil des Erlasses) erkennt ebenfalls der Browser (public/bases-detect.js), die Lehrkraft kann sie korrigieren.
-import { HttpError, bad, json, readJson, randomId, cleanText, cleanLine, isId, isObj } from "./lib.js";
+import { HttpError, bad, json, readJson, randomId, cleanText, cleanLine, isId, isObj, requireSecret, signLink, checkLink, contentDisposition } from "./lib.js";
 import { courseSettingsCopyStmt } from "./courses.js";
+import { checkStorage, uploadLength, MAX_FILE } from "./files.js";
 import { getSetting, setSetting } from "./db.js";
 import { requireTeacher } from "./auth.js";
-import { SUBJECTS, isValidSubject, subjectName, subjectConfig, isValidClass, gradeKey, Q_COURSES, GRADE_KEYS, COURSE_GRADES, courseKey, courseMembersClean, isCourseSubject, classShort } from "../public/shared.js";
+import { SUBJECTS, isValidSubject, subjectName, subjectConfig, isValidClass, gradeKey, Q_COURSES, GRADE_KEYS, COURSE_GRADES, courseKey, courseMembersClean, isCourseSubject, classShort, isGsCourseId } from "../public/shared.js";
 import { BASE_KINDS, wantedSections, missingFor as missingForLabel } from "../public/bases-detect.js";
 
 export const KINDS = Object.fromEntries(Object.entries(BASE_KINDS).map(([k, v]) => [k, v.label]));
@@ -70,10 +71,14 @@ export async function routeSubjectPut(c, subject) {
 /* ---------- Planungsgrundlagen ---------- */
 const parseJ = (s, d) => { try { const v = JSON.parse(s); return v ?? d; } catch { return d; } };
 const baseOut = (b) => ({ id: b.id, subject: b.subject, kind: b.kind, kindLabel: KINDS[b.kind] || b.kind, title: b.title, scope: parseJ(b.scope, []), note: b.note,
-  fileName: b.file_name || null, pages: b.pages, sections: parseJ(b.sections, {}), createdAt: b.created_at, updatedAt: b.updated_at });
+  fileName: b.file_name || null, pages: b.pages, sections: parseJ(b.sections, {}), createdAt: b.created_at, updatedAt: b.updated_at,
+  pdf: !!b.pdf_size, pdfSize: b.pdf_size || null });
+// Original-PDF einer Planungsgrundlage in R2 (außerhalb von l/…: Zurücksetzen und Aufräumen lassen sie stehen)
+export const basePdfKey = (id) => "b/" + id + ".pdf";
+const GS_GRADES = ["1", "2", "3", "4"];
 function cleanScope(kind, raw) {
   const arr = Array.isArray(raw) ? raw.map(String) : [];
-  const allowed = kind === "abiturerlass" ? Q_COURSES : [...GRADE_KEYS, ...Q_COURSES];
+  const allowed = kind === "abiturerlass" ? Q_COURSES : kind === "gs-curriculum" ? GS_GRADES : [...GRADE_KEYS, ...Q_COURSES];
   return [...new Set(arr.filter((x) => allowed.includes(x)))];
 }
 function cleanSections(raw, pages) {
@@ -103,8 +108,13 @@ export async function routeBasesList(c) {
 export async function routeBaseCreate(c) {
   await requireTeacher(c);
   const body = await readJson(c.request, 100000);
-  if (!isValidSubject(body.subject)) throw bad("Unbekanntes Fach.");
+  // Fach des Gymnasiums oder ein Grundschulkurs (kurseigene Planungsgrundlagen, bases.subject = Kurs-ID)
+  const gs = isGsCourseId(body.subject);
+  if (gs) { if (!(await c.db.prepare("SELECT 1 AS x FROM gs_courses WHERE id=?1").bind(body.subject).first())) throw new HttpError(404, "not_found", "Diesen Grundschulkurs gibt es nicht (mehr)."); }
+  else if (!isValidSubject(body.subject)) throw bad("Unbekanntes Fach.");
   if (!KINDS[body.kind]) throw bad("Bitte die Art der Planungsgrundlage wählen.");
+  if (body.kind === "gs-curriculum" && !gs && body.subject !== "evrel") throw bad("Das Schulcurriculum der Grundschule gehört zu Ev. Religion oder zu einem Grundschulkurs.");
+  if (gs && body.kind !== "gs-curriculum" && body.kind !== "sonstiges") throw bad("Für einen Grundschulkurs gibt es nur das Curriculum (Jahrgänge 1–4) oder eine andere Planungsgrundlage.");
   const pages = Number(body.pages);
   if (!Number.isInteger(pages) || pages < 1 || pages > MAX_PAGES) throw bad("Die Datei hat keine lesbaren Seiten (oder mehr als " + MAX_PAGES + ").");
   const id = randomId(8);
@@ -138,9 +148,56 @@ export async function routeBasePatch(c, id) {
 }
 export async function routeBaseDelete(c, id) {
   await requireTeacher(c);
-  await getBase(c.db, id);
+  const b = await getBase(c.db, id);
   await c.db.batch([c.db.prepare("DELETE FROM base_pages WHERE base_id=?1").bind(id), c.db.prepare("DELETE FROM bases WHERE id=?1").bind(id)]);
+  if (b.pdf_size) await c.env.FILES.delete(basePdfKey(id));
   return json({ ok: true });
+}
+export async function routeBaseGet(c, id) {
+  await requireTeacher(c);
+  return json({ ok: true, base: baseOut(await getBase(c.db, id)) });
+}
+/* Original-PDF dazu (beim Hochladen, später mit „Original-PDF hinzufügen/ersetzen“): der Text bleibt, wie er ist */
+export async function routeBasePdf(c, id) {
+  await requireTeacher(c);
+  const b = await getBase(c.db, id);
+  const len = uploadLength(c, MAX_FILE);
+  await checkStorage(c, Math.max(0, len - (b.pdf_size || 0)));
+  const key = basePdfKey(id);
+  await c.env.FILES.put(key, c.request.body, { httpMetadata: { contentType: "application/pdf" } });
+  // wirklich eine PDF? (die ersten Bytes) – sonst gleich wieder weg (eine ersetzte PDF ist dann auch weg; der Text bleibt)
+  const head = await c.env.FILES.get(key, { range: { offset: 0, length: 5 } });
+  if (!head || (await head.text()) !== "%PDF-") {
+    await c.env.FILES.delete(key);
+    await c.db.prepare("UPDATE bases SET pdf_size=NULL, pdf_at=NULL, updated_at=?2 WHERE id=?1").bind(id, c.now).run();
+    throw bad("Diese Datei ist keine PDF-Datei.");
+  }
+  const name = cleanLine(new URL(c.request.url).searchParams.get("name"), 200) || null;
+  await c.db.prepare("UPDATE bases SET pdf_size=?2, pdf_at=?3, file_name=COALESCE(?4, file_name), updated_at=?3 WHERE id=?1").bind(id, len, c.now, name).run();
+  return json({ ok: true, base: baseOut(await getBase(c.db, id)) });
+}
+export async function routeBaseLink(c, id) {
+  await requireTeacher(c);
+  const b = await getBase(c.db, id);
+  if (!b.pdf_size) throw new HttpError(404, "no_pdf", "Für diese Planungsgrundlage ist keine Original-PDF gespeichert.");
+  const { e, s } = await signLink(requireSecret(c.env), ["base", id, "i"], 10 * 60e3, c.now);
+  return json({ ok: true, url: "/api/base/" + id + "?e=" + e + "&s=" + encodeURIComponent(s) });
+}
+/* Ausliefern über den signierten Link (neuer Tab, ohne Anmeldung im Kopf der Anfrage) – Kopfzeilen wie bei /api/dl */
+export async function routeBaseFile(c, id) {
+  const u = new URL(c.request.url);
+  if (!(await checkLink(requireSecret(c.env), ["base", id, "i"], u.searchParams.get("e"), u.searchParams.get("s"), c.now)))
+    throw new HttpError(403, "link_expired", "Der Link ist abgelaufen. Bitte die Planungsgrundlage noch einmal öffnen.");
+  const b = await getBase(c.db, id);
+  const obj = b.pdf_size ? await c.env.FILES.get(basePdfKey(id)) : null;
+  if (!obj) throw new HttpError(404, "not_found", "Die PDF fehlt im Speicher.");
+  const name = b.file_name && /\.pdf$/i.test(b.file_name) ? b.file_name : (b.title || "Planungsgrundlage") + ".pdf";
+  return new Response(obj.body, { headers: {
+    "Content-Type": "application/pdf", "Content-Length": String(obj.size != null ? obj.size : b.pdf_size),
+    "Content-Disposition": contentDisposition(name, false),
+    "Cache-Control": "private, max-age=300", "X-Content-Type-Options": "nosniff", "Content-Security-Policy": "sandbox; default-src 'none'; style-src 'unsafe-inline'; img-src data:",
+    "Referrer-Policy": "no-referrer",
+  } });
 }
 export async function routeBaseText(c, id) {
   await requireTeacher(c);
@@ -165,7 +222,7 @@ export async function planningBasis(db, subject, klass, maxChars = MAX_BASIS_CHA
   const { truncated, text } = await basisText(db, docs, maxChars);
   return {
     rules: cfg.rules || "", gradeNote: (cfg.gradeNotes || {})[gradeKey(klass)] || "", complete: cfg.complete,
-    docs: docs.map((d) => ({ id: d.base.id, title: d.base.title, kind: d.base.kind, pages: rangeText([...new Set(d.want.map((w) => w.n))]) })),
+    docs: docs.map((d) => ({ id: d.base.id, title: d.base.title, kind: d.base.kind, pages: rangeText([...new Set(d.want.map((w) => w.n))]), pdf: !!d.base.pdf_size })),
     missing: missingFor(bases, subject, klass), truncated, text,
   };
 }

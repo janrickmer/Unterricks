@@ -288,9 +288,17 @@ implementiert und im End-to-End-Test geprüft (Ausnahmen unten ausdrücklich gen
 * **Jahrgänge 5 und 6 (keine iPads).** Die KI plant dort nur analoges, ausdruckbares Material (PDF); die Sitzungsansicht bietet
   kein Feibeitsblatt an, Vertretungen ohne digitale Formate. Der Sitzungscode funktioniert trotzdem (z. B. für Materialdownload).
 * **Planungsgrundlagen.** Die Lehrkraft lädt je Fach die Vorgaben als PDF hoch: Schulcurriculum (Sek I), KCGO, schulinternes
-  E-Phasen-Curriculum, Abiturerlass (je Abiturjahrgang, den Q-Kursen zugeordnet), Sonstiges. Der **Browser** liest den Text jeder
-  Seite (PDF.js), die PDF selbst wird nicht gespeichert – schulinterne Dokumente liegen also nur als Text in der eigenen Datenbank,
-  nicht im öffentlichen Repository. Die Plattform erkennt die Abschnitte (geprüft an den echten Dokumenten: KCGO-Kapitel 2,
+  E-Phasen-Curriculum, Abiturerlass (je Abiturjahrgang, den Q-Kursen zugeordnet), Sonstiges; bei Ev. Religion außerdem das
+  Schulcurriculum der Grundschule (Jahrgänge 1–4, Art `gs-curriculum`; Abschnitte „Jahrgang 2“, „Jahrgangsstufe 3/4“ → 3 und 4, „Klasse 1“,
+  „(2_1)“; es gilt nie für Klassen des Gymnasiums – Status-Tabelle „Grundschule (Jahrgänge 1–4)“). Ihr Browser liest den Text Seite für
+  Seite aus (PDF.js); die KI arbeitet nur mit diesem Text. Zusätzlich speichert Unterricks die Original-PDF in Ihrer Plattform (nur für
+  Sie sichtbar), damit Sie sie aus der Planung heraus öffnen können: R2 unter `b/<id>.pdf` (außerhalb von `l/…` – Zurücksetzen und
+  Aufräumen lassen sie stehen; sie zählt zur Speichergrenze), `POST /api/teacher/bases/<id>/pdf`, ausgeliefert über einen signierten Link
+  `/api/base/<id>` (10 Minuten, Kopfzeilen wie `/api/dl`). Schulinterne Dokumente liegen also nur in der eigenen Plattform, nicht im
+  öffentlichen Repository. **Anklickbar überall:** Wo die Planung Planungsgrundlagen aufzählt (Einheit, Status-Tabelle, Dokumente), ist
+  jede ein Link `#/lk/grundlage/<id>` in einem neuen Tab (`baseLink`, `baseDocPage`): mit Original-PDF öffnet sich die PDF, ältere
+  Planungsgrundlagen ohne PDF zeigen ihren gespeicherten Text als lesbare Seite – bis die Lehrkraft mit „Original-PDF hinzufügen“
+  dieselbe Datei (gleiche Seitenzahl) nachreicht; der Text bleibt dabei unverändert. Die Plattform erkennt die Abschnitte (geprüft an den echten Dokumenten: KCGO-Kapitel 2,
   3.2, 3.3 und Kurshalbjahre E1–Q4; Fachteil im Abiturerlass; Jahrgänge im Schulcurriculum „(8_1)“ bzw. „Jahrgang 6“;
   E1/E2 im E-Phasen-Curriculum); die Lehrkraft kann jede Seitenangabe korrigieren. Für jede Klasse bzw. jeden Kurs stellt die
   Plattform daraus die geltenden Seiten zusammen (Vorrang: Fachteil des Erlasses, Kurshalbjahr/Jahrgang, verbindliche Regeln,

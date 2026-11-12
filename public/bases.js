@@ -1,10 +1,12 @@
 // bases.js – Planungsgrundlagen je Fach: Übersicht, was je Jahrgang/Kurs vorliegt oder fehlt; Dokumente hochladen (Text je Seite
-// per PDF.js im Browser – die PDF selbst wird nicht gespeichert), Abschnitte automatisch erkennen und korrigieren; Fach-Einstellungen.
-import { h, clear, toast, errToast, busy, modal, confirmDialog, fmtTime, fmtBytes, icon, pageHead } from "./ui.js";
+// per PDF.js im Browser – die KI arbeitet nur mit diesem Text; zusätzlich liegt die Original-PDF in Unterricks, damit die Lehrkraft sie
+// aus der Planung heraus öffnen kann), Abschnitte automatisch erkennen und korrigieren; Fach-Einstellungen. Ev. Religion: auch das
+// Schulcurriculum der Grundschule (Jahrgänge 1–4). Jede Planungsgrundlage öffnet sich über #/lk/grundlage/<id> in einem neuen Tab.
+import { h, clear, toast, errToast, busy, modal, confirmDialog, fmtTime, fmtBytes, icon, pageHead, upload, apiUrl, stateLine } from "./ui.js";
 import { render, go } from "./app.js";
-import { tapi, teacherBar } from "./teacher.js";
+import { T, tapi, teacherBar } from "./teacher.js";
 import { SUBJECTS, subjectName, isValidSubject, CLASS_GROUPS, Q_COURSES, classShort } from "./shared.js";
-import { BASE_KINDS, detectSections, parseRanges, formatRanges, sectionLabel, pageText, wantedSections, missingFor } from "./bases-detect.js";
+import { BASE_KINDS, detectSections, parseRanges, formatRanges, sectionLabel, pageText, wantedSections, missingFor, wantedGsSections, missingForGs, baseKindLabel } from "./bases-detect.js";
 
 let pdfjsP = null;
 function pdfjs() {
@@ -28,6 +30,58 @@ export async function pdfTexts(file, onProgress) {
 }
 
 const MAX_PAGES = 600, CHUNK_BYTES = 250000, CHUNK_PAGES = 60;
+const pdfPages = async (file) => {
+  const lib = await pdfjs();
+  const doc = await lib.getDocument({ data: new Uint8Array(await file.arrayBuffer()), isEvalSupported: false }).promise;
+  try { return doc.numPages; } finally { await doc.destroy(); }
+};
+
+/* Link auf eine Planungsgrundlage (neuer Tab): Original-PDF bzw. – bei älteren ohne PDF – ihr gespeicherter Text.
+   d = {id, title, pages?} (pages = „5–9“: Seiten, die für die Klasse bzw. den Kurs gelten) */
+export function baseLink(d) {
+  return h("a", { class: "baselink", href: "#/lk/grundlage/" + d.id, target: "_blank", rel: "noopener" },
+    d.title + (d.pages ? " (S. " + d.pages + ")" : ""), h("span", { class: "sr-only", text: " (öffnet in neuem Tab)" }));
+}
+
+/* Neue Planungsgrundlage speichern: Text je Seite (für die KI) in Stücken, danach die Original-PDF. Ohne texts liest die Funktion die PDF
+   selbst und erkennt die Abschnitte. Scheitert nur die PDF, bleibt die Planungsgrundlage (Ergebnis pdfError); scheitert der Text, wird
+   sie wieder gelöscht und der Fehler geworfen. */
+export async function uploadBaseFile({ subject, kind, title, scope = [], note = "", file, texts = null, sections = null, onStatus = () => {} }) {
+  if (!texts) {
+    onStatus("Lese die PDF …");
+    texts = await pdfTexts(file, (i, n) => onStatus("Lese Seite " + i + " von " + n + " …"));
+    if (texts.length > MAX_PAGES) throw new Error("Die Datei hat " + texts.length + " Seiten – höchstens " + MAX_PAGES + " sind möglich.");
+  }
+  if (!sections) sections = detectSections(kind, subjectName(subject), texts);
+  let base = null;
+  try {
+    base = (await tapi("POST", "/api/teacher/bases", { body: { subject, kind, title, scope, note, fileName: file.name, pages: texts.length, sections } })).base;
+    const enc = new TextEncoder();
+    for (let from = 0; from < texts.length;) {
+      const chunk = [];
+      let bytes = 2;
+      while (from + chunk.length < texts.length && chunk.length < CHUNK_PAGES) {
+        const b = enc.encode(JSON.stringify(texts[from + chunk.length])).length + 1;
+        if (chunk.length && bytes + b > CHUNK_BYTES) break;
+        chunk.push(texts[from + chunk.length]); bytes += b;
+      }
+      onStatus("Speichere Seiten " + (from + 1) + "–" + (from + chunk.length) + " von " + texts.length + " …");
+      await tapi("PUT", "/api/teacher/bases/" + base.id + "/pages", { body: { from: from + 1, texts: chunk } });
+      from += chunk.length;
+    }
+  } catch (e) {
+    if (base) { try { await tapi("DELETE", "/api/teacher/bases/" + base.id); } catch {} }
+    throw e;
+  }
+  let pdfError = null;
+  try {
+    onStatus("Speichere die Original-PDF …");
+    base = (await upload("/api/teacher/bases/" + base.id + "/pdf?name=" + encodeURIComponent(file.name), file, T.token,
+      (f) => onStatus("Speichere die Original-PDF … " + Math.round(f * 100) + " %"), "application/pdf")).base;
+  } catch (e) { pdfError = e.message || String(e); }
+  return { base, pages: texts.length, pdfError };
+}
+const pdfFailText = (why) => "Der Text ist gespeichert, die Original-PDF nicht (" + String(why).replace(/\.$/, "") + "). Sie können sie später mit „Original-PDF hinzufügen“ ergänzen.";
 const gradeLabel = (key) => (CLASS_GROUPS.find((g) => g.key === key) || {}).label || key;
 // Abschnitte, die je Art sinnvoll sind (für „Abschnitt hinzufügen“)
 const SECTION_KEYS = {
@@ -35,6 +89,7 @@ const SECTION_KEYS = {
   abiturerlass: ["fach"],
   schulcurriculum: ["5", "6", "7", "8", "9", "10", "allgemein"],
   "e-curriculum": ["E1", "E2", "alle"],
+  "gs-curriculum": ["1", "2", "3", "4", "allgemein"],
   sonstiges: [],
 };
 // Klassen, für die der Status angezeigt wird: je Jahrgang eine Beispielklasse, in der Q-Phase jeder Kurs
@@ -49,6 +104,7 @@ export async function basesOverview() {
   catch (e) { clear(main).append(h("p", { class: "err", text: e.message })); return; }
   clear(main).append(pageHead({ title: "Planungsgrundlagen" }),
     h("p", { class: "small", text: "Die KI plant Unterrichtseinheiten auf Grundlage dieser Vorgaben: in den Jahrgängen 5–10 das Schulcurriculum, in der E-Phase das KCGO (und für Politik und Wirtschaft das schulinterne E-Phasen-Curriculum), in Q1–Q4 das KCGO und den Abiturerlass des Kurses. Laden Sie die Dokumente einmal je Fach hoch; für jeden neuen Abiturjahrgang kommt der aktuelle Abiturerlass dazu." }),
+    h("p", { class: "small", text: "Grundschule: Das Schulcurriculum Ev. Religion (Grundschule) laden Sie bei „Evangelische Religion“ hoch; Planungsgrundlagen anderer Grundschulfächer beim jeweiligen Kurs (Menü „Grundschule“)." }),
     h("div", { class: "tiles" }, SUBJECTS.map((s) => {
       const mine = bases.filter((b) => b.subject === s.id), cfg = cfgs[s.id];
       const gaps = statusRows(cfg.grades).filter((r) => missingFor(mine, s.id, s.name, r.klass).length).length;
@@ -62,9 +118,11 @@ export async function basesPage(subject) {
   if (!isValidSubject(subject)) return go("#/lk/grundlagen");
   const main = h("main", null, h("div", { class: "skeleton", text: "Lade …" }));
   render(teacherBar("bases"), main);
-  let bases, cfg;
+  let bases, cfg, gsCourses = [];
   const load = async () => {
-    [bases, cfg] = await Promise.all([tapi("GET", "/api/teacher/bases?subject=" + subject).then((r) => r.bases), tapi("GET", "/api/teacher/subjects").then((r) => r.subjects[subject])]);
+    [bases, cfg, gsCourses] = await Promise.all([tapi("GET", "/api/teacher/bases?subject=" + subject).then((r) => r.bases), tapi("GET", "/api/teacher/subjects").then((r) => r.subjects[subject]),
+      // Grundschulkurse (für den Stand der Jahrgänge 1–4 bei Ev. Religion); fehlt die Liste, gilt „keine Kurse“
+      subject === "evrel" ? tapi("GET", "/api/teacher/gs/courses").then((r) => r.courses || [], () => []) : []]);
   };
   try { await load(); } catch (e) { clear(main).append(h("p", { class: "err", text: e.message })); return; }
   const name = subjectName(subject);
@@ -79,15 +137,30 @@ export async function basesPage(subject) {
     const tbody = h("tbody", { role: "rowgroup" }, rows.map((r) => {
       const docs = bases.filter((b) => wantedSections(b, r.klass).length), miss = missingFor(bases, subject, name, r.klass);
       return h("tr", { role: "row" }, h("td", { text: r.label, "data-label": "Jahrgang / Kurs", role: "cell" }),
-        h("td", { class: "small", "data-label": "Verwendete Grundlagen", role: "cell" }, docs.length ? docs.map((b) => h("div", { text: b.title + " (S. " + formatRanges([...new Set(wantedSections(b, r.klass).map((w) => w.n))]) + ")" })) : h("span", { class: "muted", text: "–" })),
+        h("td", { class: "small", "data-label": "Verwendete Grundlagen", role: "cell" }, docs.length ? docs.map((b) => h("div", null, baseLink({ id: b.id, title: b.title, pages: formatRanges([...new Set(wantedSections(b, r.klass).map((w) => w.n))]) }))) : h("span", { class: "muted", text: "–" })),
         h("td", { class: "small", "data-label": "Status", role: "cell" }, miss.length ? h("span", { class: "warnc", text: "fehlt: " + miss.join("; ") }) : h("span", { class: "ok" }, icon("check"), "vollständig")));
     }));
     const otherSubject = subject !== "powi";
+    const head = () => h("thead", { role: "rowgroup" }, h("tr", { role: "row" }, ["Jahrgang / Kurs", "Verwendete Grundlagen", "Status"].map((t) => h("th", { text: t, role: "columnheader" }))));
     return h("section", { class: "card" }, h("h2", { text: "Was liegt je Jahrgang bzw. Kurs vor?" }),
       otherSubject && !cfg.complete ? h("div", { class: "notice warn", style: { marginBottom: ".7rem" } },
         "Für " + name + " kennt die Plattform die Vorgaben Ihrer Schule nicht. Bitte laden Sie alle Dokumente hoch, die für die Planung nötig sind (Schulcurriculum, KCGO, Abiturerlass, ggf. Fachkonferenzbeschlüsse), und bestätigen Sie unten in den Fach-Einstellungen, dass sie vollständig sind – die Vollständigkeit liegt bei Ihnen.") : null,
-      h("div", { class: "table-wrap" }, h("table", { class: "unit-table", role: "table" }, h("thead", { role: "rowgroup" }, h("tr", { role: "row" }, ["Jahrgang / Kurs", "Verwendete Grundlagen", "Status"].map((t) => h("th", { text: t, role: "columnheader" })))), tbody)),
-      h("p", { class: "hint", text: "Angezeigt werden nur die Jahrgänge, in denen " + name + " laut Fach-Einstellungen unterrichtet wird. Q-Kurse: Grundkurs (GK) und Leistungskurs (LK) je Kurshalbjahr." }));
+      h("div", { class: "table-wrap" }, h("table", { class: "unit-table", role: "table" }, head(), tbody)),
+      h("p", { class: "hint", text: "Angezeigt werden nur die Jahrgänge, in denen " + name + " laut Fach-Einstellungen unterrichtet wird. Q-Kurse: Grundkurs (GK) und Leistungskurs (LK) je Kurshalbjahr." }),
+      subject === "evrel" ? gsStatus(head) : null);
+  }
+  /* Ev. Religion: Schulcurriculum der Grundschule je Jahrgang 1–4 („fehlt“ nur, wenn es einen Religionskurs dieses Jahrgangs gibt) */
+  function gsStatus(head) {
+    const tbody = h("tbody", { role: "rowgroup" }, ["1", "2", "3", "4"].map((g) => {
+      const docs = bases.filter((b) => b.kind === "gs-curriculum" && wantedGsSections(b, g).length), miss = missingForGs(bases, { religion: true, grade: g });
+      const course = gsCourses.some((k) => k && k.religion && String(k.grade) === g);
+      return h("tr", { role: "row" }, h("td", { text: "Grundschule Jg. " + g, "data-label": "Jahrgang / Kurs", role: "cell" }),
+        h("td", { class: "small", "data-label": "Verwendete Grundlagen", role: "cell" }, docs.length ? docs.map((b) => h("div", null, baseLink({ id: b.id, title: b.title, pages: formatRanges([...new Set(wantedGsSections(b, g).map((w) => w.n))]) }))) : h("span", { class: "muted", text: "–" })),
+        h("td", { class: "small", "data-label": "Status", role: "cell" }, !miss.length ? h("span", { class: "ok" }, icon("check"), "vollständig")
+          : course ? h("span", { class: "warnc", text: "fehlt: " + miss.join("; ") }) : h("span", { class: "muted", text: "–" })));
+    }));
+    return h("div", { class: "gs-basis" }, h("h3", { text: "Grundschule (Jahrgänge 1–4)" }),
+      h("div", { class: "table-wrap" }, h("table", { class: "unit-table", role: "table" }, head(), tbody)));
   }
 
   function docsCard() {
@@ -95,11 +168,14 @@ export async function basesPage(subject) {
     if (!bases.length) list.append(h("p", { class: "muted small", text: "Noch keine Dokumente." }));
     for (const b of bases) {
       const secs = Object.entries(b.sections || {}).map(([k, v]) => sectionLabel(k) + ": S. " + formatRanges(v)).join(" · ");
+      const scopeText = b.scope.length ? "für " + b.scope.map((x) => (b.kind === "gs-curriculum" ? "Jg. " + x : classShort(x))).join(", ") : null;
       list.append(h("div", { class: "item" }, h("div", { class: "ficon pdf", "aria-hidden": "true", text: "PDF" }),
-        h("div", { class: "main" }, h("div", { class: "name", text: b.title }),
-          h("div", { class: "meta", text: [b.kindLabel, b.pages + " Seiten", b.scope.length ? "für " + b.scope.map(classShort).join(", ") : null, b.fileName, "hochgeladen " + fmtTime(b.createdAt)].filter(Boolean).join(" · ") }),
+        h("div", { class: "main" }, h("div", { class: "name" }, baseLink({ id: b.id, title: b.title })),
+          h("div", { class: "meta", text: [b.kindLabel, b.pages + " Seiten", scopeText, b.fileName, "hochgeladen " + fmtTime(b.createdAt), b.pdf ? "Original-PDF gespeichert" : "nur Text gespeichert"].filter(Boolean).join(" · ") }),
           secs ? h("div", { class: "meta", text: "Abschnitte: " + secs }) : null, b.note ? h("div", { class: "meta", text: "Hinweis: " + b.note }) : null),
         h("div", { class: "acts" },
+          h("a", { class: "btn small", href: "#/lk/grundlage/" + b.id, target: "_blank", rel: "noopener", "aria-label": "„" + b.title + "“ öffnen (öffnet in neuem Tab)" }, "Öffnen"),
+          pdfButton(b),
           h("button", { class: "btn small", type: "button", onclick: () => editBase(b) }, "Bearbeiten"),
           h("button", { class: "btn small", type: "button", onclick: () => viewText(b) }, "Text ansehen"),
           h("button", { class: "btn small ghost danger", type: "button", "aria-label": "Löschen", onclick: async () => {
@@ -109,16 +185,40 @@ export async function basesPage(subject) {
     }
     return h("section", { class: "card" }, h("h2", { text: "Dokumente" }), list);
   }
+  /* „Original-PDF hinzufügen“ (ältere Planungsgrundlagen: nur Text) bzw. „… ersetzen“ – dieselbe Datei (gleiche Seitenzahl) */
+  function pdfButton(b) {
+    const label = b.pdf ? "Original-PDF ersetzen" : "Original-PDF hinzufügen";
+    const inp = h("input", { type: "file", accept: "application/pdf,.pdf", class: "sr-only", tabindex: "-1", "aria-hidden": "true" });
+    const btn = h("button", { class: "btn small", type: "button", "aria-label": label + " – „" + b.title + "“", onclick: () => inp.click() }, label);
+    inp.addEventListener("change", () => {
+      const file = inp.files[0]; inp.value = "";
+      if (!file) return;
+      busy(btn, async () => {
+        try {
+          if (!/\.pdf$/i.test(file.name) && file.type !== "application/pdf") throw new Error("Bitte eine PDF-Datei wählen.");
+          let n;
+          try { n = await pdfPages(file); } catch { throw new Error("Diese Datei lässt sich nicht als PDF lesen."); }
+          if (n !== b.pages) throw new Error("Diese PDF hat " + n + " Seiten, gespeichert sind " + b.pages + ". Bitte dieselbe Datei wählen.");
+          await upload("/api/teacher/bases/" + b.id + "/pdf?name=" + encodeURIComponent(file.name), file, T.token, null, "application/pdf");
+          toast("Original-PDF zu „" + b.title + "“ gespeichert.", "ok");
+          reload();
+        } catch (e) { errToast(e); }
+      }, "Speichere …");
+    });
+    return h("span", { class: "pdfpick" }, btn, inp);
+  }
 
   /* Geltungsbereich (Kurse/Jahrgänge) je Art */
   function scopePicker(kind, current) {
     const sel = new Set(current || []);
     const opts = kind === "abiturerlass" ? Q_COURSES.map((k) => [k, classShort(k)])
+      : kind === "gs-curriculum" ? ["1", "2", "3", "4"].map((g) => [g, "Jg. " + g])
       : kind === "schulcurriculum" ? ["5", "6", "7", "8", "9", "10"].map((g) => [g, "Jg. " + g])
       : kind === "sonstiges" ? [...cfg.grades.filter((g) => g !== "Q").map((g) => [g, g === "E" ? "E-Phase" : "Jg. " + g]), ...(cfg.grades.includes("Q") ? Q_COURSES.map((k) => [k, classShort(k)]) : [])] : [];
     const box = h("div", { class: "row" }, opts.map(([v, l]) => h("label", { class: "chk" }, h("input", { type: "checkbox", value: v, checked: sel.has(v) ? true : null, onchange: (e) => { if (e.target.checked) sel.add(v); else sel.delete(v); } }), l)));
     const hint = kind === "abiturerlass" ? "Für welche Kurse gilt dieser Erlass? (Ein Erlass gilt für einen Abiturjahrgang – z. B. Q1/Q2 des einen und Q3/Q4 des anderen Jahrgangs.)"
       : kind === "schulcurriculum" ? "Optional: nur für diese Jahrgänge verwenden (leer = nach den erkannten Abschnitten)."
+      : kind === "gs-curriculum" ? "Optional: nur für diese Jahrgänge (leer = nach den erkannten Abschnitten)."
       : kind === "sonstiges" ? "Für welche Jahrgänge bzw. Kurse gilt diese Vorgabe?" : "";
     return { el: opts.length ? h("div", { class: "field" }, h("label", null, "Gilt für"), box, hint ? h("p", { class: "hint", text: hint }) : null) : null, value: () => [...sel] };
   }
@@ -145,7 +245,9 @@ export async function basesPage(subject) {
 
   function uploadCard() {
     let kind = subject === "powi" ? "kcgo" : "schulcurriculum", texts = null, file = null;
-    const kindSel = h("select", { "aria-label": "Art der Planungsgrundlage" }, Object.entries(BASE_KINDS).map(([k, v]) => h("option", { value: k, selected: k === kind ? true : null }, v.label)));
+    // das Schulcurriculum der Grundschule gibt es nur bei Ev. Religion
+    const kinds = Object.entries(BASE_KINDS).filter(([k]) => k !== "gs-curriculum" || subject === "evrel");
+    const kindSel = h("select", { "aria-label": "Art der Planungsgrundlage" }, kinds.map(([k, v]) => h("option", { value: k, selected: k === kind ? true : null }, v.label)));
     const kindHint = h("p", { class: "hint" });
     const fileInp = h("input", { type: "file", accept: "application/pdf,.pdf", "aria-label": "PDF-Datei" });
     const title = h("input", { maxlength: "200", placeholder: "z. B. KCGO Politik und Wirtschaft (2016)" });
@@ -188,27 +290,14 @@ export async function basesPage(subject) {
       if (!texts) return;
       const sc = scope.value();
       if ((kind === "abiturerlass" || kind === "sonstiges") && !sc.length) { toast(kind === "abiturerlass" ? "Bitte die Kurse wählen, für die der Erlass gilt." : "Bitte wählen, wofür die Vorgabe gilt.", "err"); return; }
-      let base = null;
       try {
-        base = (await tapi("POST", "/api/teacher/bases", { body: { subject, kind, title: title.value, scope: sc, note: note.value, fileName: file.name, pages: texts.length, sections: secs ? secs.value() : {} } })).base;
-        const enc = new TextEncoder();
-        for (let from = 0; from < texts.length;) {
-          const chunk = [];
-          let bytes = 2;
-          while (from + chunk.length < texts.length && chunk.length < CHUNK_PAGES) {
-            const b = enc.encode(JSON.stringify(texts[from + chunk.length])).length + 1;
-            if (chunk.length && bytes + b > CHUNK_BYTES) break;
-            chunk.push(texts[from + chunk.length]); bytes += b;
-          }
-          status.textContent = "Speichere Seiten " + (from + 1) + "–" + (from + chunk.length) + " von " + texts.length + " …";
-          await tapi("PUT", "/api/teacher/bases/" + base.id + "/pages", { body: { from: from + 1, texts: chunk } });
-          from += chunk.length;
-        }
-        toast("„" + base.title + "“ gespeichert (" + texts.length + " Seiten).", "ok");
+        const r = await uploadBaseFile({ subject, kind, title: title.value, scope: sc, note: note.value, file, texts, sections: secs ? secs.value() : {}, onStatus: (t) => { status.textContent = t; } });
+        if (r.pdfError) toast(pdfFailText(r.pdfError), "err", 9000);
+        else toast("„" + r.base.title + "“ gespeichert (" + r.pages + " Seiten).", "ok");
         reload();
       } catch (e) {
         errToast(e);
-        if (base) { try { await tapi("DELETE", "/api/teacher/bases/" + base.id); } catch {} status.textContent = "Hochladen abgebrochen – bitte erneut versuchen."; }
+        status.textContent = "Hochladen abgebrochen – bitte erneut versuchen.";
       }
     }, "Speichere …"));
     paintKind();
@@ -216,7 +305,7 @@ export async function basesPage(subject) {
       h("div", { class: "meta-grid" }, h("div", { class: "field" }, h("label", null, "Art"), kindSel, kindHint), h("div", { class: "field" }, h("label", null, "PDF-Datei"), fileInp, status)),
       h("div", { class: "field" }, h("label", null, "Titel"), title), scopeBox, detail, h("div", { class: "field" }, h("label", null, "Hinweis"), note),
       h("div", { class: "row end" }, btn),
-      h("p", { class: "hint", text: "Die PDF verlässt Ihr Gerät nicht: Ihr Browser liest den Text Seite für Seite aus, gespeichert werden nur die Texte (für die KI). Schulinterne Dokumente sind damit nur in Ihrer Plattform hinterlegt." }));
+      h("p", { class: "hint", text: "Ihr Browser liest den Text Seite für Seite aus; die KI arbeitet nur mit diesem Text. Zusätzlich speichert Unterricks die Original-PDF in Ihrer Plattform (nur für Sie sichtbar), damit Sie sie aus der Planung heraus öffnen können." }));
   }
 
   function editBase(b) {
@@ -273,4 +362,55 @@ export async function basesPage(subject) {
   }
 
   paint();
+}
+
+/* ---------- Eine Planungsgrundlage im neuen Tab (#/lk/grundlage/<id>) ----------
+   Mit Original-PDF: weiter zur PDF (signierter Link, wie „PDF ansehen“). Ältere ohne PDF: ihr gespeicherter Text als lesbare Seite. */
+export async function baseDocPage(id) {
+  const main = h("main", { class: "narrow" }, h("div", { class: "skeleton", text: "Lade …" }));
+  render(teacherBar("bases"), main);
+  let b;
+  try { b = (await tapi("GET", "/api/teacher/bases/" + id)).base; }
+  catch (e) { clear(main).append(pageHead({ crumbs: [["#/lk/grundlagen", "Planungsgrundlagen"]], title: "Planungsgrundlage" }), h("p", { class: "err", text: e.message })); return; }
+  const head = () => pageHead({ fach: isValidSubject(b.subject) ? b.subject : /^gs[a-f0-9]{8}$/.test(b.subject) ? "gs" : null,
+    crumbs: [["#/lk/grundlagen", "Planungsgrundlagen"], b.title], title: b.title, sub: (b.kindLabel || baseKindLabel(b.kind)) + " · " + b.pages + " Seiten" });
+  if (b.pdf) {
+    const st = h("p", { role: "status", text: "Die PDF wird geöffnet …" });
+    clear(main).append(head(), st);
+    try { const r = await tapi("POST", "/api/teacher/bases/" + id + "/link"); location.replace(apiUrl(r.url)); }
+    catch (e) {
+      stateLine(st, e.message, "err");
+      main.append(h("div", { class: "row" }, h("button", { class: "btn", type: "button", onclick: () => textView(main, b, head, false) }, "Text ansehen")));
+    }
+    return;
+  }
+  textView(main, b, head, true);
+}
+function textView(main, b, head, onlyText) {
+  const status = h("p", { class: "small", role: "status", "aria-live": "polite" });
+  const pages = h("div", { class: "basepages" });
+  const jump = h("input", { type: "number", min: "1", max: String(b.pages), inputmode: "numeric", id: "bt-jump", style: { maxWidth: "7rem" } });
+  const go2 = () => {
+    const n = Number(jump.value), el = Number.isInteger(n) && document.getElementById("seite-" + n);
+    if (!el) { stateLine(status, n >= 1 && n <= b.pages ? "Seite " + n + " wird noch geladen – bitte gleich noch einmal." : "Bitte eine Seite zwischen 1 und " + b.pages + " eingeben.", "err"); return; }
+    el.scrollIntoView({ block: "start" }); el.focus({ preventScroll: true });
+  };
+  jump.addEventListener("keydown", (e) => { if (e.key === "Enter") { e.preventDefault(); go2(); } });
+  clear(main).append(head(),
+    onlyText ? h("div", { class: "notice" }, "Für diese Planungsgrundlage ist nur der Text gespeichert (so liest ihn auch die KI). Laden Sie unter „Planungsgrundlagen“ mit „Original-PDF hinzufügen“ dieselbe PDF hoch – dann öffnet sich hier das Original.") : null,
+    h("div", { class: "field row", style: { alignItems: "end", marginTop: ".8rem" } }, h("div", null, h("label", { for: "bt-jump" }, "Zu Seite springen"), jump),
+      h("button", { class: "btn", type: "button", onclick: go2 }, "Springen")),
+    status, pages);
+  (async () => {
+    for (let from = 1; from <= b.pages; from += 31) {
+      const to = Math.min(b.pages, from + 30);
+      if (b.pages > 31) status.textContent = "Seiten " + from + "–" + to + " von " + b.pages + " werden geladen …";
+      let r;
+      try { r = await tapi("GET", "/api/teacher/bases/" + b.id + "/text?from=" + from + "&to=" + to); }
+      catch (e) { stateLine(status, e.message, "err"); return; }
+      if (!main.isConnected) return;
+      for (const p of r.pages) pages.append(h("section", { id: "seite-" + p.n, tabindex: "-1", class: "basepage" }, h("h2", { text: "Seite " + p.n }), h("div", { class: "basetext", text: p.text || "(kein Text)" })));
+    }
+    status.textContent = b.pages > 31 ? "Alle " + b.pages + " Seiten geladen." : "";
+  })();
 }

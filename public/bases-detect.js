@@ -73,8 +73,28 @@ export function detectECurriculum(pages) {
   return out;
 }
 
+/* Schulcurriculum Grundschule (Jahrgänge 1–4): „Jahrgang 2“, „Jahrgangsstufe 3/4“ (dann für 3 und 4), „Klasse 1“, „(2_1)“ –
+   Seiten ohne Angabe gehören zum vorigen Jahrgang; Seiten, deren Kopf mehr als zwei Jahrgänge nennt, sind Übersicht (allgemein) */
+const GS_HEAD = /\b(?:Jahrgangsstufen?|Jahrgang|Klasse|Jg\.)\s*([1-4])(?:\s*(?:\/|–|-|und)\s*([1-4]))?(?!\d)/;
+export function detectGsCurriculum(pages) {
+  const out = {}, add = (k, n) => (out[k] = out[k] || []).push(n);
+  let cur = null;
+  pages.forEach((t, i) => {
+    const head = lines(t).slice(0, 8).join(" ");
+    const named = new Set();
+    for (const m of head.matchAll(new RegExp(GS_HEAD.source, "g"))) { named.add(m[1]); if (m[2]) named.add(m[2]); }
+    if (named.size > 2) { add("allgemein", i + 1); cur = null; return; }
+    const m = GS_HEAD.exec(head), u = !m && /\(([1-4])_\d+\)/.exec(head);
+    if (m) cur = [...new Set([m[1], m[2]].filter(Boolean))].sort();
+    else if (u) cur = [u[1]];
+    if (cur) cur.forEach((g) => add(g, i + 1)); else add("allgemein", i + 1);
+  });
+  return out;
+}
+
 export function detectSections(kind, subjectName, pages) {
   if (kind === "kcgo") return detectKcgo(pages);
+  if (kind === "gs-curriculum") return detectGsCurriculum(pages);
   if (kind === "abiturerlass") return detectErlass(pages, subjectName);
   if (kind === "schulcurriculum") return detectCurriculum(pages);
   if (kind === "e-curriculum") return detectECurriculum(pages);
@@ -122,6 +142,7 @@ export const BASE_KINDS = {
   kcgo: { label: "Kerncurriculum gymnasiale Oberstufe (KCGO)", hint: "Gilt für E-Phase und Q1–Q4. Die Plattform erkennt Grundlagen, Bildungsstandards, verbindliche Regelungen und die Kurshalbjahre E1–Q4." },
   "e-curriculum": { label: "Schulinternes E-Phasen-Curriculum", hint: "Gilt für die Einführungsphase (E1/E2)." },
   abiturerlass: { label: "Abiturerlass", hint: "Gilt für die Q-Kurse, denen Sie ihn zuordnen (je Abiturjahrgang ein eigener Erlass). Die Plattform sucht den Fachteil heraus; der Erlass darf alle Fächer enthalten." },
+  "gs-curriculum": { label: "Schulcurriculum Grundschule (Jahrgänge 1–4)", hint: "Fachcurriculum der Grundschule für die Jahrgänge 1–4. Die Plattform ordnet die Seiten den Jahrgängen zu (z. B. „Jahrgang 2“ oder „Jahrgangsstufe 3/4“ – dann für 3 und 4)." },
   sonstiges: { label: "Sonstige Vorgabe", hint: "z. B. Fachkonferenzbeschluss oder Lehrplan eines anderen Fachs – gilt für die Jahrgänge/Kurse, die Sie auswählen." },
 };
 export const baseKindLabel = (k) => (BASE_KINDS[k] || {}).label || k;
@@ -132,6 +153,7 @@ const obj = (v, d) => { if (typeof v !== "string") return v == null ? d : v; try
 const gkey = (k) => (/^\d+/.test(k) ? String(parseInt(k, 10)) : k ? k[0] : "");
 const halfOf = (k) => (/^Q[1-4]-/.test(k) ? k.slice(0, 2) : k && k[0] === "E" ? "E" : null);
 export function wantedSections(b, klass) {
+  if (b.kind === "gs-curriculum") return [];   // gilt nur für die Grundschule (wantedGsSections), nie für Klassen des Gymnasiums
   const key = gkey(klass), sec = obj(b.sections, {}), scope = obj(b.scope, []);
   const all = () => range(1, b.pages).map((n) => ({ n, part: "alle" }));
   const pick = (...keys) => keys.flatMap((k) => (sec[k] || []).map((n) => ({ n, part: k })));
@@ -162,4 +184,19 @@ export function missingFor(bases, subject, subjectLabel, klass) {
     if (key === "Q" && !has("abiturerlass", (b) => obj(b.scope, []).includes(klass))) out.push("Abiturerlass für den Kurs " + short);
   } else if (!bases.some((b) => b.kind === "schulcurriculum" && wantedSections(b, klass).length)) out.push("Schulcurriculum " + subjectLabel + " für Jahrgang " + key);
   return out;
+}
+/* Grundschule: welche Seiten eines Curriculums (Jahrgänge 1–4) gelten für einen Jahrgang (grade = "1" … "4")? */
+export function wantedGsSections(b, grade) {
+  const g = String(grade), sec = obj(b.sections, {}), scope = obj(b.scope, []);
+  if (scope.length && !scope.includes(g)) return [];
+  if (sec[g]) return [g, "allgemein"].flatMap((k) => (sec[k] || []).map((n) => ({ n, part: k })));
+  if (Object.keys(sec).some((k) => /^\d+$/.test(k))) return [];
+  return range(1, b.pages).map((n) => ({ n, part: "alle" }));
+}
+// Was fehlt einem Grundschulkurs? Religion: das Schulcurriculum Ev. Religion (Grundschule) für seinen Jahrgang
+export function missingForGs(bases, course) {
+  if (!course || !course.religion) return [];
+  const grade = String(course.grade);
+  const has = (bases || []).some((b) => b.kind === "gs-curriculum" && (b.subject === undefined || b.subject === "evrel") && wantedGsSections(b, grade).length);
+  return has ? [] : ["Schulcurriculum Ev. Religion (Grundschule) für Jahrgang " + grade];
 }

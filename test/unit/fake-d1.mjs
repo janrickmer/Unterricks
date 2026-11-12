@@ -23,7 +23,10 @@ export function fakeD1() {
 
 export function fakeR2() {
   const m = new Map();
-  return { m, put: async (k, v) => { m.set(k, v instanceof Uint8Array ? v : new Uint8Array(await new Response(v).arrayBuffer())); }, get: async (k) => (m.has(k) ? { body: m.get(k) } : null),
+  // get(k, {range}) wie R2: Ausschnitt, size, text()
+  const obj = (b) => ({ body: b, size: b.length, text: async () => new TextDecoder().decode(b), arrayBuffer: async () => b.slice().buffer });
+  return { m, put: async (k, v) => { m.set(k, v instanceof Uint8Array ? v : new Uint8Array(await new Response(v).arrayBuffer())); },
+    get: async (k, o) => { if (!m.has(k)) return null; const b = m.get(k), r = o && o.range; return obj(r ? b.slice(r.offset || 0, (r.offset || 0) + (r.length ?? b.length)) : b); },
     delete: async (k) => { for (const x of Array.isArray(k) ? k : [k]) m.delete(x); } };
 }
 
