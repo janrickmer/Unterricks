@@ -285,7 +285,8 @@ async function loginPage() {
   msg, btn,
   st.setup ? h("p", { class: "hint", text: "Nach zwei falschen Versuchen wird die Anmeldung auf diesem Gerät für 30 Minuten gesperrt. Geräte, auf denen Sie schon angemeldet waren, bleiben davon unberührt." }) : null);
   wrap.append(form);
-  setTimeout(() => user.focus(), 50);
+  // nur, solange noch nichts anderes den Fokus hat: sonst landete schon Getipptes (z. B. im Passwortfeld) mitten im Wort im Benutzernamen
+  setTimeout(() => { if (!wrap.contains(document.activeElement)) user.focus(); }, 50);
 }
 
 /* ---------- Übersicht: Fach → Klasse → Sitzungen ---------- */
