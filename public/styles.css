@@ -40,6 +40,8 @@
 :root[data-fach="powi"] { --fach: var(--blau); --fach-t: var(--blau-t); --fach-text: var(--blau); }
 :root[data-fach="evrel"] { --fach: var(--violett); --fach-t: var(--violett-t); --fach-text: var(--violett); }
 :root[data-fach="ethik"] { --fach: var(--kupfer); --fach-t: var(--kupfer-t); --fach-text: var(--kupfer); }
+/* Grundschule: eigene Farbe (grün) für alle Seiten des Bereichs „Grundschule“ */
+:root[data-fach="gs"] { --fach: var(--gruen); --fach-t: var(--gruen-t); --fach-text: var(--gruen); }
 /* Projektor im abgedunkelten Raum */
 @media (prefers-color-scheme: dark) {
   :root:not([data-theme="light"]) {
@@ -55,6 +57,7 @@
   :root:not([data-theme="light"])[data-fach="powi"] { --fach-text: #8db0ff; }
   :root:not([data-theme="light"])[data-fach="evrel"] { --fach-text: #bfa6ff; }
   :root:not([data-theme="light"])[data-fach="ethik"] { --fach-text: #ffa766; }
+  :root:not([data-theme="light"])[data-fach="gs"] { --fach-text: #6fdca6; }
   /* R3: im dunklen Raum endet die Folie an der Bandkante (ein heller Überstand läse sich als Lichtfleck) */
   :root:not([data-theme="light"]) .pagehead .foils { clip-path: inset(0 -100vmax); }
 }
@@ -230,6 +233,7 @@ input[type=checkbox], input[type=radio] { width: 1.15rem; height: 1.15rem; }
 .tile::after { content: ""; position: absolute; z-index: -1; right: -26px; top: -26px; width: 92px; height: 92px; border-radius: 18px; background: var(--tc); opacity: .92; transform: rotate(14deg);
   transition: transform .35s var(--ease); }
 .tile[data-fach="powi"] { --tc: var(--blau); --tt: var(--blau-t); } .tile[data-fach="evrel"] { --tc: var(--violett); --tt: var(--violett-t); } .tile[data-fach="ethik"] { --tc: var(--kupfer); --tt: var(--kupfer-t); }
+.tile[data-fach="gs"] { --tc: var(--gruen); --tt: var(--gruen-t); }
 .tile:hover { transform: translateY(-2px); box-shadow: var(--shadow-lift); border-color: color-mix(in srgb, var(--tc) 45%, var(--line)); }
 .tile:hover::after { transform: rotate(6deg) translate(-4px, 4px); }
 .tile[aria-pressed="true"] { background: var(--tt); border-color: var(--tc); box-shadow: 0 0 0 2px var(--tc), var(--shadow); }
@@ -271,6 +275,7 @@ a.item:hover { border-color: color-mix(in srgb, var(--fach-text) 55%, var(--line
 /* Fach-Schild am Zeilenanfang (gemischte Listen): flach, immer mit Text */
 .ftag { flex: 0 0 auto; min-width: 4.6rem; text-align: center; font-weight: 800; font-size: .78rem; line-height: 1.2; padding: .34rem .5rem; border-radius: 8px; color: #fff; background: var(--marke); white-space: nowrap; }
 .ftag[data-fach="powi"] { background: var(--blau); } .ftag[data-fach="evrel"] { background: var(--violett); } .ftag[data-fach="ethik"] { background: var(--kupfer); }
+.ftag[data-fach="gs"] { background: var(--gruen); }
 .code-big { font-family: var(--mono); font-weight: 800; font-size: clamp(2.2rem, 1.6rem + 2.2vw, 3.2rem); letter-spacing: .08em; line-height: 1.1; font-variant-numeric: tabular-nums; color: var(--text); }
 
 /* ---------- Sitzungsansicht der Lehrkraft ---------- */
@@ -760,6 +765,7 @@ img.sub-photo { max-width: 100%; max-height: 60vh; border-radius: 12px; border: 
   transition: border-color .2s var(--ease), box-shadow .2s var(--ease); }
 .wk-ev > * { flex-shrink: 0; min-width: 0; }   /* nichts stauchen – was nicht passt, schneidet der Eintrag unten ab */
 .wk-ev[data-fach="powi"] { --ec: var(--blau); --et: var(--blau-t); } .wk-ev[data-fach="evrel"] { --ec: var(--violett); --et: var(--violett-t); } .wk-ev[data-fach="ethik"] { --ec: var(--kupfer); --et: var(--kupfer-t); }
+.wk-ev[data-fach="gs"] { --ec: var(--gruen); --et: var(--gruen-t); }
 .wk-ev:hover { border-color: color-mix(in srgb, var(--ec) 65%, var(--line)); box-shadow: var(--shadow); }
 .wk-time { font-weight: 700; color: var(--muted); font-variant-numeric: tabular-nums; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .wk-who { display: flex; align-items: center; gap: .3rem; min-width: 0; flex-wrap: nowrap; }   /* Fach und Klasse immer in einer Zeile – die Klasse bleibt sichtbar */
@@ -798,3 +804,8 @@ img.sub-photo { max-width: 100%; max-height: 60vh; border-radius: 12px; border: 
   .wk-nav { display: grid; grid-template-columns: auto auto minmax(0, 1fr); gap: .25rem; justify-items: start; }
   .wk-range { grid-column: 1 / -1; order: -1; margin: 0; }   /* Zeitraum oben, darunter ‹ › Heute (Tab-Reihenfolge bleibt) */
 }
+
+/* Grundschule: Übersicht der Kurse (unter dem Wochenkalender) */
+.gs-courses { margin-top: 1.2rem; }
+.gs-courses h3 { margin: 1rem 0 .55rem; }
+.gs-courses details.box { margin-top: 1rem; }

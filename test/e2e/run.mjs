@@ -196,8 +196,21 @@ async function main() {
     ok(r.data.docs.length === 2 && !r.data.missing.length, "Planungsgrundlagen für Q2 GK vollständig");
 
     /* ---------- Unterrichtseinheit ---------- */
+    step("Menü: Gymnasium · Grundschule · Planungsgrundlagen · Einstellungen · Abmelden; Bereich Grundschule mit Wochenkalender");
+    {
+      const navTexts = (await tp.locator(".topbar nav").first().locator("a, button").allTextContents()).map((t) => t.trim());
+      ok(JSON.stringify(navTexts) === JSON.stringify(["Gymnasium", "Grundschule", "Planungsgrundlagen", "Einstellungen", "Abmelden"]), "Menü: " + navTexts.join(" · "));
+      await tp.getByRole("link", { name: "Grundschule", exact: true }).click();
+      await tp.waitForURL(/#\/lk\/grundschule$/);
+      await tp.locator("h1", { hasText: "Grundschule" }).waitFor({ timeout: 10000 });
+      await tp.locator(".weekcal .wk-body:not(.skeleton)").waitFor({ timeout: 15000 });
+      ok((await tp.locator('.topbar nav a[aria-current="page"]').allTextContents()).join("|") === "Grundschule" && await tp.locator("html").getAttribute("data-fach") === "gs"
+        && await tp.locator(".weekcal").count() === 1 && await tp.getByText("Noch keine Kurse – legen Sie unten den ersten an.").count() === 1,
+        "Grundschule: Menüpunkt markiert (aria-current), grüne Bereichsfarbe, Wochenkalender, noch keine Kurse");
+    }
+
     step("Fach → Kurs → Unterrichtseinheit: Rahmendaten, Planung mit Claude (Connector), Leupold-Schema, Tabelle");
-    await tp.getByRole("link", { name: "Unterricht" }).click();
+    await tp.getByRole("link", { name: "Gymnasium", exact: true }).click();
     await tp.getByRole("link", { name: /Politik und Wirtschaft/ }).click();
     await tp.locator(".class-btn").first().waitFor();
     ok(await tp.getByRole("link", { name: "7A", exact: true }).count() === 0 && await tp.getByRole("link", { name: "8A", exact: true }).count() === 1 && await tp.getByRole("link", { name: "6A", exact: true }).count() === 1, "PoWi: Jahrgänge laut Fach-Einstellungen (ohne Jahrgang 7)");

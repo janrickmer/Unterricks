@@ -107,7 +107,9 @@ export const isWeekend = (iso) => { const d = new Date(utcNoon(iso)).getUTCDay()
 export const mondayOf = (iso) => addDays(iso, -((new Date(utcNoon(iso)).getUTCDay() + 6) % 7));
 export const isoWeek = (iso) => { const th = addDays(mondayOf(iso), 3); return Math.floor(daysBetween(th.slice(0, 4) + "-01-01", th) / 7) + 1; };   // KW nach ISO 8601
 /* heutiges Datum an der Schule (Europe/Berlin), unabhängig von der Zeitzone des Geräts */
-export const berlinToday = (ms = Date.now()) => new Intl.DateTimeFormat("sv-SE", { timeZone: "Europe/Berlin", year: "numeric", month: "2-digit", day: "2-digit" }).format(new Date(ms));
+// die beiden Intl.DateTimeFormat werden erst beim ersten Aufruf angelegt und dann wiederverwendet (gleiches Ergebnis, weniger CPU in Schleifen)
+let dayFmt = null, partsFmt = null;
+export const berlinToday = (ms = Date.now()) => (dayFmt || (dayFmt = new Intl.DateTimeFormat("sv-SE", { timeZone: "Europe/Berlin", year: "numeric", month: "2-digit", day: "2-digit" }))).format(new Date(ms));
 /* „HH:MM“ ↔ Minuten seit Mitternacht */
 export const clockMinutes = (t) => (isClockTime(t) ? Number(t.slice(0, 2)) * 60 + Number(t.slice(3)) : null);
 export const minutesClock = (m) => String(Math.floor(m / 60)).padStart(2, "0") + ":" + String(m % 60).padStart(2, "0");
@@ -115,7 +117,7 @@ export const minutesClock = (m) => String(Math.floor(m / 60)).padStart(2, "0") +
 export const isClockTime = (s) => typeof s === "string" && /^([01]\d|2[0-3]):[0-5]\d$/.test(s);
 /* Ortszeit der Schule (Europe/Berlin, mit Sommerzeit) → Zeitpunkt in ms */
 const tzOffset = (ms) => {
-  const parts = new Intl.DateTimeFormat("en-US", { timeZone: "Europe/Berlin", hourCycle: "h23", year: "numeric", month: "2-digit", day: "2-digit", hour: "2-digit", minute: "2-digit", second: "2-digit" }).formatToParts(new Date(ms));
+  const parts = (partsFmt || (partsFmt = new Intl.DateTimeFormat("en-US", { timeZone: "Europe/Berlin", hourCycle: "h23", year: "numeric", month: "2-digit", day: "2-digit", hour: "2-digit", minute: "2-digit", second: "2-digit" }))).formatToParts(new Date(ms));
   const g = (t) => Number((parts.find((x) => x.type === t) || {}).value);
   return Date.UTC(g("year"), g("month") - 1, g("day"), g("hour") % 24, g("minute"), g("second")) - Math.floor(ms / 1000) * 1000;
 };
@@ -744,6 +746,150 @@ function parseRuns(s) {
   }
   flush();
   return runs;
+}
+
+/* ---------- Grundschule (Kurse der Jahrgänge 1–4, Verlaufsplan, Elternansicht) ----------
+ * Grundschulsitzungen und -einheiten haben das Fach „gs“; ihre „Klasse“ ist die Kennung des Kurses („gs“ + 8 Hex, z. B. gs1a2b3c4d). Sie passt
+ * nie auf die Klassen und Kurse des Gymnasiums (isValidClass bleibt false) und nicht in deren Routen. */
+export const GS_SUBJECT = "gs";
+export const isGsCourseId = (k) => typeof k === "string" && /^gs[a-f0-9]{8}$/.test(k);
+export const isGsLesson = (l) => !!l && l.subject === GS_SUBJECT && isGsCourseId(l.klass);
+export const GS_CLASS_LETTERS = ["a", "b", "c"];
+export const GS_LIMITS = { subjectName: 60, description: 2000, classes: 3 };
+/* Schuljahr in Hessen: 1. August bis 31. Juli → {from, to, label: "2026/27"} (null bei ungültigem Datum) */
+export function schoolYearOf(iso) {
+  if (!isIsoDate(iso)) return null;
+  const y = Number(iso.slice(0, 4)), start = iso.slice(5) >= "08-01" ? y : y - 1;
+  return { from: start + "-08-01", to: (start + 1) + "-07-31", label: start + "/" + String((start + 1) % 100).padStart(2, "0") };
+}
+/* Ab wann Eltern eine Sitzung sehen: zum geplanten Ende (Beginn + Dauer); ohne Beginn oder Dauer am Folgetag 0:00 Uhr (Europe/Berlin);
+   ohne Datum nie (null). l = {date, startTime, durationMin} */
+export function parentOpensAt(l) {
+  const t = lessonTimes(l);
+  if (t) return t.end;
+  return l && isIsoDate(l.date) ? berlinTime(addDays(l.date, 1), "00:00") : null;
+}
+/* Verlaufsplan: Schulportal-Zeichen wie im Schulportal-Eintrag, dazu Verweise auf PDF-Dateien „[[pdf:<file_id>]]“ (eine Beschriftung
+   „|Name“ dahinter wird geduldet und nicht verwendet – angezeigt wird immer der aktuelle Dateiname) */
+export const PLAN_REF_RE = /\[\[pdf:([a-f0-9]{16})(?:\|[^\]\n]{0,200})?\]\]/g;
+export const pdfRef = (id) => "[[pdf:" + id + "]]";
+const REF_MARK = "";   // Platzhalter für einen Verweis (Zeichen aus dem privaten Bereich, wird vorher aus dem Text entfernt)
+/* wie parsePortalMarkup; ein Verweis wird zu einem eigenen Lauf {text: "", file: id, b, i, u, s} (mit der Formatierung an seiner Stelle) */
+export function parsePlanMarkup(text) {
+  const lines = String(text == null ? "" : text).replace(/\r\n?/g, "\n").split(REF_MARK).join("").split("\n");
+  return lines.map((line) => {
+    if (isStopLine(line)) return { type: "stop", runs: [] };
+    if (!line.trim()) return { type: "blank", runs: [] };
+    const ids = [];
+    const marked = line.replace(PLAN_REF_RE, (m, id) => { ids.push(id); return REF_MARK; });
+    const li = /^- /.test(marked);
+    const runs = [];
+    let k = 0;
+    for (const r of parseRuns(li ? marked.slice(2) : marked)) {
+      if (!r.text.includes(REF_MARK)) { runs.push(r); continue; }
+      const { text: t, href, ...fmt } = r;
+      t.split(REF_MARK).forEach((part, j) => {
+        if (j > 0) runs.push({ text: "", b: fmt.b, i: fmt.i, u: fmt.u, s: fmt.s, file: ids[k++] });
+        if (part) runs.push({ ...r, text: part });
+      });
+    }
+    return { type: li ? "li" : "p", runs };
+  });
+}
+/* Verweise eines Verlaufsplans: alle (Reihenfolge des Plans, ohne Doppelte), die vor dem Zwischenstopp (ohne Zwischenstopp: alle) */
+export function planRefs(text) {
+  const all = [], before = [];
+  let stop = false;
+  for (const line of String(text == null ? "" : text).replace(/\r\n?/g, "\n").split("\n")) {
+    if (isStopLine(line)) { stop = true; continue; }   // Verweise auf der Stopp-Zeile zählen nicht
+    for (const m of line.matchAll(PLAN_REF_RE)) {
+      if (!all.includes(m[1])) all.push(m[1]);
+      if (!stop && !before.includes(m[1])) before.push(m[1]);
+    }
+  }
+  return { all, beforeStop: before, hasStop: stop };
+}
+/* Welche PDF-Dateien Eltern zu einer Sitzung sehen (dieselbe Regel im Browser der Lehrkraft und im Worker).
+   files: Dateien der Sitzungen DIESES Kurses (Zeilen aus D1 oder fileOut), lessonId: die Sitzung. Für Eltern in Frage kommen nur fertige
+   PDF-Dateien (kein Notfall-Feibeitsblatt): PDFs der Kinder (area student) und Bildkarten, die Eltern sehen dürfen und deren Bilder aktuell sind.
+   Mit Zwischenstopp genau die, auf die der Verlaufsplan vor dem Zwischenstopp verweist; ohne Zwischenstopp die Verweise und dazu alle übrigen
+   der Sitzung. → {files: [id] (PDFs der Kinder), cards: [id] (Bildkarten), hidden: [{id, reason}]} */
+export function parentMaterial(planText, files, lessonId) {
+  const list = (Array.isArray(files) ? files : []).filter((f) => f && typeof f.id === "string");
+  const byId = new Map(list.map((f) => [f.id, f]));
+  const lessonOf = (f) => (f.lessonId !== undefined ? f.lessonId : f.lesson_id);
+  const cardsOf = (f) => {
+    const c = f.cards;
+    if (c == null) return null;
+    if (typeof c === "object") return c;
+    try { const o = JSON.parse(c); return o && typeof o === "object" ? o : null; } catch { return null; }
+  };
+  const cardsCurrent = (f, c) => {
+    if (typeof c.current === "boolean") return c.current && (c.pages == null || c.pages > 0);
+    const pages = f.cardPages !== undefined ? f.cardPages : f.card_pages, at = f.cardImgAt !== undefined ? f.cardImgAt : f.card_img_at;
+    const pdfAt = f.pdfAt !== undefined ? f.pdfAt : f.pdf_at, created = f.createdAt !== undefined ? f.createdAt : f.created_at;
+    return Number(pages) > 0 && at != null && at === (pdfAt != null ? pdfAt : created);
+  };
+  // null = Eltern dürfen sie sehen; sonst der Grund
+  const why = (f) => {
+    if (f.kind !== "file" || f.mime !== "application/pdf") return "keine PDF-Datei";
+    const c = cardsOf(f);
+    if (c) return !c.share ? "Eltern dürfen diese Bildkarten nicht sehen" : f.status !== "ready" || !cardsCurrent(f, c) ? "Bilder der Bildkarten werden noch erstellt" : null;
+    if (f.area !== "student") return "nur für Sie";
+    if (f.status !== "ready") return "PDF wird noch erstellt";
+    return null;
+  };
+  const ignored = (f) => f.source === "notfall" || f.area === "archive" || f.area === "presentation";
+  const refs = planRefs(planText);
+  const shown = [];
+  for (const id of refs.hasStop ? refs.beforeStop : refs.all) { const f = byId.get(id); if (f && !ignored(f) && !why(f)) shown.push(f); }
+  const own = list.filter((f) => lessonOf(f) === lessonId && !ignored(f))
+    .sort((a, b) => (a.createdAt !== undefined ? a.createdAt : a.created_at) - (b.createdAt !== undefined ? b.createdAt : b.created_at));
+  if (!refs.hasStop) for (const f of own) if (!why(f) && !shown.includes(f)) shown.push(f);
+  const hidden = [];
+  for (const f of [...own, ...refs.all.map((id) => byId.get(id)).filter((f) => f && !ignored(f))]) {
+    if (shown.includes(f) || hidden.some((x) => x.id === f.id)) continue;
+    const r = why(f) || (refs.all.includes(f.id) ? "nach dem Zwischenstopp" : "nicht im Verlaufsplan genannt (wegen des Zwischenstopps)");
+    hidden.push({ id: f.id, reason: r });
+  }
+  return { files: shown.filter((f) => !cardsOf(f)).map((f) => f.id), cards: shown.filter((f) => !!cardsOf(f)).map((f) => f.id), hidden };
+}
+/* Bezeichnungen eines Grundschulkurses c = {grade, classes: ["a","b"], subjectName} */
+const andList = (xs) => (xs.length > 1 ? xs.slice(0, -1).join(", ") + " und " + xs[xs.length - 1] : xs.join(""));
+export const gsClassList = (c) => c.classes.map((x) => c.grade + x).join(", ");                     // „2a, 2b“
+export const gsCourseShort = (c) => c.subjectName + " " + c.grade + c.classes.join("");            // „Religion 2ab“
+export const gsCourseLabel = (c) => c.subjectName + " · Jahrgang " + c.grade + " (" + (c.classes.length > 1 ? "Klassen " : "Klasse ") + gsClassList(c) + ")";
+export const gsGradeText = (c) => "Jahrgangsstufe " + c.grade + " der Grundschule, " +
+  (c.classes.length > 1 ? "Kurs mit Kindern aus den Klassen " + andList(c.classes.map((x) => c.grade + x)) : "Klasse " + c.grade + c.classes[0]);
+/* Eingaben für einen Grundschulkurs prüfen (Browser und Worker); partial: nur die übergebenen Felder, current: bisheriger Stand.
+   → {grade, classes, religion, subjectName, description[, schoolYear]}; wirft Error mit deutscher Meldung */
+export function normalizeGsCourse(raw, { partial = false, current = null } = {}) {
+  const r = raw && typeof raw === "object" ? raw : {};
+  const cur = current || {};
+  const has = (k) => !partial || r[k] !== undefined;
+  const grade = has("grade") ? Number(r.grade) : cur.grade;
+  if (!Number.isInteger(grade) || grade < 1 || grade > 4) throw new Error("Bitte den Jahrgang 1–4 wählen.");
+  let classes = cur.classes;
+  if (has("classes")) {
+    const list = Array.isArray(r.classes) ? r.classes.map((x) => String(x == null ? "" : x).trim().toLowerCase()) : [];
+    classes = [...new Set(list)].sort();
+    if (!classes.length || classes.length > GS_LIMITS.classes || classes.some((x) => !GS_CLASS_LETTERS.includes(x))) throw new Error("Bitte mindestens eine Klasse wählen (höchstens drei: a, b, c).");
+  }
+  if (!Array.isArray(classes) || !classes.length) throw new Error("Bitte mindestens eine Klasse wählen (höchstens drei: a, b, c).");
+  const religion = has("religion") ? r.religion !== false && r.religion !== 0 : cur.religion !== false;
+  let subjectName = "Religion";
+  if (!religion) {
+    const n = (r.subjectName !== undefined ? String(r.subjectName == null ? "" : r.subjectName) : String(cur.subjectName || "")).replace(/\s+/g, " ").trim();
+    if (!n) throw new Error("Bitte den Namen des Fachs eintragen.");
+    if (n.length > GS_LIMITS.subjectName) throw new Error("Der Name des Fachs ist zu lang (höchstens 60 Zeichen).");
+    subjectName = n;
+  }
+  const description = has("description") ? String(r.description == null ? "" : r.description).replace(/\r\n?/g, "\n").trim() : String(cur.description || "");
+  if (description.length > GS_LIMITS.description) throw new Error("Die Beschreibung ist zu lang (höchstens 2000 Zeichen).");
+  const out = { grade, classes, religion, subjectName, description };
+  const sy = r.schoolYear !== undefined ? r.schoolYear : partial ? undefined : cur.schoolYear;
+  if (typeof sy === "string" && /^\d{4}\/\d{2}$/.test(sy) && (Number(sy.slice(0, 4)) + 1) % 100 === Number(sy.slice(5))) out.schoolYear = sy;
+  return out;
 }
 
 /* ---------- Feste Rolle des Chatbots (Vorgabe der Lehrkraft, wörtlich) ---------- */

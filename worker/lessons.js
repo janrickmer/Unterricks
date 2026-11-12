@@ -53,7 +53,7 @@ export async function lessonCtx(db, lesson) {
   ]);
   let unit = null;
   if (lesson.unit_id) { try { unit = unitOut(await getUnit(db, lesson.unit_id)); } catch {} }
-  const cfg = (await loadSubjectConfigs(db))[lesson.subject];
+  const cfg = (await loadSubjectConfigs(db))[lesson.subject] || { gradeNotes: {} };
   return {
     lessonId: lesson.id, subject: lesson.subject, klass: lesson.klass,
     lesson: { title: lesson.title, topic: lesson.topic, durationMin: lesson.duration_min, date: lesson.lesson_date, startTime: lesson.start_time || null, ideas: lesson.ideas, homework: lesson.homework || "" },

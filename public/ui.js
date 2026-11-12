@@ -209,7 +209,7 @@ export function icon(name) {
 /* Fach der aktuellen Seite: färbt Kopfband, Akzente und Fokus (Politik und Wirtschaft, Ev. Religion, Ethik) */
 export function setFach(subject) {
   const root = document.documentElement;
-  if (subject === "powi" || subject === "evrel" || subject === "ethik") root.dataset.fach = subject; else delete root.dataset.fach;
+  if (subject === "powi" || subject === "evrel" || subject === "ethik" || subject === "gs") root.dataset.fach = subject; else delete root.dataset.fach;
 }
 
 /* Zustandszeile (z. B. „Gespeichert 10:42“): Symbol statt Sonderzeichen; kind = "ok" | "err" | "" (neutral) */

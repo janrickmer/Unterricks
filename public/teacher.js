@@ -208,9 +208,13 @@ export function notfallBackfill(opt = {}) {
 function nfReset() { nfRun++; nfJob = null; Object.assign(NF, { state: "idle", failed: [], step: "", msg: "" }); }
 
 export function teacherBar(active) {
-  const link = (href, label, key) => h("a", { href, "aria-current": active === key ? "page" : null }, label);
-  return topbar({ home: "#/lk" }, [link("#/lk", "Unterricht", "lessons"), link("#/lk/grundlagen", "Planungsgrundlagen", "bases"), link("#/lk/einstellungen", "Einstellungen", "settings"),
-    h("button", { type: "button", onclick: logout }, "Abmelden")]);
+  const link = (href, label, key) => h("a", { href, "aria-current": active === key ? "page" : null, dataset: { nav: key } }, label);
+  return topbar({ home: "#/lk" }, [link("#/lk", "Gymnasium", "lessons"), link("#/lk/grundschule", "Grundschule", "primary"), link("#/lk/grundlagen", "Planungsgrundlagen", "bases"),
+    link("#/lk/einstellungen", "Einstellungen", "settings"), h("button", { type: "button", onclick: logout }, "Abmelden")]);
+}
+/* Menüpunkt nachträglich markieren (z. B. Einheiten und Sitzungen der Grundschule: erst nach dem Laden steht fest, wohin sie gehören) */
+export function markNav(key) {
+  for (const a of document.querySelectorAll(".topbar nav a[data-nav]")) { if (a.dataset.nav === key) a.setAttribute("aria-current", "page"); else a.removeAttribute("aria-current"); }
 }
 /* Die Anmeldung endet zuerst hier, die Abmeldung beim Server läuft ohne tapi (ihre 401 bei einem schon ungültigen Token führt nicht
    vorzeitig zur Anmeldeseite) und am Ende geht es nur einmal dorthin (toLogin). */
@@ -587,7 +591,7 @@ async function startReset(btn, status) {
 let resumeChecked = false;
 /* Material von Claude, das noch nicht (neu) gedruckt ist – z. B. Vertretungsmaterial nach dem Bestätigen oder Material, das Claude bei
    ausgelastetem Drucker abgelegt hat – druckt die gemeinsame Warteschlange nach, auch wenn seine Sitzung niemand öffnet */
-function printPending() {
+export function printPending() {
   tapi("GET", "/api/teacher/render").then(async (r) => {
     if (!r.configured || !Array.isArray(r.pending) || !r.pending.length || (r.usage && r.usage.quotaUntil)) return;
     const { printQueue } = await import("./designrender.js");
@@ -845,6 +849,8 @@ export async function route(hash) {
   if ((m = /^#\/lk\/s\/([a-f0-9]{16})$/.exec(hash))) return (await import("./session.js")).sessionPage(m[1]);
   if ((m = /^#\/lk\/u\/([a-f0-9]{16})$/.exec(hash))) return (await import("./units.js")).unitPage(m[1]);
   if ((m = /^#\/lk\/escape\/([a-f0-9]{16})$/.exec(hash))) return (await import("./escape.js")).escapePage(m[1], { teacher: true });
+  if (hash === "#/lk/grundschule" || hash === "#/lk/grundschule/") return (await import("./grundschule.js")).gsOverviewPage();
+  if ((m = /^#\/lk\/grundschule\/k\/(gs[a-f0-9]{8})$/.exec(hash))) return (await import("./grundschule.js")).gsCoursePage(m[1]);
   if (hash === "#/lk/grundlagen") return (await import("./bases.js")).basesOverview();
   if ((m = /^#\/lk\/grundlagen\/([a-z]+)$/.exec(hash))) return (await import("./bases.js")).basesPage(m[1]);
   go("#/lk");

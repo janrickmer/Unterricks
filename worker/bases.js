@@ -154,12 +154,21 @@ export { wantedSections };
 export const missingFor = (bases, subject, klass) => missingForLabel(bases, subject, subjectName(subject), klass);
 export async function planningBasis(db, subject, klass, maxChars = MAX_BASIS_CHARS) {
   const r = await db.prepare("SELECT * FROM bases WHERE subject=?1 ORDER BY kind, created_at").bind(subject).all();
-  const bases = r.results || [], cfgs = await loadSubjectConfigs(db), cfg = cfgs[subject];
+  const bases = r.results || [], cfgs = await loadSubjectConfigs(db), cfg = cfgs[subject] || { gradeNotes: {} };
   const docs = [];
   for (const b of bases) {
     const want = wantedSections(b, klass);
     if (want.length) docs.push({ base: b, want });
   }
+  const { truncated, text } = await basisText(db, docs, maxChars);
+  return {
+    rules: cfg.rules || "", gradeNote: (cfg.gradeNotes || {})[gradeKey(klass)] || "", complete: cfg.complete,
+    docs: docs.map((d) => ({ id: d.base.id, title: d.base.title, kind: d.base.kind, pages: rangeText([...new Set(d.want.map((w) => w.n))]) })),
+    missing: missingFor(bases, subject, klass), truncated, text,
+  };
+}
+/* Text der Planungsgrundlagen aus den gewünschten Seiten (docs: [{base, want:[{n, part}]}]) – gemeinsam für Gymnasium und Grundschule */
+export async function basisText(db, docs, maxChars = MAX_BASIS_CHARS) {
   // Vorrang: Erlass > Kurshalbjahr/Jahrgang > Regeln > Grundlagen/Standards
   const prio = (part) => (part === "fach" ? 0 : /^(E1|E2|Q[1-4]|\d+|alle)$/.test(part) ? 1 : part === "regeln" ? 2 : 3);
   const pageReqs = docs.flatMap((d) => d.want.map((w) => ({ id: d.base.id, n: w.n, part: w.part, prio: prio(w.part) })));
@@ -184,11 +193,7 @@ export async function planningBasis(db, subject, klass, maxChars = MAX_BASIS_CHA
     parts.push("### " + d.base.title + " (" + (KINDS[d.base.kind] || d.base.kind) + ", Seiten " + rangeText(pages) + ")" + (d.base.note ? "\nHinweis der Lehrkraft: " + d.base.note : "") +
       "\n" + pages.map((n) => "[Seite " + n + "]\n" + (texts.get(d.base.id + ":" + n) || "").trim()).join("\n\n"));
   }
-  return {
-    rules: cfg.rules || "", gradeNote: (cfg.gradeNotes || {})[gradeKey(klass)] || "", complete: cfg.complete,
-    docs: docs.map((d) => ({ id: d.base.id, title: d.base.title, kind: d.base.kind, pages: rangeText([...new Set(d.want.map((w) => w.n))]) })),
-    missing: missingFor(bases, subject, klass), truncated, text: parts.join("\n\n"),
-  };
+  return { truncated, text: parts.join("\n\n") };
 }
 export function rangeText(nums) {
   const s = [...nums].sort((a, b) => a - b), out = [];

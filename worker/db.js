@@ -43,6 +43,15 @@ export const SCHEMA = [
   // 'quota' (Tageskontingent aufgebraucht bis …); Verbrauch je UTC-Tag (Browserzeit in ms, Zahl der PDFs)
   "CREATE TABLE IF NOT EXISTS render_gate (k TEXT PRIMARY KEY, until INTEGER NOT NULL)",
   "CREATE TABLE IF NOT EXISTS render_usage (day TEXT PRIMARY KEY, ms INTEGER NOT NULL DEFAULT 0, n INTEGER NOT NULL DEFAULT 0)",
+  // Kurseinstellungen aller Kurse (Gymnasium: Fach|Klasse/Kurs, z. B. powi|8A, evrel|8-K, powi|Q2-GK; Grundschule: gs|<Kurs-ID>):
+  // Stundenplan [{day 1–5, minutes, time "HH:MM"|null}] und Schülerzahl (1–60, NULL = nicht eingetragen)
+  "CREATE TABLE IF NOT EXISTS course_settings (subject TEXT NOT NULL, klass TEXT NOT NULL, weekdays TEXT NOT NULL DEFAULT '[]', " +
+    "class_size INTEGER, updated_at INTEGER NOT NULL, PRIMARY KEY (subject, klass))",
+  // Grundschulkurse: id = "gs" + 8 Hex = lessons.klass = units.klass = bases.subject der kurseigenen Planungsgrundlagen; classes = ["a","b"…]
+  // (1–3, sortiert); religion 1 = Religion (Planungsgrundlage Ev. Religion Jg. 1–4), 0 = anderes Fach (subject_name); description nur für Claude
+  "CREATE TABLE IF NOT EXISTS gs_courses (id TEXT PRIMARY KEY, grade INTEGER NOT NULL, classes TEXT NOT NULL DEFAULT '[]', " +
+    "religion INTEGER NOT NULL DEFAULT 1, subject_name TEXT NOT NULL DEFAULT 'Religion', description TEXT NOT NULL DEFAULT '', " +
+    "school_year TEXT NOT NULL, created_at INTEGER NOT NULL, updated_at INTEGER NOT NULL)",
 ];
 
 // Nachträglich ergänzte Spalten (bestehende Datenbanken bekommen sie per ALTER TABLE, nur additiv)
@@ -69,11 +78,29 @@ export const COLUMNS = [
   ["files", "html_at", "INTEGER"],
   ["files", "pdf_at", "INTEGER"],
   ["files", "render_error", "TEXT"],
+  // Grundschule: „Inhalt der Unterrichtsstunde“ und „Hinweis der Lehrkraft“ für die Elternansicht; Elternlink (nur SHA-256 von
+  // "eltern|v1|" + Token zum Nachschlagen und eine mit SETTINGS_SECRET versiegelte Kopie zum erneuten Kopieren); 1 = Ausfall-Eintrag
+  ["lessons", "parent_summary", "TEXT NOT NULL DEFAULT ''"],
+  ["lessons", "parent_note", "TEXT NOT NULL DEFAULT ''"],
+  ["lessons", "parent_hash", "TEXT"],
+  ["lessons", "parent_sealed", "TEXT"],
+  ["lessons", "cancelled", "INTEGER NOT NULL DEFAULT 0"],
+  ["units", "revise", "TEXT"],         // Grundschule: Ausfälle (Krankmeldung) und Überarbeitungshinweis als JSON; NULL = nie ausgefallen
+  // Bildkarten (Grundschule): {v:1, texts, share, rev} als JSON, NULL = keine Bildkarten; Zahl der Kartenbilder in slides und der Stand der
+  // PDF, aus dem sie erstellt wurden
+  ["files", "cards", "TEXT"],
+  ["files", "card_pages", "INTEGER"],
+  ["files", "card_img_at", "INTEGER"],
+  // Planungsgrundlagen: Original-PDF in R2 unter b/<id>.pdf (NULL = nur Text) und wann sie gespeichert wurde
+  ["bases", "pdf_size", "INTEGER"],
+  ["bases", "pdf_at", "INTEGER"],
 ];
 
 // Indizes über nachträglich ergänzte Spalten (nach den Spalten angelegt; ein Fehler – z. B. alte Doppelungen – hält den Betrieb nicht auf)
 export const INDEXES = [
   "CREATE UNIQUE INDEX IF NOT EXISTS lessons_unit_row ON lessons(unit_id, unit_row) WHERE unit_id IS NOT NULL AND unit_row IS NOT NULL",
+  "CREATE UNIQUE INDEX IF NOT EXISTS lessons_parent_hash ON lessons(parent_hash) WHERE parent_hash IS NOT NULL",
+  "CREATE INDEX IF NOT EXISTS lessons_date ON lessons(subject, klass, lesson_date)",
 ];
 
 let ready = null;
