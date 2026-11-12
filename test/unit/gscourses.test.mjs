@@ -237,7 +237,7 @@ test("Connector: list_gs_courses, Filter kurs/fach gs, get_unit und get_planning
   r = await mcp("list_lessons", { kurs: k.id });
   assert.deepEqual(r.structuredContent.lessons.map((x) => x.titel), ["Wer war Josef?"]);
   r = await mcp("list_units", { fach: "gs" });
-  assert.equal(r.content[0].text, "- " + u.id + ": Josef (Grundschule, Grundschule: Religion 2ab, entwurf, 2 Stunden)");
+  assert.equal(r.content[0].text, "- " + u.id + ": Josef (Grundschule: Religion 2ab, entwurf, 2 Stunden)");
   // Planungsgrundlagen
   r = await mcp("get_planning_basis", { unit_id: u.id });
   assert.ok(r.content[0].text.startsWith("# Planungsgrundlagen für Religion · Jahrgang 2 (Klassen 2a, 2b) (Grundschule)\n\nLerngruppe: "));

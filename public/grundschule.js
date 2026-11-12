@@ -180,7 +180,15 @@ export async function gsCoursePage(id) {
       h("div", { class: "card" }, h("p", { class: e.status === 404 ? "muted" : "err", text: e.status === 404 ? GS_GONE : e.message }), h("a", { class: "btn", href: "#/lk/grundschule" }, "Zur Übersicht Grundschule")));
     return;
   }
-  const reload = async () => { try { await load(); paint(); } catch (e) { errToast(e); } };
+  // neu aufbauen; focus = Selektor für das Element, das danach den Fokus bekommt – nur, wenn der Fokus mit dem alten Aufbau verloren ging
+  // (also nicht, wenn Nutzer:in oder Test ihn inzwischen woanders hingesetzt haben)
+  const reload = async (focus = null) => {
+    try {
+      await load(); paint();
+      const a = document.activeElement;
+      if (focus && (!a || a === document.body || !a.isConnected)) { const t = main.querySelector(focus); if (t) t.focus(); }
+    } catch (e) { errToast(e); }
+  };
   const subText = () => ["Jahrgang " + course.grade, settings && Number.isInteger(settings.classSize) ? kids(settings.classSize) : null,
     settings && settings.weekdays.length ? whenText(settings.weekdays, true) : null, course.schoolYear ? "Schuljahr " + course.schoolYear : null].filter(Boolean).join(" · ");
   function paint() {
@@ -207,12 +215,12 @@ export async function gsCoursePage(id) {
   function courseCard() {
     const f = courseFields(course, "gse");
     const err = h("p", { class: "err", role: "alert" }), state = h("p", { class: "small muted", role: "status" });
-    const save = h("button", { class: "btn primary", type: "button" }, "Speichern");
+    const save = h("button", { class: "btn primary gse-save", type: "button" }, "Speichern");
     save.addEventListener("click", () => busy(save, async () => {
       clear(err);
       const raw = f.read();
       try { normalizeGsCourse(raw, { partial: true, current: course }); } catch (x) { stateLine(err, x.message, "err"); f.focusFor(x.message); return; }
-      try { course = (await tapi("PATCH", "/api/teacher/gs/courses/" + id, { body: raw })).course; toast("Kurs gespeichert.", "ok"); await reload(); }
+      try { course = (await tapi("PATCH", "/api/teacher/gs/courses/" + id, { body: raw })).course; toast("Kurs gespeichert.", "ok"); await reload("section.gs-edit button.gse-save"); }
       catch (x) { stateLine(err, x.message, "err"); }
     }, "Speichere …"));
     const empty = !units.length && !lessons.length;
@@ -226,12 +234,13 @@ export async function gsCoursePage(id) {
   }
   /* Planungsgrundlagen: Religion → Stand des Curriculums bei Ev. Religion; alle → eigene Grundlagen des Kurses (hochladen, bearbeiten, löschen) */
   function basesCard() {
-    const status = basis && basis.missing.length ? h("div", { class: "notice warn" }, "Es fehlt noch: " + basis.missing.join("; ") + ".")
+    // ohne geladenen Stand (Fehler beim Abruf) keine Aussage, ob das Curriculum vorliegt
+    const status = !basis ? null : basis.missing.length ? h("div", { class: "notice warn" }, "Es fehlt noch: " + basis.missing.join("; ") + ".")
       : course.religion ? h("p", { class: "small ok" }, icon("check"), "Das Schulcurriculum Ev. Religion (Grundschule) für Jahrgang " + course.grade + " liegt vor.") : null;
     const kind = h("select", { "aria-label": "Art der Planungsgrundlage des Kurses" }, h("option", { value: "gs-curriculum" }, "Curriculum (Jahrgänge 1–4)"), h("option", { value: "sonstiges" }, "Andere Planungsgrundlage"));
     const st = h("p", { class: "small", role: "status" });
     const inp = h("input", { type: "file", accept: "application/pdf,.pdf", class: "sr-only", tabindex: "-1", "aria-hidden": "true" });
-    const pick = h("button", { class: "btn small", type: "button", onclick: () => inp.click() }, icon("up"), "PDF auswählen …");
+    const pick = h("button", { class: "btn small gsb-pick", type: "button", onclick: () => inp.click() }, icon("up"), "PDF auswählen …");
     inp.addEventListener("change", () => {
       const file = inp.files[0]; inp.value = "";
       if (!file) return;
@@ -241,17 +250,17 @@ export async function gsCoursePage(id) {
           const r = await uploadBaseFile({ subject: id, kind: kind.value, title: file.name.replace(/\.pdf$/i, "").replace(/[_]+/g, " ").slice(0, 200), file, onStatus: (t) => stateLine(st, t) });
           if (r.pdfError) toast("Der Text ist gespeichert, die Original-PDF nicht (" + String(r.pdfError).replace(/\.$/, "") + ").", "err", 9000);
           else toast("„" + r.base.title + "“ gespeichert (" + r.pages + " Seiten).", "ok");
-          await reload();
+          await reload("section.gs-bases button.gsb-pick");
         } catch (x) { stateLine(st, ""); errToast(x); }
       }, "Speichere …");
     });
-    const own = h("div", { class: "list" }, bases.length ? bases.map((b) => h("div", { class: "item" },
+    const own = h("div", { class: "list" }, bases.length ? bases.map((b) => h("div", { class: "item", dataset: { base: b.id } },
       h("div", { class: "main" }, h("div", { class: "name" }, baseLink({ id: b.id, title: b.title })), h("div", { class: "meta", text: [b.kindLabel, b.pages + " Seiten", b.pdf ? "Original-PDF gespeichert" : "nur Text gespeichert"].join(" · ") })),
       h("div", { class: "acts" },
-        h("button", { class: "btn small", type: "button", "aria-label": "„" + b.title + "“ bearbeiten", onclick: () => editBase(b, { onSaved: reload }) }, "Bearbeiten"),
+        h("button", { class: "btn small gsb-edit", type: "button", "aria-label": "„" + b.title + "“ bearbeiten", onclick: () => editBase(b, { onSaved: () => reload('[data-base="' + b.id + '"] button.gsb-edit') }) }, "Bearbeiten"),
         h("button", { class: "btn small ghost danger", type: "button", "aria-label": "„" + b.title + "“ löschen", onclick: async () => {
           if (!(await confirmDialog("Planungsgrundlage löschen", "„" + b.title + "“ mit allen Seitentexten löschen? Bereits geplante Einheiten bleiben erhalten.", "Löschen", true))) return;
-          try { await tapi("DELETE", "/api/teacher/bases/" + b.id); toast("Gelöscht.", "ok"); await reload(); } catch (x) { errToast(x); }
+          try { await tapi("DELETE", "/api/teacher/bases/" + b.id); toast("Gelöscht.", "ok"); await reload("section.gs-bases button.gsb-pick"); } catch (x) { errToast(x); }
         } }, icon("trash"))))) : [h("p", { class: "small muted", text: "Noch keine eigenen Planungsgrundlagen." })]);
     return h("section", { class: "card gs-bases", "aria-labelledby": "gsb-h" }, h("h2", { id: "gsb-h", text: "Planungsgrundlagen" }),
       ...nn(status, course.religion ? h("p", { class: "small" }, "Das Schulcurriculum der Grundschule liegt bei ", h("a", { href: "#/lk/grundlagen/evrel" }, "Planungsgrundlagen Ev. Religion"), ".") : null),

@@ -258,8 +258,9 @@ async function callTool(c, name, a) {
       const r = await c.db.prepare("SELECT id, subject, klass, title, status, rows FROM units" + where + " ORDER BY updated_at DESC LIMIT 100").bind(...args).all();
       const list = r.results || [], gs = list.some((x) => x.subject === GS_SUBJECT) ? await gsCourseMap(c.db) : null;
       const rows = list.map((x) => (x.subject !== GS_SUBJECT ? { id: x.id, fach: subjectName(x.subject), klasse: classShort(x.klass), titel: x.title, status: x.status, stunden: JSON.parse(x.rows || "[]").length }
-        : { id: x.id, fach: "Grundschule", klasse: "Grundschule: " + (gs.get(x.klass) ? gs.get(x.klass).short : x.klass), kurs: x.klass, titel: x.title, status: x.status, stunden: JSON.parse(x.rows || "[]").length }));
-      return toolText(rows.length ? rows.map((x) => "- " + x.id + ": " + (x.titel || "(ohne Titel)") + " (" + x.fach + ", " + x.klasse + ", " + x.status + ", " + x.stunden + " Stunden)").join("\n") : "Keine Einheiten gefunden.", { units: rows });
+        : { id: x.id, fach: "Grundschule", klasse: gs.get(x.klass) ? gs.get(x.klass).short : x.klass, kurs: x.klass, titel: x.title, status: x.status, stunden: JSON.parse(x.rows || "[]").length }));
+      // Grundschule wie in list_lessons: „(Grundschule: Religion 2ab, …)“
+      return toolText(rows.length ? rows.map((x) => "- " + x.id + ": " + (x.titel || "(ohne Titel)") + " (" + (x.kurs ? "Grundschule: " + x.klasse : x.fach + ", " + x.klasse) + ", " + x.status + ", " + x.stunden + " Stunden)").join("\n") : "Keine Einheiten gefunden.", { units: rows });
     }
     case "get_unit": {
       const u = await unitFull(c.db, await getUnit(c.db, a.unit_id));

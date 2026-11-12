@@ -1564,6 +1564,13 @@ async function main() {
       await uc.locator(".item").nth(3).waitFor({ timeout: 15000 });
       ok(await uc.locator(".item").count() === 4 && !(await uc.textContent()).includes("SuS") && await uc.locator(".item .badge", { hasText: "Inhalt für Eltern fehlt" }).count() === 4
         && await uc.locator('a.item[href="#/lk/s/' + gsLessons[0].id + '"]').count() === 1, "Kursseite: Einheit mit 4 Sitzungen (ohne Code und Schüler:innen, „Inhalt für Eltern fehlt“)");
+      // Fach, Klassen und Beschreibung ändern: gespeichert, nach dem Neuaufbau der Seite bleibt der Fokus auf „Speichern“
+      const ge = tp.locator("section.gs-edit");
+      await ge.getByLabel("Beschreibung des Fachs (optional)").fill("Wir lernen Geschichten aus der Bibel kennen.");
+      await ge.getByRole("button", { name: "Speichern", exact: true }).click();
+      await tp.locator(".toast", { hasText: "Kurs gespeichert." }).waitFor({ timeout: 10000 });
+      await tp.waitForFunction(() => !!document.activeElement && document.activeElement.classList.contains("gse-save"), null, { timeout: 10000 });
+      ok((await T("GET", "/api/teacher/gs/courses/" + gsRelId)).data.course.description === "Wir lernen Geschichten aus der Bibel kennen.", "Kurs ändern: Beschreibung gespeichert, Fokus bleibt auf „Speichern“");
       // g) Wochenkalender auf beiden Startseiten: Termine beider Schulformen, Klick öffnet den Grundschulkurs
       for (const [hash, label] of [["#/lk", "Startseite Gymnasium"], ["#/lk/grundschule", "Grundschule"]]) {
         await tp.goto(BASE + "/" + hash);
