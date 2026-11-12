@@ -30,8 +30,17 @@ export async function gsOverviewPage() {
   } catch (e) { clear(main).append(pageHead({ fach: "gs", title: "Grundschule" }), week, h("p", { class: "err", role: "alert", text: e.message })); return; }
   const byId = new Map(courses.map((c) => [c.id, c]));
   const recent = lessons.slice().sort((a, b) => b.updatedAt - a.updatedAt).slice(0, 6);
-  clear(main).append(...nn(pageHead({ fach: "gs", title: "Grundschule", sub: "Kurse der Jahrgänge 1–4: Unterrichtseinheiten, Sitzungen mit Verlaufsplan und Elternansicht." }),
-    week, gsCourseList(courses), newCourseCard(),
+  // Knopf „Neuen Kurs anlegen“ ganz oben (Wunsch der Lehrkraft vom 12.11.2026): sofort sichtbar, auch wenn der Wochenkalender darunter die
+  // Kursliste aus dem Bildschirm schiebt (iPad); er führt zum Formular – Fokus im Klick selbst, also nie verspätet
+  const form = newCourseCard();
+  const add = h("button", { class: "btn gs-add", type: "button", onclick: () => {
+    const reduce = window.matchMedia && window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+    form.scrollIntoView({ block: "start", behavior: reduce ? "auto" : "smooth" });
+    const first = form.querySelector('input[name="gsn-grade"]:checked') || form.querySelector('input[name="gsn-grade"]');
+    if (first) first.focus({ preventScroll: true });
+  } }, icon("plus"), "Neuen Kurs anlegen");
+  clear(main).append(...nn(pageHead({ fach: "gs", title: "Grundschule", aside: add, sub: "Kurse der Jahrgänge 1–4: Unterrichtseinheiten, Sitzungen mit Verlaufsplan und Elternansicht." }),
+    week, gsCourseList(courses), form,
     recent.length ? h("section", { class: "card gs-recent", "aria-labelledby": "gs-recent-h" }, h("h2", { id: "gs-recent-h", text: "Zuletzt bearbeitet" }), gsLessonList(recent, byId)) : null));
 }
 
@@ -48,7 +57,7 @@ function gsCourseList(courses) {
   };
   const byGrade = (list) => [1, 2, 3, 4].flatMap((g) => { const xs = list.filter((c) => c.grade === g); return xs.length ? [h("h3", { text: "Jahrgang " + g }), h("div", { class: "tiles" }, xs.map(tile))] : []; });
   return h("section", { class: "gs-courses", "aria-labelledby": "gs-courses-h" }, h("h2", { id: "gs-courses-h", text: "Ihre Kurse" }),
-    ...(cur.length ? byGrade(cur) : [h("p", { class: "muted", text: "Noch keine Kurse – legen Sie unten den ersten an." })]),
+    ...(cur.length ? byGrade(cur) : [h("p", { class: "muted", text: "Noch keine Kurse – legen Sie mit „Neuen Kurs anlegen“ den ersten an." })]),
     old.length ? h("details", { class: "box" }, h("summary", null, "Frühere Schuljahre"), ...byGrade(old)) : null);
 }
 
@@ -100,7 +109,7 @@ function courseFields(cur, idp) {
       h("p", { class: "hint", id: idp + "-desc-h", text: "Damit Claude das Ziel des Unterrichts in diesem Kurs kennt, z. B. „Wir lernen Geschichten aus der Bibel kennen und …“. Nur für die Planung, nicht für Eltern." })));
   const read = () => ({ grade, classes: [...classes], religion: !other.checked, subjectName: other.checked ? name.value : undefined, description: desc.value });
   const focusFor = (msg) => {
-    const t = /Jahrgang/.test(msg) ? gradeBox.querySelector("input") : /Klasse/.test(msg) ? classBox.querySelector("input") : /Name des Fachs/.test(msg) ? name : /Beschreibung/.test(msg) ? desc : null;
+    const t = /Jahrgang/.test(msg) ? gradeBox.querySelector("input") : /Klasse/.test(msg) ? classBox.querySelector("input") : /Namen? des Fachs/.test(msg) ? name : /Beschreibung/.test(msg) ? desc : null;
     if (t) t.focus();
   };
   return { el, read, focusFor, other: () => other.checked, onSubject: (fn) => subjectListeners.push(fn) };

@@ -106,7 +106,7 @@ implementiert und im End-to-End-Test geprüft (Ausnahmen unten ausdrücklich gen
 | | `public/teacher.js`, `public/session.js` | Lehrkräfteansicht (Fach → Klasse/Kurs → Einheiten), Sitzungsansicht |
 | | `public/materialbox.js` | Materialkasten einer Sitzung (Material für Schüler:innen und Lehrkräfte, Druckliste) – aus `session.js` ausgelagert |
 | | `public/coursecard.js` | Karte „Kurseinstellungen“ auf der Klassen- bzw. Kursseite (Termine pro Woche, Schülerzahl) |
-| | `public/grundschule.js` | Bereich „Grundschule“ (Menüpunkt zwischen „Gymnasium“ und „Planungsgrundlagen“): Übersicht mit dem Wochenkalender beider Schulformen, den Kursen und „Neuen Kurs anlegen“; Kursseite (Einheiten, Kurseinstellungen, Fach/Klassen, Planungsgrundlagen) |
+| | `public/grundschule.js` | Bereich „Grundschule“ (Menüpunkt zwischen „Gymnasium“ und „Planungsgrundlagen“): Übersicht mit dem Wochenkalender beider Schulformen, den Kursen und „Neuen Kurs anlegen“ (Knopf im Kopf der Seite führt zum Formular; Jahrgang 1–4, Religion oder ein anderes Fach mit Namen); Kursseite (Einheiten, Kurseinstellungen, Fach/Klassen, Planungsgrundlagen) |
 | | `public/gsplanning.js` | Prompts für Claude in der Grundschule (Einheit planen; nur analoges Material) |
 | | `public/units.js`, `public/bases.js` | Seite der Unterrichtseinheit (Leupold-Schema, Tabelle), Planungsgrundlagen |
 | | `public/substitute.js`, `public/claude.js` | Krankheitsvertretung in der Sitzung; Übergabe an Claude (Modell/Aufwand) |

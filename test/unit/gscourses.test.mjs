@@ -43,7 +43,9 @@ const mcpOf = async (c) => {
 
 test("Grundschulkurs anlegen: Prüfungen, Kurseinstellungen im selben Schritt, Liste mit Zahlen", async () => {
   const c = await ctx();
-  for (const [body, msg] of [[{ ...REL, grade: 5 }, "Bitte den Jahrgang 1–4 wählen."], [{ ...REL, classes: [] }, "Bitte mindestens eine Klasse wählen (höchstens drei: a, b, c)."],
+  // nur Jahrgang 1–4 (Wunsch der Lehrkraft vom 12.11.2026); ein anderes Fach braucht einen Namen
+  for (const [body, msg] of [[{ ...REL, grade: 5 }, "Bitte den Jahrgang 1–4 wählen."], [{ ...REL, grade: 0 }, "Bitte den Jahrgang 1–4 wählen."], [{ ...REL, grade: "5" }, "Bitte den Jahrgang 1–4 wählen."],
+    [{ ...REL, grade: 2.5 }, "Bitte den Jahrgang 1–4 wählen."], [{ ...REL, grade: undefined }, "Bitte den Jahrgang 1–4 wählen."], [{ ...REL, religion: false }, "Bitte den Namen des Fachs eintragen."], [{ ...REL, classes: [] }, "Bitte mindestens eine Klasse wählen (höchstens drei: a, b, c)."],
     [{ ...REL, classes: ["a", "d"] }, "Bitte mindestens eine Klasse wählen (höchstens drei: a, b, c)."], [{ ...REL, religion: false, subjectName: " " }, "Bitte den Namen des Fachs eintragen."],
     [{ ...REL, weekdays: [{ day: 2, minutes: 45 }] }, "Bitte bei jedem Termin die Uhrzeit eintragen – daraus ergibt sich, ab wann Eltern eine Sitzung sehen können."],
     [{ ...REL, classSize: 70 }, "Die Schülerzahl muss zwischen 1 und 60 liegen."]]) {
@@ -76,6 +78,8 @@ test("Grundschulkurs ändern und löschen: nur ohne Inhalte; mit dem Kurs gehen 
   const k = (await create(c, REL)).data.course;
   let r = await call(c, GS.routeGsCoursePatch, "PATCH", "/api/teacher/gs/courses/" + k.id, { religion: false }, k.id);
   assert.equal(r.status, 400); assert.equal(r.data.error, "Bitte den Namen des Fachs eintragen.");
+  r = await call(c, GS.routeGsCoursePatch, "PATCH", "/api/teacher/gs/courses/" + k.id, { grade: 5 }, k.id);
+  assert.equal(r.status, 400); assert.equal(r.data.error, "Bitte den Jahrgang 1–4 wählen.");
   r = await call(c, GS.routeGsCoursePatch, "PATCH", "/api/teacher/gs/courses/" + k.id, { religion: false, subjectName: "Kunst", classes: ["c"] }, k.id);
   assert.deepEqual([r.data.course.short, r.data.course.grade, r.data.course.description], ["Kunst 2c", 2, REL.description]);
   r = await call(c, GS.routeGsCourseGet, "GET", "/api/teacher/gs/courses/" + k.id, undefined, k.id);

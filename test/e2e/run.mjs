@@ -205,7 +205,7 @@ async function main() {
       await tp.locator("h1", { hasText: "Grundschule" }).waitFor({ timeout: 10000 });
       await tp.locator(".weekcal .wk-body:not(.skeleton)").waitFor({ timeout: 15000 });
       ok((await tp.locator('.topbar nav a[aria-current="page"]').allTextContents()).join("|") === "Grundschule" && await tp.locator("html").getAttribute("data-fach") === "gs"
-        && await tp.locator(".weekcal").count() === 1 && await tp.getByText("Noch keine Kurse – legen Sie unten den ersten an.").count() === 1,
+        && await tp.locator(".weekcal").count() === 1 && await tp.getByText("Noch keine Kurse – legen Sie mit „Neuen Kurs anlegen“ den ersten an.").count() === 1,
         "Grundschule: Menüpunkt markiert (aria-current), grüne Bereichsfarbe, Wochenkalender, noch keine Kurse");
     }
 
@@ -1445,6 +1445,15 @@ async function main() {
       const nf = tp.locator("form.gs-new");
       await nf.waitFor({ timeout: 15000 });
       ok(await navCur() === "Grundschule" && await nf.locator("h2").textContent() === "Neuen Kurs anlegen" && await nf.getByLabel("Religion (evangelisch)").isChecked(), "Übersicht: Formular „Neuen Kurs anlegen“ (Religion vorgewählt)");
+      // Wunsch der Lehrkraft vom 12.11.2026: Knopf „Neuen Kurs anlegen“ gleich oben; nur Jahrgang 1–4; Religion wählbar, sonst Name des Fachs
+      const addBtn = tp.locator(".pagehead").getByRole("button", { name: "Neuen Kurs anlegen", exact: true });
+      const gradeVals = await nf.locator('input[type="radio"][name="gsn-grade"]').evaluateAll((els) => els.map((e) => e.value));
+      ok(await addBtn.count() === 1 && JSON.stringify(gradeVals) === JSON.stringify(["1", "2", "3", "4"]) && await nf.getByLabel("Anderes Fach").count() === 1
+        && await tp.getByText("Noch keine Kurse – legen Sie mit „Neuen Kurs anlegen“ den ersten an.").count() === 1, "Knopf „Neuen Kurs anlegen“ im Kopf der Seite; Jahrgang nur 1–4; Fach Religion oder ein anderes");
+      await addBtn.click();
+      await tp.waitForFunction(() => { const f = document.querySelector("form.gs-new"), r = f && f.getBoundingClientRect(); return !!r && r.top >= 0 && r.top < innerHeight - 80; }, null, { timeout: 10000 });
+      ok(await tp.evaluate(() => document.activeElement && document.activeElement.name === "gsn-grade" && document.activeElement.value === "1"), "Klick auf „Neuen Kurs anlegen“: Formular im Blick, Fokus auf „Jahrgang 1“");
+      for (const bad of [0, 5]) ok((await T("POST", "/api/teacher/gs/courses", { grade: bad, classes: ["a"], religion: true, weekdays: [], classSize: null })).status === 400, "Server: Jahrgang " + bad + " abgelehnt");
       await nf.getByLabel("Jahrgang 2", { exact: true }).check();
       ok(await nf.getByLabel("2a", { exact: true }).count() === 1 && await nf.getByLabel("2c", { exact: true }).count() === 1, "Klassen folgen dem Jahrgang: 2a, 2b, 2c");
       await nf.getByRole("button", { name: "Kurs anlegen" }).click();
@@ -1483,6 +1492,9 @@ async function main() {
       await nf.waitFor({ timeout: 15000 });
       await nf.getByLabel("Jahrgang 3", { exact: true }).check(); await nf.getByLabel("3c", { exact: true }).check();
       await nf.getByLabel("Anderes Fach").check();
+      await nf.getByRole("button", { name: "Kurs anlegen" }).click();
+      await nf.getByText("Bitte den Namen des Fachs eintragen.").waitFor({ timeout: 10000 });
+      ok(await tp.evaluate(() => document.activeElement && document.activeElement.id) === "gsn-name", "anderes Fach ohne Namen: Hinweis, Fokus auf „Name des Fachs“");
       await nf.getByLabel("Name des Fachs").fill("Sachunterricht");
       await nf.getByLabel("Beschreibung des Fachs (optional)").fill("Wir erkunden Natur und Technik in unserer Umgebung.");
       await nf.getByRole("button", { name: "+ Termin pro Woche" }).click();
@@ -1585,6 +1597,16 @@ async function main() {
       await tp.locator("h1", { hasText: "Religion · Jahrgang 2 (Klassen 2a, 2b)" }).waitFor({ timeout: 10000 });
       ok(true, "Klick auf den Grundschul-Eintrag öffnet den Kurs");
       await tp.screenshot({ ...SHOT, path: join(OUT, "lehrkraft-grundschulkurs.png"), fullPage: true });
+      // iPad (quer und hoch): „Neuen Kurs anlegen“ ohne Scrollen sichtbar – auch mit Einträgen im Wochenkalender darüber
+      const vp = tp.viewportSize();
+      for (const [w, hh] of [[1024, 768], [768, 1024]]) {
+        await tp.setViewportSize({ width: w, height: hh });
+        await tp.goto(BASE + "/#/lk/grundschule");
+        await tp.locator('.weekcal .wk-ev[data-fach="gs"]').first().waitFor({ timeout: 15000 });
+        const bb = await tp.locator(".pagehead").getByRole("button", { name: "Neuen Kurs anlegen", exact: true }).boundingBox();
+        ok(!!bb && await tp.evaluate(() => scrollY) === 0 && bb.y >= 0 && bb.y + bb.height <= hh && bb.height >= 44, "iPad " + w + "×" + hh + ": „Neuen Kurs anlegen“ ohne Scrollen sichtbar (≥ 44 px)");
+      }
+      await tp.setViewportSize(vp);
     }
 
     /* ---------- GitHub Pages: dieselbe Oberfläche von einer anderen Herkunft ---------- */

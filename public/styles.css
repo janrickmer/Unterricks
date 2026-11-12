@@ -831,7 +831,7 @@ img.sub-photo { max-width: 100%; max-height: 60vh; border-radius: 12px; border: 
 /* Grundschule: Auswahl Jahrgang, Klassen, Fach (ganze Beschriftung als Fläche ≥ 44 px, iPad) */
 .gs-radios { gap: .2rem .4rem; }
 .gs-radios .chk { min-height: 44px; padding: 0 .35rem; margin-right: .2rem; cursor: pointer; }
-.gs-new { margin-top: 1.2rem; }
+.gs-new { margin-top: 1.2rem; scroll-margin-top: 5rem; }   /* Ziel des Knopfs „Neuen Kurs anlegen“ (nicht unter der klebenden Menüleiste) */
 .gs-recent { margin-top: 1.2rem; }
 .gs-side .gs-bases .row { gap: .45rem; }
 .gs-side .gs-bases select { width: auto; max-width: 100%; }
