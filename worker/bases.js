@@ -148,9 +148,10 @@ export async function routeBasePatch(c, id) {
 }
 export async function routeBaseDelete(c, id) {
   await requireTeacher(c);
-  const b = await getBase(c.db, id);
+  await getBase(c.db, id);
   await c.db.batch([c.db.prepare("DELETE FROM base_pages WHERE base_id=?1").bind(id), c.db.prepare("DELETE FROM bases WHERE id=?1").bind(id)]);
-  if (b.pdf_size) await c.env.FILES.delete(basePdfKey(id));
+  // immer (auch ohne pdf_size): eine gerade laufende „Original-PDF hinzufügen“ hätte sie sonst womöglich schon abgelegt
+  await c.env.FILES.delete(basePdfKey(id));
   return json({ ok: true });
 }
 export async function routeBaseGet(c, id) {
@@ -173,7 +174,9 @@ export async function routeBasePdf(c, id) {
     throw bad("Diese Datei ist keine PDF-Datei.");
   }
   const name = cleanLine(new URL(c.request.url).searchParams.get("name"), 200) || null;
-  await c.db.prepare("UPDATE bases SET pdf_size=?2, pdf_at=?3, file_name=COALESCE(?4, file_name), updated_at=?3 WHERE id=?1").bind(id, len, c.now, name).run();
+  const u = await c.db.prepare("UPDATE bases SET pdf_size=?2, pdf_at=?3, file_name=COALESCE(?4, file_name), updated_at=?3 WHERE id=?1").bind(id, len, c.now, name).run();
+  // während des Hochladens gelöscht: die PDF nicht verwaist (und ungezählt) im Speicher lassen
+  if (!(u && u.meta && u.meta.changes)) { await c.env.FILES.delete(key); throw new HttpError(404, "not_found", "Diese Planungsgrundlage gibt es nicht (mehr)."); }
   return json({ ok: true, base: baseOut(await getBase(c.db, id)) });
 }
 export async function routeBaseLink(c, id) {

@@ -244,3 +244,14 @@ test("Ev. Religion Jg. 1–4: Schulcurriculum der Grundschule nur bei evrel (ode
   assert.equal((await newBase(c, { subject: "gs0000ffff", kind: "gs-curriculum" })).status, 404);
   assert.ok(sek.id);
 });
+
+test("Planungsgrundlage: während „Original-PDF hinzufügen“ gelöscht → keine verwaiste PDF im Speicher", async () => {
+  const c = await ctx();
+  const b = (await newBase(c, { subject: "powi", kind: "kcgo" })).data.base;
+  const put = c.env.FILES.put.bind(c.env.FILES);
+  // die Zeile verschwindet zwischen Ablegen und Eintragen (Löschen in einem anderen Tab)
+  c.env.FILES.put = async (...a) => { const r = await put(...a); await c.db.prepare("DELETE FROM bases WHERE id=?1").bind(b.id).run(); return r; };
+  const r = await rawCall(c, B.routeBasePdf, "/api/teacher/bases/" + b.id + "/pdf", PDF, b.id);
+  assert.equal(r.status, 404);
+  assert.equal(c.env.FILES.m.has("b/" + b.id + ".pdf"), false);
+});
