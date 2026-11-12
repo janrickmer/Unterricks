@@ -3,7 +3,7 @@
 // Kurseinstellungen, Fach/Klassen/Beschreibung, Planungsgrundlagen, neue Einheit). Fach der Einheiten und Sitzungen: „gs“, Klasse = Kurs-ID.
 import { h, clear, nn, pageHead, toast, errToast, busy, confirmDialog, icon, stateLine } from "./ui.js";
 import { render, go } from "./app.js";
-import { tapi, teacherBar, printPending } from "./teacher.js";
+import { tapi, teacherBar, printPending, cardsPendingRun } from "./teacher.js";
 import { berlinToday, schoolYearOf, gsCourseShort, normalizeGsCourse, GS_CLASS_LETTERS, GS_LIMITS, fmtDay, clockMinutes, minutesClock, addDays } from "./shared.js";
 import { WEEKDAYS, normalizeCourseSettings } from "./planning.js";
 import { weekCard } from "./weekcal.js";
@@ -24,6 +24,7 @@ export async function gsOverviewPage() {
   // derselbe Wochenkalender wie auf der Startseite: immer alle Termine beider Schulformen (lädt eigenständig)
   const week = weekCard(() => tapi("GET", "/api/teacher/schedule").then((r) => r.units));
   printPending();
+  cardsPendingRun();
   let courses, lessons;
   try {
     [courses, lessons] = await Promise.all([tapi("GET", "/api/teacher/gs/courses").then((r) => r.courses || []), tapi("GET", "/api/teacher/lessons?school=gs").then((r) => r.lessons || [])]);

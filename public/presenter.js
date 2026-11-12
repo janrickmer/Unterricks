@@ -74,20 +74,25 @@ function paintCode(ctx, b, text) {
    Live-Präsentation die Codefolie. Stiller Rückfall für ältere Präsentationen mit dem Code auf den Folien: opt.code = Code der Sitzung;
    steht auf Folie 1 ein anderer (Präsentation aus einer früheren Sitzung), wird er auf allen Folien ersetzt. opt.exclude = Codes
    verknüpfter Feibeitsblätter (nie der Sitzungscode). Ergebnis swapped = {from, to, slides, missed} oder null (missed = Folien, auf denen
-   der alte Code steht, aber nicht sicher ersetzt werden konnte). Die hochgeladene PDF selbst bleibt unverändert. */
+   der alte Code steht, aber nicht sicher ersetzt werden konnte). Die hochgeladene PDF selbst bleibt unverändert.
+   opt.cards (Bildkarten der Grundschule, cards.js): keine Codefolien und kein Ersetzen von Codes, längste Seite 1600 px, höchstens 40 Seiten;
+   fertig über …/cards/ready mit opt.version (Stand der PDF, aus dem die Bilder stammen). */
 export async function rasterizeAndUpload(file, fileId, token, onProgress, opt = {}) {
-  const want = isValidCode(opt.code) ? opt.code : "";
+  const cards = !!opt.cards;
+  const want = !cards && isValidCode(opt.code) ? opt.code : "";
   let oldCode = "";
   const swappedOn = [], missedOn = [], codeSlides = [];
   const lib = await pdfjs();
   const doc = await lib.getDocument({ data: new Uint8Array(await file.arrayBuffer()), isEvalSupported: false, disableFontFace: false }).promise;
   const n = doc.numPages;
   if (n > 300) throw new Error("Die Präsentation hat mehr als 300 Folien.");
+  if (cards && n > 40) { await doc.destroy(); throw new Error("Die PDF hat " + n + " Seiten – höchstens 40 Bildkarten je PDF (eine Seite = eine Karte)."); }
+  const side = cards ? 1600 : 1920;
   const thumbs = [];
   for (let i = 1; i <= n; i++) {
     const page = await doc.getPage(i);
     const v1 = page.getViewport({ scale: 1 });
-    const scale = Math.min(1920 / v1.width, 1920 / v1.height, 4);
+    const scale = Math.min(side / v1.width, side / v1.height, 4);
     const vp = page.getViewport({ scale });
     const canvas = document.createElement("canvas");
     canvas.width = Math.round(vp.width); canvas.height = Math.round(vp.height);
@@ -95,7 +100,7 @@ export async function rasterizeAndUpload(file, fileId, token, onProgress, opt = 
     ctx.fillStyle = "#fff"; ctx.fillRect(0, 0, canvas.width, canvas.height);
     await page.render({ canvasContext: ctx, viewport: vp }).promise;
     let items = null, placeholder = false;
-    try {   // Platzhalterfolie für die Codefolie? (eigener Versuch: ein Fehler hier schaltet den Rückfall nicht ab)
+    if (!cards) try {   // Platzhalterfolie für die Codefolie? (eigener Versuch: ein Fehler hier schaltet den Rückfall nicht ab)
       items = await pageItems(lib, page, vp);
       const head = codeSlideLines(slideTextLines(items), canvas.height);
       if (head) { placeholder = true; codeSlides.push({ n: i, lines: head }); }
@@ -128,6 +133,10 @@ export async function rasterizeAndUpload(file, fileId, token, onProgress, opt = 
     if (onProgress) onProgress(i, n);
   }
   await doc.destroy();
+  if (cards) {
+    const done = await api("POST", "/api/teacher/files/" + fileId + "/cards/ready", { token, body: { pages: n, version: opt.version } });
+    return { pages: n, thumbs, file: done.file };
+  }
   const sent = cleanCodeSlides(codeSlides, n);
   const ready = await api("POST", "/api/teacher/files/" + fileId + "/ready", { token, body: { pages: n, codeSlides: sent } });
   return { pages: n, thumbs, file: ready.file, codeSlides: (ready.file && ready.file.codeSlides) || sent,

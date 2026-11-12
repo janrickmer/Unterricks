@@ -100,6 +100,7 @@ implementiert und im End-to-End-Test geprüft (Ausnahmen unten ausdrücklich gen
 | | `worker/units.js` | Unterrichtseinheiten (Versionsschutz), Sitzungen aus der Einheit, Stundenpläne für den Wochenkalender |
 | | `worker/courses.js` | Kurseinstellungen aller Kurse (Stundenplan, Schülerzahl): lesen, speichern, Standard für neue Einheiten und Ausdrucke |
 | | `worker/gs.js` | Grundschulkurse (Jahrgang, Klassen a–c, Fach, Beschreibung, Schuljahr): anlegen, ändern, löschen; Planungsgrundlagen eines Kurses |
+| | `worker/cards.js` | Bildkarten der Grundschule: PDF hochladen (eine Seite = eine Karte), Kartenbilder mit Stand der PDF, Erzähltexte und Freigabe für Eltern, signierte Bilder (`/api/card/…`), von Claude gestaltete Bildkarten |
 | | `public/weekcal.js` | Wochenkalender auf der Startseite der Lehrkraft (Raster bzw. Liste je Tag) |
 | | `worker/substitute.js` | Krankheitsvertretung: Vorschlag, Bestätigen (Archiv), Wiederherstellen, Übertragen |
 | Oberfläche | `public/app.js` | Router, Startseite, Schüleransicht |
@@ -109,6 +110,7 @@ implementiert und im End-to-End-Test geprüft (Ausnahmen unten ausdrücklich gen
 | | `public/grundschule.js` | Bereich „Grundschule“ (Menüpunkt zwischen „Gymnasium“ und „Planungsgrundlagen“): Übersicht mit dem Wochenkalender beider Schulformen, den Kursen und „Neuen Kurs anlegen“ (Knopf im Kopf der Seite führt zum Formular; Jahrgang 1–4, Religion oder ein anderes Fach mit Namen); Kursseite (Einheiten, Kurseinstellungen, Fach/Klassen, Planungsgrundlagen) |
 | | `public/gsplanning.js` | Prompts für Claude in der Grundschule (Einheit und Stunde planen, Verlaufsplan-Regeln; nur analoges Material) |
 | | `public/gssession.js` | Sitzungsseite der Grundschule: Verlaufsplan ganz oben (PDF-Namen gelb markiert als Links in einen neuen Tab, Zwischenstopp per Dialog und Kontextmenü), Materialkasten mit dem Hinweis, was Eltern sehen, Druckliste, Inhalt und Hausaufgabe für die Eltern, Karte „Elternansicht“ – kein Schulportal-Eintrag, keine Präsentation, kein Sitzungscode |
+| | `public/cards.js` | Bildkarten: Betrachter zum Durchklicken (Lehrkraft und Eltern), Karte „Bildkarten“ der Grundschul-Sitzung (Erzähltexte, Freigabe, Hochladen), Kartenbilder im Browser erstellen (PDF.js, nacheinander) |
 | | `public/units.js`, `public/bases.js` | Seite der Unterrichtseinheit (Leupold-Schema, Tabelle), Planungsgrundlagen |
 | | `public/substitute.js`, `public/claude.js` | Krankheitsvertretung in der Sitzung; Übergabe an Claude (Modell/Aufwand) |
 | | `public/escape.js`, `public/escape-data.js` | Escape-Room-Vorlage (Oberfläche, Überblick-PDF); Prüfen/Bewerten, Zwischenstand, Feibeitsblatt-Datensatz |
@@ -293,6 +295,16 @@ implementiert und im End-to-End-Test geprüft (Ausnahmen unten ausdrücklich gen
   beider Schulformen (Grundschule gekennzeichnet, Klick öffnet den Kurs). Claude: `list_gs_courses`, Filter `fach: "gs"` bzw. `kurs`,
   `get_unit` mit Kurs und uid je Stunde, `get_planning_basis` mit dem Ziel des Kurses. In der Sicherung liegen die Einheiten unter
   „Grundschule/<Kurs> - <Titel>/…“.
+
+* **Grundschule: Bildkarten (Ergänzung vom 12.11.2026).** Wird eine Geschichte mit Bildkarten erzählt, gehört zur Sitzung eine PDF mit einer
+  Karte je Seite und einem gekürzten Erzähltext je Karte (`files.cards` = `{v:1, texts, share, rev}`, Bereich „nur Lehrkraft“ – Schüler:innen
+  sehen sie nie). Claude gestaltet sie über den Connector (`add_picture_cards`, HTML → PDF wie `add_material_pdf`; Texte ändern mit
+  `set_picture_card_texts`), oder die Lehrkraft lädt eine PDF hoch („Eltern dürfen diese Bildkarten sehen“ zunächst aus – Verlagskarten dürfen
+  meist nicht online weitergegeben werden). Die Kartenbilder rendert der Browser der Lehrkraft mit PDF.js (wie die Folien einer Präsentation,
+  längste Seite 1600 px, höchstens 40 Karten) in `slides`; `files.card_img_at` merkt sich, aus welchem Stand der PDF sie stammen
+  (`COALESCE(pdf_at, created_at)`). Fehlen sie oder passen sie nicht mehr (neu gestaltet), holen die Sitzungsseite und beide Startseiten sie nach
+  (`GET /api/teacher/cards/pending`). Eltern sehen Bildkarten nur freigegeben und mit aktuellen Bildern; die Bilder kommen über einen signierten
+  Link je Kartensatz (`/api/card/<id>/<n>`, eine Signatur für alle Karten). Erzähltexte schützt `rev` vor dem Überschreiben einer neueren Fassung.
 
 * **Fächer und Jahrgänge.** Unter *Planungsgrundlagen → Fach → Fach-Einstellungen* steht, in welchen Jahrgängen ein Fach
   unterrichtet wird. Vorgabe für Politik und Wirtschaft: Jahrgänge 6, 8, 9, 10 (Hinweis: nur 1. Halbjahr), E-Phase und Q-Phase;

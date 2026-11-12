@@ -299,6 +299,7 @@ async function subjectsPage() {
   const week = weekCard(() => tapi("GET", "/api/teacher/schedule").then((r) => r.units));
   resumeCleanup();
   printPending();
+  cardsPendingRun();
   let all; try { all = await loadLessons(); } catch (e) { clear(main).append(h("p", { class: "err", text: e.message })); return; }
   clear(main).append(...nn(pageHead({ title: "Welches Fach unterrichten Sie?", sub: "Planung in Unterrichtseinheiten – jede Sitzung gehört zu einer Stunde ihrer Einheit." }),
     week, h("h2", { class: "sr-only", text: "Fächer" }),
@@ -603,6 +604,21 @@ export function printPending() {
     for (const f of r.pending) q.add(f);
     const added = q.pending - before;
     if (added > 0) toast("Unterricks druckt " + (added === 1 ? "ein Material" : added + " Materialien") + " von Claude als PDF – Sie können weiterarbeiten.", "ok", 6000);
+  }).catch(() => {});
+}
+/* Bildkarten der Grundschule, deren Bilder fehlen oder nicht mehr zur PDF passen (hochgeladen oder von Claude gestaltet): Der Browser der
+   Lehrkraft erstellt sie nach (cards.js lädt erst, wenn es etwas zu tun gibt) – auch, sobald die gemeinsame Warteschlange eine gestaltete
+   Bildkarten-PDF gedruckt hat. Eltern sehen Bildkarten erst mit aktuellen Bildern. */
+const cardsHooked = new WeakSet();
+export function cardsPendingRun() {
+  tapi("GET", "/api/teacher/cards/pending").then(async (r) => {
+    if (Array.isArray(r.files) && r.files.length) (await import("./cards.js")).rasterizePending(r.files);
+  }).catch(() => {});
+  import("./designrender.js").then(({ printQueue }) => {
+    const q = printQueue();
+    if (cardsHooked.has(q)) return;
+    cardsHooked.add(q);
+    q.on({ done: (f) => { if (f && f.cards && !f.cards.current && f.status === "ready") import("./cards.js").then((m) => m.rasterizePending([{ id: f.id, version: f.cards.version }])).catch(() => {}); } });
   }).catch(() => {});
 }
 function resumeCleanup() {

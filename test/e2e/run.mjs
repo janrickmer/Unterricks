@@ -1609,7 +1609,7 @@ async function main() {
       await tp.setViewportSize(vp);
     }
 
-    step("Grundschul-Sitzung: Verlaufsplan, PDF-Verweise, Zwischenstopp (Connector)");
+    step("Grundschul-Sitzung: Verlaufsplan, PDF-Verweise, Zwischenstopp, Bildkarten (Connector)");
     {
       const gl = (await T("GET", "/api/teacher/lessons?subject=gs&klass=" + gsRelId)).data.lessons.slice().sort((a, b) => (a.date < b.date ? -1 : a.date > b.date ? 1 : 0));
       const [les1, les2] = gl;
@@ -1703,6 +1703,67 @@ async function main() {
       ok(gl2.parentNote === "Bitte Malstifte mitgeben." && gl2.homework === "Male ein Bild von Josef." && gl2.parentSummary === "Wir haben gehört, wie Josef nach Ägypten kam.", "Hausaufgabe und Hinweis der Lehrkraft gespeichert");
       ok((await T("PATCH", "/api/teacher/lessons/" + lessonId, { parentNote: "x" })).status === 400, "Gymnasium: kein Hinweis für Eltern (400)");
       ok(await tp.locator("#gs-copy").textContent() === "Sitzungslink für Eltern kopieren" && await tp.locator("#gs-try").getAttribute("target") === "_blank", "Knöpfe „Sitzungslink für Eltern kopieren“ und „Elternansicht ausprobieren“ ganz unten");
+      // g) Bildkarten: Claude gestaltet sie (eine Seite = eine Karte, ein Erzähltext je Karte), der Browser der Lehrkraft erstellt die Bilder,
+      //    die Lehrkraft ändert einen Erzähltext; eine hochgeladene PDF ist für Eltern zunächst nicht freigegeben (Verlagskarten)
+      const CARD = (k) => '<section style="width:297mm;height:200mm;overflow:hidden;display:grid;place-items:center' + (k < 3 ? ";break-after:page" : "") + '"><svg width="420" height="300" viewBox="0 0 420 300">' +
+        '<circle cx="210" cy="150" r="' + (40 + k * 25) + '" fill="#2557c7"/></svg><h2 style="font-size:40pt">Karte ' + k + "</h2></section>";
+      g = await tool("add_picture_cards", { lesson_id: les2.id, titel: "Bildkarten – Josef in Ägypten", erzaehltexte: ["Josef kommt nach Ägypten.", "Josef deutet die Träume des Pharao.", "Josef verzeiht seinen Brüdern."],
+        html: '<!doctype html><html lang="de"><head><meta charset="utf-8"><style>@page{size:A4 landscape;margin:0}body{margin:0}</style></head><body>' + CARD(1) + CARD(2) + CARD(3) + "</body></html>" });
+      const cardId = g.structuredContent && g.structuredContent.file_id;
+      ok(!g.isError && g.content[0].text.includes("gespeichert und gedruckt: 3 Seiten = 3 Karten, 3 Erzähltexte.") && g.content[0].text.includes("Verweis: [[pdf:" + cardId + "]]"), "add_picture_cards: gedruckt, „3 Seiten = 3 Karten“, Antwort nennt den Verweis");
+      ok((await tool("add_picture_cards", { lesson_id: lessonId, titel: "x", html: "<p>x</p>", erzaehltexte: ["a"] })).isError === true, "add_picture_cards: am Gymnasium abgelehnt");
+      await tp.reload();
+      const cbox = tp.locator("#gs-cards");
+      await cbox.locator(".cs-state", { hasText: "3 Karten · Bilder bereit" }).waitFor({ timeout: 60000 });
+      const sizes = await cbox.locator("img.cs-thumb").evaluateAll((els) => Promise.all(els.map((im) => Promise.resolve(im.complete && im.naturalWidth ? null : new Promise((r) => { im.onload = r; im.onerror = r; })).then(() => [im.naturalWidth, im.naturalHeight]))));
+      ok(sizes.length === 3 && sizes.every(([w, hh]) => Math.max(w, hh) === 1600) && await cbox.locator("#cs-share-" + cardId).isChecked()
+        && await tp.evaluate(() => { const ids = [...document.querySelectorAll(".gs-session > .stack > *")].map((x) => x.id); return ids.indexOf("gs-cards") > ids.indexOf("gs-claude") && ids.indexOf("gs-cards") < ids.indexOf("gs-material"); }),
+        "Bildkarten-Karte nach „Stunde mit Claude planen“: Bilder im Browser erstellt (längste Seite 1600 px, signierter Link), Eltern dürfen sie sehen");
+      // Betrachter (derselbe wie in der Elternansicht): der Reihe nach durchklicken, Pfeiltasten, Erzähltext darunter
+      await cbox.locator("details.cs-preview > summary").first().click();
+      const cv = cbox.locator("figure.cardview").first();
+      await cv.locator(".cv-count", { hasText: "Karte 1 von 3" }).waitFor({ timeout: 10000 });
+      ok(await cv.getByRole("button", { name: "Vorherige Karte" }).getAttribute("aria-disabled") === "true" && (await cv.locator("figcaption").textContent()) === "Josef kommt nach Ägypten."
+        && await cv.locator("img").getAttribute("alt") === "Bildkarte 1 von 3", "Betrachter: Karte 1 von 3 mit Erzähltext, „Vorherige Karte“ am Anfang gesperrt");
+      await cv.getByRole("button", { name: "Nächste Karte" }).focus();
+      await tp.keyboard.press("ArrowRight");
+      await cv.locator(".cv-count", { hasText: "Karte 2 von 3" }).waitFor({ timeout: 5000 });
+      await cv.getByRole("button", { name: "Nächste Karte" }).click();
+      ok((await cv.locator(".cv-count").textContent()) === "Karte 3 von 3" && await cv.getByRole("button", { name: "Nächste Karte" }).getAttribute("aria-disabled") === "true"
+        && (await cv.locator("figcaption").textContent()) === "Josef verzeiht seinen Brüdern." && await cv.locator("img").evaluate((im) => (im.complete ? im.naturalWidth > 0 : new Promise((r) => { im.onload = () => r(im.naturalWidth > 0); im.onerror = () => r(false); }))),
+        "Betrachter: Pfeiltaste und „Nächste Karte“, am Ende gesperrt, Bild geladen");
+      const t2 = cbox.getByLabel("Erzähltext zu Karte 2 (für Eltern sichtbar – gekürzt zum Nacherzählen)");
+      ok(await t2.inputValue() === "Josef deutet die Träume des Pharao.", "Erzähltext von Claude je Karte");
+      await t2.fill("Josef erklärt dem Pharao seine Träume.");
+      await cbox.getByLabel("Erzähltext zu Karte 3 (für Eltern sichtbar – gekürzt zum Nacherzählen)").focus();
+      let cg = null;
+      for (let i = 0; i < 30 && !(cg && cg.texts[1] === "Josef erklärt dem Pharao seine Träume."); i++) { await sleep(300); cg = (await T("GET", "/api/teacher/files/" + cardId + "/cards")).data; }
+      ok(cg && cg.texts[1] === "Josef erklärt dem Pharao seine Träume." && cg.rev === 1 && cg.current && cg.pages === 3, "Erzähltext geändert und gespeichert (rev 1)");
+      g = await tool("get_lesson", { lesson_id: les2.id });
+      ok(g.content[0].text.includes("„Bildkarten – Josef in Ägypten.pdf“ (von dir gestaltet; 3 Karten, Bilder bereit; Eltern sehen sie: ja)") && g.content[0].text.includes("  2. Josef erklärt dem Pharao seine Träume."),
+        "get_lesson: Abschnitt „Bildkarten“ mit den geänderten Texten");
+      ok((await tool("set_picture_card_texts", { file_id: cardId, erzaehltexte: ["a", "b"] })).content[0].text.includes("Achtung: Die Bildkarten haben 3 Karten, du hast 2 Erzähltexte"), "set_picture_card_texts: Abweichung gemeldet");
+      ok(!(await tool("set_picture_card_texts", { file_id: cardId, erzaehltexte: ["Josef kommt nach Ägypten.", "Josef erklärt dem Pharao seine Träume.", "Josef verzeiht seinen Brüdern."] })).isError, "set_picture_card_texts: drei Texte");
+      // „In den Verlaufsplan einfügen“: Verweis als eigener Stichpunkt am Ende (Bearbeiten-Modus)
+      await cbox.getByRole("button", { name: "In den Verlaufsplan einfügen" }).click();
+      ok((await tp.locator("#gsplan-text").inputValue()).endsWith("\n- [[pdf:" + cardId + "]]"), "„In den Verlaufsplan einfügen“: Verweis am Ende des Verlaufsplans");
+      await plan.getByRole("button", { name: "Fertig" }).click();
+      for (let i = 0; i < 30 && !saved.endsWith("[[pdf:" + cardId + "]]"); i++) { await sleep(300); saved = (await T("GET", "/api/teacher/lessons/" + les2.id)).data.lesson.portal; }
+      ok(saved.endsWith("- [[pdf:" + cardId + "]]") && (await plan.locator("a.pdfref").last().textContent()).startsWith("Bildkarten – Josef in Ägypten.pdf"), "Verlaufsplan: Bildkarten gelb markiert");
+      // Hochladen: Freigabe aus, Hinweis auf Verlagskarten; Bilder entstehen sofort; nicht im Materialkasten
+      ok(!(await cbox.locator("#gs-cards-share").isChecked()) && (await cbox.textContent()).includes("Bildkarten von Verlagen dürfen meist nicht online weitergegeben werden"), "Hochladen: „Eltern dürfen diese Bildkarten sehen“ zunächst aus, Hinweis auf Verlagskarten");
+      await cbox.locator("#gs-cards-file").setInputFiles({ name: "Arche Noah.pdf", mimeType: "application/pdf", buffer: await textPdf([["Karte eins"], ["Karte zwei"]]) });
+      const upSet = cbox.locator(".cardset", { hasText: "Arche Noah.pdf" });
+      await upSet.locator(".cs-state", { hasText: "2 Karten · Bilder bereit" }).waitFor({ timeout: 60000 });
+      const upl = (await T("GET", "/api/teacher/lessons/" + les2.id)).data.files.find((f) => f.name === "Arche Noah.pdf");
+      ok(upl && upl.area === "teacher" && upl.status === "ready" && upl.cards.share === false && upl.cards.current && upl.cards.pages === 2 && await upSet.locator("img.cs-thumb").count() === 2
+        && (await upSet.locator(".cs-warn").textContent()).includes("Zu Karte 1 fehlt der Erzähltext."), "hochgeladene Bildkarten: 2 Karten, für Eltern nicht freigegeben, fehlende Erzähltexte gemeldet");
+      ok(await tp.locator("#gs-material").getByText("Arche Noah.pdf").count() === 0 && await tp.locator("#gs-material").getByText("Bildkarten – Josef").count() === 0
+        && (await T("GET", "/api/teacher/cards/pending")).data.files.length === 0, "Bildkarten nicht im Materialkasten; keine Bilder mehr ausstehend");
+      await upSet.getByRole("button", { name: "Löschen" }).click();
+      await tp.locator(".modal").getByRole("button", { name: "Endgültig löschen" }).click();
+      await upSet.waitFor({ state: "detached", timeout: 10000 });
+      ok(!(await T("GET", "/api/teacher/lessons/" + les2.id)).data.files.some((f) => f.name === "Arche Noah.pdf"), "hochgeladene Bildkarten gelöscht");
       await tp.screenshot({ ...SHOT, path: join(OUT, "lehrkraft-grundschulsitzung.png"), fullPage: true });
     }
 

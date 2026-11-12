@@ -14,6 +14,7 @@ import { leupoldView } from "./units.js";
 import { paintPlanPreview, contextMenu } from "./portalview.js";
 import { renderMarkdown } from "./markdown.js";
 import { materialBox } from "./materialbox.js";
+import { cardsCard } from "./cards.js";
 
 const isPdf = (f) => !!f && f.kind === "file" && f.mime === "application/pdf" && f.area !== "archive" && f.area !== "presentation";
 const NOT_YET = "„Diese Unterrichtssitzung hat noch nicht stattgefunden.“";
@@ -217,6 +218,19 @@ export async function gsSessionPage(id, d) {
     h("p", { class: "small", text: "Claude plant mit Ihnen die Stunde, gestaltet Arbeitsblätter und Bildkarten und speichert Verlaufsplan, Inhalt für die Eltern und Hausaufgabe direkt hier." }),
     h("button", { class: "btn primary big", type: "button", onclick: planWithClaude }, "Stunde mit Claude planen"));
 
+  /* ======================= Bildkarten (cards.js) ======================= */
+  // „In den Verlaufsplan einfügen“: als eigener Stichpunkt ans Ende, im Bearbeiten-Modus (dort lässt er sich an die richtige Stelle schieben)
+  const insertCardRef = (fid) => {
+    if (!plan.editing) setEditing(true);
+    const v = ta.value.replace(/\s+$/, "");
+    ta.value = (v ? v + "\n" : "") + "- " + pdfRef(fid);
+    paintPlan(); schedulePlan();
+    planCard.scrollIntoView({ block: "start", behavior: window.matchMedia && window.matchMedia("(prefers-reduced-motion: reduce)").matches ? "auto" : "smooth" });
+    ta.focus({ preventScroll: true }); ta.setSelectionRange(ta.value.length, ta.value.length);
+    toast("Verweis auf die Bildkarten am Ende des Verlaufsplans eingefügt – schieben Sie ihn an die Stelle, an der Sie erzählen.", "ok", 6000);
+  };
+  const cardsBox = cardsCard({ lessonId: id, st, insertRef: insertCardRef, onChange: () => paintParents() });
+
   /* ======================= Material und Druckliste (materialbox.js) ======================= */
   const badgeEls = new Map();   // Datei-ID → Abzeichen „Eltern sehen sie“ …
   let parentsQueued = false;
@@ -340,7 +354,7 @@ export async function gsSessionPage(id, d) {
     } }, "Sitzung löschen"));
 
   main.append(h("div", { class: "session-grid gs-session" },
-    h("div", { class: "stack" }, planCard, draftCard, unitCard, claudeCard, box.filesCard, box.printCard, contentCard, parentsCard),
+    h("div", { class: "stack" }, planCard, draftCard, unitCard, claudeCard, cardsBox.el, box.filesCard, box.printCard, contentCard, parentsCard),
     h("aside", { class: "side" }, metaCard)));
   setEditing(false);
 
@@ -351,7 +365,14 @@ export async function gsSessionPage(id, d) {
     try { r = await tapi("GET", "/api/teacher/lessons/" + id); } catch { return; }
     const busyField = (el) => document.activeElement === el;
     const refKey = (fs) => fs.map((f) => f.id + ":" + f.status + ":" + f.name).join("|");
-    if (box.filesKey(r.files) !== box.filesKey(st.files) || refKey(r.refFiles || []) !== refKey(st.refFiles)) { st.files = r.files; st.refFiles = r.refFiles || []; box.paintFiles(); box.paintPrint(); paintPlan(); }
+    const filesChanged = box.filesKey(r.files) !== box.filesKey(st.files) || refKey(r.refFiles || []) !== refKey(st.refFiles), cardsChanged = cardsBox.keyOf(r.files) !== cardsBox.keyOf(st.files);
+    if (filesChanged || cardsChanged) {
+      const old = st.files;
+      st.files = r.files; st.refFiles = r.refFiles || [];
+      if (filesChanged) { box.paintFiles(); box.paintPrint(); }
+      paintPlan();
+      if (cardsChanged) cardsBox.refresh(old);
+    }
     if ((r.messages || []).length !== st.messages.length) { st.messages = r.messages; paintDraft(); }
     if (r.unit && (!st.unit || r.unit.version !== st.unit.version)) { st.unit = r.unit; paintUnit(); paintSubline(); }
     if (r.lesson.portalVersion !== plan.version && !plan.dirty && !busyField(ta)) {

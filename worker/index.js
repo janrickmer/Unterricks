@@ -15,6 +15,7 @@ import * as R from "./reset.js";
 import * as RN from "./render.js";
 import * as CS from "./courses.js";
 import * as GS from "./gs.js";
+import * as CA from "./cards.js";
 
 export { LiveRoom } from "./live.js";
 
@@ -131,6 +132,12 @@ const ROUTES = [
   ["PUT", "/api/teacher/files/" + ID + "/slides/(\\d{1,3})", F.routeSlideUpload],
   ["POST", "/api/teacher/files/" + ID + "/ready", F.routePresentationReady],
   ["GET", "/api/teacher/files/" + ID + "/slides", F.routeTeacherSlides],
+  // Bildkarten (Grundschule)
+  ["POST", "/api/teacher/lessons/" + ID + "/cards", CA.routeCardsUpload],
+  ["POST", "/api/teacher/files/" + ID + "/cards/ready", CA.routeCardsReady],
+  ["GET", "/api/teacher/files/" + ID + "/cards", CA.routeCardsGet],
+  ["PUT", "/api/teacher/files/" + ID + "/cards", CA.routeCardsPut],
+  ["GET", "/api/teacher/cards/pending", CA.routeCardsPending],
   ["PUT", "/api/teacher/files/" + ID + "/shown", F.routeShownPut],
   ["DELETE", "/api/teacher/files/" + ID + "/shown", F.routeShownDelete],
   ["POST", "/api/teacher/lessons/" + ID + "/live-ticket", LV.routeTeacherLiveTicket],
@@ -151,6 +158,7 @@ const ROUTES = [
   ["GET", "/api/dl/" + ID, F.routeDownload],
   ["GET", "/api/base/" + ID, B.routeBaseFile],
   ["GET", "/api/slide/" + ID + "/(\\d{1,3})", F.routeSlide],
+  ["GET", "/api/card/" + ID + "/(\\d{1,2})", CA.routeCardImage],
   ["GET", "/api/live/" + ID, LV.routeLiveSocket],
 ].map(([method, pat, handler, opts]) => ({ method, re: new RegExp("^" + pat + "$"), handler, opts: opts || {} }));
 

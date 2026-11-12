@@ -859,3 +859,31 @@ img.sub-photo { max-width: 100%; max-height: 60vh; border-radius: 12px; border: 
 .gs-session .side { position: static; }
 #gs-entwurf > summary { cursor: pointer; }
 #gs-entwurf .msgbody { margin-top: .6rem; }
+/* Bildkarten (Grundschule): Karte „Bildkarten“ der Sitzung und der Betrachter (auch in der Elternansicht) */
+.notice.gelb { background: var(--gelb-t); border-color: color-mix(in srgb, var(--gelb-kante) 60%, transparent); }
+.gs-cards > .stack { margin-top: .6rem; }
+.cardset { border: 1px solid var(--line); border-radius: var(--radius-s); background: var(--paper); padding: .85rem .95rem; }
+.cardset h3 { margin: 0; overflow-wrap: anywhere; }
+.cs-state { margin: .3rem 0 0; }
+.cs-warn p { margin: .3rem 0 0; }
+.cs-grid { list-style: none; margin: .7rem 0; padding: 0; display: grid; grid-template-columns: repeat(auto-fill, minmax(min(100%, 230px), 1fr)); gap: .8rem; }
+.cs-item { display: grid; gap: .35rem; align-content: start; min-width: 0; }
+.cs-thumb { width: 100%; height: auto; aspect-ratio: 297 / 210; object-fit: contain; background: #fff; border: 1px solid var(--line); border-radius: 6px; display: block; }
+.cs-ph { display: grid; place-items: center; color: var(--muted); background: var(--surface); font-weight: 700; }
+.cs-item textarea { min-height: 6.5rem; }
+.cs-acts { gap: .45rem; margin-top: .55rem; }
+.cs-acts .btn, .cs-upload .btn { min-height: 44px; }
+.cardset .checkrow, .cs-upload .checkrow { min-height: 44px; align-items: center; margin-top: .35rem; }
+.cs-upload { margin-top: 1rem; border-top: 1px solid var(--line); padding-top: .8rem; }
+.cs-upload h3 { margin: 0 0 .5rem; }
+.cardview { margin: 0; display: grid; gap: .6rem; }
+.cv-stage { background: #fff; border: 1px solid var(--line); border-radius: var(--radius-s); overflow: hidden; display: grid; place-items: center; }
+.cv-img { display: block; max-width: 100%; height: auto; }
+.cv-nav { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: .5rem; }
+.cv-nav .btn { min-height: 44px; }
+.cv-count { font-weight: 700; }
+.cv-text { font-size: 1.08rem; line-height: 1.55; white-space: pre-wrap; overflow-wrap: anywhere; }
+.cv-pdf { margin: 0; }
+.cs-preview { margin: .2rem 0 .4rem; }
+.cs-preview > summary { cursor: pointer; font-weight: 700; padding: .65rem 0; }
+.cs-preview .cardview { margin-top: .5rem; max-width: 760px; }

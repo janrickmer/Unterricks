@@ -29,7 +29,20 @@ export const codeSlidesOf = (f) => { try { return cleanCodeSlides(JSON.parse(f.c
 /* Spalten einer Dateiliste ohne Claudes Gestaltung (html bis 1,5 MB je Material – nur '' als Kennzeichen „gestaltet“) */
 export const FILE_COLS = "id, lesson_id, area, kind, name, mime, size, CASE WHEN kind IN ('text','link') THEN text END AS text, pages, status, source, created_at, updated_at, " +
   "fb_code, fb_sig, shown_until, cut_size, code_slides, print_copies, print_duplex, print_color, html_at, pdf_at, render_error, CASE WHEN html IS NULL THEN NULL ELSE '' END AS html, " +
-  "CASE WHEN html IS NOT NULL THEN substr(text, 1, 6000) END AS design_text";
+  "CASE WHEN html IS NOT NULL THEN substr(text, 1, 6000) END AS design_text, cards, card_pages, card_img_at";
+/* Bildkarten (Grundschule): files.cards als JSON {v:1, texts, share, rev} – gelesen tolerant (null = keine Bildkarten) */
+export const MAX_CARD_TEXT = 1200;
+export function cardData(f) {
+  if (!f || f.cards == null) return null;
+  let o = null;
+  try { o = typeof f.cards === "string" ? JSON.parse(f.cards) : f.cards; } catch {}
+  if (!o || typeof o !== "object") o = {};
+  return { v: 1, texts: Array.isArray(o.texts) ? o.texts.slice(0, 40).map((t) => String(t == null ? "" : t).slice(0, MAX_CARD_TEXT)) : [], share: o.share === true, rev: Number.isInteger(o.rev) && o.rev >= 0 ? o.rev : 0 };
+}
+// Stand der PDF, aus dem die Kartenbilder stammen müssen (gestaltet: Zeitpunkt des Drucks; hochgeladen: Anlegezeit)
+export const cardVersion = (f) => (f.pdf_at != null ? f.pdf_at : f.created_at);
+const cardsOut = (f) => { const d = cardData(f), v = cardVersion(f);
+  return { texts: d.texts, share: d.share, rev: d.rev, pages: f.card_pages || 0, current: f.card_img_at != null && f.card_img_at === v && (f.card_pages || 0) > 0, version: v }; };
 export const fileOut = (f, withText = true) => ({
   id: f.id, area: f.area, kind: f.kind, name: f.name, mime: f.mime, size: f.size, pages: f.pages ?? null, status: f.status, source: f.source || null,
   fbCode: f.fb_code || null, fbSig: f.fb_sig || null, ...(f.area === "presentation" ? { shownUntil: f.shown_until ?? null, cut: !!f.cut_size, codeSlides: codeSlidesOf(f) } : {}),
@@ -37,6 +50,7 @@ export const fileOut = (f, withText = true) => ({
   createdAt: f.created_at, ...(withText && f.kind === "text" ? { text: f.text || "" } : {}), ...(f.kind === "link" ? { url: f.text || "" } : {}),
   // von Claude gestaltet (HTML → PDF): ob die PDF zur aktuellen Gestaltung passt und die letzte Meldung des Druckers
   // text = Klartext der Gestaltung (gekürzt) für die Prompts (z. B. Präsentation)
+  ...(f.cards != null ? { cards: cardsOut(f) } : {}),
   ...(f.html != null ? { design: { outdated: !f.pdf_at || (f.html_at || 0) > f.pdf_at, error: f.render_error || null, htmlAt: f.html_at || null, pdfAt: f.pdf_at || null,
     text: String(f.design_text != null ? f.design_text : f.text || "").slice(0, 6000) } } : {}),
 });

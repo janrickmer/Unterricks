@@ -10,6 +10,7 @@ import { cleanDesignHtml, renderPdf, htmlText, keepImages, shortImages, HTML_MAX
 export const MAX_FILE = 100 * 1024 * 1024;         // Grenze einer Anfrage im Cloudflare-Free-Plan
 export const MAX_SLIDE = 4 * 1024 * 1024;
 export const MAX_SLIDES = 300;
+export const MAX_CARDS = 40;                       // Bildkarten (Grundschule): höchstens 40 Karten je PDF
 const AREAS = new Set(["student", "teacher"]);
 const EXT_MIME = {
   pdf: "application/pdf", png: "image/png", jpg: "image/jpeg", jpeg: "image/jpeg", gif: "image/gif", webp: "image/webp", heic: "image/heic", svg: "image/svg+xml",
@@ -52,8 +53,8 @@ export async function getFile(db, fileId) {
 export async function deleteFileObjects(c, f) {
   const keys = [];
   if (f.kind === "file") keys.push(fileKey(f.lesson_id, f.id));
-  if (f.area === "presentation") {
-    keys.push(cutKey(f.lesson_id, f.id));
+  if (f.area === "presentation" || f.cards != null) {   // Folienbilder bzw. Kartenbilder (Bildkarten der Grundschule)
+    if (f.area === "presentation") keys.push(cutKey(f.lesson_id, f.id));
     const s = await c.db.prepare("SELECT n FROM slides WHERE file_id=?1").bind(f.id).all();
     for (const x of s.results || []) keys.push(slideKey(f.lesson_id, f.id, x.n));
   }
@@ -205,15 +206,18 @@ export function designHtml(raw) {
 }
 /* neu anlegen (fileId fehlt) oder die Gestaltung eines vorhandenen Materials dieser Sitzung ersetzen */
 /* gsPrint: Grundschule – ein Arbeitsblatt der Kinder (area student) mit Anzahl steht zusätzlich auf der Druckliste */
-export async function saveDesign(c, lessonId, { area, title, html, print = {}, source = "claude", fileId = null, gsPrint = false }) {
+/* cards: Bildkarten der Grundschule ({v, texts, share, rev}, nur über cards.js saveCardSet) – zwischen Bildkarten und anderem Material wird nie gewechselt */
+export async function saveDesign(c, lessonId, { area, title, html, print = {}, source = "claude", fileId = null, gsPrint = false, cards = null }) {
   if (fileId) {
     const f = await getFile(c.db, fileId);
     if (f.lesson_id !== lessonId || f.html == null) throw bad("file_id gehört zu keinem gestalteten Material dieser Sitzung (siehe get_lesson).");
+    if ((f.cards != null) !== !!cards) throw bad(f.cards != null ? "Diese file_id gehört zu Bildkarten – ändere sie mit add_picture_cards." : "Diese file_id gehört zu keinen Bildkarten – ein Material lässt sich nicht in Bildkarten umwandeln (bitte neu anlegen).");
     if (f.area === "archive") throw bad("Dieses Material gehört zur archivierten Planung (Krankheitsvertretung) und lässt sich nicht mehr ändern.");
     if (area && area !== f.area && (area === "print" || f.area === "print")) throw bad("Ein Material lässt sich nicht zwischen Druckliste und Material der Sitzung verschieben – bitte neu anlegen.");
     const h = designHtml(keepImages(html, f.html)), at = Math.max(c.now, (f.pdf_at || 0) + 1, (f.html_at || 0) + 1);
     const sets = ["html=?2", "html_at=?3", "text=?4", "render_error=NULL", "updated_at=?5"], args = [fileId, h, at, htmlText(h), c.now];
     if (title) { args.push(pdfFileName(title)); sets.push("name=?" + args.length); }
+    if (cards) { args.push(JSON.stringify(cards)); sets.push("cards=?" + args.length); area = ""; }
     if (area && area !== f.area) {
       args.push(area); sets.push("area=?" + args.length);
       // für Schüler:innen erst mit der neuen PDF (die bisherige war nur für die Lehrkraft gedacht)
@@ -231,9 +235,9 @@ export async function saveDesign(c, lessonId, { area, title, html, print = {}, s
   const h = designHtml(html), id = randomId(8);
   const copies = area === "print" ? cleanCopies(print.copies) || (await defaultCopies(c.db, lessonId)) : gsPrint && area === "student" ? cleanCopies(print.copies) : null;
   const printed = area === "print" || !!copies;
-  await c.db.prepare("INSERT INTO files(id, lesson_id, area, kind, name, mime, size, text, status, source, html, html_at, print_copies, print_duplex, print_color, created_at, updated_at) " +
-    "VALUES(?1, ?2, ?3, 'file', ?4, 'application/pdf', 0, ?5, 'pending', ?6, ?7, ?8, ?9, ?10, ?11, ?8, ?8)")
-    .bind(id, lessonId, area, pdfFileName(title), htmlText(h), source, h, c.now, copies, printed ? (print.duplex === false ? 0 : 1) : null, printed ? (print.color === true ? 1 : 0) : null).run();
+  await c.db.prepare("INSERT INTO files(id, lesson_id, area, kind, name, mime, size, text, status, source, html, html_at, print_copies, print_duplex, print_color, cards, created_at, updated_at) " +
+    "VALUES(?1, ?2, ?3, 'file', ?4, 'application/pdf', 0, ?5, 'pending', ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?8, ?8)")
+    .bind(id, lessonId, area, pdfFileName(title), htmlText(h), source, h, c.now, copies, printed ? (print.duplex === false ? 0 : 1) : null, printed ? (print.color === true ? 1 : 0) : null, cards ? JSON.stringify(cards) : null).run();
   return getFile(c.db, id);
 }
 /* Gestaltung drucken (PDF in R2) – Ergebnis die aktuelle Zeile; Fehler des Druckers bleiben in render_error stehen und werden geworfen */
@@ -333,7 +337,7 @@ export async function routeFilePatch(c, fileId) {
   const body = await readJson(c.request, 3_200_000);
   const sets = [], args = [];
   if (body.area !== undefined) {
-    if (f.area === "presentation" || f.area === "print" || !AREAS.has(body.area)) throw bad("Ungültiger Bereich.");
+    if (f.area === "presentation" || f.area === "print" || f.cards != null || !AREAS.has(body.area)) throw bad("Ungültiger Bereich.");
     args.push(body.area); sets.push("area=?" + (args.length + 1));
   }
   if (body.name !== undefined) { const n = cleanLine(body.name, 200); if (!n) throw bad("Der Name darf nicht leer sein."); args.push(n); sets.push("name=?" + (args.length + 1)); }
@@ -361,7 +365,7 @@ export async function routeFilePatch(c, fileId) {
   }
   // Claudes Gestaltung anhängen bzw. ersetzen (z. B. beim Laden einer gesicherten Sitzung: rendered = die hochgeladene PDF ist schon ihr Druck)
   if (body.html !== undefined) {
-    if (f.kind !== "file" || f.mime !== "application/pdf" || f.area === "presentation" || f.area === "archive") throw bad("Eine Gestaltung gibt es nur bei PDF-Material der Sitzung.");
+    if (f.kind !== "file" || f.mime !== "application/pdf" || f.area === "presentation" || f.area === "archive" || (f.cards != null && f.html == null)) throw bad("Eine Gestaltung gibt es nur bei PDF-Material der Sitzung.");
     const hh = designHtml(keepImages(body.html, f.html)), at = Math.max(c.now, (f.pdf_at || 0) + 1, (f.html_at || 0) + 1);
     args.push(hh); sets.push("html=?" + (args.length + 1)); args.push(htmlText(hh)); sets.push("text=?" + (args.length + 1));
     args.push(at); sets.push("html_at=?" + (args.length + 1)); sets.push("render_error=NULL");
@@ -404,8 +408,9 @@ export async function routePresentationUpload(c, lessonId) {
 }
 export async function routeSlideUpload(c, fileId, nRaw) {
   await requireTeacher(c);
-  const f = await getFile(c.db, fileId), n = Number(nRaw);
-  if (f.area !== "presentation") throw bad("Keine Präsentation.");
+  const f = await getFile(c.db, fileId), n = Number(nRaw), cards = f.cards != null;   // auch Kartenbilder der Bildkarten (Grundschule)
+  if (f.area !== "presentation" && !cards) throw bad("Keine Präsentation.");
+  if (cards && (!Number.isInteger(n) || n < 1 || n > MAX_CARDS)) throw bad("Ungültige Kartennummer (höchstens " + MAX_CARDS + " Bildkarten).");
   if (!Number.isInteger(n) || n < 1 || n > MAX_SLIDES) throw bad("Ungültige Foliennummer (höchstens " + MAX_SLIDES + " Folien).");
   const len = uploadLength(c, MAX_SLIDE);
   const type = String(c.request.headers.get("content-type") || "").toLowerCase();

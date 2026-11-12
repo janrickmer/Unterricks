@@ -5,7 +5,7 @@
 import { HttpError, json, readJson, sha256Hex, timingSafeEqual, randomToken, LOCKS, lockedFor, registerFail, cleanText, cleanLine } from "./lib.js";
 import { getSetting, setSetting } from "./db.js";
 import { requireTeacher } from "./auth.js";
-import { getLesson, lessonCtx, chatMessages, updateLesson, savePortal, insertDraft, lessonOut, fileOut, LIMITS, previousLesson, GS_CTX_FILES } from "./lessons.js";
+import { getLesson, lessonCtx, chatMessages, updateLesson, savePortal, insertDraft, lessonOut, fileOut, LIMITS, previousLesson, GS_CTX_FILES, cardData, cardVersion } from "./lessons.js";
 import { getUnit, unitFull, applyPlan, updateRow } from "./units.js";
 import { planningBasis } from "./bases.js";
 import { gsCourseMap, gsCourseOut, getGsCourse, planningBasisGs } from "./gs.js";
@@ -16,7 +16,8 @@ import { shortImages } from "./render.js";
 import { ESCAPE_FORMAT_HINT, PART_TYPES } from "../public/escape-data.js";
 import { SUBJECTS, ALL_CLASSES, subjectName, gradeInfo, formatCode, lessonContext, chatTranscript, PORTAL_RULES, PORTAL_EXAMPLE, PORTAL_TEACHER_RULE, SYSTEM_PROMPT_ROLE, FEIBEITSBLATT_INFO, classShort, fmtDay, materialDesignText, printFileName, GS_SUBJECT,
   STOP_LINE, hasStop, planRefs, parentMaterial, pdfRef } from "../public/shared.js";
-import { gsLessonContext, GS_MATERIAL_RULES, VERLAUFSPLAN_EXAMPLE, VERLAUFSPLAN_RULES } from "../public/gsplanning.js";
+import { gsLessonContext, GS_MATERIAL_RULES, CARD_DESIGN_RULES, VERLAUFSPLAN_EXAMPLE, VERLAUFSPLAN_RULES } from "../public/gsplanning.js";
+import { saveCardSet, setCardTexts } from "./cards.js";
 
 const MODERN = "2026-07-28";
 const LEGACY = ["2025-11-25", "2025-06-18", "2025-03-26", "2024-11-05"];
@@ -113,6 +114,26 @@ const TOOLS = [
       anzahl: { type: "integer", minimum: 1, maximum: 500, description: "nur bei bereich druck (Grundschule: auch bei schueler)" }, beidseitig: { type: "boolean", description: "nur bei bereich druck (Grundschule: auch bei schueler)" }, farbe: { type: "boolean", description: "nur bei bereich druck (Grundschule: auch bei schueler)" },
       file_id: { type: "string", pattern: "^[a-f0-9]{16}$", description: "Gestaltung eines vorhandenen Materials ersetzen" } },
       required: ["lesson_id", "titel", "html"], additionalProperties: false } },
+  { name: "add_picture_cards", title: "Bildkarten gestalten (Grundschule)", annotations: wr,
+    description: "Nur für Sitzungen der Grundschule: Legt Bildkarten zu einer Geschichte (z. B. einer biblischen Geschichte) als PDF ab – eine Seite = eine Karte. Du gestaltest sie als HTML-Seite; " +
+      "Unterricks druckt sie wie bei add_material_pdf als PDF (Bereich „nur Lehrkraft“: die Lehrkraft zeigt sie im Sitzkreis). Zu jeder Karte schickst du genau einen gekürzten Erzähltext (erzaehltexte, gleiche Reihenfolge wie die Karten): " +
+      "Eltern klicken sich nach der Stunde in der Elternansicht der Reihe nach durch die Karten und erzählen die Geschichte mit ihrem Kind nach; die Lehrkraft prüft und ändert die Texte. " +
+      "fuer_eltern (Standard true): ob Eltern die Karten sehen dürfen. Die Antwort nennt die Seitenzahl und den Verweis [[pdf:<file_id>]] für den Verlaufsplan (save_verlaufsplan); mit file_id ersetzt du Gestaltung und Erzähltexte vorhandener Bildkarten. " +
+      "Bildkarten von Verlagen dürfen meist nicht online weitergegeben werden – gestalte die Karten selbst.\n\nGestaltungsregeln für Bildkarten (gehen vor):\n" + CARD_DESIGN_RULES.map((r) => "- " + r).join("\n") +
+      "\n\nAllgemeine Gestaltungsregeln (soweit passend):\n" + materialDesignText(),
+    inputSchema: { type: "object", properties: { lesson_id: ID_ARG, titel: { type: "string", maxLength: 160, description: "Dateiname ohne Endung, z. B. „Bildkarten – Josef und seine Brüder“" },
+      html: { type: "string", maxLength: 1600000, description: "vollständige HTML-Seite mit <style>, jede Karte genau eine Seite (A4 quer)" },
+      erzaehltexte: { type: "array", minItems: 1, maxItems: 40, items: { type: "string", maxLength: 1200 }, description: "ein gekürzter Erzähltext je Karte (2–4 kurze Sätze, nie Namen von Kindern), in der Reihenfolge der Karten" },
+      fuer_eltern: { type: "boolean", description: "Eltern dürfen die Bildkarten sehen (Standard: true)" },
+      file_id: { type: "string", pattern: "^[a-f0-9]{16}$", description: "Gestaltung und Erzähltexte vorhandener Bildkarten ersetzen (aus get_lesson)" } },
+      required: ["lesson_id", "titel", "html", "erzaehltexte"], additionalProperties: false } },
+  { name: "set_picture_card_texts", title: "Erzähltexte der Bildkarten setzen (Grundschule)", annotations: { ...wr, destructiveHint: true },
+    description: "Ersetzt die gekürzten Erzähltexte von Bildkarten einer Grundschul-Sitzung (auch von Bildkarten, die die Lehrkraft als PDF hochgeladen hat; file_id aus get_lesson, Abschnitt „Bildkarten“): " +
+      "genau ein Text je Karte, in der Reihenfolge der Karten, 2–4 kurze Sätze zum Nacherzählen für Eltern, nie Namen von Kindern. " +
+      "Bilder hochgeladener Karten kannst du nicht sehen – frag die Lehrkraft nach der Geschichte und der Reihenfolge der Karten.",
+    inputSchema: { type: "object", properties: { file_id: { type: "string", pattern: "^[a-f0-9]{16}$", description: "Bildkarten (aus get_lesson)" },
+      erzaehltexte: { type: "array", minItems: 1, maxItems: 40, items: { type: "string", maxLength: 1200 }, description: "ein Erzähltext je Karte" } },
+      required: ["file_id", "erzaehltexte"], additionalProperties: false } },
   { name: "get_material", title: "Gestaltetes Material lesen", annotations: ro,
     description: "Liefert die HTML-Gestaltung eines Materials, das mit add_material_pdf angelegt wurde (file_id aus get_lesson), damit du es überarbeiten kannst. Lange eingebettete Bilder stehen dort als Platzhalter „data:unterricks-bild,n“.",
     inputSchema: { type: "object", properties: { file_id: { type: "string", pattern: "^[a-f0-9]{16}$" } }, required: ["file_id"], additionalProperties: false } },
@@ -206,7 +227,8 @@ async function lessonDump(db, l) {
 
 /* Abschnitt „Gestaltete Materialien“ von get_lesson (Gymnasium und Grundschule; areaText = Bezeichnung des Bereichs) */
 async function designedSection(db, lessonId, areaText) {
-  const des = await db.prepare("SELECT id, area, name, status, pages, html_at, pdf_at, render_error FROM files WHERE lesson_id=?1 AND html IS NOT NULL AND area<>'archive' ORDER BY created_at").bind(lessonId).all();
+  // Bildkarten (Grundschule) stehen in einem eigenen Abschnitt (ändern mit add_picture_cards)
+  const des = await db.prepare("SELECT id, area, name, status, pages, html_at, pdf_at, render_error FROM files WHERE lesson_id=?1 AND html IS NOT NULL AND area<>'archive' AND cards IS NULL ORDER BY created_at").bind(lessonId).all();
   if (!(des.results || []).length) return [];
   const out = ["", "## Gestaltete Materialien (HTML → PDF; lesen mit get_material, ändern mit add_material_pdf und file_id)"];
   for (const f of des.results) {
@@ -220,6 +242,7 @@ async function designedSection(db, lessonId, areaText) {
    des Kurses für Verweise – ohne Sitzungscode, Feibeitsblätter und Vertretung, nie ein Elternlink */
 const GS_AREA = { student: "für die Kinder – Eltern sehen sie nach der Stunde", teacher: "nur Lehrkraft", print: "zum Ausdrucken" };
 function gsFileLine(f) {
+  if (f.cards != null) return "- file_id " + f.id + ": „" + f.name + "“ (Bildkarten – " + (cardData(f).share ? "Eltern sehen sie nach der Stunde" : "Eltern dürfen sie nicht sehen") + "; siehe „Bildkarten“) → " + pdfRef(f.id);
   const st = f.status !== "ready" ? (f.render_error ? "Druck fehlgeschlagen: " + f.render_error : "wartet auf den Druck") : f.pages ? f.pages + (f.pages === 1 ? " Seite" : " Seiten") : "fertig";
   const pr = f.area === "student" && f.print_copies != null ? "; auch auf der Druckliste: " + printFileName({ name: f.name, copies: f.print_copies, duplex: f.print_duplex !== 0, color: f.print_color === 1 }) : "";
   return "- file_id " + f.id + ": „" + f.name + "“ (" + (GS_AREA[f.area] || f.area) + "; " + st + pr + ") → " + pdfRef(f.id);
@@ -243,10 +266,28 @@ async function gsLessonDump(db, l) {
     "", "## PDF-Dateien des Kurses für Verweise ([[pdf:<file_id>]])", "Diese Sitzung:", ...(own.length ? own.map(gsFileLine) : ["(noch keine)"]),
   ];
   if (prev) parts.push("Vorige Sitzung „" + prev.title + "“" + (prev.lesson_date ? " (" + fmtDay(prev.lesson_date) + ")" : "") + ":", ...(before.length ? before.map(gsFileLine) : ["(keine)"]));
+  parts.push(...cardsSection(ctx.files));
   parts.push(...(await designedSection(db, l.id, (a) => (a === "student" ? "für die Kinder" : a === "teacher" ? "nur Lehrkraft" : "zum Ausdrucken"))));
   if (results.length) parts.push("", "## Gespeicherter Stundenentwurf (save_planning_result)", results[results.length - 1].content.slice(0, 20000));
   if (l.unit_id) parts.push("", "Unterrichtseinheit: " + l.unit_id + " (Details mit get_unit; Planungsgrundlagen mit get_planning_basis)");
   return parts.join("\n");
+}
+
+/* Abschnitt „Bildkarten“ von get_lesson (Grundschule): Zahl der Karten, Stand der Bilder, Freigabe für Eltern und die Erzähltexte */
+function cardsSection(files) {
+  const sets = files.filter((f) => f.cards != null);
+  if (!sets.length) return [];
+  const out = ["", "## Bildkarten (eine Seite = eine Karte; Erzähltexte ändern mit set_picture_card_texts, eigene Gestaltung mit add_picture_cards und file_id)"];
+  for (const f of sets) {
+    const d = cardData(f), current = f.card_img_at != null && f.card_img_at === cardVersion(f) && (f.card_pages || 0) > 0;
+    const n = current ? f.card_pages : f.status === "ready" ? f.pages : null;
+    const state = f.designed && f.status !== "ready" ? (f.render_error ? "Druck fehlgeschlagen: " + f.render_error : "wartet auf den Druck") : current ? "Bilder bereit" : "Bilder werden erstellt, sobald die Lehrkraft Unterricks öffnet";
+    out.push("- file_id " + f.id + ": „" + f.name + "“ (" + (f.designed ? "von dir gestaltet" : "von der Lehrkraft hochgeladen – die Bilder kannst du nicht sehen") + "; " + (n ? n + (n === 1 ? " Karte" : " Karten") + ", " : "") + state +
+      "; Eltern sehen sie: " + (d.share ? "ja" : "nein") + ") → " + pdfRef(f.id));
+    if (n && d.texts.length !== n) out.push("  Achtung: " + n + (n === 1 ? " Karte" : " Karten") + ", aber " + d.texts.length + " Erzähltext" + (d.texts.length === 1 ? "" : "e") + ".");
+    out.push(...(d.texts.length ? d.texts.map((t, i) => "  " + (i + 1) + ". " + (t || "(kein Erzähltext)")) : ["  (noch keine Erzähltexte)"]));
+  }
+  return out;
 }
 
 /* Filter der Listen: fach (auch „gs“ = alle Kurse der Grundschule), klasse (Gymnasium), kurs (ein Grundschulkurs) */
@@ -424,6 +465,43 @@ async function callTool(c, name, a) {
       const f = await getFile(c.db, a.file_id);
       if (f.html == null || f.area === "archive") return toolError("Zu dieser file_id gibt es kein gestaltetes Material (siehe get_lesson).");
       return toolText("# " + f.name + " (" + (f.area === "student" ? "für Schüler:innen" : f.area === "teacher" ? "nur für die Lehrkraft" : "zum Ausdrucken") + ", Sitzung " + f.lesson_id + ")\n\n" + shortImages(f.html), { file_id: f.id, lesson_id: f.lesson_id });
+    }
+    case "add_picture_cards": {
+      const n = Array.isArray(a.erzaehltexte) ? a.erzaehltexte.length : 0;
+      const f = await saveCardSet(c, a.lesson_id, { title: a.titel, html: a.html, texts: a.erzaehltexte, fileId: a.file_id || null, share: a.fuer_eltern });
+      const ref = " Verweis: " + pdfRef(f.id) + ".", kept = cardData(f).texts.length;
+      const share = cardData(f).share ? "" : " Eltern sehen sie nicht (fuer_eltern: false).";
+      const verb = a.file_id ? "überarbeitet" : "gespeichert";
+      try {
+        const r = await renderDesign(c, f, { waitMs: 30000 });
+        const pages = r.pages || null;
+        const head = "Bildkarten „" + r.file.name + "“ " + verb + " und gedruckt: ";
+        if (!pages) return toolText(head + "Seitenzahl unbekannt, " + kept + " Erzähltexte." + ref + " Die Zahl der Karten prüft Unterricks beim Erstellen der Bilder; Abweichungen sieht die Lehrkraft auf der Sitzungsseite." + share,
+          { file_id: f.id, pages: null, texts: kept, status: "gedruckt" });
+        if (pages !== kept) return toolText(head + pages + (pages === 1 ? " Seite" : " Seiten") + "." + ref + " Achtung: Die PDF hat " + pages + (pages === 1 ? " Seite" : " Seiten") + ", du hast " + kept + " Erzähltext" + (kept === 1 ? "" : "e") +
+          " geschickt – jede Karte muss genau eine Seite sein (break-after: page; overflow: hidden) und genau einen Text haben; bitte mit file_id " + f.id + " korrigieren." + share, { file_id: f.id, pages, texts: kept, status: "gedruckt", mismatch: true });
+        return toolText(head + pages + (pages === 1 ? " Seite" : " Seiten") + " = " + pages + (pages === 1 ? " Karte" : " Karten") + ", " + kept + " Erzähltext" + (kept === 1 ? "" : "e") + "." + ref +
+          " Die Bilder für die Elternansicht erstellt Unterricks, sobald die Lehrkraft Unterricks öffnet." + (r.current ? "" : " (Inzwischen kam eine neuere Gestaltung an – Unterricks druckt sie nach.)") + share, { file_id: f.id, pages, texts: kept, status: "gedruckt" });
+      } catch (e) {
+        const code = e && e.code ? String(e.code) : "";
+        const later = code === "render_busy" || code === "render_quota" || code === "render_config";
+        return toolText("Bildkarten „" + f.name + "“ " + verb + " (" + kept + " Erzähltexte), aber noch nicht als PDF gedruckt: " + (e && e.message ? e.message : "Fehler beim Druck") + " " +
+          (later ? "Unterricks druckt sie automatisch nach, sobald die Lehrkraft Unterricks öffnet. Die Zahl der Karten prüft Unterricks nach dem Druck; Abweichungen sieht die Lehrkraft auf der Sitzungsseite."
+            : "Bitte die Gestaltung prüfen und mit add_picture_cards (file_id " + f.id + ") korrigiert erneut senden.") + ref + share,
+          { file_id: f.id, texts: kept, status: later ? "wartet auf den Druck" : "Druckfehler", error: e && e.message ? e.message : null, ...(n !== kept ? { sent: n } : {}) });
+      }
+    }
+    case "set_picture_card_texts": {
+      const f0 = await getFile(c.db, a.file_id);
+      if (f0.cards == null || f0.area === "archive") return toolError("Zu dieser file_id gibt es keine Bildkarten (siehe get_lesson, Abschnitt „Bildkarten“).");
+      if ((await getLesson(c.db, f0.lesson_id)).subject !== GS_SUBJECT) return toolError("Bildkarten gibt es nur in Sitzungen der Grundschule.");
+      const { file: f, cards } = await setCardTexts(c, f0.id, a.erzaehltexte);
+      const k = cards.texts.length, cardsN = f.card_pages || (f.status === "ready" ? f.pages : null) || null;
+      const base = "Erzähltexte gespeichert: " + k + (k === 1 ? " Text" : " Texte");
+      if (!cardsN) return toolText(base + " (wie viele Karten es sind, steht erst fest, wenn Unterricks die Bilder erstellt hat).", { file_id: f.id, texts: k, cards: null });
+      if (cardsN !== k) return toolText(base + ". Achtung: Die Bildkarten haben " + cardsN + (cardsN === 1 ? " Karte" : " Karten") + ", du hast " + k + " Erzähltext" + (k === 1 ? "" : "e") +
+        " geschickt – genau ein Text je Karte, in der Reihenfolge der Karten; bitte korrigieren.", { file_id: f.id, texts: k, cards: cardsN, mismatch: true });
+      return toolText(base + " für " + cardsN + (cardsN === 1 ? " Karte" : " Karten") + ".", { file_id: f.id, texts: k, cards: cardsN });
     }
     case "save_verlaufsplan": {
       const l = await getLesson(c.db, a.lesson_id);
