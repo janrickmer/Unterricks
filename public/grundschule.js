@@ -297,7 +297,10 @@ export async function gsCoursePage(id) {
 /* ---------- Vorschau der Elternansicht #/lk/eltern/<Sitzung>[/<vorherige Sitzung>] ----------
    Zeigt der Lehrkraft, was Eltern nach dem Unterricht sehen – ohne Zeitsperre und ohne Link (Dateien öffnen über #/lk/datei/<id>). */
 const longWhen = (ms) => new Date(ms).toLocaleDateString("de-DE", { weekday: "long", day: "2-digit", month: "2-digit", year: "numeric", timeZone: "Europe/Berlin" }) + ", " + fmtClockBerlin(ms) + " Uhr";
+let previewOf = null;   // Vorschau, die zuletzt offen war: Navigation darin (auch „← Zur Sitzung“) setzt den Fokus auf die Überschrift
 export async function parentsPreviewPage(id, other = null) {
+  const within = previewOf === id;
+  previewOf = id;
   const main = h("main", { class: "narrow parents parents-preview" }, h("div", { class: "skeleton", text: "Lade …" }));
   render(teacherBar("primary"), main);
   markNav("primary");
@@ -324,6 +327,6 @@ export async function parentsPreviewPage(id, other = null) {
     view,
     h("p", { class: "small" }, h("a", { href: "#/lk/s/" + target }, "Zur Sitzung (Lehreransicht)")));
   setFach("gs");
-  if (other && (!document.activeElement || document.activeElement === document.body)) view.focusHeading();
+  if ((other || within) && (!document.activeElement || document.activeElement === document.body)) view.focusHeading();
 }
 

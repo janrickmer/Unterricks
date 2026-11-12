@@ -235,7 +235,11 @@ export async function gsSessionPage(id, d) {
   const badgeEls = new Map();   // Datei-ID → Abzeichen „Eltern sehen sie“ …
   let parentsQueued = false;
   // wie der Server (worker/parents.js): Verweise nur auf PDFs früherer Sitzungen des Kurses zählen für Eltern
-  const parentsNow = () => parentMaterial(ta.value, [...st.files.map((f) => ({ ...f, lessonId: id })), ...st.refFiles.filter((f) => f.date && L().date && f.date <= L().date)], id);
+  // (am selben Tag: frühere Startzeit, wenn beide eine haben, sonst früher angelegt)
+  const refBefore = (f) => { const l = L();
+    if (!f.date || !l.date || f.date !== l.date) return !!(f.date && l.date && f.date < l.date);
+    return f.lessonStart && l.startTime && f.lessonStart !== l.startTime ? f.lessonStart < l.startTime : f.lessonCreatedAt == null || f.lessonCreatedAt < l.createdAt; };
+  const parentsNow = () => parentMaterial(ta.value, [...st.files.map((f) => ({ ...f, lessonId: id })), ...st.refFiles.filter(refBefore)], id);
   const BADGE = { "nach dem Zwischenstopp": "nach dem Zwischenstopp – Eltern sehen sie nicht",
     "nicht im Verlaufsplan genannt (wegen des Zwischenstopps)": "nicht im Verlaufsplan genannt – Eltern sehen sie nicht (wegen des Zwischenstopps)",
     "PDF wird noch erstellt": "PDF wird noch erstellt – Eltern sehen sie danach", "keine PDF-Datei": "keine PDF-Datei – Eltern sehen sie nicht" };

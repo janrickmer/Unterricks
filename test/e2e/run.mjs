@@ -1818,8 +1818,12 @@ async function main() {
         && !etext.includes("Malstifte") && !etext.includes(g2.lesson.title) && await ep.locator(".cardview").count() === 0 && (await ep.locator(".topbar").textContent()).includes("Elternansicht")
         && await ep.locator(".topbar a").count() === 0, "vor dem Ende: „Diese Unterrichtssitzung hat noch nicht stattgefunden.“ – kein Inhalt, keine Links in andere Bereiche");
       // c) nach dem Ende (gestern): Hinweis rot ganz oben, Bildkarten, Inhalt, Hausaufgabe, nur das Material bis zum Zwischenstopp
-      await T("PATCH", "/api/teacher/lessons/" + les1.id, { date: day(-2), startTime: "08:00" });
-      await T("PATCH", "/api/teacher/lessons/" + les2.id, { date: day(-1), startTime: "08:00" });
+      // gestern bzw. vorgestern – aber immer vor den übrigen Sitzungen der Einheit (sie liegen in der laufenden Woche ab Montag; ab Donnerstag
+      // lägen Sitzung 3 und 4 sonst schon davor und gehörten zu den vorherigen Sitzungen des Links)
+      const firstOther = gl.slice(2).map((l) => l.date).filter(Boolean).sort()[0];
+      const dPrev = [day(-1), firstOther ? addDays(firstOther, -1) : null].filter(Boolean).sort()[0], dPrev1 = addDays(dPrev, -1);
+      await T("PATCH", "/api/teacher/lessons/" + les1.id, { date: dPrev1, startTime: "08:00" });
+      await T("PATCH", "/api/teacher/lessons/" + les2.id, { date: dPrev, startTime: "08:00" });
       await ep.reload();
       await ep.locator(".parents-view h1", { hasText: g2.lesson.title }).waitFor({ timeout: 15000 });
       const heads = await ep.locator(".parents-view h1, .parents-view h2").allTextContents();
@@ -1827,7 +1831,7 @@ async function main() {
         && await ep.evaluate(() => { const n = document.querySelector(".parents-view").firstElementChild; return n.matches("section.alarm") && n.getAttribute("role") === "note" && getComputedStyle(n).backgroundColor !== "rgba(0, 0, 0, 0)"; })
         && (await ep.locator(".parent-note").textContent()).includes("Bitte Malstifte mitgeben."), "Reihenfolge: Hinweis der Lehrkraft (rot) ganz oben, Titel, Bildkarten, Inhalt, Hausaufgabe, Material");
       ok((await ep.locator(".pv-meta").textContent()).startsWith("Religion · Jahrgang 2 (Klassen 2a, 2b) · ") && (await ep.locator(".pv-summary").textContent()).includes("Wir haben gehört, wie Josef nach Ägypten kam.")
-        && (await ep.locator(".pv-homework").textContent()).includes("Male ein Bild von Josef.") && await ep.title() === "Unterricht am " + day(-1).split("-").reverse().join("."),
+        && (await ep.locator(".pv-homework").textContent()).includes("Male ein Bild von Josef.") && await ep.title() === "Unterricht am " + dPrev.split("-").reverse().join("."),
         "Kurs, Inhalt der Unterrichtsstunde, Hausaufgabe, Titel des Tabs");
       const cv = ep.locator(".pv-cards figure.cardview");
       await cv.locator(".cv-count", { hasText: "Karte 1 von 3" }).waitFor({ timeout: 10000 });
@@ -1864,7 +1868,7 @@ async function main() {
       await ep.locator(".pv-sessions a").click();
       await ep.waitForURL(new RegExp("#/eltern/" + parentToken + "/s/" + les1.id + "$"));
       await ep.locator(".parents-view h1", { hasText: g1.lesson.title }).waitFor({ timeout: 15000 });
-      ok(await ep.evaluate(() => document.activeElement && document.activeElement.tagName === "H1") && (await ep.locator(".pv-back").textContent()) === "← Zur Sitzung vom " + day(-1).split("-").reverse().join(".")
+      ok(await ep.evaluate(() => document.activeElement && document.activeElement.tagName === "H1") && (await ep.locator(".pv-back").textContent()) === "← Zur Sitzung vom " + dPrev.split("-").reverse().join(".")
         && !(await ep.locator("main").textContent()).includes("Vorlesetext"), "andere Sitzung: Fokus auf der Überschrift, „← Zur Sitzung vom …“, kein Material der Lehrkraft");
       await ep.locator(".pv-back").click();
       await ep.locator(".parents-view h1", { hasText: g2.lesson.title }).waitFor({ timeout: 15000 });

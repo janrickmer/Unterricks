@@ -78,7 +78,7 @@ export function parentViewDom(d, o = {}) {
         const r = await o.loadPrevious();
         const head = h("h2", { tabindex: "-1", text: "Unterrichtssitzungen dieses Schuljahres" });
         const items = (r.lessons || []).map((l) => {
-          const label = fmtDay(l.date) + " – " + (l.cancelled ? "Unterricht ausgefallen" : l.title || "Unterrichtssitzung");
+          const label = (l.date ? fmtDay(l.date) : "ohne Termin") + " – " + (l.cancelled ? "Unterricht ausgefallen" : l.title || "Unterrichtssitzung");
           return h("li", null, l.id === lesson.id ? h("span", null, label, h("strong", { text: " (diese Sitzung)" })) : h("a", { href: o.sessionHref(l.current ? null : l.id) }, label));
         });
         clear(box).append(head, items.length ? h("ul", { class: "pv-sessions" }, items) : h("p", { class: "muted", text: "In diesem Schuljahr gibt es noch keine weiteren Unterrichtssitzungen." }));

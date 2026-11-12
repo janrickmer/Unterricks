@@ -184,3 +184,20 @@ test("Sperre je IP: ungültige Links zählen, nach 30 Fehlversuchen 429 – auch
   assert.equal((await pub(c, PA.routeParentPrevious, { token: tok })).status, 429);
   assert.equal((await pub(c, PA.routeParentLesson, { token: tok }, "5.5.5.5")).status, 200);
 });
+
+test("Zwei Sitzungen am selben Tag: die frühere Startzeit zählt (auch wenn sie später angelegt wurde) – Liste und Verweise im Verlaufsplan gleich", async () => {
+  const { c, course } = await setup();
+  // b (10:00) zuerst angelegt, a (08:00) danach: a liegt trotzdem vor b
+  const b = await L.createLesson(c.db, { subject: "gs", klass: course.id, title: "Zweite Stunde", date: "2026-11-05", startTime: "10:00", durationMin: 45 }, c.now - 500);
+  const a = await L.createLesson(c.db, { subject: "gs", klass: course.id, title: "Erste Stunde", date: "2026-11-05", startTime: "08:00", durationMin: 45 }, c.now - 100);
+  const blatt = (await upload(c, a.id, "Blatt der ersten Stunde.pdf")).data.file;
+  await L.savePortal(c.db, b.id, "**1) Weiter**\n- [[pdf:" + blatt.id + "]]", 0, "claude", c.now);
+  const tok = (await link(c, b.id)).data.token;
+  assert.ok((await pub(c, PA.routeParentPrevious, { token: tok })).data.lessons.some((l) => l.id === a.id), "die Stunde um 08:00 gehört zu den vorherigen");
+  assert.deepEqual(((await pub(c, PA.routeParentLesson, { token: tok })).data.files || []).map((f) => f.name), ["Blatt der ersten Stunde.pdf"], "Verweis auf die frühere Stunde desselben Tages zählt");
+  // umgekehrt: a verweist auf ein Blatt von b (später am Tag) – zählt nicht
+  const blattB = (await upload(c, b.id, "Blatt der zweiten Stunde.pdf")).data.file;
+  await L.savePortal(c.db, a.id, "**1) Vorgriff**\n- [[pdf:" + blattB.id + "]]", 0, "claude", c.now);
+  const ta = (await link(c, a.id)).data.token;
+  assert.deepEqual(((await pub(c, PA.routeParentLesson, { token: ta })).data.files || []).map((f) => f.name), ["Blatt der ersten Stunde.pdf"], "kein Verweis auf eine spätere Stunde");
+});

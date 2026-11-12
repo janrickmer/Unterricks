@@ -52,8 +52,10 @@ export async function parentFiles(c, lesson, { prevTo = null } = {}) {
     c.db.prepare("SELECT f.id, f.lesson_id, f.name, f.area, f.kind, f.mime, f.status, f.source, f.pages, f.size, f.cards, f.card_pages, f.card_img_at, f.pdf_at, f.created_at, " +
       "s.w AS cw, s.h AS ch FROM files f JOIN lessons l ON l.id = f.lesson_id LEFT JOIN slides s ON s.file_id = f.id AND s.n = 1 " +
       "WHERE l.subject='gs' AND l.klass=?1 AND f.kind='file' AND f.mime='application/pdf' AND (f.area='student' OR f.cards IS NOT NULL) " +
-      "AND (f.lesson_id=?2 OR (f.id IN (SELECT value FROM json_each(?3)) AND l.lesson_date IS NOT NULL AND (l.lesson_date < ?4 OR (l.lesson_date = ?4 AND l.created_at < ?5)))) " +
-      "ORDER BY f.created_at LIMIT 300").bind(lesson.klass, lesson.id, JSON.stringify(refs), lesson.lesson_date || "", lesson.created_at),
+      "AND (f.lesson_id=?2 OR (f.id IN (SELECT value FROM json_each(?3)) AND l.lesson_date IS NOT NULL AND (l.lesson_date < ?4 OR (l.lesson_date = ?4 AND " +
+      // am selben Tag wie before(): frühere Startzeit, wenn beide eine haben, sonst früher angelegt
+      "CASE WHEN COALESCE(l.start_time, '') <> '' AND ?6 <> '' AND l.start_time <> ?6 THEN l.start_time < ?6 ELSE l.created_at < ?5 END)))) " +
+      "ORDER BY f.created_at LIMIT 300").bind(lesson.klass, lesson.id, JSON.stringify(refs), lesson.lesson_date || "", lesson.created_at, lesson.start_time || ""),
     c.db.prepare("SELECT (SELECT lesson_date FROM lessons WHERE subject='gs' AND klass=?1 AND id<>?2 AND cancelled=0 AND lesson_date > ?3 ORDER BY lesson_date LIMIT 1) AS next, " +
       "EXISTS(SELECT 1 FROM lessons WHERE subject='gs' AND klass=?1 AND id<>?2 AND lesson_date >= ?4 AND lesson_date <= ?5) AS prev")
       .bind(lesson.klass, lesson.id, lesson.lesson_date || "9999-12-31", hz ? hz.from : "9999-12-31", prevTo || ""),
