@@ -5,6 +5,7 @@ import { HttpError, bad, json, readJson, randomId, cleanLine, isId, isObj } from
 import { requireTeacher } from "./auth.js";
 import { createLessonsBulk, lessonOut } from "./lessons.js";
 import { loadSubjectConfigs } from "./bases.js";
+import { courseInfo, getCourseSettings } from "./courses.js";
 import { isValidSubject, isValidClass, classAllowed, subjectName, classShort } from "../public/shared.js";
 import { normalizeParams, computeSlots, normalizePlan, normalizeRows, assignDates, lessonSlots } from "../public/planning.js";
 
@@ -27,7 +28,7 @@ async function linkedLessons(db, unitId) {
 export async function unitFull(db, u) {
   const lessons = await linkedLessons(db, u.id);
   const params = parseJ(u.params, {});
-  return unitOut(u, { slots: computeSlots(params), lessons });
+  return unitOut(u, { slots: computeSlots(params), lessons, course: await courseInfo(db, u.subject, u.klass) });
 }
 
 /* Speichern mit Versionsprüfung (Claude über den Connector und die Lehrkraft im Browser schreiben dieselbe Einheit) */
@@ -86,9 +87,11 @@ export async function routeUnitCreate(c) {
   if (!isValidSubject(body.subject)) throw bad("Bitte eines der drei Fächer wählen.");
   const cfg = (await loadSubjectConfigs(c.db))[body.subject];
   if (!classAllowed(cfg, body.klass)) throw bad(subjectName(body.subject) + " wird in " + classShort(body.klass) + " laut Fach-Einstellungen nicht unterrichtet.");
-  const id = randomId(8);
+  const id = randomId(8), params = normalizeParams(body.params);
+  // ohne eigenen Stundenplan übernimmt die neue Einheit den aus den Kurseinstellungen (in der Einheit änderbar)
+  if (!params.weekdays.length) { const cs = await getCourseSettings(c.db, body.subject, body.klass); if (cs && cs.weekdays.length) params.weekdays = cs.weekdays; }
   await c.db.prepare("INSERT INTO units(id, subject, klass, title, params, created_at, updated_at) VALUES(?1, ?2, ?3, ?4, ?5, ?6, ?6)")
-    .bind(id, body.subject, body.klass, cleanLine(body.title, 200), JSON.stringify(normalizeParams(body.params)), c.now).run();
+    .bind(id, body.subject, body.klass, cleanLine(body.title, 200), JSON.stringify(params), c.now).run();
   return json({ ok: true, unit: await unitFull(c.db, await getUnit(c.db, id)) });
 }
 export async function routeUnitGet(c, id) {

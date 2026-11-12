@@ -98,11 +98,13 @@ implementiert und im End-to-End-Test geprüft (Ausnahmen unten ausdrücklich gen
 | | `worker/mcp.js` | Connector für claude.ai (MCP) |
 | | `worker/bases.js` | Fach-Einstellungen, Planungsgrundlagen (Seitentexte), Zusammenstellung je Klasse/Kurs |
 | | `worker/units.js` | Unterrichtseinheiten (Versionsschutz), Sitzungen aus der Einheit, Stundenpläne für den Wochenkalender |
+| | `worker/courses.js` | Kurseinstellungen aller Kurse (Stundenplan, Schülerzahl): lesen, speichern, Standard für neue Einheiten und Ausdrucke |
 | | `public/weekcal.js` | Wochenkalender auf der Startseite der Lehrkraft (Raster bzw. Liste je Tag) |
 | | `worker/substitute.js` | Krankheitsvertretung: Vorschlag, Bestätigen (Archiv), Wiederherstellen, Übertragen |
 | Oberfläche | `public/app.js` | Router, Startseite, Schüleransicht |
 | | `public/teacher.js`, `public/session.js` | Lehrkräfteansicht (Fach → Klasse/Kurs → Einheiten), Sitzungsansicht |
 | | `public/materialbox.js` | Materialkasten einer Sitzung (Material für Schüler:innen und Lehrkräfte, Druckliste) – aus `session.js` ausgelagert |
+| | `public/coursecard.js` | Karte „Kurseinstellungen“ auf der Klassen- bzw. Kursseite (Termine pro Woche, Schülerzahl) |
 | | `public/grundschule.js` | Bereich „Grundschule“ (Menüpunkt zwischen „Gymnasium“ und „Planungsgrundlagen“): Übersicht mit dem Wochenkalender beider Schulformen und den Kursen |
 | | `public/units.js`, `public/bases.js` | Seite der Unterrichtseinheit (Leupold-Schema, Tabelle), Planungsgrundlagen |
 | | `public/substitute.js`, `public/claude.js` | Krankheitsvertretung in der Sitzung; Übergabe an Claude (Modell/Aufwand) |
@@ -266,6 +268,16 @@ implementiert und im End-to-End-Test geprüft (Ausnahmen unten ausdrücklich gen
   nach Uhrzeit, Überschneidungen in Spuren nebeneinander – `assignLanes`), darunter eine Liste je Tag; Unterricht ohne Uhrzeit steht in
   einer eigenen Zeile „ohne Uhrzeit“. Jeder Eintrag ist ein Link auf die Klasse bzw. den Kurs (`#/lk/f/<Fach>/<Klasse>`). Der Kalender
   lädt unabhängig von den Fächern (ein Fehler dort verhindert die Startseite nicht).
+
+* **Kurseinstellungen (Ergänzung vom 12.11.2026).** Zu jedem Kurs (Gymnasium: Fach + Klasse bzw. Kurs, z. B. `powi|8A`, `ethik|7-K`;
+  Grundschule: `gs|<Kurs-ID>`) hinterlegt die Lehrkraft auf der Klassen- bzw. Kursseite, wann er stattfindet (Termine pro Woche wie in den
+  Rahmendaten einer Einheit) und wie viele Schüler:innen dazugehören (1–60). Tabelle `course_settings`, `GET`/`PUT
+  /api/teacher/course-settings` (`worker/courses.js`; nur Klassen, die laut Fach-Einstellungen unterrichtet werden; in der Grundschule
+  braucht jeder Termin eine Uhrzeit). Eine **neue Einheit** ohne eigenen Stundenplan übernimmt ihn (in der Einheit änderbar; ältere
+  Einheiten bieten „Stundenplan aus den Kurseinstellungen übernehmen“). Die **Schülerzahl** steht in `get_lesson`/`get_unit` und in den
+  Prompts („Schülerzahl laut Kurseinstellungen: 24“ – ohne Angabe sind alle Texte wie bisher) und ist der Standard für die Zahl der
+  Ausdrucke (`anzahl`; ohne Schülerzahl wie bisher die zuletzt verwendete Anzahl der Klasse). Ziehen Klassen in den Kurs ihres Jahrgangs
+  um (Ev. Religion, Ethik), übernimmt der Kurs die Einstellungen der ersten Klasse, wenn er noch keine hat.
 
 * **Fächer und Jahrgänge.** Unter *Planungsgrundlagen → Fach → Fach-Einstellungen* steht, in welchen Jahrgängen ein Fach
   unterrichtet wird. Vorgabe für Politik und Wirtschaft: Jahrgänge 6, 8, 9, 10 (Hinweis: nur 1. Halbjahr), E-Phase und Q-Phase;

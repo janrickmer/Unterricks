@@ -381,13 +381,16 @@ async function lessonsPage(subject, klass) {
   if (!isValidSubject(subject) || !isValidClass(klass)) return go("#/lk");
   const main = h("main", null, h("div", { class: "skeleton", text: "Lade …" }));
   render(teacherBar("lessons"), main);
-  let list, units, cfg, bases;
+  let list, units, cfg, bases, cs, CC;
   try {
-    [list, units, cfg, bases] = await Promise.all([
+    [list, units, cfg, bases, cs, CC] = await Promise.all([
       tapi("GET", "/api/teacher/lessons?subject=" + subject + "&klass=" + klass).then((r) => r.lessons),
       tapi("GET", "/api/teacher/units?subject=" + subject + "&klass=" + klass).then((r) => r.units),
       subjectConfigs().then((c) => c[subject]),
-      tapi("GET", "/api/teacher/bases?subject=" + subject).then((r) => r.bases)]);
+      tapi("GET", "/api/teacher/bases?subject=" + subject).then((r) => r.bases),
+      // Kurseinstellungen (Stundenplan, Schülerzahl) – nur für Klassen, die laut Fach-Einstellungen unterrichtet werden (sonst null)
+      tapi("GET", "/api/teacher/course-settings?subject=" + subject + "&klass=" + klass).then((r) => ({ settings: r.settings })).catch(() => null),
+      import("./coursecard.js")]);
   } catch (e) { clear(main).append(h("p", { class: "err", text: e.message })); return; }
   const name = subjectName(subject), gk = gradeKey(klass), members = courseMembers(cfg, klass);
   if (!classAllowed(cfg, klass)) {
@@ -433,7 +436,7 @@ async function lessonsPage(subject, klass) {
     isAnalogClass(klass) ? h("div", { class: "notice", style: { marginBottom: ".8rem" } }, h("strong", { text: "Jahrgang " + gk + ": " }), ANALOG_RULE) : null,
     missing.length ? h("div", { class: "notice warn", style: { marginBottom: ".8rem" } }, "Für die Planung fehlt noch: " + missing.join("; ") + ". ", h("a", { href: "#/lk/grundlagen/" + subject }, "Planungsgrundlagen hochladen"))
       : subject !== "powi" && !cfg.complete ? h("div", { class: "notice", style: { marginBottom: ".8rem" } }, "Bitte prüfen Sie, ob alle Vorgaben für " + name + " hochgeladen sind, und bestätigen Sie die Vollständigkeit. ", h("a", { href: "#/lk/grundlagen/" + subject }, "Planungsgrundlagen")) : null,
-    h("div", { class: "session-grid" }, unitBox, h("div", { class: "side" }, stopNote, form))));
+    h("div", { class: "session-grid" }, unitBox, h("div", { class: "side" }, stopNote, cs ? CC.courseSettingsCard({ subject, klass, settings: cs.settings }) : null, form))));
   // Beginnt die Planung der nächsten Stunde: Hinweis, wenn die letzte Sitzung mit einem Zwischenstopp endete
   // maßgeblich ist die zuletzt gehaltene Sitzung (Datum bis heute); sind alle in der Zukunft, die neueste
   const today = new Date().toLocaleDateString("sv-SE");

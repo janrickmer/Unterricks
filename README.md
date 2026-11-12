@@ -55,7 +55,9 @@ Feibeitsblatt braucht keine Änderung. Die Adressen stehen in `wrangler.jsonc` (
   In Ev. Religion und Ethik wählen sie ebenfalls ihre eigene Klasse – die Plattform ordnet sie dem Kurs ihres Jahrgangs zu.
   Oben läuft die Live-Präsentation, darunter Material (Download, z. B. für GoodNotes) und Feibeitsblätter.
 * **Lehrkraft:** Einmalig unter **Planungsgrundlagen** je Fach Schulcurriculum, KCGO, E-Phasen-Curriculum und Abiturerlass
-  (je Q-Kurs) als PDF hochladen und die Fach-Einstellungen prüfen. Dann: Fach → Klasse/Kurs → **Unterrichtseinheit planen**
+  (je Q-Kurs) als PDF hochladen und die Fach-Einstellungen prüfen. Dann: Fach → Klasse/Kurs → **Kurseinstellungen** (wann der Kurs
+  stattfindet und wie viele Schüler:innen dazugehören – neue Einheiten übernehmen den Stundenplan, Claude nimmt die Schülerzahl als Zahl
+  der Ausdrucke) → **Unterrichtseinheit planen**
   (Rahmendaten → „Einheit mit Claude planen“ → Leupold-Schema und Tabelle prüfen → „Einheit festlegen und Sitzungen anlegen“) →
   Sitzung öffnen → **„Stunde mit Claude planen“** (Prompt kopieren, in claude.ai mit dem Connector einfügen; Claude speichert
   Schulportal-Eintrag, Hausaufgabe, Materialien und Feibeitsblatt-Entwurf auf Wunsch direkt in der Sitzung – beim Zurückkehren

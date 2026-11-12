@@ -6,6 +6,7 @@ import { callTask, PROVIDERS } from "./ai.js";
 import { getUnit, unitOut } from "./units.js";
 import { loadSubjectConfigs } from "./bases.js";
 import { deleteNotfallFiles } from "./files.js";
+import { courseSettingsStmt, courseSettingsOut, courseInfo } from "./courses.js";
 import {
   isValidClass, isValidSubject, isValidCode, normalizeCode, greetingText, planningSystemPrompt, portalMessages, feibeitsblattMessages,
   chatTranscript, extractJsonObject, validatePortalData, renderPortalEntry, normalizeFbDraft, isIsoDate, hasStop, gradeKey, isClockTime, printFileName,
@@ -47,10 +48,12 @@ export async function getLesson(db, id) {
 
 /* Kontext für KI und Prompts aus der Datenbank */
 export async function lessonCtx(db, lesson) {
-  const [files, sheets] = await db.batch([
+  const [files, sheets, cs] = await db.batch([
     db.prepare("SELECT name, area, kind, pages, substr(text, 1, 6000) AS text FROM files WHERE lesson_id=?1 AND status='ready' ORDER BY created_at").bind(lesson.id),
     db.prepare("SELECT code, title FROM fb_sheets WHERE lesson_id=?1 ORDER BY created_at").bind(lesson.id),
+    courseSettingsStmt(db, lesson.subject, lesson.klass),
   ]);
+  const settings = courseSettingsOut((cs.results || [])[0]);
   let unit = null;
   if (lesson.unit_id) { try { unit = unitOut(await getUnit(db, lesson.unit_id)); } catch {} }
   const cfg = (await loadSubjectConfigs(db))[lesson.subject] || { gradeNotes: {} };
@@ -60,6 +63,7 @@ export async function lessonCtx(db, lesson) {
     materials: (files.results || []).filter((f) => f.area !== "archive").map((f) => ({ name: f.name, area: f.area, kind: f.kind, pages: f.pages, text: f.text || "" })),
     sheets: sheets.results || [], portal: lesson.portal,
     unit, unitText: unit ? unitContext(unit, lesson.unit_row) : "", gradeNote: (cfg.gradeNotes || {})[gradeKey(lesson.klass)] || "",
+    classSize: settings ? settings.classSize : null,
   };
 }
 export async function chatMessages(db, lessonId, limit = 200) {
@@ -183,7 +187,7 @@ export async function routeLessonGet(c, id) {
     c.db.prepare("SELECT COUNT(*) AS n FROM student_access WHERE lesson_id=?1").bind(id),
   ]);
   const messages = await chatMessages(c.db, id, full ? 5000 : 200);
-  const [prev, nextDate] = await Promise.all([previousLesson(c.db, l), nextLessonDate(c.db, l)]);
+  const [prev, nextDate, course] = await Promise.all([previousLesson(c.db, l), nextLessonDate(c.db, l), courseInfo(c.db, l.subject, l.klass)]);
   const previousStop = prev && hasStop(prev.portal) ? { id: prev.id, title: prev.title, date: prev.lesson_date, portal: prev.portal } : null;
   let unit = null;
   if (l.unit_id) { try { unit = unitOut(await getUnit(c.db, l.unit_id)); } catch {} }
@@ -192,7 +196,7 @@ export async function routeLessonGet(c, id) {
   if (sub) { try { proposal = JSON.parse(sub.proposal); } catch {} try { archive = sub.archive ? JSON.parse(sub.archive) : null; } catch {} }
   const substitute = sub ? { status: sub.status, proposal, createdAt: sub.created_at, updatedAt: sub.updated_at, confirmedAt: sub.confirmed_at ?? null,
     archive: archive ? { portal: archive.portal || "", homework: archive.homework || "", sheets: archive.sheets || [], files: (archive.files || []).map((f) => f.id), at: archive.at || null } : null } : null;
-  return json({ ok: true, lesson: lessonOut(l, { studentCount: (students.results[0] || {}).n || 0, nextDate }), previousStop, unit, substitute, messages: messages.map(msgOut),
+  return json({ ok: true, lesson: lessonOut(l, { studentCount: (students.results[0] || {}).n || 0, nextDate }), previousStop, unit, course, substitute, messages: messages.map(msgOut),
     files: (files.results || []).map((f) => fileOut(f)), sheets: (sheets.results || []).map((s) => ({ code: s.code, title: s.title, kind: s.kind || "", createdAt: s.created_at })),
     drafts: (drafts.results || []).map(draftOut) });
 }

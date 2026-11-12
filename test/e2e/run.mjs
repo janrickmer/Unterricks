@@ -1290,6 +1290,59 @@ async function main() {
     ok(await tp.locator(".pagehead .chip", { hasText: "Kurs Jg. 7" }).count() === 1, "Sitzungsseite: Kurs Jg. 7 und die Klassen beim Code");
     ok((await T("PUT", "/api/teacher/subjects/powi", { courses: { "8": ["8A"] } })).status === 400, "Politik und Wirtschaft: keine Kurse über mehrere Klassen");
 
+    /* ---------- Kurseinstellungen (alle Kurse): Stundenplan und Schülerzahl ---------- */
+    step("Kurseinstellungen (alle Kurse): Stundenplan und Schülerzahl; neue Einheit übernimmt den Stundenplan; Claude kennt die Schülerzahl");
+    {
+      await tp.goto(BASE + "/#/lk/f/ethik/7-K");
+      const csCard = tp.locator("section.cs-card");
+      await csCard.locator("h2", { hasText: "Kurseinstellungen" }).waitFor({ timeout: 15000 });
+      ok(await csCard.locator("legend", { hasText: "Wann findet der Kurs statt?" }).count() === 1 && await csCard.getByLabel("Schülerzahl", { exact: true }).count() === 1, "Klassenseite 7-K: Karte „Kurseinstellungen“ mit Stundenplan und Schülerzahl");
+      await csCard.getByRole("button", { name: "+ Termin pro Woche" }).click();
+      await csCard.getByLabel("Wochentag des Termins 1").selectOption("1");
+      await csCard.getByLabel("Beginn des Termins 1 (Uhrzeit)").fill("08:00");
+      await csCard.getByLabel("Dauer des Termins 1 in Minuten").fill("45");
+      await csCard.getByRole("button", { name: "+ Termin pro Woche" }).click();
+      await csCard.getByLabel("Wochentag des Termins 2").selectOption("3");
+      await csCard.getByLabel("Beginn des Termins 2 (Uhrzeit)").fill("09:50");
+      await csCard.getByLabel("Dauer des Termins 2 in Minuten").fill("90");
+      await csCard.getByLabel("Schülerzahl", { exact: true }).fill("24");
+      await csCard.getByRole("button", { name: "Kurseinstellungen speichern" }).click();
+      await tp.locator(".toast", { hasText: "Kurseinstellungen gespeichert." }).waitFor({ timeout: 10000 });
+      const cs7 = (await T("GET", "/api/teacher/course-settings?subject=ethik&klass=7-K")).data.settings;
+      const WD7 = [{ day: 1, minutes: 45, time: "08:00" }, { day: 3, minutes: 90, time: "09:50" }];
+      ok(JSON.stringify(cs7.weekdays) === JSON.stringify(WD7) && cs7.classSize === 24, "gespeichert: Mo 08:00 (45 Min.), Mi 09:50 (90 Min.), 24 Schüler:innen");
+      ok((await T("PUT", "/api/teacher/course-settings", { subject: "ethik", klass: "7-K", weekdays: WD7, classSize: 61 })).data.error === "Die Schülerzahl muss zwischen 1 und 60 liegen.", "Schülerzahl über 60 abgelehnt");
+      await tp.reload();
+      await csCard.getByLabel("Beginn des Termins 2 (Uhrzeit)").waitFor({ timeout: 15000 });
+      ok(await csCard.getByLabel("Schülerzahl", { exact: true }).inputValue() === "24" && await csCard.getByLabel("Beginn des Termins 2 (Uhrzeit)").inputValue() === "09:50", "nach dem Neuladen wieder da");
+      // neue Einheit: übernimmt den Stundenplan (der Knopf zum Übernehmen fehlt, weil beide gleich sind)
+      await tp.fill("#ut", "Verantwortung");
+      await tp.getByRole("button", { name: "Einheit anlegen" }).click();
+      await tp.waitForURL(/#\/lk\/u\/[a-f0-9]{16}$/);
+      await tp.locator('select[aria-label="Wochentag"]').first().waitFor({ timeout: 15000 });
+      const dayVals = await tp.locator('select[aria-label="Wochentag"]').evaluateAll((els) => els.map((e) => e.value));
+      const minVals = await tp.locator('input[aria-label="Minuten"]').evaluateAll((els) => els.map((e) => e.value));
+      const timeVals = await tp.locator('input[aria-label="Uhrzeit (Beginn)"]').evaluateAll((els) => els.map((e) => e.value));
+      ok(JSON.stringify([dayVals, minVals, timeVals]) === JSON.stringify([["1", "3"], ["45", "90"], ["08:00", "09:50"]]), "neue Einheit hat die zwei Termine aus den Kurseinstellungen");
+      ok(await tp.getByRole("button", { name: "Stundenplan aus den Kurseinstellungen übernehmen" }).count() === 0, "Knopf „Stundenplan aus den Kurseinstellungen übernehmen“ fehlt, wenn der Stundenplan gleich ist");
+      // ältere Einheit (vor den Kurseinstellungen angelegt): Übernehmen per Knopf
+      await tp.goto(BASE + "/#/lk/u/" + u7a.id);
+      const take = tp.getByRole("button", { name: "Stundenplan aus den Kurseinstellungen übernehmen" });
+      await take.waitFor({ timeout: 15000 });
+      await take.click();
+      await tp.getByText("Übernommen – zum Speichern „Speichern und Termine berechnen“ wählen.").waitFor();
+      ok(await tp.locator('select[aria-label="Wochentag"]').count() === 2 && await take.count() === 0, "ältere Einheit: Stundenplan übernommen (noch nicht gespeichert)");
+      // Claude kennt die Schülerzahl
+      const gl = await tool("get_lesson", { lesson_id: old7a.id });
+      ok(gl.content[0].text.includes("\nSchülerzahl laut Kurseinstellungen: 24\n"), "get_lesson einer Sitzung des Kurses: „Schülerzahl laut Kurseinstellungen: 24“");
+      const tl = (await rpc({ jsonrpc: "2.0", id: 31, method: "tools/list", params: {} })).data.result.tools;
+      ok(tl.find((t) => t.name === "add_material_pdf").description.includes("Standard: Schülerzahl laut Kurseinstellungen (siehe get_lesson)"), "add_material_pdf: anzahl standardmäßig aus den Kurseinstellungen");
+      const am = await tool("add_material_pdf", { lesson_id: old7a.id, bereich: "druck", titel: "Gerechtigkeitskärtchen", html: "<h1>Gerecht oder ungerecht?</h1><p>Kärtchen</p>" });
+      ok(!am.isError && am.content[0].text.includes("„24x - beidseitig - sw - Gerechtigkeitskärtchen.pdf“"), "add_material_pdf (druck) ohne anzahl: " + am.content[0].text.slice(0, 160));
+      const pf = (await T("GET", "/api/teacher/lessons/" + old7a.id)).data.files.find((f) => f.area === "print" && f.name.startsWith("Gerechtigkeitskärtchen"));
+      ok(pf && pf.printName.startsWith("24x - "), "Druckliste: „" + (pf && pf.printName) + "“");
+    }
+
     /* ---------- GitHub Pages: dieselbe Oberfläche von einer anderen Herkunft ---------- */
     step("GitHub Pages: Oberfläche von anderer Herkunft (CORS, Live-Verbindung, Links zum Worker, Schutz gegen Einbetten)");
     execFileSync("node", ["scripts/build.mjs"], { cwd: ROOT, env: { ...process.env, PAGES_API: BASE, FEIBEITSBLATT_API: FB }, stdio: "ignore" });

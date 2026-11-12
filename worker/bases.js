@@ -2,6 +2,7 @@
 // Der Text je Seite wird im Browser der Lehrkraft aus der PDF gezogen (PDF.js) und hier gespeichert; die Abschnitte (Kurshalbjahre,
 // Jahrgänge, Fachteil des Erlasses) erkennt ebenfalls der Browser (public/bases-detect.js), die Lehrkraft kann sie korrigieren.
 import { HttpError, bad, json, readJson, randomId, cleanText, cleanLine, isId, isObj } from "./lib.js";
+import { courseSettingsCopyStmt } from "./courses.js";
 import { getSetting, setSetting } from "./db.js";
 import { requireTeacher } from "./auth.js";
 import { SUBJECTS, isValidSubject, subjectName, subjectConfig, isValidClass, gradeKey, Q_COURSES, GRADE_KEYS, COURSE_GRADES, courseKey, courseMembersClean, isCourseSubject, classShort } from "../public/shared.js";
@@ -59,8 +60,9 @@ export async function routeSubjectPut(c, subject) {
     const st = moves.flatMap(([k, members]) => [
       c.db.prepare("UPDATE lessons SET klass=?1, updated_at=?4 WHERE subject=?2 AND klass IN (SELECT value FROM json_each(?3))").bind(k, subject, JSON.stringify(members), c.now),
       c.db.prepare("UPDATE units SET klass=?1, updated_at=?4 WHERE subject=?2 AND klass IN (SELECT value FROM json_each(?3))").bind(k, subject, JSON.stringify(members), c.now)]);
-    const res = await c.db.batch(st);
-    res.forEach((r, i) => { moved[i % 2 ? "units" : "lessons"] += (r.meta && r.meta.changes) || 0; });
+    // der Kurs übernimmt die Kurseinstellungen der ersten Klasse, wenn er noch keine hat
+    const res = await c.db.batch([...st, ...moves.map(([k, members]) => courseSettingsCopyStmt(c.db, subject, k, members, c.now))]);
+    res.slice(0, st.length).forEach((r, i) => { moved[i % 2 ? "units" : "lessons"] += (r.meta && r.meta.changes) || 0; });
   }
   return json({ ok: true, subject: subjectConfig(all, subject), moved });
 }

@@ -13,6 +13,7 @@ import * as U from "./units.js";
 import * as SUB from "./substitute.js";
 import * as R from "./reset.js";
 import * as RN from "./render.js";
+import * as CS from "./courses.js";
 
 export { LiveRoom } from "./live.js";
 
@@ -66,6 +67,8 @@ const ROUTES = [
   // Unterrichtseinheiten
   ["GET", "/api/teacher/units", U.routeUnitsList],
   ["GET", "/api/teacher/schedule", U.routeSchedule],
+  ["GET", "/api/teacher/course-settings", CS.routeCourseSettingsGet],
+  ["PUT", "/api/teacher/course-settings", CS.routeCourseSettingsPut],
   ["POST", "/api/teacher/units", U.routeUnitCreate],
   ["GET", "/api/teacher/units/" + ID, U.routeUnitGet],
   ["PATCH", "/api/teacher/units/" + ID, U.routeUnitPatch],

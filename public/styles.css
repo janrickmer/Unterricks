@@ -809,3 +809,16 @@ img.sub-photo { max-width: 100%; max-height: 60vh; border-radius: 12px; border: 
 .gs-courses { margin-top: 1.2rem; }
 .gs-courses h3 { margin: 1rem 0 .55rem; }
 .gs-courses details.box { margin-top: 1rem; }
+
+/* Kurseinstellungen (coursecard.js): Termine pro Woche und Schülerzahl */
+.cs-card fieldset { border: 0; padding: 0; margin: 0 0 .95rem; min-width: 0; }
+.cs-card legend { padding: 0; font-weight: 700; font-size: .95rem; margin-bottom: .4rem; }
+.cs-card .cs-row { gap: .45rem; }
+.cs-card select.cs-day { width: auto; }
+.cs-card input.cs-time { font: inherit; color: var(--text); background: var(--surface); border: 1px solid var(--line-ui); border-radius: var(--radius-s); padding: .45rem .55rem; min-height: 44px; max-width: 8.5rem; }
+.cs-card input.cs-min { max-width: 6rem; }
+.cs-card #cs-size { max-width: 8rem; }
+.cs-card .cs-row .iconbtn { min-width: 44px; min-height: 44px; }
+/* Klassenseite: mit der Karte „Kurseinstellungen“ ist die rechte Spalte oft höher als der Bildschirm – dann nicht kleben (sonst bliebe
+   das Formular „Neue Unterrichtseinheit planen“ unter dem unteren Rand, bis man ans Seitenende scrollt) */
+.side:has(> .cs-card) { position: static; }

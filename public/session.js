@@ -32,7 +32,7 @@ export async function sessionPage(id) {
     lesson: { title: L().title, topic: L().topic, durationMin: L().durationMin, date: L().date, startTime: L().startTime, ideas: L().ideas, homework: L().homework },
     materials: st.files.filter((f) => f.area !== "archive").map((f) => ({ name: f.name, area: f.area, kind: f.kind, text: f.kind === "link" ? f.url || "" : f.design ? f.design.text || "" : f.text || "", pages: f.pages })), sheets: st.sheets,
     portal: portalTA ? portalTA.value : L().portal, unit: st.unit, row: row(), unitText: st.unit ? unitContext(st.unit, L().unitRow) : "",
-    gradeNote: cfg && cfg[L().subject] ? (cfg[L().subject].gradeNotes || {})[gradeKey(L().klass)] || "" : "" });
+    gradeNote: cfg && cfg[L().subject] ? (cfg[L().subject].gradeNotes || {})[gradeKey(L().klass)] || "" : "", classSize: d.course ? d.course.classSize : null });
 
   // Kopfband in der Fachfarbe: Folgennummer der Stunde in der Einheit, Fach, Kurs, Datum, Dauer
   const heading = h("h1", { text: L().title });

@@ -601,3 +601,12 @@ test("Beamerfenster: Bildschirm für „Vollbild auf dem Beamer“", async () =>
   assert.equal(beamerScreen({ screens: [m1, m2], currentScreen: m2 }), null);
   assert.equal(beamerScreen(null), null); assert.equal(beamerScreen({ screens: [lap, ext] }), null);
 });
+
+test("lessonContext: Schülerzahl laut Kurseinstellungen nur mit Angabe (direkt nach Klasse/Kurs), sonst unverändert", () => {
+  const ctx = { subject: "evrel", klass: "8-K", lesson: { title: "Psalmen", durationMin: 45 }, materials: [], sheets: [] };
+  const a = lessonContext(ctx), b = lessonContext({ ...ctx, classSize: 22 });
+  assert.ok(!a.includes("Schülerzahl"));
+  assert.equal(lessonContext({ ...ctx, classSize: null }), a);
+  assert.equal(b.split("\n")[2], "Schülerzahl laut Kurseinstellungen: 22");
+  assert.equal(b.split("\n").filter((l, i) => i !== 2).join("\n"), a);
+});

@@ -67,6 +67,16 @@ export async function unitPage(id) {
       h("button", { class: "btn small ghost", type: "button", "aria-label": "Entfernen", onclick: () => { brs.splice(i, 1); paintBr(); } }, icon("x")))),
       h("button", { class: "btn small", type: "button", onclick: () => { brs.push({ from: "", to: "", label: "" }); paintBr(); } }, "+ Ferien/Ausfall"));
     paintWd(); paintBr();
+    // Stundenplan aus den Kurseinstellungen (nur, wenn er dort eingetragen ist und sich von dem der Einheit unterscheidet)
+    const cw = u.course && Array.isArray(u.course.weekdays) ? u.course.weekdays : [];
+    const sameWd = () => JSON.stringify(normalizeParams({ weekdays: wds }).weekdays) === JSON.stringify(normalizeParams({ weekdays: cw }).weekdays);
+    const wdState = h("p", { class: "small", role: "status" });
+    const takeWd = cw.length && !sameWd() ? h("button", { class: "btn small", type: "button", onclick: () => {
+      wds.splice(0, wds.length, ...cw.map((w) => ({ ...w })));
+      paintWd(); takeWd.remove();
+      wdState.textContent = "Übernommen – zum Speichern „Speichern und Termine berechnen“ wählen.";
+      const first = wdBox.querySelector("select"); if (first) first.focus();
+    } }, "Stundenplan aus den Kurseinstellungen übernehmen") : null;
     const start = h("input", { type: "date", value: p.start || "", "aria-label": "Beginn" }), end = h("input", { type: "date", value: p.end || "", "aria-label": "Ende" });
     const exam = h("input", { type: "date", value: p.exam || "", "aria-label": "Klausurtermin" }), notes = h("textarea", { rows: "2", value: p.notes || "", placeholder: "Weitere Hinweise (optional)" });
     const slots = computeSlots(u.params), ls = lessonSlots(slots);
@@ -75,7 +85,7 @@ export async function unitPage(id) {
     return h("section", { class: "card" }, h("h2", { text: "1. Rahmendaten der Einheit" }),
       h("div", { class: "field" }, h("label", null, "Thema / Arbeitstitel"), title),
       h("div", { class: "meta-grid" },
-        h("div", { class: "field" }, h("label", null, "Sitzungen pro Woche (Wochentag, Beginn und Länge)"), wdBox),
+        h("div", { class: "field" }, h("label", null, "Sitzungen pro Woche (Wochentag, Beginn und Länge)"), wdBox, takeWd, wdState),
         h("div", { class: "field" }, h("label", null, "Ferien und bekannte Ausfälle im Zeitraum"), brBox),
         h("div", { class: "field" }, h("label", null, "Beginn der Einheit"), start),
         h("div", { class: "field" }, h("label", null, "Abgeschlossen sein bis"), end),
@@ -116,7 +126,7 @@ export async function unitPage(id) {
         intro: "Claude fragt Sie zuerst" + (u.subject === "powi" ? " nach der Planungsgrundlage (mit priorisiertem und sekundärem Vorschlag), " : " ") + "dann nach der zentralen Lernaufgabe (drei Vorschläge) und erstellt danach Leupold-Schema und Ablauftabelle für " + ls.length + " Sitzungen.",
         after: "Wenn Claude den Plan mit „save_unit_plan“ gespeichert hat, kommen Sie hierher zurück: Leupold-Schema und Tabelle erscheinen unten und lassen sich bearbeiten.",
         prompt: () => claudeUnitPrompt({ unitId: u.id, subject: u.subject, klass: u.klass, title: u.title, params: u.params, slots: computeSlots(u.params),
-          rules: cfg.rules, gradeNote: b.gradeNote, bases: b.docs.map((d) => d.title), missing: b.missing }) });
+          rules: cfg.rules, gradeNote: b.gradeNote, bases: b.docs.map((d) => d.title), missing: b.missing, classSize: u.course ? u.course.classSize : null }) });
     });
     return h("section", { class: "card claudeplan" }, h("div", { class: "section-title" }, h("h2", { text: "3. Planung mit Claude" }), h("span", { class: "badge", text: "Hauptweg" })),
       h("p", { class: "small", text: "Die Planung der Einheit übernimmt Claude mit Ihrem Pro-Abo in claude.ai. Claude liest die Planungsgrundlagen über den Connector, stimmt Planungsgrundlage und Lernaufgabe mit Ihnen ab und speichert Leupold-Schema und Ablauf direkt hier." }),

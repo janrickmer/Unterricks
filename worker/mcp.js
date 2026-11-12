@@ -82,7 +82,7 @@ const TOOLS = [
     description: "Legt ein von dir gestaltetes Material als PDF-Datei in der Sitzung ab: Arbeitsblätter, Texte und Quellen, Schaubilder, Tafelbilder, Kärtchen, Erwartungshorizonte – alles, was Schüler:innen oder die Lehrkraft als Datei bekommen. " +
       "Du gestaltest es als HTML-Seite; Unterricks druckt sie unverändert mit Chromium als A4-PDF und legt die PDF ab. bereich: \"schueler\" (für die Schüler:innen, sichtbar sobald die PDF gedruckt ist; sie laden sie z. B. in GoodNotes), " +
       "\"lehrkraft\" (nur für die Lehrkraft, z. B. Erwartungshorizont, Lösungen, Tafelbild) oder \"druck\" (Liste „Von der Lehrkraft auszudrucken“: in Jg. 5/6 alles Material für die Schüler:innen, sonst Kärtchen, Karten, Plakate; " +
-      "dazu anzahl – frag nach der Klassengröße, wenn du sie nicht kennst –, beidseitig (false, wenn geschnitten wird) und farbe (nur, wenn Farbe unbedingt nötig ist; gedruckt wird fast immer schwarz-weiß)). " +
+      "dazu anzahl – Standard: Schülerzahl laut Kurseinstellungen (siehe get_lesson); fehlt sie, frag nach der Klassengröße –, beidseitig (false, wenn geschnitten wird) und farbe (nur, wenn Farbe unbedingt nötig ist; gedruckt wird fast immer schwarz-weiß)). " +
       "Mit file_id (aus get_lesson) ersetzt du die Gestaltung eines vorhandenen Materials – lies sie vorher mit get_material; eingebettete Bilder stehen dort als Platzhalter „data:unterricks-bild,n“ und bleiben erhalten, wenn du die Platzhalter stehen lässt. " +
       "Die Antwort nennt die Seitenzahl der gedruckten PDF oder die Meldung des Druckers. Ein Material = eine Datei (mehrere Materialien M1, M2 … für dieselbe Aufgabe dürfen in einer Datei stehen).\n\nGestaltungsregeln:\n" + materialDesignText(),
     inputSchema: { type: "object", properties: { lesson_id: ID_ARG, bereich: { type: "string", enum: ["schueler", "lehrkraft", "druck"], description: "bei file_id nur angeben, wenn er sich ändert (schueler ↔ lehrkraft)" },
@@ -214,7 +214,7 @@ async function callTool(c, name, a) {
     case "get_unit": {
       const u = await unitFull(c.db, await getUnit(c.db, a.unit_id));
       const lines = ["# Unterrichtseinheit " + u.id + " (" + subjectName(u.subject) + ", " + classShort(u.klass) + " – " + gradeInfo(u.klass).text + ", Status: " + u.status + ", Version " + u.version + ")",
-        "Titel: " + (u.title || "(offen)"), paramsText(u.params), "Verfügbare Sitzungen: " + lessonSlots(u.slots).length, ...lessonSlots(u.slots).map((x, i) => "  " + (i + 1) + ". " + fmtDay(x.date) + " (" + x.minutes + " min)"),
+        "Titel: " + (u.title || "(offen)"), ...(u.course && Number.isInteger(u.course.classSize) ? ["Schülerzahl laut Kurseinstellungen: " + u.course.classSize] : []), paramsText(u.params), "Verfügbare Sitzungen: " + lessonSlots(u.slots).length, ...lessonSlots(u.slots).map((x, i) => "  " + (i + 1) + ". " + fmtDay(x.date) + " (" + x.minutes + " min)"),
         "", "## Plan", JSON.stringify(u.plan, null, 1), "", "## Ablauf (Zeilen)", ...u.rows.map((r, i) => (i + 1) + ". " + (r.date ? fmtDay(r.date) + ": " : "") + r.stundenfrage + (r.schritt != null ? " [Lernschritt " + (r.schritt + 1) + "]" : "") + "\n   - " + r.ablauf.join("\n   - ")),
         "", "## Sitzungen", ...(u.lessons.length ? u.lessons.map((l) => "- " + l.id + " " + (l.date ? fmtDay(l.date) : "") + ": " + l.title) : ["(noch keine)"])];
       return toolText(lines.join("\n"), { unit_id: u.id, version: u.version });

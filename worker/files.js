@@ -1,6 +1,7 @@
 // files.js – Dateiablage in R2: Material für Schüler:innen, Material nur für die Lehrkraft, Präsentation (PDF + Folienbilder).
 // Downloads und Folienbilder laufen über kurzlebige signierte Links (funktionieren auch beim direkten Öffnen auf dem iPad).
 import { HttpError, bad, json, readJson, randomId, cleanLine, cleanText, isId, requireSecret, signLink, checkLink, contentDisposition, INLINE_SAFE } from "./lib.js";
+import { courseClassSize } from "./courses.js";
 import { requireTeacher } from "./auth.js";
 import { getLesson, fileOut, codeSlidesOf, LIMITS, printProps } from "./lessons.js";
 import { normalizeCode, isValidCode, cleanWebUrl, slidesUpTo, printFileName, cleanCopies, isAnalogClass, cleanCodeSlides } from "../public/shared.js";
@@ -148,12 +149,15 @@ export async function insertTextMaterial(db, lessonId, area, title, text, source
   return getFile(db, id);
 }
 /* ---------- Druckliste „Von der Lehrkraft auszudrucken“ (area = 'print'): nur PDF in A4 (der Browser rechnet andere Formate vorher um) ----------
- * Name beim Herunterladen „28x - beidseitig - sw - Name.pdf“; ohne Angabe gilt die zuletzt verwendete Anzahl dieser Klasse (sonst 1), beidseitig, schwarz-weiß. */
+ * Name beim Herunterladen „28x - beidseitig - sw - Name.pdf“; ohne Angabe gilt die Schülerzahl laut Kurseinstellungen, sonst die zuletzt verwendete
+ * Anzahl dieser Klasse (sonst 1), beidseitig, schwarz-weiß. */
 async function lastCopies(db, lessonId) {
   const r = await db.prepare("SELECT f.print_copies AS n FROM files f JOIN lessons l ON l.id = f.lesson_id WHERE f.area='print' AND f.print_copies IS NOT NULL " +
     "AND l.klass = (SELECT klass FROM lessons WHERE id=?1) ORDER BY f.created_at DESC LIMIT 1").bind(lessonId).first();
   return (r && r.n) || 1;
 }
+// Standard: Schülerzahl laut Kurseinstellungen, sonst die zuletzt verwendete Anzahl dieser Klasse
+const defaultCopies = async (db, lessonId) => (await courseClassSize(db, lessonId)) || (await lastCopies(db, lessonId));
 const boolParam = (v, dflt) => (v === "1" || v === "true" ? 1 : v === "0" || v === "false" ? 0 : dflt);
 export async function routePrintUpload(c, lessonId) {
   await requireTeacher(c);
@@ -167,7 +171,7 @@ export async function routePrintUpload(c, lessonId) {
   // wirklich eine PDF? (die ersten Bytes) – sonst gleich wieder weg
   const head = await c.env.FILES.get(key, { range: { offset: 0, length: 5 } });
   if (!head || (await head.text()) !== "%PDF-") { await c.env.FILES.delete(key); throw bad("Diese Datei ist keine PDF-Datei. Zum Ausdrucken sind nur PDF-Dateien erlaubt."); }
-  const copies = cleanCopies(u.searchParams.get("copies")) || (await lastCopies(c.db, lessonId));
+  const copies = cleanCopies(u.searchParams.get("copies")) || (await defaultCopies(c.db, lessonId));
   await c.db.prepare("INSERT INTO files(id, lesson_id, area, kind, name, mime, size, status, source, print_copies, print_duplex, print_color, created_at, updated_at) " +
     "VALUES(?1, ?2, 'print', 'file', ?3, 'application/pdf', ?4, 'ready', ?5, ?6, ?7, ?8, ?9, ?9)")
     .bind(id, lessonId, name, len, cleanLine(u.searchParams.get("source"), 40) || "upload", copies, boolParam(u.searchParams.get("duplex"), 1), boolParam(u.searchParams.get("color"), 0), c.now).run();
@@ -178,7 +182,7 @@ export async function insertPrintText(db, lessonId, title, text, p, source, now)
   const t = cleanText(text, LIMITS.textMaterial).trim();
   if (!t) throw bad("Die Druckvorlage ist leer.");
   const id = randomId(8), name = cleanLine(title, 200) || "Druckvorlage";
-  const copies = cleanCopies(p.copies) || (await lastCopies(db, lessonId));
+  const copies = cleanCopies(p.copies) || (await defaultCopies(db, lessonId));
   await db.prepare("INSERT INTO files(id, lesson_id, area, kind, name, mime, size, text, status, source, print_copies, print_duplex, print_color, created_at, updated_at) " +
     "VALUES(?1, ?2, 'print', 'text', ?3, 'text/markdown', ?4, ?5, 'ready', ?6, ?7, ?8, ?9, ?10, ?10)")
     .bind(id, lessonId, name, new TextEncoder().encode(t).length, t, source, copies, p.duplex === false ? 0 : 1, p.color === true ? 1 : 0, now).run();
@@ -224,7 +228,7 @@ export async function saveDesign(c, lessonId, { area, title, html, print = {}, s
   }
   if (!DESIGN_AREAS.has(area)) throw bad("Bitte den Bereich wählen: für Schüler:innen, nur für die Lehrkraft oder zum Ausdrucken.");
   const h = designHtml(html), id = randomId(8);
-  const copies = area === "print" ? cleanCopies(print.copies) || (await lastCopies(c.db, lessonId)) : null;
+  const copies = area === "print" ? cleanCopies(print.copies) || (await defaultCopies(c.db, lessonId)) : null;
   await c.db.prepare("INSERT INTO files(id, lesson_id, area, kind, name, mime, size, text, status, source, html, html_at, print_copies, print_duplex, print_color, created_at, updated_at) " +
     "VALUES(?1, ?2, ?3, 'file', ?4, 'application/pdf', 0, ?5, 'pending', ?6, ?7, ?8, ?9, ?10, ?11, ?8, ?8)")
     .bind(id, lessonId, area, pdfFileName(title), htmlText(h), source, h, c.now, copies, area === "print" ? (print.duplex === false ? 0 : 1) : null, area === "print" ? (print.color === true ? 1 : 0) : null).run();

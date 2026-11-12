@@ -245,3 +245,27 @@ test("Wochenkalender: zwei Stunden derselben Einheit am selben Tag ohne Uhrzeit 
   const w2 = weekSchedule([unit("a", "powi", "8C", p), unit("b", "powi", "8C", p)], "2026-11-09");
   assert.deepEqual(w2.days[1].untimed.map((e) => [e.minutes, e.unitIds.join(",")]), [[45, "a,b"], [90, "a,b"]]);
 });
+
+/* ---------- Kurseinstellungen: Schülerzahl in den Prompts (nur wenn eingetragen) ---------- */
+import { normalizeCourseSettings } from "../../public/planning.js";
+test("Prompts: Schülerzahl laut Kurseinstellungen nur mit Angabe – sonst wörtlich wie bisher", () => {
+  const unit = { unitId: "0123456789abcdef", subject: "ethik", klass: "7-K", title: "Gerechtigkeit", params: {}, slots: [], rules: "", bases: [], missing: [] };
+  const u0 = claudeUnitPrompt(unit), u1 = claudeUnitPrompt({ ...unit, classSize: 24 });
+  assert.ok(!u0.includes("Schülerzahl"));
+  assert.equal(u1, u0.replace(/(\n- Klasse\/Kurs: [^\n]*\n)/, "$1- Schülerzahl: 24 (laut Kurseinstellungen)\n"));
+  assert.equal(claudeUnitPrompt({ ...unit, classSize: null }), u0);
+  const lesson = { lessonId: "0123456789abcdef", subject: "ethik", klass: "7-K", lesson: { title: "Was ist gerecht?", durationMin: 45 }, materials: [], sheets: [], portal: "", unitText: "", messages: [] };
+  const l0 = claudeLessonPrompt(lesson), l1 = claudeLessonPrompt({ ...lesson, classSize: 24 });
+  assert.ok(l0.includes("`anzahl` (frag mich nach der Klassengröße, wenn du sie nicht kennst)") && !l0.includes("Schülerzahl"));
+  assert.equal(l1, l0.replace("`anzahl` (frag mich nach der Klassengröße, wenn du sie nicht kennst)", "`anzahl` (laut Kurseinstellungen 24 Schüler:innen)")
+    .replace(/(\nKlasse\/Kurs: [^\n]*\n)/, "$1Schülerzahl laut Kurseinstellungen: 24\n"));
+});
+test("normalizeCourseSettings: Stundenplan wie die Rahmendaten, Schülerzahl 1–60, Grundschule mit Uhrzeit", () => {
+  assert.deepEqual(normalizeCourseSettings({}), { weekdays: [], classSize: null });
+  assert.deepEqual(normalizeCourseSettings({ weekdays: [{ day: 1, minutes: 45, time: "08:00" }, { day: 6, minutes: 45 }, { day: 3, minutes: 10 }], classSize: "24" }),
+    { weekdays: [{ day: 1, minutes: 45, time: "08:00" }], classSize: 24 });
+  for (const v of [0, 61, 1.5, "abc", true, [3]]) assert.throws(() => normalizeCourseSettings({ classSize: v }), /^Error: Die Schülerzahl muss zwischen 1 und 60 liegen\.$/);
+  assert.equal(normalizeCourseSettings({ classSize: "" }).classSize, null);
+  assert.throws(() => normalizeCourseSettings({ weekdays: [{ day: 2, minutes: 45 }] }, { requireTime: true }), /Bitte bei jedem Termin die Uhrzeit eintragen/);
+  assert.deepEqual(normalizeCourseSettings({ weekdays: [{ day: 2, minutes: 45, time: "08:00" }] }, { requireTime: true }).weekdays, [{ day: 2, minutes: 45, time: "08:00" }]);
+});

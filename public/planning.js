@@ -23,6 +23,22 @@ export function normalizeParams(raw) {
     .filter((b) => b.from && b.to && b.to >= b.from);
   return { start: date(p.start), end: date(p.end), exam: date(p.exam), weekdays, breaks, notes: str(p.notes, 2000) };
 }
+/* Kurseinstellungen (course_settings; beide Schulformen): Stundenplan wie units.params.weekdays und Schülerzahl (1–60, null = nicht eingetragen).
+ * requireTime (Grundschule): jeder Termin braucht eine Uhrzeit – daraus ergibt sich, ab wann Eltern eine Sitzung sehen. Wirft deutsche Meldungen. */
+export const CLASS_SIZE_MAX = 60;
+export function normalizeCourseSettings(raw, { requireTime = false } = {}) {
+  const r = raw && typeof raw === "object" ? raw : {};
+  const weekdays = normalizeParams({ weekdays: r.weekdays }).weekdays;
+  const v = r.classSize;
+  let classSize = null;
+  if (v !== null && v !== undefined && v !== "") {
+    const n = typeof v === "number" ? v : typeof v === "string" && /^\s*\d+\s*$/.test(v) ? Number(v) : NaN;
+    if (!Number.isInteger(n) || n < 1 || n > CLASS_SIZE_MAX) throw new Error("Die Schülerzahl muss zwischen 1 und 60 liegen.");
+    classSize = n;
+  }
+  if (requireTime && weekdays.some((w) => !w.time)) throw new Error("Bitte bei jedem Termin die Uhrzeit eintragen – daraus ergibt sich, ab wann Eltern eine Sitzung sehen können.");
+  return { weekdays, classSize };
+}
 /* Alle Unterrichtstermine im Zeitraum nach Stundenplan, ohne Ferien/Ausfälle; der Klausurtag wird markiert */
 export function computeSlots(raw) {
   const p = normalizeParams(raw), out = [];
@@ -218,6 +234,7 @@ export function claudeUnitPrompt(ctx) {
     "## Rahmendaten (von der Plattform erfasst)",
     "- Fach: " + subjectName(ctx.subject),
     "- Klasse/Kurs: " + classShort(ctx.klass) + " – " + g.text,
+    Number.isInteger(ctx.classSize) ? "- Schülerzahl: " + ctx.classSize + " (laut Kurseinstellungen)" : "",
     ctx.title ? "- Thema/Arbeitstitel der Einheit: " + ctx.title : "- Thema: noch offen (aus den Vorgaben ableiten und mit mir abstimmen)",
     paramsText(ctx.params).split("\n").map((l) => "- " + l).join("\n"),
     "- Verfügbare Sitzungen bis zum Ende der Einheit: " + slots.length + (slots.length ? "\n" + list : ""),
@@ -258,7 +275,7 @@ export function claudeLessonPrompt(ctx) {
     "   - Stundenverlauf → `save_schulportal_entry` (Schulportal-Zeichen: " + PORTAL_RULES.join("; ") + "; Aufbau genau wie in der Vorlage unten; übergib `base_version` aus `get_lesson` – meldet die Plattform eine neuere Fassung, rufe `get_lesson` erneut auf und berücksichtige meine Änderungen).",
     "   - Ausgearbeiteter Stundenentwurf (Verlauf mit Minuten, Begründung, Erwartungen) → `save_planning_result` (erscheint im Planungsverlauf der Sitzung; darauf bauen der Präsentations-Prompt und spätere Planungen auf).",
     "   - Arbeitsblätter und alle anderen Materialien als Datei gestaltest du selbst als HTML-Seite (Gestaltungsregeln unten) und legst sie mit `add_material_pdf` ab – Unterricks druckt sie unverändert als A4-PDF und meldet dir die Seitenzahl. `bereich` \"schueler\": für die Schüler:innen" + (analog ? " (in dieser Jahrgangsstufe nur, wenn ich es ausdrücklich möchte – sonst \"druck\")" : ", z. B. für GoodNotes") + "; \"lehrkraft\": nur für mich, z. B. Erwartungshorizont, Lösungen oder Tafelbild.",
-    "   - Alles, was ich vor der Stunde ausdrucken muss (z. B. Arbeitsblätter" + (analog ? " – in dieser Jahrgangsstufe alles Material für die Schüler:innen" : "") + ", Karten, Schaubilder oder Kärtchen für die Tafel) → `add_material_pdf` mit `bereich` \"druck\", `anzahl` (frag mich nach der Klassengröße, wenn du sie nicht kennst), `beidseitig` (false, wenn geschnitten wird) und `farbe` (nur, wenn Farbe unbedingt nötig ist – an der Schule wird fast immer schwarz-weiß gedruckt). Gedruckt wird nur A4.",
+    "   - Alles, was ich vor der Stunde ausdrucken muss (z. B. Arbeitsblätter" + (analog ? " – in dieser Jahrgangsstufe alles Material für die Schüler:innen" : "") + ", Karten, Schaubilder oder Kärtchen für die Tafel) → `add_material_pdf` mit `bereich` \"druck\", " + (Number.isInteger(ctx.classSize) ? "`anzahl` (laut Kurseinstellungen " + ctx.classSize + " Schüler:innen)" : "`anzahl` (frag mich nach der Klassengröße, wenn du sie nicht kennst)") + ", `beidseitig` (false, wenn geschnitten wird) und `farbe` (nur, wenn Farbe unbedingt nötig ist – an der Schule wird fast immer schwarz-weiß gedruckt). Gedruckt wird nur A4.",
     "   - Meldet `add_material_pdf` einen Druckfehler, korrigiere die Gestaltung und sende sie mit `file_id` erneut. Nur wenn der PDF-Druck gar nicht funktioniert, nimm als Rückfall `add_text_material` bzw. `add_print_material` (Markdown, ohne eigene Gestaltung).",
     analog ? null : "   - Feibeitsblatt → `propose_feibeitsblatt` (nur ein Entwurf: Ich prüfe ihn in der Plattform und lege das Blatt dort an).",
     "   - Hausaufgabe bis zur nächsten Sitzung → `update_lesson` mit `hausaufgabe` (für die Schüler:innen sichtbar; Schulportal-Zeichen erlaubt). Geänderte Sitzungsdaten (Titel, Thema, Dauer) ebenfalls mit `update_lesson`.",

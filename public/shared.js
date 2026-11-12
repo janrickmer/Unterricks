@@ -953,6 +953,7 @@ export function lessonContext(ctx, opt = {}) {
   const lines = [
     "Unterrichtsfach: " + subjectName(ctx.subject),
     "Klasse/Kurs: " + classShort(ctx.klass) + " – " + gradeInfo(ctx.klass).text,
+    ...(Number.isInteger(ctx.classSize) ? ["Schülerzahl laut Kurseinstellungen: " + ctx.classSize] : []),
     "Unterrichtssitzung: " + (L.title || "(noch ohne Titel)"),
     "Thema: " + (L.topic || "(noch nicht festgelegt)"),
     "Dauer: " + (L.durationMin ? L.durationMin + " Minuten" : "(noch nicht angegeben – bitte erfragen)"),
