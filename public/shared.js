@@ -790,7 +790,11 @@ export function parsePlanMarkup(text) {
       const { text: t, href, ...fmt } = r;
       t.split(REF_MARK).forEach((part, j) => {
         if (j > 0) runs.push({ text: "", b: fmt.b, i: fmt.i, u: fmt.u, s: fmt.s, file: ids[k++] });
-        if (part) runs.push({ ...r, text: part });
+        if (!part) return;
+        // ein Link endet am Verweis (die Adresse erkennt parseRuns bis zum nächsten Leerraum – der Platzhalter gehört nicht dazu)
+        if (href === undefined) runs.push({ ...r, text: part });
+        else if (j === 0 || /^https?:\/\//.test(part)) runs.push({ ...fmt, text: part, href: part });
+        else runs.push({ ...fmt, text: part });
       });
     }
     return { type: li ? "li" : "p", runs };
@@ -825,7 +829,7 @@ export function parentMaterial(planText, files, lessonId) {
     try { const o = JSON.parse(c); return o && typeof o === "object" ? o : null; } catch { return null; }
   };
   const cardsCurrent = (f, c) => {
-    if (typeof c.current === "boolean") return c.current && (c.pages == null || c.pages > 0);
+    if (typeof c.current === "boolean") return c.current && Number(c.pages) > 0;
     const pages = f.cardPages !== undefined ? f.cardPages : f.card_pages, at = f.cardImgAt !== undefined ? f.cardImgAt : f.card_img_at;
     const pdfAt = f.pdfAt !== undefined ? f.pdfAt : f.pdf_at, created = f.createdAt !== undefined ? f.createdAt : f.created_at;
     return Number(pages) > 0 && at != null && at === (pdfAt != null ? pdfAt : created);
@@ -867,7 +871,8 @@ export function normalizeGsCourse(raw, { partial = false, current = null } = {})
   const r = raw && typeof raw === "object" ? raw : {};
   const cur = current || {};
   const has = (k) => !partial || r[k] !== undefined;
-  const grade = has("grade") ? Number(r.grade) : cur.grade;
+  const g = has("grade") ? r.grade : cur.grade;
+  const grade = typeof g === "number" ? g : typeof g === "string" && /^\s*\d+\s*$/.test(g) ? Number(g) : NaN;
   if (!Number.isInteger(grade) || grade < 1 || grade > 4) throw new Error("Bitte den Jahrgang 1–4 wählen.");
   let classes = cur.classes;
   if (has("classes")) {
@@ -876,10 +881,12 @@ export function normalizeGsCourse(raw, { partial = false, current = null } = {})
     if (!classes.length || classes.length > GS_LIMITS.classes || classes.some((x) => !GS_CLASS_LETTERS.includes(x))) throw new Error("Bitte mindestens eine Klasse wählen (höchstens drei: a, b, c).");
   }
   if (!Array.isArray(classes) || !classes.length) throw new Error("Bitte mindestens eine Klasse wählen (höchstens drei: a, b, c).");
-  const religion = has("religion") ? r.religion !== false && r.religion !== 0 : cur.religion !== false;
+  const religion = has("religion") ? r.religion !== false && r.religion !== 0 : cur.religion !== false && cur.religion !== 0;
   let subjectName = "Religion";
   if (!religion) {
-    const n = (r.subjectName !== undefined ? String(r.subjectName == null ? "" : r.subjectName) : String(cur.subjectName || "")).replace(/\s+/g, " ").trim();
+    // ohne neuen Namen gilt der bisherige nur, wenn der Kurs schon ein anderes Fach hatte (sonst stünde dort „Religion“)
+    const prev = cur.religion === false || cur.religion === 0 ? String(cur.subjectName || "") : "";
+    const n = (r.subjectName !== undefined ? String(r.subjectName == null ? "" : r.subjectName) : prev).replace(/\s+/g, " ").trim();
     if (!n) throw new Error("Bitte den Namen des Fachs eintragen.");
     if (n.length > GS_LIMITS.subjectName) throw new Error("Der Name des Fachs ist zu lang (höchstens 60 Zeichen).");
     subjectName = n;

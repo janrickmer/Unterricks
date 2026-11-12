@@ -44,6 +44,15 @@ test("normalizeGsCourse: Jahrgang 1–4, eine bis drei Klassen a–c (sortiert),
   assert.deepEqual(S.normalizeGsCourse({ description: "Formen" }, { partial: true, current: cur }), { grade: 2, classes: ["a", "b"], religion: false, subjectName: "Kunst", description: "Formen" });
   assert.deepEqual(S.normalizeGsCourse({ religion: true }, { partial: true, current: cur }).subjectName, "Religion");
   err({ classes: ["a", "b", "c", "a", "d"] }, "Bitte mindestens eine Klasse wählen (höchstens drei: a, b, c).", { partial: true, current: cur });
+  // aus Religion wird ein anderes Fach: ohne neuen Namen kein stilles „Religion“ als Fachname; Kurs als D1-Zeile (religion 0/1)
+  const rel = { grade: 2, classes: ["a"], religion: true, subjectName: "Religion", description: "" };
+  err({ religion: false }, "Bitte den Namen des Fachs eintragen.", { partial: true, current: rel });
+  assert.equal(S.normalizeGsCourse({ religion: false, subjectName: "Kunst" }, { partial: true, current: rel }).subjectName, "Kunst");
+  assert.deepEqual(S.normalizeGsCourse({ description: "x" }, { partial: true, current: { ...cur, religion: 0 } }).religion, false);
+  // Jahrgang nur als Zahl oder Ziffernfolge (true ist kein Jahrgang 1)
+  err({ grade: true, classes: ["a"] }, "Bitte den Jahrgang 1–4 wählen.");
+  err({ grade: [2], classes: ["a"] }, "Bitte den Jahrgang 1–4 wählen.");
+  err({ grade: 2.5, classes: ["a"] }, "Bitte den Jahrgang 1–4 wählen.");
 });
 
 test("Bezeichnungen eines Grundschulkurses", () => {
@@ -96,6 +105,10 @@ test("parsePlanMarkup: PDF-Verweise als eigene Läufe mit der Formatierung an ih
   // ohne Verweise genau wie der Schulportal-Eintrag
   const plain = "**1) TOP 10**\n- ~~Frage~~ mit https://example.org/x\n--> Nächste Stunde\n⏸ Zwischenstopp";
   assert.deepEqual(S.parsePlanMarkup(plain), S.parsePortalMarkup(plain));
+  // ein Verweis direkt hinter einer Internetadresse beendet den Link (die Adresse enthält den Platzhalter nicht)
+  const url = S.parsePlanMarkup("Siehe https://example.org/a[[pdf:" + A + "]]mehr")[0].runs;
+  assert.deepEqual(url.map((r) => [r.text, r.file || null, r.href || null]), [["Siehe ", null, null], ["https://example.org/a", null, "https://example.org/a"], ["", A, null], ["mehr", null, null]]);
+  assert.ok(url.every((r) => !String(r.href || "").includes("\uE000")));
   // das Platzhalterzeichen aus dem Text selbst stört nicht
   assert.deepEqual(S.parsePlanMarkup("ab").map((l) => l.runs.map((r) => r.text)), [["ab"]]);
 });
@@ -147,6 +160,9 @@ test("parentMaterial: was Eltern sehen – mit und ohne Zwischenstopp, über Sit
   r = S.parentMaterial("[[pdf:" + E + "]] [[pdf:cccccccccccccccc]]", files.filter((f) => f.id === E), L1);
   assert.deepEqual([r.files, r.cards, r.hidden], [[], [], [{ id: E, reason: "nur für Sie" }]]);
   assert.deepEqual(S.parentMaterial("", [], L1), { files: [], cards: [], hidden: [] });
+  // Bildkarten (fileOut) ohne Kartenbilder gelten nie als aktuell
+  r = S.parentMaterial("", [pdf(D, { area: "teacher", cards: { texts: [], share: true, rev: 0, pages: null, current: true } })], L1);
+  assert.deepEqual([r.cards, r.hidden], [[], [{ id: D, reason: "Bilder der Bildkarten werden noch erstellt" }]]);
 });
 
 /* ---------- Schema (worker/db.js): neue Tabellen, Spalten und Indizes – nur additiv ---------- */
