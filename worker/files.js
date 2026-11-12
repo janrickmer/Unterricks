@@ -65,10 +65,16 @@ export async function deleteFileObjects(c, f) {
   ]);
 }
 
+/* Sitzung, zu der Material kommt – nie ein Ausfall-Eintrag (Krankmeldung in der Grundschule) */
+export async function materialLesson(db, lessonId) {
+  const l = await getLesson(db, lessonId);
+  if (l.cancelled) throw bad("Für einen Ausfall-Eintrag gibt es kein Material.");
+  return l;
+}
 /* ---------- Hochladen (Lehrkraft) ---------- */
 export async function routeFileUpload(c, lessonId) {
   await requireTeacher(c);
-  await getLesson(c.db, lessonId);
+  await materialLesson(c.db, lessonId);
   const u = new URL(c.request.url);
   const area = u.searchParams.get("area");
   if (!AREAS.has(area)) throw bad("Bitte den Bereich wählen (für Schüler:innen oder nur für die Lehrkraft).");
@@ -162,7 +168,7 @@ const defaultCopies = async (db, lessonId) => (await courseClassSize(db, lessonI
 const boolParam = (v, dflt) => (v === "1" || v === "true" ? 1 : v === "0" || v === "false" ? 0 : dflt);
 export async function routePrintUpload(c, lessonId) {
   await requireTeacher(c);
-  await getLesson(c.db, lessonId);
+  await materialLesson(c.db, lessonId);
   const u = new URL(c.request.url), name = cleanLine(u.searchParams.get("name"), 200) || "Druckvorlage.pdf";
   if (mimeFor(name, c.request.headers.get("content-type")) !== "application/pdf") throw bad("Zum Ausdrucken sind nur PDF-Dateien erlaubt.");
   const len = uploadLength(c, MAX_FILE);
@@ -285,7 +291,7 @@ export async function routeFileRender(c, fileId) {
 /* Lehrkraft: gestaltetes Material ohne PDF anlegen (Laden einer gesicherten Sitzung, deren PDF noch nicht gedruckt war) – druckt die Sitzungsseite */
 export async function routeDesignCreate(c, lessonId) {
   await requireTeacher(c);
-  await getLesson(c.db, lessonId);
+  await materialLesson(c.db, lessonId);
   const body = await readJson(c.request, 3_200_000);
   const f = await saveDesign(c, lessonId, { area: body.area, title: body.title, html: body.html, print: body.print && typeof body.print === "object" ? body.print : {}, source: cleanLine(body.source, 40) || "uebernommen" });
   return json({ ok: true, file: fileOut(f) });
@@ -320,13 +326,13 @@ export async function insertLink(db, lessonId, area, title, url, source, now) {
 }
 export async function routeLinkCreate(c, lessonId) {
   await requireTeacher(c);
-  await getLesson(c.db, lessonId);
+  await materialLesson(c.db, lessonId);
   const body = await readJson(c.request, 10000);
   return json({ ok: true, file: fileOut(await insertLink(c.db, lessonId, body.area, body.title, body.url, cleanLine(body.source, 40) || "lehrkraft", c.now)) });
 }
 export async function routeTextCreate(c, lessonId) {
   await requireTeacher(c);
-  await getLesson(c.db, lessonId);
+  await materialLesson(c.db, lessonId);
   const body = await readJson(c.request, 600000);
   const f = await insertTextMaterial(c.db, lessonId, body.area, body.title, body.text, cleanLine(body.source, 40) || "chat", c.now);
   return json({ ok: true, file: fileOut(f) });
@@ -390,7 +396,7 @@ async function stopLive(c, lessonId) {
 /* ---------- Präsentation (nur PDF; die Folienbilder rendert der Browser der Lehrkraft mit PDF.js) ---------- */
 export async function routePresentationUpload(c, lessonId) {
   await requireTeacher(c);
-  await getLesson(c.db, lessonId);
+  await materialLesson(c.db, lessonId);
   const u = new URL(c.request.url);
   const name = cleanLine(u.searchParams.get("name"), 200) || "Präsentation.pdf";
   const mime = mimeFor(name, c.request.headers.get("content-type"));

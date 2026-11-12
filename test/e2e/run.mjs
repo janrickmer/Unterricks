@@ -1915,6 +1915,120 @@ async function main() {
       await tp.screenshot({ ...SHOT, path: join(OUT, "lehrkraft-grundschulsitzung-eltern.png"), fullPage: false });
     }
 
+    step("Grundschule: Krankmeldung verschiebt die Stunden, roter Kasten, Überarbeitung mit Claude, rückgängig");
+    {
+      const { berlinToday } = await import("../../public/shared.js");
+      const { calendarWeek, computeSlots, lessonSlots } = await import("../../public/planning.js");
+      const P = (path, body) => fetch(BASE + path, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) }).then(async (x) => ({ status: x.status, data: await x.json().catch(() => null) }));
+      const longDay = (iso) => new Date(iso + "T12:00:00Z").toLocaleDateString("de-DE", { weekday: "long", day: "2-digit", month: "2-digit", year: "numeric", timeZone: "UTC" });
+      // a) eigene Einheit im Religionskurs zwei Wochen voraus (Mo–Fr 08:00 aus den Kurseinstellungen); Ende = Tag des 4. Termins → 4 Stunden
+      //    (die Einheit „Josef“ der Schritte davor liegt in der laufenden Woche, zum Teil schon in der Vergangenheit)
+      const mon2 = addDays(calendarWeek(berlinToday()), 14);
+      const nu = (await T("POST", "/api/teacher/units", { subject: "gs", klass: gsRelId, title: "Noah und die Arche" })).data.unit;
+      const wd = nu.params.weekdays;
+      const end4 = lessonSlots(computeSlots({ weekdays: wd, start: mon2, end: addDays(mon2, 13) }))[3].date;
+      await T("PATCH", "/api/teacher/units/" + nu.id, { params: { weekdays: wd, start: mon2, end: end4 } });
+      let g = await tool("save_unit_plan", { unit_id: nu.id, plan: { titel: "Noah und die Arche", lernaufgabe: "Die Arche als Bodenbild gestalten", schritte: [{ titel: "Noah", beschreibung: "Geschichte hören und nacherzählen" }] },
+        stunden: ["Wer war Noah?", "Warum baut Noah eine Arche?", "Die Tiere kommen", "Der Regenbogen"].map((q) => ({ stundenfrage: q, ablauf: ["Sitzkreis"], schritt: 0 })) });
+      const made = (await T("POST", "/api/teacher/units/" + nu.id + "/sessions")).data;
+      const byRow = new Map(made.unit.lessons.map((l) => [l.row, l]));
+      const nl = made.unit.rows.map((r) => byRow.get(r.uid)), old = nl.map((l) => l.date);
+      ok(!g.isError && made.created === 4 && old.join() === lessonSlots(computeSlots({ weekdays: wd, start: mon2, end: end4 })).map((x) => x.date).join(), "Einheit „Noah“ mit 4 Sitzungen (" + old.join(", ") + ")");
+      const tok2 = (await T("POST", "/api/teacher/lessons/" + nl[1].id + "/parent-link", {})).data.token;
+      // b) Krankmeldung auf der Seite der 2. Sitzung: Vorschau im Dialog, ausführen
+      await tp.goto(BASE + "/#/lk/s/" + nl[1].id);
+      await tp.locator("#gs-sick-btn").waitFor({ timeout: 15000 });
+      ok(await tp.locator("#gs-sick h2").textContent() === "Krankheit" && await tp.locator(".revisebox").count() === 0, "Sitzung: Karte „Krankheit“, noch kein roter Kasten");
+      await tp.locator("#gs-sick-btn").click();
+      const cm = tp.locator(".modal", { hasText: "Stunde ausfallen lassen?" });
+      await cm.locator(".cancel-table tbody tr").nth(2).waitFor({ timeout: 15000 });
+      const ctext = await cm.textContent(), trs = await cm.locator(".cancel-table tbody tr").allTextContents();
+      ok(ctext.includes("Am " + longDay(old[1]) + ", fällt der Unterricht aus. Diese und alle folgenden Stunden der Einheit rücken um einen Termin nach hinten:")
+        && trs.length === 3 && trs[0].includes("„Warum baut Noah eine Arche?“") && trs[0].includes(fmtDay(old[2]).slice(0, 10) + " 08:00") && trs[2].endsWith("ohne Termin")
+        && ctext.includes("„Der Regenbogen“ hat danach keinen Termin – sie bleibt ohne Datum in der Einheit, bis Sie (oder Claude) die Einheit überarbeiten.")
+        && ctext.includes("Eltern sehen für diesen Termin: „Der Unterricht konnte leider nicht stattfinden.“"), "Dialog „Stunde ausfallen lassen?“: Tabelle bisher/neu, letzte Stunde ohne Termin, was Eltern sehen");
+      await cm.getByRole("button", { name: "Ausfallen lassen und verschieben" }).click();
+      await tp.locator(".toast", { hasText: "Die Stunden sind verschoben." }).waitFor({ timeout: 15000 });
+      await tp.locator(".revisebox").waitFor({ timeout: 15000 });
+      const after = (await T("GET", "/api/teacher/units/" + nu.id)).data.unit;
+      const ph = after.lessons.find((l) => l.cancelled), dl = (i) => after.lessons.find((l) => l.id === nl[i].id).date;
+      ok([dl(0), dl(1), dl(2), dl(3)].join() === [old[0], old[2], old[3], null].join() && ph && ph.date === old[1] && after.revise.open && after.params.cancelled.length === 1,
+        "verschoben: Sitzung 2 am alten Termin von 3, 3 am alten von 4, Sitzung 4 ohne Termin; Ausfall-Eintrag am " + old[1]);
+      const rb = await tp.locator(".revisebox").textContent();
+      ok(rb.includes("Die Einheit muss wegen der Ausfälle überarbeitet werden") && rb.includes("Ausgefallen: " + fmtDay(old[1]) + ". Unterricks hat diese und alle folgenden Stunden um je einen Termin verschoben.")
+        && rb.includes("Ohne Termin: „Der Regenbogen“ (Ende der Einheit: " + fmtDay(end4) + ").") && await tp.locator(".revisebox").getAttribute("role") === "region"
+        && await tp.evaluate(() => { const s = document.querySelector(".gs-session > .stack"); return !!s && s.firstElementChild.classList.contains("revisebox") && s.children[1].id === "gsplan"; })
+        && (await tp.locator("h1").textContent()) === "Warum baut Noah eine Arche?" && (await tp.locator(".pagehead .chips").textContent()).includes(fmtDay(old[2])),
+        "Sitzung (jetzt am " + old[2] + "): roter Kasten ganz oben mit Ausfall und Stunde ohne Termin");
+      // roter Kasten auch in der Einheit und in jeder anderen Sitzung der Einheit
+      await tp.goto(BASE + "/#/lk/u/" + nu.id);
+      await tp.locator(".revisebox").waitFor({ timeout: 15000 });
+      ok(await tp.locator("main > .revisebox, main .revisebox").count() === 1 && (await tp.locator(".unit-cancelled").textContent()).includes("Ausgefallen: " + fmtDay(old[1]) + " – Inhalt verschoben auf die nächste Stunde")
+        && await tp.locator(".unit-table .badge", { hasText: "ohne Termin" }).count() === 1 && (await tp.locator(".card", { hasText: "1. Rahmendaten der Einheit" }).textContent()).includes("Ausgefallen (Krankmeldung): " + fmtDay(old[1]) + ", 08:00 – die Stunden wurden verschoben."),
+        "Einheit: roter Kasten, Ausfall unter der Tabelle, „ohne Termin“, Ausfall in den Rahmendaten");
+      await tp.goto(BASE + "/#/lk/s/" + nl[3].id);
+      await tp.locator(".revisebox").waitFor({ timeout: 15000 });
+      ok(await tp.locator(".revisebox a", { hasText: "Zur Einheit" }).getAttribute("href") === "#/lk/u/" + nu.id && (await tp.locator(".pagehead .chips").textContent()).includes("ohne Termin"),
+        "andere Sitzung der Einheit (ohne Termin): roter Kasten mit „Zur Einheit“");
+      // c) Elternlink der ausgefallenen Sitzung gehört jetzt zum Ausfall-Eintrag (vor dem alten Termin: „noch nicht stattgefunden“)
+      const pe = await P("/api/eltern/sitzung", { token: tok2 });
+      ok(pe.status === 200 && pe.data.state === "pending" && pe.data.lesson.id === ph.id && pe.data.lesson.date === old[1], "alter Elternlink der 2. Sitzung → Ausfall-Eintrag (pending bis zum Ende des alten Termins)");
+      await tp.goto(BASE + "/#/lk/eltern/" + ph.id);
+      await tp.locator(".pv-banner").waitFor({ timeout: 15000 });
+      const ptxt = await tp.locator("main").textContent();
+      ok(ptxt.includes("Der Unterricht konnte an diesem Termin leider nicht stattfinden.") && !/krank/i.test(ptxt), "Vorschau der Elternansicht des Ausfall-Eintrags: „Der Unterricht konnte … nicht stattfinden“ – nie „krank“");
+      await tp.goto(BASE + "/#/lk/s/" + ph.id);
+      await tp.locator("#gs-cancelled .lead a").waitFor({ timeout: 15000 });
+      ok((await tp.locator("h1").textContent()) === "Ausgefallen: " + longDay(old[1]) && (await tp.locator("#gs-cancelled").textContent()).includes("Die geplante Sitzung „Warum baut Noah eine Arche?“ findet jetzt am " + fmtDay(old[2]))
+        && await tp.locator("#gs-copy").count() === 1 && await tp.locator("#gsplan").count() === 0 && await tp.locator("#gs-note").count() === 1 && await tp.locator(".revisebox").count() === 1,
+        "Ausfall-Eintrag: schlanke Seite (verschobene Sitzung, Elternlink, Hinweis, roter Kasten – kein Verlaufsplan)");
+      // d) Wochenkalender: „Unterricht ausgefallen“ am alten Termin
+      await tp.goto(BASE + "/#/lk/grundschule");
+      await tp.locator(".weekcal").waitFor({ timeout: 15000 });
+      for (let i = 0; i < 2; i++) await tp.locator(".weekcal").getByRole("button", { name: "Nächste Woche" }).click();
+      await tp.locator(".weekcal .wk-off", { hasText: "Unterricht ausgefallen" }).waitFor({ timeout: 15000 });
+      ok((await tp.locator(".weekcal .wk-off", { hasText: "Unterricht ausgefallen" }).textContent()) === "Entfällt: Grundschule Religion 2ab (Unterricht ausgefallen)", "Wochenkalender: „Entfällt: Grundschule Religion 2ab (Unterricht ausgefallen)“");
+      // e) „Einheit mit Claude überarbeiten“: Prompt mit uid jeder Stunde, ohne Termin, freien Terminen
+      await tp.goto(BASE + "/#/lk/u/" + nu.id);
+      await tp.locator(".revisebox").getByRole("button", { name: "Einheit mit Claude überarbeiten" }).click();
+      const rm = tp.locator(".modal", { hasText: "Welches Sprachmodell?" });
+      await rm.waitFor();
+      await tp.waitForTimeout(300);   // der Kasten lädt die Sitzungen der Einheit für den Prompt nach (auf der Einheitsseite sind sie schon da)
+      await rm.getByRole("button", { name: "Prompt kopieren" }).click();
+      const rp = await tp.evaluate(() => navigator.clipboard.readText());
+      ok(rp.includes("an einer Grundschule in Hessen") && after.rows.every((r) => rp.includes("[uid " + r.uid + "]")) && rp.includes("[uid " + after.rows[3].uid + "] ohne Termin") && rp.includes("save_unit_plan")
+        && rp.includes("Noch freie Termine bis zum Ende der Einheit: keine") && rp.includes("Wegen Ausfällen (Lehrkraft krank: " + fmtDay(old[1])), "Prompt „Einheit nach Ausfällen überarbeiten“: uid jeder Stunde, ohne Termin, freie Termine");
+      await rm.getByRole("button", { name: "Schließen", exact: true }).getByText("Schließen").click();
+      // f) „Krankmeldung rückgängig machen“: Termine wie vorher, Ausfall-Eintrag weg, Elternlink zurück
+      await tp.locator(".revisebox").getByRole("button", { name: "Krankmeldung rückgängig machen" }).click();
+      await tp.locator(".modal").getByRole("button", { name: "Rückgängig machen" }).click();
+      await tp.locator(".toast", { hasText: "Krankmeldung rückgängig gemacht" }).waitFor({ timeout: 15000 });
+      await tp.locator(".revisebox").waitFor({ state: "detached", timeout: 15000 });
+      const und = (await T("GET", "/api/teacher/units/" + nu.id)).data.unit;
+      ok(await tp.locator(".revisebox").count() === 0 && !und.revise && !und.params.cancelled && !und.lessons.some((l) => l.cancelled) && nl.every((l, i) => und.lessons.find((x) => x.id === l.id).date === old[i])
+        && (await P("/api/eltern/sitzung", { token: tok2 })).data.lesson.id === nl[1].id, "rückgängig: Termine wie vorher, Ausfall-Eintrag gelöscht, Elternlink wieder bei der Sitzung, kein roter Kasten");
+      // g) noch einmal krank (über die API wie der Dialog), dann überarbeitet Claude: Ende um einen Tag verlängert, save_unit_plan mit uid
+      const pv = (await T("POST", "/api/teacher/lessons/" + nl[1].id + "/cancel", { dryRun: true })).data;
+      ok((await T("POST", "/api/teacher/lessons/" + nl[1].id + "/cancel", { version: pv.version })).status === 200, "erneut ausfallen lassen");
+      await T("PATCH", "/api/teacher/units/" + nu.id, { params: { weekdays: wd, start: mon2, end: addDays(end4, 1) } });
+      g = await tool("get_unit", { unit_id: nu.id });
+      const gt = g.content[0].text;
+      ok(gt.includes("## Ausfälle\n- " + fmtDay(old[1]) + " 08:00: Unterricht ausgefallen (Lehrkraft krank)") && gt.includes("Noch freie Termine bis zum Ende der Einheit: " + fmtDay(addDays(end4, 1)) + " 08:00 (45 min)")
+        && gt.includes("Muss überarbeitet werden: ja") && gt.includes("[ohne Termin]") && gt.includes("Ausgefallene Termine (Krankmeldung): " + fmtDay(old[1]) + " 08:00"),
+        "get_unit: Ausfälle, freier Termin nach dem Verlängern (der Ausfall bleibt in den Rahmendaten), „Muss überarbeitet werden: ja“");
+      const cu = (await T("GET", "/api/teacher/units/" + nu.id)).data.unit;
+      g = await tool("save_unit_plan", { unit_id: nu.id, base_version: cu.version, plan: cu.plan, stunden: cu.rows.map((r) => ({ uid: r.uid, stundenfrage: r.stundenfrage, ablauf: r.ablauf, schritt: r.schritt })) });
+      const fin = (await T("GET", "/api/teacher/units/" + nu.id)).data.unit;
+      ok(!g.isError && g.content[0].text.includes("Termine neu verteilt: Stunde 4 „Der Regenbogen“ → " + fmtDay(addDays(end4, 1)) + " 08:00") && g.content[0].text.includes("Ohne Termin: keine.")
+        && g.content[0].text.includes("Der rote Hinweis in der Einheit ist entfernt.") && fin.revise.open === false && fin.lessons.find((l) => l.id === nl[3].id).date === addDays(end4, 1),
+        "save_unit_plan mit uid: Termine neu verteilt, Sitzung 4 bekommt den freien Termin, der rote Hinweis ist weg");
+      await tp.goto(BASE + "/#/lk/s/" + nl[3].id);
+      await tp.locator("#gsplan").waitFor({ timeout: 15000 });
+      ok(await tp.locator(".revisebox").count() === 0 && (await tp.locator(".pagehead .chips").textContent()).includes(fmtDay(addDays(end4, 1))), "Sitzung 4: neuer Termin, kein roter Kasten");
+      ok((await tool("save_substitute_plan", { lesson_id: nl[0].id, analyse: { kompetenz: "a", stundenfrage: "b", inhalte: [] }, schritte: [{ titel: "a", anleitung: "b" }], abgabe: "x" })).isError === true,
+        "Connector: keine Vertretungsstunde in der Grundschule");
+    }
+
     /* ---------- GitHub Pages: dieselbe Oberfläche von einer anderen Herkunft ---------- */
     step("GitHub Pages: Oberfläche von anderer Herkunft (CORS, Live-Verbindung, Links zum Worker, Schutz gegen Einbetten)");
     execFileSync("node", ["scripts/build.mjs"], { cwd: ROOT, env: { ...process.env, PAGES_API: BASE, FEIBEITSBLATT_API: FB }, stdio: "ignore" });

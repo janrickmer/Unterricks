@@ -8,6 +8,7 @@ import { WEEKDAYS, computeSlots, lessonSlots, claudeUnitPrompt, normalizeParams 
 import { claudeHandoff } from "./claude.js";
 import { claudeGsUnitPrompt } from "./gsplanning.js";
 import { baseLink } from "./bases.js";
+import { reviseBox } from "./grundschule.js";
 
 /* ---------- Leupold-Schema (links Ausgangslage, Mitte Lernschritte, rechts Lernaufgabe) ---------- */
 export function leupoldView(unit, highlight) {
@@ -54,6 +55,7 @@ export async function unitPage(id) {
       : pageHead({ fach: u.subject, crumbs: [["#/lk", "Fächer"], ["#/lk/f/" + u.subject, subjectName(u.subject)], ["#/lk/f/" + u.subject + "/" + u.klass, classShort(u.klass)], u.title || "Neue Einheit"],
         title: u.title || "Neue Unterrichtseinheit", aside: badge,
         sub: subjectName(u.subject) + " · " + classShort(u.klass) + " · " + gradeInfo(u.klass).text }),
+      gs ? reviseBox(u, { onChange: () => unitPage(id) }) : null,
       paramsCard(), basisCard(), claudeCard(), schemaCard(), tableCard(), finishCard(), gs ? null : ioCard()));
   };
 
@@ -96,7 +98,8 @@ export async function unitPage(id) {
       h("div", { class: "field" }, h("label", null, "Thema / Arbeitstitel"), title),
       h("div", { class: "meta-grid" },
         h("div", { class: "field" }, h("label", null, "Sitzungen pro Woche (Wochentag, Beginn und Länge)"), wdBox, takeWd, wdState),
-        h("div", { class: "field" }, h("label", null, "Ferien und bekannte Ausfälle im Zeitraum"), brBox),
+        h("div", { class: "field" }, h("label", null, "Ferien und bekannte Ausfälle im Zeitraum"), brBox,
+          ...(p.cancelled || []).map((x) => h("p", { class: "small warnc", text: "Ausgefallen (Krankmeldung): " + fmtDay(x.date) + (x.time ? ", " + x.time : "") + " – die Stunden wurden verschoben." }))),
         h("div", { class: "field" }, h("label", null, "Beginn der Einheit"), start),
         h("div", { class: "field" }, h("label", null, "Abgeschlossen sein bis"), end),
         gs ? null : h("div", { class: "field" }, h("label", null, "Klausurtermin (falls vorhanden)"), exam),
@@ -195,6 +198,7 @@ export async function unitPage(id) {
         const l = lessonByRow.get(r.uid);
         tbody.append(h("tr", { role: "row" },
           h("td", { class: "small", "data-label": "Stunde", role: "cell" }, h("strong", { text: String(i + 1) }), h("br"), h("input", { type: "date", value: r.date || "", "aria-label": "Datum Stunde " + (i + 1), style: { maxWidth: "10.5rem", fontSize: ".85rem" }, onchange: (e) => { r.date = e.target.value || null; markDirty(); } }),
+            gs && !r.date ? h("div", null, h("span", { class: "badge warnc", text: "ohne Termin" })) : null,
             h("div", { class: "muted", text: r.minutes ? r.minutes + " min" : "" })),
           h("td", { "data-label": "Stundenfrage", role: "cell" }, h("textarea", { rows: "3", value: r.stundenfrage, "aria-label": "Stundenfrage " + (i + 1), oninput: (e) => { r.stundenfrage = e.target.value; markDirty(); } })),
           h("td", { "data-label": "Grober Stundenablauf", role: "cell" }, h("textarea", { rows: "4", value: r.ablauf.map((a) => "- " + a).join("\n"), "aria-label": "Ablauf " + (i + 1), oninput: (e) => { r.ablauf = e.target.value.split("\n").map((x) => x.replace(/^\s*[-•*]\s*/, "").trim()).filter(Boolean); markDirty(); } })),
@@ -215,7 +219,15 @@ export async function unitPage(id) {
         h("div", { class: "row" }, h("button", { class: "btn small", type: "button", onclick: () => { rows.push({ uid: "", stundenfrage: "", ablauf: [], schritt: null, date: null, minutes: null }); markDirty(); paintRows(); } }, "+ Stunde"),
           h("button", { class: "btn small", type: "button", title: "Termine der Rahmendaten der Reihe nach neu zuordnen", onclick: (e) => busy(e.currentTarget, () => save(true)) }, "Termine neu verteilen")),
         h("button", { class: "btn primary", type: "button", onclick: (e) => busy(e.currentTarget, () => save(false)) }, "Änderungen speichern")),
+      gs ? cancelledList() : null,
       h("p", { class: "hint", text: "Spalte 1: Stundenfrage, Spalte 2: grober Ablauf in Stichpunkten (eine Zeile = ein Stichpunkt). Die Einheit bleibt das ganze Schuljahr über änderbar; Abweichungen aus der Stundenplanung landen hier." }));
+  }
+  // Grundschule: ausgefallene Termine (Ausfall-Einträge der Krankmeldung) unter der Tabelle
+  function cancelledList() {
+    const ph = u.lessons.filter((l) => l.cancelled).sort((a, b) => ((a.date || "") < (b.date || "") ? -1 : 1));
+    if (!ph.length) return null;
+    return h("ul", { class: "small unit-cancelled", "aria-label": "Ausgefallene Termine" }, ph.map((l) => h("li", null,
+      h("a", { href: "#/lk/s/" + l.id, text: "Ausgefallen: " + (l.date ? fmtDay(l.date) : "ohne Termin") }), " – Inhalt verschoben auf die nächste Stunde")));
   }
   async function save(redistribute) {
     try {
@@ -230,7 +242,8 @@ export async function unitPage(id) {
 
   /* 6) Festlegen und Sitzungen anlegen */
   function finishCard() {
-    const open = rows.filter((r) => !u.lessons.some((l) => l.row === r.uid)).length, waiting = pendOpen().length;
+    // Grundschule: Stunden ohne Termin (nach einer Krankmeldung) bekommen noch keine Sitzung
+    const open = rows.filter((r) => !u.lessons.some((l) => l.row === r.uid) && (!gs || r.date)).length, waiting = pendOpen().length;
     const fromFile = rows.filter((r) => !u.lessons.some((l) => l.row === r.uid) && pendFor(r.uid)).length;
     return h("section", { class: "card" }, h("h2", { text: "6. Einheit festlegen und Sitzungen anlegen" }),
       h("p", { class: "small", text: open ? "Legt für " + open + " Stunde(n) eine Sitzung mit Datum und Dauer an. Erst danach beginnt die Planung der einzelnen Stunden; die Stundenfrage wird zum Titel der Sitzung." +
@@ -239,7 +252,11 @@ export async function unitPage(id) {
         h("button", { class: "btn primary", type: "button", disabled: open && !filling ? null : true, onclick: (e) => busy(e.currentTarget, async () => {
           if (dirty) await save(false);
           let r;
-          try { r = await tapi("POST", "/api/teacher/units/" + id + "/sessions"); u = r.unit; rows = u.rows.map((x) => ({ ...x })); toast(r.created + " Sitzung(en) angelegt.", "ok"); paint(); }
+          try {
+            r = await tapi("POST", "/api/teacher/units/" + id + "/sessions"); u = r.unit; rows = u.rows.map((x) => ({ ...x })); toast(r.created + " Sitzung(en) angelegt.", "ok");
+            if (r.skipped) toast(r.skipped + " Stunde(n) ohne Termin – dafür entsteht noch keine Sitzung.", "", 8000);
+            paint();
+          }
           catch (err) { errToast(err); return; }
           if (pendOpen().length) await fillSessions();
         }) }, "Einheit festlegen und Sitzungen anlegen"),

@@ -88,6 +88,8 @@ const ROUTES = [
   ["DELETE", "/api/teacher/units/" + ID, U.routeUnitDelete],
   ["POST", "/api/teacher/units/" + ID + "/sessions", U.routeUnitSessions],
   ["PUT", "/api/teacher/units/" + ID + "/rows/([a-f0-9]{8})", U.routeUnitRowPut],
+  ["POST", "/api/teacher/units/" + ID + "/cancel/undo", GS.routeCancelUndo],
+  ["POST", "/api/teacher/lessons/" + ID + "/cancel", GS.routeLessonCancel],
   // Krankheitsvertretung
   ["POST", "/api/teacher/lessons/" + ID + "/substitute/confirm", SUB.routeSubstituteConfirm],
   ["POST", "/api/teacher/lessons/" + ID + "/substitute/discard", SUB.routeSubstituteDiscard],

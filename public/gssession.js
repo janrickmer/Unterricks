@@ -15,12 +15,68 @@ import { paintPlanPreview, contextMenu } from "./portalview.js";
 import { renderMarkdown } from "./markdown.js";
 import { materialBox } from "./materialbox.js";
 import { cardsCard } from "./cards.js";
+import { reviseBox } from "./grundschule.js";
 
 const isPdf = (f) => !!f && f.kind === "file" && f.mime === "application/pdf" && f.area !== "archive" && f.area !== "presentation";
 const NOT_YET = "„Diese Unterrichtssitzung hat noch nicht stattgefunden.“";
 // „Dienstag, 10.11.2026, 08:45 Uhr“ (Schulzeit Europe/Berlin)
 const longWhen = (ms) => new Date(ms).toLocaleDateString("de-DE", { weekday: "long", day: "2-digit", month: "2-digit", year: "numeric", timeZone: "Europe/Berlin" }) + ", " + fmtClockBerlin(ms) + " Uhr";
 const SOURCE = { claude: "von Claude", lehrkraft: "von Ihnen", ki: "von der KI" };
+
+/* Textfeld mit automatischem Speichern (PATCH key) – nie überschreiben, solange es bearbeitet wird */
+function autoSave(id, L, el, key, lessonKey, stateEl, onSaved) {
+  let t = null;
+  const save = async () => {
+    clearTimeout(t); t = null;
+    try { const r = await tapi("PATCH", "/api/teacher/lessons/" + id, { body: { [key]: el.value } }); L()[lessonKey] = r.lesson[lessonKey]; if (lessonKey === "homework") L().nextDate = r.lesson.nextDate; stateLine(stateEl, "Gespeichert", "ok"); if (onSaved) onSaved(); }
+    catch (e) { stateLine(stateEl, e.message, "err"); }
+  };
+  el.addEventListener("input", () => { stateLine(stateEl, "…"); clearTimeout(t); t = setTimeout(save, 900); });
+  el.addEventListener("blur", () => { if (el.value !== (L()[lessonKey] || "")) save(); });
+  return { dirty: () => !!t || el.value !== (L()[lessonKey] || ""), flush: () => { if (t) save(); } };
+}
+/* Karte „Elternansicht“ (Sitzung und Ausfall-Eintrag): Sitzungslink kopieren, Elternansicht ausprobieren, Hinweis der Lehrkraft, Link erneuern.
+   Der Link wird beim Aufbau schon geholt, damit das Kopieren im Klick selbst geschieht (Safari erlaubt die Zwischenablage nur dort). */
+function parentsCardDom(id, L, { status, noteState, noteTA }) {
+  let linkToken = null;
+  const linkUrl = (t) => location.origin + location.pathname + "#/eltern/" + t;
+  tapi("GET", "/api/teacher/lessons/" + id + "/parent-link").then((r) => { if (r.token) linkToken = r.token; }).catch(() => {});
+  function linkModal(url) {
+    modal({ title: "Sitzungslink für Eltern", body: (el) => {
+      const inp = h("input", { id: "gs-link-input", readonly: true, value: url, "aria-describedby": "gs-link-h", onfocus: (e) => e.target.select() });
+      el.append(h("div", { class: "field" }, h("label", { for: "gs-link-input" }, "Sitzungslink für Eltern"), inp),
+        h("p", { class: "hint", id: "gs-link-h", text: "Die Zwischenablage ließ sich nicht verwenden. Der Link ist markiert – kopieren Sie ihn mit Strg+C (Mac: ⌘+C) bzw. lange drücken und „Kopieren“." }));
+      setTimeout(() => { if (!el.contains(document.activeElement)) inp.focus(); inp.select(); }, 40);
+    }, actions: [{ label: "Schließen", class: "primary" }] });
+  }
+  async function copyLink() {
+    try {
+      if (!linkToken) { const r = await tapi("POST", "/api/teacher/lessons/" + id + "/parent-link", { body: {} }); linkToken = r.token; L().hasParentLink = true; }
+      const url = linkUrl(linkToken);
+      if (await copyText(url)) toast("Sitzungslink für Eltern kopiert.", "ok"); else linkModal(url);
+    } catch (e) { errToast(e); }
+  }
+  const copyBtn = h("button", { class: "btn primary", type: "button", id: "gs-copy", onclick: copyLink }, icon("link"), "Sitzungslink für Eltern kopieren");
+  const renewBtn = h("button", { class: "btn small danger", type: "button", id: "gs-renew", onclick: async () => {
+    if (!(await confirmDialog("Link erneuern", "Neuen Link erzeugen? Der bisherige Link funktioniert danach nicht mehr.", "Neuen Link erzeugen", true))) return;
+    try {
+      const r = await tapi("POST", "/api/teacher/lessons/" + id + "/parent-link", { body: { renew: true } });
+      linkToken = r.token; L().hasParentLink = true;
+      toast("Neuer Sitzungslink erzeugt – der bisherige funktioniert nicht mehr. Kopieren Sie ihn mit „Sitzungslink für Eltern kopieren“.", "ok", 8000);
+    } catch (e) { errToast(e); }
+  } }, "Neuen Link erzeugen");
+  return h("section", { class: "card gs-parents", id: "gs-parents", "aria-labelledby": "gs-parents-h" }, h("h2", { id: "gs-parents-h", text: "Elternansicht" }),
+    ...status,
+    h("div", { class: "row" }, copyBtn,
+      h("a", { class: "btn", id: "gs-try", href: "#/lk/eltern/" + id, target: "_blank", rel: "noopener" }, "Elternansicht ausprobieren", h("span", { class: "sr-only", text: " (öffnet in neuem Tab)" }))),
+    h("p", { class: "hint", text: "Wer den Link hat, sieht diese Sitzung und alle vorherigen Sitzungen dieses Kurses im Schuljahr." }),
+    h("div", { class: "field" }, h("div", { class: "row between" }, h("label", { for: "gs-note" }, "Hinweis der Lehrkraft (optional)"), noteState), noteTA,
+      h("p", { class: "hint", id: "gs-note-h", text: "Erscheint für die Eltern ganz oben in einem roten Feld. Bitte keine Namen von Kindern." })),
+    h("details", { class: "gs-renew" }, h("summary", { text: "Link erneuern" }),
+      h("p", { class: "small", text: "Ist der Link in falsche Hände geraten? Nach dem Erneuern funktioniert der bisherige Link nicht mehr – die Eltern brauchen dann den neuen." }), renewBtn));
+}
+const longDay = (iso) => new Date(iso + "T12:00:00Z").toLocaleDateString("de-DE", { weekday: "long", day: "2-digit", month: "2-digit", year: "numeric", timeZone: "UTC" });
+const shortWhen = (x) => (x && x.date ? fmtDay(x.date).slice(0, 10) + (x.time ? " " + x.time : "") : "ohne Termin");
 
 export async function gsSessionPage(id, d) {
   const main = h("main");
@@ -36,6 +92,9 @@ export async function gsSessionPage(id, d) {
     lesson: { title: L().title, topic: L().topic, durationMin: L().durationMin, date: L().date, startTime: L().startTime, ideas: L().ideas, homework: L().homework },
     materials: st.files.filter((f) => f.area !== "archive" && f.area !== "presentation").map((f) => ({ id: f.id, name: f.name, area: f.area, kind: f.kind, mime: f.mime, text: f.kind === "link" ? f.url || "" : "" })),
     unit: st.unit, row: row(), unitText: st.unit ? unitContext(st.unit, L().unitRow) : "", previousStop: d.previousStop });
+
+  if (L().cancelled) return gsPlaceholderPage(id, d, main, course, coursePage);
+  const reload = () => go("#/lk/s/" + id);
 
   /* ======================= Kopf ======================= */
   const heading = h("h1", { text: L().title });
@@ -263,18 +322,7 @@ export async function gsSessionPage(id, d) {
         "Mit „Auch ausdrucken“ steht ein Arbeitsblatt zusätzlich auf der Druckliste." } });
 
   /* ======================= Inhalt und Hausaufgabe (für die Eltern) ======================= */
-  // Textfeld mit automatischem Speichern (PATCH key) – nie überschreiben, solange es bearbeitet wird
-  function autoField(el, key, lessonKey, stateEl) {
-    let t = null;
-    const save = async () => {
-      clearTimeout(t); t = null;
-      try { const r = await tapi("PATCH", "/api/teacher/lessons/" + id, { body: { [key]: el.value } }); L()[lessonKey] = r.lesson[lessonKey]; if (lessonKey === "homework") L().nextDate = r.lesson.nextDate; stateLine(stateEl, "Gespeichert", "ok"); if (lessonKey === "parentSummary") paintSummaryHint(); }
-      catch (e) { stateLine(stateEl, e.message, "err"); }
-    };
-    el.addEventListener("input", () => { stateLine(stateEl, "…"); clearTimeout(t); t = setTimeout(save, 900); });
-    el.addEventListener("blur", () => { if (el.value !== (L()[lessonKey] || "")) save(); });
-    return { dirty: () => !!t || el.value !== (L()[lessonKey] || ""), flush: () => { if (t) save(); } };
-  }
+  const autoField = (el, key, lessonKey, stateEl) => autoSave(id, L, el, key, lessonKey, stateEl, () => { if (lessonKey === "parentSummary") paintSummaryHint(); });
   const sumTA = h("textarea", { id: "gs-summary", rows: "4", maxlength: "800", value: L().parentSummary || "", "aria-describedby": "gs-summary-h gs-summary-stop" });
   const hwTA = h("textarea", { id: "gs-homework", rows: "3", maxlength: "10000", value: L().homework || "", "aria-describedby": "gs-homework-h" });
   const sumState = h("span", { class: "save-state" }), hwState = h("span", { class: "save-state" });
@@ -305,43 +353,23 @@ export async function gsSessionPage(id, d) {
   const noteTA = h("textarea", { id: "gs-note", rows: "3", maxlength: "2000", value: L().parentNote || "", "aria-describedby": "gs-note-h" });
   const noteState = h("span", { class: "save-state" });
   const noteF = autoField(noteTA, "parentNote", "parentNote", noteState);
-  // Sitzungslink: beim Aufbau schon geholt, damit das Kopieren im Klick selbst geschieht (Safari erlaubt die Zwischenablage nur dort)
-  let linkToken = null;
-  const linkUrl = (t) => location.origin + location.pathname + "#/eltern/" + t;
-  tapi("GET", "/api/teacher/lessons/" + id + "/parent-link").then((r) => { if (r.token) linkToken = r.token; }).catch(() => {});
-  function linkModal(url) {
-    modal({ title: "Sitzungslink für Eltern", body: (el) => {
-      const inp = h("input", { id: "gs-link-input", readonly: true, value: url, "aria-describedby": "gs-link-h", onfocus: (e) => e.target.select() });
-      el.append(h("div", { class: "field" }, h("label", { for: "gs-link-input" }, "Sitzungslink für Eltern"), inp),
-        h("p", { class: "hint", id: "gs-link-h", text: "Die Zwischenablage ließ sich nicht verwenden. Der Link ist markiert – kopieren Sie ihn mit Strg+C (Mac: ⌘+C) bzw. lange drücken und „Kopieren“." }));
-      setTimeout(() => { if (!el.contains(document.activeElement)) inp.focus(); inp.select(); }, 40);
-    }, actions: [{ label: "Schließen", class: "primary" }] });
-  }
-  async function copyLink() {
-    try {
-      if (!linkToken) { const r = await tapi("POST", "/api/teacher/lessons/" + id + "/parent-link", { body: {} }); linkToken = r.token; L().hasParentLink = true; }
-      const url = linkUrl(linkToken);
-      if (await copyText(url)) toast("Sitzungslink für Eltern kopiert.", "ok"); else linkModal(url);
-    } catch (e) { errToast(e); }
-  }
-  const copyBtn = h("button", { class: "btn primary", type: "button", id: "gs-copy", onclick: copyLink }, icon("link"), "Sitzungslink für Eltern kopieren");
-  const renewBtn = h("button", { class: "btn small danger", type: "button", id: "gs-renew", onclick: async () => {
-    if (!(await confirmDialog("Link erneuern", "Neuen Link erzeugen? Der bisherige Link funktioniert danach nicht mehr.", "Neuen Link erzeugen", true))) return;
-    try {
-      const r = await tapi("POST", "/api/teacher/lessons/" + id + "/parent-link", { body: { renew: true } });
-      linkToken = r.token; L().hasParentLink = true;
-      toast("Neuer Sitzungslink erzeugt – der bisherige funktioniert nicht mehr. Kopieren Sie ihn mit „Sitzungslink für Eltern kopieren“.", "ok", 8000);
-    } catch (e) { errToast(e); }
-  } }, "Neuen Link erzeugen");
-  const parentsCard = h("section", { class: "card gs-parents", id: "gs-parents", "aria-labelledby": "gs-parents-h" }, h("h2", { id: "gs-parents-h", text: "Elternansicht" }),
-    parentsWhen, parentsSee,
-    h("div", { class: "row" }, copyBtn,
-      h("a", { class: "btn", id: "gs-try", href: "#/lk/eltern/" + id, target: "_blank", rel: "noopener" }, "Elternansicht ausprobieren", h("span", { class: "sr-only", text: " (öffnet in neuem Tab)" }))),
-    h("p", { class: "hint", text: "Wer den Link hat, sieht diese Sitzung und alle vorherigen Sitzungen dieses Kurses im Schuljahr." }),
-    h("div", { class: "field" }, h("div", { class: "row between" }, h("label", { for: "gs-note" }, "Hinweis der Lehrkraft (optional)"), noteState), noteTA,
-      h("p", { class: "hint", id: "gs-note-h", text: "Erscheint für die Eltern ganz oben in einem roten Feld. Bitte keine Namen von Kindern." })),
-    h("details", { class: "gs-renew" }, h("summary", { text: "Link erneuern" }),
-      h("p", { class: "small", text: "Ist der Link in falsche Hände geraten? Nach dem Erneuern funktioniert der bisherige Link nicht mehr – die Eltern brauchen dann den neuen." }), renewBtn));
+  const parentsCard = parentsCardDom(id, L, { status: [parentsWhen, parentsSee], noteState, noteTA });
+
+  /* ======================= Roter Kasten (Ausfälle) und Krankmeldung ======================= */
+  // roter Kasten direkt vor dem Verlaufsplan – nur, wenn es ihn gibt (sonst bleibt der Verlaufsplan die erste Karte)
+  let reviseEl = null;
+  const paintRevise = () => {
+    const next = st.unit ? reviseBox(st.unit, { unitLink: true, onChange: reload }) : null;
+    if (reviseEl) reviseEl.remove();
+    reviseEl = next;
+    if (next && planCard.parentNode) planCard.before(next);
+  };
+  const sickWhy = !L().unitId || !st.unit ? "Diese Sitzung gehört zu keiner Einheit – bitte das Datum von Hand ändern." : !L().date ? "Diese Sitzung hat keinen Termin." : "";
+  const sickBtn = h("button", { class: "btn danger sickbtn", type: "button", id: "gs-sick-btn", disabled: sickWhy ? true : null, "aria-describedby": sickWhy ? "gs-sick-why" : null,
+    onclick: () => cancelDialog(id, reload) }, icon("alert"), "Krankmeldung: Diese Stunde fällt aus");
+  const sickCard = h("section", { class: "card gs-sick", id: "gs-sick", "aria-labelledby": "gs-sick-h" }, h("h2", { id: "gs-sick-h", text: "Krankheit" }),
+    h("p", { class: "small", text: "In der Grundschule entsteht kein Vertretungsmaterial: Fällt diese Stunde aus, rücken sie und alle folgenden Stunden der Einheit um einen Termin nach hinten. Eltern sehen für den ausgefallenen Termin, dass der Unterricht leider nicht stattfinden konnte." }),
+    sickBtn, sickWhy ? h("p", { class: "hint", id: "gs-sick-why", text: sickWhy }) : null);
 
   /* ======================= Sitzungsdaten (Seitenleiste) ======================= */
   const fTitle = h("input", { value: L().title, maxlength: "200" }), fTopic = h("input", { value: L().topic, maxlength: "500" });
@@ -389,8 +417,9 @@ export async function gsSessionPage(id, d) {
 
   main.append(h("div", { class: "session-grid gs-session" },
     h("div", { class: "stack" }, planCard, draftCard, unitCard, claudeCard, cardsBox.el, box.filesCard, box.printCard, contentCard, parentsCard),
-    h("aside", { class: "side" }, metaCard)));
+    h("aside", { class: "side" }, metaCard, sickCard)));
   setEditing(false);
+  paintRevise();
 
   // Änderungen von außen (Claude über den Connector, anderes Fenster) beim Zurückkehren übernehmen – nie in ein Feld, das gerade bearbeitet wird
   const onVis = async () => {
@@ -408,7 +437,7 @@ export async function gsSessionPage(id, d) {
       if (cardsChanged) cardsBox.refresh(old);
     }
     if ((r.messages || []).length !== st.messages.length) { st.messages = r.messages; paintDraft(); }
-    if (r.unit && (!st.unit || r.unit.version !== st.unit.version)) { st.unit = r.unit; paintUnit(); paintSubline(); }
+    if (r.unit && (!st.unit || r.unit.version !== st.unit.version)) { st.unit = r.unit; paintUnit(); paintSubline(); if (!reviseEl || !reviseEl.contains(document.activeElement)) paintRevise(); }
     if (r.lesson.portalVersion !== plan.version && !plan.dirty && !busyField(ta)) {
       plan.version = r.lesson.portalVersion; ta.value = r.lesson.portal || "";
       Object.assign(L(), { portal: r.lesson.portal, portalVersion: r.lesson.portalVersion, portalUpdatedAt: r.lesson.portalUpdatedAt, portalSource: r.lesson.portalSource });
@@ -438,4 +467,80 @@ export async function gsSessionPage(id, d) {
     sumF.flush(); hwF.flush(); noteF.flush(); if (metaT) saveMeta();
     document.querySelectorAll(".ctxmenu").forEach((m) => m.remove());
   });
+}
+
+/* ---------- Krankmeldung: Vorschau, dann ausführen (POST /api/teacher/lessons/<id>/cancel) ---------- */
+function cancelDialog(id, done) {
+  const body = h("div", { class: "stack" });
+  const err = h("p", { class: "err", role: "alert" });
+  let version = null, ready = false, running = false;
+  const paint = (plan) => {
+    const c = plan.cancelled, moves = plan.moves || [], und = plan.undatedRows || [];
+    clear(body).append(...nn(
+      h("p", { text: "Am " + longDay(c.date) + ", fällt der Unterricht aus. Diese und alle folgenden Stunden der Einheit rücken um einen Termin nach hinten:" }),
+      moves.length ? h("table", { class: "cancel-table" }, h("thead", null, h("tr", null, ["Stunde", "bisher", "neu"].map((t) => h("th", { scope: "col", text: t })))),
+        h("tbody", null, moves.map((m) => h("tr", null, h("td", { text: "Stunde " + m.n + ": „" + (m.title || "") + "“" }), h("td", { text: shortWhen(m.from) }), h("td", { class: m.to ? null : "none", text: shortWhen(m.to) }))))) : null,
+      und.length ? h("p", { text: und.map((x) => "„" + x.title + "“").join(" und ") + (und.length === 1 ? " hat danach keinen Termin – sie bleibt ohne Datum in der Einheit, bis Sie (oder Claude) die Einheit überarbeiten."
+        : " haben danach keinen Termin – sie bleiben ohne Datum in der Einheit, bis Sie (oder Claude) die Einheit überarbeiten.") }) : null,
+      ...(plan.lengthChanges || []).map((g) => h("p", { class: "warnc", text: "Achtung: Stunde " + g.n + " dauert am neuen Termin " + g.to + " statt " + g.from + " Minuten." })),
+      h("p", { text: "Eltern sehen für diesen Termin: „Der Unterricht konnte leider nicht stattfinden.“" }), err));
+  };
+  const preview = async () => {
+    ready = false;
+    try { const r = await tapi("POST", "/api/teacher/lessons/" + id + "/cancel", { body: { dryRun: true } }); version = r.version; paint(r.plan); ready = true; }
+    catch (e) { clear(body).append(err); err.textContent = e.message; }
+  };
+  modal({ title: "Stunde ausfallen lassen?", wide: true, body: (el) => el.append(body), actions: [
+    { label: "Abbrechen" },
+    { label: "Ausfallen lassen und verschieben", class: "danger", onClick: async () => {
+      if (!ready || running) return false;
+      running = true; err.textContent = "";
+      try {
+        await tapi("POST", "/api/teacher/lessons/" + id + "/cancel", { body: { version } });
+        toast("Die Stunden sind verschoben.", "ok");
+        done();
+        return true;
+      } catch (e) {
+        running = false;
+        if (e.status === 409 && e.data && e.data.code === "unit_conflict") { await preview(); err.textContent = "Die Einheit wurde inzwischen geändert – die Vorschau wird neu geladen."; return false; }
+        err.textContent = e.message; return false;
+      }
+    } }] });
+  body.append(h("p", { class: "muted", text: "Lade die Vorschau …" }));
+  preview();
+}
+
+/* ---------- Ausfall-Eintrag (Krankmeldung): schlanke Seite – was passiert ist, roter Kasten, Elternansicht, löschen ---------- */
+async function gsPlaceholderPage(id, d, main, course, coursePage) {
+  const L = () => d.lesson, l = d.lesson, unit = d.unit;
+  const item = unit && unit.revise ? unit.revise.items.find((x) => x.placeholderId === id) : null;
+  main.classList.add("gs-placeholder");
+  const heading = h("h1", { text: "Ausgefallen: " + (l.date ? longDay(l.date) : "ohne Termin") });
+  main.append(pageHead({ fach: "gs", title: heading, sub: h("div", { class: "chips" }, ...nn(course ? h("span", { class: "chip", text: course.short }) : null, l.startTime ? h("span", { class: "chip", text: l.startTime + " Uhr" }) : null,
+      l.durationMin ? h("span", { class: "chip", text: l.durationMin + " Minuten" }) : null)),
+    crumbs: [["#/lk/grundschule", "Grundschule"], [coursePage, course ? course.short : "Kurs"], ...(unit ? [["#/lk/u/" + unit.id, unit.title || "Einheit"]] : []), "Ausgefallen"] }));
+  const lead = h("p", { class: "lead", text: "An diesem Termin konnte der Unterricht nicht stattfinden." });
+  const info = h("section", { class: "card", id: "gs-cancelled" }, h("h2", { text: "Unterricht ausgefallen" }), lead);
+  if (item && item.lessonId && unit) {
+    tapi("GET", "/api/teacher/units/" + unit.id).then((r) => {
+      const m = (r.unit.lessons || []).find((x) => x.id === item.lessonId);
+      if (!m) return;
+      lead.append(" Die geplante Sitzung „" + (item.title || m.title) + "“ " + (m.date ? "findet jetzt am " + fmtDay(m.date) + (m.time ? " um " + m.time + " Uhr" : "") + " statt." : "hat noch keinen neuen Termin."), " ",
+        h("a", { href: "#/lk/s/" + m.id }, "Zur verschobenen Sitzung"));
+    }).catch(() => {});
+  }
+  const opens = parentOpensAt({ date: l.date, startTime: l.startTime, durationMin: l.durationMin });
+  const when = h("p", { class: "small", role: "status", text: opens ? "Eltern sehen für diesen Termin ab " + longWhen(opens) + ": „Der Unterricht konnte an diesem Termin leider nicht stattfinden.“" : "Eltern sehen für diesen Termin, dass der Unterricht nicht stattfinden konnte." });
+  const noteTA = h("textarea", { id: "gs-note", rows: "3", maxlength: "2000", value: l.parentNote || "", "aria-describedby": "gs-note-h" });
+  const noteState = h("span", { class: "save-state" });
+  const noteF = autoSave(id, L, noteTA, "parentNote", "parentNote", noteState);
+  const parents = parentsCardDom(id, L, { status: [when], noteState, noteTA });
+  const del = h("section", { class: "card" }, h("h2", { text: "Ausfall-Eintrag" }),
+    h("p", { class: "small", text: "Der Ausfall-Eintrag hält den ausgefallenen Termin für die Eltern fest. Die Termine der Einheit bleiben, auch wenn Sie ihn löschen." }),
+    h("button", { class: "btn small danger", type: "button", onclick: async () => {
+      if (!(await confirmDialog("Ausfall-Eintrag löschen", "Ausfall-Eintrag löschen? Der Elternlink dieses Termins funktioniert danach nicht mehr; die Termine der Einheit bleiben, wie sie sind.", "Löschen", true))) return;
+      try { await tapi("DELETE", "/api/teacher/lessons/" + id); toast("Ausfall-Eintrag gelöscht.", "ok"); go(unit ? "#/lk/u/" + unit.id : coursePage); } catch (e) { errToast(e); }
+    } }, icon("trash"), "Ausfall-Eintrag löschen"));
+  main.append(h("div", { class: "stack" }, ...nn(unit ? reviseBox(unit, { unitLink: true, onChange: () => go("#/lk/s/" + id) }) : null, info, parents, del)));
+  onLeave(() => noteF.flush());
 }

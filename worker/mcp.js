@@ -10,7 +10,7 @@ import { getUnit, unitFull, applyPlan, updateRow } from "./units.js";
 import { planningBasis } from "./bases.js";
 import { gsCourseMap, gsCourseOut, getGsCourse, planningBasisGs } from "./gs.js";
 import { saveProposal, getSubstitute } from "./substitute.js";
-import { paramsText, lessonSlots, WEEKDAYS } from "../public/planning.js";
+import { paramsText, lessonSlots, WEEKDAYS, freeSlots } from "../public/planning.js";
 import { insertTextMaterial, insertPrintText, saveDesign, renderDesign, getFile } from "./files.js";
 import { shortImages } from "./render.js";
 import { ESCAPE_FORMAT_HINT, PART_TYPES } from "../public/escape-data.js";
@@ -168,18 +168,21 @@ const TOOLS = [
     description: "Liefert die für Fach und Klasse/Kurs einer Einheit (oder einer Sitzung) geltenden Planungsgrundlagen im Wortlaut: Schulcurriculum (Sek I), KCGO (Regeln, Kurshalbjahr, didaktische Grundlagen), schulinternes E-Phasen-Curriculum, Fachteil des Abiturerlasses des Kurses, dazu die Planungsregeln der Lehrkraft und fehlende Dokumente.",
     inputSchema: { type: "object", properties: { unit_id: UNIT_ID, lesson_id: ID_ARG, max_zeichen: { type: "integer", minimum: 10000, maximum: 400000 } }, additionalProperties: false } },
   { name: "save_unit_plan", title: "Plan der Unterrichtseinheit speichern", annotations: { ...wr, destructiveHint: true },
-    description: "Speichert den mit der Lehrkraft abgestimmten Plan einer Einheit: Planungsgrundlage (gewählt + Begründung, optional Alternative), zentrale Lernaufgabe, Ausgangslage, Lernschritte des Leupold-Schemas (je Titel + Tätigkeitsbeschreibung mit Operatoren) und die Stunden in zeitlicher Reihenfolge (Stundenfrage, grober Ablauf in Stichpunkten, Nummer des Lernschritts ab 0). Termine verteilt die Plattform automatisch. Erst aufrufen, wenn die Lehrkraft zugestimmt hat.",
+    description: "Speichert den mit der Lehrkraft abgestimmten Plan einer Einheit: Planungsgrundlage (gewählt + Begründung, optional Alternative), zentrale Lernaufgabe, Ausgangslage, Lernschritte des Leupold-Schemas (je Titel + Tätigkeitsbeschreibung mit Operatoren) und die Stunden in zeitlicher Reihenfolge (Stundenfrage, grober Ablauf in Stichpunkten, Nummer des Lernschritts ab 0). Termine verteilt die Plattform automatisch. Erst aufrufen, wenn die Lehrkraft zugestimmt hat. " +
+      "Überarbeitung einer Einheit mit Sitzungen (z. B. nach Ausfällen in der Grundschule): gib bei jeder Stunde, die bleibt, ihre uid aus get_unit an – sie behält ihre Sitzung samt Material; Stunden ohne uid sind neu; eine weggelassene Stunde mit schon geplanter Sitzung lehnt die Plattform ab (leere Sitzungen löscht sie). In der Grundschule verteilt die Plattform die Termine danach neu.",
     inputSchema: { type: "object", properties: { unit_id: UNIT_ID, base_version: { type: "integer", minimum: 0 },
       plan: { type: "object", properties: { titel: { type: "string", maxLength: 200 }, thema: { type: "string", maxLength: 500 },
         planungsgrundlage: { type: "object", properties: { name: { type: "string" }, begruendung: { type: "string" }, alternative: { type: "object", properties: { name: { type: "string" }, begruendung: { type: "string" } } } }, required: ["name"] },
         lernaufgabe: { type: "string", maxLength: 4000 }, ausgangslage: { type: "string", maxLength: 4000 },
         schritte: { type: "array", maxItems: 15, items: { type: "object", properties: { titel: { type: "string", maxLength: 160 }, beschreibung: { type: "string", maxLength: 600 } }, required: ["titel", "beschreibung"] } } },
         required: ["lernaufgabe", "schritte"] },
-      stunden: { type: "array", minItems: 1, maxItems: 150, items: { type: "object", properties: { stundenfrage: { type: "string", maxLength: 400 }, ablauf: { type: "array", items: { type: "string", maxLength: 400 }, maxItems: 15 }, schritt: { type: "integer", minimum: 0, maximum: 14 } }, required: ["stundenfrage", "ablauf"] } } },
+      stunden: { type: "array", minItems: 1, maxItems: 150, items: { type: "object", properties: { uid: { type: "string", pattern: "^[a-f0-9]{8}$", description: "aus get_unit – behält die Stunde samt Sitzung" },
+        stundenfrage: { type: "string", maxLength: 400 }, ablauf: { type: "array", items: { type: "string", maxLength: 400 }, maxItems: 15 }, schritt: { type: "integer", minimum: 0, maximum: 14 } }, required: ["stundenfrage", "ablauf"] } } },
       required: ["unit_id", "plan", "stunden"], additionalProperties: false } },
   { name: "update_unit_row", title: "Stunde in der Einheit anpassen", annotations: wr,
-    description: "Hält eine mit der Lehrkraft abgestimmte Abweichung in der Tabelle der Einheit fest: neue Stundenfrage und/oder neuer grober Ablauf für die Stunde, zu der die Sitzung gehört. Nur nach Zustimmung der Lehrkraft aufrufen.",
-    inputSchema: { type: "object", properties: { lesson_id: ID_ARG, stundenfrage: { type: "string", maxLength: 400 }, ablauf: { type: "array", items: { type: "string", maxLength: 400 }, maxItems: 15 }, begruendung: { type: "string", maxLength: 1000 } }, required: ["lesson_id"], additionalProperties: false } },
+    description: "Hält eine mit der Lehrkraft abgestimmte Abweichung in der Tabelle der Einheit fest: neue Stundenfrage und/oder neuer grober Ablauf für die Stunde, zu der die Sitzung gehört. Nur nach Zustimmung der Lehrkraft aufrufen. Statt lesson_id geht auch unit_id mit der uid der Stunde aus get_unit.",
+    inputSchema: { type: "object", properties: { lesson_id: ID_ARG, unit_id: UNIT_ID, uid: { type: "string", pattern: "^[a-f0-9]{8}$", description: "uid der Stunde aus get_unit (mit unit_id, statt lesson_id – z. B. für eine Stunde ohne Sitzung)" },
+      stundenfrage: { type: "string", maxLength: 400 }, ablauf: { type: "array", items: { type: "string", maxLength: 400 }, maxItems: 15 }, begruendung: { type: "string", maxLength: 1000 } }, required: [], additionalProperties: false } },
   { name: "save_substitute_plan", title: "Vertretungsstunde (Lehrkraft krank) vorschlagen", annotations: wr,
     description: "Legt für eine Sitzung, die wegen Krankheit der Lehrkraft ohne sie stattfindet, einen Vertretungsvorschlag ab. Die Lehrkraft prüft ihn in der Plattform; erst nach ihrer Bestätigung wird das Material ausgetauscht und den Schüler:innen der Vertretungshinweis gezeigt. " +
       "Pflicht: Analyse (Kompetenz, Stundenfrage, Inhalte), chronologische Schritte für die Schüler:innen, Abgabe. Ab Jahrgang 7 ist eine Abgabe in der Plattform Pflicht: ein Feibeitsblatt (bei Lernprodukten mit einer Aufgabe der Antwortart \"foto\" für das Foto des Produkts) oder ein Escape-Room (escape_room) mit Feibeitsblatt-Finale; in den Jahrgängen 5/6 nur analoge Materialien. Die Plattform prüft einen Escape-Room streng und meldet fehlende oder widersprüchliche Angaben mit genauer Stelle zurück.",
@@ -257,7 +260,8 @@ async function gsLessonDump(db, l) {
   const pm = parentMaterial(l.portal, [...ctx.files, ...before], l.id), name = new Map([...ctx.files, ...before].map((f) => [f.id, f.name]));
   const results = msgs.filter((m) => m.mode === "claude" && m.role === "assistant");
   const parts = [
-    "# Sitzung " + l.id + " (Grundschule)", gsLessonContext(ctx, { materialText: true, materialMax: 20000 }),
+    "# Sitzung " + l.id + " (Grundschule)", ...(l.cancelled ? ["Ausfall-Eintrag: An diesem Termin ist der Unterricht ausgefallen (Lehrkraft krank). Die geplante Stunde ist verschoben (siehe get_unit); hier gibt es weder Verlaufsplan noch Material."] : []),
+    gsLessonContext(ctx, { materialText: true, materialMax: 20000 }),
     "", "## Verlaufsplan (Version " + l.portal_version + (l.portal_source ? ", zuletzt von " + l.portal_source : "") + ")", l.portal || "(noch leer – speichere ihn mit save_verlaufsplan)",
     ...(hasStop(l.portal) ? ["(„" + STOP_LINE + "“ hat die Lehrkraft gesetzt: bis dorthin wurde die Stunde geschafft, alles danach ist noch offen.)"] : []),
     "Eltern sehen nach der Stunde: " + ([...pm.cards, ...pm.files].map((id) => "„" + name.get(id) + "“").join(", ") || "noch kein Material"),
@@ -299,7 +303,7 @@ function listFilter(a) {
   return { where: where.length ? " WHERE " + where.join(" AND ") : "", args };
 }
 /* get_unit einer Grundschul-Einheit: Kurs im Kopf, ohne Klausur, jede Stunde mit uid und Sitzung (bzw. „[ohne Termin]“) */
-function gsUnitText(u) {
+function gsUnitText(u, now = Date.now()) {
   const g = (u.course && u.course.gs) || null, n = u.course && Number.isInteger(u.course.classSize) ? u.course.classSize : null;
   const byRow = new Map(u.lessons.map((l) => [l.row, l]));
   const slots = lessonSlots(u.slots);
@@ -310,10 +314,25 @@ function gsUnitText(u) {
     ...u.rows.map((r, i) => { const l = byRow.get(r.uid);
       return (i + 1) + ". [uid " + r.uid + "] " + (r.date ? fmtDay(r.date) + (r.time ? " " + r.time : "") : "[ohne Termin]") + (r.minutes ? " (" + r.minutes + " min)" : "") + ": " + r.stundenfrage +
         (r.schritt != null ? " [Lernschritt " + (r.schritt + 1) + "]" : "") + (l ? " (Sitzung " + l.id + ")" : "") + (r.ablauf.length ? "\n   - " + r.ablauf.join("\n   - ") : ""); }),
-    "", "## Sitzungen", ...(u.lessons.length ? u.lessons.map((l) => "- " + l.id + " " + (l.date ? fmtDay(l.date) : "[ohne Termin]") + ": " + l.title) : ["(noch keine)"])];
+    "", "## Sitzungen", ...(u.lessons.length ? u.lessons.map((l) => "- " + l.id + " " + (l.date ? fmtDay(l.date) : "[ohne Termin]") + ": " + l.title + (l.cancelled ? " (ausgefallen – Ausfall-Eintrag für die Eltern)" : "")) : ["(noch keine)"])];
+  // Krankmeldungen: ausgefallene Termine, Stunden ohne Termin, freie Termine bis zum Ende, ob die Einheit überarbeitet werden muss
+  const rv = u.revise || null, items = rv ? rv.items : [];
+  if (items.length) {
+    const at = (x) => fmtDay(x.date) + (x.time ? " " + x.time : "");
+    lines.push("", "## Ausfälle", ...items.map((x) => "- " + at(x) + ": Unterricht ausgefallen (Lehrkraft krank) – „" + x.title + "“ und alle folgenden Stunden sind um einen Termin nach hinten gerückt" +
+      (x.lengths && x.lengths.length ? "; geänderte Länge: " + x.lengths.map((g) => "Stunde " + g.n + " (" + g.from + " → " + g.to + " Min.)").join(", ") : "") + "."));
+  }
+  const undated = u.rows.map((r, i) => ({ r, i })).filter((x) => !x.r.date);
+  if (items.length || undated.length) {
+    const free = freeSlots(u.params, u.rows, now);
+    lines.push("", "Stunden ohne Termin: " + (undated.length ? undated.map((x) => "Stunde " + (x.i + 1) + " „" + x.r.stundenfrage + "“ [uid " + x.r.uid + "]").join("; ") : "keine"),
+      "Noch freie Termine bis zum Ende der Einheit: " + (free.length ? free.map((x) => fmtDay(x.date) + (x.time ? " " + x.time : "") + " (" + x.minutes + " min)").join("; ") : "keine"),
+      "Muss überarbeitet werden: " + (rv && rv.open ? "ja (roter Hinweis in der Einheit – überarbeite sie nur nach Rücksprache mit der Lehrkraft; save_unit_plan mit der uid jeder Stunde, die bleibt)" : "nein"));
+  }
   return lines.join("\n");
 }
 
+const NO_MATERIAL = "Diese Sitzung ist ein Ausfall-Eintrag (Unterricht ausgefallen) – dafür gibt es kein Material. Die verschobene Stunde hat eine eigene Sitzung (siehe get_unit).";
 async function callTool(c, name, a) {
   a = a && typeof a === "object" ? a : {};
   switch (name) {
@@ -356,7 +375,7 @@ async function callTool(c, name, a) {
     }
     case "get_unit": {
       const u = await unitFull(c.db, await getUnit(c.db, a.unit_id));
-      if (u.subject === GS_SUBJECT) return toolText(gsUnitText(u), { unit_id: u.id, version: u.version });
+      if (u.subject === GS_SUBJECT) return toolText(gsUnitText(u, c.now), { unit_id: u.id, version: u.version });
       const lines = ["# Unterrichtseinheit " + u.id + " (" + subjectName(u.subject) + ", " + classShort(u.klass) + " – " + gradeInfo(u.klass).text + ", Status: " + u.status + ", Version " + u.version + ")",
         "Titel: " + (u.title || "(offen)"), ...(u.course && Number.isInteger(u.course.classSize) ? ["Schülerzahl laut Kurseinstellungen: " + u.course.classSize] : []), paramsText(u.params), "Verfügbare Sitzungen: " + lessonSlots(u.slots).length, ...lessonSlots(u.slots).map((x, i) => "  " + (i + 1) + ". " + fmtDay(x.date) + " (" + x.minutes + " min)"),
         "", "## Plan", JSON.stringify(u.plan, null, 1), "", "## Ablauf (Zeilen)", ...u.rows.map((r, i) => (i + 1) + ". " + (r.date ? fmtDay(r.date) + ": " : "") + r.stundenfrage + (r.schritt != null ? " [Lernschritt " + (r.schritt + 1) + "]" : "") + "\n   - " + r.ablauf.join("\n   - ")),
@@ -385,17 +404,32 @@ async function callTool(c, name, a) {
     case "save_unit_plan": {
       const u = await getUnit(c.db, a.unit_id);
       try {
-        const v = await applyPlan(c.db, u, a.plan, a.stunden, Number.isInteger(a.base_version) ? a.base_version : null, "claude", c.now);
-        return toolText("Plan gespeichert (Version " + v + ", " + a.stunden.length + " Stunden). Die Lehrkraft prüft ihn in der Plattform und legt dort die Sitzungen an.", { version: v });
+        const r = await applyPlan(c.db, u, a.plan, a.stunden, Number.isInteger(a.base_version) ? a.base_version : null, "claude", c.now);
+        if (!r.uid) return toolText("Plan gespeichert (Version " + r.version + ", " + a.stunden.length + " Stunden). Die Lehrkraft prüft ihn in der Plattform und legt dort die Sitzungen an.", { version: r.version });
+        // mit uid (Überarbeitung): Stunden samt Sitzungen bleiben; in der Grundschule verteilt die Plattform die Termine neu
+        const when = (m) => (m.to ? fmtDay(m.to) + (m.time ? " " + m.time : "") : "ohne Termin");
+        const t = ["Plan gespeichert (Version " + r.version + ", " + a.stunden.length + " Stunden; Stunden mit uid behalten ihre Sitzung)."];
+        if (u.subject === GS_SUBJECT) t.push("Termine neu verteilt: " + (r.moves.length ? r.moves.map((m) => "Stunde " + m.n + " „" + m.title + "“ → " + when(m)).join("; ") : "keine Änderung") + ".",
+          "Ohne Termin: " + (r.undated.length ? r.undated.map((x) => "Stunde " + x.n + " „" + x.title + "“").join("; ") : "keine") + ".");
+        if (r.deleted) t.push(r.deleted === 1 ? "Eine leere Sitzung einer weggefallenen Stunde wurde gelöscht." : r.deleted + " leere Sitzungen weggefallener Stunden wurden gelöscht.");
+        if (r.reviseClosed) t.push("Der rote Hinweis in der Einheit ist entfernt.");
+        t.push("Für neue Stunden legt die Lehrkraft die Sitzungen in der Plattform an.");
+        return toolText(t.join(" "), { version: r.version, moves: r.moves, undated: r.undated.map((x) => x.uid), deleted: r.deleted });
       } catch (e) {
         if (e instanceof HttpError && e.code === "unit_conflict") return toolError("Die Einheit wurde inzwischen geändert (Version " + e.extra.version + "). Bitte get_unit erneut aufrufen.");
+        if (e instanceof HttpError && e.code === "rows_with_lessons") return toolError(e.message);
         throw e;
       }
     }
     case "update_unit_row": {
-      const l = await getLesson(c.db, a.lesson_id);
-      if (!l.unit_id || !l.unit_row) return toolError("Diese Sitzung gehört zu keiner Unterrichtseinheit.");
-      const row = await updateRow(c.db, l.unit_id, l.unit_row, { stundenfrage: a.stundenfrage, ablauf: a.ablauf }, "claude", c.now);
+      let unitId, uid;
+      if (a.lesson_id) {
+        const l = await getLesson(c.db, a.lesson_id);
+        if (!l.unit_id || !l.unit_row) return toolError("Diese Sitzung gehört zu keiner Unterrichtseinheit.");
+        unitId = l.unit_id; uid = l.unit_row;
+      } else if (a.unit_id && typeof a.uid === "string" && /^[a-f0-9]{8}$/.test(a.uid)) { unitId = a.unit_id; uid = a.uid; }
+      else return toolError("Bitte lesson_id angeben – oder unit_id und uid der Stunde (aus get_unit).");
+      const row = await updateRow(c.db, unitId, uid, { stundenfrage: a.stundenfrage, ablauf: a.ablauf }, "claude", c.now);
       return toolText("In der Einheit festgehalten: " + row.stundenfrage);
     }
     case "save_substitute_plan": {
@@ -440,7 +474,8 @@ async function callTool(c, name, a) {
       }
     }
     case "add_material_pdf": {
-      const gs = (await getLesson(c.db, a.lesson_id)).subject === GS_SUBJECT;
+      const lx = await getLesson(c.db, a.lesson_id), gs = lx.subject === GS_SUBJECT;
+      if (lx.cancelled) return toolError(NO_MATERIAL);
       const area = { schueler: "student", lehrkraft: "teacher", druck: "print" }[a.bereich] || "";
       if (!a.file_id && !area) return toolError("Bitte bereich angeben: schueler, lehrkraft oder druck.");
       const f = await saveDesign(c, a.lesson_id, { area, title: a.titel, html: a.html, print: { copies: a.anzahl, duplex: a.beidseitig, color: a.farbe }, source: "claude", fileId: a.file_id || null, gsPrint: gs });
@@ -528,13 +563,13 @@ async function callTool(c, name, a) {
         " Eltern sehen nach der Stunde: " + parentsSee + ".", { version: p.version, unknown_refs: unknown });
     }
     case "add_text_material": {
-      await getLesson(c.db, a.lesson_id);
+      if ((await getLesson(c.db, a.lesson_id)).cancelled) return toolError(NO_MATERIAL);
       const area = a.bereich === "schueler" ? "student" : a.bereich === "lehrkraft" ? "teacher" : "";
       const f = await insertTextMaterial(c.db, a.lesson_id, area, a.titel, a.markdown, "claude", c.now);
       return toolText("Material „" + f.name + "“ gespeichert (" + (area === "student" ? "für Schüler:innen sichtbar" : "nur für die Lehrkraft") + ").", { file_id: f.id });
     }
     case "add_print_material": {
-      await getLesson(c.db, a.lesson_id);
+      if ((await getLesson(c.db, a.lesson_id)).cancelled) return toolError(NO_MATERIAL);
       const f = await insertPrintText(c.db, a.lesson_id, a.titel, a.markdown, { copies: a.anzahl, duplex: a.beidseitig !== false, color: a.farbe === true }, "claude", c.now);
       const o = fileOut(f);
       return toolText("Druckvorlage gespeichert: „" + o.printName + "“ (Liste „Von der Lehrkraft auszudrucken“).", { file_id: f.id, file_name: o.printName });

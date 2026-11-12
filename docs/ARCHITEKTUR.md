@@ -99,7 +99,7 @@ implementiert und im End-to-End-Test geprüft (Ausnahmen unten ausdrücklich gen
 | | `worker/bases.js` | Fach-Einstellungen, Planungsgrundlagen (Seitentexte), Zusammenstellung je Klasse/Kurs |
 | | `worker/units.js` | Unterrichtseinheiten (Versionsschutz), Sitzungen aus der Einheit, Stundenpläne für den Wochenkalender |
 | | `worker/courses.js` | Kurseinstellungen aller Kurse (Stundenplan, Schülerzahl): lesen, speichern, Standard für neue Einheiten und Ausdrucke |
-| | `worker/gs.js` | Grundschulkurse (Jahrgang, Klassen a–c, Fach, Beschreibung, Schuljahr): anlegen, ändern, löschen; Planungsgrundlagen eines Kurses |
+| | `worker/gs.js` | Grundschulkurse (Jahrgang, Klassen a–c, Fach, Beschreibung, Schuljahr): anlegen, ändern, löschen; Planungsgrundlagen eines Kurses; Krankmeldung (Stunden verschieben, Ausfall-Eintrag, rückgängig) |
 | | `worker/parents.js` | Elternansicht der Grundschule: geheimer Link je Sitzung (nur Hash + verschlüsselte Kopie in D1), öffentliche Routen `/api/eltern/*` (Zeitsperre bis zum Ende der Sitzung, Material bis zum Zwischenstopp, vorherige Sitzungen des Schuljahres, PDF-Links, Sperre je IP), Vorschau der Lehrkraft |
 | | `worker/cards.js` | Bildkarten der Grundschule: PDF hochladen (eine Seite = eine Karte), Kartenbilder mit Stand der PDF, Erzähltexte und Freigabe für Eltern, signierte Bilder (`/api/card/…`), von Claude gestaltete Bildkarten |
 | | `public/weekcal.js` | Wochenkalender auf der Startseite der Lehrkraft (Raster bzw. Liste je Tag) |
@@ -108,9 +108,9 @@ implementiert und im End-to-End-Test geprüft (Ausnahmen unten ausdrücklich gen
 | | `public/teacher.js`, `public/session.js` | Lehrkräfteansicht (Fach → Klasse/Kurs → Einheiten), Sitzungsansicht |
 | | `public/materialbox.js` | Materialkasten einer Sitzung (Material für Schüler:innen und Lehrkräfte, Druckliste) – aus `session.js` ausgelagert |
 | | `public/coursecard.js` | Karte „Kurseinstellungen“ auf der Klassen- bzw. Kursseite (Termine pro Woche, Schülerzahl) |
-| | `public/grundschule.js` | Bereich „Grundschule“ (Menüpunkt zwischen „Gymnasium“ und „Planungsgrundlagen“): Übersicht mit dem Wochenkalender beider Schulformen, den Kursen und „Neuen Kurs anlegen“ (Knopf im Kopf der Seite führt zum Formular; Jahrgang 1–4, Religion oder ein anderes Fach mit Namen); Kursseite (Einheiten, Kurseinstellungen, Fach/Klassen, Planungsgrundlagen) |
-| | `public/gsplanning.js` | Prompts für Claude in der Grundschule (Einheit und Stunde planen, Verlaufsplan-Regeln; nur analoges Material) |
-| | `public/gssession.js` | Sitzungsseite der Grundschule: Verlaufsplan ganz oben (PDF-Namen gelb markiert als Links in einen neuen Tab, Zwischenstopp per Dialog und Kontextmenü), Materialkasten mit dem Hinweis, was Eltern sehen, Druckliste, Inhalt und Hausaufgabe für die Eltern, Karte „Elternansicht“ – kein Schulportal-Eintrag, keine Präsentation, kein Sitzungscode |
+| | `public/grundschule.js` | Bereich „Grundschule“ (Menüpunkt zwischen „Gymnasium“ und „Planungsgrundlagen“): Übersicht mit dem Wochenkalender beider Schulformen, den Kursen und „Neuen Kurs anlegen“ (Knopf im Kopf der Seite führt zum Formular; Jahrgang 1–4, Religion oder ein anderes Fach mit Namen); Kursseite (Einheiten, Kurseinstellungen, Fach/Klassen, Planungsgrundlagen); roter Kasten nach Ausfällen (`reviseBox`) |
+| | `public/gsplanning.js` | Prompts für Claude in der Grundschule (Einheit und Stunde planen, Einheit nach Ausfällen überarbeiten, Verlaufsplan-Regeln; nur analoges Material) |
+| | `public/gssession.js` | Sitzungsseite der Grundschule: Verlaufsplan ganz oben (PDF-Namen gelb markiert als Links in einen neuen Tab, Zwischenstopp per Dialog und Kontextmenü), Materialkasten mit dem Hinweis, was Eltern sehen, Druckliste, Inhalt und Hausaufgabe für die Eltern, Karte „Elternansicht“, Karte „Krankheit“ (Stunden verschieben) und Seite eines Ausfall-Eintrags – kein Schulportal-Eintrag, keine Präsentation, kein Sitzungscode |
 | | `public/parents.js` | Elternansicht (`#/eltern/<Token>`): eigene Kopfzeile, Hinweis der Lehrkraft (rot), Bildkarten, Inhalt, Hausaufgabe, Material, vorherige Sitzungen – speichert nichts im Browser, lädt keine Module der Lehrkraft; `parentViewDom` auch für die Vorschau (`grundschule.js`, `#/lk/eltern/<id>`) |
 | | `public/cardview.js` | Betrachter der Bildkarten (Durchklicken, Erzähltext darunter) – eigenes Modul für Lehrkraft und Eltern |
 | | `public/cards.js` | Bildkarten: Betrachter (aus `cardview.js`), Karte „Bildkarten“ der Grundschul-Sitzung (Erzähltexte, Freigabe, Hochladen), Kartenbilder im Browser erstellen (PDF.js, nacheinander) |
@@ -322,6 +322,21 @@ implementiert und im End-to-End-Test geprüft (Ausnahmen unten ausdrücklich gen
   10 Minuten gesperrt, geprüft vor dem Nachschlagen); alle Antworten `no-store` und `X-Robots-Tag: noindex, nofollow`; die Seite lädt nur
   vom eigenen Server und speichert nichts im Browser. „Elternansicht ausprobieren“ zeigt der Lehrkraft dieselbe Ansicht ohne Zeitsperre
   (`GET /api/teacher/lessons/<id>/parents`).
+
+* **Grundschule: Krankmeldung verschiebt die Stunden (Ergänzung vom 12.11.2026).** In der Grundschule gibt es keine Vertretungsstunde.
+  „Krankmeldung: Diese Stunde fällt aus“ (Karte „Krankheit“ der Sitzungsseite) zeigt erst eine Vorschau (`POST /api/teacher/lessons/<id>/cancel`
+  mit `dryRun`), dann rücken die Stunde und alle folgenden Stunden der Einheit um je einen Termin nach hinten (`planCancellation`/`packFrom` in
+  `public/planning.js`; der ausgefallene Termin steht in `units.params.cancelled` und wird nie wieder vergeben). Was hinter das Ende der Einheit
+  rutscht, bleibt ohne Datum in der Einheit stehen (Entscheidung der Lehrkraft). Die Sitzungen behalten Kennung, Material und Verlaufsplan – nur
+  Datum, Beginn und Dauer wandern. Den ausgefallenen Termin hält ein Ausfall-Eintrag fest (`lessons.cancelled=1`, ohne Zeile der Einheit); er
+  übernimmt den Elternlink der Sitzung, Eltern sehen dort „Der Unterricht konnte an diesem Termin leider nicht stattfinden.“ (nie „krank“). Alles
+  geschieht in einem D1-Batch, jede Anweisung an die Version der Einheit gebunden. `units.revise` merkt sich die Ausfälle und zeigt in der Einheit
+  und in jeder ihrer Sitzungen den roten Kasten „Die Einheit muss wegen der Ausfälle überarbeitet werden“ (`reviseBox` in `grundschule.js`) mit
+  „Einheit mit Claude überarbeiten“ (`claudeUnitRevisionPrompt`), „Erledigt – Hinweis entfernen“ und – solange die Einheit seither nicht
+  geändert wurde – „Krankmeldung rückgängig machen“ (`POST /api/teacher/units/<id>/cancel/undo`). Claude sieht in `get_unit` die uid jeder
+  Stunde, „## Ausfälle“, Stunden ohne Termin und freie Termine; `save_unit_plan` mit uid behält Stunden samt Sitzung (leere Sitzungen
+  weggefallener Stunden werden gelöscht, geplante nie) und verteilt in der Grundschule die Termine nach der letzten gehaltenen Stunde neu
+  (`repackFuture`); der rote Kasten verschwindet dann. Der Wochenkalender zeigt den Termin als „Unterricht ausgefallen“.
 
 * **Fächer und Jahrgänge.** Unter *Planungsgrundlagen → Fach → Fach-Einstellungen* steht, in welchen Jahrgängen ein Fach
   unterrichtet wird. Vorgabe für Politik und Wirtschaft: Jahrgänge 6, 8, 9, 10 (Hinweis: nur 1. Halbjahr), E-Phase und Q-Phase;

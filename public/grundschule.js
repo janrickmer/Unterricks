@@ -10,6 +10,8 @@ import { weekCard } from "./weekcal.js";
 import { weekdayRows, courseSettingsCard } from "./coursecard.js";
 import { baseLink, uploadBaseFile, editBase } from "./bases.js";
 import { parentViewDom } from "./parents.js";
+import { claudeHandoff } from "./claude.js";
+import { claudeUnitRevisionPrompt } from "./gsplanning.js";
 
 const GS_GONE = "Diesen Grundschulkurs gibt es nicht (mehr).";
 const wdShort = (d) => ((WEEKDAYS.find((w) => w.d === d) || {}).n || "").slice(0, 2);
@@ -330,3 +332,45 @@ export async function parentsPreviewPage(id, other = null) {
   if ((other || within) && (!document.activeElement || document.activeElement === document.body)) view.focusHeading();
 }
 
+
+/* ---------- Roter Kasten nach einer Krankmeldung (Einheit und jede ihrer Sitzungen) ----------
+ * unit = Einheit wie vom Server (mit revise; lessons nur bei GET /api/teacher/units/<id> – sonst lädt der Kasten sie für den Prompt nach).
+ * opt.unitLink: Link „Zur Einheit“ (auf Sitzungsseiten); opt.onChange(unit|null): nach „Erledigt“ bzw. „rückgängig“ (Seite neu aufbauen). */
+const listAnd = (xs) => (xs.length <= 1 ? xs.join("") : xs.slice(0, -1).join(", ") + " und " + xs[xs.length - 1]);
+export function reviseBox(unit, opt = {}) {
+  const rv = unit && unit.revise;
+  if (!rv || !rv.open) return null;
+  let full = Array.isArray(unit.lessons) ? unit : null;
+  if (!full) tapi("GET", "/api/teacher/units/" + unit.id).then((r) => { full = r.unit; }).catch(() => {});
+  const items = rv.items || [], rows = unit.rows || [], end = (unit.params || {}).end || null;
+  const days = items.map((x) => fmtDay(x.date));
+  const undated = rows.filter((r) => !r.date).map((r) => "„" + (r.stundenfrage || "Stunde ohne Titel") + "“");
+  const lengths = items.flatMap((x) => x.lengths || []);
+  const hid = "rv-h-" + unit.id;
+  const text = [
+    "Ausgefallen: " + (listAnd(days) || "–") + ". " + (items.length > 1 ? "Unterricks hat jeweils die ausgefallene und alle folgenden Stunden um je einen Termin verschoben."
+      : "Unterricks hat diese und alle folgenden Stunden um je einen Termin verschoben."),
+    undated.length ? "Ohne Termin: " + undated.join(", ") + (end ? " (Ende der Einheit: " + fmtDay(end) + ")" : "") + "." : null,
+    ...lengths.map((g) => "Achtung: Stunde " + g.n + " dauert am neuen Termin " + g.to + " statt " + g.from + " Minuten."),
+  ].filter(Boolean);
+  const claudeBtn = h("button", { class: "btn primary", type: "button", onclick: () => claudeHandoff({ title: "Einheit nach Ausfällen überarbeiten",
+    intro: "Claude schlägt Ihnen vor, wie die Einheit trotz der Ausfälle ihre Lernaufgabe erreicht, und speichert erst nach Ihrer Zustimmung.",
+    after: "Wenn Claude die Einheit gespeichert hat, kommen Sie hierher zurück: Die Seite lädt die neuen Termine beim Zurückkehren – der rote Hinweis verschwindet dann.",
+    prompt: () => claudeUnitRevisionPrompt({ unit: full || unit, now: Date.now() }) }) }, "Einheit mit Claude überarbeiten");
+  const doneBtn = h("button", { class: "btn", type: "button", onclick: (e) => busy(e.currentTarget, async () => {
+    try { const r = await tapi("PATCH", "/api/teacher/units/" + unit.id, { body: { reviseDone: true } }); toast("Hinweis entfernt.", "ok"); if (opt.onChange) opt.onChange(r.unit); }
+    catch (x) { errToast(x); }
+  }) }, icon("check"), "Erledigt – Hinweis entfernen");
+  const undoBtn = rv.canUndo ? h("button", { class: "btn ghost danger", type: "button", onclick: async (e) => {
+    const b = e.currentTarget;
+    if (!(await confirmDialog("Krankmeldung rückgängig machen", "Krankmeldung rückgängig machen? Die Termine werden wie vorher; der Ausfall-Eintrag wird gelöscht.", "Rückgängig machen", true))) return;
+    busy(b, async () => {
+      try { const r = await tapi("POST", "/api/teacher/units/" + unit.id + "/cancel/undo", { body: { undoId: rv.undoId } }); toast("Krankmeldung rückgängig gemacht – die Termine sind wie vorher.", "ok"); if (opt.onChange) opt.onChange(r.unit); }
+      catch (x) { errToast(x); }
+    });
+  } }, "Krankmeldung rückgängig machen") : null;
+  return h("section", { class: "card revisebox", role: "region", "aria-labelledby": hid },
+    h("h2", { id: hid }, icon("alert"), h("span", { text: "Die Einheit muss wegen der Ausfälle überarbeitet werden" })),
+    ...text.map((t) => h("p", { text: t })),
+    h("div", { class: "row" }, claudeBtn, doneBtn, undoBtn, opt.unitLink ? h("a", { class: "btn ghost", href: "#/lk/u/" + unit.id }, "Zur Einheit") : null));
+}

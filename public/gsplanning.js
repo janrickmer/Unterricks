@@ -1,7 +1,7 @@
 // gsplanning.js – Prompts für Claude in der Grundschule (Wunsch der Lehrkraft vom 12.11.2026): Einheit planen. Gemeinsam für Browser und
 // Worker (keine DOM-Zugriffe). Die Kinder arbeiten nicht digital: nur analoges, ausdruckbares Material.
 import { fmtDay, SYSTEM_PROMPT_ROLE, UNIT_RULE_BASE, STOP_LINE, materialDesignText, hasStop } from "./shared.js";
-import { lessonSlots, paramsText } from "./planning.js";
+import { lessonSlots, paramsText, freeSlots, normalizeParams } from "./planning.js";
 
 export const GS_RULE = "In der Grundschule arbeiten die Kinder nicht digital: Plane ausschließlich analoges Material (ausdruckbare Arbeitsblätter, Bildkarten, Tafel- und Bodenbilder) – keine Feibeitsblätter, keine Escape-Rooms, keine Online-Aufgaben, keine Präsentation zum Mitverfolgen.";
 
@@ -167,5 +167,49 @@ export function claudeGsLessonPrompt(ctx) {
     VERLAUFSPLAN_EXAMPLE,
     "",
     "Falls der Connector „Unterricks“ in diesem Chat nicht verfügbar ist, sage es mir sofort (beim ersten Mal muss er im Chat verbunden und sein Zugriff erlaubt werden). Plane dann mit den Angaben oben und gib mir den Verlaufsplan am Ende zum Kopieren aus.",
+  ].filter((l) => l !== null).join("\n").replace(/\n{3,}/g, "\n\n");
+}
+
+/* ---------- Prompt für Claude: Einheit nach Ausfällen überarbeiten (roter Kasten „Die Einheit muss … überarbeitet werden“) ----------
+ * ctx = {unit (wie GET /api/teacher/units/<id>: rows, plan, params, revise, lessons mit hasPlan/pdfs/cards, course), now} */
+export function claudeUnitRevisionPrompt(ctx) {
+  const u = ctx.unit || {}, rows = u.rows || [], plan = u.plan || {}, rv = u.revise || { items: [] }, now = ctx.now || Date.now();
+  const c = (u.course && u.course.gs) || {}, n = u.course && Number.isInteger(u.course.classSize) ? u.course.classSize : null, fach = c.subjectName || "Religion";
+  const p = normalizeParams(u.params), at = (d, t) => fmtDay(d) + (t ? " " + t : "");
+  const byRow = new Map((u.lessons || []).filter((l) => l.row && !l.cancelled).map((l) => [l.row, l]));
+  const items = rv.items || [], undated = rows.map((r, i) => ({ r, i })).filter((x) => !x.r.date);
+  const lengths = items.flatMap((x) => x.lengths || []);
+  const free = freeSlots(u.params, rows, now);
+  const state = (l) => { if (!l) return "noch keine Sitzung"; const has = [l.hasPlan ? "Verlaufsplan" : null, l.pdfs ? l.pdfs + (l.pdfs === 1 ? " PDF" : " PDFs") : null, l.cards ? "Bildkarten" : null].filter(Boolean);
+    return "Sitzung " + l.id + (has.length ? " – schon geplant: " + has.join(", ") : " – noch nicht geplant"); };
+  const rowLines = rows.map((r, i) => (i + 1) + ". [uid " + r.uid + "] " + (r.date ? at(r.date, r.time) : "ohne Termin") + (r.minutes ? " (" + r.minutes + " Min.)" : "") + ": „" + r.stundenfrage + "“" +
+    (r.schritt != null && (plan.schritte || [])[r.schritt] ? " [Lernschritt " + (r.schritt + 1) + "]" : "") + " – " + state(byRow.get(r.uid)));
+  const steps = (plan.schritte || []).map((x, i) => (i + 1) + ". " + x.titel + (x.beschreibung ? " – " + x.beschreibung : ""));
+  return [
+    "Du bist eine erfahrene Fachdidaktikerin bzw. ein erfahrener Fachdidaktiker für " + fach + " an einer Grundschule in Hessen und überarbeitest mit mir eine Unterrichtseinheit meiner Unterrichtsplattform „Unterricks“. Arbeite gründlich, kindgerecht und dialogisch: Warte an den markierten Stellen auf meine Entscheidung.",
+    "",
+    "## Was passiert ist",
+    "Wegen Ausfällen (Lehrkraft krank: " + (items.length ? items.map((x) => at(x.date, x.time)).join("; ") : "–") + ") hat Unterricks die ausgefallene und alle folgenden Stunden der Einheit " + u.id +
+      " („" + (u.title || plan.titel || "ohne Titel") + "“) um je einen Termin verschoben" + (undated.length ? "; ohne Termin: " + undated.map((x) => "Stunde " + (x.i + 1) + " „" + x.r.stundenfrage + "“").join(", ") +
+      " (Ende der Einheit am " + (p.end ? fmtDay(p.end) : "?") + ")" : "") + "." + (lengths.length ? " Geänderte Längen: " + lengths.map((g) => "Stunde " + g.n + " (" + g.from + " → " + g.to + " Min.)").join(", ") + "." : ""),
+    "",
+    "## Die Einheit jetzt",
+    "- Kurs: " + (c.label || "Grundschule") + (c.gradeText ? " – " + c.gradeText : "") + (n ? ", " + n + " Kinder (laut Kurseinstellungen)" : ""),
+    plan.lernaufgabe ? "- Zentrale Lernaufgabe (Ziel der Einheit): " + plan.lernaufgabe : null,
+    steps.length ? "- Lernschritte:\n" + steps.map((x) => "  " + x).join("\n") : null,
+    "- Stunden (uid = Kennung der Stunde):",
+    ...rowLines.map((x) => "  " + x),
+    "- Noch freie Termine bis zum Ende der Einheit: " + (free.length ? free.map((x) => at(x.date, x.time) + " (" + x.minutes + " Min.)").join("; ") : "keine"),
+    "",
+    "## Vorgehen",
+    "1. Rufe mit dem Connector „Unterricks“ `get_unit` mit der ID " + u.id + " auf (Ausfälle, Stunden ohne Termin, freie Termine und die uid jeder Stunde). Für einzelne Sitzungen liefert `get_lesson` Verlaufsplan und Material.",
+    "2. Schlage mir zwei oder drei Möglichkeiten vor, wie die Einheit trotz der Ausfälle ihre zentrale Lernaufgabe erreicht – z. B. Stunden zusammenlegen oder kürzen, eine Stunde ohne Termin streichen oder mit einer anderen zusammenführen, oder das Ende der Einheit verlängern (das trage ich dann in den Rahmendaten ein). Nenne zu jeder Möglichkeit kurz Vor- und Nachteile.",
+    "3. Warte auf meine Entscheidung.",
+    "4. Speichere die überarbeitete Einheit mit `save_unit_plan` (mit `base_version` aus `get_unit`) und gib bei jeder Stunde, die bleibt, ihre `uid` an. Stunden mit schon geplanter Sitzung lässt du nicht weg (Inhalt und Stundenfrage darfst du ändern); die Termine verteilt die Plattform neu.",
+    "5. Passe betroffene Sitzungen nur nach meiner Zustimmung an (`save_verlaufsplan`, `update_lesson` mit `inhalt_eltern`).",
+    "",
+    "Nenne nie Namen von Kindern.",
+    "",
+    "Falls der Connector „Unterricks“ in diesem Chat nicht verfügbar ist, sage es mir sofort (er muss in claude.ai unter „Connectors“ eingerichtet und im Chat aktiviert sein).",
   ].filter((l) => l !== null).join("\n").replace(/\n{3,}/g, "\n\n");
 }

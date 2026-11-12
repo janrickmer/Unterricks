@@ -273,13 +273,13 @@ export async function gsRefFiles(db, l, prev) {
 /* Nachbarsitzungen derselben Klasse im selben Fach (nach Datum, bei gleichem Datum nach Anlegezeit) */
 export function previousLesson(db, l) {
   if (!l.lesson_date) return null;
-  return db.prepare("SELECT id, title, lesson_date, portal FROM lessons WHERE subject=?1 AND klass=?2 AND id<>?3 AND lesson_date IS NOT NULL " +
+  return db.prepare("SELECT id, title, lesson_date, portal FROM lessons WHERE subject=?1 AND klass=?2 AND id<>?3 AND lesson_date IS NOT NULL AND cancelled=0 " +
     "AND (lesson_date < ?4 OR (lesson_date = ?4 AND created_at < ?5)) ORDER BY lesson_date DESC, created_at DESC LIMIT 1").bind(l.subject, l.klass, l.id, l.lesson_date, l.created_at).first();
 }
 // Fälligkeit der Hausaufgabe: Datum der nächsten Sitzung (ändert sich mit, wenn Sitzungen verschoben werden)
 export async function nextLessonDate(db, l) {
   if (!l.lesson_date) return null;
-  const r = await db.prepare("SELECT lesson_date FROM lessons WHERE subject=?1 AND klass=?2 AND id<>?3 AND lesson_date > ?4 ORDER BY lesson_date LIMIT 1")
+  const r = await db.prepare("SELECT lesson_date FROM lessons WHERE subject=?1 AND klass=?2 AND id<>?3 AND lesson_date > ?4 AND cancelled=0 ORDER BY lesson_date LIMIT 1")
     .bind(l.subject, l.klass, l.id, l.lesson_date).first();
   return r ? r.lesson_date : null;
 }
@@ -292,6 +292,8 @@ export async function updateLesson(db, id, body, now) {
   if (f.title !== undefined && !f.title) throw bad("Der Titel darf nicht leer sein.");
   const old = await getLesson(db, id);
   if ((f.parent_summary !== undefined || f.parent_note !== undefined) && old.subject !== GS_SUBJECT) throw bad("Nur bei Sitzungen der Grundschule.");
+  // Ausfall-Eintrag (Krankmeldung, Grundschule): nur der Hinweis für die Eltern lässt sich ändern
+  if (old.cancelled && keys.some((k) => k !== "parent_note")) throw bad("Bei einem Ausfall-Eintrag lässt sich nur der Hinweis der Lehrkraft für die Eltern ändern.");
   const sets = keys.map((k, i) => k + "=?" + (i + 2)).join(", ");
   await db.prepare("UPDATE lessons SET " + sets + ", updated_at=?" + (keys.length + 2) + " WHERE id=?1").bind(id, ...keys.map((k) => f[k]), now).run();
   if (old.unit_id && old.unit_row && ((f.lesson_date && f.lesson_date !== old.lesson_date) || (f.duration_min !== undefined && f.duration_min !== old.duration_min) ||
@@ -387,12 +389,13 @@ export async function routeLessonImport(c, id) {
 export async function savePortal(db, id, text, baseVersion, source, now) {
   const t = cleanText(text, LIMITS.portal);
   const q = baseVersion == null
-    ? db.prepare("UPDATE lessons SET portal=?2, portal_version=portal_version+1, portal_updated_at=?3, portal_source=?4, updated_at=?3 WHERE id=?1 RETURNING portal_version").bind(id, t, now, source)
-    : db.prepare("UPDATE lessons SET portal=?2, portal_version=portal_version+1, portal_updated_at=?3, portal_source=?4, updated_at=?3 WHERE id=?1 AND portal_version=?5 RETURNING portal_version").bind(id, t, now, source, Number(baseVersion));
+    ? db.prepare("UPDATE lessons SET portal=?2, portal_version=portal_version+1, portal_updated_at=?3, portal_source=?4, updated_at=?3 WHERE id=?1 AND cancelled=0 RETURNING portal_version").bind(id, t, now, source)
+    : db.prepare("UPDATE lessons SET portal=?2, portal_version=portal_version+1, portal_updated_at=?3, portal_source=?4, updated_at=?3 WHERE id=?1 AND portal_version=?5 AND cancelled=0 RETURNING portal_version").bind(id, t, now, source, Number(baseVersion));
   const r = await q.first();
   if (!r) {
-    const cur = await db.prepare("SELECT portal, portal_version, portal_updated_at, portal_source FROM lessons WHERE id=?1").bind(id).first();
+    const cur = await db.prepare("SELECT portal, portal_version, portal_updated_at, portal_source, cancelled FROM lessons WHERE id=?1").bind(id).first();
     if (!cur) throw new HttpError(404, "not_found", "Diese Sitzung gibt es nicht (mehr).");
+    if (cur.cancelled) throw bad("Ein Ausfall-Eintrag hat keinen Verlaufsplan.");
     throw new HttpError(409, "portal_conflict", "Der Schulportal-Eintrag wurde inzwischen an anderer Stelle geändert.", { current: { text: cur.portal, version: cur.portal_version, updatedAt: cur.portal_updated_at, source: cur.portal_source } });
   }
   return { text: t, version: r.portal_version, updatedAt: now, source };

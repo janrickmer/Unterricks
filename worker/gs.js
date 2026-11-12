@@ -2,12 +2,14 @@
 // (a–c), ein Fach (Religion oder ein frei benanntes Fach mit optionaler Beschreibung für Claude) und ein Schuljahr. Einheiten und Sitzungen
 // des Kurses haben das Fach „gs“ und als „Klasse“ die Kennung des Kurses (gs + 8 Hex); kurseigene Planungsgrundlagen haben sie als Fach.
 // Planungsgrundlage eines Religionskurses: das Schulcurriculum Ev. Religion (Grundschule) des Jahrgangs; sonst die Grundlagen des Kurses.
-import { HttpError, bad, json, readJson, randomId } from "./lib.js";
+import { HttpError, bad, json, readJson, randomId, generateCode } from "./lib.js";
 import { requireTeacher } from "./auth.js";
 import { basisText, basePdfKey, rangeText } from "./bases.js";
 import { courseSettingsOut } from "./courses.js";
 import { GS_SUBJECT, isGsCourseId, normalizeGsCourse, gsCourseShort, gsCourseLabel, gsGradeText, schoolYearOf, berlinToday } from "../public/shared.js";
-import { normalizeCourseSettings } from "../public/planning.js";
+import { normalizeCourseSettings, planCancellation, normalizeParams } from "../public/planning.js";
+import { getLesson } from "./lessons.js";
+import { getUnit, linkedLessons, reviseData, unitFull } from "./units.js";
 import { wantedGsSections, missingForGs } from "../public/bases-detect.js";
 
 const parseJ = (s, d) => { try { const v = JSON.parse(s); return v ?? d; } catch { return d; } };
@@ -129,5 +131,89 @@ export async function planningBasisGs(db, course, maxChars = 180000) {
     docs: docs.map((d) => ({ id: d.base.id, title: d.base.title, kind: d.base.kind, pages: rangeText([...new Set(d.want.map((w) => w.n))]), pdf: !!d.base.pdf_size })),
     missing: missingForGs(bases, course), truncated, text, description: course.description || "",
   };
+}
+/* ---------- Krankmeldung: die Stunde fällt aus, sie und alle folgenden Stunden der Einheit rücken um einen Termin nach hinten ----------
+ * (Anforderung 9 der Lehrkraft; was hinter das Ende rutscht, bleibt ohne Datum in der Einheit). Die Sitzungen behalten Kennung, Material,
+ * Verlaufsplan und Zeile – nur Datum, Beginn und Dauer wandern. Den ausgefallenen Termin hält ein Ausfall-Eintrag (cancelled=1) fest; er bekommt
+ * den Elternlink der Sitzung, damit Eltern mit dem schon verteilten Link sehen, dass der Unterricht nicht stattfinden konnte. */
+async function cancelContext(c, id) {
+  const X = await getLesson(c.db, id);
+  if (X.subject !== GS_SUBJECT) throw new HttpError(400, "not_gs", "Nur bei Sitzungen der Grundschule – am Gymnasium gibt es bei Krankheit die Vertretungsstunde.");
+  if (X.cancelled) throw new HttpError(400, "already_cancelled", "Diese Sitzung ist bereits ausgefallen.");
+  if (!X.unit_id || !X.unit_row) throw new HttpError(400, "no_unit", "Diese Sitzung gehört zu keiner Einheit – bitte das Datum von Hand ändern.");
+  if (!X.lesson_date) throw new HttpError(400, "no_date", "Diese Sitzung hat keinen Termin.");
+  const u = await getUnit(c.db, X.unit_id);
+  const lessons = await linkedLessons(c.db, u.id, true);
+  let plan;
+  try { plan = planCancellation({ params: parseJ(u.params, {}), rows: parseJ(u.rows, []), lessons, lessonId: X.id, now: c.now }); }
+  catch (e) { if (e && e.code) throw new HttpError(e.status || 400, e.code, e.message); throw e; }
+  return { X, u, lessons, plan };
+}
+// POST /api/teacher/lessons/<id>/cancel – {dryRun:true} → Vorschau; {version} → ausführen (ein Batch, jede Anweisung an die Version gebunden)
+export async function routeLessonCancel(c, id) {
+  await requireTeacher(c);
+  const body = await readJson(c.request, 4000);
+  const { X, u, lessons, plan } = await cancelContext(c, id);
+  const preview = { moves: plan.moves, undated: plan.undated, undatedRows: plan.undatedRows, cancelled: plan.cancelled, lengthChanges: plan.lengthChanges };
+  if (body.dryRun) return json({ ok: true, plan: preview, version: u.version });
+  if (body.version !== u.version) throw new HttpError(409, "unit_conflict", "Die Einheit wurde inzwischen geändert – die Vorschau wird neu geladen.", { version: u.version });
+  const v = u.version, cid = randomId(4), P = randomId(8), oldRows = parseJ(u.rows, []);
+  const byRow = new Map(lessons.filter((l) => l.row && !l.cancelled).map((l) => [l.row, l]));
+  const moved = plan.rows.slice(plan.s).map((r) => ({ r, l: byRow.get(r.uid) })).filter((x) => x.l).map(({ r, l }) => ({ id: l.id, d: r.date || null, t: r.time || null, m: r.minutes ?? null }));
+  const rev = reviseData(u.revise) || { v: 1, open: false, items: [], undated: [], undo: null };
+  const item = { id: cid, date: X.lesson_date, time: X.start_time || null, minutes: X.duration_min ?? null, lessonId: X.id, placeholderId: P,
+    title: (oldRows[plan.s] || {}).stundenfrage || X.title, at: c.now, lengths: plan.lengthChanges.map(({ uid, n, from, to }) => ({ uid, n, from, to })) };
+  const undo = { id: cid, version: v + 1, rows: oldRows.slice(plan.s).map((r) => ({ uid: r.uid, date: r.date || null, time: r.time || null, minutes: r.minutes ?? null })),
+    lessons: moved.map((m) => { const l = lessons.find((x) => x.id === m.id); return { id: l.id, d: l.date || null, t: l.time || null, m: l.minutes ?? null }; }),
+    lessonId: X.id, placeholderId: P, slot: { date: X.lesson_date, time: X.start_time || null } };
+  const revise = { v: 1, open: true, items: [...rev.items, item].slice(-30), undated: plan.undated, undo };
+  const G = "EXISTS(SELECT 1 FROM units WHERE id=?8 AND version=?9)";
+  const insertP = (code, guardVer) => c.db.prepare("INSERT INTO lessons(id, subject, klass, title, topic, duration_min, lesson_date, start_time, ideas, homework, code, unit_id, unit_row, cancelled, parent_hash, parent_sealed, created_at, updated_at) " +
+    "SELECT ?1, 'gs', ?2, 'Unterricht ausgefallen', ?3, ?4, ?5, ?6, '', '', ?7, ?8, NULL, 1, ?10, ?11, ?12, ?12 WHERE " + G + " ON CONFLICT(code) DO NOTHING RETURNING id")
+    .bind(P, X.klass, X.topic || "", X.duration_min ?? null, X.lesson_date, X.start_time || null, code, u.id, guardVer, X.parent_hash || null, X.parent_sealed || null, c.now);
+  const res = await c.db.batch([
+    c.db.prepare("UPDATE lessons SET parent_hash=NULL, parent_sealed=NULL WHERE id=?1 AND EXISTS(SELECT 1 FROM units WHERE id=?2 AND version=?3)").bind(X.id, u.id, v),
+    insertP(generateCode(), v),
+    c.db.prepare("UPDATE lessons SET lesson_date=(SELECT json_extract(value,'$.d') FROM json_each(?1) WHERE json_extract(value,'$.id')=lessons.id), " +
+      "start_time=(SELECT json_extract(value,'$.t') FROM json_each(?1) WHERE json_extract(value,'$.id')=lessons.id), " +
+      "duration_min=COALESCE((SELECT json_extract(value,'$.m') FROM json_each(?1) WHERE json_extract(value,'$.id')=lessons.id), duration_min), updated_at=?2 " +
+      "WHERE id IN (SELECT json_extract(value,'$.id') FROM json_each(?1)) AND cancelled=0 AND EXISTS(SELECT 1 FROM units WHERE id=?3 AND version=?4)").bind(JSON.stringify(moved), c.now, u.id, v),
+    c.db.prepare("UPDATE units SET params=?3, rows=?4, revise=?5, version=version+1, updated_at=?6, source='lehrkraft' WHERE id=?1 AND version=?2 RETURNING version")
+      .bind(u.id, v, JSON.stringify(plan.params), JSON.stringify(plan.rows), JSON.stringify(revise), c.now),
+  ]);
+  if (!(res[3].results || []).length) throw new HttpError(409, "unit_conflict", "Die Einheit wurde inzwischen geändert – die Vorschau wird neu geladen.");
+  // Sitzungscode zufällig schon vergeben (praktisch nie): Ausfall-Eintrag mit neuem Code nachtragen – an die neue Version gebunden
+  for (let i = 0; i < 6 && !(res[1].results || []).length; i++) res[1] = await insertP(generateCode(), v + 1).run();
+  return json({ ok: true, placeholderId: P, moves: plan.moves, undated: plan.undated, unit: await unitFull(c.db, await getUnit(c.db, u.id)) });
+}
+// POST /api/teacher/units/<id>/cancel/undo – {undoId}: nur, solange die Einheit seit der Krankmeldung nicht geändert wurde
+export async function routeCancelUndo(c, id) {
+  await requireTeacher(c);
+  const body = await readJson(c.request, 2000);
+  const u = await getUnit(c.db, id), rev = reviseData(u.revise), undo = rev && rev.undo;
+  const STALE = "Seit der Krankmeldung wurde die Einheit geändert – bitte die Termine von Hand anpassen.";
+  if (!undo || undo.id !== body.undoId || undo.version !== u.version) throw new HttpError(409, "undo_stale", STALE);
+  const P = await c.db.prepare("SELECT id, parent_hash, parent_sealed FROM lessons WHERE id=?1 AND cancelled=1").bind(undo.placeholderId).first();
+  const params = normalizeParams(parseJ(u.params, {}));
+  const k = (params.cancelled || []).findIndex((x) => x.date === undo.slot.date && (x.time || null) === (undo.slot.time || null));
+  const cancelled = (params.cancelled || []).filter((_, i) => i !== k);
+  const p2 = { ...params }; delete p2.cancelled; if (cancelled.length) p2.cancelled = cancelled;
+  const snap = new Map((undo.rows || []).map((r) => [r.uid, r]));
+  const rows = parseJ(u.rows, []).map((r) => (snap.has(r.uid) ? { ...r, date: snap.get(r.uid).date, time: snap.get(r.uid).time, minutes: snap.get(r.uid).minutes } : r));
+  const items = rev.items.filter((x) => x.id !== undo.id);
+  const revise = items.length ? { ...rev, open: true, items, undated: rows.filter((r) => !r.date).map((r) => r.uid), undo: null } : null;
+  const G = "EXISTS(SELECT 1 FROM units WHERE id=?2 AND version=?3)";
+  const res = await c.db.batch([
+    c.db.prepare("DELETE FROM lessons WHERE id=?1 AND cancelled=1 AND " + G).bind(undo.placeholderId, u.id, u.version),
+    c.db.prepare("UPDATE lessons SET parent_hash=?4, parent_sealed=?5 WHERE id=?1 AND cancelled=0 AND ?4 IS NOT NULL AND " + G).bind(undo.lessonId, u.id, u.version, P ? P.parent_hash : null, P ? P.parent_sealed : null),
+    c.db.prepare("UPDATE lessons SET lesson_date=(SELECT json_extract(value,'$.d') FROM json_each(?1) WHERE json_extract(value,'$.id')=lessons.id), " +
+      "start_time=(SELECT json_extract(value,'$.t') FROM json_each(?1) WHERE json_extract(value,'$.id')=lessons.id), " +
+      "duration_min=COALESCE((SELECT json_extract(value,'$.m') FROM json_each(?1) WHERE json_extract(value,'$.id')=lessons.id), duration_min), updated_at=?4 " +
+      "WHERE id IN (SELECT json_extract(value,'$.id') FROM json_each(?1)) AND cancelled=0 AND " + G).bind(JSON.stringify(undo.lessons || []), u.id, u.version, c.now),
+    c.db.prepare("UPDATE units SET params=?3, rows=?4, revise=?5, version=version+1, updated_at=?6, source='lehrkraft' WHERE id=?1 AND version=?2 RETURNING version")
+      .bind(u.id, u.version, JSON.stringify(p2), JSON.stringify(rows), revise ? JSON.stringify(revise) : null, c.now),
+  ]);
+  if (!(res[3].results || []).length) throw new HttpError(409, "undo_stale", STALE);
+  return json({ ok: true, unit: await unitFull(c.db, await getUnit(c.db, u.id)) });
 }
 export { GS_SUBJECT };

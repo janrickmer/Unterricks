@@ -903,3 +903,16 @@ img.sub-photo { max-width: 100%; max-height: 60vh; border-radius: 12px; border: 
 .pv-banner { margin-bottom: 1rem; }
 .parents-foot { max-width: 780px; margin: 0 auto; padding: 0 1rem 2.5rem; }
 .gs-renew { margin-top: .6rem; } .gs-renew > summary { cursor: pointer; font-weight: 700; padding: .65rem 0; min-height: 44px; }
+/* Grundschule: roter Kasten nach einer Krankmeldung (Einheit und jede ihrer Sitzungen), Krankmeldung in der Sitzung, Ausfall-Eintrag */
+.card.revisebox { background: var(--rot-t); border: 2px solid var(--rot); box-shadow: 0 0 0 3px color-mix(in srgb, var(--rot) 18%, transparent); }
+.revisebox h2 { display: flex; align-items: flex-start; gap: .5rem; color: var(--text); margin-top: 0; }
+.revisebox h2 .ico { width: 1.35em; height: 1.35em; flex: none; stroke: var(--rot); margin-top: .1em; }
+.revisebox p { margin: .35rem 0; }
+.revisebox .row { margin-top: .7rem; gap: .5rem; }
+.revisebox .btn { min-height: 44px; white-space: normal; }
+.gs-sick .btn.sickbtn { min-height: 44px; }
+.cancel-table { width: 100%; border-collapse: collapse; margin: .6rem 0; font-size: .95rem; }
+.cancel-table th, .cancel-table td { text-align: left; padding: .35rem .45rem; border-bottom: 1px solid var(--line); vertical-align: top; }
+.cancel-table td.none { font-weight: 700; }
+.gs-placeholder .lead { font-size: 1.05rem; }
+.unit-cancelled { margin: .6rem 0 0; padding-left: 1.2rem; }
