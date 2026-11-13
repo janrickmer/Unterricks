@@ -46,6 +46,22 @@ implementiert und im End-to-End-Test geprüft (Ausnahmen unten ausdrücklich gen
 | Notfall-Feibeitsblatt (Ergänzung) | Zu jedem Feibeitsblatt einer Sitzung **automatisch** das analoge Arbeitsblatt des Feibeitsblatts als PDF unter „Material – Für Schüler:innen zugänglich“ (dieselbe Datei wie im Feibeitsblatt), siehe 4f |
 | Hausaufgabe im Schulportal (Ergänzung) | Kopie im Format „**Hausaufgabe zum 25. November 2026:**“, Leerzeile, Stichpunkte; zuletzt „Unter https://unterricks.janrickmer.de … mit dem Code ~~ABC-123~~ …“ (nur im Schulportal); ohne Hausaufgabe nur dieser Hinweis |
 
+## 1a. Entscheidungen der Lehrkraft vom 12.11.2026 (Grundschule, Kurseinstellungen, Elternansicht)
+
+| Frage | Entscheidung |
+|---|---|
+| Kurseinstellungen | **Je Kurs** (Gymnasium und Grundschule): Stundenplan (wann der Kurs stattfindet) und Schülerzahl. Neue Einheiten übernehmen den Stundenplan (in der Einheit änderbar); Claude kennt die Schülerzahl (z. B. als Zahl der Ausdrucke) |
+| Menü | „**Gymnasium** · **Grundschule** · Planungsgrundlagen · Einstellungen · Abmelden“ („Unterricht“ heißt seitdem „Gymnasium“) |
+| Wochenkalender | zeigt **immer beide Schulformen** – auf der Startseite „Gymnasium“ und im Bereich „Grundschule“; Grundschul-Termine gekennzeichnet, Klick öffnet den Kurs |
+| Grundschulkurse | Jahrgang 1–4, eine bis drei Klassen (a–c), Fach Religion oder ein frei benanntes Fach mit optionaler Beschreibung; Knopf **„Neuen Kurs anlegen“** gleich oben im Bereich; bei einem anderen Fach optional ein Curriculum als PDF |
+| Planungsgrundlagen | **überall anklickbar** in einem neuen Tab: neu hochgeladene als Original-PDF (in R2), ältere als lesbarer Text, bis die PDF nachgereicht wird; Ev. Religion auch Jahrgänge 1–4 (Schulcurriculum der Grundschule) |
+| Grundschul-Sitzung | **kein Schulportal-Eintrag**, keine Präsentation: ganz oben der **Verlaufsplan** (Button „Bearbeiten“, Zwischenstopp) mit den PDF-Namen **gelb markiert** (dunkle Schrift auf gelbem Grund, als Link unterstrichen), Materialkasten, ganz unten Elternlink, „Elternansicht ausprobieren“ und „Hinweis der Lehrkraft“ |
+| Elternlink | nur ein **geheimer, unerratbarer Link je Sitzung**; wer ihn hat, sieht diese und die vorherigen Sitzungen des Kurses im Schuljahr – jede erst nach ihrem Ende |
+| Bildkarten | PDF hochladen (eine Seite = eine Karte) **oder – meistens – von Claude gestaltet**; Claude schreibt je Karte einen gekürzten Erzähltext, die Lehrkraft prüft ihn; Hinweis: Verlagskarten dürfen meist nicht online weitergegeben werden |
+| „Inhalt der Unterrichtsstunde“ | formuliert Claude beim Planen elternverständlich (2–3 Sätze); in der Sitzung änderbar |
+| Krankmeldung (Grundschule) | **kein Vertretungsmaterial**: die Stunde und alle folgenden rücken um einen Termin; die letzte, die hinter das Ende rutscht, bleibt **ohne Datum** in der Einheit, bis die Lehrkraft bzw. Claude über den Überarbeitungs-Prompt entscheidet |
+| Aufforderung an die Lehrkraft (Nachtrag) | Muss die Lehrkraft auf Material zurückgreifen, das nur sie hat (z. B. Vorlesetext, Lösung), steht das als eigener Stichpunkt **unterstrichen** – im Verlaufsplan der Grundschule (mit gelbem PDF-Verweis) und im Schulportal-Eintrag des Gymnasiums; Materialtitel, Leitfragen und Codes bleiben kursiv |
+
 ## 2. Gesamtarchitektur
 
 ```
@@ -80,22 +96,6 @@ implementiert und im End-to-End-Test geprüft (Ausnahmen unten ausdrücklich gen
   Fällt der WebSocket aus, fragt der Browser den Stand alle 2 s über HTTP ab.
 * **Keine Fremdbibliotheken zur Laufzeit** außer PDF.js (Folienbilder im Browser der Lehrkraft) und pdf-lib (Textmaterial → PDF),
   beide gebündelt unter `/vendor/` (keine CDN-Abhängigkeit).
-
-## 1a. Entscheidungen der Lehrkraft vom 12.11.2026 (Grundschule, Kurseinstellungen, Elternansicht)
-
-| Frage | Entscheidung |
-|---|---|
-| Kurseinstellungen | **Je Kurs** (Gymnasium und Grundschule): Stundenplan (wann der Kurs stattfindet) und Schülerzahl. Neue Einheiten übernehmen den Stundenplan (in der Einheit änderbar); Claude kennt die Schülerzahl (z. B. als Zahl der Ausdrucke) |
-| Menü | „**Gymnasium** · **Grundschule** · Planungsgrundlagen · Einstellungen · Abmelden“ („Unterricht“ heißt seitdem „Gymnasium“) |
-| Wochenkalender | zeigt **immer beide Schulformen** – auf der Startseite „Gymnasium“ und im Bereich „Grundschule“; Grundschul-Termine gekennzeichnet, Klick öffnet den Kurs |
-| Grundschulkurse | Jahrgang 1–4, eine bis drei Klassen (a–c), Fach Religion oder ein frei benanntes Fach mit optionaler Beschreibung; Knopf **„Neuen Kurs anlegen“** gleich oben im Bereich; bei einem anderen Fach optional ein Curriculum als PDF |
-| Planungsgrundlagen | **überall anklickbar** in einem neuen Tab: neu hochgeladene als Original-PDF (in R2), ältere als lesbarer Text, bis die PDF nachgereicht wird; Ev. Religion auch Jahrgänge 1–4 (Schulcurriculum der Grundschule) |
-| Grundschul-Sitzung | **kein Schulportal-Eintrag**, keine Präsentation: ganz oben der **Verlaufsplan** (Button „Bearbeiten“, Zwischenstopp) mit den PDF-Namen **gelb markiert** (dunkle Schrift auf gelbem Grund, als Link unterstrichen), Materialkasten, ganz unten Elternlink, „Elternansicht ausprobieren“ und „Hinweis der Lehrkraft“ |
-| Elternlink | nur ein **geheimer, unerratbarer Link je Sitzung**; wer ihn hat, sieht diese und die vorherigen Sitzungen des Kurses im Schuljahr – jede erst nach ihrem Ende |
-| Bildkarten | PDF hochladen (eine Seite = eine Karte) **oder – meistens – von Claude gestaltet**; Claude schreibt je Karte einen gekürzten Erzähltext, die Lehrkraft prüft ihn; Hinweis: Verlagskarten dürfen meist nicht online weitergegeben werden |
-| „Inhalt der Unterrichtsstunde“ | formuliert Claude beim Planen elternverständlich (2–3 Sätze); in der Sitzung änderbar |
-| Krankmeldung (Grundschule) | **kein Vertretungsmaterial**: die Stunde und alle folgenden rücken um einen Termin; die letzte, die hinter das Ende rutscht, bleibt **ohne Datum** in der Einheit, bis die Lehrkraft bzw. Claude über den Überarbeitungs-Prompt entscheidet |
-| Aufforderung an die Lehrkraft (Nachtrag) | Muss die Lehrkraft auf Material zurückgreifen, das nur sie hat (z. B. Vorlesetext, Lösung), steht das als eigener Stichpunkt **unterstrichen** – im Verlaufsplan der Grundschule (mit gelbem PDF-Verweis) und im Schulportal-Eintrag des Gymnasiums; Materialtitel, Leitfragen und Codes bleiben kursiv |
 
 ## 3. Komponenten und Dateien
 

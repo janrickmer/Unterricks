@@ -297,6 +297,7 @@ test("Schulcurriculum Grundschule (Ev. Religion Jg. 1–4): Jahrgänge erkennen,
   assert.equal(gsReligionCourseIn(ks, "3", "2026/27"), false, "kein Religionskurs");
   assert.equal(gsReligionCourseIn(ks, 4, "2026/27"), true, "ohne Schuljahr zählt er als laufend");
   assert.equal(gsReligionCourseIn(null, "1", "2026/27"), false);
+  assert.equal(gsReligionCourseIn([{ religion: true, grade: 1, schoolYear: "2027/28" }], "1", "2026/27"), true, "Kurs fürs nächste Schuljahr schon angelegt");
   // das Gymnasium bleibt, wie es war: ein Grundschul-Curriculum ersetzt kein Schulcurriculum der Sek I
   assert.deepEqual(missingFor([b], "evrel", "Evangelische Religion", "5A"), ["Schulcurriculum Evangelische Religion für Jahrgang 5"]);
 });

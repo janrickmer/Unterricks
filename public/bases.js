@@ -197,7 +197,7 @@ export async function basesPage(subject) {
       h("p", { class: "hint", text: "Angezeigt werden nur die Jahrgänge, in denen " + name + " laut Fach-Einstellungen unterrichtet wird. Q-Kurse: Grundkurs (GK) und Leistungskurs (LK) je Kurshalbjahr." }),
       subject === "evrel" ? gsStatus(head) : null);
   }
-  /* Ev. Religion: Schulcurriculum der Grundschule je Jahrgang 1–4 („fehlt“ nur, wenn es im laufenden Schuljahr einen Religionskurs dieses Jahrgangs gibt) */
+  /* Ev. Religion: Schulcurriculum der Grundschule je Jahrgang 1–4 („fehlt“ nur, wenn es im laufenden oder einem späteren Schuljahr einen Religionskurs dieses Jahrgangs gibt) */
   function gsStatus(head) {
     const sy = (schoolYearOf(berlinToday()) || {}).label;
     const tbody = h("tbody", { role: "rowgroup" }, ["1", "2", "3", "4"].map((g) => {
