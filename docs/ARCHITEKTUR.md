@@ -39,6 +39,7 @@ implementiert und im End-to-End-Test geprüft (Ausnahmen unten ausdrücklich gen
 | Codefolie (Ergänzung vom 11.11.2026) | Die Präsentation enthält **keinen Sitzungscode und keinen QR-Code**: Folie 1 ist eine gestaltete Titelfolie; beim Start zeigt Unterricks **vor Folie 1 die Codefolie** (wie „Für den Beamer zeigen“, immer mit dem Code der **aktuellen** Sitzung) am Beamer und live auf den iPads; Folien mit der Zeile **„Unterricks-Codefolie: …“** (auch jede Materialfolie mit Material aus Unterricks) zeigt Unterricks live als Codefolie mit ihrem übrigen Text als Überschrift; Knopf **„Sitzungscode zeigen“** im Präsentationsmodus; das Ersetzen alter Codes auf den Folien bleibt als stiller Rückfall für ältere Präsentationen |
 | Vorschau der nächsten Folie (Ergänzung vom 11.11.2026) | Im Präsentationsmodus der Lehrkraft **groß die aktuelle Folie, kleiner daneben die nächste** (hochkant darunter), per **„Vorschau“ / Taste V** aus- und einblendbar (gemerkt); dazu **„Beamerfenster öffnen“**: ein zweites Fenster **nur mit der aktuellen Folie** für den Beamer als erweiterten Bildschirm – bei gespiegeltem Bildschirm sähe die Klasse sonst die Vorschau mit (Rückfrage beantwortet: Beamerfenster + Vorschau) |
 | Beamer über ein zweites Gerät (Nachtrag 15 vom 13.11.2026) | Allein mit iPad + Apple TV nicht möglich (AirPlay spiegelt den ganzen Bildschirm; keine Presentation API in Safari; kein AirPlay eines im Browser erzeugten Videostroms). Entscheidung der Lehrkraft: ein **zweites Gerät am Beamer** (Schul-iPad, das an Apple TV spiegelt, oder PC/Laptop am Beamer) öffnet `#/beamer`, zeigt einen **Beamer-Code**; „**Beamer verbinden**“ in der Präsentation (auf allen Geräten, auch Touch) koppelt es über den Server – es zeigt nur die aktuelle Folie, das iPad der Lehrkraft weiter aktuelle + nächste Folie; „Beamer trennen“; siehe Abschnitt 4, Punkt 6 (Kabel/Stage Manager und AirPlay-Video ausdrücklich nicht gewählt) |
+| Notizen der Lehrkraft zu den Folien (Nachtrag 20 vom 13.11.2026) | Claude bettet laut Präsentations-Prompt zu jeder Folie Stichpunkte für die Lehrkraft **unsichtbar als Dateianhang** `unterricks-notizen.json` in die PDF ein (sonst JSON-Block im Chat zum Einfügen). Die Präsentationsansicht zeigt sie **unter der aktuellen Folie nur, wenn das Beamerbild getrennt läuft** (Beamerfenster bzw. Beamergerät verbunden) – ein einzeln gespiegeltes iPad zeigt wie bisher nur Folie und Vorschau. Rückfrage 1 (Knopf am iPad, der nur die Präsentation an Apple TV schickt): nicht zuverlässig umsetzbar (AirPlay spiegelt) → zusätzlich die **„Präsentation mit Anmerkungen“** (hinter jeder Folie eine Anmerkungsfolie) unter „Material nur für die Lehrkraft“. Rückfrage 2: Notizen in der Sitzung **ansehen und bearbeiten** – nie für Schüler:innen. Siehe 4o |
 | Links als Material (Ergänzung) | in **beiden Bereichen** (Schüler:innen / nur Lehrkraft) Links mit **Titel** und Internetadresse (nur http/https) |
 | Druckliste (Ergänzung) | Karte **„Von der Lehrkraft auszudrucken“** ganz unten: **nur PDF**, alles **A4** (andere Formate beim Hochladen umgerechnet, mit Hinweis), Name **„28x - beidseitig - sw - Name.pdf“**, einzeln oder **als ZIP**; Claude legt Vorlagen über den Connector ab (`add_print_material`), siehe 4i |
 | Zurücksetzen und Einheit als Datei (Ergänzung vom 11.11.2026) | Einstellungen: **„Alle Unterrichtsinhalte löschen und Unterricks zurücksetzen“** – erst das **Passwort**, dann das Angebot einer **Sicherung** (ZIP: 1. Fächer, 2. Einheiten mit Einheitsdatei, 3. Sitzungen chronologisch nummeriert, je als Sitzungsdatei), letzte Bestätigung, Löschen. Gelöscht: Einheiten und Sitzungen mit allem Zugehörigen; es bleiben Zugang, Planungsgrundlagen, Fach-Einstellungen, KI, Connector, Feibeitsblatt-Verbindung, Schülerpasswort, Schülergeräte; die Feibeitsblätter bleiben im Feibeitsblatt. Planungsseite einer Einheit: **„Einheit als Datei herunterladen“** und **„Einheit aus Datei laden“** (Planung + Sitzungen; die Sitzungen bekommen ihren Inhalt beim Anlegen), siehe 4l (Rückfragen beantwortet: Umfang, Feibeitsblätter behalten, Planung + Sitzungen, Sitzungsdatei im Ordner) |
@@ -139,7 +140,7 @@ implementiert und im End-to-End-Test geprüft (Ausnahmen unten ausdrücklich gen
 | | `public/escape.js`, `public/escape-data.js` | Escape-Room-Vorlage (Oberfläche, Überblick-PDF); Prüfen/Bewerten, Zwischenstand, Feibeitsblatt-Datensatz |
 | | `public/fbclient.js` | Feibeitsblatt-Client (Schlüsselableitung, Anlegen, Entschlüsseln) |
 | | `public/fblink.js` | gespeicherte Feibeitsblatt-Verbindung (Schlüssel aus dem Unterricks-Passwort, IndexedDB) |
-| | `public/pdfcut.js`, `public/a4.js`, `public/zip.js` | Präsentation kürzen, Druckvorlagen auf A4, ZIP schreiben/lesen |
+| | `public/pdfcut.js`, `public/a4.js`, `public/zip.js` | Präsentation kürzen bzw. für Schüler:innen bereinigen (ohne Anhänge und Notiz-Anmerkungen, Nachtrag 20), Druckvorlagen auf A4, ZIP schreiben/lesen |
 | | `public/sessionfile.js` | Sitzung als Datei: Name, Datumsanpassung, Feibeitsblatt → Entwurf, Prüfung |
 | | `public/sessionio.js` | Sitzungsdatei zusammenstellen und in eine Sitzung übernehmen – ohne geöffnete Sitzungsseite (Sitzung, Einheit, Sicherung) |
 | | `public/unitfile.js`, `public/backup.js` | Einheit als Datei (Format, Ordnernamen, chronologische Ordnung) und große Sicherung; gesicherte Sitzungen bis zum Anlegen in IndexedDB |
@@ -150,6 +151,7 @@ implementiert und im End-to-End-Test geprüft (Ausnahmen unten ausdrücklich gen
 | | `public/codeslide.js` | die Codefolie (Sitzungscode + QR-Code) für Beamer, Präsentationsmodus und Live-Ansicht der Schüler:innen |
 | | `public/timerband.js` | Timer der Live-Präsentation (Nachtrag 16): Band oben über der Folie bei Schüler:innen, Beamerfenster, Beamergerät und Lehrkraft |
 | | `public/slideviewer.js` | Folienfenster der Schüler:innen nach der Sitzung (Nachtrag 19): Folie 1 bis zur Markierung durchblättern, „Diese Präsentation herunterladen“, siehe 4h |
+| | `public/pdfnotes.js`, `public/notesedit.js` | Notizen der Lehrkraft zu den Folien (Nachtrag 20): aus dem Dateianhang der PDF lesen (PDF.js), Anmerkungs-PDF erzeugen (pdf-lib); Notizen in der Sitzung ansehen und bearbeiten, siehe 4o |
 | | `public/pdfmaker.js`, `public/markdown.js` | Textmaterial als PDF (Rückfall), sicheres Markdown |
 | | `worker/render.js`, `public/designrender.js` | Claudes Gestaltung (HTML) als PDF drucken (Browser Run), Stand und Nachdruck auf der Sitzungsseite (4m) |
 
@@ -228,7 +230,8 @@ implementiert und im End-to-End-Test geprüft (Ausnahmen unten ausdrücklich gen
    Schein ohne Ende, Code nicht ganz auf der Folie – bleibt die Folie, wie sie ist, und steht in `swapped.missed`. Breite mit `/UserUnit`.
    Die hochgeladene PDF selbst (Schüler:innen öffnen sie nach der Stunde) bleibt unverändert; die Lehrkraft sieht eine Meldung, auf
    welchen Folien ersetzt wurde und auf welchen der alte Code noch steht; ohne Code auf Folie 1 (der Normalfall) gibt es keine Meldung. Hinweise für die
-   Lehrkraft (statt Sprechernotizen) gibt Claude im Chat bzw. auf Wunsch über `add_text_material` (nur für die Lehrkraft).
+   Lehrkraft je Folie schreibt Claude als **Notizen** in einen unsichtbaren Dateianhang der PDF (`unterricks-notizen.json`; Abschnitt „Notizen für
+   die Lehrkraft: unsichtbar in der PDF“ des Prompts, Beispiel mit pypdf, Rückfall: JSON-Block im Chat), siehe 4o.
 6. **Präsentation und Live-Synchronisation.** Upload der PDF → der Browser der Lehrkraft rendert jede Seite mit PDF.js
    (1920 px) und lädt sie als Bild hoch. „Ich bin im Unterricht …“ öffnet das Vollbild und meldet die Folie an das Durable
    Object. Alle Schüler:innen der Sitzung bekommen per WebSocket die aktuelle Folie als **signierten Link nur für diese Folie** –
@@ -257,6 +260,9 @@ implementiert und im End-to-End-Test geprüft (Ausnahmen unten ausdrücklich gen
    Knopf lösen den Knopf aus. Nach einem Mausklick verliert er den Fokus wieder, damit Leertaste und Presenter weiterblättern. „Vollbild auf dem Beamer“ nutzt, wo vorhanden
    (Chrome/Edge mit mehreren Bildschirmen), die Window Management API (`getScreenDetails`, `beamerScreen`), sonst Vollbild auf dem
    Bildschirm, auf dem das Fenster liegt.
+   **Notizen der Lehrkraft** (Nachtrag 20, siehe 4o) zeigt der Präsentationsmodus unter der großen aktuellen Folie nur, wenn die Vorschau
+   eingeblendet ist **und** das Beamerbild getrennt läuft (Beamerfenster per BroadcastChannel oder Beamergerät laut `beamers` des Durable Objects);
+   sie stehen nie in Nachrichten an Beamerfenster, Durable Object, Beamergerät oder Schüler:innen.
    **Beamer über ein zweites Gerät** (Nachtrag 15, `worker/beamer.js`): Meldet sich auf `#/beamer` binnen 1,5 s kein Präsentationsfenster im
    selben Browser, ist die Seite ein **Beamergerät** (z. B. Schul-iPad an Apple TV). Ein lokales Präsentationsfenster hat weiter Vorrang,
    solange es die Seite beansprucht; das Beamerfenster als Pop-up bleibt unverändert. Ablauf:
@@ -756,6 +762,51 @@ implementiert und im End-to-End-Test geprüft (Ausnahmen unten ausdrücklich gen
   (`not_shown` bzw. ein anderes `total` in der Antwort), lädt die Seite die Daten der Sitzung neu und übernimmt die neue Zahl im selben Fenster
   (`update` – gewählte Folie, soweit noch frei, Fokus und Vollbild bleiben); ein Block, der vor einer Erweiterung nur bis zur alten Grenze
   angefragt war, wird für die neuen Folien neu geholt.
+
+## 4o. Notizen der Lehrkraft zu den Folien (Nachtrag der Lehrkraft vom 13.11.2026, Anforderung 20)
+
+Grundsatz: Notizen sind **nie** für Schüler:innen erreichbar – nicht live, nicht im Beamerfenster oder am Beamergerät, nicht in Folienbildern,
+nicht in einer PDF, die Schüler:innen (oder Eltern, eine öffentliche Seite) bekommen, nicht in einer Antwort ohne Anmeldung der Lehrkraft.
+
+* **Format** (`public/shared.js`): Claude bettet laut Präsentations-Prompt `unterricks-notizen.json` (UTF-8) als Dateianhang (EmbeddedFile) ein:
+  `{"v":1,"folien":[{"folie":1,"notizen":["…"]}]}` – `folie` = Seitenzahl der PDF ab 1 (auch Unterricks-Codefolien). `cleanSlideNotes` prüft fremde
+  Daten (Anhang, Chat, Sitzungsdatei, Server) und kappt: höchstens 300 Folien, nur 1..Seitenzahl, je Folie 12 Stichpunkte mit je 300 Zeichen,
+  einzeilig, ohne Steuer-/Formatzeichen und vorangestellte Aufzählungszeichen, insgesamt höchstens 200 000 Zeichen; intern `[{n, items}]`.
+  `parseNotesJson` liest den Rückfall aus dem Chat (```json …``` oder rohes JSON) mit verständlichen Meldungen.
+* **Hochladen** (`rasterizeAndUpload` in `public/presenter.js`, `scanPdfNotes` in `public/pdfnotes.js`): PDF.js liest die Anhänge (`getAttachments`, dazu
+  FileAttachment-Anmerkungen) und sucht `unterricks-notizen.json` (Groß-/Kleinschreibung egal, sonst eine JSON-Datei mit „folien“). Trägt die PDF
+  Anhänge oder Notiz-Anmerkungen (Text, Popup, FileAttachment), erzeugt der Browser zuerst mit pdf-lib die **Fassung für Schüler:innen**
+  (`cleanPdfBytes` in `public/pdfcut.js`: Seiten kopiert, an der Quelle vor dem Kopieren bereinigt – nur Link-Anmerkungen bleiben, kein `/AF`; der
+  Dateianhang ist nicht über die Seiten erreichbar und kommt nicht mit) und lädt sie hoch (`PUT …/files/:id/clean`, R2 `…-ohne-notizen`,
+  `files.clean_size`); die **Folienbilder entstehen dann aus ihr**. Scheitert das, rendert PDF.js die Originalseiten ohne Anmerkungen und die Sitzung
+  zeigt „Fassung für Schüler:innen erzeugen“. `POST …/ready` bekommt `notes` und `clean: true` – `clean_size` ist dann mindestens 0 (Pflicht) und wird
+  durch ein späteres `…/ready` ohne `clean` nie aufgehoben. Ältere Präsentationen ohne Anhänge bleiben, wie sie waren (`clean_size` NULL).
+* **Speicher**: `files.notes` = `{v:1, rev, slides}` an der Präsentation (Versionsschutz über `rev`). `fileOut` nennt nur die Zahl (`notes`, `notesRev`,
+  `cleanNeeded`, `cleanReady`); den Text liefern nur `GET …/files/:id/slides` (für die Präsentationsansicht) und `GET`/`PUT …/files/:id/notes` – alle mit
+  `requireTeacher`. `PUT …/notes {notes, rev}` ist eine bedingte Anweisung; ein anderer Stand → 409 `notes_conflict` mit dem aktuellen. Leere Notizen
+  entfernen die Anmerkungs-PDF.
+* **Schüler:innen**: `presentation-link` liefert bei `clean_size` nicht NULL nur die bereinigte Fassung (`p=clean`, eigene Signatur), fehlt sie, 409
+  „wird gerade vorbereitet“ – nie die hochgeladene PDF. Die gekürzte Fassung („Bis hier gezeigt“, `markShown`) wird dann ebenfalls bereinigt; der Server
+  nimmt sie nur mit `clean=1` an (eine ältere, noch offene Seite kürzte ohne). Folienbilder sind Bilder der bereinigten Seiten.
+* **Präsentationsansicht** (`public/presenter.js`): unter der großen aktuellen Folie „Notizen zu Folie n“ als Stichpunkte (rollbar, Pfeil hoch/runter
+  rollen dort, die übrigen Tasten blättern weiter; ein Drittel der Spalte, so breit wie die Folie), „Keine Notizen zu dieser Folie.“ bzw. „Codefolie vor
+  Folie 1“. Nur mit eingeblendeter Vorschau und getrenntem Beamerbild (`beamers.size` im BroadcastChannel oder `beamers` aus dem Durable Object);
+  „Vorschau“/Taste V blendet beides aus. Fehlt das getrennte Beamerbild, nennt die Leiste 12 s lang (beim Start und nach dem Trennen) „Notizen erscheinen,
+  sobald ein Beamerfenster oder Beamergerät verbunden ist – Ihre Anmerkungs-PDF finden Sie unter „Material nur für die Lehrkraft“.“; „Beamer verbinden“
+  nennt es ebenfalls. Ein einzeln gespiegeltes iPad bleibt, wie es war.
+* **Anmerkungs-PDF** (`annotatedPdfBytes` in `public/pdfnotes.js`): jede Folie (bereinigt kopiert), dahinter eine Anmerkungsfolie im selben Format
+  („Anmerkungen zu Folie n“, bei Codefolien „(Codefolie)“, Stichpunkte; Schrift bis 14 pt kleiner, sonst Fortsetzungsseiten; Standardschrift mit
+  WinAnsi – andere Zeichen ersetzt wie in `pdfmaker.js`; ohne Notizen „Keine Anmerkungen zu dieser Folie.“). `PUT …/files/:id/annotated?rev=n` legt
+  sie als „Präsentation mit Anmerkungen – <Titel>.pdf“ unter **„Material nur für die Lehrkraft“** ab (`area` teacher, `files.notes_of` = Präsentation,
+  `source` „anmerkungen“) und entfernt ältere Fassungen; ein veralteter Stand → 409. Sie entsteht nach dem Hochladen und nach jedem Speichern der
+  Notizen neu, geht mit der Präsentation (auch beim Ersetzen) bzw. mit leeren Notizen, lässt sich nicht verschieben oder umgestalten, steht nicht im
+  KI-Kontext und nicht in Prompts, nicht in der Sitzungsdatei (sie entsteht beim Laden neu) und wird bei „Übernehmen“ einer Vertretung nicht kopiert.
+* **Sitzung** (`public/notesedit.js`): in der Präsentationskarte „Notizen zu den Folien (nur für Sie)“, „Notizen ansehen und bearbeiten“ (je Folie
+  Vorschaubild + Textfeld, ein Stichpunkt je Zeile), „Notizen speichern“ (409 → Rückfrage „Neuen Stand laden“ / „Meine Fassung speichern“), „JSON aus
+  dem Chat einfügen“; die PDF bleibt unverändert. Sitzungsdatei: `files[].slideNotes` an der Präsentation (gilt beim Laden vor dem Anhang; fehlt das
+  Feld – ältere Datei –, gilt der Anhang). Connector: `get_lesson` nennt die Zahl der Folien mit Notizen (ohne Text).
+* **D1**: drei Spalten mehr (`files.notes`, `clean_size`, `notes_of`; beim ersten Aufruf nach dem Ausrollen bis zu 44 Anweisungen für das Schema);
+  Notizen-Routen 2–4 Anweisungen, `…/annotated` bis 8.
 
 ## 4i. Druckliste „Von der Lehrkraft auszudrucken“ (Ergänzung vom 10.11.2026)
 

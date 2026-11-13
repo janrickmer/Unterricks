@@ -2,7 +2,7 @@
 // um eine schon gehaltene Sitzung in einer anderen Lerngruppe erneut durchzuführen oder leicht abzuändern. Beim Laden kommen Datum, Beginn,
 // Dauer und Fälligkeit aus der geöffneten Sitzung; Datumsangaben in den Texten werden an sie angepasst (adaptDates).
 // Hier nur reine Funktionen (ohne Netz und DOM) – das Herunterladen und Hochladen steuert session.js.
-import { subjectName, subjectShort, groupShort, isIsoDate, isClockTime, cleanWebUrl, cleanCopies, normalizeFbDraft } from "./shared.js";
+import { subjectName, subjectShort, groupShort, isIsoDate, isClockTime, cleanWebUrl, cleanCopies, normalizeFbDraft, cleanSlideNotes, NOTES_LIMITS } from "./shared.js";
 
 export const SESSION_FILE = { kind: "unterricks-sitzung", v: 1, json: "sitzung.json" };
 export const SESSION_LIMITS = { files: 60, chat: 200, drafts: 20, text: 200000 };
@@ -94,6 +94,8 @@ export function cleanSessionFile(raw) {
       // von Claude gestaltet: Pfad der HTML-Gestaltung in der Datei (fehlt path, war die PDF beim Sichern noch nicht gedruckt)
       const d = o.area !== "presentation" ? str(f && f.design, 300) : "";
       if (d) { o.design = d; o.rendered = !!(f && f.rendered === true && o.path); }
+      // Notizen der Lehrkraft zu den Folien (Nachtrag 20): nur an der Präsentation; fehlt das Feld (ältere Datei), gelten die in der PDF
+      if (o.area === "presentation" && f && f.slideNotes !== undefined) o.slideNotes = cleanSlideNotes(f.slideNotes, NOTES_LIMITS.slides);
     }
     if (kind === "text") o.text = str(f && f.text, SESSION_LIMITS.text);
     if (kind === "link") o.url = cleanWebUrl(f && f.url) || "";

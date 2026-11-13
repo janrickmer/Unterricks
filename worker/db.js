@@ -101,6 +101,12 @@ export const COLUMNS = [
   // Entscheidung der Lehrkraft (mit Claude) zum offenen Teil der vorigen Sitzung nach einem Zwischenstopp: {v:1, choice "uebernehmen"|"verzichten",
   // prevId, prevVersion, at} als JSON; gilt nur, solange die vorige Sitzung dieselbe ist und ihr Eintrag dieselbe Version hat (stopDecision)
   ["lessons", "stop_decision", "TEXT"],
+  // Notizen der Lehrkraft zu den Folien (Nachtrag 20, nur Lehrkraft): {v:1, rev, slides:[{n, items}]} als JSON an der Präsentation (rev = Versionsschutz);
+  // clean_size: NULL = Schüler:innen bekommen die PDF wie hochgeladen; sonst trägt sie Anhänge/Notizen – Schüler:innen bekommen nur die bereinigte
+  // Fassung (R2 fileKey + "-ohne-notizen"), 0 = die fehlt noch; notes_of: Anmerkungs-PDF („Material nur für die Lehrkraft“) = Kennung ihrer Präsentation
+  ["files", "notes", "TEXT"],
+  ["files", "clean_size", "INTEGER"],
+  ["files", "notes_of", "TEXT"],
 ];
 
 // Indizes über nachträglich ergänzte Spalten (nach den Spalten angelegt; ein Fehler – z. B. alte Doppelungen – hält den Betrieb nicht auf)
@@ -114,7 +120,7 @@ export const INDEXES = [
 ];
 
 let ready = null, warm = false;
-/* true, sobald das Schema in diesem Isolate angelegt ist – vor ensureSchema abgefragt: false heißt, diese Anfrage legt es gerade an (bis zu 41
+/* true, sobald das Schema in diesem Isolate angelegt ist – vor ensureSchema abgefragt: false heißt, diese Anfrage legt es gerade an (bis zu 44
    Anweisungen), lange Abfragen (Beamer-Code) halten dann nicht (höchstens 50 D1-Anweisungen je Aufruf im Free-Plan) */
 export const schemaWarm = () => warm;
 export function ensureSchema(db) {

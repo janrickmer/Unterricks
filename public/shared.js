@@ -501,6 +501,69 @@ export function cleanCodeSlides(raw, pages) {
   return out.sort((a, b) => a.n - b.n);
 }
 
+/* ---------- Notizen der Lehrkraft zu den Folien (Nachtrag 20) ----------
+ * Claude bettet sie laut Präsentations-Prompt als unsichtbaren Dateianhang NOTES_FILE in die PDF ein ({"v":1,"folien":[{"folie":1,"notizen":["…"]}]}),
+ * sonst stehen sie im Chat als JSON-Block (parseNotesJson). Intern: [{n, items}] – nur Folien 1..Seitenzahl mit mindestens einem Stichpunkt,
+ * sortiert. Nie für Schüler:innen: nur Lehrkraft-Routen, nie in Live-/Beamer-Nachrichten, nie in einer PDF für Schüler:innen. */
+export const NOTES_FILE = "unterricks-notizen.json";
+export const NOTES_LIMITS = { slides: 300, items: 12, chars: 300, total: 200000 };
+export const isNotesFileName = (name) => /^unterricks[-_ ]?notizen\.json$/i.test(String(name == null ? "" : name).trim().replace(/^.*[\\/]/, ""));
+// ein Stichpunkt: einzeilig, ohne Steuer- und Formatzeichen, ohne vorangestelltes Aufzählungszeichen, höchstens 300 Zeichen (ganze Zeichen)
+export function noteLine(s) {
+  if (typeof s !== "string" && typeof s !== "number") return "";
+  const t = cleanSlideLine(String(s), 4000).replace(/^(?:[-–—•·*▪◦‣]|\d{1,2}[.)])\s+/, "").trim();
+  const cps = Array.from(t);
+  return (cps.length > NOTES_LIMITS.chars ? cps.slice(0, NOTES_LIMITS.chars).join("").trim() : t);
+}
+/* fremde Daten (Anhang der PDF, JSON aus dem Chat, Sitzungsdatei, Server): {folien:[{folie, notizen}]}, {slides:[{n, items}]} oder [{n|folie, items|notizen}];
+   notizen auch als Text (eine Zeile = ein Stichpunkt). pages = Seitenzahl der PDF (Folien jenseits entfallen) */
+export function cleanSlideNotes(raw, pages = NOTES_LIMITS.slides) {
+  const list = Array.isArray(raw) ? raw : raw && typeof raw === "object" ? (Array.isArray(raw.folien) ? raw.folien : Array.isArray(raw.slides) ? raw.slides : null) : null;
+  if (!list) return [];
+  const max = Math.min(NOTES_LIMITS.slides, Number.isInteger(pages) && pages > 0 ? pages : NOTES_LIMITS.slides);
+  const byN = new Map();
+  let total = 0;
+  for (const x of list.slice(0, 1000)) {
+    if (!x || typeof x !== "object" || Array.isArray(x)) continue;
+    const n = Number(x.folie !== undefined ? x.folie : x.n);
+    if (!Number.isInteger(n) || n < 1 || n > max) continue;
+    let items = x.notizen !== undefined ? x.notizen : x.items;
+    if (typeof items === "string") items = items.split(/\r\n|\r|\n/);
+    if (!Array.isArray(items)) continue;
+    const cur = byN.get(n) || [];
+    for (const it of items.slice(0, 200)) {
+      if (cur.length >= NOTES_LIMITS.items) break;
+      const s = noteLine(it);
+      if (!s) continue;
+      if (total + s.length > NOTES_LIMITS.total) break;
+      cur.push(s); total += s.length;
+    }
+    if (cur.length) byN.set(n, cur);
+  }
+  return [...byN].sort((a, b) => a[0] - b[0]).map(([n, items]) => ({ n, items }));
+}
+export const notesCount = (notes) => (Array.isArray(notes) ? notes.filter((x) => x && Array.isArray(x.items) && x.items.length).length : 0);
+export const notesFor = (notes, n) => { const x = (Array.isArray(notes) ? notes : []).find((y) => y && y.n === n); return x ? x.items : []; };
+export const notesText = (items) => (Array.isArray(items) ? items.join("\n") : "");
+/* JSON aus dem Chat einfügen (Rückfall, wenn Claude die Datei nicht einbetten konnte): ```json …``` oder roher Text um das erste {…} bzw. […].
+   → {notes, slides (mit Notizen), dropped (Folien außerhalb 1..pages)}; wirft eine verständliche Meldung */
+export function parseNotesJson(text, pages) {
+  const s = String(text == null ? "" : text).trim();
+  if (!s) throw new Error("Bitte fügen Sie zuerst den JSON-Block aus dem Chat ein.");
+  const fence = /```(?:json)?\s*([\s\S]*?)```/i.exec(s), body = fence ? fence[1].trim() : s;
+  const a = body.indexOf("{"), b = body.indexOf("[");
+  const start = a < 0 ? b : b < 0 ? a : Math.min(a, b), endCh = start >= 0 && body[start] === "[" ? "]" : "}";
+  const end = body.lastIndexOf(endCh);
+  if (start < 0) throw new Error("Im eingefügten Text steht kein JSON-Block mit Notizen.");
+  let raw;
+  try { if (end <= start) throw 0; raw = JSON.parse(body.slice(start, end + 1)); } catch { throw new Error("Der JSON-Block ist unvollständig oder fehlerhaft – bitte den ganzen Block aus dem Chat kopieren (von { bis })."); }
+  const all = cleanSlideNotes(raw, NOTES_LIMITS.slides), notes = cleanSlideNotes(raw, pages);
+  if (!all.length) throw new Error("Im JSON-Block stehen keine Notizen im erwarteten Format ({\"folien\": [{\"folie\": 1, \"notizen\": [\"…\"]}]}).");
+  return { notes, slides: notes.length, dropped: all.filter((x) => !notes.some((y) => y.n === x.n)).map((x) => x.n) };
+}
+// Name der Anmerkungs-PDF (nur für die Lehrkraft): „Präsentation mit Anmerkungen – BVerfG.pdf“
+export const annotatedName = (presName) => "Präsentation mit Anmerkungen – " + (String(presName == null ? "" : presName).replace(/\.pdf$/i, "").replace(/[\\/:*?"<>|\u0000-\u001f]+/g, " ").replace(/\s+/g, " ").trim().slice(0, 150) || "Präsentation") + ".pdf";
+
 /* ---------- Präsentationsmodus: Vorschau der nächsten Folie und Beamerfenster (presenter.js, beamer.js) ---------- */
 /* Was nach der aktuellen Ansicht kommt: cur = aktuelle Folie (0 = Codefolie vor Folie 1), n = Folienzahl, peek = „Sitzungscode zeigen“
    eingeblendet (die nächste Bewegung kehrt zu cur zurück), holders = Nummern der Platzhalterfolien (Set, Map oder Array; zählen nur mit Code).
@@ -1255,6 +1318,18 @@ export function claudePresentationPrompt(ctx, portalText, messages) {
     "- kein Sitzungscode und kein QR-Code zu Unterricks: Beides gehört zu einer einzigen Sitzung. Unterricks zeigt es selbst – vor Folie 1 und auf jeder Unterricks-Codefolie, immer mit dem Code der aktuellen Sitzung –, " +
       "so passt die Präsentation unverändert in jede spätere Sitzung.",
     "",
+    "## Notizen für die Lehrkraft: unsichtbar in der PDF",
+    "Schreibe zu jeder Folie Notizen für die Lehrkraft in Stichpunkten: was sie sagt, fragt oder beachtet – Impulse, erwartete Antworten der Schüler:innen, Zeit. " +
+      "Unterricks zeigt sie nur der Lehrkraft (in ihrer Präsentationsansicht unter der aktuellen Folie und in einer eigenen PDF mit einer Anmerkungsfolie hinter jeder Folie); die Schüler:innen sehen sie nie.",
+    "- Die Notizen stehen nicht auf den Folien: Bette sie als unsichtbaren Dateianhang (eingebettete Datei, EmbeddedFile) namens " + NOTES_FILE + " in die PDF ein – UTF-8, genau in diesem Format: " +
+      '{"v":1,"folien":[{"folie":1,"notizen":["…","…"]},{"folie":2,"notizen":["…"]}]}',
+    "- „folie“ ist die Seitenzahl in der PDF (die Titelfolie ist 1, jede Seite zählt – auch Unterricks-Codefolien, die ebenfalls Notizen bekommen); je Folie 0 bis " + NOTES_LIMITS.items +
+      " Stichpunkte mit je höchstens " + NOTES_LIMITS.chars + " Zeichen, reiner Text ohne Markdown und ohne Zeilenumbruch.",
+    "- So geht es z. B. mit Python und pypdf: `writer = PdfWriter(clone_from=\"praesentation.pdf\")`, `writer.add_attachment(\"" + NOTES_FILE + "\", json.dumps(notizen, ensure_ascii=False).encode(\"utf-8\"))`, " +
+      "`writer.write(\"praesentation.pdf\")`.",
+    "- Keine Notizen als Kommentare, Anmerkungen oder Sprechblasen auf den Seiten und nicht in den Dokumenteigenschaften – nur als dieser Dateianhang.",
+    "- Kannst du keine Datei einbetten, gib die Notizen am Ende deiner Antwort als einen einzigen JSON-Block in genau diesem Format aus (```json … ```) – die Lehrkraft fügt ihn in Unterricks ein („JSON aus dem Chat einfügen“).",
+    "",
     "## Rahmendaten",
     "- Fach: " + subjectName(ctx.subject),
     "- Klasse/Kurs: " + classShort(ctx.klass) + " – " + gradeInfo(ctx.klass).text,
@@ -1285,10 +1360,10 @@ export function claudePresentationPrompt(ctx, portalText, messages) {
     "- Gestaltung für den Beamer: hoher Kontrast, Schrift mindestens 24 pt (Fließtext) bzw. 36 pt (Überschriften), höchstens 6 Zeilen pro Folie (die Zeile „" + CODE_SLIDE_MARK + ": …“ zählt nicht mit und darf kleiner sein), " +
       "ruhiges einheitliches Layout; keine Animationen oder Übergänge (PDF) – was nacheinander erscheinen soll, kommt auf aufeinanderfolgende Folien.",
     "- Altersgerechte Sprache für " + gradeInfo(ctx.klass).text + "; fachlich korrekt; keine erfundenen Quellen, Zitate oder Statistiken (wo nötig: eine gekennzeichnete Lücke mit Hinweis für die Lehrkraft).",
-    "- Hinweise für die Lehrkraft (Impulse, Zeit, Erwartungen) je Folie gibst du mir zusätzlich hier im Chat als kurze Liste – eine PDF hat keine Sprechernotizen.",
+    "- Hinweise für die Lehrkraft (Impulse, Zeit, Erwartungen) je Folie gehören in die Notizen (unsichtbarer Dateianhang " + NOTES_FILE + ", siehe „Notizen für die Lehrkraft“) – nicht auf die Folien.",
     "- Benenne die Datei sinnvoll und ebenfalls ohne Klasse und Datum, z. B. „" + (groupShort(ctx.klass) || "Jahrgang").replace(/\.?\s+/g, "-") + "_" + subjectName(ctx.subject).replace(/\s+/g, "-") + "_" + (L.topic || L.title || "Stunde").replace(/[^\wÄÖÜäöüß-]+/g, "-").slice(0, 40) + ".pdf“." +
       connectorHint(ctx).replace("speichere deine Ergebnisse auf Wunsch der Lehrkraft direkt mit `save_schulportal_entry`, `add_material_pdf` (Material als gestaltete HTML-Seite, Unterricks druckt sie als PDF) bzw. `propose_feibeitsblatt` in der Plattform",
-        "verändere den Schulportal-Eintrag dabei nicht; die Hinweise für die Lehrkraft kannst du auf Wunsch mit `add_material_pdf` (bereich „lehrkraft“, als gestaltete HTML-Seite) in der Sitzung ablegen"),
+        "verändere den Schulportal-Eintrag dabei nicht; die Notizen für die Lehrkraft gehören in die PDF (Dateianhang " + NOTES_FILE + "), nicht als eigenes Material in die Sitzung"),
   ].filter((l) => l !== null && l !== undefined).join("\n").replace(/\n{3,}/g, "\n\n");
 }
 

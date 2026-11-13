@@ -65,7 +65,7 @@ export async function routeResetStatus(c) {
   const [u, l, f, p] = await c.db.batch([
     c.db.prepare("SELECT COUNT(*) AS n FROM units"),
     c.db.prepare("SELECT COUNT(*) AS n FROM lessons"),
-    c.db.prepare("SELECT COUNT(*) AS n, COALESCE(SUM(size),0) + COALESCE(SUM(cut_size),0) AS bytes FROM files"),
+    c.db.prepare("SELECT COUNT(*) AS n, COALESCE(SUM(size),0) + COALESCE(SUM(cut_size),0) + COALESCE(SUM(clean_size),0) AS bytes FROM files"),
     c.db.prepare("SELECT COUNT(*) AS n FROM reset_queue"),
   ]);
   const first = (r) => (r.results && r.results[0]) || {};

@@ -1,6 +1,6 @@
 // presenter.js – Präsentation (PDF) in Folienbilder umwandeln und im Vollbild live für alle zeigen.
 import { h, clear, api, apiUrl, wsUrl, toast, errToast, icon, store, rand, busy } from "./ui.js";
-import { isValidCode, formatCode, slideTextLines, slideCodeBoxes, slideSessionCode, codeCover, coverFill, codeFontStyle, codeSlideLines, cleanCodeSlides,
+import { isValidCode, formatCode, slideTextLines, slideCodeBoxes, slideSessionCode, codeCover, coverFill, codeFontStyle, codeSlideLines, cleanCodeSlides, cleanSlideNotes, notesFor,
   nextSlideOf, nextSlideLabel, presenterKey, BEAMER_CHANNEL, normBeamerCode, PUBLIC_URL, beamerWindowNote,
   TIMER_PICKS, TIMER_MAX_MIN, TIMER_TOTAL_MAX_MIN, TIMER_ADDS, TIMER_OVER, normTimerMin } from "./shared.js";
 import { codeSlideDom } from "./codeslide.js";
@@ -84,17 +84,43 @@ export async function pdfPageCount(file) {
    verknüpfter Feibeitsblätter (nie der Sitzungscode). Ergebnis swapped = {from, to, slides, missed} oder null (missed = Folien, auf denen
    der alte Code steht, aber nicht sicher ersetzt werden konnte). Die hochgeladene PDF selbst bleibt unverändert.
    opt.cards (Bildkarten der Grundschule, cards.js): keine Codefolien und kein Ersetzen von Codes, längste Seite 1600 px, höchstens 40 Seiten;
-   fertig über …/cards/ready mit opt.version (Stand der PDF, aus dem die Bilder stammen). */
+   fertig über …/cards/ready mit opt.version (Stand der PDF, aus dem die Bilder stammen).
+   Notizen der Lehrkraft (Nachtrag 20): der Anhang unterricks-notizen.json (bzw. opt.notes aus einer Sitzungsdatei) geht mit …/ready an den Server.
+   Trägt die PDF Anhänge oder Notiz-Anmerkungen, bekommen Schüler:innen nur eine bereinigte Fassung (…/clean); die Folienbilder entstehen dann aus
+   ihr. Mit Notizen entsteht danach die Anmerkungs-PDF (nur Lehrkraft). Ergebnis zusätzlich notes (Zahl), clean {needed, ok, error}, annotated
+   {file, removed} | {error}. */
 export async function rasterizeAndUpload(file, fileId, token, onProgress, opt = {}) {
   const cards = !!opt.cards;
   const want = !cards && isValidCode(opt.code) ? opt.code : "";
   let oldCode = "";
   const swappedOn = [], missedOn = [], codeSlides = [];
   const lib = await pdfjs();
-  const doc = await lib.getDocument({ data: new Uint8Array(await file.arrayBuffer()), isEvalSupported: false, disableFontFace: false }).promise;
+  const bytes = new Uint8Array(await file.arrayBuffer());
+  const open = (data) => lib.getDocument({ data, isEvalSupported: false, disableFontFace: false }).promise;
+  let doc = await open(bytes.slice());   // PDF.js übernimmt den Puffer – die Bytes bleiben für pdf-lib erhalten
   const n = doc.numPages;
-  if (n > 300) throw new Error("Die Präsentation hat mehr als 300 Folien.");
+  if (n > 300) { await doc.destroy(); throw new Error("Die Präsentation hat mehr als 300 Folien."); }
   if (cards && n > 40) { await doc.destroy(); throw new Error("Die PDF hat " + n + " Seiten – höchstens 40 Bildkarten je PDF (eine Seite = eine Karte)."); }
+  // Notizen und Anhänge (nicht bei Bildkarten): bereinigte Fassung für Schüler:innen zuerst – die Folienbilder zeigen dann genau sie
+  let scan = { needsClean: false, raw: null }, cleanState = null, renderOpt = {};
+  if (!cards) {
+    const { scanPdfNotes } = await import("./pdfnotes.js");
+    try { scan = await scanPdfNotes(doc); } catch {}
+    if (scan.needsClean) {
+      cleanState = { needed: true, ok: false, error: null };
+      try {
+        const { uploadClean } = await import("./pdfcut.js");
+        const c = await uploadClean({ id: fileId }, token, bytes);
+        const cdoc = await open(c.bytes.slice());
+        if (cdoc.numPages === n) { await doc.destroy(); doc = cdoc; cleanState.ok = true; } else { await cdoc.destroy(); throw new Error("Seitenzahl stimmt nicht."); }
+      } catch (e) {
+        // Schüler:innen bekommen die PDF dann vorerst nicht (der Server liefert ohne bereinigte Fassung keine); die Folienbilder ohne Anmerkungen
+        cleanState.error = e && e.message ? e.message : String(e);
+        renderOpt = { annotationMode: lib.AnnotationMode.DISABLE };
+      }
+    }
+  }
+  const notes = cards ? [] : cleanSlideNotes(opt.notes !== undefined && opt.notes !== null ? opt.notes : scan.raw, n);
   const side = cards ? 1600 : 1920;
   const thumbs = [];
   for (let i = 1; i <= n; i++) {
@@ -106,7 +132,7 @@ export async function rasterizeAndUpload(file, fileId, token, onProgress, opt = 
     canvas.width = Math.round(vp.width); canvas.height = Math.round(vp.height);
     const ctx = canvas.getContext("2d", { alpha: false });
     ctx.fillStyle = "#fff"; ctx.fillRect(0, 0, canvas.width, canvas.height);
-    await page.render({ canvasContext: ctx, viewport: vp }).promise;
+    await page.render({ canvasContext: ctx, viewport: vp, ...renderOpt }).promise;
     let items = null, placeholder = false;
     if (!cards) try {   // Platzhalterfolie für die Codefolie? (eigener Versuch: ein Fehler hier schaltet den Rückfall nicht ab)
       items = await pageItems(lib, page, vp);
@@ -146,8 +172,15 @@ export async function rasterizeAndUpload(file, fileId, token, onProgress, opt = 
     return { pages: n, thumbs, file: done.file };
   }
   const sent = cleanCodeSlides(codeSlides, n);
-  const ready = await api("POST", "/api/teacher/files/" + fileId + "/ready", { token, body: { pages: n, codeSlides: sent } });
-  return { pages: n, thumbs, file: ready.file, codeSlides: (ready.file && ready.file.codeSlides) || sent,
+  const ready = await api("POST", "/api/teacher/files/" + fileId + "/ready", { token, body: { pages: n, codeSlides: sent, notes, clean: !!scan.needsClean } });
+  // Anmerkungs-PDF (nur Lehrkraft): ein Fehler hier lässt die Präsentation nutzbar
+  let annotated = null;
+  const rev = ready.file && ready.file.notesRev;
+  if (notes.length && Number.isInteger(rev)) {
+    try { const { makeAnnotated } = await import("./pdfnotes.js"); annotated = await makeAnnotated({ id: fileId, name: file.name }, { token, notes, rev, codeSlides: sent, bytes }); }
+    catch (e) { annotated = { error: e && e.message ? e.message : String(e) }; }
+  }
+  return { pages: n, thumbs, file: ready.file, codeSlides: (ready.file && ready.file.codeSlides) || sent, notes: notes.length, clean: cleanState, annotated,
     swapped: swappedOn.length || missedOn.length ? { from: oldCode, to: want, slides: swappedOn, missed: missedOn } : null };
 }
 
@@ -208,6 +241,12 @@ export const TIMER_HINT = "Der Timer steht oben über der Präsentation – bei 
   "Am Ende wird er rot („" + TIMER_OVER + "“), ohne Ton, bis Sie ihn schließen.";
 export const TIMER_MIN_BAD = "Bitte geben Sie eine ganze Zahl von 1 bis " + TIMER_MAX_MIN + " Minuten ein.";
 export const TIMER_MAX_NOTE = "Insgesamt höchstens " + TIMER_TOTAL_MAX_MIN + " Minuten.";
+// Notizen der Lehrkraft (Nachtrag 20): nur, wenn das Beamerbild getrennt läuft (Beamerfenster bzw. Beamergerät verbunden) – ein einzeln
+// gespiegeltes iPad oder ein gespiegelter Laptop zeigt sie nie (die Klasse sähe sie mit)
+export const NOTES_HINT = "Notizen erscheinen, sobald ein Beamerfenster oder Beamergerät verbunden ist – Ihre Anmerkungs-PDF finden Sie unter „Material nur für die Lehrkraft“.";
+export const NOTES_PAIR_HINT = "Mit verbundenem Beamer sehen Sie hier unter der aktuellen Folie Ihre Notizen – am Beamer erscheinen sie nie.";
+export const NOTES_HINT_MS = 12000;   // so lange steht der Hinweis in der Leiste (sonst bräche sie am iPad hochkant in eine dritte Zeile)
+export const NOTES_NONE = "Keine Notizen zu dieser Folie.";
 export async function startPresenter({ lessonId, file, token, startSlide = 0, onEnd, slides, onMark, shownUntil = null, code = "", title = "" }) {
   const s = slides || (await fetchSlides(file.id, token));
   const urls = (s.urls || []).map(apiUrl), n = s.pages, pages = n;
@@ -222,6 +261,12 @@ export async function startPresenter({ lessonId, file, token, startSlide = 0, on
   const tb = timerBand({ host: stage, onPaint: (v) => paintTimer(v), onStale: () => live.hello() });
   stage.append(tb.el);
   const stageCell = h("div", { class: "stagecell" }, stage);
+  // Notizen der Lehrkraft unter der aktuellen Folie (Nachtrag 20) – nie im Beamerfenster, am Beamergerät oder bei Schüler:innen
+  const notes = cleanSlideNotes(s.notes || [], n), hasNotes = notes.length > 0;
+  const notesHead = h("p", { class: "pn-head" }), notesBody = h("div", { class: "pn-body" });
+  const notesBox = h("section", { class: "notespane", tabindex: "0", "aria-label": "Ihre Notizen zur aktuellen Folie (nur für Sie)" }, notesHead, notesBody);
+  const curCol = h("div", { class: "curcol" }, stageCell, notesBox);
+  let notesAt = null;   // Folie, deren Notizen gerade stehen (beim Wechsel wieder nach oben)
   const npImg = h("img", { alt: "", draggable: "false" });
   const npHead = h("p", { class: "np-head" }), npFrame = h("div", { class: "np-frame" }, npImg);
   const nextPane = h("aside", { class: "nextpane", "aria-label": "Vorschau der nächsten Folie", title: "Zur nächsten Folie" }, h("div", { class: "np-box" }, npHead, npFrame));
@@ -258,6 +303,31 @@ export async function startPresenter({ lessonId, file, token, startSlide = 0, on
   const nextBtn = h("button", { class: "btn small", type: "button", "aria-pressed": String(showNext), "aria-label": "Vorschau der nächsten Folie",
     title: "Vorschau der nächsten Folie ein- oder ausblenden (Taste V)", onclick: () => setNext(!showNext) }, "Vorschau");
   function setNext(on) { showNext = on; store.set(NEXT_KEY, on ? "1" : "0"); nextBtn.setAttribute("aria-pressed", String(on)); root.classList.toggle("with-next", on); paint(); }
+  // getrennt = das Beamerbild läuft auf einem anderen Bildschirm: Beamerfenster (BroadcastChannel) oder Beamergerät (Zahl aus dem Durable Object)
+  const separate = () => beamers.size > 0 || beamersN > 0;
+  function paintNotes() {
+    const on = hasNotes && showNext && separate();
+    root.classList.toggle("with-notes", on);
+    paintNotesHint();
+    if (!on) { notesAt = null; return; }
+    const items = cur === 0 ? [] : notesFor(notes, cur);
+    const head = cur === 0 ? "Codefolie vor Folie 1" : "Notizen zu Folie " + cur + (holders.has(cur) ? " (Codefolie)" : "");
+    if (notesAt === cur && notesHead.textContent === head) return;
+    notesHead.textContent = head;
+    notesBody.replaceChildren(items.length ? h("ul", { class: "pn-list" }, ...items.map((t) => h("li", { text: t }))) : h("p", { class: "pn-none", text: NOTES_NONE }));
+    if (notesAt !== cur) notesBox.scrollTop = 0;
+    notesAt = cur;
+  }
+  function paintNotesHint() {
+    const want = hasNotes && showNext && !separate() && Date.now() < hintUntil, t = want ? NOTES_HINT : "";
+    if (notesHint.textContent !== t) notesHint.textContent = t;
+  }
+  function showNotesHint() {
+    if (!hasNotes) return;
+    hintUntil = Date.now() + NOTES_HINT_MS; clearTimeout(hintT);
+    hintT = setTimeout(paintNotesHint, NOTES_HINT_MS + 50);
+    paintNotesHint();
+  }
   // Beamerfenster: nicht auf Tablets und Handys (dort gibt es kein zweites Fenster neben dem Präsentationsfenster)
   const bc = typeof BroadcastChannel === "function" ? new BroadcastChannel(BEAMER_CHANNEL) : null;
   const pid = hex(rand(8)), beamers = new Set();
@@ -284,7 +354,7 @@ export async function startPresenter({ lessonId, file, token, startSlide = 0, on
   const pairBox = h("form", { class: "bmc", role: "dialog", "aria-modal": "true", "aria-labelledby": "bmc-h", novalidate: true, onsubmit: (e) => { e.preventDefault(); doPair(); } },
     pairH, pairConn,
     h("div", { class: "field" }, h("label", { for: "bmc-in" }, "Code vom Beamer eingeben"), pairIn),
-    h("p", { class: "hint", id: "bmc-hint", text: BEAMER_PAIR_HINT }), pairErr,
+    h("p", { class: "hint", id: "bmc-hint", text: BEAMER_PAIR_HINT }), hasNotes ? h("p", { class: "hint bmc-notes", text: NOTES_PAIR_HINT }) : null, pairErr,
     h("div", { class: "bmc-acts" }, h("button", { class: "btn", type: "button", onclick: (e) => closePair(e.detail === 0) }, "Abbrechen"), pairGo));
   // eigene Fläche über der ganzen Präsentation: Tippen und Wischen daneben blättern nicht (Klick daneben schließt)
   const pairWrap = h("div", { class: "bmc-back", hidden: true, onclick: (e) => { if (e.target === pairWrap) closePair(false); } }, pairBox);
@@ -319,14 +389,17 @@ export async function startPresenter({ lessonId, file, token, startSlide = 0, on
     h("h2", { id: "tmc-h" }, "Timer"), tmStartBox, tmCtlBox);
   const tmWrap = h("div", { class: "tmc-back", hidden: true, onclick: (e) => { if (e.target === tmWrap) closeTimer(false); } }, tmBox);
   const dlgOpen = () => !pairWrap.hidden || !tmWrap.hidden;
+  // Hinweis, warum die Notizen fehlen: nur mit Notizen, eingeblendeter Vorschau und ohne getrennten Beamer – kurz sichtbar (Start, Beamer getrennt)
+  const notesHint = h("span", { class: "small notehint", "aria-live": "polite" });
+  let hintUntil = 0, hintT = null;
   const root = h("div", { class: "presenter" + (showNext ? " with-next" : ""), role: "dialog", "aria-label": "Präsentation läuft" },
-    h("div", { class: "pview" }, stageCell, nextPane),
+    h("div", { class: "pview" }, curCol, nextPane),
     h("div", { class: "bar" },
       h("button", { class: "btn small", type: "button", onclick: () => goto(cur - 1), "aria-label": "Vorherige Folie" }, icon("left")),
       counter,
       h("button", { class: "btn small", type: "button", onclick: () => goto(cur + 1), "aria-label": "Nächste Folie" }, icon("right")),
       h("span", { class: "badge onair" }, h("span", { class: "dot" }), "LIVE für alle"), info,
-      h("span", { class: "grow" }), nextBtn, beamBtn, beamState, devBtn, devState, tmBtn, codeBtn, markBtn, markState,
+      h("span", { class: "grow" }), notesHint, nextBtn, beamBtn, beamState, devBtn, devState, tmBtn, codeBtn, markBtn, markState,
       fsBtn,
       h("button", { class: "btn small onair", type: "button", onclick: () => end(true) }, "Präsentation für alle beenden"),
       h("button", { class: "btn small", type: "button", onclick: () => end(false), title: "Fenster schließen, Live-Anzeige läuft weiter" }, "Schließen")),
@@ -341,7 +414,10 @@ export async function startPresenter({ lessonId, file, token, startSlide = 0, on
   let adopted = false, moved = false;
   const live = new TeacherLive(lessonId, token, (m) => {
     if ((m.t === "count" || m.t === "state") && Number.isInteger(m.beamers) && m.beamers >= 0 && m.beamers !== beamersN) {
+      const was = separate();
       beamersN = m.beamers; if (beamersN) { devNote = ""; clearTimeout(devWaitT); } paintDev(); paintBeam();
+      if (was && !separate()) showNotesHint();
+      paintNotes();
     }
     if (m.t === "count") students = m.students;
     else if (m.t === "state") {
@@ -413,7 +489,9 @@ export async function startPresenter({ lessonId, file, token, startSlide = 0, on
     await busy(btn, async () => {
       try {
         await api("POST", "/api/teacher/lessons/" + lessonId + "/beamer/disconnect", { token });
-        clearTimeout(devWaitT); beamersN = 0; devNote = BEAMER_CUT_NOTE; paintDev(); paintBeam(); closePair(keyed);
+        clearTimeout(devWaitT); const was = separate(); beamersN = 0; devNote = BEAMER_CUT_NOTE; paintDev(); paintBeam(); closePair(keyed);
+        if (was && !separate()) showNotesHint();
+        paintNotes();
         // nur kurz sichtbar: der Knopf heißt wieder „Beamer verbinden“ – sonst bräche die Leiste am iPad dauerhaft in eine dritte Zeile
         devWaitT = setTimeout(() => { if (devNote === BEAMER_CUT_NOTE) { devNote = ""; paintDev(); } }, BEAMER_NOTE_MS);
       } catch (err) { if (!pairWrap.hidden) pairErr.textContent = err && err.message ? err.message : String(err); }
@@ -497,7 +575,7 @@ export async function startPresenter({ lessonId, file, token, startSlide = 0, on
       else npFrame.replaceChildren(h("div", { class: "np-end", text: "Keine weitere Folie" }));
       npFrame.classList.toggle("end", !nv);
     }
-    preload(cur + 1); preload(cur + 2); preload(cur - 1); paintMark(); paintCodeBtn();
+    preload(cur + 1); preload(cur + 2); preload(cur - 1); paintMark(); paintCodeBtn(); paintNotes();
     sendShow(cv, nv);
   }
   function goto(k) {
@@ -534,8 +612,8 @@ export async function startPresenter({ lessonId, file, token, startSlide = 0, on
     const m = ev.data;
     if (!m || typeof m !== "object" || typeof m.bid !== "string") return;
     if (m.t === "hello") claim();
-    else if (m.t === "following") { if (m.id === pid) { beamers.add(m.bid); sendShow(); } else beamers.delete(m.bid); paintBeam(); }
-    else if (m.t === "bye") { beamers.delete(m.bid); paintBeam(); }
+    else if (m.t === "following") { const was = separate(); if (m.id === pid) { beamers.add(m.bid); sendShow(); } else beamers.delete(m.bid); paintBeam(); if (was && !separate()) showNotesHint(); paintNotes(); }
+    else if (m.t === "bye") { const was = separate(); beamers.delete(m.bid); paintBeam(); if (was && !separate()) showNotesHint(); paintNotes(); }
     else if (m.t === "cmd" && m.id === pid && beamers.has(m.bid)) run(m.cmd);
   };
   const onHide = () => { if (bc) try { bc.postMessage({ t: "end", id: pid, why: "close" }); } catch {} };
@@ -567,6 +645,8 @@ export async function startPresenter({ lessonId, file, token, startSlide = 0, on
       if (e.key === "Escape") { e.preventDefault(); closeTimer(true); } else if (e.key === "Tab") trapTab(e, tmWrap);
       return;
     }
+    // Notizen per Tastatur lesen: Pfeil hoch/runter rollen dort (Bild- und übrige Tasten blättern weiter, z. B. die eines Presenters)
+    if ((e.key === "ArrowUp" || e.key === "ArrowDown") && notesBox.contains(e.target)) return;
     const a = presenterKey(e, onControl(e.target)); if (!a) return; if (a === "next" || a === "prev") e.preventDefault(); run(a);
   };
   let idleT = null;
@@ -579,12 +659,14 @@ export async function startPresenter({ lessonId, file, token, startSlide = 0, on
   root.addEventListener("mousemove", wake);
   root.addEventListener("focusin", wake);
   root.addEventListener("click", (e) => { const b = e.target.closest && e.target.closest("button"); if (b && e.detail > 0) b.blur(); });
+  // nach einem Mausklick in die Notizen behalten sie den Fokus nicht (Leertaste und Presenter blättern weiter); Rollen mit Rad/Finger bleibt
+  notesBox.addEventListener("click", (e) => { if (e.detail > 0 && document.activeElement === notesBox) notesBox.blur(); });
   document.addEventListener("keydown", onKey);
   window.addEventListener("pagehide", onHide);
   window.addEventListener("pageshow", onShow);
   document.addEventListener("visibilitychange", onVis);
   function end(stopForAll) {
-    document.removeEventListener("keydown", onKey); clearTimeout(idleT); clearTimeout(devWaitT); tb.stop();
+    document.removeEventListener("keydown", onKey); clearTimeout(idleT); clearTimeout(devWaitT); clearTimeout(hintT); tb.stop();
     window.removeEventListener("pagehide", onHide); window.removeEventListener("pageshow", onShow); document.removeEventListener("visibilitychange", onVis);
     if (bc) { try { bc.postMessage({ t: "end", id: pid, why: stopForAll ? "stop" : "close" }); } catch {} bc.close(); }
     if (stopForAll) live.send({ t: "stop" });
@@ -600,7 +682,7 @@ export async function startPresenter({ lessonId, file, token, startSlide = 0, on
   root.tabIndex = -1;
   document.body.append(root);
   try { root.focus({ preventScroll: true }); } catch {}
-  paint(); paintInfo(); wake();
+  paint(); paintInfo(); wake(); showNotesHint();
   // Vollbild muss direkt aus dem Klick heraus angefordert werden (Aufrufer ruft startPresenter im Klick-Handler auf)
   toggleFs();
   live.connect();

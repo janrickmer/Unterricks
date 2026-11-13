@@ -176,7 +176,8 @@ export async function routeSubstituteTransfer(c, lessonId) {
   const found = chunk.length ? await c.db.prepare("SELECT * FROM files WHERE lesson_id=?1 AND id IN (SELECT value FROM json_each(?2))").bind(lessonId, JSON.stringify(chunk.map((f) => f.id))).all() : { results: [] };
   const byId = new Map((found.results || []).map((f) => [f.id, f]));
   // Notfall-Feibeitsblätter nicht kopieren: Sie entstehen in der Zielsitzung neu, sobald dort das Feibeitsblatt verknüpft ist
-  const files = chunk.map((f0) => ({ f0, f: byId.get(f0.id) })).filter((x) => x.f && x.f.source !== "notfall");
+  // die Anmerkungs-PDF einer Präsentation (Nachtrag 20) gehört zu ihr und bleibt hier
+  const files = chunk.map((f0) => ({ f0, f: byId.get(f0.id) })).filter((x) => x.f && x.f.source !== "notfall" && !x.f.notes_of);
   await checkStorage(c, files.reduce((n, x) => n + (x.f.kind === "file" ? x.f.size || 0 : 0), 0));
   const ins = [];
   for (const { f0, f } of files) {

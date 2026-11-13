@@ -8,7 +8,7 @@ const lib = () => (libP = libP || import("/vendor/pdf-lib.esm.min.js"));
 
 // Standardschriften kennen nur WinAnsi: übliche Sonderzeichen ersetzen, Unbekanntes als „?“
 const REPL = { "→": "->", "←": "<-", "⇒": "=>", "↔": "<->", "✓": "v", "✔": "v", "✗": "x", "✘": "x", "≤": "<=", "≥": ">=", "≠": "!=", "≈": "~", "−": "-", " ": " ", " ": " ", " ": " ", "☐": "[ ]", "□": "[ ]", "■": "#", "★": "*", "☆": "*", "⚖": "", "→️": "->" };
-function sanitizer(font) {
+export function sanitizer(font) {
   const ok = new Map();
   return (s) => {
     let out = "";

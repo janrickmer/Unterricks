@@ -13,6 +13,7 @@ import { substituteCards } from "./substitute.js";
 import { paintPortalPreview, portalPreview, contextMenu, prevStopCard, stopNextHint } from "./portalview.js";
 import { renderMarkdown } from "./markdown.js";
 import { materialBox, dropZone } from "./materialbox.js";
+import { notesPanel, notesDirty } from "./notesedit.js";
 import { personLabel, personKey, cleanPhoto, PHOTO_TASKS_MAX, materialRuns, taskTextFmt, fbLinksOf } from "./fbclient.js";
 
 const MODES = [["planning", "Planung"], ["ideas", "Ideen weiterentwickeln"], ["material", "Material erstellen"]];
@@ -33,7 +34,7 @@ export async function sessionPage(id) {
   const row = () => (st.unit && L().unitRow ? (st.unit.rows || []).find((r) => r.uid === L().unitRow) || null : null);
   const ctx = () => ({ lessonId: id, code: L().code, subject: L().subject, klass: L().klass,
     lesson: { title: L().title, topic: L().topic, durationMin: L().durationMin, date: L().date, startTime: L().startTime, ideas: L().ideas, homework: L().homework },
-    materials: st.files.filter((f) => f.area !== "archive").map((f) => ({ name: f.name, area: f.area, kind: f.kind, text: f.kind === "link" ? f.url || "" : f.design ? f.design.text || "" : f.text || "", pages: f.pages })), sheets: st.sheets,
+    materials: st.files.filter((f) => f.area !== "archive" && !f.notesOf).map((f) => ({ name: f.name, area: f.area, kind: f.kind, text: f.kind === "link" ? f.url || "" : f.design ? f.design.text || "" : f.text || "", pages: f.pages })), sheets: st.sheets,
     portal: portalTA ? portalTA.value : L().portal, unit: st.unit, row: row(), unitText: st.unit ? unitContext(st.unit, L().unitRow) : "",
     gradeNote: cfg && cfg[L().subject] ? (cfg[L().subject].gradeNotes || {})[gradeKey(L().klass)] || "" : "", classSize: d.course ? d.course.classSize : null });
 
@@ -372,6 +373,27 @@ export async function sessionPage(id) {
   /* ======================= Präsentation ======================= */
   const presCard = h("section", { class: "card" });
   let pendingPdf = null;
+  // Notizen der Lehrkraft zu den Folien (Nachtrag 20): Zustand des Editors übersteht das Neuzeichnen der Karte; je Präsentation neu
+  let notesUi = { open: false, base: null, draft: null, fileId: null };
+  const notesDirtyNow = () => notesDirty(notesUi);
+  const notesUiFor = (p) => { if (notesUi.fileId !== p.id) notesUi = { open: false, base: null, draft: null, fileId: p.id }; return notesUi; };
+  // Anmerkungs-PDF in der Liste „Material nur für die Lehrkraft“ ersetzen bzw. entfernen
+  const swapAnnotated = (presId, nf, removed = []) => {
+    st.files = st.files.filter((f) => !(f.notesOf === presId && (!nf || f.id !== nf.id)) && !removed.includes(f.id));
+    if (nf) st.files.push(nf);
+    paintFiles();
+  };
+  async function regenAnnotated(p, notes, rev, say) {
+    try {
+      const { makeAnnotated } = await import("./pdfnotes.js");
+      const r = await makeAnnotated(p, { token: T.token, notes, rev, codeSlides: (st.slides && st.slides.codeSlides) || p.codeSlides || [] });
+      swapAnnotated(p.id, r.file, r.removed || []);
+      say("Gespeichert. Die „Präsentation mit Anmerkungen“ unter „Material nur für die Lehrkraft“ ist erneuert.", "ok");
+    } catch (e) {
+      if (e && e.status === 409) return;   // inzwischen erneut gespeichert – die neuere Fassung erstellt sie
+      say("Gespeichert. Die Anmerkungs-PDF ließ sich gerade nicht erneuern (" + (e && e.message ? e.message : e) + ") – die Präsentation ist trotzdem nutzbar; beim nächsten Speichern wird sie erneut erstellt.", "err");
+    }
+  }
   // Freigabe für Schüler:innen (5 Minuten nach dem Ende der Sitzung) – bleibt stehen, wenn sich Beginn oder Dauer ändern
   const presRel = h("p", { class: "small presrel" });
   const curPres = () => st.files.find((f) => f.area === "presentation" && f.status === "ready") || null;
@@ -402,6 +424,21 @@ export async function sessionPage(id) {
       return;
     }
     if (!st.slides) { try { st.slides = await tapi("GET", "/api/teacher/files/" + p.id + "/slides"); } catch (e) { errToast(e); } }
+    // Notizen (nur Lehrkraft) und – trägt die PDF Notizen bzw. Anhänge – die Fassung für Schüler:innen ohne sie (Nachtrag 20)
+    const nui = notesUiFor(p);
+    const notesBox = notesPanel({ p, slides: st.slides, ui: nui, request: (m, path, o) => tapi(m, path, o), toastErr: errToast,
+      onSaved: async (r, say) => {
+        Object.assign(p, r.file);
+        if (st.slides) { st.slides.notes = r.notes; st.slides.notesRev = r.rev; }
+        if (!r.notes.length) { swapAnnotated(p.id, null, r.removed || []); return; }
+        await regenAnnotated(p, r.notes, r.rev, say);
+      } });
+    const cleanBox = p.cleanNeeded && !p.cleanReady ? h("div", { class: "notice warn" },
+      h("p", { text: "Diese PDF enthält Notizen bzw. Dateianhänge. Die Fassung ohne sie für Schüler:innen fehlt noch – bis dahin können Schüler:innen die Präsentation nach der Stunde nicht herunterladen (die Folienbilder sind nicht betroffen)." }),
+      h("button", { class: "btn small", type: "button", onclick: (e) => busy(e.currentTarget, async () => {
+        try { const { uploadClean } = await import("./pdfcut.js"); const r = await uploadClean(p, T.token); Object.assign(p, r.file); toast("Die Fassung für Schüler:innen (ohne Notizen) ist gespeichert.", "ok"); paintPres(); }
+        catch (err) { errToast(err); }
+      }, "Erzeuge …") }, "Fassung für Schüler:innen erzeugen")) : null;
     const shown = shownOf(p), shownState = h("span", { class: "save-state" });
     const applyShown = async (n) => {
       stateLine(shownState, n ? "Kürze die Präsentation …" : "…");
@@ -455,9 +492,9 @@ export async function sessionPage(id) {
         h("div", { class: "acts" }, h("button", { class: "btn small", type: "button", onclick: (e) => viewPdf(e.currentTarget, p) }, "PDF ansehen"),
           h("button", { class: "btn small ghost danger", type: "button", onclick: async () => {
             if (!(await confirmDialog("Präsentation löschen", "Präsentation und Folienbilder löschen? Eine laufende Live-Anzeige endet.", "Löschen", true))) return;
-            try { await tapi("DELETE", "/api/teacher/files/" + p.id); st.files = st.files.filter((x) => x !== p); st.slides = null; paintPres(); } catch (e) { errToast(e); }
+            try { await tapi("DELETE", "/api/teacher/files/" + p.id); st.files = st.files.filter((x) => x !== p); st.slides = null; swapAnnotated(p.id, null); paintPres(); } catch (e) { errToast(e); }
           } }, icon("trash")))),
-      thumbs, shownBox, presRel, startBtn, liveLine,
+      ...nn(thumbs, cleanBox, shownBox, presRel, notesBox, startBtn, liveLine),
       h("p", { class: "hint", text: "Startet das Vollbild hier und zeigt dieselbe Folie oben in der Schüleransicht aller freigeschalteten Schüler:innen. Beim Start erscheint zuerst die Codefolie mit dem Sitzungscode und dem QR-Code dieser Sitzung; läuft die Präsentation schon, geht es an der laufenden Stelle weiter. „Sitzungscode zeigen“ (Taste C) blendet die Codefolie jederzeit wieder ein. Weiter mit →, Leertaste, Bildtaste (Presenter) oder Tippen; Schüler:innen können nicht selbst blättern. Selbst öffnen können sie die Präsentation erst " + PRESENTATION_AFTER_END_MIN + " Minuten nach dem Ende der Sitzung – bei markierter letzter Folie nur bis dorthin." }),
       h("details", { class: "box" }, h("summary", null, "Andere Präsentation hochladen"), zone));
   }
@@ -474,7 +511,8 @@ export async function sessionPage(id) {
       } catch (err) { if (w) w.close(); errToast(err); }
     }, "Öffne …");
   }
-  async function uploadPres(file, moreSheetCodes = []) {   // moreSheetCodes: Feibeitsblätter der Sitzung, aus der eine Sitzungsdatei stammt
+  // moreSheetCodes: Feibeitsblätter der Sitzung, aus der eine Sitzungsdatei stammt; notes: Notizen aus der Sitzungsdatei (sonst aus der PDF)
+  async function uploadPres(file, moreSheetCodes = [], notes) {
     if (!file) return;
     if (!/\.pdf$/i.test(file.name) && file.type !== "application/pdf") { toast("Bitte eine PDF-Datei wählen.", "err"); return; }
     pendingPdf = file;
@@ -483,11 +521,13 @@ export async function sessionPage(id) {
     presCard.append(label, h("div", { class: "progress" }, bar));
     try {
       const r = await upload("/api/teacher/lessons/" + id + "/presentation?name=" + encodeURIComponent(file.name), file, T.token, (p) => { bar.style.width = Math.round(p * 30) + "%"; }, "application/pdf");
-      st.files = st.files.filter((f) => f.area !== "presentation"); st.files.push(r.file); st.slides = null;
+      const oldPres = st.files.filter((f) => f.area === "presentation").map((f) => f.id);   // samt ihrer Anmerkungs-PDF ersetzt (Server)
+      st.files = st.files.filter((f) => f.area !== "presentation" && !oldPres.includes(f.notesOf)); st.files.push(r.file); st.slides = null; paintFiles();
       const { rasterizeAndUpload } = await import("./presenter.js");
       const out = await rasterizeAndUpload(pendingPdf, r.file.id, T.token, (i, n) => { label.textContent = "Erzeuge Folie " + i + " von " + n + " …"; bar.style.width = (30 + Math.round((i / n) * 70)) + "%"; },
-        { code: L().code, exclude: [...st.sheets.map((s) => s.code), ...moreSheetCodes] });
+        { code: L().code, exclude: [...st.sheets.map((s) => s.code), ...moreSheetCodes], notes });
       Object.assign(r.file, out.file);
+      if (out.annotated && out.annotated.file) swapAnnotated(r.file.id, out.annotated.file, out.annotated.removed || []);
       const sw = out.swapped;   // stiller Rückfall: ältere Präsentation mit dem Code einer früheren Sitzung auf den Folien
       const folien = (l) => (l.length === 1 ? "Folie " + l[0] : "den Folien " + l.slice(0, -1).join(", ") + " und " + l[l.length - 1]);
       const holders = (out.codeSlides || []).map((c) => c.n);
@@ -495,7 +535,12 @@ export async function sessionPage(id) {
         (sw ? (sw.slides.length ? " Den Sitzungscode " + formatCode(sw.from) + " einer früheren Sitzung hat Unterricks auf " +
           (sw.slides.length === 1 ? "Folie " + sw.slides[0] : sw.slides.length + " Folien") + " durch den Code dieser Sitzung " + formatCode(sw.to) + " ersetzt." : "") +
           (sw.missed.length ? " Auf " + folien(sw.missed) + " steht noch der alte Sitzungscode " + formatCode(sw.from) + " – dort ließ er sich nicht sicher ersetzen; bitte die Folie ändern oder den Code dieser Sitzung (" + formatCode(sw.to) + ") ansagen." : "") : "");
-      toast("Präsentation bereit (" + out.pages + " Folien)." + note, sw && sw.missed.length ? "err" : "ok", note ? (sw && sw.missed.length ? 20000 : 12000) : undefined);
+      // Notizen (Nachtrag 20): „Notizen zu n Folien übernommen“ – bzw. nichts; Probleme ruhig dazu (die Präsentation bleibt nutzbar)
+      const nn0 = out.notes ? " Notizen zu " + out.notes + (out.notes === 1 ? " Folie" : " Folien") + " übernommen." : "";
+      const extra = (out.annotated && out.annotated.error ? " Die Anmerkungs-PDF ließ sich nicht erstellen (" + out.annotated.error + ") – speichern Sie die Notizen in der Präsentationskarte erneut." : "") +
+        (out.clean && !out.clean.ok ? " Die Fassung ohne Notizen für Schüler:innen ließ sich nicht erzeugen (" + out.clean.error + ") – siehe Hinweis in der Präsentationskarte." : "");
+      const bad = (sw && sw.missed.length) || !!extra;
+      toast("Präsentation bereit (" + out.pages + " Folien)." + nn0 + note + extra, bad ? "err" : "ok", note || nn0 || extra ? (bad ? 20000 : 12000) : undefined);
     } catch (e) { errToast(e); }
     pendingPdf = null; paintPres();
   }
@@ -1091,7 +1136,7 @@ export async function sessionPage(id) {
     } catch {}
   };
   document.addEventListener("visibilitychange", onVis);
-  const beforeUnload = (e) => { if (portal.dirty) { flushPortal(); e.preventDefault(); e.returnValue = ""; } };
+  const beforeUnload = (e) => { if (portal.dirty) { flushPortal(); e.preventDefault(); e.returnValue = ""; } else if (notesDirtyNow()) { e.preventDefault(); e.returnValue = ""; } };
   window.addEventListener("beforeunload", beforeUnload);
   onLeave(() => { document.removeEventListener("visibilitychange", onVis); window.removeEventListener("beforeunload", beforeUnload); if (portal.dirty) flushPortal(); clearTimeout(metaT);
     if (hwT) { clearTimeout(hwT); saveHw(); } document.querySelectorAll(".ctxmenu").forEach((m) => m.remove()); });

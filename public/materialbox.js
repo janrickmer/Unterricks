@@ -90,10 +90,11 @@ export function materialBox({ lessonId: id, st, L, gs = false, labels = {}, excl
       acts.append(h("button", { class: "btn small", type: "button", onclick: (e) => busy(e.currentTarget, async () => { try { const r = await tapi("POST", "/api/teacher/files/" + f.id + "/link", { body: {} }); downloadUrl(r.url, f.name); } catch (err) { errToast(err); } }) }, "Herunterladen"));
     }
     acts.append(...nn(
-      h("button", { class: "btn small", type: "button", title: "In den anderen Bereich verschieben", onclick: async () => {
+      // Anmerkungs-PDF der Präsentation (Nachtrag 20): bleibt nur für die Lehrkraft und heißt fest so (entsteht aus den Notizen neu)
+      f.notesOf ? null : h("button", { class: "btn small", type: "button", title: "In den anderen Bereich verschieben", onclick: async () => {
         try { const r = await tapi("PATCH", "/api/teacher/files/" + f.id, { body: { area: other } }); Object.assign(f, r.file); if (!r.file.print) delete f.print; paintFiles(); if (gs) paintPrint(); changed(); toast(other === "student" ? lb.nowStudent : lb.nowTeacher, "ok"); } catch (e) { errToast(e); }
       } }, icon("right"), other === "student" ? lb.toStudent : lb.toTeacher),
-      f.kind === "link" ? null : h("button", { class: "btn small ghost", type: "button", "aria-label": "Umbenennen", onclick: async () => {
+      f.kind === "link" || f.notesOf ? null : h("button", { class: "btn small ghost", type: "button", "aria-label": "Umbenennen", onclick: async () => {
         const n = prompt("Neuer Name:", f.name); if (!n) return;
         try { const r = await tapi("PATCH", "/api/teacher/files/" + f.id, { body: { name: n } }); Object.assign(f, r.file); paintFiles(); if (gs) paintPrint(); changed(); } catch (e) { errToast(e); }
       } }, icon("edit")),
@@ -101,7 +102,7 @@ export function materialBox({ lessonId: id, st, L, gs = false, labels = {}, excl
         if (!(await confirmDialog("Datei löschen", "„" + f.name + "“ endgültig löschen?", "Löschen", true))) return;
         try { await tapi("DELETE", "/api/teacher/files/" + f.id); st.files = st.files.filter((x) => x !== f); paintFiles(); if (gs) paintPrint(); changed(); } catch (e) { errToast(e); }
       } }, icon("trash"))));
-    const src = (f.source === "claude" ? " · von Claude" : f.source === "chat" ? " · aus dem Chat" : f.source === "vertretung" ? " · Vertretung" : f.source === "uebernommen" ? " · übernommen" : f.source === "notfall" ? " · Notfall-Feibeitsblatt (automatisch aus dem Feibeitsblatt " + formatCode(f.fbCode || "") + ")" : "") + " · " + fmtTime(f.createdAt);
+    const src = (f.source === "claude" ? " · von Claude" : f.source === "chat" ? " · aus dem Chat" : f.source === "vertretung" ? " · Vertretung" : f.source === "uebernommen" ? " · übernommen" : f.source === "notfall" ? " · Notfall-Feibeitsblatt (automatisch aus dem Feibeitsblatt " + formatCode(f.fbCode || "") + ")" : f.notesOf ? " · automatisch aus den Notizen der Präsentation – jede Folie mit ihrer Anmerkungsfolie, nur für Sie" : "") + " · " + fmtTime(f.createdAt);
     const row = h("div", { class: "item" + (des && des.error ? " design-err" : "") }, fileIcon(f.name, f.mime, f.kind), h("div", { class: "main" }, h("div", { class: "name", text: f.name }),
       des ? h("div", { class: "meta" }, des.meta, (des.d.ok ? " · " + fmtBytes(f.size) : "") + (f.source === "vertretung" ? " · Vertretung" : f.source === "uebernommen" ? " · übernommen" : "") + " · " + fmtTime(f.createdAt))
         : h("div", { class: "meta", text: (f.kind === "link" ? "Link: " + webUrlLabel(f.url) : f.kind === "text" ? "Text (PDF-Download)" : fmtBytes(f.size)) + src }),

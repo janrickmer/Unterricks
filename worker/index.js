@@ -138,6 +138,11 @@ const ROUTES = [
   ["PUT", "/api/teacher/files/" + ID + "/slides/(\\d{1,3})", F.routeSlideUpload],
   ["POST", "/api/teacher/files/" + ID + "/ready", F.routePresentationReady],
   ["GET", "/api/teacher/files/" + ID + "/slides", F.routeTeacherSlides],
+  // Notizen der Lehrkraft zu den Folien (Nachtrag 20): Fassung ohne Notizen für Schüler:innen, Notizen, Anmerkungs-PDF – nur angemeldet
+  ["PUT", "/api/teacher/files/" + ID + "/clean", F.routeCleanPut],
+  ["GET", "/api/teacher/files/" + ID + "/notes", F.routeNotesGet],
+  ["PUT", "/api/teacher/files/" + ID + "/notes", F.routeNotesPut],
+  ["PUT", "/api/teacher/files/" + ID + "/annotated", F.routeAnnotatedPut],
   // Bildkarten (Grundschule)
   ["POST", "/api/teacher/lessons/" + ID + "/cards", CA.routeCardsUpload],
   ["POST", "/api/teacher/files/" + ID + "/cards/ready", CA.routeCardsReady],

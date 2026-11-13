@@ -1,6 +1,6 @@
 // lessons.js – Unterrichtssitzungen (Lehrkraft): anlegen, planen (Chat), Schulportal-Eintrag, Feibeitsblatt-Entwürfe und -Verknüpfungen.
 import { HttpError, bad, json, readJson, randomId, generateCode, cleanText, cleanLine, isId, isDate, isObj } from "./lib.js";
-import { cleanWebUrl, cleanCopies, cleanCodeSlides } from "../public/shared.js";
+import { cleanWebUrl, cleanCopies, cleanCodeSlides, cleanSlideNotes, NOTES_LIMITS } from "../public/shared.js";
 import { requireTeacher } from "./auth.js";
 import { callTask, PROVIDERS } from "./ai.js";
 import { getUnit, unitOut } from "./units.js";
@@ -29,7 +29,17 @@ export const codeSlidesOf = (f) => { try { return cleanCodeSlides(JSON.parse(f.c
 /* Spalten einer Dateiliste ohne Claudes Gestaltung (html bis 1,5 MB je Material – nur '' als Kennzeichen „gestaltet“) */
 export const FILE_COLS = "id, lesson_id, area, kind, name, mime, size, CASE WHEN kind IN ('text','link') THEN text END AS text, pages, status, source, created_at, updated_at, " +
   "fb_code, fb_sig, shown_until, cut_size, code_slides, print_copies, print_duplex, print_color, html_at, pdf_at, render_error, CASE WHEN html IS NULL THEN NULL ELSE '' END AS html, " +
-  "CASE WHEN html IS NOT NULL THEN substr(text, 1, 6000) END AS design_text, cards, card_pages, card_img_at";
+  "CASE WHEN html IS NOT NULL THEN substr(text, 1, 6000) END AS design_text, cards, card_pages, card_img_at, " +
+  // Notizen der Präsentation (Nachtrag 20): nur Zahl und Stand – den Text selbst liefert GET …/notes bzw. …/slides
+  "CASE WHEN json_valid(notes) THEN json_array_length(notes, '$.slides') ELSE 0 END AS notes_n, CASE WHEN json_valid(notes) THEN json_extract(notes, '$.rev') END AS notes_rev, clean_size, notes_of";
+/* Notizen der Lehrkraft zu den Folien (Nachtrag 20): files.notes = {v:1, rev, slides:[{n, items}]} – tolerant gelesen */
+export function notesData(f) {
+  let o = null;
+  try { o = typeof f.notes === "string" ? JSON.parse(f.notes) : f.notes; } catch {}
+  const rev = o && Number.isInteger(o.rev) && o.rev >= 0 ? o.rev : 0;
+  return { rev, slides: cleanSlideNotes(o && o.slides, f.pages || NOTES_LIMITS.slides) };
+}
+const notesInfo = (f) => (f.notes_n !== undefined ? { n: Number(f.notes_n) || 0, rev: Number(f.notes_rev) || 0 } : (() => { const d = notesData(f); return { n: d.slides.length, rev: d.rev }; })());
 /* Bildkarten (Grundschule): files.cards als JSON {v:1, texts, share, rev} – gelesen tolerant (null = keine Bildkarten) */
 export const MAX_CARD_TEXT = 1200;
 export function cardData(f) {
@@ -45,7 +55,10 @@ const cardsOut = (f) => { const d = cardData(f), v = cardVersion(f);
   return { texts: d.texts, share: d.share, rev: d.rev, pages: f.card_pages || 0, current: f.card_img_at != null && f.card_img_at === v && (f.card_pages || 0) > 0, version: v }; };
 export const fileOut = (f, withText = true) => ({
   id: f.id, area: f.area, kind: f.kind, name: f.name, mime: f.mime, size: f.size, pages: f.pages ?? null, status: f.status, source: f.source || null,
-  fbCode: f.fb_code || null, fbSig: f.fb_sig || null, ...(f.area === "presentation" ? { shownUntil: f.shown_until ?? null, cut: !!f.cut_size, codeSlides: codeSlidesOf(f) } : {}),
+  fbCode: f.fb_code || null, fbSig: f.fb_sig || null, ...(f.area === "presentation" ? { shownUntil: f.shown_until ?? null, cut: !!f.cut_size, codeSlides: codeSlidesOf(f),
+    // Notizen (nur Zahl und Stand) und die Fassung ohne Notizen für Schüler:innen (cleanNeeded: die hochgeladene PDF trägt Anhänge/Notizen)
+    ...(() => { const ni = notesInfo(f); return { notes: ni.n, notesRev: ni.rev, cleanNeeded: f.clean_size != null, cleanReady: f.clean_size > 0 }; })() } : {}),
+  ...(f.notes_of ? { notesOf: f.notes_of } : {}),
   ...(f.area === "print" || (f.area === "student" && f.print_copies != null) ? { print: printProps(f), printName: printFileName({ name: f.name, ...printProps(f) }) } : {}),
   createdAt: f.created_at, ...(withText && f.kind === "text" ? { text: f.text || "" } : {}), ...(f.kind === "link" ? { url: f.text || "" } : {}),
   // von Claude gestaltet (HTML → PDF): ob die PDF zur aktuellen Gestaltung passt und die letzte Meldung des Druckers
@@ -69,7 +82,7 @@ export async function lessonCtx(db, lesson) {
   const gs = lesson.subject === GS_SUBJECT;
   const [files, sheets, cs, gc] = await db.batch([
     gs ? db.prepare(GS_CTX_FILES + " WHERE lesson_id=?1 AND area NOT IN ('archive','presentation') ORDER BY created_at").bind(lesson.id)
-      : db.prepare("SELECT name, area, kind, pages, substr(text, 1, 6000) AS text FROM files WHERE lesson_id=?1 AND status='ready' ORDER BY created_at").bind(lesson.id),
+      : db.prepare("SELECT name, area, kind, pages, substr(text, 1, 6000) AS text FROM files WHERE lesson_id=?1 AND status='ready' AND notes_of IS NULL ORDER BY created_at").bind(lesson.id),
     db.prepare("SELECT code, title FROM fb_sheets WHERE lesson_id=?1 ORDER BY created_at").bind(lesson.id),
     courseSettingsStmt(db, lesson.subject, lesson.klass),
     ...(gs ? [gsCourseStmt(db, lesson.klass)] : []),

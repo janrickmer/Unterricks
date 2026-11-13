@@ -3,8 +3,8 @@
 import { HttpError, bad, json, readJson, randomId, cleanLine, cleanText, isId, requireSecret, signLink, checkLink, contentDisposition, INLINE_SAFE } from "./lib.js";
 import { courseClassSize } from "./courses.js";
 import { requireTeacher } from "./auth.js";
-import { getLesson, fileOut, codeSlidesOf, LIMITS, printProps, cardVersion } from "./lessons.js";
-import { normalizeCode, isValidCode, cleanWebUrl, slidesUpTo, printFileName, cleanCopies, isAnalogClass, cleanCodeSlides, GS_SUBJECT } from "../public/shared.js";
+import { getLesson, fileOut, codeSlidesOf, LIMITS, printProps, cardVersion, notesData } from "./lessons.js";
+import { normalizeCode, isValidCode, cleanWebUrl, slidesUpTo, printFileName, cleanCopies, isAnalogClass, cleanCodeSlides, GS_SUBJECT, cleanSlideNotes, annotatedName } from "../public/shared.js";
 import { cleanDesignHtml, renderPdf, htmlText, keepImages, shortImages, HTML_MAX, RenderError, renderUsage, printerConfigured } from "./render.js";
 
 export const MAX_FILE = 100 * 1024 * 1024;         // Grenze einer Anfrage im Cloudflare-Free-Plan
@@ -29,11 +29,12 @@ export function mimeFor(name, given) {
 }
 export const fileKey = (lessonId, fileId) => "l/" + lessonId + "/f/" + fileId;
 export const cutKey = (lessonId, fileId) => fileKey(lessonId, fileId) + "-bis";   // Präsentation gekürzt bis zur letzten gezeigten Folie
+export const cleanKey = (lessonId, fileId) => fileKey(lessonId, fileId) + "-ohne-notizen";   // Präsentation ohne Anhänge/Notizen (für Schüler:innen, Nachtrag 20)
 export const slideKey = (lessonId, fileId, n) => "l/" + lessonId + "/p/" + fileId + "/" + n + ".img";
 
 const storageLimit = (env) => Number(env.STORAGE_LIMIT_BYTES) || 9 * 1024 ** 3;   // unter den 10 GB des kostenlosen R2-Kontingents bleiben
 export async function checkStorage(c, add) {
-  const r = await c.db.prepare("SELECT (SELECT COALESCE(SUM(size),0) + COALESCE(SUM(cut_size),0) FROM files) + (SELECT COALESCE(SUM(size),0) FROM slides) + (SELECT COALESCE(SUM(pdf_size),0) FROM bases) AS used").first();
+  const r = await c.db.prepare("SELECT (SELECT COALESCE(SUM(size),0) + COALESCE(SUM(cut_size),0) + COALESCE(SUM(clean_size),0) FROM files) + (SELECT COALESCE(SUM(size),0) FROM slides) + (SELECT COALESCE(SUM(pdf_size),0) FROM bases) AS used").first();
   const used = Number((r || {}).used) || 0, lim = storageLimit(c.env);
   if (used + add > lim) throw new HttpError(507, "storage_full", "Der Speicher ist voll (" + Math.round(used / 1024 ** 2) + " MB von " + Math.round(lim / 1024 ** 2) +
     " MB belegt). Bitte alte Dateien oder Sitzungen löschen – so bleibt die Ablage im kostenlosen Kontingent.");
@@ -54,7 +55,12 @@ export async function deleteFileObjects(c, f) {
   const keys = [];
   if (f.kind === "file") keys.push(fileKey(f.lesson_id, f.id));
   if (f.area === "presentation" || f.cards != null) {   // Folienbilder bzw. Kartenbilder (Bildkarten der Grundschule)
-    if (f.area === "presentation") keys.push(cutKey(f.lesson_id, f.id));
+    if (f.area === "presentation") {
+      keys.push(cutKey(f.lesson_id, f.id), cleanKey(f.lesson_id, f.id));
+      // die Anmerkungs-PDF (nur Lehrkraft) gehört zur Präsentation und geht mit ihr
+      const an = await c.db.prepare("SELECT * FROM files WHERE lesson_id=?1 AND notes_of=?2").bind(f.lesson_id, f.id).all();
+      for (const x of an.results || []) await deleteFileObjects(c, x);
+    }
     const s = await c.db.prepare("SELECT n FROM slides WHERE file_id=?1").bind(f.id).all();
     for (const x of s.results || []) keys.push(slideKey(f.lesson_id, f.id, x.n));
   }
@@ -342,6 +348,8 @@ export async function routeFilePatch(c, fileId) {
   const f = await getFile(c.db, fileId);
   const body = await readJson(c.request, 3_200_000);
   const sets = [], args = [];
+  // Anmerkungs-PDF (Nachtrag 20): bleibt „nur für die Lehrkraft“ – nie für Schüler:innen, keine Gestaltung
+  if (f.notes_of && (body.area !== undefined || body.html !== undefined)) throw bad("Die Präsentation mit Anmerkungen ist nur für die Lehrkraft – sie lässt sich nicht verschieben oder umgestalten.");
   if (body.area !== undefined) {
     if (f.area === "presentation" || f.area === "print" || f.cards != null || !AREAS.has(body.area)) throw bad("Ungültiger Bereich.");
     args.push(body.area); sets.push("area=?" + (args.length + 1));
@@ -438,14 +446,91 @@ export async function routeSlideUpload(c, fileId, nRaw) {
 export async function routePresentationReady(c, fileId) {
   await requireTeacher(c);
   const f = await getFile(c.db, fileId);
-  const body = await readJson(c.request, 64000);   // samt Platzhalterfolien (≤ 60 × 3 Zeilen × 160 Zeichen)
+  const body = await readJson(c.request, 1_500_000);   // samt Platzhalterfolien (≤ 60 × 3 Zeilen × 160 Zeichen) und Notizen (≤ 200 000 Zeichen)
   const pages = Number(body.pages);
   if (f.area !== "presentation" || !Number.isInteger(pages) || pages < 1 || pages > MAX_SLIDES) throw bad("Ungültige Folienzahl.");
   const r = await c.db.prepare("SELECT COUNT(*) AS n FROM slides WHERE file_id=?1 AND n BETWEEN 1 AND ?2").bind(f.id, pages).first();
   if (((r || {}).n || 0) !== pages) throw bad("Es fehlen noch Folienbilder (" + ((r || {}).n || 0) + " von " + pages + "). Bitte erneut hochladen.");
   const cs = cleanCodeSlides(body.codeSlides, pages);   // Platzhalterfolien für die Codefolie (erkannt im Browser)
-  await c.db.prepare("UPDATE files SET pages=?2, status='ready', code_slides=?4, updated_at=?3 WHERE id=?1").bind(f.id, pages, c.now, cs.length ? JSON.stringify(cs) : null).run();
+  // Notizen der Lehrkraft (Nachtrag 20): aus dem Anhang der PDF bzw. der Sitzungsdatei, geprüft wie jede Änderung; clean = die PDF trägt Anhänge
+  // bzw. Notiz-Anmerkungen – Schüler:innen bekommen dann nur die bereinigte Fassung (fehlt sie, clean_size 0: vorerst gar keine PDF); einmal gesetzt,
+  // bleibt das bestehen (ein erneutes …/ready ohne clean hebt es nie auf)
+  const notes = body.notes === undefined ? null : cleanSlideNotes(body.notes, pages);
+  const prev = notesData(f);
+  const notesJson = notes === null ? f.notes ?? null : notes.length || prev.rev ? JSON.stringify({ v: 1, rev: prev.rev + 1, slides: notes }) : null;
+  await c.db.prepare("UPDATE files SET pages=?2, status='ready', code_slides=?4, notes=?5, clean_size=CASE WHEN ?6 THEN COALESCE(clean_size, 0) ELSE clean_size END, updated_at=?3 WHERE id=?1")
+    .bind(f.id, pages, c.now, cs.length ? JSON.stringify(cs) : null, notesJson, body.clean === true ? 1 : 0).run();
   return json({ ok: true, file: fileOut(await getFile(c.db, f.id)) });
+}
+/* Fassung der Präsentation ohne Anhänge und Notiz-Anmerkungen (Nachtrag 20): erzeugt der Browser der Lehrkraft mit pdf-lib (public/pdfcut.js) –
+   Schüler:innen bekommen nach der Freigabe nur sie, nie die hochgeladene PDF mit den Notizen */
+export async function routeCleanPut(c, fileId) {
+  await requireTeacher(c);
+  const f = await getFile(c.db, fileId);
+  if (f.area !== "presentation") throw bad("Keine Präsentation.");
+  if (String(c.request.headers.get("content-type") || "").split(";")[0].trim().toLowerCase() !== "application/pdf") throw bad("Die bereinigte Präsentation muss eine PDF-Datei sein.");
+  const len = uploadLength(c, MAX_FILE);
+  await checkStorage(c, Math.max(0, len - (f.clean_size || 0)));
+  await c.env.FILES.put(cleanKey(f.lesson_id, f.id), c.request.body, { httpMetadata: { contentType: "application/pdf" } });
+  await c.db.prepare("UPDATE files SET clean_size=?2, updated_at=?3 WHERE id=?1").bind(f.id, len, c.now).run();
+  return json({ ok: true, file: fileOut(await getFile(c.db, f.id)) });
+}
+/* Notizen der Lehrkraft zu den Folien (Nachtrag 20): nur angemeldet. PUT mit rev (Stand, den die Seite kennt) – hat sich der Stand inzwischen
+   geändert, 409 notes_conflict mit dem aktuellen Stand (nie still überschreiben). Leere Notizen löschen die Anmerkungs-PDF. */
+async function presentationFile(c, fileId) {
+  await requireTeacher(c);
+  const f = await getFile(c.db, fileId);
+  if (f.area !== "presentation" || f.status !== "ready") throw bad("Die Präsentation ist noch nicht bereit.");
+  return f;
+}
+const notesOut = (f) => { const d = notesData(f); return { notes: d.slides, rev: d.rev, pages: f.pages, codeSlides: codeSlidesOf(f) }; };
+export async function routeNotesGet(c, fileId) {
+  return json({ ok: true, ...notesOut(await presentationFile(c, fileId)) });
+}
+export async function deleteAnnotated(c, f, exceptId = "") {
+  const r = exceptId
+    ? await c.db.prepare("SELECT * FROM files WHERE lesson_id=?1 AND notes_of=?2 AND id<>?3 AND rowid < (SELECT rowid FROM files WHERE id=?3)").bind(f.lesson_id, f.id, exceptId).all()
+    : await c.db.prepare("SELECT * FROM files WHERE lesson_id=?1 AND notes_of=?2").bind(f.lesson_id, f.id).all();
+  for (const x of r.results || []) await deleteFileObjects(c, x);
+  return (r.results || []).map((x) => x.id);
+}
+export async function routeNotesPut(c, fileId) {
+  const f = await presentationFile(c, fileId);
+  const body = await readJson(c.request, 1_500_000);
+  const base = Number(body.rev), cur = notesData(f);
+  if (!Number.isInteger(base) || base < 0) throw bad("Der Stand der Notizen fehlt.");
+  const notes = cleanSlideNotes(body.notes, f.pages);
+  const rev = cur.rev + 1, j = JSON.stringify({ v: 1, rev, slides: notes });
+  // bedingt: nur, wenn noch genau der Stand gilt, den die Seite kennt (zwei Tabs, Sitzungsdatei)
+  const r = await c.db.prepare("UPDATE files SET notes=?2, updated_at=?3 WHERE id=?1 AND (CASE WHEN json_valid(notes) THEN COALESCE(json_extract(notes, '$.rev'), 0) ELSE 0 END)=?4")
+    .bind(f.id, j, c.now, base).run();
+  if (!(r.meta && r.meta.changes)) {
+    const now = notesData(await getFile(c.db, f.id));
+    throw new HttpError(409, "notes_conflict", "Die Notizen wurden inzwischen an anderer Stelle geändert.", { current: { notes: now.slides, rev: now.rev } });
+  }
+  const removed = notes.length ? [] : await deleteAnnotated(c, f);
+  return json({ ok: true, notes, rev, removed, file: fileOut(await getFile(c.db, f.id)) });
+}
+/* Anmerkungs-PDF (Nachtrag 20): jede Folie, dahinter ihre Anmerkungsfolie – erzeugt im Browser der Lehrkraft (public/pdfnotes.js), abgelegt unter
+   „Material nur für die Lehrkraft“ (area teacher, notes_of = Präsentation); ersetzt die vorige Fassung. ?rev = Stand der Notizen, aus dem sie
+   entstand – ist er nicht mehr aktuell, 409 stale (eine neuere Fassung ist unterwegs). */
+export async function routeAnnotatedPut(c, fileId) {
+  const f = await presentationFile(c, fileId);
+  const rev = Number(new URL(c.request.url).searchParams.get("rev")), cur = notesData(f);
+  if (!Number.isInteger(rev) || rev !== cur.rev) throw new HttpError(409, "stale", "Die Notizen wurden inzwischen geändert – die Anmerkungs-PDF wird neu erstellt.");
+  if (!cur.slides.length) throw bad("Zu dieser Präsentation gibt es keine Notizen.");
+  if (String(c.request.headers.get("content-type") || "").split(";")[0].trim().toLowerCase() !== "application/pdf") throw bad("Die Anmerkungs-PDF muss eine PDF-Datei sein.");
+  const len = uploadLength(c, MAX_FILE);
+  await checkStorage(c, len);
+  const id = randomId(8), name = cleanLine(annotatedName(f.name), 200);
+  await c.env.FILES.put(fileKey(f.lesson_id, id), c.request.body, { httpMetadata: { contentType: "application/pdf" } });
+  await c.db.prepare("INSERT INTO files(id, lesson_id, area, kind, name, mime, size, status, source, notes_of, created_at, updated_at) VALUES(?1, ?2, 'teacher', 'file', ?3, 'application/pdf', ?4, 'ready', 'anmerkungen', ?5, ?6, ?6)")
+    .bind(id, f.lesson_id, name, len, f.id, c.now).run();
+  // inzwischen gelöscht bzw. ersetzt? Dann gehört die Anmerkungs-PDF zu nichts mehr; sonst die älteren Fassungen entfernen (die neueste bleibt)
+  const still = await c.db.prepare("SELECT id FROM files WHERE id=?1 AND area='presentation'").bind(f.id).first();
+  if (!still) { await deleteFileObjects(c, await getFile(c.db, id)); throw new HttpError(404, "not_found", "Die Präsentation wurde inzwischen gelöscht."); }
+  const removed = await deleteAnnotated(c, f, id);
+  return json({ ok: true, file: fileOut(await getFile(c.db, id)), removed });
 }
 /* Letzte im Unterricht gezeigte Folie: Schüler:innen bekommen nach der Freigabe nur Folie 1 bis hier. Die gekürzte PDF erzeugt der Browser
    der Lehrkraft (pdf-lib, public/pdfcut.js) und lädt sie hier hoch (?until=N); DELETE hebt die Markierung auf. */
@@ -455,6 +540,8 @@ export async function routeShownPut(c, fileId) {
   if (f.area !== "presentation" || f.status !== "ready") throw bad("Die Präsentation ist noch nicht bereit.");
   if (!Number.isInteger(n) || n < 1 || n >= f.pages) throw bad("Bitte eine Folie zwischen 1 und " + Math.max(1, f.pages - 1) + " wählen (bei der letzten Folie sehen Schüler:innen ohnehin alles).");
   if (String(c.request.headers.get("content-type") || "").split(";")[0].trim().toLowerCase() !== "application/pdf") throw bad("Die gekürzte Präsentation muss eine PDF-Datei sein.");
+  // trägt die Präsentation Notizen bzw. Anhänge (Nachtrag 20), muss die gekürzte Fassung bereinigt sein – eine ältere, noch offene Seite kürzte ohne
+  if (f.clean_size != null && new URL(c.request.url).searchParams.get("clean") !== "1") throw new HttpError(409, "reload", "Bitte laden Sie die Seite neu und markieren Sie die Folie noch einmal.");
   const len = uploadLength(c, MAX_FILE);
   await checkStorage(c, Math.max(0, len - (f.cut_size || 0)));
   await c.env.FILES.put(cutKey(f.lesson_id, f.id), c.request.body, { httpMetadata: { contentType: "application/pdf" } });
@@ -473,9 +560,10 @@ export async function routeTeacherSlides(c, fileId) {
   await requireTeacher(c);
   const f = await getFile(c.db, fileId);
   if (f.area !== "presentation" || f.status !== "ready") throw bad("Die Präsentation ist noch nicht bereit.");
-  const secret = requireSecret(c.env), urls = [];
+  const secret = requireSecret(c.env), urls = [], nd = notesData(f);
   for (let n = 1; n <= f.pages; n++) urls.push(await slideUrl(secret, f.id, n, 12 * 3600e3, c.now));
-  return json({ ok: true, pages: f.pages, urls, codeSlides: codeSlidesOf(f) });
+  // Notizen (Nachtrag 20): nur hier und in …/notes – beide nur für die angemeldete Lehrkraft
+  return json({ ok: true, pages: f.pages, urls, codeSlides: codeSlidesOf(f), notes: nd.slides, notesRev: nd.rev });
 }
 export async function slideUrl(secret, fileId, n, ttl, now = Date.now()) {
   const { e, s } = await signLink(secret, ["slide", fileId, n], ttl, now);
@@ -492,10 +580,11 @@ export async function studentSlideUrl(secret, fileId, n, exp, now = Date.now()) 
 }
 // so weit dürfen Schüler:innen nach der Freigabe (bei markierter letzter gezeigter Folie nur bis dorthin – wie die heruntergeladene PDF)
 export const studentSlideLimit = (f) => (f.shown_until && f.shown_until < f.pages ? f.shown_until : f.pages);
-export async function downloadUrl(secret, f, inline, ttl = 10 * 60e3, now = Date.now(), cut = false) {
-  const disp = inline && INLINE_SAFE.test(f.mime) ? "i" : "a";
-  const { e, s } = await signLink(secret, cut ? ["dl", f.id, disp, "cut"] : ["dl", f.id, disp], ttl, now);
-  return "/api/dl/" + f.id + "?d=" + disp + (cut ? "&p=cut" : "") + "&e=" + e + "&s=" + encodeURIComponent(s);
+// variant: "" = die Datei selbst, "cut" (bzw. true) = gekürzte Präsentation, "clean" = Präsentation ohne Notizen/Anhänge (Nachtrag 20)
+export async function downloadUrl(secret, f, inline, ttl = 10 * 60e3, now = Date.now(), variant = "") {
+  const disp = inline && INLINE_SAFE.test(f.mime) ? "i" : "a", p = variant === true ? "cut" : variant === "cut" || variant === "clean" ? variant : "";
+  const { e, s } = await signLink(secret, p ? ["dl", f.id, disp, p] : ["dl", f.id, disp], ttl, now);
+  return "/api/dl/" + f.id + "?d=" + disp + (p ? "&p=" + p : "") + "&e=" + e + "&s=" + encodeURIComponent(s);
 }
 // Name der gekürzten Präsentation: „BVerfG (Folie 1–12).pdf“
 export const cutName = (f) => String(f.name || "Präsentation.pdf").replace(/\.pdf$/i, "") + " (" + slidesUpTo(f.shown_until) + ").pdf";
@@ -509,12 +598,13 @@ export async function routeTeacherFileLink(c, fileId) {
 
 /* ---------- Ausliefern (signierte Links, ohne Anmeldung im Kopf der Anfrage) ---------- */
 export async function routeDownload(c, fileId) {
-  const u = new URL(c.request.url), d = u.searchParams.get("d") === "i" ? "i" : "a", cut = u.searchParams.get("p") === "cut";
-  if (!(await checkLink(requireSecret(c.env), cut ? ["dl", fileId, d, "cut"] : ["dl", fileId, d], u.searchParams.get("e"), u.searchParams.get("s"), c.now)))
+  const u = new URL(c.request.url), d = u.searchParams.get("d") === "i" ? "i" : "a", pv = u.searchParams.get("p"), cut = pv === "cut", clean = pv === "clean";
+  if (!(await checkLink(requireSecret(c.env), cut || clean ? ["dl", fileId, d, pv] : ["dl", fileId, d], u.searchParams.get("e"), u.searchParams.get("s"), c.now)))
     throw new HttpError(403, "link_expired", "Der Link ist abgelaufen. Bitte noch einmal auf „Herunterladen“ tippen.");
   const f = await getFile(c.db, fileId);
   if (cut && !(f.area === "presentation" && f.shown_until && f.cut_size)) throw new HttpError(404, "not_found", "Die gekürzte Präsentation gibt es nicht (mehr).");
-  const obj = await c.env.FILES.get(cut ? cutKey(f.lesson_id, f.id) : fileKey(f.lesson_id, f.id));
+  if (clean && !(f.area === "presentation" && f.clean_size > 0)) throw new HttpError(404, "not_found", "Diese Fassung der Präsentation gibt es nicht (mehr).");
+  const obj = await c.env.FILES.get(cut ? cutKey(f.lesson_id, f.id) : clean ? cleanKey(f.lesson_id, f.id) : fileKey(f.lesson_id, f.id));
   if (!obj) throw new HttpError(404, "not_found", "Die Datei fehlt im Speicher.");
   const inline = d === "i" && INLINE_SAFE.test(f.mime);
   return new Response(obj.body, { headers: {

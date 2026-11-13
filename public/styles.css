@@ -412,6 +412,23 @@ main.narrow .homework { background: var(--gelb-t); border-color: color-mix(in sr
 .shownbox label { font-weight: 700; font-size: .95rem; }
 .shownbox select { width: auto; max-width: 100%; min-width: 0; flex: 0 1 auto; }
 .presrel { margin: .3rem 0 .6rem; }
+/* Notizen der Lehrkraft zu den Folien (Nachtrag 20): je Folie Vorschaubild und Textfeld (ein Stichpunkt je Zeile) */
+.notesbox { margin: .5rem 0 .9rem; padding: .8rem .95rem .9rem; border-radius: var(--radius); background: var(--surface-2); display: grid; gap: .45rem; }
+.notesbox h3 { margin: 0; font-size: 1.02rem; }
+.notesbox > p { margin: 0; }
+.notesbox .notes-status:empty { display: none; }
+.notes-ed[hidden] { display: none; }
+.notes-ed { display: grid; gap: .6rem; }
+.notes-ed .hint { margin: 0; }
+.notes-list { list-style: none; margin: 0; padding: 0; display: grid; gap: .55rem; max-height: 34rem; overflow-y: auto; }
+.notes-row { display: grid; grid-template-columns: 8.5rem minmax(0, 1fr); gap: .7rem; align-items: start; padding: .5rem; border-radius: 12px; background: var(--surface); border: 1px solid var(--line); }
+.notes-thumb { width: 100%; aspect-ratio: 16 / 9; object-fit: contain; border-radius: 8px; border: 1px solid var(--line); background: #fff; display: block; }
+.notes-thumb.none { display: grid; place-items: center; color: var(--muted); font-weight: 800; background: var(--surface-2); }
+.notes-field { display: grid; gap: .25rem; min-width: 0; }
+.notes-field label { font-weight: 700; font-size: .92rem; }
+.notes-field textarea { min-height: 4.4rem; font-size: .95rem; }
+.notes-acts { flex-wrap: wrap; }
+@media (max-width: 560px) { .notes-row { grid-template-columns: minmax(0, 1fr); } .notes-thumb { max-width: 12rem; } }
 .presenter .markstate { color: #e8edf6; }
 
 /* ---------- Live-Fenster der Schüler:innen: die Projektionsfläche ---------- */
@@ -490,6 +507,21 @@ main.narrow .homework { background: var(--gelb-t); border-color: color-mix(in sr
 .presenter .np-frame { position: relative; aspect-ratio: var(--ar); display: grid; grid-template: minmax(0, 1fr) / minmax(0, 1fr); place-items: center; overflow: hidden; background: #000; border-radius: 6px; box-shadow: 0 0 0 1px rgba(255, 255, 255, .14); }
 .presenter .np-frame.end { background: #141c2e; }
 .presenter .np-end { color: #9fb0cc; font-weight: 700; font-size: clamp(.95rem, 1.6vw, 1.3rem); text-align: center; padding: 1rem; }
+/* Notizen der Lehrkraft unter der aktuellen Folie (Nachtrag 20): nur mit Vorschau und getrennt laufendem Beamerbild (.with-notes) – sonst bleibt
+   alles wie bisher. Die Folie bleibt groß (gut ein Drittel der Spalte für die Notizen, darin rollbar), der Rahmen springt nicht von Folie zu Folie. */
+.presenter .curcol { display: grid; grid-template-rows: minmax(0, 1fr); min-width: 0; min-height: 0; }
+.presenter .notespane { display: none; }
+.presenter.with-notes .curcol { --ngap: clamp(.5rem, 1.2vw, 1rem); container-type: size; grid-template-rows: minmax(0, 1fr) minmax(0, 34%); gap: var(--ngap); }
+.presenter.with-notes .stagecell { place-items: end center; }
+/* so breit wie die Folie darüber (Höhe der Folienzelle = 66 % der Spalte abzüglich Abstand) */
+.presenter.with-notes .notespane { display: block; justify-self: center; width: min(100%, calc((66cqh - var(--ngap)) * var(--ar))); min-height: 0; overflow: auto; overscroll-behavior: contain;
+  padding: .65rem 1rem .8rem; background: #141c2e; color: #f1f4fa; border-radius: 8px; box-shadow: 0 0 0 1px rgba(255, 255, 255, .14); }
+.presenter .notespane:focus-visible { outline: 3px solid #fff; outline-offset: 2px; }
+.presenter .pn-head { margin: 0 0 .35rem; color: #9fb0cc; font-size: clamp(.8rem, 1.1vw, 1rem); font-weight: 800; letter-spacing: .06em; text-transform: uppercase; }
+.presenter .pn-list { margin: 0; padding-left: 1.25em; display: grid; gap: .3em; font-size: clamp(1rem, 1.55vw, 1.4rem); line-height: 1.35; }
+.presenter .pn-list li::marker { color: #f0a050; }
+.presenter .pn-none { margin: 0; color: #9fb0cc; font-size: clamp(.95rem, 1.4vw, 1.2rem); }
+.presenter .notehint { color: #e8edf6; }
 @media (max-aspect-ratio: 1 / 1) {   /* hochkant (z. B. iPad): die nächste Folie unter der aktuellen */
   .presenter.with-next .pview { grid-template-columns: minmax(0, 1fr); grid-template-rows: minmax(0, 1.7fr) minmax(0, 1fr); }
   .presenter.with-next .stagecell { place-items: end center; } .presenter.with-next .nextpane { place-items: start center; }   /* beide dicht beieinander */
@@ -609,7 +641,7 @@ main.narrow .homework { background: var(--gelb-t); border-color: color-mix(in sr
 /* Präsentationsmodus: Knopf „Timer“ zeigt die Restzeit (tabellarische Ziffern, Breite ruhig), Feld „Timer“ wie „Beamer verbinden“. Bis 1000px
    Breite nur das Symbol (in der Farbe des Timers; Name „Timer“ bzw. „Timer 4:12“ für Screenreader) – sonst bräche die Leiste am iPad hochkant in
    eine dritte Zeile; die Restzeit steht dort ohnehin im Band über der Folie. Leere Statuszeilen der Leiste nehmen keinen Abstand ein. */
-.presenter .bar :is(.beamstate, .devstate, .markstate):empty { margin-left: -.5rem; }
+.presenter .bar :is(.beamstate, .devstate, .markstate, .notehint):empty { margin-left: -.5rem; }
 .presenter .tmbtn .tm-lbl { font-variant-numeric: tabular-nums; }
 @media (max-width: 1000px) { .presenter .tmbtn .tm-lbl { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; } }
 .presenter .tmbtn:is(.tm-run, .tm-last, .tm-over, .tm-paused) .tm-lbl { min-width: 2.6em; text-align: left; }

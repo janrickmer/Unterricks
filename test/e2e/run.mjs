@@ -7,7 +7,8 @@ import { createServer } from "node:http";
 import { tmpdir } from "node:os";
 import { join, extname } from "node:path";
 import { createRequire } from "node:module";
-import { PDFDocument, StandardFonts, rgb } from "pdf-lib";
+import { inflateSync } from "node:zlib";
+import { PDFDocument, StandardFonts, rgb, PDFName, PDFString } from "pdf-lib";
 import { startMockAI, startMockFeibeitsblatt, startMockPrinter } from "./mocks.mjs";
 import { readZip } from "../../public/zip.js";
 import { horizontalIssues, strayTexts } from "./mobile-audit.mjs";
@@ -93,6 +94,37 @@ async function pdf(pages, label, oldCode, holder) {
     if (oldCode && i === 2) p.drawText("Sitzungscode " + oldCode, { x: 60, y: 120, size: 32, font: f, color: rgb(1, 1, 1) });
   }
   return Buffer.from(await d.save());
+}
+
+// Präsentation mit Notizen der Lehrkraft (Nachtrag 20) wie von Claude: Dateianhang unterricks-notizen.json; auf Folie 1 zusätzlich ein Kommentar
+// (Notiz-Anmerkung) und ein Link, der für Schüler:innen bleibt. Frei erfundene Inhalte.
+const NOTE1 = "NOTIZGEHEIM Impuls: Was wäre, wenn eine Person alle Macht hätte?", NOTE3 = "NOTIZGEHEIM Partnerarbeit ankündigen";
+async function notesPdf() {
+  const d = await PDFDocument.create(), f = await d.embedFont(StandardFonts.HelveticaBold), reg = await d.embedFont(StandardFonts.Helvetica);
+  for (let i = 1; i <= 3; i++) {
+    const p = d.addPage([960, 540]); p.drawRectangle({ x: 0, y: 0, width: 960, height: 540, color: rgb(0.12, 0.23, 0.37) });
+    p.drawText(["Wer kontrolliert die Macht?", "Gewaltenteilung im Grundgesetz", "Urteil: Ist das BVerfG zu mächtig?"][i - 1], { x: 60, y: 270, size: 44, font: f, color: rgb(1, 1, 1) });
+    p.drawText("Quelle: example.org", { x: 60, y: 40, size: 14, font: reg, color: rgb(1, 1, 1) });
+  }
+  const notes = { v: 1, folien: [{ folie: 1, notizen: [NOTE1, "Erwartung: Willkür, keine Kontrolle", "Zeit: 5 Minuten"] }, { folie: 3, notizen: [NOTE3] }] };
+  await d.attach(new TextEncoder().encode(JSON.stringify(notes)), "unterricks-notizen.json", { mimeType: "application/json" });
+  const ctx = d.context;
+  const c1 = ctx.register(ctx.obj({ Type: "Annot", Subtype: "Text", Rect: [900, 500, 920, 520], Contents: PDFString.of("NOTIZGEHEIM Kommentar") }));
+  const ln = ctx.register(ctx.obj({ Type: "Annot", Subtype: "Link", Rect: [60, 30, 260, 60], Border: [0, 0, 0], A: { Type: "Action", S: "URI", URI: PDFString.of("https://example.org/") } }));
+  d.getPage(0).node.set(PDFName.of("Annots"), ctx.obj([c1, ln]));
+  return Buffer.from(await d.save());
+}
+// alle Bytes einer PDF samt entpackter Streams (Objekt-Streams, Anhänge) als Text – findet auch komprimierte Notizen
+function pdfAllText(buf) {
+  const b = Buffer.from(buf), parts = [b.toString("latin1")];
+  for (let i = 0; ;) {
+    const s = b.indexOf("stream", i); if (s < 0) break;
+    let a = s + 6; if (b[a] === 13) a++; if (b[a] === 10) a++;
+    const e = b.indexOf("endstream", a); if (e < 0) break;
+    try { parts.push(inflateSync(b.subarray(a, e)).toString("utf8")); } catch {}
+    i = e + 9;
+  }
+  return parts.join("\n");
 }
 
 // Statischer Server wie GitHub Pages (nur Dateien, keine Sicherheits-Header)
@@ -984,6 +1016,168 @@ async function main() {
       await gp.locator(".beamer .bm-msg", { hasText: "Die Präsentation ist beendet." }).waitFor({ timeout: 10000 });
       ok(await qp.locator(".live .tband").isHidden() && await gp.locator(".beamer .tband").isHidden() && await sp.locator(".live .tband").isHidden(), "„Präsentation für alle beenden“: kein Timer mehr");
       await qctx.close(); await gctx.close(); await jctx.close();
+    }
+
+    step("Notizen der Lehrkraft zu den Folien (Nachtrag 20): aus der PDF übernommen, in der Präsentationsansicht nur mit getrenntem Beamerbild, nie bei Schüler:innen, bearbeiten, Anmerkungs-PDF");
+    {
+      const pdfjsNode = await import("pdfjs-dist/legacy/build/pdf.mjs");
+      const pagesText = async (buf) => { const doc = await pdfjsNode.getDocument({ data: new Uint8Array(buf).slice(), isEvalSupported: false, verbosity: 0 }).promise; const out = [];
+        for (let i = 1; i <= doc.numPages; i++) out.push((await (await doc.getPage(i)).getTextContent()).items.map((x) => x.str).join(" ").replace(/\s+/g, " ")); await doc.destroy(); return out; };
+      const fileBytes = async (f) => { const l = await T("POST", "/api/teacher/files/" + f.id + "/link", {}); return Buffer.from(await (await fetch(BASE + l.data.url)).arrayBuffer()); };
+      // eigene Sitzung (letzte Stunde der Einheit), für den Test auf gestern gelegt: die Präsentation ist für Schüler:innen schon freigegeben
+      const nl = (await T("GET", "/api/teacher/lessons/" + byRow(5).id)).data.lesson;
+      ok((await T("PATCH", "/api/teacher/lessons/" + nl.id, { date: berlinAt(Date.now() - 864e5).date, startTime: "08:00" })).status === 200, "Sitzung für den Test: gestern, 8:00 Uhr");
+      const nStore = await tp.evaluate(() => JSON.stringify(localStorage));
+      const copyStore = (s) => { if (!sessionStorage.getItem("x")) { for (const [k, v] of Object.entries(JSON.parse(s))) localStorage.setItem(k, v); sessionStorage.setItem("x", "1"); } };
+      const nctx = await browser.newContext({ viewport: { width: 1440, height: 900 } }); await nctx.addInitScript(copyStore, nStore);
+      const np = await nctx.newPage(); watch(np, "Lehrkraft (Notizen)");
+      await np.goto(BASE + "/#/lk/s/" + nl.id);
+      await np.locator("section.card", { hasText: "Präsentation für den Unterricht" }).locator("input[type=file]").first().setInputFiles({ name: "Notizen-Test.pdf", mimeType: "application/pdf", buffer: await notesPdf() });
+      await np.locator(".toast", { hasText: "Präsentation bereit (3 Folien). Notizen zu 2 Folien übernommen." }).waitFor({ timeout: 40000 });
+      let nfiles = (await T("GET", "/api/teacher/lessons/" + nl.id)).data.files;
+      const npres = nfiles.find((f) => f.area === "presentation"), nann = nfiles.find((f) => f.notesOf);
+      ok(npres.notes === 2 && npres.notesRev === 1 && npres.cleanNeeded === true && npres.cleanReady === true && !JSON.stringify(nfiles).includes("NOTIZGEHEIM"),
+        "Hochladen: „Notizen zu 2 Folien übernommen“ (aus dem Dateianhang), die Dateiliste nennt nur die Zahl; Fassung ohne Notizen für Schüler:innen gespeichert");
+      ok(!!nann && nann.area === "teacher" && nann.name === "Präsentation mit Anmerkungen – Notizen-Test.pdf" && nann.notesOf === npres.id, "Anmerkungs-PDF unter „Material nur für die Lehrkraft“ (fester Name)");
+      let annTxt = await pagesText(await fileBytes(nann));
+      ok(annTxt.length === 6 && annTxt[0].includes("Wer kontrolliert die Macht?") && annTxt[1].includes("Anmerkungen zu Folie 1") && annTxt[1].includes(NOTE1) && annTxt[1].includes("Zeit: 5 Minuten")
+        && annTxt[3].includes("Anmerkungen zu Folie 2") && annTxt[3].includes("Keine Anmerkungen zu dieser Folie.") && annTxt[5].includes(NOTE3),
+        "Anmerkungs-PDF: hinter jeder Folie ihre Anmerkungsfolie (6 Seiten, ohne Notizen „Keine Anmerkungen zu dieser Folie.“)");
+      const annRow = np.locator(".item", { hasText: "Präsentation mit Anmerkungen – Notizen-Test.pdf" });
+      ok(await annRow.count() === 1 && await annRow.getByRole("button", { name: "Für Schüler:innen" }).count() === 0 && await annRow.getByRole("button", { name: "Umbenennen" }).count() === 0
+        && (await T("PATCH", "/api/teacher/files/" + nann.id, { area: "student" })).status === 400, "… nicht zu Schüler:innen verschiebbar (Knopf fehlt, Server lehnt ab)");
+      await annRow.screenshot({ ...SHOT, path: join(OUT, "notizen-anmerkungs-pdf-material.png") });
+      // Präsentationsansicht ohne getrenntes Beamerbild (z. B. einzeln gespiegeltes iPad): keine Notizen, nur ein kurzer Hinweis in der Leiste
+      await np.getByRole("button", { name: "Ich bin im Unterricht und starte die Präsentation für alle." }).click();
+      const npr = np.locator(".presenter");
+      await npr.locator(".stage .codeslide").waitFor({ timeout: 15000 });
+      await np.keyboard.press("ArrowRight");
+      await np.waitForFunction(() => /\/1\?/.test((document.querySelector(".presenter .stage > img") || {}).src || ""), null, { timeout: 10000 });
+      ok(await np.locator(".presenter.with-notes").count() === 0 && await npr.locator(".notespane").isHidden() && !(await npr.textContent()).includes("NOTIZGEHEIM")
+        && (await npr.locator(".notehint").textContent()) === "Notizen erscheinen, sobald ein Beamerfenster oder Beamergerät verbunden ist – Ihre Anmerkungs-PDF finden Sie unter „Material nur für die Lehrkraft“.",
+        "ohne Beamerfenster bzw. Beamergerät: keine Notizen (wie bisher Folie und Vorschau), nur der Hinweis in der Leiste");
+      await np.mouse.move(400, 300);
+      await np.screenshot({ ...SHOT, path: join(OUT, "notizen-praesentation-ohne-beamer.png") });
+      // Beamerfenster verbunden: Notizen unter der aktuellen Folie, das Beamerfenster zeigt nur die Folie
+      const [nbw] = await Promise.all([nctx.waitForEvent("page"), npr.getByRole("button", { name: "Beamerfenster öffnen" }).click()]);
+      watch(nbw, "Beamerfenster (Notizen)");
+      await np.locator(".presenter.with-notes .notespane").waitFor({ timeout: 10000 });
+      await nbw.waitForFunction(() => /\/1\?/.test((document.querySelector(".beamer .bm-stage > img") || {}).src || ""), null, { timeout: 10000 });
+      const notesTxt = () => npr.locator(".notespane").textContent();
+      const geoN = await np.evaluate(() => { const a = document.querySelector(".presenter .stage").getBoundingClientRect(), b = document.querySelector(".presenter .notespane").getBoundingClientRect(); return { below: b.top >= a.bottom - 1, sw: a.width, nw: b.width }; });
+      ok((await notesTxt()).startsWith("Notizen zu Folie 1") && (await notesTxt()).includes(NOTE1) && await npr.locator(".notespane li").count() === 3 && geoN.below && Math.abs(geoN.sw - geoN.nw) < 3
+        && (await npr.locator(".notehint").textContent()) === "", "Beamerfenster verbunden: Notizen zu Folie 1 als Stichpunkte unter der großen aktuellen Folie (so breit wie sie)");
+      ok(!(await nbw.content()).includes("NOTIZGEHEIM") && !(await nbw.content()).includes("Willkür") && await nbw.locator(".notespane").count() === 0, "… das Beamerfenster zeigt nur die Folie, keine Notizen");
+      await np.mouse.move(400, 300);
+      await np.screenshot({ ...SHOT, path: join(OUT, "notizen-praesentation-mit-beamerfenster.png") });
+      await np.emulateMedia({ colorScheme: "dark" }); await sleep(200);
+      await np.screenshot({ ...SHOT, path: join(OUT, "notizen-praesentation-mit-beamerfenster-dunkel.png") });
+      await np.emulateMedia({ colorScheme: "light" });
+      await nbw.screenshot({ ...SHOT, path: join(OUT, "notizen-beamerfenster.png") });
+      await np.keyboard.press("ArrowRight");
+      await np.locator(".presenter .notespane", { hasText: "Notizen zu Folie 2" }).waitFor({ timeout: 10000 });
+      ok((await notesTxt()).includes("Keine Notizen zu dieser Folie."), "Folienwechsel wechselt die Notizen (Folie 2: keine)");
+      await np.keyboard.press("ArrowRight");
+      await np.locator(".presenter .notespane", { hasText: NOTE3 }).waitFor({ timeout: 10000 });
+      ok(true, "… Folie 3: ihre Notizen");
+      // Schülerin (eigenes Gerät) folgt live: nirgends Notizen – weder auf der Seite noch in den Antworten des Servers
+      const nsctx = await browser.newContext({ viewport: { width: 1180, height: 820 } });
+      const nsp = await nsctx.newPage(); watch(nsp, "Schüler:in (Notizen)");
+      const liveBodies = []; nsp.on("response", async (x) => { if (/\/api\/student\//.test(x.url())) try { liveBodies.push(await x.text()); } catch {} });
+      nsp.on("websocket", (ws) => ws.on("framereceived", (f) => liveBodies.push(String(f.payload))));
+      await nsp.goto(BASE + "/"); await nsp.fill("#spw", "Feindt"); await nsp.getByRole("button", { name: "Weiter" }).click();
+      await nsp.getByRole("button", { name: "Politik und Wirtschaft" }).click(); await nsp.getByRole("button", { name: "Q2 GK", exact: true }).click();
+      await nsp.getByRole("button", { name: "Speichern und weiter" }).click();
+      await nsp.fill("#code", nl.code); await nsp.getByRole("button", { name: "Sitzung öffnen" }).click();
+      await nsp.locator(".live .badge", { hasText: "Folie 3 / 3" }).waitFor({ timeout: 15000 });
+      ok(!(await nsp.content()).includes("NOTIZGEHEIM") && !liveBodies.join("\n").includes("NOTIZGEHEIM") && !liveBodies.join("\n").includes("Willkür"), "Schülerin live: Folie 3 ohne Notizen (Seite, Antworten und Live-Nachrichten)");
+      // Beamerfenster zu: Notizen weg; Beamergerät (zweites Gerät, z. B. Schul-iPad an Apple TV) verbunden: Notizen wieder da, das Gerät zeigt keine
+      await nbw.close();
+      await np.waitForFunction(() => !document.querySelector(".presenter.with-notes"), null, { timeout: 10000 });
+      ok(await npr.locator(".notespane").isHidden(), "Beamerfenster geschlossen: keine Notizen mehr");
+      const nbctx = await browser.newContext({ viewport: { width: 1280, height: 720 } });
+      const nbp = await nbctx.newPage(); watch(nbp, "Beamergerät (Notizen)");
+      await nbp.goto(BASE + "/#/beamer");
+      const nbcode = nbp.locator(".beamer .bm-code", { hasText: /^\d{3} \d{3}$/ }); await nbcode.waitFor({ timeout: 10000 });
+      await npr.getByRole("button", { name: "Beamer verbinden" }).click();
+      ok((await npr.locator(".bmc").textContent()).includes("Mit verbundenem Beamer sehen Sie hier unter der aktuellen Folie Ihre Notizen – am Beamer erscheinen sie nie."), "„Beamer verbinden“ sagt, dass die Notizen dann erscheinen");
+      await np.locator("#bmc-in").fill((await nbcode.textContent()).replace(" ", "")); await np.keyboard.press("Enter");
+      await np.locator(".presenter.with-notes .notespane", { hasText: NOTE3 }).waitFor({ timeout: 15000 });
+      await nbp.locator(".beamer .bm-stage .codeslide, .beamer .bm-stage > img").first().waitFor({ timeout: 15000 });
+      ok(!(await nbp.content()).includes("NOTIZGEHEIM"), "Beamergerät verbunden: Notizen bei der Lehrkraft, das Beamergerät zeigt keine");
+      await npr.getByRole("button", { name: "Präsentation für alle beenden" }).click();
+      await nsp.locator(".live .placeholder").waitFor({ timeout: 10000 });
+      await nbctx.close();
+      // Notizen in der Sitzung ansehen und bearbeiten (nur Lehrkraft): speichern → Präsentation und Anmerkungs-PDF aktualisiert
+      const nbox = np.locator(".notesbox");
+      await nbox.getByRole("button", { name: "Notizen ansehen und bearbeiten" }).click();
+      const ta = (n) => np.locator("#nt-" + npres.id + "-" + n);
+      ok((await ta(1).inputValue()) === NOTE1 + "\nErwartung: Willkür, keine Kontrolle\nZeit: 5 Minuten" && (await ta(2).inputValue()) === "" && await nbox.locator("img.notes-thumb").count() === 3,
+        "„Notizen ansehen und bearbeiten“: je Folie Vorschaubild und Textfeld (ein Stichpunkt je Zeile)");
+      await ta(2).fill("NOTIZNEU Rückfrage: Wer kontrolliert das Gericht?\n- Antworten sammeln");
+      await nbox.screenshot({ ...SHOT, path: join(OUT, "notizen-editor.png") });
+      await np.emulateMedia({ colorScheme: "dark" }); await sleep(200);
+      await nbox.screenshot({ ...SHOT, path: join(OUT, "notizen-editor-dunkel.png") });
+      await np.emulateMedia({ colorScheme: "light" });
+      await nbox.getByRole("button", { name: "Notizen speichern" }).click();
+      await nbox.locator(".notes-status", { hasText: "Gespeichert. Die „Präsentation mit Anmerkungen“ unter „Material nur für die Lehrkraft“ ist erneuert." }).waitFor({ timeout: 30000 });
+      nfiles = (await T("GET", "/api/teacher/lessons/" + nl.id)).data.files;
+      const nann2 = nfiles.filter((f) => f.notesOf);
+      annTxt = await pagesText(await fileBytes(nann2[0]));
+      ok(nann2.length === 1 && nann2[0].id !== nann.id && annTxt[3].includes("NOTIZNEU Rückfrage: Wer kontrolliert das Gericht?") && annTxt[3].includes("Antworten sammeln") && annTxt[1].includes(NOTE1)
+        && (await T("GET", "/api/teacher/files/" + npres.id + "/notes")).data.rev === 2, "gespeichert (Stand 2): die Anmerkungs-PDF ist ersetzt und enthält die neuen Notizen");
+      // Versionsschutz: inzwischen an anderer Stelle geändert → nie still überschreiben
+      ok((await T("PUT", "/api/teacher/files/" + npres.id + "/notes", { notes: [{ n: 1, items: ["NOTIZANDERSWO"] }], rev: 2 })).status === 200, "(an anderer Stelle geändert)");
+      await ta(2).fill("Fassung dieser Seite");
+      await nbox.getByRole("button", { name: "Notizen speichern" }).click();
+      const cdlg = np.locator(".modal", { hasText: "Notizen wurden geändert" });
+      await cdlg.waitFor({ timeout: 10000 });
+      await cdlg.getByRole("button", { name: "Neuen Stand laden" }).click();
+      await np.waitForFunction((id) => (document.getElementById("nt-" + id + "-1") || {}).value === "NOTIZANDERSWO", npres.id, { timeout: 10000 });
+      ok((await ta(2).inputValue()) === "", "409: Rückfrage statt Überschreiben; „Neuen Stand laden“ zeigt den Stand von anderswo");
+      // „JSON aus dem Chat einfügen“ (Claude konnte die Datei nicht einbetten)
+      await nbox.getByRole("button", { name: "JSON aus dem Chat einfügen" }).click();
+      const jdlg = np.locator(".modal", { hasText: "JSON aus dem Chat einfügen" });
+      await jdlg.locator("#notes-json").fill("Hier sind die Notizen:\n```json\n" + JSON.stringify({ v: 1, folien: [{ folie: 2, notizen: ["NOTIZJSON Tafelbild entwickeln", "Zeit: 10 Minuten"] }, { folie: 7, notizen: ["gibt es nicht"] }] }) + "\n```");
+      await jdlg.getByRole("button", { name: "Übernehmen" }).click();
+      await nbox.locator(".notes-status", { hasText: "Übernommen: Notizen zu 1 Folie (Folie 7 gibt es in der PDF nicht) – bitte prüfen und speichern." }).waitFor({ timeout: 10000 });
+      ok((await ta(2).inputValue()) === "NOTIZJSON Tafelbild entwickeln\nZeit: 10 Minuten" && (await ta(1).inputValue()) === "", "JSON-Block übernommen (ersetzt die Felder)");
+      await nbox.getByRole("button", { name: "Notizen speichern" }).click();
+      await nbox.locator(".notes-status", { hasText: "ist erneuert" }).waitFor({ timeout: 30000 });
+      const nn3 = (await T("GET", "/api/teacher/files/" + npres.id + "/notes")).data;
+      ok(nn3.rev === 4 && JSON.stringify(nn3.notes) === JSON.stringify([{ n: 2, items: ["NOTIZJSON Tafelbild entwickeln", "Zeit: 10 Minuten"] }]), "… gespeichert (Stand 4)");
+      // die Präsentationsansicht nimmt die geänderten Notizen
+      await np.getByRole("button", { name: "Ich bin im Unterricht und starte die Präsentation für alle." }).click();
+      await npr.locator(".stage .codeslide").waitFor({ timeout: 15000 });
+      const [nbw2] = await Promise.all([nctx.waitForEvent("page"), npr.getByRole("button", { name: "Beamerfenster öffnen" }).click()]);
+      await np.locator(".presenter.with-notes").waitFor({ timeout: 10000 });
+      await np.keyboard.press("ArrowRight"); await np.keyboard.press("ArrowRight");
+      await np.locator(".presenter .notespane", { hasText: "NOTIZJSON Tafelbild entwickeln" }).waitFor({ timeout: 10000 });
+      ok(true, "Präsentationsansicht: Folie 2 zeigt die bearbeiteten Notizen");
+      await npr.getByRole("button", { name: "Präsentation für alle beenden" }).click();
+      await nbw2.close();
+      // Schüler:innen bekommen nach der Freigabe nur die Fassung ohne Notizen – auch gekürzt; die Lehrkraft-Routen bleiben ihnen verschlossen
+      const stok = await nsp.evaluate(() => localStorage.getItem("u.stoken"));
+      const SN = (method, path, body) => fetch(BASE + path, { method, headers: { Authorization: "Bearer " + stok, ...(body ? { "Content-Type": "application/json" } : {}) }, body: body ? JSON.stringify(body) : undefined }).then(async (x) => ({ status: x.status, data: await x.json().catch(() => null) }));
+      const npl = await SN("POST", "/api/student/lessons/" + nl.id + "/presentation-link", { inline: false });
+      const nfull = Buffer.from(await (await fetch(BASE + npl.data.url)).arrayBuffer()), nfullT = pdfAllText(nfull);
+      ok(npl.data.url.includes("p=clean") && !nfullT.includes("NOTIZGEHEIM") && !nfullT.includes("EmbeddedFile") && nfullT.includes("https://example.org/") && (await PDFDocument.load(nfull)).getPageCount() === 3,
+        "Schüler-Download: die Fassung ohne Notizen (auch entpackt kein Notiztext, kein Anhang), der Link bleibt");
+      ok((await fetch(BASE + npl.data.url.replace("&p=clean", ""))).status === 403 && (await SN("GET", "/api/teacher/files/" + npres.id + "/notes")).status === 401 && (await SN("GET", "/api/teacher/files/" + npres.id + "/slides")).status === 401,
+        "… die hochgeladene PDF mit den Notizen nicht (veränderter Link 403), Notizen-Routen nur für die Lehrkraft (401)");
+      const nsv = await SN("GET", "/api/student/lessons/" + nl.id);
+      ok(nsv.status === 200 && !JSON.stringify(nsv.data).includes("NOTIZ") && !nsv.data.files.some((f) => /Anmerkungen/.test(f.name)), "Schüleransicht: keine Notizen, keine Anmerkungs-PDF");
+      await np.locator("#shown-sel").selectOption("2");
+      await np.locator(".toast", { hasText: "nur Folie 1–2." }).waitFor({ timeout: 20000 });
+      const npl2 = await SN("POST", "/api/student/lessons/" + nl.id + "/presentation-link", { inline: false });
+      const ncut = Buffer.from(await (await fetch(BASE + npl2.data.url)).arrayBuffer());
+      ok(npl2.data.url.includes("p=cut") && !pdfAllText(ncut).includes("NOTIZGEHEIM") && !pdfAllText(ncut).includes("EmbeddedFile") && (await PDFDocument.load(ncut)).getPageCount() === 2, "… gekürzt (Folie 1–2) ebenfalls ohne Notizen");
+      const gl = await tool("get_lesson", { lesson_id: nl.id });
+      ok(gl.content[0].text.includes("## Notizen der Lehrkraft zur Präsentation") && gl.content[0].text.includes("Zu 1 von 3 Folien gibt es Notizen") && !gl.content[0].text.includes("NOTIZJSON"), "Connector get_lesson nennt die Notizen kurz (ohne ihren Text)");
+      // aufräumen: Präsentation samt Anmerkungs-PDF löschen, Datum und Beginn zurück
+      ok((await T("DELETE", "/api/teacher/files/" + npres.id)).status === 200 && !(await T("GET", "/api/teacher/lessons/" + nl.id)).data.files.some((f) => f.notesOf), "Präsentation gelöscht: die Anmerkungs-PDF geht mit");
+      await T("PATCH", "/api/teacher/lessons/" + nl.id, { date: nl.date, startTime: nl.startTime || null });
+      await nsctx.close(); await nctx.close();
     }
 
     /* ---------- Claude-Connector (MCP) ---------- */

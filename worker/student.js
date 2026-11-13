@@ -115,7 +115,9 @@ export async function routeStudentPresentationLink(c, lessonId) {
   // letzte gezeigte Folie markiert: nur die gekürzte PDF (Folie 1 bis zur Markierung), nie die vollständige
   const cut = f.shown_until && f.shown_until < f.pages;
   if (cut && !f.cut_size) throw new HttpError(409, "not_ready", "Die Präsentation wird gerade vorbereitet. Bitte versuch es gleich noch einmal.");
-  return json({ ok: true, url: await downloadUrl(requireSecret(c.env), f, body.inline !== false, 10 * 60e3, c.now, !!cut) });
+  // trägt die hochgeladene PDF Notizen der Lehrkraft bzw. Anhänge (Nachtrag 20): nur die bereinigte Fassung, nie die hochgeladene
+  if (!cut && f.clean_size != null && !(f.clean_size > 0)) throw new HttpError(409, "not_ready", "Die Präsentation wird gerade vorbereitet. Bitte versuch es gleich noch einmal.");
+  return json({ ok: true, url: await downloadUrl(requireSecret(c.env), f, body.inline !== false, 10 * 60e3, c.now, cut ? "cut" : f.clean_size > 0 ? "clean" : "") });
 }
 
 /* Folienfenster nach der Sitzung (Nachtrag 19): signierte, kurzlebige Links auf die Folienbilder from…to – höchstens STUDENT_SLIDE_BLOCK

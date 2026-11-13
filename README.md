@@ -107,7 +107,22 @@ Feibeitsblatt braucht keine Änderung. Die Adressen stehen in `wrangler.jsonc` (
   nicht höher wird) und öffnet „Pause“/„Weiter“, „+1 Min“, „+5 Min“ (insgesamt höchstens 180 Minuten) und „Timer beenden“; nach Ablauf „+1 Min“,
   „+5 Min“ (der Timer beginnt dann mit dieser Zeit neu) und „Timer schließen“. Folienwechsel, „Sitzungscode zeigen“ und „Schließen“ des
   Präsentationsfensters lassen ihn weiterlaufen, „Präsentation für alle beenden“ beendet ihn. Die Restzeit rechnet der Server – falsch gehende
-  Uhren der iPads spielen keine Rolle. Ältere Präsentationen
+  Uhren der iPads spielen keine Rolle.
+  **Notizen zu den Folien (nur für Sie):** Der Präsentations-Prompt bittet Claude, zu jeder Folie Stichpunkte für Sie zu schreiben (was Sie
+  sagen, fragen oder beachten, Impulse, erwartete Antworten, Zeit) – nicht auf den Folien, sondern als **unsichtbaren Dateianhang** der PDF
+  (`unterricks-notizen.json`); kann Claude keine Datei einbetten, steht der Block im Chat und Sie fügen ihn in Unterricks ein. Beim Hochladen
+  übernimmt Unterricks die Notizen („Notizen zu n Folien übernommen“). In der Präsentationsansicht erscheinen sie als Stichpunkte **unter der
+  großen aktuellen Folie** – aber **nur, wenn das Beamerbild getrennt läuft**: mit verbundenem Beamerfenster (erweiterter Bildschirm) oder
+  Beamergerät („Beamer verbinden“). Ein einzeln gespiegeltes iPad (z. B. per AirPlay an Apple TV) oder ein gespiegelter Laptop zeigt sie
+  nie – sonst sähe die Klasse sie mit; dort bleibt alles, wie es war (Folie und Vorschau), und die Leiste sagt kurz, wann Notizen erscheinen.
+  „Vorschau“ (Taste V) blendet Vorschau und Notizen gemeinsam aus. Ein eigener Knopf am iPad, der nur die Folien an Apple TV schickt, ist
+  nicht zuverlässig möglich (AirPlay spiegelt) – deshalb gibt es zusätzlich unter **„Material nur für die Lehrkraft“** die **„Präsentation
+  mit Anmerkungen – <Titel>.pdf“**: jede Folie, dahinter eine Anmerkungsfolie mit ihren Notizen (z. B. zum Ausdrucken neben dem iPad). In der
+  Präsentationskarte der Sitzung zeigt **„Notizen ansehen und bearbeiten“** je Folie das Vorschaubild und ein Textfeld (ein Stichpunkt je
+  Zeile); „Notizen speichern“ (mit Versionsschutz) erneuert die Anmerkungs-PDF, die PDF der Präsentation bleibt unverändert. Schüler:innen
+  sehen die Notizen **nie**: weder live noch im Beamerfenster oder am Beamergerät, nicht in den Folienbildern und nicht in der PDF nach der
+  Stunde – sie bekommen eine bereinigte Fassung ohne Anhänge und ohne Kommentare (Links bleiben), auch gekürzt bis zur markierten Folie;
+  solange die fehlt, bekommen sie gar keine. Ältere Präsentationen
   mit einem Code auf den Folien: Unterricks ersetzt ihn beim Hochladen durch den Code dieser Sitzung (wo das nicht sicher geht, z. B.
   bei einem unruhigen Foto hinter dem Code, bleibt die Folie unverändert und die Meldung nennt sie). Am Stundenende: Hausaufgabe eintragen und per
   Rechtsklick im Verlaufsplan „Zwischenstopp einfügen“, falls nicht alles geschafft wurde. In der nächsten Sitzung zeigt dann die Karte
