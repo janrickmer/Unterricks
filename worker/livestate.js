@@ -1,7 +1,7 @@
 // livestate.js – der Zustand der Live-Präsentation als reine Funktionen (ohne Durable Object, deshalb auch in Unit-Tests prüfbar).
 // Folie 0 = Codefolie vor Folie 1 (nur mit gültigem Sitzungscode), codeSlides = Platzhalterfolien der PDF, codeShown = „Sitzungscode zeigen“.
 import { cleanLine, isId } from "./lib.js";
-import { isValidCode, cleanCodeSlides } from "../public/shared.js";
+import { isValidCode, cleanCodeSlides, nextSlideOf } from "../public/shared.js";
 
 export const LIVE_IDLE = { active: false, fileId: null, pages: 0, slide: 1, startedAt: null, updatedAt: null, v: 0, code: null, title: "", codeSlides: [], codeShown: false };
 
@@ -36,4 +36,13 @@ export function liveView(st) {
   const slide = st.active && st.fileId && st.slide >= 1 ? st.slide : null;
   const cs = st.active && isValidCode(st.code) ? (st.slide === 0 || st.codeShown ? { lines: [] } : (st.codeSlides || []).find((x) => x.n === st.slide)) : null;
   return { slide, code: cs ? { code: st.code, title: st.title || "", lines: cs.lines || [], codeShown: !!st.codeShown } : null };
+}
+
+/* Beamergerät (Nachtrag 15): die nächste Folie als Folienbild zum Vorladen – wie die Vorschau der Lehrkraft (nextSlideOf). null, wenn keine
+   Folie mehr kommt oder die nächste eine Codefolie ist (kein Bild); bei „Sitzungscode zeigen“ die Folie darunter. */
+export function liveNext(st) {
+  if (!st || !st.active || !st.fileId || !Number.isInteger(st.slide) || !Number.isInteger(st.pages)) return null;
+  const withCode = isValidCode(st.code);
+  const x = nextSlideOf({ cur: st.slide, n: st.pages, peek: withCode && !!st.codeShown, holders: (st.codeSlides || []).map((c) => c.n), withCode });
+  return x.end || x.code || !Number.isInteger(x.k) || x.k < 1 || x.k > st.pages ? null : x.k;
 }

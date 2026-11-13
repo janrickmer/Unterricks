@@ -105,6 +105,8 @@ main { max-width: 1280px; margin: 0 auto; padding: 1.5rem 1rem 3.5rem; }
 main.narrow { max-width: 780px; }
 .footer { text-align: center; padding: 2rem 1rem 2rem; font-size: .88rem; color: var(--muted); }
 .footer a { color: var(--muted); font-weight: 700; }
+.footer .footsep { margin: 0 .35rem; }
+.footer a.footbeamer { display: inline-flex; align-items: center; min-height: 44px; font-weight: 600; }   /* „Dieses Gerät als Beamer verwenden“ (Nachtrag 15) */
 
 /* ---------- Kopfband: getönte Folie in der Fachfarbe, randlos ---------- */
 .pagehead { --ring: #fff; position: relative; isolation: isolate; color: #fff; background: var(--fach);
@@ -500,6 +502,30 @@ main.narrow .homework { background: var(--gelb-t); border-color: color-mix(in sr
 .beamer .bm-note { margin: 0; font-size: .9rem; font-weight: 700; color: #ffd43b; }
 .beamer.idle .bm-bar { opacity: 0; pointer-events: none; } .beamer.idle { cursor: none; }
 .beamer.idle .bm-bar:focus-within, .beamer.idle .bm-bar:has(.bm-note:not(:empty)) { opacity: 1; pointer-events: auto; }
+/* Beamergerät (Nachtrag 15): großer Beamer-Code, aus der letzten Reihe lesbar – immer auf Schwarz (Beamer), hell wie dunkel gleich */
+.beamer .bm-pair { display: grid; justify-items: center; align-content: center; gap: clamp(.45rem, 1.8vh, 1.1rem); width: 100%; max-width: 64rem; padding: 2rem 1.25rem 6.5rem; text-align: center; }
+.beamer .bm-msg { margin: 0 0 clamp(.3rem, 2vh, 1.4rem); color: #fff; font-size: clamp(1.15rem, 2.8vw, 2rem); font-weight: 800; line-height: 1.25; }
+.beamer .bm-msg:empty { display: none; }
+.beamer .bm-k { margin: 0; color: #9fb0cc; font-size: clamp(.95rem, 1.9vw, 1.35rem); font-weight: 800; letter-spacing: .08em; text-transform: uppercase; }
+.beamer .bm-code { margin: 0; min-height: 1.3em; max-width: 100%; padding: .12em .4em .1em; border-radius: clamp(14px, 2vw, 28px); background: #13213b; box-shadow: 0 0 0 2px #34405a;
+  color: #fff; font-family: var(--mono); font-weight: 800; font-size: clamp(2.4rem, 13vw, 11rem); letter-spacing: .08em; line-height: 1.05; font-variant-numeric: tabular-nums; white-space: nowrap; }
+.beamer .bm-code.wait::before { content: "··· ···" / ""; color: #5b6a85; }
+.beamer .bm-how { margin: clamp(.3rem, 1.5vh, 1rem) 0 0; max-width: 34em; color: #e8edf6; font-size: clamp(1.05rem, 2.3vw, 1.7rem); font-weight: 700; line-height: 1.35; }
+.beamer .bm-ttl { margin: 0; color: #9fb0cc; font-size: clamp(.95rem, 1.7vw, 1.2rem); }
+/* Präsentationsmodus: „Beamer verbinden“ – Eingabefeld innerhalb der Präsentation (Vollbild bleibt), über allem (Tippen daneben blättert nicht) */
+.presenter .devstate { color: #e8edf6; }
+.presenter .bmc-back { position: absolute; inset: 0; z-index: 5; display: grid; grid-template-columns: minmax(0, 1fr); justify-items: center; align-items: start;
+  padding: max(1rem, 7vh) 1rem 1rem; background: rgba(0, 0, 0, .6); cursor: auto; overflow-y: auto; }   /* oben: die Bildschirmtastatur des iPads verdeckt es nicht */
+.presenter .bmc-back[hidden] { display: none; }
+.presenter .bmc { width: min(31rem, 100%); display: grid; gap: .7rem; padding: 1.15rem 1.3rem 1.2rem; background: var(--surface); color: var(--text); border: 1px solid var(--line); border-radius: 18px; box-shadow: 0 24px 64px -12px rgba(0, 0, 0, .55); }
+.presenter .bmc h2 { margin: 0; font-size: 1.2rem; }
+.presenter .bmc .field { margin: 0; }
+.presenter .bmc input.codein { font-size: 1.7rem; letter-spacing: .14em; min-height: 3rem; }
+.presenter .bmc .hint, .presenter .bmc .err, .presenter .bmc-conn { margin: 0; }
+.presenter .bmc .err:empty { display: none; }
+.presenter .bmc-connbox { display: grid; gap: .5rem; justify-items: start; padding: .7rem .8rem; border-radius: 12px; background: var(--surface-2); }
+.presenter .bmc-connbox[hidden] { display: none; }
+.presenter .bmc-acts { display: flex; gap: .5rem; justify-content: flex-end; flex-wrap: wrap; }
 .codeshow { position: fixed; inset: 0; z-index: 90; display: grid; grid-template: minmax(0, 1fr) / minmax(0, 1fr); background: var(--fach); }
 .codeshow .cs-close { position: absolute; right: 1.25rem; bottom: 1.25rem; background: rgba(10, 16, 30, .25); border-color: rgba(255, 255, 255, .6); color: #fff; --ring: #fff; }
 

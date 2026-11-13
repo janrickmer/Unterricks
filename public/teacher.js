@@ -238,7 +238,8 @@ async function loginPage() {
   if (T.token) { try { await tapi("GET", "/api/teacher/me"); return go("#/lk"); } catch {} }
   const wrap = h("div", { class: "login-wrap" });
   loginShown = wrap;
-  render(wrap, h("footer", { class: "footer" }, h("a", { href: "#/" }, "Zur Schüleransicht")));
+  render(wrap, h("footer", { class: "footer" }, h("a", { href: "#/" }, "Zur Schüleransicht"), h("span", { class: "footsep", "aria-hidden": "true", text: "·" }),
+    h("a", { href: "#/beamer", class: "footbeamer" }, "Dieses Gerät als Beamer verwenden")));   // Gerät am Beamer (Nachtrag 15)
   let st;
   try { st = await api("POST", "/api/teacher/status"); } catch (e) { loginShown = null; wrap.append(h("p", { class: "err", text: e.message })); return; }   // ohne Formular: ein neuer Aufruf darf es erneut versuchen
   const user = h("input", { id: "tu", autocomplete: "username", autocapitalize: "off", spellcheck: "false", required: true });

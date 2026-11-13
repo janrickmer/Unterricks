@@ -1,24 +1,38 @@
-// beamer.js – das Beamerfenster (#/beamer): ein zweites Fenster nur mit der aktuellen Folie der Live-Präsentation – für den Beamer als
-// erweiterten Bildschirm. Das Präsentationsfenster der Lehrkraft (presenter.js) zeigt daneben die nächste Folie; gesteuert wird dort, Tasten
-// (auch die eines Presenters) leitet dieses Fenster weiter. Verbunden nur im Browser (BroadcastChannel derselben Herkunft) – ohne Server und
-// ohne Anmeldung: Es zeigt, was das Präsentationsfenster schickt (Folienbilder per signiertem Link, Codefolie als Text).
-import { h, apiUrl, setFach, rand } from "./ui.js";
+// beamer.js – das Beamerfenster (#/beamer): nur die aktuelle Folie der Live-Präsentation – für den Beamer. Zwei Quellen, eine Anzeige:
+//  • lokal (wie bisher): ein Präsentationsfenster im selben Browser (presenter.js) – für den Beamer als erweiterten Bildschirm. Das
+//    Präsentationsfenster zeigt daneben die nächste Folie; gesteuert wird dort, Tasten (auch die eines Presenters) leitet dieses Fenster
+//    weiter. Verbunden nur im Browser (BroadcastChannel derselben Herkunft) – ohne Server und ohne Anmeldung: Es zeigt, was das
+//    Präsentationsfenster schickt (Folienbilder per signiertem Link, Codefolie als Text). Hat Vorrang, solange es dieses Fenster beansprucht.
+//  • Server (Nachtrag 15 der Lehrkraft vom 13.11.2026): Meldet sich binnen 1,5 s kein Präsentationsfenster, ist dies ein Beamergerät (z. B.
+//    ein Schul-iPad, das an Apple TV spiegelt, oder ein PC am Beamer). Es zeigt groß einen Beamer-Code; die Lehrkraft gibt ihn in der
+//    Präsentation unter „Beamer verbinden“ ein. Danach kommt die aktuelle Folie über das Durable Object der Sitzung (WebSocket, ersatzweise
+//    alle 2 s abgefragt; worker/beamer.js). Gekoppelt bleibt es auch nach dem Neuladen (localStorage u.beamer), bis die Lehrkraft es trennt
+//    oder der Schlüssel nach 6 Stunden abläuft. Ohne Präsentation zeigt es wieder einen Code – für die nächste Stunde in diesem Raum.
+import { h, api, apiUrl, wsUrl, setFach, rand, store } from "./ui.js";
 import { render, onLeave } from "./app.js";
-import { BEAMER_CHANNEL, beamerFollow, cleanBeamerView, presenterKey, beamerScreen } from "./shared.js";
+import { BEAMER_CHANNEL, beamerFollow, cleanBeamerView, presenterKey, beamerScreen, fmtBeamerCode, normBeamerCode, readBeamerLink } from "./shared.js";
 import { codeSlideDom } from "./codeslide.js";
 
 const hex = (b) => Array.from(b, (x) => x.toString(16).padStart(2, "0")).join("");
 export const BEAMER_WAIT = "Wartet auf die Präsentation – starten Sie sie in Unterricks. Dieses Fenster zeigt dann die aktuelle Folie.";
 export const BEAMER_CLOSED = "Die Präsentation ist gerade nicht geöffnet. Öffnen Sie sie wieder in Unterricks – dieses Fenster zeigt dann die aktuelle Folie.";
 export const BEAMER_STOPPED = "Die Präsentation ist beendet.";
+// Beamergerät (über den Server)
+export const BEAMER_PAIR_HOW = "Tippen Sie in der Präsentation auf Ihrem iPad auf „Beamer verbinden“ und geben Sie diesen Code ein.";
+export const BEAMER_PAIR_TTL = "Der Code gilt 10 Minuten – danach erscheint hier von selbst ein neuer.";
+export const BEAMER_LINKED = "Verbunden. Sobald die Präsentation läuft, erscheint hier die aktuelle Folie.";
+export const BEAMER_CUT = "Getrennt – dieses Gerät zeigt keine Präsentation mehr.";
+export const BEAMER_DEV_HINT = "Dieses Gerät zeigt am Beamer nur die aktuelle Folie. Gesteuert wird auf dem Gerät der Lehrkraft – Tasten und Presenter wirken hier nicht. " +
+  "Am Beamer-iPad die „Automatische Sperre“ am besten auf „Nie“ stellen.";
+const LINK_KEY = "u.beamer";
 
 export function beamerPage() {
   const bid = hex(rand(8)), slideBase = apiUrl("/api/slide/");
   const multi = !!(window.screen && window.screen.isExtended === true && typeof window.getScreenDetails === "function");
-  let st = null, idleT = null, waitT = null;
+  let st = null, idleT = null, waitT = null, alive = true, seq = 0;
   const img = h("img", { alt: "", draggable: "false" });
   const stage = h("div", { class: "bm-stage" });
-  const wait = (text) => stage.replaceChildren(h("p", { class: "bm-wait", text }));
+  const wait = (text) => { seq++; stage.replaceChildren(h("p", { class: "bm-wait", text })); };
   const isFs = () => !!(document.fullscreenElement || document.webkitFullscreenElement);
   const note = h("p", { class: "bm-note", role: "status" });
   const fsLabel = () => (isFs() ? "Vollbild beenden" : multi ? "Vollbild auf dem Beamer" : "Vollbild");
@@ -31,14 +45,17 @@ export function beamerPage() {
   render(root);
   document.title = "Unterricks – Beamerfenster";
   wait("Verbinde mit der Präsentation …");
-  waitT = setTimeout(() => { if (!st) wait(BEAMER_WAIT); }, 1500);
+  waitT = setTimeout(() => { if (!st) enterDevice(); }, 1500);
 
   function show(v) {
+    seq++;
     if (v.kind === "code") { stage.replaceChildren(codeSlideDom(v)); return; }
     if (img.getAttribute("src") !== v.src) img.src = v.src;
     if (stage.firstChild !== img || stage.childNodes.length > 1) stage.replaceChildren(img);
     if (v.next) { const p = new Image(); p.src = v.next; }   // nächste Folie vorab laden
   }
+  const localOn = () => !!(st && !st.ended);
+  let localFach = null, localNote = "";
   const ch = typeof BroadcastChannel === "function" ? new BroadcastChannel(BEAMER_CHANNEL) : null;
   const tell = () => ch && ch.postMessage({ t: "following", bid, id: st && !st.ended ? st.id : null });
   if (ch) ch.onmessage = (ev) => {
@@ -51,7 +68,9 @@ export function beamerPage() {
     if (!st || st.id !== m.id) return;   // gehört zu einem anderen Präsentationsfenster
     if (m.t === "end") {
       if (before && !before.ended) {
-        setFach(null); wait(m.why === "stop" ? BEAMER_STOPPED : BEAMER_CLOSED); tell();
+        if (dev) { localNote = m.why === "stop" ? BEAMER_STOPPED : BEAMER_CLOSED; setFach(srvFach); paint(); }   // Beamergerät: wieder Server bzw. Code
+        else { setFach(null); wait(m.why === "stop" ? BEAMER_STOPPED : BEAMER_CLOSED); }
+        tell(); syncHold();
         // nur geschlossen (nicht für alle beendet): läuft noch eine andere Präsentation (z. B. in einem zweiten Tab), übernimmt das Fenster sie
         if (m.why !== "stop") ch.postMessage({ t: "hello", bid });
       }
@@ -59,10 +78,198 @@ export function beamerPage() {
     }
     if (st.ended) return;
     if (m.t === "claim" || st !== before) tell();   // übernommen bzw. neu beansprucht: das Präsentationsfenster schickt dann die Folie
-    if (m.t === "show") { const v = cleanBeamerView(m.view, slideBase); if (v) { setFach(typeof m.fach === "string" ? m.fach : null); show(v); } }
+    if (m.t === "show") {
+      const v = cleanBeamerView(m.view, slideBase);
+      if (v) { localFach = typeof m.fach === "string" ? m.fach : null; localNote = ""; setFach(localFach); show(v); stopPairing(); syncHold(); }
+    }
   };
-  if (ch) ch.postMessage({ t: "hello", bid });
-  else wait("Dieser Browser kann das Beamerfenster nicht mit der Präsentation verbinden. Bitte einen aktuellen Browser verwenden.");
+
+  /* ---------- Beamergerät: Beamer-Code, Kopplung und Live-Verbindung über den Server ---------- */
+  let dev = false, link = null, srvLive = null, srvWas = false, srvNote = "", srvFach = null;
+  const pairMsg = h("p", { class: "bm-msg", role: "status" });
+  const pairCode = h("p", { class: "bm-code", "aria-live": "polite", "aria-atomic": "true" });
+  const pairState = h("p", { class: "bm-ttl" });
+  const pairBox = h("div", { class: "bm-pair" }, pairMsg, h("p", { class: "bm-k", text: "Beamer-Code" }), pairCode,
+    h("p", { class: "bm-how", text: BEAMER_PAIR_HOW }), pairState);
+  function enterDevice() {
+    if (dev || !alive) return;
+    dev = true;
+    root.classList.add("bm-device");
+    hint.textContent = BEAMER_DEV_HINT;
+    if (!window.opener) closeBtn.remove();   // ein Tab aus einem Lesezeichen lässt sich nicht per Skript schließen
+    link = readBeamerLink(store.get(LINK_KEY));
+    if (!link) store.del(LINK_KEY);
+    syncHold();
+    if (link) connect();
+    paint();
+  }
+  function srvView(m) {
+    if (!m || !m.active) return null;
+    const v = m.view === "code" ? { kind: "code", code: m.code, title: m.title, lines: m.lines }
+      : { kind: "img", src: typeof m.url === "string" ? apiUrl(m.url) : "", next: typeof m.next === "string" ? apiUrl(m.next) : null };
+    return cleanBeamerView(v, slideBase);
+  }
+  // was das Beamergerät gerade zeigt: Folie vom Server, „Verbinde …“ oder den Beamer-Code (mit Hinweis, z. B. „Die Präsentation ist beendet.“)
+  function paint() {
+    if (!alive || !dev || localOn()) return;
+    const v = srvView(srvLive);
+    if (v) { stopPairing(); setFach(srvFach); showSrv(v); return; }
+    if (link && !srvLive) { stopPairing(); wait("Verbinde mit der Präsentation …"); return; }
+    seq++;
+    pairMsg.textContent = srvNote || localNote || (link && srvLive && !srvWas ? BEAMER_LINKED : "");
+    if (stage.firstChild !== pairBox) stage.replaceChildren(pairBox);
+    paintCode();
+    ensurePairing();
+  }
+  // Folie vom Server: erst geladen anzeigen – ein spät geladenes Bild überschreibt nie einen neueren Stand
+  function showSrv(v) {
+    const my = ++seq;
+    if (v.kind === "code") stage.replaceChildren(codeSlideDom(v));
+    else if (img.getAttribute("src") === v.src && img.complete && img.naturalWidth > 0) { if (stage.firstChild !== img || stage.childNodes.length > 1) stage.replaceChildren(img); }
+    else {
+      const pre = new Image();
+      pre.onload = () => { if (my !== seq || !alive || localOn()) return; img.src = v.src; if (stage.firstChild !== img || stage.childNodes.length > 1) stage.replaceChildren(img); };
+      pre.src = v.src;
+    }
+    if (v.next) { const p = new Image(); p.src = v.next; }   // nächste Folie vorab laden
+  }
+
+  // Beamer-Code: nur solange er zu sehen ist (Seite sichtbar, keine Folie) – sonst fragt das Gerät nicht nach
+  let pair = null, pairBusy = false, pairT = null, pairFails = 0, pairErr = "";
+  const wantPair = () => alive && dev && !localOn() && !srvView(srvLive) && !(link && !srvLive) && document.visibilityState === "visible";
+  function paintCode() {
+    pairCode.textContent = pair ? fmtBeamerCode(pair.code) : "";
+    pairCode.classList.toggle("wait", !pair);
+    pairState.textContent = pairErr || (pair ? BEAMER_PAIR_TTL : "Beamer-Code wird geholt …");
+  }
+  function stopPairing() { clearTimeout(pairT); pairT = null; }
+  function ensurePairing() {
+    if (!wantPair()) { stopPairing(); return; }
+    if (!pair || Date.now() >= pair.until) { if (!pairBusy) newPair(); }
+    else if (!pairT) pairT = setTimeout(pollPair, 2000);
+  }
+  async function newPair() {
+    stopPairing(); pairBusy = true; pair = null; paintCode();
+    try {
+      const r = await api("POST", "/api/beamer/pair");
+      if (!alive) return;
+      if (!normBeamerCode(r.code) || typeof r.pairKey !== "string") throw new Error("Ungültige Antwort");
+      pair = { code: r.code, pairKey: r.pairKey, until: Date.now() + Math.max(60e3, Number(r.ttlMs) || 600e3) };
+      pairFails = 0; pairErr = "";
+    } catch (e) {
+      if (!alive) return;
+      pairFails++;
+      pairErr = e && e.status === 429 ? e.message : "Keine Verbindung zum Server – neuer Versuch in wenigen Sekunden.";
+      pairT = setTimeout(() => { pairT = null; ensurePairing(); }, e && e.status === 429 && e.data && e.data.retryAfter ? Math.min(600e3, e.data.retryAfter * 1000) : Math.min(30e3, 3000 * pairFails));
+    } finally { pairBusy = false; }
+    if (!alive) return;
+    paintCode();
+    if (pair) ensurePairing();
+  }
+  async function pollPair() {
+    pairT = null;
+    if (!wantPair() || !pair) return ensurePairing();
+    if (Date.now() >= pair.until) return newPair();
+    const p = pair;
+    try {
+      const r = await api("POST", "/api/beamer/pair/poll", { body: { code: p.code, pairKey: p.pairKey } });
+      if (!alive || pair !== p) return;
+      if (r.paired === true) { pair = null; adopt({ lessonId: r.lessonId, key: r.key, exp: r.exp }); return; }
+      if (pairErr) { pairErr = ""; paintCode(); }
+    } catch (e) {
+      if (!alive || pair !== p) return;
+      if (e && e.status === 404) { pair = null; return ensurePairing(); }   // abgelaufen: neuer Code
+    }
+    ensurePairing();
+  }
+  // gekoppelt (auch an eine andere Sitzung): Schlüssel merken und verbinden
+  function adopt(l) {
+    const v = readBeamerLink(JSON.stringify(l));
+    if (!v) { ensurePairing(); return; }
+    closeLive();
+    link = v; store.set(LINK_KEY, JSON.stringify(v));
+    srvLive = null; srvWas = false; srvNote = ""; localNote = "";
+    connect(); paint();
+  }
+  function dropLink(why) {
+    closeLive();
+    link = null; store.del(LINK_KEY);
+    srvLive = null; srvWas = false; srvNote = why || ""; srvFach = null;
+    if (!localOn()) setFach(null);
+    paint();
+  }
+
+  // Live-Verbindung wie die Schüler:innen-Seite: WebSocket mit Ping und Wiederverbindung, ersatzweise alle 2 s abfragen
+  let ws = null, wsFails = 0, pingT = null, reT = null, pollT = null, run = 0;
+  function closeLive() {
+    run++; clearInterval(pingT); clearTimeout(reT); clearInterval(pollT); pollT = null; wsFails = 0;
+    const w = ws; ws = null; if (w) try { w.close(); } catch {}
+  }
+  function onLive(m) {
+    if (!m || typeof m !== "object" || m.t !== "state") return;   // die Zahl der Verbundenen ist nur für die Lehrkraft
+    if (srvLive && m.v === srvLive.v && !!m.active === !!srvLive.active) return;
+    const was = !!(srvLive && srvLive.active);
+    srvLive = m;
+    if (m.active) { srvWas = true; srvNote = ""; localNote = ""; } else if (was) srvNote = BEAMER_STOPPED;
+    paint();
+  }
+  const gone = (e) => !!e && (e.status === 403 || e.status === 404);
+  function lost() { if (!link) return; dropLink(link.exp <= Date.now() ? "" : BEAMER_CUT); }
+  async function livePoll() {
+    const l = link; if (!l) return;
+    try { const r = await api("POST", "/api/beamer/live", { body: { lessonId: l.lessonId, key: l.key } }); if (alive && link === l) onLive(r.live); }
+    catch (e) { if (alive && link === l && gone(e)) lost(); }
+  }
+  const startPoll = () => { if (!pollT) { livePoll(); pollT = setInterval(livePoll, 2000); } };
+  async function connect() {
+    const my = ++run, l = link;
+    if (!l || !alive) return;
+    try {
+      const t = await api("POST", "/api/beamer/live-ticket", { body: { lessonId: l.lessonId, key: l.key } });
+      if (my !== run || !alive) return;
+      srvFach = typeof t.fach === "string" ? t.fach : null;
+      if (!localOn()) setFach(srvFach);
+      const sock = new WebSocket(wsUrl(t.url));
+      ws = sock;
+      sock.onopen = () => { if (my !== run) return; wsFails = 0; clearInterval(pollT); pollT = null; clearInterval(pingT); pingT = setInterval(() => { try { sock.send("ping"); } catch {} }, 25000); };
+      sock.onmessage = (ev) => { if (my !== run || ev.data === "pong") return; try { onLive(JSON.parse(ev.data)); } catch {} };
+      sock.onclose = (ev) => {
+        clearInterval(pingT);
+        if (my !== run || !alive) return;
+        if (ev.code === 4001) { lost(); return; }   // die Lehrkraft hat den Beamer getrennt
+        wsFails++; if (wsFails >= 2) startPoll();
+        reT = setTimeout(connect, Math.min(15000, 1000 * 2 ** Math.min(wsFails, 4)));
+      };
+    } catch (e) {
+      if (my !== run || !alive) return;
+      if (gone(e)) { lost(); return; }   // getrennt, abgelaufen oder Sitzung gelöscht: neuer Code
+      wsFails++; if (wsFails >= 2) startPoll();
+      reT = setTimeout(connect, 5000);
+    }
+  }
+
+  // Bildschirmsperre verhindern, solange dieses Gerät als Beamer dient bzw. eine Folie zeigt – sonst sperrt sich ein spiegelndes iPad und
+  // AirPlay bricht ab (ohne Unterstützung still)
+  let lock = null, lockWant = false;
+  async function syncHold() {
+    lockWant = alive && (dev || localOn());
+    if (!lockWant) { const l = lock; lock = null; if (l) try { await l.release(); } catch {} return; }
+    if (lock || !navigator.wakeLock || typeof navigator.wakeLock.request !== "function" || document.visibilityState !== "visible") return;
+    try {
+      const l = await navigator.wakeLock.request("screen");
+      if (!lockWant || lock) { try { await l.release(); } catch {} return; }
+      lock = l; l.addEventListener("release", () => { if (lock === l) lock = null; });
+    } catch {}
+  }
+  const onVis = () => {
+    if (document.visibilityState !== "visible") { stopPairing(); return; }
+    syncHold();
+    if (!dev) return;
+    if (link && (!ws || ws.readyState > 1)) { clearTimeout(reT); connect(); }
+    if (link) livePoll();
+    paint();
+  };
+  document.addEventListener("visibilitychange", onVis);
 
   async function toggleFs() {
     if (isFs()) { try { await (document.exitFullscreen || document.webkitExitFullscreen).call(document); } catch {} return; }
@@ -92,15 +299,20 @@ export function beamerPage() {
   document.addEventListener("fullscreenchange", onFs);
   document.addEventListener("webkitfullscreenchange", onFs);
   root.addEventListener("mousemove", wake);
+  root.addEventListener("pointerdown", wake);   // iPad: Tippen zeigt die Leiste
   root.addEventListener("focusin", wake);
   window.addEventListener("pagehide", bye);
   wake();
+  if (ch) ch.postMessage({ t: "hello", bid });
+  else { clearTimeout(waitT); enterDevice(); }   // ohne BroadcastChannel geht es nur über den Server
   onLeave(() => {
+    alive = false;
     bye(); if (ch) ch.close();
-    clearTimeout(idleT); clearTimeout(waitT);
+    clearTimeout(idleT); clearTimeout(waitT); stopPairing(); closeLive(); syncHold();
     document.removeEventListener("keydown", onKey);
     document.removeEventListener("fullscreenchange", onFs);
     document.removeEventListener("webkitfullscreenchange", onFs);
+    document.removeEventListener("visibilitychange", onVis);
     window.removeEventListener("pagehide", bye);
     document.title = "Unterricks";
   });

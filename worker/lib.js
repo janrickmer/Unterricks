@@ -165,6 +165,15 @@ export async function registerFail(db, key, rule, now = Date.now()) {
   return { locked: false, left: rule.max - fails };
 }
 export const clearFails = (db, key) => db.prepare("DELETE FROM locks WHERE k=?1").bind(key).run();
+/* Zähler für öffentliche Aufrufe (nicht nur Fehlversuche) in einem festen Fenster – eine Anweisung (Upsert … RETURNING) in derselben
+   Tabelle; mehr als rule.max Aufrufe im Fenster → 429 bis zum Ende des Fensters. rule = {max, windowMs} */
+export async function hitLimit(db, key, rule, now, msg) {
+  const r = await db.prepare(
+    "INSERT INTO locks(k, fails, window_start, locked_until) VALUES(?1, 1, ?2, 0) " +
+    "ON CONFLICT(k) DO UPDATE SET fails = CASE WHEN window_start <= ?2 - ?3 THEN 1 ELSE fails + 1 END, " +
+    "window_start = CASE WHEN window_start <= ?2 - ?3 THEN ?2 ELSE window_start END RETURNING fails, window_start").bind(key, now, rule.windowMs).first();
+  if (r && r.fails > rule.max) throw lockedError(Math.max(1000, r.window_start + rule.windowMs - now), msg && msg(Math.max(1000, r.window_start + rule.windowMs - now)));
+}
 export const lockedError = (ms, msg) => new HttpError(429, "locked", msg || ("Zu viele Fehlversuche. Bitte warten Sie " + fmtWait(ms) + "."), { retryAfter: Math.ceil(ms / 1000) });
 export function fmtWait(ms) {
   const s = Math.ceil(ms / 1000);

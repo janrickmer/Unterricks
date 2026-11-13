@@ -38,6 +38,7 @@ implementiert und im End-to-End-Test geprüft (Ausnahmen unten ausdrücklich gen
 | Wochenkalender (Ergänzung vom 11.11.2026) | Ganz oben auf der **Startseite der Lehrkraft**: der Unterricht der Woche (Mo–Fr) aus den **Stundenplänen der Unterrichtseinheiten**; laufende Woche, am Wochenende die kommende, blätterbar (‹ › „Heute“); mit Uhrzeit im Zeitraster, ohne Uhrzeit in einer eigenen Zeile; ein Klick öffnet die **Klasse bzw. den Kurs** |
 | Codefolie (Ergänzung vom 11.11.2026) | Die Präsentation enthält **keinen Sitzungscode und keinen QR-Code**: Folie 1 ist eine gestaltete Titelfolie; beim Start zeigt Unterricks **vor Folie 1 die Codefolie** (wie „Für den Beamer zeigen“, immer mit dem Code der **aktuellen** Sitzung) am Beamer und live auf den iPads; Folien mit der Zeile **„Unterricks-Codefolie: …“** (auch jede Materialfolie mit Material aus Unterricks) zeigt Unterricks live als Codefolie mit ihrem übrigen Text als Überschrift; Knopf **„Sitzungscode zeigen“** im Präsentationsmodus; das Ersetzen alter Codes auf den Folien bleibt als stiller Rückfall für ältere Präsentationen |
 | Vorschau der nächsten Folie (Ergänzung vom 11.11.2026) | Im Präsentationsmodus der Lehrkraft **groß die aktuelle Folie, kleiner daneben die nächste** (hochkant darunter), per **„Vorschau“ / Taste V** aus- und einblendbar (gemerkt); dazu **„Beamerfenster öffnen“**: ein zweites Fenster **nur mit der aktuellen Folie** für den Beamer als erweiterten Bildschirm – bei gespiegeltem Bildschirm sähe die Klasse sonst die Vorschau mit (Rückfrage beantwortet: Beamerfenster + Vorschau) |
+| Beamer über ein zweites Gerät (Nachtrag 15 vom 13.11.2026) | Allein mit iPad + Apple TV nicht möglich (AirPlay spiegelt den ganzen Bildschirm; keine Presentation API in Safari; kein AirPlay eines im Browser erzeugten Videostroms). Entscheidung der Lehrkraft: ein **zweites Gerät am Beamer** (Schul-iPad, das an Apple TV spiegelt, oder PC/Laptop am Beamer) öffnet `#/beamer`, zeigt einen **Beamer-Code**; „**Beamer verbinden**“ in der Präsentation (auf allen Geräten, auch Touch) koppelt es über den Server – es zeigt nur die aktuelle Folie, das iPad der Lehrkraft weiter aktuelle + nächste Folie; „Beamer trennen“; siehe Abschnitt 4, Punkt 6 (Kabel/Stage Manager und AirPlay-Video ausdrücklich nicht gewählt) |
 | Links als Material (Ergänzung) | in **beiden Bereichen** (Schüler:innen / nur Lehrkraft) Links mit **Titel** und Internetadresse (nur http/https) |
 | Druckliste (Ergänzung) | Karte **„Von der Lehrkraft auszudrucken“** ganz unten: **nur PDF**, alles **A4** (andere Formate beim Hochladen umgerechnet, mit Hinweis), Name **„28x - beidseitig - sw - Name.pdf“**, einzeln oder **als ZIP**; Claude legt Vorlagen über den Connector ab (`add_print_material`), siehe 4i |
 | Zurücksetzen und Einheit als Datei (Ergänzung vom 11.11.2026) | Einstellungen: **„Alle Unterrichtsinhalte löschen und Unterricks zurücksetzen“** – erst das **Passwort**, dann das Angebot einer **Sicherung** (ZIP: 1. Fächer, 2. Einheiten mit Einheitsdatei, 3. Sitzungen chronologisch nummeriert, je als Sitzungsdatei), letzte Bestätigung, Löschen. Gelöscht: Einheiten und Sitzungen mit allem Zugehörigen; es bleiben Zugang, Planungsgrundlagen, Fach-Einstellungen, KI, Connector, Feibeitsblatt-Verbindung, Schülerpasswort, Schülergeräte; die Feibeitsblätter bleiben im Feibeitsblatt. Planungsseite einer Einheit: **„Einheit als Datei herunterladen“** und **„Einheit aus Datei laden“** (Planung + Sitzungen; die Sitzungen bekommen ihren Inhalt beim Anlegen), siehe 4l (Rückfragen beantwortet: Umfang, Feibeitsblätter behalten, Planung + Sitzungen, Sitzungsdatei im Ordner) |
@@ -110,7 +111,8 @@ implementiert und im End-to-End-Test geprüft (Ausnahmen unten ausdrücklich gen
 | | `worker/lessons.js` | Sitzungen, Chat, Schulportal (mit Versionsschutz), Feibeitsblatt-Entwürfe/-Verknüpfungen |
 | | `worker/files.js` | Uploads, Textmaterial, Präsentation + Folienbilder, signierte Download-Links |
 | | `worker/student.js` | Sitzungscode einlösen, Schüleransicht, zeitgesteuerte Freigabe (Präsentation, Hausaufgabe), KI-Begriffshilfe |
-| | `worker/live.js` | Durable Object `LiveRoom`, Live-Tickets |
+| | `worker/live.js` | Durable Object `LiveRoom` (Rollen Lehrkraft, Schüler:in, Beamer), Live-Tickets |
+| | `worker/beamer.js` | Beamer über ein zweites Gerät: Beamer-Code, Kopplung (`beamer_pairs`), signierter Beamer-Schlüssel mit Generation, Ticket und Stand für das Beamergerät, Trennen |
 | | `worker/ai.js` | kostenlose KI-Anbieter, Modell je Aufgabe, Ausweichliste |
 | | `worker/mcp.js` | Connector für claude.ai (MCP) |
 | | `worker/bases.js` | Fach-Einstellungen, Planungsgrundlagen (Seitentexte), Zusammenstellung je Klasse/Kurs |
@@ -144,7 +146,7 @@ implementiert und im End-to-End-Test geprüft (Ausnahmen unten ausdrücklich gen
 | | `worker/reset.js` | Zurücksetzen (Passwort, ein Batch für D1, Dateien in Runden über `reset_queue`) und Übersicht für die Sicherung |
 | | `public/notfall.js`, `public/fbanalog.js` | Notfall-Feibeitsblatt: Blatt, Checkliste und Bilder laden; das analoge Arbeitsblatt (aus dem Feibeitsblatt übernommen per `scripts/fbanalog-sync.mjs`) |
 | | `public/presenter.js` | PDF → Folienbilder (Codefolien erkennen), Präsentationsmodus mit Codefolie und Vorschau der nächsten Folie, Beamer-Code |
-| | `public/beamer.js` | Beamerfenster (`#/beamer`): nur die aktuelle Folie, verbunden mit dem Präsentationsfenster per `BroadcastChannel` |
+| | `public/beamer.js` | Beamerfenster (`#/beamer`): nur die aktuelle Folie – verbunden mit dem Präsentationsfenster per `BroadcastChannel` oder, als Beamergerät, über den Server (Beamer-Code) |
 | | `public/codeslide.js` | die Codefolie (Sitzungscode + QR-Code) für Beamer, Präsentationsmodus und Live-Ansicht der Schüler:innen |
 | | `public/pdfmaker.js`, `public/markdown.js` | Textmaterial als PDF (Rückfall), sicheres Markdown |
 | | `worker/render.js`, `public/designrender.js` | Claudes Gestaltung (HTML) als PDF drucken (Browser Run), Stand und Nachdruck auf der Sitzungsseite (4m) |
@@ -253,6 +255,32 @@ implementiert und im End-to-End-Test geprüft (Ausnahmen unten ausdrücklich gen
    Knopf lösen den Knopf aus. Nach einem Mausklick verliert er den Fokus wieder, damit Leertaste und Presenter weiterblättern. „Vollbild auf dem Beamer“ nutzt, wo vorhanden
    (Chrome/Edge mit mehreren Bildschirmen), die Window Management API (`getScreenDetails`, `beamerScreen`), sonst Vollbild auf dem
    Bildschirm, auf dem das Fenster liegt.
+   **Beamer über ein zweites Gerät** (Nachtrag 15, `worker/beamer.js`): Meldet sich auf `#/beamer` binnen 1,5 s kein Präsentationsfenster im
+   selben Browser, ist die Seite ein **Beamergerät** (z. B. Schul-iPad an Apple TV). Ein lokales Präsentationsfenster hat weiter Vorrang,
+   solange es die Seite beansprucht; das Beamerfenster als Pop-up bleibt unverändert. Ablauf:
+   `POST /api/beamer/pair` (öffentlich; Zähler je gehashter IP 300/h in `locks` per `hitLimit`, ein Upsert) → Beamer-Code (6 Ziffern aus
+   `crypto.getRandomValues` ohne Modulo-Verzerrung, Anzeige „482 913“, 10 Minuten) und geheimer `pairKey` (16 Byte); D1 `beamer_pairs` speichert
+   nur dessen SHA-256 (3 Anweisungen: Zähler, abgelaufene Codes löschen, `INSERT … ON CONFLICT DO NOTHING RETURNING`). Das Gerät fragt alle 2 s
+   `POST /api/beamer/pair/poll {code, pairKey}` (Hash in konstanter Zeit verglichen) – nur solange der Code zu sehen und die Seite sichtbar ist;
+   nach 10 Minuten holt es still einen neuen. Die Lehrkraft gibt den Code in der Präsentation ein: `POST /api/teacher/lessons/:id/beamer {code}`
+   (angemeldet; nicht Grundschule; Leerzeichen/Bindestriche erlaubt, genau 6 Ziffern) setzt in **einer** bedingten Anweisung
+   (`UPDATE … WHERE code=? AND lesson_id IS NULL AND created_at > jetzt − 10 min RETURNING`) Sitzung und **Generation** (`bgen` im Durable
+   Object, `/beamer-gen`), sonst 404 `beamer_code`. Die nächste Abfrage holt die Kopplung **genau einmal** ab (`DELETE … RETURNING`, bis 12 Minuten
+   nach dem Erzeugen) und bekommt den **Beamer-Schlüssel** `Generation.Ablauf.HMAC("beamer|Sitzung|Generation|Ablauf")` (6 h; `signLink`),
+   gespeichert im Gerät (`localStorage` `u.beamer` = {lessonId, key, exp}) – so verbindet es sich auch nach dem Neuladen wieder. Mit dem Schlüssel:
+   `POST /api/beamer/live-ticket {lessonId, key}` (Signatur, aktuelle Generation, Sitzung besteht; liefert das Fach für die Farbe der Codefolie)
+   → kurzlebiges WebSocket-Ticket `["live", Sitzung, "beamer", Generation]`; `POST /api/beamer/live` = Stand alle 2 s als Rückfall (ohne D1).
+   Ungültig, abgelaufen oder getrennt → 403 `beamer_gone`: das Gerät verwirft den Schlüssel und zeigt einen neuen Code. Der Schlüssel steht nie in
+   einer Adresse (nur das 2-Minuten-Ticket). Im Durable Object ist **„beamer“ eine dritte Rolle**: Beamer bekommen dieselbe Nachricht wie die
+   Schüler:innen und zusätzlich `next` (signierter Link der nächsten Folie zum Vorladen, nur wenn sie ein Folienbild ist – `liveNext` in
+   `worker/livestate.js`, dieselbe Regel wie `nextSlideOf` der Vorschau), zählen nicht als Schüler:innen (die Lehrkraft bekommt `beamers` in
+   `state` und `{t:"count"}`) und steuern nichts; eine veraltete Generation weist es bei `/ws` und `/state` ab (403). „Beamer trennen“
+   (`POST /api/teacher/lessons/:id/beamer/disconnect` → `/beamer-reset`) erhöht die Generation und schließt alle Beamer-Verbindungen mit Code 4001;
+   beim Löschen der Sitzung bzw. beim Zurücksetzen (`/reset?beamers=1`) ebenso. „Präsentation für alle beenden“ lässt die Kopplung bestehen:
+   das Gerät zeigt „Die Präsentation ist beendet.“ und einen neuen Code (startet dieselbe Sitzung neu, zeigt es sie wieder; ein Code aus einer
+   anderen Sitzung holt es dorthin). Das Gerät hält den Bildschirm wach (`navigator.wakeLock`, bei `visibilitychange` neu, ohne Unterstützung
+   still). Keine zusätzliche D1-Abfrage im Durable Object; je Kopplungsanfrage höchstens 3 Anweisungen. Abgelaufene Codes räumt
+   `cleanupStatements` mit auf.
 7. **Material.** Zwei Bereiche (Schüler:innen / nur Lehrkraft). Jede Schüler-Abfrage filtert serverseitig auf den
    Schülerbereich; Downloads laufen über kurzlebige signierte Links. KI-Material wird mit „Als Material übernehmen“ als
    Textmaterial gespeichert; Schüler:innen laden es als PDF (mit Namens-/Datumszeile) herunter, z. B. für GoodNotes.
@@ -991,6 +1019,12 @@ stattdessen der von Anthropic vorgesehene Weg in umgekehrter Richtung (Connector
   sind nur `POST /api/eltern/*` mit dem Token im Rumpf; jede Antwort `no-store` und `X-Robots-Tag: noindex, nofollow`, Fehlversuche je IP
   gesperrt, Inhalt erst nach dem Ende der Sitzung und nie Ideen, Verlaufsplan, Code oder Material der Lehrkraft (Abschnitt 4b). Namen von
   Kindern prüft die Plattform nicht – die Prompts verbieten sie, die Eingabefelder weisen darauf hin.
+* **Beamergerät:** ohne Konto; koppeln kann nur die angemeldete Lehrkraft mit dem Code, der gerade auf dem Gerät steht (10 Minuten,
+  einmalig abgeholt, nur mit dem geheimen `pairKey` des Geräts). Das Gerät sieht nur, was die Schüler:innen live sehen (plus die nächste
+  Folie zum Vorladen); der Beamer-Schlüssel gilt 6 Stunden und nur für diese Sitzung, „Beamer trennen“ entwertet alle. Vertippt sich die
+  Lehrkraft und trifft zufällig den gültigen Code eines anderen Geräts, zeigt dieses ihre Präsentation – die Leiste nennt die Zahl der
+  verbundenen Beamer, „Beamer trennen“ löst sie. In D1 stehen nur Code, Hash des `pairKey`, Zeitpunkte und Sitzung (höchstens 12 Minuten),
+  Zähler je IP nur gehasht.
 * **Gespeicherte Feibeitsblatt-Verbindung:** Ende-zu-Ende verschlüsselt (Abschnitt 4g). Der Server kann sie nicht öffnen; wer nur ein
   Anmelde-Token der Lehrkraft hätte (ohne das Gerät), könnte den Umschlag abrufen und das Unterricks-Passwort offline durchprobieren
   (600 000 PBKDF2-Runden je Versuch) – deshalb ein langes Passwort wählen. „Alle anderen Geräte abmelden“ entzieht verlorenen Geräten den Zugang.

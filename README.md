@@ -81,7 +81,22 @@ Feibeitsblatt braucht keine Änderung. Die Adressen stehen in `wrangler.jsonc` (
   Vorschau mit: Blenden Sie sie dann aus, oder richten Sie den Beamer als **erweiterten Bildschirm** ein und öffnen Sie
   „Beamerfenster öffnen“. Das ist ein zweites Fenster nur mit der aktuellen Folie. Sie ziehen es auf den Beamer und klicken dort auf
   „Vollbild“; in Chrome und Edge geht das direkt über „Vollbild auf dem Beamer“. Gesteuert wird weiter im Präsentationsfenster, Pfeiltasten und
-  Presenter wirken auch im Beamerfenster. Ein offenes Beamerfenster übernimmt jede neu gestartete Präsentation von selbst. Ältere Präsentationen
+  Presenter wirken auch im Beamerfenster. Ein offenes Beamerfenster übernimmt jede neu gestartete Präsentation von selbst.
+  **Beamer über ein zweites Gerät – z. B. Schul-iPad an Apple TV:** Ein iPad spiegelt per AirPlay immer den ganzen Bildschirm. Damit die
+  Klasse trotzdem nur die aktuelle Folie sieht, öffnen Sie auf einem zweiten Gerät am Beamer (ein Schul-iPad, das an Apple TV spiegelt, oder
+  ein PC bzw. Laptop am Beamer) `unterricks.janrickmer.de/#/beamer` – am besten als Lesezeichen bzw. auf dem Home-Bildschirm; auf der
+  Startseite steht unten „Dieses Gerät als Beamer verwenden“. Das Gerät zeigt groß einen sechsstelligen **Beamer-Code** (10 Minuten
+  gültig, danach erscheint von selbst ein neuer). In der Präsentation auf Ihrem iPad tippen Sie auf **„Beamer verbinden“** (auf allen
+  Geräten, auch auf dem iPad) und geben den Code ein – das Feld öffnet sich in der Präsentation, das Vollbild bleibt. Spiegeln Sie Ihr
+  iPad dann nicht. Nach etwa 2 Sekunden zeigt das Gerät am Beamer nur die aktuelle Folie (bzw. die Codefolie); Ihr iPad zeigt weiter die
+  aktuelle und die nächste Folie und steuert, der Knopf heißt dann „Beamer verbunden“. Tasten und ein Presenter wirken nur auf Ihrem
+  Gerät, nicht am Beamergerät. Die Kopplung gilt für diese Sitzung bis zu 6 Stunden, auch nach dem Neuladen des Beamergeräts; „Beamer
+  verbunden“ → **„Beamer trennen“** löst sie (der Beamer zeigt dann „Getrennt“ und einen neuen Code). Nach „Präsentation für alle beenden“
+  zeigt der Beamer „Die Präsentation ist beendet.“ und einen neuen Code für die nächste Stunde in diesem Raum; startet dieselbe Sitzung
+  erneut, zeigt er sie wieder, ein Code aus einer anderen Sitzung holt ihn dorthin. Grenzen: Ein spiegelndes iPad behält sein
+  Seitenverhältnis (Ränder am Beamer). Am Beamer-iPad die **„Automatische Sperre“** (Einstellungen → Anzeige & Helligkeit) auf „Nie“
+  stellen – Unterricks hält den Bildschirm wach, wo der Browser das erlaubt; sperrt sich das iPad trotzdem, bricht AirPlay ab. Das
+  Beamergerät braucht keine Anmeldung, sieht nur, was auch die Schüler:innen live sehen, und zählt nicht als Schüler:in. Ältere Präsentationen
   mit einem Code auf den Folien: Unterricks ersetzt ihn beim Hochladen durch den Code dieser Sitzung (wo das nicht sicher geht, z. B.
   bei einem unruhigen Foto hinter dem Code, bleibt die Folie unverändert und die Meldung nennt sie). Am Stundenende: Hausaufgabe eintragen und per
   Rechtsklick im Verlaufsplan „Zwischenstopp einfügen“, falls nicht alles geschafft wurde. In der nächsten Sitzung zeigt dann die Karte

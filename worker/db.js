@@ -52,6 +52,10 @@ export const SCHEMA = [
   "CREATE TABLE IF NOT EXISTS gs_courses (id TEXT PRIMARY KEY, grade INTEGER NOT NULL, classes TEXT NOT NULL DEFAULT '[]', " +
     "religion INTEGER NOT NULL DEFAULT 1, subject_name TEXT NOT NULL DEFAULT 'Religion', description TEXT NOT NULL DEFAULT '', " +
     "school_year TEXT NOT NULL, created_at INTEGER NOT NULL, updated_at INTEGER NOT NULL)",
+  // Beamer über ein zweites Gerät (Nachtrag 15): Beamer-Code (6 Ziffern, 10 Minuten gültig) des Geräts am Beamer; key_hash = SHA-256 seines
+  // geheimen pairKey (nur er holt die Kopplung ab). Gibt die Lehrkraft den Code ein, stehen hier Sitzung und Generation (beamerGen im Durable
+  // Object); das Gerät holt sie einmal ab (die Zeile wird dabei gelöscht) und bekommt dann seinen signierten Beamer-Schlüssel (6 h).
+  "CREATE TABLE IF NOT EXISTS beamer_pairs (code TEXT PRIMARY KEY, key_hash TEXT NOT NULL, created_at INTEGER NOT NULL, lesson_id TEXT, beamer_gen INTEGER, paired_at INTEGER)",
 ];
 
 // Nachträglich ergänzte Spalten (bestehende Datenbanken bekommen sie per ALTER TABLE, nur additiv)
@@ -136,11 +140,14 @@ export const setSettingStmt = (db, key, value) =>
   db.prepare("INSERT INTO settings(key,value) VALUES(?1,?2) ON CONFLICT(key) DO UPDATE SET value=excluded.value").bind(key, JSON.stringify(value));
 export const setSetting = (db, key, value) => setSettingStmt(db, key, value).run();
 
-/* Aufräumen: abgelaufene Anmeldungen und alte Sperr-Zähler */
+/* Beamer-Codes gelten 10 Minuten; eine Kopplung kurz vor dem Ablauf kann das Gerät noch bis 12 Minuten nach dem Erzeugen abholen */
+export const BEAMER_PAIR_TTL_MS = 10 * 60e3, BEAMER_PAIR_KEEP_MS = 12 * 60e3;
+/* Aufräumen: abgelaufene Anmeldungen, alte Sperr-Zähler und Beamer-Codes */
 export function cleanupStatements(db, now) {
   return [
     db.prepare("DELETE FROM teacher_tokens WHERE expires_at < ?1").bind(now),
     db.prepare("DELETE FROM locks WHERE locked_until < ?1 AND window_start < ?2").bind(now, now - 2 * 86400e3),
     db.prepare("DELETE FROM render_usage WHERE day < ?1").bind(new Date(now - 30 * 86400e3).toISOString().slice(0, 10)),
+    db.prepare("DELETE FROM beamer_pairs WHERE created_at < ?1").bind(now - BEAMER_PAIR_KEEP_MS),   // abgelaufene Beamer-Codes
   ];
 }

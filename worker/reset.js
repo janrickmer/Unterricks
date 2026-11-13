@@ -48,7 +48,7 @@ export async function cleanupRound(c, budget = ROUND_CALLS) {
       complete = true; break;
     }
     if (!complete) break;   // Rest dieser Sitzung in der nächsten Runde (erneutes Auflisten ist unschädlich)
-    try { await c.env.LIVE.get(c.env.LIVE.idFromName(id)).fetch("https://live/reset", { method: "POST" }); } catch {}
+    try { await c.env.LIVE.get(c.env.LIVE.idFromName(id)).fetch("https://live/reset?beamers=1", { method: "POST" }); } catch {}   // auch verbundene Beamer trennen
     calls++;
     done.push(id);
     if (calls + 3 > budget) break;

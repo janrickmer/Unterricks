@@ -707,6 +707,99 @@ async function main() {
     await tp.locator(".thumbs .thumb.mark").waitFor({ timeout: 10000 });
     ok(await tp.locator("#shown-sel").inputValue() === "2" && await tp.locator(".thumbs .thumb.after").count() === 1, "Sitzung zeigt die Markierung (Folie 3 für Schüler:innen nicht freigegeben)");
 
+    step("Beamer über ein zweites Gerät (z. B. Schul-iPad an Apple TV): Beamer-Code, „Beamer verbinden“ am iPad der Lehrkraft, Trennen, Beenden");
+    {
+      // Gerät am Beamer ohne Anmeldung; die Bildschirmsperre-Schnittstelle wird mitgezählt (headless gibt es sie nicht zuverlässig)
+      const bctx = await browser.newContext({ viewport: { width: 1280, height: 720 } });
+      await bctx.addInitScript(() => { window.__wl = []; try { Object.defineProperty(navigator, "wakeLock", { configurable: true, value: { request: async (t) => { window.__wl.push(t); return { release: async () => {}, addEventListener() {} }; } } }); } catch {} });
+      const bp = await bctx.newPage(); watch(bp, "Beamergerät");
+      const slideReq = []; bp.on("request", (q) => { const m = /\/api\/slide\/[a-f0-9]{16}\/(\d+)\?/.exec(q.url()); if (m) slideReq.push(Number(m[1])); });
+      await bp.goto(BASE + "/");
+      await bp.getByRole("link", { name: "Dieses Gerät als Beamer verwenden" }).click();
+      const codeEl = bp.locator(".beamer .bm-code", { hasText: /^\d{3} \d{3}$/ });
+      await codeEl.waitFor({ timeout: 10000 });
+      const bcode = (await codeEl.textContent()).replace(" ", "");
+      ok(new URL(bp.url()).hash === "#/beamer" && (await bp.locator(".beamer .bm-how").textContent()) === "Tippen Sie in der Präsentation auf Ihrem iPad auf „Beamer verbinden“ und geben Sie diesen Code ein."
+        && (await bp.evaluate(() => window.__wl)).includes("screen") && await bp.locator(".beamer .bm-bar").getByRole("button", { name: "Fenster schließen" }).count() === 0,
+        "Startseite → „Dieses Gerät als Beamer verwenden“: großer Beamer-Code (" + bcode + "), Bildschirmsperre verhindert");
+      await bp.mouse.move(300, 300);
+      await bp.screenshot({ ...SHOT, path: join(OUT, "beamergeraet-code.png") });
+      // Lehrkraft am iPad (Touch): kein Beamerfenster, aber „Beamer verbinden“
+      const tStore0 = await tp.evaluate(() => JSON.stringify(localStorage));
+      const ictx = await browser.newContext({ ...devices["iPad (gen 7)"] });
+      await ictx.addInitScript((s) => { if (!sessionStorage.getItem("st")) { for (const [k, v] of Object.entries(JSON.parse(s))) localStorage.setItem(k, v); sessionStorage.setItem("st", "1"); } }, tStore0);
+      const ip = await ictx.newPage(); watch(ip, "Lehrkraft (iPad)");
+      await ip.goto(BASE + "/#/lk/s/" + lessonId);
+      await ip.getByRole("button", { name: "Ich bin im Unterricht und starte die Präsentation für alle." }).click();
+      const ipr = ip.locator(".presenter");
+      await ipr.locator(".stage .codeslide").waitFor({ timeout: 15000 });
+      ok(await ipr.getByRole("button", { name: "Beamerfenster öffnen" }).count() === 0 && await ipr.getByRole("button", { name: "Beamer verbinden" }).count() === 1, "iPad: kein Beamerfenster, aber „Beamer verbinden“");
+      const devB = ipr.getByRole("button", { name: "Beamer verbinden" }), dlg = ipr.locator(".bmc");
+      await devB.click(); await dlg.waitFor();
+      ok(await dlg.getAttribute("role") === "dialog" && await ip.evaluate(() => (document.activeElement || {}).id) === "bmc-in" && await ip.locator("#bmc-in").getAttribute("inputmode") === "numeric"
+        && await ip.locator("#bmc-in").getAttribute("autocomplete") === "off" && (await dlg.textContent()).includes("Spiegeln Sie dieses Gerät dann nicht auf den Beamer"),
+        "„Beamer verbinden“: Eingabefeld in der Präsentation (Dialog, Fokus im Feld, Ziffernfeld) mit dem Hinweis zum Spiegeln");
+      await ip.keyboard.press("Escape");
+      ok(!(await dlg.isVisible()) && await ip.evaluate(() => (document.activeElement || {}).textContent) === "Beamer verbinden", "Esc schließt das Feld, der Fokus steht wieder auf „Beamer verbinden“");
+      await devB.click(); await dlg.waitFor();
+      await ip.screenshot({ ...SHOT, path: join(OUT, "lehrkraft-ipad-beamer-verbinden.png") });
+      await ip.locator("#bmc-in").fill(String((Number(bcode) + 1) % 1e6).padStart(6, "0"));
+      await ip.locator("#bmc-in").press("ArrowRight"); await ip.locator("#bmc-in").press("Backspace"); await ip.locator("#bmc-in").pressSequentially(String((Number(bcode) + 1) % 10));
+      await ip.keyboard.press("Enter");
+      await ip.locator("#bmc-err", { hasText: "Diesen Beamer-Code gibt es nicht (mehr). Auf dem Beamer steht nach dem Neuladen ein neuer." }).waitFor({ timeout: 10000 });
+      ok(await dlg.isVisible() && (await ipr.locator(".counter").textContent()) === "Sitzungscode" && await ip.locator("#bmc-in").getAttribute("aria-invalid") === "true",
+        "falscher Code: Meldung im Feld; Pfeiltaste und Rücktaste im Feld blättern nicht");
+      await ip.locator("#bmc-in").fill(bcode.slice(0, 3) + " " + bcode.slice(3));
+      await ip.keyboard.press("Enter");
+      await bp.locator(".beamer .bm-stage .codeslide").waitFor({ timeout: 15000 });
+      await ipr.getByRole("button", { name: "Beamer verbunden" }).waitFor({ timeout: 10000 });
+      ok(!(await dlg.isVisible()) && await ip.evaluate(() => (document.activeElement || {}).getAttribute && document.activeElement.getAttribute("aria-haspopup")) === "dialog"
+        && (await bp.locator(".beamer .codeslide .c").textContent()) === codeF && await bp.locator(".nextpane, .np-frame, .presenter, .bm-code").count() === 0
+        && (await ipr.locator(".devstate").textContent()) === "Beamer verbunden" && await ipr.locator(".small", { hasText: "1 Schüler:in verbunden" }).count() === 1
+        && (await ipr.locator(".nextpane .np-head").textContent()) === "Als Nächstes Folie 1 / 3",
+        "gekoppelt: der Beamer zeigt nur die Codefolie, das iPad weiter die Vorschau; „Beamer verbunden“, die Schülerzahl bleibt 1");
+      await ipr.getByRole("button", { name: "Nächste Folie" }).click();
+      await bp.waitForFunction(() => /\/1\?/.test((document.querySelector(".beamer .bm-stage > img") || {}).src || ""), null, { timeout: 10000 });
+      await sp.locator(".live .badge", { hasText: "Folie 1 / 3" }).waitFor({ timeout: 10000 });
+      for (let i = 0; i < 30 && !slideReq.includes(2); i++) await sleep(100);
+      ok(slideReq.includes(2) && !slideReq.includes(3) && (await ipr.locator(".nextpane .np-head").textContent()) === "Als Nächstes Folie 2 / 3",
+        "weiter: Folie 1 am Beamer und bei der Schülerin; Folie 2 hat der Beamer schon vorgeladen (Folie 3 ist eine Codefolie – kein Bild)");
+      const linkBefore = JSON.parse(await bp.evaluate(() => localStorage.getItem("u.beamer")));
+      await bp.reload();
+      await bp.waitForFunction(() => /\/1\?/.test((document.querySelector(".beamer .bm-stage > img") || {}).src || ""), null, { timeout: 20000 });
+      ok(await bp.locator(".bm-code").count() === 0 && linkBefore.lessonId === lessonId, "Neuladen des Beamers: wieder verbunden (gespeicherter Schlüssel), ohne neuen Code");
+      await bp.mouse.move(300, 300);
+      await bp.screenshot({ ...SHOT, path: join(OUT, "beamergeraet-folie.png") });
+      await ip.screenshot({ ...SHOT, path: join(OUT, "lehrkraft-ipad-beamer-verbunden.png") });
+      // „Beamer trennen“: der Schlüssel gilt nicht mehr, der Beamer zeigt einen neuen Code
+      await ipr.getByRole("button", { name: "Beamer verbunden" }).click();
+      await dlg.getByRole("button", { name: "Beamer trennen" }).click();
+      await bp.locator(".beamer .bm-msg", { hasText: "Getrennt – dieses Gerät zeigt keine Präsentation mehr." }).waitFor({ timeout: 10000 });
+      await codeEl.waitFor({ timeout: 10000 });
+      const code2 = (await codeEl.textContent()).replace(" ", "");
+      const oldKey = await fetch(BASE + "/api/beamer/live-ticket", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ lessonId, key: linkBefore.key }) });
+      ok(code2 !== bcode && (await ipr.locator(".devstate").textContent()) === "Beamer getrennt" && await ipr.getByRole("button", { name: "Beamer verbinden" }).count() === 1
+        && await bp.evaluate(() => localStorage.getItem("u.beamer")) === null && oldKey.status === 403, "„Beamer trennen“: der Beamer zeigt „Getrennt“ und einen neuen Code; der alte Schlüssel gilt nicht mehr (403)");
+      await bp.screenshot({ ...SHOT, path: join(OUT, "beamergeraet-getrennt.png") });
+      // neu koppeln, dann „Präsentation für alle beenden“: beendet + neuer Code, das Gerät bleibt mit der Sitzung verbunden
+      await ipr.getByRole("button", { name: "Beamer verbinden" }).click();
+      await ip.locator("#bmc-in").fill(code2); await dlg.getByRole("button", { name: "Verbinden" }).click();
+      await bp.waitForFunction(() => /\/1\?/.test((document.querySelector(".beamer .bm-stage > img") || {}).src || ""), null, { timeout: 15000 });
+      await ipr.getByRole("button", { name: "Präsentation für alle beenden" }).click();
+      await bp.locator(".beamer .bm-msg", { hasText: "Die Präsentation ist beendet." }).waitFor({ timeout: 10000 });
+      await codeEl.waitFor({ timeout: 10000 });
+      ok(await bp.locator(".beamer .bm-stage > img, .beamer .codeslide").count() === 0 && !!(await bp.evaluate(() => localStorage.getItem("u.beamer"))),
+        "„Präsentation für alle beenden“: der Beamer zeigt „Die Präsentation ist beendet.“ und einen neuen Code (für die nächste Stunde)");
+      await bp.screenshot({ ...SHOT, path: join(OUT, "beamergeraet-beendet.png") });
+      await ip.getByRole("button", { name: "Ich bin im Unterricht und starte die Präsentation für alle." }).click();
+      await bp.locator(".beamer .bm-stage .codeslide").waitFor({ timeout: 15000 });
+      ok(true, "dieselbe Sitzung neu gestartet: der Beamer ist noch verbunden und zeigt sie wieder");
+      await ip.locator(".presenter").getByRole("button", { name: "Präsentation für alle beenden" }).click();
+      await bp.locator(".beamer .bm-msg", { hasText: "Die Präsentation ist beendet." }).waitFor({ timeout: 10000 });
+      await sp.locator(".live .placeholder").waitFor({ timeout: 10000 });
+      await ictx.close(); await bctx.close();
+    }
+
     /* ---------- Claude-Connector (MCP) ---------- */
     step("Claude-Connector (MCP)");
     r = await rpc({ jsonrpc: "2.0", id: 1, method: "initialize", params: { protocolVersion: "2025-06-18", capabilities: {}, clientInfo: { name: "test", version: "1" } } });
@@ -2245,6 +2338,15 @@ async function main() {
       }
       await ptp.goto(PAGES + "/#/lk/s/" + lessonId); await ptp.locator(".code-big").waitFor({ timeout: 20000 });
       ok(true, "Lehrkraft auf Pages: Anmeldung (mit Vorabanfrage) und Sitzung laden");
+      { // Beamergerät auf Pages: der Beamer-Code kommt vom Worker (CORS), keine Anfrage an die Pages-Herkunft
+        const bx = await browser.newContext({ viewport: { width: 1280, height: 720 } }); const bxp = await bx.newPage(); watch(bxp, "Pages-Beamer");
+        bxp.on("console", (m) => { if (m.type() === "error" && /Content Security Policy|CORS|Access-Control/i.test(m.text())) cspErr.push(m.text()); });
+        const breq = []; bxp.on("request", (q) => { if (q.url().includes("/api/")) breq.push(q.url()); });
+        await bxp.goto(PAGES + "/#/beamer");
+        await bxp.locator(".beamer .bm-code", { hasText: /^\d{3} \d{3}$/ }).waitFor({ timeout: 15000 });
+        ok(breq.length > 0 && breq.every((u) => u.startsWith(BASE + "/api/beamer/")), "Beamergerät auf Pages: Beamer-Code vom Worker");
+        await bx.close();
+      }
       { // „PDF ansehen“ öffnet den signierten Link beim Worker, nicht auf der Pages-Herkunft (dort gäbe es 404)
         const dlReq = ptc.waitForEvent("request", { predicate: (q) => q.url().includes("/api/dl/"), timeout: 15000 }).catch(() => null);
         await ptp.locator("section.card", { hasText: "Präsentation für den Unterricht" }).getByRole("button", { name: "PDF ansehen" }).click();
@@ -2549,6 +2651,7 @@ async function main() {
         for (const [label, hash] of T_PAGES) await audit(dev, label, tStore, hash);
         for (const [label, hash] of S_PAGES) await audit(dev, label, sStore, hash);
         for (const [label, hash] of P_PAGES) await audit(dev, label, null, hash);   // Eltern: ohne gespeicherte Daten
+        await audit(dev, "Beamergerät", null, "#/beamer", async (p) => { await p.locator(".beamer .bm-code", { hasText: /\d/ }).waitFor({ timeout: 10000 }); });
       }
       // MOBILE_SHOTS=1: Grundschule und Elternansicht zusätzlich am großen Bildschirm, hell und dunkel (zum Ansehen)
       if (process.env.MOBILE_SHOTS) for (const dark of [false, true]) for (const [label, hash, store] of [...GS_PAGES.map((x) => [...x, tStore]), ...P_PAGES.map((x) => [...x, null])]) {
@@ -2580,6 +2683,9 @@ async function main() {
         await audit(dev, "Präsentationsmodus", tStore, "#/lk/s/" + lessonId, async (p) => {
           await p.getByRole("button", { name: "Ich bin im Unterricht und starte die Präsentation für alle." }).click(); await p.locator(".presenter").waitFor();
           await p.waitForTimeout(400); });
+        await audit(dev, "Dialog „Beamer verbinden“", tStore, "#/lk/s/" + lessonId, async (p) => {
+          await p.getByRole("button", { name: "Ich bin im Unterricht und starte die Präsentation für alle." }).click(); await p.locator(".presenter").waitFor();
+          await p.locator(".presenter").getByRole("button", { name: /^Beamer verb/ }).click(); await p.locator(".presenter .bmc").waitFor(); });
       }
       writeFileSync(join(OUT, "mobile-audit.json"), JSON.stringify(report, null, 1));
     }

@@ -375,7 +375,7 @@ export async function routeLessonDelete(c, id) {
     c.db.prepare("DELETE FROM substitutes WHERE lesson_id=?1").bind(id),
     c.db.prepare("DELETE FROM lessons WHERE id=?1").bind(id),
   ]);
-  try { await c.env.LIVE.get(c.env.LIVE.idFromName(id)).fetch("https://live/reset", { method: "POST" }); } catch {}
+  try { await c.env.LIVE.get(c.env.LIVE.idFromName(id)).fetch("https://live/reset?beamers=1", { method: "POST" }); } catch {}   // auch verbundene Beamer trennen
   return json({ ok: true });
 }
 

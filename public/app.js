@@ -64,7 +64,9 @@ const sapi = async (method, path, o = {}) => {
   try { const r = await api(method, path, { ...o, token: S.token }); if (r && Number.isFinite(r.authLeftMs)) armAuth(r.authLeftMs); return r; }
   catch (e) { if (e && e.code === "session_expired") expireStudent(e.message); throw e; }
 };
-const footer = () => h("footer", { class: "footer" }, h("a", { href: "#/lehrkraft" }, "Lehrkräfte"));
+const footer = (beamer = false) => h("footer", { class: "footer" }, h("a", { href: "#/lehrkraft" }, "Lehrkräfte"),
+  // nur auf der Startseite (Passwort): ein Gerät am Beamer (z. B. Schul-iPad an Apple TV) für die Präsentation (Nachtrag 15)
+  beamer ? [h("span", { class: "footsep", "aria-hidden": "true", text: "·" }), h("a", { href: "#/beamer", class: "footbeamer" }, "Dieses Gerät als Beamer verwenden")] : null);
 
 /* ---------- Startseite: nur die Passwortabfrage ---------- */
 const backHash = () => { const b = store.get(BACK_KEY) || ""; store.del(BACK_KEY); return onStudentHash(b) ? b : "#/schueler"; };
@@ -109,7 +111,7 @@ async function studentStart() {
   note ? h("p", { class: "notice", role: "status", id: "spw-note", text: note }) : null,
   h("div", { class: "field" }, h("label", { for: "spw" }, "Passwort"), pw), msg, btn);
   if (note) pw.setAttribute("aria-describedby", "spw-note");
-  render(h("div", { class: "login-wrap" }, form), footer());
+  render(h("div", { class: "login-wrap" }, form), footer(true));
   setTimeout(() => pw.focus(), 50);
 }
 

@@ -570,6 +570,21 @@ export function beamerScreen(d) {
   if (cur.isInternal === true) return all.find((s) => s !== cur) || null;
   return cur.isPrimary === true ? all.find((s) => s !== cur && s.isPrimary !== true) || null : null;
 }
+/* Beamer über ein zweites Gerät (Nachtrag 15 der Lehrkraft vom 13.11.2026): Beamer-Code = 6 Ziffern, angezeigt „482 913“. Eingabe mit
+   Leerzeichen, Bindestrichen oder Punkten ist erlaubt; alles andere (Buchstaben, mehr oder weniger Ziffern) → null */
+export const BEAMER_CODE_LEN = 6;
+export function normBeamerCode(s) {
+  const d = String(s == null ? "" : s).replace(/[\s  .\-‐‑–—]/g, "");
+  return /^\d{6}$/.test(d) ? d : null;
+}
+export const fmtBeamerCode = (c) => (/^\d{6}$/.test(String(c || "")) ? c.slice(0, 3) + " " + c.slice(3) : String(c || ""));
+/* gespeicherte Kopplung des Beamergeräts (localStorage u.beamer) {lessonId, key, exp} – nur in dieser Form und noch gültig, sonst null */
+export function readBeamerLink(raw, now = Date.now()) {
+  let d = null; try { d = typeof raw === "string" ? JSON.parse(raw) : null; } catch { return null; }
+  if (!d || typeof d !== "object" || typeof d.lessonId !== "string" || !HEX16.test(d.lessonId) || typeof d.key !== "string"
+    || !/^\d{1,9}\.\d{10,16}\.[A-Za-z0-9_-]{20,100}$/.test(d.key) || !Number.isFinite(d.exp) || d.exp <= now) return null;
+  return { lessonId: d.lessonId, key: d.key, exp: d.exp };
+}
 
 /* Öffentliche Adresse der Oberfläche (GitHub Pages mit eigener Domain) – für Hinweise im Schulportal */
 export const PUBLIC_URL = "https://unterricks.janrickmer.de";

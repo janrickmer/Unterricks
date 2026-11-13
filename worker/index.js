@@ -18,6 +18,7 @@ import * as GS from "./gs.js";
 import * as CA from "./cards.js";
 import * as PA from "./parents.js";
 import * as PJ from "./printjobs.js";
+import * as BM from "./beamer.js";
 
 export { LiveRoom } from "./live.js";
 
@@ -156,6 +157,13 @@ const ROUTES = [
   ["POST", "/api/teacher/lessons/" + ID + "/live-ticket", LV.routeTeacherLiveTicket],
   ["GET", "/api/teacher/lessons/" + ID + "/live", LV.routeTeacherLiveState],
   ["POST", "/api/teacher/lessons/" + ID + "/live/stop", LV.routeTeacherLiveStop],
+  // Beamer über ein zweites Gerät (Nachtrag 15): koppeln und trennen (Lehrkraft), Beamer-Code und Live-Verbindung des Geräts (öffentlich)
+  ["POST", "/api/teacher/lessons/" + ID + "/beamer", BM.routeTeacherBeamerPair],
+  ["POST", "/api/teacher/lessons/" + ID + "/beamer/disconnect", BM.routeTeacherBeamerDisconnect],
+  ["POST", "/api/beamer/pair", BM.routeBeamerPair],
+  ["POST", "/api/beamer/pair/poll", BM.routeBeamerPoll],
+  ["POST", "/api/beamer/live-ticket", BM.routeBeamerTicket],
+  ["POST", "/api/beamer/live", BM.routeBeamerLive, { noDb: true }],
   // Schüler:innen
   ["POST", "/api/student/login", A.routeStudentLogin],
   ["GET", "/api/student/me", S.routeStudentMe],
