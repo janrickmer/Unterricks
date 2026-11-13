@@ -347,9 +347,11 @@ implementiert und im End-to-End-Test geprüft (Ausnahmen unten ausdrücklich gen
   die Druckliste neu. Der Konflikt-Dialog des Verlaufsplans ohne Wahl geschlossen: „Nicht gespeichert – Konflikt offen“, der Text gilt als ungespeichert
   (nie still ersetzt). „Krankmeldung rückgängig machen“ auf der Seite des Ausfall-Eintrags führt zur Sitzung, die wieder an diesem Termin liegt (sonst
   zur Einheit). Der Dialog „Stunde ausfallen lassen?“ öffnet sich nie doppelt; `modal()` (`ui.js`) fokussiert ohne Eingabefeld und Hauptknopf den
-  ersten Knopf unten („Abbrechen“ – auch in den roten Rückfragen am Gymnasium). `contextMenu` gibt den Fokus beim Schließen an den Auslöser zurück,
-  und Tab schließt das Menü (geht vom Auslöser aus weiter). Die Felder der Sitzungsdaten sind beschriftet (`label for`). Tests der Oberfläche ohne
-  Browser: `test/unit/gsui.test.mjs` mit der DOM-Nachbildung `test/unit/fake-dom.mjs` (Attrappen für `app.js` und `teacher.js`).
+  ersten Knopf unten („Abbrechen“ – auch in den roten Rückfragen am Gymnasium). `contextMenu` gibt den Fokus beim Schließen an den Auslöser zurück;
+  Pfeiltasten und Tab wechseln zwischen den Einträgen, Tab über den letzten hinaus schließt das Menü (geht vom Auslöser aus weiter), Umschalt+Tab vor
+  dem ersten zurück auf den Auslöser. Solange der Konflikt-Dialog offen ist, gilt der Verlaufsplan ebenfalls als ungespeichert; „Meine Fassung
+  speichern“ übernimmt die gesehene Version (ein schon wartendes Speichern fragt nicht noch einmal). Die Felder der Sitzungsdaten sind beschriftet
+  (`label for`). Tests der Oberfläche ohne Browser: `test/unit/gsui.test.mjs` mit der DOM-Nachbildung `test/unit/fake-dom.mjs` (Attrappen für `app.js` und `teacher.js`).
 
 * **Grundschule: Bildkarten (Ergänzung vom 12.11.2026).** Wird eine Geschichte mit Bildkarten erzählt, gehört zur Sitzung eine PDF mit einer
   Karte je Seite und einem gekürzten Erzähltext je Karte (`files.cards` = `{v:1, texts, share, rev}`, Bereich „nur Lehrkraft“ – Schüler:innen
@@ -367,7 +369,8 @@ implementiert und im End-to-End-Test geprüft (Ausnahmen unten ausdrücklich gen
   Ergänzungen der Abschlussprüfung (Oberfläche): Wird ein Kartensatz neu aufgebaut (Bilder fertig oder gescheitert, Druck gescheitert, neu geladen),
   bleiben noch nicht gespeicherte Erzähltexte samt Schreibmarke stehen (scheitert etwas, wird vorher gespeichert); der Fokus bleibt auf demselben
   Element, sonst auf der Überschrift des Satzes bzw. – nach dem Löschen – auf „Bildkarten“. Druckaufträge anderer Materialien der Sitzung (dieselbe
-  Warteschlange) bauen die Karte nicht mehr neu auf.
+  Warteschlange) bauen die Karte nicht mehr neu auf. Ein frisch hochgeladener (oder noch nicht geladener) Satz holt seinen Stand (`rev`) vor dem
+  ersten Speichern – Erzähltexte und Freigabe lassen sich speichern, während die Bilder entstehen oder nachdem das scheiterte.
 
 * **Grundschule: Elternansicht (Ergänzung vom 12.11.2026).** Auf der Sitzungsseite kopiert „Sitzungslink für Eltern kopieren“ einen geheimen
   Link `…#/eltern/<Token>` (192 Bit, `randomToken(24)`); in D1 stehen nur `lessons.parent_hash` (SHA-256 von `eltern|v1|<Token>`, zum

@@ -230,7 +230,7 @@ export function materialBox({ lessonId: id, st, L, gs = false, labels = {}, excl
       h("button", { class: "btn small ghost", type: "button", "aria-label": "Umbenennen – " + f.name, onclick: async () => {
         const n = prompt("Name der Druckvorlage (ohne Anzahl und Druckart):", f.name.replace(/\.pdf$/i, ""));
         if (!n || !n.trim()) return;
-        await save({ name: n.trim() + (f.kind === "file" ? ".pdf" : "") }); paintPrint(); changed();
+        await save({ name: n.trim() + (f.kind === "file" ? ".pdf" : "") }); paintPrint(); if (gs && f.area === "student") paintFiles(); changed();
       } }, icon("edit")),
       f.area === "student" ? h("button", { class: "btn small ghost", type: "button", onclick: async () => {
         try { const r = await tapi("PATCH", "/api/teacher/files/" + f.id, { body: { copies: null } }); Object.assign(f, r.file); delete f.print; paintPrint(); paintFiles(); toast("„" + f.name + "“ steht nicht mehr auf der Druckliste (das Material für die Kinder bleibt).", "ok"); } catch (e) { errToast(e); }

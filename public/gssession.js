@@ -175,7 +175,9 @@ export async function gsSessionPage(id, d) {
   function planConflict(cur, mine) {
     return new Promise((resolve) => {
       let chosen = false;
-      // ohne Wahl geschlossen (Esc, ×, daneben geklickt): Ihre Fassung bleibt ungespeichert – nie still durch die gespeicherte ersetzen
+      // solange der Dialog offen ist und wenn er ohne Wahl geschlossen wird (Esc, ×, daneben geklickt): Ihre Fassung gilt als ungespeichert – beim
+      // Zurückkehren in den Tab (onVis) nie still durch die gespeicherte ersetzen, beim Verlassen der Seite nachfragen
+      plan.dirty = true;
       const onClose = () => { if (!chosen) { plan.dirty = true; stateLine(planState, "Nicht gespeichert – Konflikt offen", "err"); } resolve(); };
       modal({ title: "Der Verlaufsplan wurde inzwischen an anderer Stelle geändert", wide: true, onClose,
         body: (el) => el.append(h("p", { text: "Der Verlaufsplan wurde " + (cur.source === "claude" ? "von Claude über den Connector" : "in einem anderen Fenster") + " geändert (Version " + cur.version + "). Welche Fassung soll gelten?" }),
@@ -183,7 +185,8 @@ export async function gsSessionPage(id, d) {
             h("div", null, h("h3", { text: "Gespeicherte Fassung" }), h("pre", { class: "portal-preview mono", style: { whiteSpace: "pre-wrap" }, text: cur.text })))),
         actions: [
           { label: "Gespeicherte Fassung übernehmen", onClick: () => { chosen = true; ta.value = cur.text; plan.version = cur.version; plan.dirty = false; Object.assign(L(), { portal: cur.text, portalVersion: cur.version, portalUpdatedAt: cur.updatedAt, portalSource: cur.source }); paintPlan(); stateLine(planState, planInfo()); } },
-          { label: "Meine Fassung speichern", class: "primary", onClick: () => { chosen = true; plan.dirty = true; flushPlan(true); } },
+          // plan.version = die gesehene gespeicherte Fassung: ein Speichern, das schon wartet (z. B. beim Verlassen der Seite), fragt nicht noch einmal
+          { label: "Meine Fassung speichern", class: "primary", onClick: () => { chosen = true; plan.version = cur.version; plan.dirty = true; flushPlan(true); } },
         ] });
     });
   }

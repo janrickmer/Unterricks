@@ -86,23 +86,37 @@ export function paintPlanPreview(box, text, opt = {}) {
 }
 
 /* kleines Kontextmenü an Mausposition. Beim Schließen (Esc, Auswahl, Tab, Klick daneben) geht der Fokus zurück an das Element, das ihn vorher
-   hatte (z. B. „PDF-Verweis einfügen …“) – aber nur, wenn er noch im Menü liegt (sonst fiele er auf body). Tab schließt das Menü: Der Fokus geht
-   an den Auslöser zurück, und Tab geht von dort aus weiter (das Menü hängt am Ende der Seite und bliebe sonst offen stehen). */
+   hatte (z. B. „PDF-Verweis einfügen …“) – aber nur, wenn er noch im Menü liegt (sonst fiele er auf body). Pfeiltasten (sowie Pos1/Ende) und
+   Tab wechseln zwischen den Einträgen; Tab über den letzten Eintrag hinaus schließt das Menü und geht vom Auslöser aus weiter, Umschalt+Tab
+   vor dem ersten zurück auf den Auslöser (das Menü hängt am Ende der Seite und bliebe sonst offen stehen). */
 export function contextMenu(x, y, items) {
   document.querySelectorAll(".ctxmenu").forEach((m) => m.remove());
   const opener = document.activeElement;
   let closed = false;
   const menu = h("div", { class: "ctxmenu", role: "menu" }, items.map((it) => h("button", { type: "button", role: "menuitem", class: it.danger ? "danger" : "", onclick: () => { close(); it.onClick(); } }, it.label)));
-  const close = (how) => {   // how = "away": der Fokus geht gerade woandershin – dann nicht zurückholen
-    if (closed) return;
+  const close = (how) => {   // how = "away": der Fokus geht gerade woandershin – dann nicht zurückholen. → true, wenn der Auslöser den Fokus hat
+    if (closed) return false;
     closed = true;
     const a = document.activeElement, back = how !== "away" && (!a || a === document.body || menu.contains(a));
     menu.remove(); document.removeEventListener("mousedown", outside, true); document.removeEventListener("keydown", esc, true); window.removeEventListener("scroll", close, true);
-    if (back && opener && opener !== document.body && opener.isConnected && typeof opener.focus === "function") opener.focus({ preventScroll: true });
+    if (!back || !opener || opener === document.body || !opener.isConnected || typeof opener.focus !== "function") return false;
+    opener.focus({ preventScroll: true });
+    return document.activeElement === opener;
   };
   const outside = (e) => { if (!menu.contains(e.target)) close(); };
   const esc = (e) => { if (e.key === "Escape") close(); };
-  menu.addEventListener("keydown", (e) => { if (e.key === "Tab") close(); });
+  menu.addEventListener("keydown", (e) => {
+    const list = [...menu.querySelectorAll("button")], i = list.indexOf(document.activeElement);
+    if (e.key === "Tab") {
+      if (e.shiftKey ? i > 0 : i >= 0 && i < list.length - 1) return;   // zum nächsten bzw. vorigen Eintrag
+      if (close() && e.shiftKey) e.preventDefault();                       // Umschalt+Tab: auf dem Auslöser bleiben
+      return;
+    }
+    const k = { ArrowDown: i + 1, ArrowUp: i < 0 ? list.length - 1 : i - 1, Home: 0, End: list.length - 1 }[e.key];
+    if (k === undefined || !list.length) return;
+    e.preventDefault();
+    list[(k + list.length) % list.length].focus();
+  });
   menu.addEventListener("focusout", (e) => { if (e.relatedTarget && !menu.contains(e.relatedTarget)) close("away"); });
   document.body.append(menu);
   const r = menu.getBoundingClientRect();

@@ -108,6 +108,7 @@ export function cardsCard({ lessonId, st, insertRef, onChange = () => {} }) {
       const r = await upload("/api/teacher/lessons/" + lessonId + "/cards?name=" + encodeURIComponent(file.name) + "&share=" + (share.checked ? "1" : "0"), file, T.token,
         (p) => stateLine(upState, "„" + file.name + "“ wird hochgeladen … " + Math.round(p * 100) + " %"), "application/pdf");
       st.files.push(r.file);
+      load(r.file.id);   // Stand (rev) gleich holen: Erzähltexte und Freigabe lassen sich schon speichern, während die Bilder entstehen
       upId = r.file.id;
       stateLine(upState, "Hochgeladen – die Bilder der Karten werden erstellt …");
       paint(); onChange();
@@ -125,10 +126,14 @@ export function cardsCard({ lessonId, st, insertRef, onChange = () => {} }) {
     const ed = editing.get(id); if (!ed) return;
     clearTimeout(ed.timer); ed.timer = null;
     ed.chain = ed.chain.then(async () => {
-      const d = data.get(id); if (!d || d.error) return;
-      const box = el.querySelector("#cs-" + id) || box0;
-      const texts = [...box.querySelectorAll("textarea.cs-text")].map((t) => t.value);
+      let box = el.querySelector("#cs-" + id) || box0;
+      // frisch hochgeladen (noch nie geladen) oder das Laden scheiterte: erst den Stand (rev) holen – sonst bliebe der Text ungespeichert
+      let d = data.get(id);
+      if (!d || d.error) d = await load(id);
+      box = el.querySelector("#cs-" + id) || box;
       const sline = box.querySelector(".cs-save");
+      if (!d) { stateLine(sline, "Nicht gespeichert: " + ((data.get(id) || {}).error || "Bitte später noch einmal versuchen."), "err"); return; }
+      const texts = [...box.querySelectorAll("textarea.cs-text")].map((t) => t.value);
       stateLine(sline, "Speichert …");
       try {
         const r = await tapi("PUT", "/api/teacher/files/" + id + "/cards", { body: { texts, rev: d.rev } });
