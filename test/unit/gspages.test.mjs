@@ -245,11 +245,20 @@ test("F13/F27 + F16: Einheitsseite der Grundschule – kein „Gesicherte Einhei
   assert.ok(del, "nur Ausfall-Einträge: „Einheit löschen“ ist da");
   del.click();
   await D.sleep(5);
-  assert.equal($(".modal .body").textContent, "Diese Einheit mit Plan und Tabelle löschen? Ihr Ausfall-Eintrag wird ebenfalls gelöscht.");
+  assert.equal($(".modal .body").textContent, "Diese Einheit mit Plan und Tabelle löschen? Der Ausfall-Eintrag dieser Einheit wird ebenfalls gelöscht; der Elternlink des ausgefallenen Termins funktioniert danach nicht mehr.");
   button($(".modal"), "Löschen").click();
   await waitFor(() => deleted === 1, "gelöscht");
   await waitFor(() => globalThis.__go.length, "weiter");
   assert.deepEqual(globalThis.__go, ["#/lk/grundschule/k/" + GSID]);
+  // c2) zwei Ausfall-Einträge: die Rückfrage nennt beide (und dass ihre Elternlinks danach nicht mehr gelten)
+  fresh();
+  server(unitRoutes(() => gsUnit({ lessons: [...cancelled, { ...cancelled[0], id: L2, date: "2026-11-18" }] })));
+  await UN.unitPage(UID);
+  await D.sleep(5);
+  button($("main"), "Einheit löschen").click();
+  await D.sleep(5);
+  assert.equal($(".modal .body").textContent, "Diese Einheit mit Plan und Tabelle löschen? Die 2 Ausfall-Einträge dieser Einheit werden ebenfalls gelöscht; die Elternlinks der ausgefallenen Termine funktionieren danach nicht mehr.");
+  button($(".modal"), "Abbrechen").click();
   // d) eine reguläre Sitzung daneben: kein Löschen (der Server lehnte ab)
   fresh();
   server(unitRoutes(() => gsUnit({ lessons: [...cancelled, { ...cancelled[0], id: L1, row: "r1", cancelled: false }] })));
@@ -314,6 +323,38 @@ test("F14: lädt die Einheit erst beim Klick und arbeitet die Lehrkraft inzwisch
   await D.sleep(5);
   assert.ok($(".modal"), "der nächste Klick öffnet den Dialog sofort");
   button($(".modal"), "Schließen").click();
+  box.remove(); field.remove();
+});
+
+test("F14 (Kontrolle): scheitert das Laden beim Klick und fiel der Fokus beim Sperren des Knopfes auf body, geht er an den Knopf zurück", async () => {
+  fresh();
+  const partial = gsUnit({ revise: { open: true, items: [{ id: "x1", date: "2026-11-11", time: "09:50", lengths: [] }], canUndo: false } });
+  delete partial.lessons;
+  let reject = null, n = 0;
+  server([[/^GET \/api\/teacher\/units\/u1u1/, async () => { if (n++ === 0) throw new ApiError("Fehler 500", 500); await new Promise((r, j) => { reject = j; }); }]]);
+  const box = GSP.reviseBox(partial, {});
+  document.getElementById("app").append(box);
+  await D.sleep(5);
+  const btn = button(box, "Einheit mit Claude überarbeiten");
+  btn.focus(); btn.click();
+  await waitFor(() => reject, "lädt");
+  btn.blur();   // wie Chrome: ein gesperrter Knopf verliert den Fokus an body
+  reject(new ApiError("Keine Verbindung zum Server. Bitte Internetverbindung prüfen.", 0));
+  await waitFor(() => toasts().some((t) => t.startsWith("Der Prompt braucht die ganze Einheit")), "Meldung");
+  await D.sleep(5);
+  assert.ok(!$(".modal"), "kein Dialog");
+  assert.ok(document.activeElement === btn, "Fokus wieder auf dem Knopf – ist " + desc(document.activeElement));
+  // lag der Fokus inzwischen woanders, bleibt er dort
+  const field = document.createElement("input");
+  document.getElementById("app").append(field);
+  clearToasts(); reject = null;
+  btn.click();
+  await waitFor(() => reject, "lädt erneut");
+  field.focus();
+  reject(new ApiError("Fehler 500", 500));
+  await waitFor(() => toasts().some((t) => t.startsWith("Der Prompt braucht die ganze Einheit")), "Meldung");
+  await D.sleep(5);
+  assert.ok(document.activeElement === field, "Fokus bleibt im Feld – ist " + desc(document.activeElement));
   box.remove(); field.remove();
 });
 

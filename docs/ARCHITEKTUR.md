@@ -323,7 +323,7 @@ implementiert und im End-to-End-Test geprüft (Ausnahmen unten ausdrücklich gen
   nur dann zur Kursseite, wenn das Formular noch zu sehen ist (sonst nur die Meldung). Einheiten der Grundschule bieten kein „Gesicherte Einheit
   laden“ (die Karte „Einheit als Datei“ fehlt dort ohnehin), und `POST /api/teacher/lessons/<id>/import` lehnt Grundschul-Sitzungen ab (kein
   Planungschat, keine Feibeitsblatt-Entwürfe). „Einheit löschen“ gibt es auch, wenn an der Einheit nur noch Ausfall-Einträge hängen – sie gehen
-  mit (die Rückfrage nennt sie).
+  mit (die Rückfrage nennt sie und dass ihre Elternlinks danach nicht mehr gelten).
 
 * **Grundschule: Sitzung und Verlaufsplan (Ergänzung vom 12.11.2026).** Eine Grundschul-Sitzung öffnet ihre eigene Seite (`gssession.js`;
   `session.js` verzweigt nach dem Laden). Der Verlaufsplan steht in `lessons.portal` (dieselbe Spalte und derselbe Versionsschutz wie der

@@ -267,7 +267,10 @@ export async function unitPage(id) {
         // Ausfall-Einträge (Grundschule) hindern das Löschen nicht – sie gehen mit der Einheit (wie auf dem Server, Abschlussprüfung F16)
         u.lessons.some((l) => !l.cancelled) ? null : h("button", { class: "btn danger", type: "button", onclick: async () => {
           const gone = u.lessons.length;
-          if (!(await confirmDialog("Einheit löschen", "Diese Einheit mit Plan und Tabelle löschen?" + (gone === 1 ? " Ihr Ausfall-Eintrag wird ebenfalls gelöscht." : gone ? " Ihre " + gone + " Ausfall-Einträge werden ebenfalls gelöscht." : ""), "Löschen", true))) return;
+          // wie beim Löschen eines einzelnen Ausfall-Eintrags: sein Elternlink gilt danach nicht mehr
+          if (!(await confirmDialog("Einheit löschen", "Diese Einheit mit Plan und Tabelle löschen?" + (gone === 1
+            ? " Der Ausfall-Eintrag dieser Einheit wird ebenfalls gelöscht; der Elternlink des ausgefallenen Termins funktioniert danach nicht mehr."
+            : gone ? " Die " + gone + " Ausfall-Einträge dieser Einheit werden ebenfalls gelöscht; die Elternlinks der ausgefallenen Termine funktionieren danach nicht mehr." : ""), "Löschen", true))) return;
           try { await tapi("DELETE", "/api/teacher/units/" + id); go(gs ? coursePage : "#/lk/f/" + u.subject + "/" + u.klass); } catch (e) { errToast(e); }
         } }, "Einheit löschen")));
   }

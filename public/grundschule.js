@@ -387,7 +387,9 @@ export function reviseBox(unit, opt = {}) {
         try { u = await loadFull(); }
         catch (x) { toast("Der Prompt braucht die ganze Einheit; sie ließ sich gerade nicht laden (" + String(x.message || x).replace(/\.$/, "") + "). Bitte versuchen Sie es noch einmal.", "err", 9000); }
       }, "Lade die Einheit …");
-      if (!u || !box.isConnected) return;
+      // gescheitert: der gesperrte Knopf hat den Fokus womöglich an body verloren – dann zurück auf ihn (nie, wenn er inzwischen woanders liegt)
+      if (!u) { const a = document.activeElement; if ((!a || a === document.body) && b.isConnected) b.focus(); return; }
+      if (!box.isConnected) return;
       // inzwischen woanders weitergearbeitet: den Dialog nicht dazwischenschieben (der nächste Klick öffnet ihn sofort)
       const a = document.activeElement;
       if (a && a !== document.body && !box.contains(a)) { toast("Die Einheit ist geladen – wählen Sie „Einheit mit Claude überarbeiten“ noch einmal.", "", 6000); return; }
