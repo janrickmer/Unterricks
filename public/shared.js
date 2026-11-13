@@ -762,13 +762,19 @@ export const fmtLongDay = (iso) => (isIsoDate(iso) ? Number(iso.slice(8, 10)) + 
  *   (Leerzeile)
  *   - Stichpunkt 1
  *   - …
- *   - Unter https://unterricks.janrickmer.de kannst du diese Sitzung mit dem Code ~~ABC-123~~ aufrufen, …
+ *   - Unter https://unterricks.janrickmer.de kannst du diese Sitzung mit dem Code ~~ABC-123~~ aufrufen, … zu erledigen. Das Passwort, das du am
+ *     Anfang brauchst, um ~~Unterricks~~ zu öffnen, lautet ~~Feindt~~.
  * Jede Zeile der Hausaufgabe wird ein Stichpunkt (vorhandene „- “/„* “ werden übernommen); der letzte Stichpunkt – nur im Schulportal,
- * nicht in Unterricks – nennt den Weg zu dieser Sitzung. Datum = nächste Sitzung (Fälligkeit). Ohne Hausaufgabe nur dieser Hinweis.
- * Schulportal-Zeichen: **…** = fett, „- “ = Aufzählung, ~~…~~ = kursiv (wie die Codes in der Vorlage). */
-export function homeworkForPortal(homework, code, dueDate) {
+ * nicht in Unterricks – nennt den Weg zu dieser Sitzung und (Nachtrag 23) das eingestellte Schülerpasswort (password; fehlt es oder lässt es
+ * sich im Schulportal nicht Zeichen für Zeichen zeigen – portalVerbatim → null –, entfällt dieser Satz). Datum = nächste Sitzung
+ * (Fälligkeit). Ohne Hausaufgabe nur dieser Hinweis. Schulportal-Zeichen: **…** = fett, „- “ = Aufzählung, ~~…~~ = kursiv (wie die Codes
+ * in der Vorlage). */
+export const PORTAL_PW_LEAD = "Das Passwort, das du am Anfang brauchst, um ~~Unterricks~~ zu öffnen, lautet ";
+export function homeworkForPortal(homework, code, dueDate, password) {
   const items = String(homework == null ? "" : homework).replace(/\r\n?/g, "\n").split("\n").map((l) => l.replace(/^\s*(?:[-*•–]\s+)?/, "").trim()).filter(Boolean);
-  const hint = "Unter " + PUBLIC_URL + " kannst du diese Sitzung mit dem Code ~~" + formatCode(code) + "~~ aufrufen, um alle Materialien zu sehen und Abgaben eines Feibeitsblattes zu erledigen.";
+  const pw = portalVerbatim(password);
+  const hint = "Unter " + PUBLIC_URL + " kannst du diese Sitzung mit dem Code ~~" + formatCode(code) + "~~ aufrufen, um alle Materialien zu sehen und Abgaben eines Feibeitsblattes zu erledigen." +
+    (pw ? " " + PORTAL_PW_LEAD + pw.markup + "." : "");
   if (!items.length) return "- " + hint;
   return "**Hausaufgabe " + (isIsoDate(dueDate) ? "zum " + fmtLongDay(dueDate) : "zur nächsten Sitzung") + ":**\n\n" + [...items, hint].map((x) => "- " + x).join("\n");
 }
@@ -939,6 +945,26 @@ function parseRuns(s) {
   }
   flush();
   return runs;
+}
+/* Text (z. B. das Schülerpasswort) so ins Schulportal schreiben, dass er dort Zeichen für Zeichen erscheint – das Schulportal kennt kein
+   Maskieren. Bevorzugt kursiv (~~…~~); enthält er Zeichen, die das Schulportal dann als Formatierung läse (~~, **, __, --, `…`, ^…, _…),
+   als Quellcode (`…`), sonst ohne Zeichen. Geprüft mit parseRuns (unserem Modell der Schulportal-Formatierung) im Satz „… lautet <Text>.“
+   → {markup, style: "i" | "code" | "plain"} oder null (leer, mehrzeilig oder in keiner Form unverändert darstellbar). */
+export function portalVerbatim(text) {
+  if (typeof text !== "string" || !text.trim() || /[\r\n]/.test(text)) return null;
+  const lead = "lautet ", want = (r) => ["b", "u", "i", "s", "code", "sup", "sub"].filter((k) => r[k]).join(",");
+  for (const [markup, style] of [["~~" + text + "~~", "i"], ["`" + text + "`", "code"], [text, "plain"]]) {
+    const runs = parseRuns(lead + markup + ".");
+    if (runs.map((r) => r.text).join("") !== lead + text + ".") continue;
+    let pos = 0, ok = true;
+    for (const r of runs) {
+      const a = pos;
+      pos += r.text.length;
+      if (pos > lead.length && a < lead.length + text.length && want(r) !== (style === "plain" ? "" : style)) ok = false;
+    }
+    if (ok) return { markup, style };
+  }
+  return null;
 }
 
 /* ---------- Grundschule (Kurse der Jahrgänge 1–4, Verlaufsplan, Elternansicht) ----------

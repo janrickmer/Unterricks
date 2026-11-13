@@ -283,6 +283,38 @@ test("Hausaufgabe fürs Schulportal: fette Überschrift mit Datum, Stichpunkte, 
   assert.equal(groupShort("8B"), "Jg. 8"); assert.equal(groupShort("8-K"), "Jg. 8"); assert.equal(groupShort("EA"), "E-Phase"); assert.equal(groupShort("Q2-GK"), "Q2 GK"); assert.equal(groupShort("x"), "");
 });
 
+test("Hausaufgabe fürs Schulportal (Nachtrag 23): im selben letzten Stichpunkt der Satz mit dem eingestellten Schülerpasswort, Unterricks und Passwort kursiv", () => {
+  const line = "- Unter https://unterricks.janrickmer.de kannst du diese Sitzung mit dem Code ~~K45-7A4~~ aufrufen, um alle Materialien zu sehen und Abgaben eines Feibeitsblattes zu erledigen.";
+  const pwSentence = (pw) => " Das Passwort, das du am Anfang brauchst, um ~~Unterricks~~ zu öffnen, lautet ~~" + pw + "~~.";
+  assert.equal(homeworkForPortal("Lies M2.", "K457A4", "2026-11-25", "Feindt"),
+    "**Hausaufgabe zum 25. November 2026:**\n\n- Lies M2.\n" + line + pwSentence("Feindt"), "Wortlaut der Lehrkraft, der bisherige Satz bleibt unverändert davor");
+  assert.equal(homeworkForPortal("", "K457A4", "2026-11-25", "Feindt"), line + pwSentence("Feindt"), "auch ohne Hausaufgabe (nur der Hinweis)");
+  assert.equal(homeworkForPortal("Lies M2.", "K457A4", null, "Sonne 2026"), "**Hausaufgabe zur nächsten Sitzung:**\n\n- Lies M2.\n" + line + pwSentence("Sonne 2026"), "das jeweils eingestellte Passwort");
+  for (const nothing of [undefined, null, "", "   ", 42, "a\nb"]) assert.equal(homeworkForPortal("", "K457A4", null, nothing), line, "ohne (brauchbares) Passwort kein Satz – nie ein geratenes");
+  // im Schulportal: ein Stichpunkt, „Unterricks“ und das Passwort kursiv, der Punkt danach nicht
+  const runs = parsePortalMarkup(homeworkForPortal("", "K457A4", null, "Feindt"))[0].runs;
+  assert.equal(parsePortalMarkup(homeworkForPortal("", "K457A4", null, "Feindt")).length, 1);
+  assert.ok(runs.some((r) => r.text === "Unterricks" && r.i) && runs.some((r) => r.text === "Feindt" && r.i && !r.s));
+  assert.equal(runs[runs.length - 1].text, "."); assert.ok(!runs[runs.length - 1].i);
+});
+
+test("Schulportal: Passwort mit Formatierungszeichen erscheint Zeichen für Zeichen – kursiv, sonst Quellcode, sonst ohne Zeichen, sonst ohne Satz", async () => {
+  const { portalVerbatim } = await import("../../public/shared.js");
+  assert.deepEqual(portalVerbatim("Feindt"), { markup: "~~Feindt~~", style: "i" });
+  for (const pw of ["Fe-in*dt", "a~b", "~a", "x_y", "a^b", "Fe`indt", "Mut & Tat", "**", "--"]) assert.equal(portalVerbatim(pw).style, "i", pw + " bleibt kursiv");
+  for (const pw of ["Fe~~indt", "a~", "Fe**in**dt", "Fe__in__dt", "Fe--in--dt", "a_(1)", "a^(2)b", "a_1 b", "https://x.de"]) assert.deepEqual(portalVerbatim(pw), { markup: "`" + pw + "`", style: "code" }, pw + " als Quellcode");
+  assert.deepEqual(portalVerbatim("a~~b`c"), { markup: "a~~b`c", style: "plain" });
+  assert.equal(portalVerbatim("a`b~~c~~`"), null, "keine Form zeigt es unverändert");
+  for (const bad of [undefined, null, "", "  ", 7, "a\nb"]) assert.equal(portalVerbatim(bad), null);
+  // im echten Hinweis: was im Schulportal sichtbar wird, ist genau das Passwort
+  const visible = (t) => parsePortalMarkup(t).flatMap((l) => l.runs).map((r) => r.text).join("");
+  for (const pw of ["Feindt", "Fe~~indt", "a~", "Fe**in**dt", "Fe--in--dt", "a_(1)", "Fe`indt", "a~~b`c", "https://x.de", "a`b~~c~~`"]) {
+    const out = homeworkForPortal("", "K457A4", null, pw), v = visible(out);
+    if (portalVerbatim(pw)) assert.ok(v.endsWith(" lautet " + pw + "."), pw + " → " + v);
+    else assert.ok(!out.includes("Das Passwort"), pw + ": lieber kein Satz als ein falsches Passwort");
+  }
+});
+
 test("Beamer-Folie: QR-Code-Datei passt zur Adresse von Unterricks (sonst node scripts/qr-unterricks.mjs)", async () => {
   const { readFileSync } = await import("node:fs");
   const { qrSvg, QR_FILE } = await import("../../scripts/qr-unterricks.mjs");

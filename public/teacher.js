@@ -760,7 +760,8 @@ function connectorSection(mcp) {
 function studentSection(sp) {
   const pw = h("input", { id: "spwset", value: sp.password, autocomplete: "off" });
   return h("section", { class: "card" }, h("h2", { text: "Schülerzugang" }),
-    h("div", { class: "field" }, h("label", { for: "spwset" }, "Gemeinsames Passwort der Schüler:innen"), pw, h("p", { class: "hint", text: "Vorgabe: „Feindt“. Groß-/Kleinschreibung spielt keine Rolle. Nach zehn Fehlversuchen wird ein Gerät für eine Minute gesperrt." })),
+    h("div", { class: "field" }, h("label", { for: "spwset" }, "Gemeinsames Passwort der Schüler:innen"), pw, h("p", { class: "hint", text: "Vorgabe: „Feindt“. Groß-/Kleinschreibung spielt keine Rolle. Nach zehn Fehlversuchen wird ein Gerät für eine Minute gesperrt. " +
+      "Das Passwort steht auch im Hinweis, den „Für das Schulportal kopieren“ bei der Hausaufgabe anhängt – Hausaufgaben, die schon im Schulportal stehen, nennen weiter das bisherige Passwort." })),
     h("button", { class: "btn primary", type: "button", onclick: (e) => busy(e.currentTarget, async () => { try { await tapi("PUT", "/api/teacher/student-settings", { body: { password: pw.value } }); toast("Gespeichert.", "ok"); } catch (err) { errToast(err); } }) }, "Speichern"));
 }
 

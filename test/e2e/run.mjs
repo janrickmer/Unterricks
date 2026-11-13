@@ -1532,11 +1532,30 @@ async function main() {
     ok((await SA("POST", "/api/student/lessons/" + lessonId + "/ask", { question: "Was ist das?" })).status === 400, "ohne Einwilligung beantwortet der Server nichts");
     await sp.locator(".kihelp").screenshot({ ...SHOT, path: join(OUT, "schueler-ki-begriffshilfe.png") });
     await tp.locator(".homework").getByRole("button", { name: "Für das Schulportal kopieren" }).click();
+    await tp.locator(".toast", { hasText: "Hausaufgabe kopiert – im Schulportal" }).waitFor({ timeout: 10000 });
     const hwCopy = await tp.evaluate(() => navigator.clipboard.readText());
     const code0 = lesson0.code.slice(0, 3) + "-" + lesson0.code.slice(3);
     const longDay = (iso) => Number(iso.slice(8, 10)) + ". " + ["Januar", "Februar", "März", "April", "Mai", "Juni", "Juli", "August", "September", "Oktober", "November", "Dezember"][Number(iso.slice(5, 7)) - 1] + " " + iso.slice(0, 4);
-    ok(hwCopy === "**Hausaufgabe zum " + longDay(l2.date) + ":**\n\n- Lies **M2** und beantworte Aufgabe 3.\n- Unter https://unterricks.janrickmer.de kannst du diese Sitzung mit dem Code ~~" + code0 + "~~ aufrufen, um alle Materialien zu sehen und Abgaben eines Feibeitsblattes zu erledigen.",
-      "Hausaufgabe fürs Schulportal: fette Überschrift mit Datum, Stichpunkte, zuletzt der Weg zur Sitzung mit dem Code");
+    // Nachtrag 23: im selben letzten Stichpunkt der Satz mit dem eingestellten Schülerpasswort (Vorgabe „Feindt“), Unterricks und Passwort kursiv
+    const hwExpected = "**Hausaufgabe zum " + longDay(l2.date) + ":**\n\n- Lies **M2** und beantworte Aufgabe 3.\n- Unter https://unterricks.janrickmer.de kannst du diese Sitzung mit dem Code ~~" + code0 + "~~ aufrufen, um alle Materialien zu sehen und Abgaben eines Feibeitsblattes zu erledigen. Das Passwort, das du am Anfang brauchst, um ~~Unterricks~~ zu öffnen, lautet ~~Feindt~~.";
+    ok((await T("GET", "/api/teacher/student-settings")).data.password === "Feindt" && hwCopy === hwExpected,
+      "Hausaufgabe fürs Schulportal: fette Überschrift mit Datum, Stichpunkte, zuletzt der Weg zur Sitzung mit dem Code und das Schülerpasswort");
+    ok(await tp.locator(".homework .hint", { hasText: "lautet …“ mit dem Schülerpasswort aus den Einstellungen" }).count() === 1, "der Hinweis unter dem Knopf nennt den Satz mit dem Passwort");
+    {
+      // Schülerpasswort beim Öffnen nicht ladbar: nichts kopieren (nie ein fehlendes oder geratenes Passwort); der nächste Klick lädt es nach
+      const hp = await tctx.newPage(); watch(hp, "Lehrkraft (Passwort fehlt)");
+      await hp.route("**/api/teacher/student-settings", (route) => route.fulfill({ status: 503, contentType: "application/json", body: JSON.stringify({ ok: false, error: "nicht erreichbar" }) }));
+      await hp.goto(BASE + "/#/lk/s/" + lessonId); await hp.locator("#hw").waitFor();
+      await hp.evaluate(() => navigator.clipboard.writeText("vorher"));
+      await hp.locator(".homework").getByRole("button", { name: "Für das Schulportal kopieren" }).click();
+      await hp.locator(".toast.err", { hasText: "Das Schülerpasswort für den Hinweis ließ sich gerade nicht laden – es wurde nichts kopiert." }).waitFor({ timeout: 10000 });
+      ok(await hp.evaluate(() => navigator.clipboard.readText()) === "vorher", "Passwort nicht ladbar: nichts kopiert");
+      await hp.unroute("**/api/teacher/student-settings");
+      await hp.locator(".homework").getByRole("button", { name: "Für das Schulportal kopieren" }).click();
+      await hp.locator(".toast", { hasText: "Hausaufgabe kopiert – im Schulportal" }).waitFor({ timeout: 10000 });
+      ok(await hp.evaluate(() => navigator.clipboard.readText()) === hwExpected, "… beim nächsten Klick nachgeladen und mit Passwort kopiert");
+      await hp.close();
+    }
     await sp.goto(BASE + "/#/schueler");
     await sp.locator(".item", { hasText: "Das Bundesverfassungsgericht" }).waitFor();
     ok(await sp.locator(".item", { hasText: "Das Bundesverfassungsgericht" }).locator(".badge", { hasText: "Hausaufgabe" }).count() === 1, "… und in ihrer Sitzungsliste");

@@ -5,7 +5,7 @@ import { T, tapi, teacherBar, fbAutoConnect, fbUnlock, fbStore, fbForget, askTea
 import { subjectName, gradeInfo, formatCode, claudePresentationPrompt, PORTAL_RULES, portalForCopy, insertStop, removeStops, hasStop, isStopLine,
   fmtDay, classShort, gradeKey, isAnalogClass, ANALOG_RULE, isCourseClass, courseMembers, homeworkForPortal, PUBLIC_URL,
   lessonTimes, fmtClockBerlin, fmtDayBerlin, HOMEWORK_BEFORE_END_MIN, PRESENTATION_AFTER_END_MIN, slidesUpTo, subjectShort,
-  withAgeExpectation, looksLikeSolution, isGsLesson } from "./shared.js";
+  withAgeExpectation, looksLikeSolution, isGsLesson, portalVerbatim } from "./shared.js";
 import { extractUnitChange, stripUnitBlock, unitContext, claudeLessonPrompt, lessonChatName } from "./planning.js";
 import { claudeHandoff } from "./claude.js";
 import { leupoldView } from "./units.js";
@@ -356,12 +356,32 @@ export async function sessionPage(id) {
   hwTA.addEventListener("input", () => { stateLine(hwState, "…"); clearTimeout(hwT); hwT = setTimeout(saveHw, 900); });
   hwTA.addEventListener("blur", () => { if (hwTA.value !== (L().homework || "")) saveHw(); });
   paintDue(); onTimes.push(paintDue);
+  // Schülerpasswort für den Satz im Hinweis fürs Schulportal (Nachtrag 23): beim Öffnen der Seite und bei jeder Rückkehr zu ihr (onVis –
+  // in einem anderen Tab geändert) geladen. Fehlt es beim Kopieren (Laden gescheitert), wird es einmal nachgeladen; gelingt auch das nicht,
+  // wird nichts kopiert – nie ein geratenes oder fehlendes Passwort ins Schulportal. Die Vorgabe „Feindt“ liefert der Server selbst.
+  let studentPw = null;
+  const loadStudentPw = () => tapi("GET", "/api/teacher/student-settings")
+    .then((r) => (studentPw = r && typeof r.password === "string" && r.password.trim() ? r.password : studentPw)).catch(() => studentPw);
+  loadStudentPw();
+  async function copyHomework() {
+    let pw = studentPw;
+    const late = !pw;
+    if (late) pw = await loadStudentPw();
+    if (!pw) return toast("Das Schülerpasswort für den Hinweis ließ sich gerade nicht laden – es wurde nichts kopiert. Bitte versuchen Sie es gleich noch einmal.", "err", 8000);
+    const v = portalVerbatim(pw);
+    // nach dem Nachladen kann der Browser (v. a. Safari) das Kopieren ablehnen, weil der Klick zu lange her ist – dann genügt ein zweiter Klick
+    if (!(await copyText(homeworkForPortal(hwTA.value, L().code, L().nextDate, pw))))
+      return late ? toast("Kopieren nicht möglich – bitte tippen Sie noch einmal auf „Für das Schulportal kopieren“.", "err", 6000) : toast("Bitte manuell kopieren.", "ok", 6000);
+    toast((hwTA.value.trim() ? "Hausaufgabe kopiert" : "Keine Hausaufgabe eingetragen – nur der Hinweis auf die Sitzung kopiert") + " – im Schulportal in das Feld „Hausaufgabe“ einfügen." +
+      (!v ? " Das Schülerpasswort enthält Zeichen, die das Schulportal als Formatierung liest (z. B. ~~ oder `) – deshalb fehlt der Satz mit dem Passwort. Bitte ergänzen Sie ihn im Schulportal selbst oder ändern Sie das Passwort in den Einstellungen."
+        : v.style !== "i" ? " Das Schülerpasswort steht " + (v.style === "code" ? "als Quellcode" : "ohne Formatierung") + " statt kursiv, weil das Schulportal Zeichen darin sonst als Formatierung läse." : ""),
+      v ? "ok" : "err", v && v.style === "i" ? 6000 : 12000);
+  }
   const hwCard = h("section", { class: "card homework" }, h("div", { class: "section-title" }, h("h2", { text: "Hausaufgabe bis zur nächsten Sitzung" }), hwState),
     h("label", { for: "hw" }, "Hausaufgabe (für Schüler:innen sichtbar ab " + HOMEWORK_BEFORE_END_MIN + " Minuten vor dem Ende der Sitzung)"), hwTA, hwDue, hwWhen,
-    h("div", { class: "row" }, h("button", { class: "btn small", type: "button", onclick: async () => toast((await copyText(homeworkForPortal(hwTA.value, L().code, L().nextDate)))
-      ? (hwTA.value.trim() ? "Hausaufgabe kopiert" : "Keine Hausaufgabe eingetragen – nur der Hinweis auf die Sitzung kopiert") + " – im Schulportal in das Feld „Hausaufgabe“ einfügen." : "Bitte manuell kopieren.", "ok", 6000) }, "Für das Schulportal kopieren")),
+    h("div", { class: "row" }, h("button", { class: "btn small", type: "button", onclick: copyHomework }, "Für das Schulportal kopieren")),
     h("p", { class: "hint", text: "Schüler:innen sehen sie ab " + HOMEWORK_BEFORE_END_MIN + " Minuten vor dem Ende der Sitzung direkt unter der Live-Präsentation und in ihrer Sitzungsliste. Schulportal-Zeichen (**fett**, ~~kursiv~~) sind erlaubt. " +
-      "Beim Kopieren für das Schulportal setzt Unterricks die fette Überschrift „Hausaufgabe zum …:“ (Datum der nächsten Sitzung) davor, macht aus jeder Zeile einen Stichpunkt und ergänzt als letzten Stichpunkt „Unter " + PUBLIC_URL + " kannst du diese Sitzung mit dem Code " + formatCode(L().code) + " aufrufen …“ – in Unterricks sehen die Schüler:innen diesen Hinweis nicht." }));
+      "Beim Kopieren für das Schulportal setzt Unterricks die fette Überschrift „Hausaufgabe zum …:“ (Datum der nächsten Sitzung) davor, macht aus jeder Zeile einen Stichpunkt und ergänzt als letzten Stichpunkt „Unter " + PUBLIC_URL + " kannst du diese Sitzung mit dem Code " + formatCode(L().code) + " aufrufen … Das Passwort, das du am Anfang brauchst, um Unterricks zu öffnen, lautet …“ mit dem Schülerpasswort aus den Einstellungen – in Unterricks sehen die Schüler:innen diesen Hinweis nicht." }));
 
   const presPromptCard = h("section", { class: "card" }, h("div", { class: "section-title" }, h("h2", { text: "Präsentation mit Claude erstellen" })),
     h("p", { class: "small", text: "Erzeugt einen ausführlichen Prompt für Claude (claude.ai), der eine vollständige Präsentation für diese Stunde direkt als PDF anfordert – zum Hochladen hier in Unterricks, auf Grundlage des aktuellen Schulportal-Eintrags, der Materialien und Ihrer Planung. Die Präsentation wird zeitlos (ohne Datum, Klasse und Sitzungscode), damit sie in einer späteren Klasse desselben Jahrgangs wieder passt; Folie 1 ist eine Titelfolie. Den Sitzungscode und den QR-Code zu Unterricks zeigt Unterricks beim Start selbst vor Folie 1 – immer den der aktuellen Sitzung. " + (analog ? "Folien, auf denen die Schüler:innen mit Material arbeiten, zeigen nur die Aufforderung und den Titel des Materials (in Jahrgang 5/6 auf Papier)." : "Folien, auf denen die Schüler:innen mit Material aus Unterricks arbeiten, setzt Claude als Platzhalterfolien („Unterricks-Codefolie“) mit der Aufforderung und dem Titel des Materials – dort zeigt Unterricks live dieselbe Codefolie mit dieser Überschrift (Material auf Papier: nur Aufforderung und Titel).") }),
@@ -1098,6 +1118,7 @@ export async function sessionPage(id) {
   // Änderungen von außen (z. B. Claude über den Connector) beim Zurückkehren übernehmen
   const onVis = async () => {
     if (document.visibilityState !== "visible") return;
+    loadStudentPw();
     try {
       const r = await tapi("GET", "/api/teacher/lessons/" + id);
       if (r.messages.length !== st.messages.length && !sendBtn.disabled) { st.messages = r.messages; paintMsgs(); }

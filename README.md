@@ -145,7 +145,11 @@ Feibeitsblatt braucht keine Änderung. Die Adressen stehen in `wrangler.jsonc` (
   dort erneut „Stunde mit Claude planen“. „Für das Schulportal kopieren“ bei der
   Hausaufgabe liefert sie im Format der Lehrkraft: **Hausaufgabe zum 25. November 2026:** (Datum der nächsten Sitzung), eine
   Leerzeile, je Zeile ein Stichpunkt und zuletzt „Unter https://unterricks.janrickmer.de kannst du diese Sitzung mit dem Code …
-  aufrufen …“ (dieser Hinweis erscheint nur im Schulportal). Der Prompt „Stunde mit Claude planen“ beginnt mit dem Chat-Namen,
+  aufrufen … Das Passwort, das du am Anfang brauchst, um *Unterricks* zu öffnen, lautet *Feindt*.“ (im selben Stichpunkt; im
+  Schulportal kursiv als `~~Unterricks~~` und `~~Feindt~~`) – eingesetzt wird das Schülerpasswort aus den Einstellungen; lässt es
+  sich gerade nicht laden, kopiert Unterricks nichts (dieser Hinweis erscheint nur im Schulportal). Enthält das Passwort Zeichen, die
+  das Schulportal als Formatierung liest (z. B. `~~` oder einen Backtick), steht es als Quellcode statt kursiv bzw. fehlt der Satz –
+  die Meldung nach dem Kopieren sagt es. Der Prompt „Stunde mit Claude planen“ beginnt mit dem Chat-Namen,
   z. B. „Jg. 8 - PoWi - Sitzung 1 - Das Bundesverfassungsgericht“ (Jahrgang bzw. „E-Phase“/„Q2 GK“, Fach, Stunde in der
   Einheit, Titel der Sitzung); den Namen vergibt claude.ai selbst – passt er nicht, im Dialog „Chat-Namen kopieren“ und in
   claude.ai über „Umbenennen“ einfügen.
