@@ -568,3 +568,54 @@ test("F05 (Kontrolle): rückgängig stellt die damals verschobenen Sitzungen gen
   assert.deepEqual((await Promise.all(ids.map((id) => lessonRow(c, id)))).map((l) => l.lesson_date), DATES);
   assert.deepEqual([(await lessonRow(c, ids[0])).updated_at, (await lessonRow(c, ids[1])).updated_at], [1, 1], "Sitzungen vor der ausgefallenen Stunde bleiben unberührt");
 });
+
+/* Abschlussprüfung Gruppe B */
+test("F21: Prompt und get_unit nennen eine Sitzung mit Inhalten (z. B. nur Ideen) nicht „noch nicht geplant“ – genau die Stunden, die save_unit_plan nicht wegfallen ließe", async () => {
+  const { c, unitId, ids, uids } = await setup();
+  const v = (await call(c, GS.routeLessonCancel, "POST", "/x", { dryRun: true }, ids[2])).data.version;
+  await call(c, GS.routeLessonCancel, "POST", "/x", { version: v }, ids[2]);
+  // Stunde 6 (ohne Termin): ihre Sitzung hat nur die Ideen der Lehrkraft
+  assert.equal((await call(c, L.routeLessonPatch, "PATCH", "/x", { ideas: "Bodenbild mit Tüchern" }, ids[5])).status, 200);
+  const unit = await unitGet(c, unitId);
+  assert.deepEqual(unit.lessons.filter((l) => !l.cancelled).map((l) => [l.id, l.hasContent]).sort(), ids.map((id) => [id, id === ids[5]]).sort());
+  const prompt = claudeUnitRevisionPrompt({ unit, now: NOW });
+  const line = prompt.split("\n").find((x) => x.includes("[uid " + uids[5] + "]"));
+  assert.ok(line.includes("Sitzung " + ids[5] + " – hat schon Inhalte") && line.includes("nicht weglassen") && !line.includes("noch nicht geplant"), line);
+  assert.ok(prompt.split("\n").find((x) => x.includes("[uid " + uids[4] + "]")).endsWith("Sitzung " + ids[4] + " – noch nicht geplant"));
+  const g = await mcp(c, "get_unit", { unit_id: unitId });
+  assert.ok(g.text.includes("(Sitzung " + ids[5] + " – hat schon Inhalte") && g.text.includes("(Sitzung " + ids[4] + " – noch leer)"), g.text);
+  // der Server sieht es genauso: Stunde 6 darf nicht wegfallen, Stunde 5 schon
+  const stunden = unit.rows.map((r) => ({ uid: r.uid, stundenfrage: r.stundenfrage, ablauf: ["x"] }));
+  const s = await mcp(c, "save_unit_plan", { unit_id: unitId, base_version: unit.version, plan: unit.plan, stunden: stunden.filter((x) => x.uid !== uids[5]) });
+  assert.ok(s.isError && s.text.includes(uids[5]), s.text);
+  const s2 = await mcp(c, "save_unit_plan", { unit_id: unitId, base_version: unit.version, plan: unit.plan, stunden: stunden.filter((x) => x.uid !== uids[4]) });
+  assert.ok(!s2.isError, s2.text);
+});
+
+test("F22: Ausfall-Eintrag – get_lesson ohne „noch leer – …“-Aufforderungen, save_planning_result und update_unit_row mit klarer Ablehnung, Planungsverlauf geht mit ihm", async () => {
+  const { c, unitId, ids } = await setup();
+  let v = (await call(c, GS.routeLessonCancel, "POST", "/x", { dryRun: true }, ids[2])).data.version;
+  const P1 = (await call(c, GS.routeLessonCancel, "POST", "/x", { version: v }, ids[2])).data.placeholderId;
+  const g = await mcp(c, "get_lesson", { lesson_id: P1 });
+  assert.ok(!g.text.includes("noch leer – speichere") && !g.text.includes("noch leer – formuliere") && !g.text.includes("## PDF-Dateien des Kurses"), g.text);
+  assert.ok(g.text.includes("(Ausfall-Eintrag – hier wird nichts geplant)") && g.text.includes("Eltern sehen zu diesem Termin nur, dass der Unterricht nicht stattfinden konnte."), g.text);
+  const sp = await mcp(c, "save_planning_result", { lesson_id: P1, text: "Entwurf" });
+  assert.ok(sp.isError && sp.text.startsWith("Diese Sitzung ist ein Ausfall-Eintrag"), sp.text);
+  assert.equal((await c.db.prepare("SELECT COUNT(*) AS n FROM chat WHERE lesson_id=?1").bind(P1).first()).n, 0);
+  const ur = await mcp(c, "update_unit_row", { lesson_id: P1, stundenfrage: "x" });
+  assert.ok(ur.isError && ur.text.startsWith("Diese Sitzung ist ein Ausfall-Eintrag") && ur.text.includes("uid"), ur.text);
+  // ältere Planungsverläufe eines Ausfall-Eintrags gehen mit ihm: rückgängig …
+  const chat = (id) => c.db.prepare("INSERT INTO chat(lesson_id, role, content, model, mode, created_at) VALUES(?1, 'assistant', 'alt', 'x', 'claude', ?2)").bind(id, c.now).run();
+  const left = async (id) => (await c.db.prepare("SELECT COUNT(*) AS n FROM chat WHERE lesson_id=?1").bind(id).first()).n;
+  await chat(P1); await chat(ids[0]);
+  const undoId = (await unitGet(c, unitId)).revise.undoId;
+  assert.equal((await call(c, GS.routeCancelUndo, "POST", "/x", { undoId }, unitId)).status, 200);
+  assert.deepEqual([await left(P1), await left(ids[0])], [0, 1], "nur der Verlauf des Ausfall-Eintrags");
+  // … und Löschen der Einheit
+  v = (await call(c, GS.routeLessonCancel, "POST", "/x", { dryRun: true }, ids[2])).data.version;
+  const P2 = (await call(c, GS.routeLessonCancel, "POST", "/x", { version: v }, ids[2])).data.placeholderId;
+  await chat(P2);
+  await c.db.prepare("DELETE FROM lessons WHERE unit_id=?1 AND cancelled=0").bind(unitId).run();
+  assert.equal((await call(c, U.routeUnitDelete, "DELETE", "/x", undefined, unitId)).status, 200);
+  assert.equal(await left(P2), 0);
+});

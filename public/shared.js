@@ -842,11 +842,18 @@ export function parentMaterial(planText, files, lessonId) {
     const pdfAt = f.pdfAt !== undefined ? f.pdfAt : f.pdf_at, created = f.createdAt !== undefined ? f.createdAt : f.created_at;
     return Number(pages) > 0 && at != null && at === (pdfAt != null ? pdfAt : created);
   };
+  // neu gestaltete Bildkarten, deren neue Gestaltung noch nicht gedruckt ist: Die Bilder stammen aus der alten Gestaltung, die Erzähltexte schon
+  // aus der neuen – Eltern sehen sie erst wieder mit den neuen Bildern (Abschlussprüfung F00). fileOut: design.outdated; D1-Zeilen: html_at > pdf_at
+  const redesigned = (f) => {
+    if (f.design && typeof f.design === "object") return f.design.outdated === true;
+    const ht = f.htmlAt !== undefined ? f.htmlAt : f.html_at, pdfAt = f.pdfAt !== undefined ? f.pdfAt : f.pdf_at;
+    return ht != null && (pdfAt == null || ht > pdfAt);
+  };
   // null = Eltern dürfen sie sehen; sonst der Grund
   const why = (f) => {
     if (f.kind !== "file" || f.mime !== "application/pdf") return "keine PDF-Datei";
     const c = cardsOf(f);
-    if (c) return !c.share ? "Eltern dürfen diese Bildkarten nicht sehen" : f.status !== "ready" || !cardsCurrent(f, c) ? "Bilder der Bildkarten werden noch erstellt" : null;
+    if (c) return !c.share ? "Eltern dürfen diese Bildkarten nicht sehen" : f.status !== "ready" || !cardsCurrent(f, c) || redesigned(f) ? "Bilder der Bildkarten werden noch erstellt" : null;
     if (f.area !== "student") return "nur für Sie";
     if (f.status !== "ready") return "PDF wird noch erstellt";
     return null;

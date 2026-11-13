@@ -227,6 +227,8 @@ export async function routeCancelUndo(c, id) {
     c.db.prepare("UPDATE lessons SET parent_hash='~'||parent_hash WHERE id=?1 AND cancelled=1 AND parent_hash IS NOT NULL AND " + G).bind(undo.placeholderId, u.id, u.version),
     c.db.prepare("UPDATE lessons SET parent_hash=(SELECT substr(p.parent_hash,2) FROM lessons p WHERE p.id=?4), parent_sealed=(SELECT p.parent_sealed FROM lessons p WHERE p.id=?4) " +
       "WHERE id=?1 AND cancelled=0 AND EXISTS(SELECT 1 FROM lessons p WHERE p.id=?4 AND substr(p.parent_hash,1,1)='~') AND " + G).bind(undo.lessonId, u.id, u.version, undo.placeholderId),
+    // Planungsverlauf eines Ausfall-Eintrags geht mit ihm (der Connector schreibt dort nichts mehr – ältere Zeilen blieben sonst verwaist, F22)
+    c.db.prepare("DELETE FROM chat WHERE lesson_id=?1 AND EXISTS(SELECT 1 FROM lessons p WHERE p.id=?1 AND p.cancelled=1) AND " + G).bind(undo.placeholderId, u.id, u.version),
     c.db.prepare("DELETE FROM lessons WHERE id=?1 AND cancelled=1 AND " + G).bind(undo.placeholderId, u.id, u.version),
     c.db.prepare("UPDATE lessons SET lesson_date=(SELECT json_extract(value,'$.d') FROM json_each(?1) WHERE json_extract(value,'$.id')=lessons.id), " +
       "start_time=(SELECT json_extract(value,'$.t') FROM json_each(?1) WHERE json_extract(value,'$.id')=lessons.id), " +
@@ -235,7 +237,7 @@ export async function routeCancelUndo(c, id) {
     c.db.prepare("UPDATE units SET params=?3, rows=?4, revise=?5, version=version+1, updated_at=?6, source='lehrkraft' WHERE id=?1 AND version=?2 RETURNING version")
       .bind(u.id, u.version, JSON.stringify(p2), JSON.stringify(rows), revise ? JSON.stringify(revise) : null, c.now),
   ]);
-  if (!(res[4].results || []).length) throw new HttpError(409, "undo_stale", STALE);
+  if (!(res[res.length - 1].results || []).length) throw new HttpError(409, "undo_stale", STALE);
   return json({ ok: true, unit: await unitFull(c.db, await getUnit(c.db, u.id)) });
 }
 export { GS_SUBJECT };

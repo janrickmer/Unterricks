@@ -160,6 +160,9 @@ export async function saveCardSet(c, lessonId, { title, html, texts, fileId = nu
   if (fileId) {
     const f = await getFile(c.db, fileId);
     if (f.lesson_id !== lessonId || f.cards == null) throw bad("file_id gehört zu keinen Bildkarten dieser Sitzung (siehe get_lesson).");
+    // hochgeladene Bildkarten (ohne Gestaltung): klare Auskunft statt „gehört zu keinem gestalteten Material“ (Abschlussprüfung F23)
+    if (f.html == null) throw bad("Diese Bildkarten hat die Lehrkraft hochgeladen – ihre Gestaltung lässt sich nicht ersetzen. Eigene Karten legst du mit add_picture_cards ohne file_id neu an; " +
+      "die Erzähltexte der hochgeladenen Karten änderst du mit set_picture_card_texts.");
     const cur = cardData(f);
     cards = { v: 1, texts: t, share: typeof share === "boolean" ? share : cur.share, rev: cur.rev + 1 };
   } else cards = { v: 1, texts: t, share: share !== false, rev: 0 };

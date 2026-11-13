@@ -331,6 +331,14 @@ implementiert und im End-to-End-Test geprüft (Ausnahmen unten ausdrücklich gen
   Aufforderung an die Lehrkraft (Nachtrag Nr. 12) steht in `VERLAUFSPLAN_RULES` (`gsplanning.js`) und am Gymnasium als `PORTAL_TEACHER_RULE`
   (`shared.js`) in den Anweisungen des Connectors, bei `save_schulportal_entry`, im Prompt „Stunde mit Claude planen“ und im
   Schulportal-Teil der Vertretung; die kostenlose KI schreibt die Aufforderung in ‹…›, Unterricks macht daraus __…__.
+  Ergänzungen der Abschlussprüfung: „Eltern sehen nach der Stunde“ in `get_lesson` und `save_verlaufsplan` kommt aus `parentFiles`
+  (`worker/parents.js`), also genau aus der Prüfung der Elternansicht; `get_lesson` nennt auch PDFs älterer Sitzungen, auf die der Verlaufsplan
+  verweist (mit Namen), und markiert Verweise auf spätere Sitzungen. `save_verlaufsplan` warnt vor Verweisen, die Eltern nicht sehen (Datei einer
+  späteren Sitzung bzw. Sitzung ohne Termin), und vor ungültigen Verweisen, die nur als Text erscheinen (z. B. der Platzhalter `[[pdf:<file_id>]]`);
+  die vorgeschlagenen file_id stehen in der Reihenfolge diese Sitzung → frühere → spätere. `add_text_material` lehnt Grundschul-Sitzungen ab
+  (Textmaterial sehen weder Kinder noch Eltern; Hinweis auf `add_material_pdf` bzw. `add_print_material`). Bei einem Ausfall-Eintrag nennt
+  `get_lesson` keine Aufforderungen zum Planen; `save_planning_result` und `update_unit_row` lehnen ihn mit eigener Meldung ab, und sein
+  Planungsverlauf geht mit ihm (rückgängig, Einheit löschen).
 
 * **Grundschule: Bildkarten (Ergänzung vom 12.11.2026).** Wird eine Geschichte mit Bildkarten erzählt, gehört zur Sitzung eine PDF mit einer
   Karte je Seite und einem gekürzten Erzähltext je Karte (`files.cards` = `{v:1, texts, share, rev}`, Bereich „nur Lehrkraft“ – Schüler:innen
@@ -341,6 +349,10 @@ implementiert und im End-to-End-Test geprüft (Ausnahmen unten ausdrücklich gen
   (`COALESCE(pdf_at, created_at)`). Fehlen sie oder passen sie nicht mehr (neu gestaltet), holen die Sitzungsseite und beide Startseiten sie nach
   (`GET /api/teacher/cards/pending`). Eltern sehen Bildkarten nur freigegeben und mit aktuellen Bildern; die Bilder kommen über einen signierten
   Link je Kartensatz (`/api/card/<id>/<n>`, eine Signatur für alle Karten). Erzähltexte schützt `rev` vor dem Überschreiben einer neueren Fassung.
+  Ergänzungen der Abschlussprüfung: Gestaltet Claude Bildkarten mit `file_id` neu, gelten sie für Eltern erst wieder als aktuell, wenn die neue
+  Gestaltung gedruckt ist und ihre Bilder erstellt sind (`parentMaterial`: `html_at > pdf_at` bzw. `design.outdated`) – nie neue Erzähltexte
+  zu alten Bildern; `get_lesson` sagt dann „neue Gestaltung wartet auf den Druck“. Hochgeladene Bildkarten lassen sich nicht neu gestalten
+  (`add_picture_cards` mit ihrer `file_id` antwortet mit einem Hinweis auf `set_picture_card_texts`).
 
 * **Grundschule: Elternansicht (Ergänzung vom 12.11.2026).** Auf der Sitzungsseite kopiert „Sitzungslink für Eltern kopieren“ einen geheimen
   Link `…#/eltern/<Token>` (192 Bit, `randomToken(24)`); in D1 stehen nur `lessons.parent_hash` (SHA-256 von `eltern|v1|<Token>`, zum
@@ -378,6 +390,8 @@ implementiert und im End-to-End-Test geprüft (Ausnahmen unten ausdrücklich gen
   Krankmeldung. Das Speichern der Tabelle schreibt die Termine der Grundschul-Sitzungen im selben Batch wie die Einheit (an deren Version
   gebunden). `save_unit_plan` ganz ohne uid lehnt die Plattform bei einer Grundschul-Einheit mit Sitzungen ab; am Gymnasium (get_unit ohne uid)
   wählt nur die echte uid einer gespeicherten Zeile den Weg über die uid – sonst wie bisher nach Position, ohne dass Sitzungen gelöscht werden.
+  Der Prompt zum Überarbeiten und `get_unit` nennen eine Sitzung nur dann „noch nicht geplant“ bzw. „noch leer“, wenn `save_unit_plan` ihre
+  Stunde auch wegfallen ließe (`linkedLessons` liefert in der Grundschule `hasContent` nach derselben Regel `EMPTY_LESSON`).
 
 * **Fächer und Jahrgänge.** Unter *Planungsgrundlagen → Fach → Fach-Einstellungen* steht, in welchen Jahrgängen ein Fach
   unterrichtet wird. Vorgabe für Politik und Wirtschaft: Jahrgänge 6, 8, 9, 10 (Hinweis: nur 1. Halbjahr), E-Phase und Q-Phase;

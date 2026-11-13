@@ -219,3 +219,64 @@ test("Anforderung 12: unterstrichene Aufforderung an die Lehrkraft – Verlaufsp
   assert.equal(S.renderPortalEntry({ phasen: [{ titel: "Erzählung", punkte: ["‹Lehrkraft liest den Vorlesetext «Die Arche Noah» vor.›", "Arbeitsblatt «Noah»"] }] }),
     "**1) Erzählung**\n- __Lehrkraft liest den Vorlesetext ~~Die Arche Noah~~ vor.__\n- Arbeitsblatt ~~Noah~~");
 });
+
+/* Abschlussprüfung Gruppe B: get_lesson und save_verlaufsplan melden genau, was die Elternansicht (parentFiles) zeigt */
+test("F01/F19/F18: „Eltern sehen nach der Stunde“ wie parentFiles – Verweise auf ältere Sitzungen zählen und haben Namen, Verweise auf spätere nicht", async () => {
+  const PA = await import("../../worker/parents.js");
+  const { c, k, l1, l2, file } = await setup();
+  const mcp = await mcpOf(c);
+  const l3 = await L.createLesson(c.db, { subject: "gs", klass: k.id, title: "Josef verzeiht", date: "2026-11-17", startTime: "08:00", durationMin: 45 }, c.now + 3);
+  const w1 = await file(l1.id, "student", "AB Brüder.pdf");          // zwei Sitzungen vor l3
+  const late = await file(l3.id, "student", "AB später.pdf");         // gehört zu einer späteren Sitzung als l2
+  // F01/F19: l3 verweist auf ein Blatt von l1 (nicht der vorigen Sitzung)
+  await L.savePortal(c.db, l3.id, "**1) Wiederholung (10 Min.)**\n- [[pdf:" + w1 + "]]", null, "lehrkraft", c.now);
+  const real = (await PA.parentFiles(c, await L.getLesson(c.db, l3.id))).files.map((f) => f.id);
+  assert.deepEqual(real, [w1, late], "Elternansicht: das Blatt der älteren Sitzung und das eigene");
+  let t = (await mcp("get_lesson", { lesson_id: l3.id })).content[0].text;
+  assert.ok(t.includes("Eltern sehen nach der Stunde: „AB Brüder.pdf“, „AB später.pdf“\n"), t);
+  assert.ok(t.includes("Weitere Sitzungen, auf die der Verlaufsplan verweist:\nSitzung „Josef und seine Brüder“ (Di, 03.11.2026):\n- file_id " + w1 + ": „AB Brüder.pdf“"), t);
+  // F18: l2 verweist auf das Blatt der späteren Sitzung l3 → gespeichert, aber Eltern sehen es nicht (und die Antwort sagt das)
+  const r = await mcp("save_verlaufsplan", { lesson_id: l2.id, text: "**1) Arbeitsblatt (15 Min.)**\n- [[pdf:" + late + "]]", base_version: 0 });
+  t = r.content[0].text;
+  assert.ok(!r.isError && t.endsWith("Eltern sehen nach der Stunde: noch kein Material."), t);
+  assert.ok(t.includes("Achtung: Eltern sehen diesen Verweis zu dieser Stunde nicht, weil die Datei nicht zu dieser oder einer früheren Sitzung gehört: „AB später.pdf“ (Sitzung „Josef verzeiht“, Di, 17.11.2026)."), t);
+  assert.deepEqual([r.structuredContent.later_refs, r.structuredContent.unknown_refs], [[late], []]);
+  assert.deepEqual((await PA.parentFiles(c, await L.getLesson(c.db, l2.id))).files, []);
+  t = (await mcp("get_lesson", { lesson_id: l2.id })).content[0].text;
+  assert.ok(t.includes("Eltern sehen nach der Stunde: noch kein Material\n") && t.includes("Sitzung „Josef verzeiht“ (Di, 17.11.2026) – liegt nicht vor dieser Sitzung, deshalb sehen Eltern diese Dateien hier nicht:"), t);
+  // gültige file_id: diese Sitzung, dann frühere (neueste zuerst), spätere zuletzt
+  const own = await file(l2.id, "student", "AB eigen.pdf");
+  const r2 = await mcp("save_verlaufsplan", { lesson_id: l2.id, text: "- [[pdf:0123456789abcdef]]", base_version: 1 });
+  const list = r2.content[0].text.split("Gültige file_id: ")[1];
+  assert.ok(list.indexOf(own) < list.indexOf(w1) && list.indexOf(w1) < list.indexOf(late), list);
+});
+
+test("F20: ungültige Verweise ([[pdf:<file_id>]] aus dem Beispiel, Großbuchstaben, zu lange Beschriftung) werden gemeldet", async () => {
+  const { c, l2, file } = await setup();
+  const mcp = await mcpOf(c);
+  const ab = await file(l2.id, "student", "AB.pdf");
+  const long = "[[pdf:" + ab + "|" + "x".repeat(201) + "]]";
+  const r = await mcp("save_verlaufsplan", { lesson_id: l2.id, text: "**1) Erzählung**\n- [[pdf:<file_id>]]\n- [[pdf:ABCDEF0123456789]]\n- " + long + "\n- [[pdf:" + ab + "|Arbeitsblatt]]", base_version: 0 });
+  const t = r.content[0].text;
+  assert.ok(!r.isError && t.includes("Achtung: Diese Verweise sind ungültig und erscheinen nur als Text: [[pdf:<file_id>]], [[pdf:ABCDEF0123456789]], [[pdf:" + ab + "|xxx"), t);
+  assert.ok(t.includes("Gültige file_id: " + ab + " („AB.pdf“). Bitte korrigieren (save_verlaufsplan mit base_version 1).") && t.endsWith("Eltern sehen nach der Stunde: „AB.pdf“."), t);
+  assert.equal(r.structuredContent.invalid_refs.length, 3);
+  assert.deepEqual(r.structuredContent.unknown_refs, []);
+  // ein korrekter Plan bleibt ohne Achtung
+  const ok = await mcp("save_verlaufsplan", { lesson_id: l2.id, text: "- [[pdf:" + ab + "|Arbeitsblatt – Josef]]", base_version: 1 });
+  assert.equal(ok.content[0].text, "Verlaufsplan gespeichert (Version 2). Eltern sehen nach der Stunde: „AB.pdf“.");
+});
+
+test("F24: add_text_material in der Grundschule abgelehnt (mit Hinweis auf add_material_pdf / add_print_material); Gymnasium unverändert", async () => {
+  const { c, l2, sek } = await setup();
+  const mcp = await mcpOf(c);
+  let r = await mcp("add_text_material", { lesson_id: l2.id, bereich: "schueler", titel: "Arbeitsblatt", markdown: "# Josef" });
+  assert.ok(r.isError && r.content[0].text.startsWith("In der Grundschule gibt es kein Textmaterial") && r.content[0].text.includes("add_material_pdf") && r.content[0].text.includes("add_print_material"), r.content[0].text);
+  assert.equal((await c.db.prepare("SELECT COUNT(*) AS n FROM files WHERE lesson_id=?1").bind(l2.id).first()).n, 0);
+  r = await mcp("add_text_material", { lesson_id: sek.id, bereich: "schueler", titel: "Auftrag", markdown: "# Auftrag" });
+  assert.ok(!r.isError && r.content[0].text === "Material „Auftrag“ gespeichert (für Schüler:innen sichtbar).", r.content[0].text);
+  r = await mcp("add_print_material", { lesson_id: l2.id, titel: "Kärtchen", markdown: "# Karte", anzahl: 22, beidseitig: false, farbe: false });
+  assert.ok(!r.isError, "Rückfall für Druckvorlagen bleibt");
+  const desc = (await mcp(null)).tools.find((t) => t.name === "add_text_material").description;
+  assert.ok(desc.startsWith("RÜCKFALL") && desc.includes("Nicht in der Grundschule"));
+});

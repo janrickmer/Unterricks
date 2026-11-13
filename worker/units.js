@@ -37,14 +37,15 @@ export async function getUnit(db, id) {
   if (!u) throw new HttpError(404, "not_found", "Diese Unterrichtseinheit gibt es nicht (mehr).");
   return u;
 }
-/* Sitzungen der Einheit. gs: zusätzlich Dauer, Ausfall-Eintrag und was schon geplant ist (Verlaufsplan, PDFs, Bildkarten) – nur in der Grundschule,
-   damit die Ausgabe am Gymnasium gleich bleibt */
+/* Sitzungen der Einheit. gs: zusätzlich Dauer, Ausfall-Eintrag und was schon geplant ist (Verlaufsplan, PDFs, Bildkarten) und ob die Sitzung
+   überhaupt Inhalte hat (hasContent = nicht leer im Sinne von EMPTY_LESSON: dann darf ihre Stunde beim Überarbeiten nicht wegfallen – Abschlussprüfung F21)
+   – nur in der Grundschule, damit die Ausgabe am Gymnasium gleich bleibt */
 export async function linkedLessons(db, unitId, gs = false) {
   const r = await db.prepare("SELECT id, title, lesson_date, start_time, unit_row, code" + (gs ? ", duration_min, cancelled, length(portal) > 0 AS has_plan, " +
     "(SELECT COUNT(*) FROM files f WHERE f.lesson_id=lessons.id AND f.kind='file' AND f.mime='application/pdf' AND f.area NOT IN ('archive','presentation') AND f.cards IS NULL) AS pdfs, " +
-    "(SELECT COUNT(*) FROM files f WHERE f.lesson_id=lessons.id AND f.cards IS NOT NULL) AS cardsets" : "") + " FROM lessons WHERE unit_id=?1").bind(unitId).all();
+    "(SELECT COUNT(*) FROM files f WHERE f.lesson_id=lessons.id AND f.cards IS NOT NULL) AS cardsets, COALESCE(" + EMPTY_LESSON + ", 0) = 0 AS has_content" : "") + " FROM lessons WHERE unit_id=?1").bind(unitId).all();
   return (r.results || []).map((l) => ({ id: l.id, title: l.title, date: l.lesson_date, time: l.start_time || null, row: l.unit_row, code: l.code,
-    ...(gs ? { minutes: l.duration_min ?? null, cancelled: !!l.cancelled, hasPlan: !!l.has_plan, pdfs: l.pdfs || 0, cards: l.cardsets || 0 } : {}) }));
+    ...(gs ? { minutes: l.duration_min ?? null, cancelled: !!l.cancelled, hasPlan: !!l.has_plan, pdfs: l.pdfs || 0, cards: l.cardsets || 0, hasContent: !!l.has_content } : {}) }));
 }
 export async function unitFull(db, u) {
   const lessons = await linkedLessons(db, u.id, u.subject === GS_SUBJECT);
@@ -272,11 +273,12 @@ export async function routeUnitPatch(c, id) {
 }
 export async function routeUnitDelete(c, id) {
   await requireTeacher(c);
-  await getUnit(c.db, id);
+  const u = await getUnit(c.db, id);
   const n = await c.db.prepare("SELECT COUNT(*) AS n FROM lessons WHERE unit_id=?1 AND cancelled=0").bind(id).first();
   if ((n || {}).n) throw new HttpError(409, "has_lessons", "Zu dieser Einheit gibt es schon Sitzungen. Bitte zuerst die Sitzungen löschen.");
-  // Ausfall-Einträge (Grundschule) gehen mit der Einheit
-  await c.db.batch([c.db.prepare("DELETE FROM lessons WHERE unit_id=?1 AND cancelled=1").bind(id), c.db.prepare("DELETE FROM units WHERE id=?1").bind(id)]);
+  // Ausfall-Einträge (Grundschule) gehen mit der Einheit – samt einem etwaigen Planungsverlauf (F22)
+  await c.db.batch([...(u.subject === GS_SUBJECT ? [c.db.prepare("DELETE FROM chat WHERE lesson_id IN (SELECT id FROM lessons WHERE unit_id=?1 AND cancelled=1)").bind(id)] : []),
+    c.db.prepare("DELETE FROM lessons WHERE unit_id=?1 AND cancelled=1").bind(id), c.db.prepare("DELETE FROM units WHERE id=?1").bind(id)]);
   return json({ ok: true });
 }
 /* Einheit festlegen: je Zeile ohne Sitzung eine Sitzung mit Datum, Dauer, Stundenfrage als Titel */

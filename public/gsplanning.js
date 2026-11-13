@@ -183,8 +183,10 @@ export function claudeUnitRevisionPrompt(ctx) {
   const items = rv.items || [], undated = rows.map((r, i) => ({ r, i })).filter((x) => !x.r.date);
   const lengths = items.flatMap((x) => x.lengths || []);
   const free = freeSlots(u.params, rows, now);
+  // hasContent (Server: nicht leer wie beim Speichern geprüft – auch Ideen, Hinweis oder Inhalt für die Eltern, Elternlink, anderes Material, Planungsverlauf):
+  // so nennt der Prompt nur Stunden „noch nicht geplant“, die die Plattform beim Speichern auch weglassen ließe (Abschlussprüfung F21)
   const state = (l) => { if (!l) return "noch keine Sitzung"; const has = [l.hasPlan ? "Verlaufsplan" : null, l.pdfs ? l.pdfs + (l.pdfs === 1 ? " PDF" : " PDFs") : null, l.cards ? "Bildkarten" : null].filter(Boolean);
-    return "Sitzung " + l.id + (has.length ? " – schon geplant: " + has.join(", ") : " – noch nicht geplant"); };
+    return "Sitzung " + l.id + (has.length ? " – schon geplant: " + has.join(", ") : l.hasContent === true ? " – hat schon Inhalte (z. B. Ideen, Hinweis oder Inhalt für die Eltern, Elternlink, Material, Planungsverlauf), nicht weglassen" : " – noch nicht geplant"); };
   const rowLines = rows.map((r, i) => (i + 1) + ". [uid " + r.uid + "] " + (r.date ? at(r.date, r.time) : "ohne Termin") + (r.minutes ? " (" + r.minutes + " Min.)" : "") + ": „" + r.stundenfrage + "“" +
     (r.schritt != null && (plan.schritte || [])[r.schritt] ? " [Lernschritt " + (r.schritt + 1) + "]" : "") + " – " + state(byRow.get(r.uid)));
   const steps = (plan.schritte || []).map((x, i) => (i + 1) + ". " + x.titel + (x.beschreibung ? " – " + x.beschreibung : ""));
@@ -208,7 +210,7 @@ export function claudeUnitRevisionPrompt(ctx) {
     "1. Rufe mit dem Connector „Unterricks“ `get_unit` mit der ID " + u.id + " auf (Ausfälle, Stunden ohne Termin, freie Termine und die uid jeder Stunde). Für einzelne Sitzungen liefert `get_lesson` Verlaufsplan und Material.",
     "2. Schlage mir zwei oder drei Möglichkeiten vor, wie die Einheit trotz der Ausfälle ihre zentrale Lernaufgabe erreicht – z. B. Stunden zusammenlegen oder kürzen, eine Stunde ohne Termin streichen oder mit einer anderen zusammenführen, oder das Ende der Einheit verlängern (das trage ich dann in den Rahmendaten ein). Nenne zu jeder Möglichkeit kurz Vor- und Nachteile.",
     "3. Warte auf meine Entscheidung.",
-    "4. Speichere die überarbeitete Einheit mit `save_unit_plan` (mit `base_version` aus `get_unit`) und gib bei jeder Stunde, die bleibt, ihre `uid` an. Stunden mit schon geplanter Sitzung lässt du nicht weg (Inhalt und Stundenfrage darfst du ändern); die Termine verteilt die Plattform neu.",
+    "4. Speichere die überarbeitete Einheit mit `save_unit_plan` (mit `base_version` aus `get_unit`) und gib bei jeder Stunde, die bleibt, ihre `uid` an. Stunden, deren Sitzung schon geplant ist oder schon Inhalte hat, lässt du nicht weg (Inhalt und Stundenfrage darfst du ändern); nur Stunden ohne Sitzung oder mit „noch nicht geplant“ dürfen wegfallen. Die Termine verteilt die Plattform neu.",
     "5. Passe betroffene Sitzungen nur nach meiner Zustimmung an (`save_verlaufsplan`, `update_lesson` mit `inhalt_eltern`).",
     "",
     "Nenne nie Namen von Kindern.",

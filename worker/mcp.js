@@ -5,7 +5,7 @@
 import { HttpError, json, readJson, sha256Hex, timingSafeEqual, randomToken, LOCKS, lockedFor, registerFail, cleanText, cleanLine } from "./lib.js";
 import { getSetting, setSetting } from "./db.js";
 import { requireTeacher } from "./auth.js";
-import { getLesson, lessonCtx, chatMessages, updateLesson, savePortal, insertDraft, lessonOut, fileOut, LIMITS, previousLesson, GS_CTX_FILES, cardData, cardVersion } from "./lessons.js";
+import { getLesson, lessonCtx, chatMessages, updateLesson, savePortal, insertDraft, lessonOut, fileOut, LIMITS, previousLesson, cardData, cardVersion } from "./lessons.js";
 import { getUnit, unitFull, applyPlan, updateRow } from "./units.js";
 import { planningBasis } from "./bases.js";
 import { gsCourseMap, gsCourseOut, getGsCourse, planningBasisGs } from "./gs.js";
@@ -15,9 +15,10 @@ import { insertTextMaterial, insertPrintText, saveDesign, renderDesign, getFile 
 import { shortImages } from "./render.js";
 import { ESCAPE_FORMAT_HINT, PART_TYPES } from "../public/escape-data.js";
 import { SUBJECTS, ALL_CLASSES, subjectName, gradeInfo, formatCode, lessonContext, chatTranscript, PORTAL_RULES, PORTAL_EXAMPLE, PORTAL_TEACHER_RULE, SYSTEM_PROMPT_ROLE, FEIBEITSBLATT_INFO, classShort, fmtDay, materialDesignText, printFileName, GS_SUBJECT,
-  STOP_LINE, hasStop, planRefs, parentMaterial, pdfRef } from "../public/shared.js";
+  STOP_LINE, hasStop, planRefs, pdfRef, PLAN_REF_RE } from "../public/shared.js";
 import { gsLessonContext, GS_MATERIAL_RULES, CARD_DESIGN_RULES, VERLAUFSPLAN_EXAMPLE, VERLAUFSPLAN_RULES } from "../public/gsplanning.js";
 import { saveCardSet, setCardTexts } from "./cards.js";
+import { parentFiles, refCounts } from "./parents.js";
 
 const MODERN = "2026-07-28";
 const LEGACY = ["2025-11-25", "2025-06-18", "2025-03-26", "2024-11-05"];
@@ -35,6 +36,7 @@ const INSTRUCTIONS = "Unterricks ist die Unterrichtsplattform der Lehrkraft (Fä
   "Die Kinder arbeiten nicht digital: nur ausdruckbares, analoges Material. Grundschul-Sitzungen haben keinen Schulportal-Eintrag, keine Präsentation, keine Feibeitsblätter, keinen Sitzungscode und keine Vertretungsstunde. " +
   "Stattdessen speicherst du mit save_verlaufsplan den Verlaufsplan (Phasen mit Minuten und Sozialform); jede PDF-Datei steht genau an der Stelle, an der sie benutzt wird, als [[pdf:<file_id>]] – lege das Material vorher an (add_material_pdf, Bildkarten mit add_picture_cards und einem gekürzten Erzähltext je Karte). " +
   "Muss die Lehrkraft dabei auf Material zurückgreifen, das nur sie hat (z. B. ein Vorlesetext), steht diese Aufforderung als eigener, unterstrichener Stichpunkt in der Phase: „- __Lehrkraft liest [[pdf:<file_id>|Vorlesetext – Die Arche Noah]] vor.__“. " +
+  "Material der Grundschule legst du immer mit add_material_pdf ab (ist der Drucker ausgelastet, druckt Unterricks es später nach); add_text_material gibt es dort nicht, Rückfall nur für Druckvorlagen ist add_print_material. " +
   "Für die Eltern formulierst du mit update_lesson (inhalt_eltern) 2–3 Sätze zu Inhalt und Lernziel. Nenne in allem, was Eltern sehen, nie Namen von Kindern. " +
   "Ist die Lehrkraft krank, verschiebt Unterricks die Stunden; danach überarbeitest du auf Wunsch die Einheit (get_unit zeigt Ausfälle, Stunden ohne Termin und die uid jeder Stunde; save_unit_plan mit uid). " +
   "Die Schülerzahl jedes Kurses (auch am Gymnasium) steht – wenn eingetragen – in get_lesson und get_unit; nimm sie als anzahl beim Ausdrucken.";
@@ -118,14 +120,15 @@ const TOOLS = [
     description: "Nur für Sitzungen der Grundschule: Legt Bildkarten zu einer Geschichte (z. B. einer biblischen Geschichte) als PDF ab – eine Seite = eine Karte. Du gestaltest sie als HTML-Seite; " +
       "Unterricks druckt sie wie bei add_material_pdf als PDF (Bereich „nur Lehrkraft“: die Lehrkraft zeigt sie im Sitzkreis). Zu jeder Karte schickst du genau einen gekürzten Erzähltext (erzaehltexte, gleiche Reihenfolge wie die Karten): " +
       "Eltern klicken sich nach der Stunde in der Elternansicht der Reihe nach durch die Karten und erzählen die Geschichte mit ihrem Kind nach; die Lehrkraft prüft und ändert die Texte. " +
-      "fuer_eltern (Standard true): ob Eltern die Karten sehen dürfen. Die Antwort nennt die Seitenzahl und den Verweis [[pdf:<file_id>]] für den Verlaufsplan (save_verlaufsplan); mit file_id ersetzt du Gestaltung und Erzähltexte vorhandener Bildkarten. " +
+      "fuer_eltern (Standard true): ob Eltern die Karten sehen dürfen. Die Antwort nennt die Seitenzahl und den Verweis [[pdf:<file_id>]] für den Verlaufsplan (save_verlaufsplan); mit file_id ersetzt du Gestaltung und Erzähltexte von Bildkarten, die du gestaltet hast " +
+      "(Bildkarten, die die Lehrkraft hochgeladen hat, lassen sich nicht neu gestalten – ihre Erzähltexte änderst du mit set_picture_card_texts; eigene Karten legst du dann ohne file_id neu an). " +
       "Bildkarten von Verlagen dürfen meist nicht online weitergegeben werden – gestalte die Karten selbst.\n\nGestaltungsregeln für Bildkarten (gehen vor):\n" + CARD_DESIGN_RULES.map((r) => "- " + r).join("\n") +
       "\n\nAllgemeine Gestaltungsregeln (soweit passend):\n" + materialDesignText(),
     inputSchema: { type: "object", properties: { lesson_id: ID_ARG, titel: { type: "string", maxLength: 160, description: "Dateiname ohne Endung, z. B. „Bildkarten – Josef und seine Brüder“" },
       html: { type: "string", maxLength: 1600000, description: "vollständige HTML-Seite mit <style>, jede Karte genau eine Seite (A4 quer)" },
       erzaehltexte: { type: "array", minItems: 1, maxItems: 40, items: { type: "string", maxLength: 1200 }, description: "ein gekürzter Erzähltext je Karte (2–4 kurze Sätze, nie Namen von Kindern), in der Reihenfolge der Karten" },
       fuer_eltern: { type: "boolean", description: "Eltern dürfen die Bildkarten sehen (Standard: true)" },
-      file_id: { type: "string", pattern: "^[a-f0-9]{16}$", description: "Gestaltung und Erzähltexte vorhandener Bildkarten ersetzen (aus get_lesson)" } },
+      file_id: { type: "string", pattern: "^[a-f0-9]{16}$", description: "Gestaltung und Erzähltexte von dir gestalteter Bildkarten ersetzen (aus get_lesson)" } },
       required: ["lesson_id", "titel", "html", "erzaehltexte"], additionalProperties: false } },
   { name: "set_picture_card_texts", title: "Erzähltexte der Bildkarten setzen (Grundschule)", annotations: { ...wr, destructiveHint: true },
     description: "Ersetzt die gekürzten Erzähltexte von Bildkarten einer Grundschul-Sitzung (auch von Bildkarten, die die Lehrkraft als PDF hochgeladen hat; file_id aus get_lesson, Abschnitt „Bildkarten“): " +
@@ -139,7 +142,8 @@ const TOOLS = [
     inputSchema: { type: "object", properties: { file_id: { type: "string", pattern: "^[a-f0-9]{16}$" } }, required: ["file_id"], additionalProperties: false } },
   { name: "add_text_material", title: "Textmaterial hinzufügen (Rückfall)", annotations: wr,
     description: "RÜCKFALL – nur verwenden, wenn add_material_pdf nicht funktioniert. Legt ein Unterrichtsmaterial als Text (Markdown: Überschriften, Listen, Tabellen, **fett**) in der Sitzung ab; Unterricks setzt daraus eine einfache PDF (ohne eigene Gestaltung). Schüler:innen laden es als PDF herunter. " +
-      "bereich: \"schueler\" (für Schüler:innen sichtbar) oder \"lehrkraft\" (nur für die Lehrkraft, z. B. Erwartungshorizont).",
+      "bereich: \"schueler\" (für Schüler:innen sichtbar) oder \"lehrkraft\" (nur für die Lehrkraft, z. B. Erwartungshorizont). " +
+      "Nicht in der Grundschule (dort sehen weder Kinder noch Eltern Textmaterial): dort immer add_material_pdf, als Rückfall für Druckvorlagen add_print_material.",
     inputSchema: { type: "object", properties: { lesson_id: ID_ARG, bereich: { type: "string", enum: ["schueler", "lehrkraft"] }, titel: { type: "string", maxLength: 200 }, markdown: { type: "string", maxLength: 200000 } },
       required: ["lesson_id", "bereich", "titel", "markdown"], additionalProperties: false } },
   { name: "add_print_material", title: "Druckvorlage hinzufügen (Rückfall)", annotations: wr,
@@ -251,26 +255,53 @@ function gsFileLine(f) {
   const pr = f.area === "student" && f.print_copies != null ? "; auch auf der Druckliste: " + printFileName({ name: f.name, copies: f.print_copies, duplex: f.print_duplex !== 0, color: f.print_color === 1 }) : "";
   return "- file_id " + f.id + ": „" + f.name + "“ (" + (GS_AREA[f.area] || f.area) + "; " + st + pr + ") → " + pdfRef(f.id);
 }
-async function gsLessonDump(db, l) {
+// PDFs anderer Sitzungen des Kurses für get_lesson: die der vorigen Sitzung und alle, auf die der Verlaufsplan verweist – auch ältere als die vorige
+// (Abschlussprüfung F19), mit Titel, Datum, Beginn und Anlegezeit ihrer Sitzung (refCounts)
+const GS_OTHER_FILES = "SELECT f.id, f.lesson_id, f.name, f.area, f.kind, f.mime, f.pages, f.status, f.source, f.cards, f.card_pages, f.card_img_at, f.pdf_at, f.html_at, f.render_error, f.created_at, " +
+  "f.print_copies, f.print_duplex, f.print_color, (f.html IS NOT NULL) AS designed, l.title AS lesson_title, l.lesson_date, l.start_time AS lesson_start, l.created_at AS lesson_created " +
+  "FROM files f JOIN lessons l ON l.id = f.lesson_id WHERE l.subject='gs' AND l.klass=?1 AND f.lesson_id<>?2 AND f.kind='file' AND f.mime='application/pdf' AND f.area NOT IN ('archive','presentation') " +
+  "AND (f.lesson_id=?3 OR f.id IN (SELECT value FROM json_each(?4))) ORDER BY l.lesson_date, f.created_at LIMIT 300";
+const lessonOfRow = (f) => ({ lesson_date: f.lesson_date || null, start_time: f.lesson_start || null, created_at: f.lesson_created });
+async function gsLessonDump(c, l) {
+  const db = c.db;
   const ctx = await lessonCtx(db, l);
   const prev = await previousLesson(db, l);
-  const [msgs, prevFiles] = await Promise.all([chatMessages(db, l.id, 40),
-    prev ? db.prepare(GS_CTX_FILES + " WHERE lesson_id=?1 AND kind='file' AND mime='application/pdf' AND area NOT IN ('archive','presentation') ORDER BY created_at").bind(prev.id).all() : null]);
+  const refs = planRefs(l.portal).all.slice(0, 200);
+  // was Eltern sehen: genau die Prüfung der Elternansicht (parentFiles) – ein Ausfall-Eintrag zeigt nie Material
+  const [msgs, otherRes, pf] = await Promise.all([chatMessages(db, l.id, 40),
+    prev || refs.length ? db.prepare(GS_OTHER_FILES).bind(l.klass, l.id, prev ? prev.id : "", JSON.stringify(refs)).all() : null,
+    l.cancelled ? null : parentFiles(c, l)]);
   const own = ctx.files.filter((f) => f.kind === "file" && f.mime === "application/pdf");
-  const before = (prevFiles && prevFiles.results) || [];
-  const pm = parentMaterial(l.portal, [...ctx.files, ...before], l.id), name = new Map([...ctx.files, ...before].map((f) => [f.id, f.name]));
+  const others = (otherRes && otherRes.results) || [];
+  const before = prev ? others.filter((f) => f.lesson_id === prev.id) : [];
+  const refOthers = others.filter((f) => (!prev || f.lesson_id !== prev.id) && refs.includes(f.id));
   const results = msgs.filter((m) => m.mode === "claude" && m.role === "assistant");
+  const parentsLine = l.cancelled ? "Eltern sehen zu diesem Termin nur, dass der Unterricht nicht stattfinden konnte" + (String(l.parent_note || "").trim() ? ", und den Hinweis der Lehrkraft." : ".")
+    : "Eltern sehen nach der Stunde: " + ([...pf.cards, ...pf.files].map((f) => "„" + f.name + "“").join(", ") || "noch kein Material");
   const parts = [
     "# Sitzung " + l.id + " (Grundschule)", ...(l.cancelled ? ["Ausfall-Eintrag: An diesem Termin ist der Unterricht ausgefallen (Lehrkraft krank). Die geplante Stunde ist verschoben (siehe get_unit); hier gibt es weder Verlaufsplan noch Material."] : []),
     gsLessonContext(ctx, { materialText: true, materialMax: 20000 }),
-    "", "## Verlaufsplan (Version " + l.portal_version + (l.portal_source ? ", zuletzt von " + l.portal_source : "") + ")", l.portal || "(noch leer – speichere ihn mit save_verlaufsplan)",
+    "", "## Verlaufsplan (Version " + l.portal_version + (l.portal_source ? ", zuletzt von " + l.portal_source : "") + ")",
+    l.portal || (l.cancelled ? "(Ausfall-Eintrag – hier wird nichts geplant)" : "(noch leer – speichere ihn mit save_verlaufsplan)"),
     ...(hasStop(l.portal) ? ["(„" + STOP_LINE + "“ hat die Lehrkraft gesetzt: bis dorthin wurde die Stunde geschafft, alles danach ist noch offen.)"] : []),
-    "Eltern sehen nach der Stunde: " + ([...pm.cards, ...pm.files].map((id) => "„" + name.get(id) + "“").join(", ") || "noch kein Material"),
-    "", "## Inhalt der Unterrichtsstunde (für die Eltern)", l.parent_summary || "(noch leer – formuliere ihn mit update_lesson und inhalt_eltern)",
+    parentsLine,
+    "", "## Inhalt der Unterrichtsstunde (für die Eltern)", l.parent_summary || (l.cancelled ? "(Ausfall-Eintrag – keiner)" : "(noch leer – formuliere ihn mit update_lesson und inhalt_eltern)"),
     "", "## Hinweis der Lehrkraft für die Eltern (nur lesen)", l.parent_note || "(keiner)",
-    "", "## PDF-Dateien des Kurses für Verweise ([[pdf:<file_id>]])", "Diese Sitzung:", ...(own.length ? own.map(gsFileLine) : ["(noch keine)"]),
   ];
-  if (prev) parts.push("Vorige Sitzung „" + prev.title + "“" + (prev.lesson_date ? " (" + fmtDay(prev.lesson_date) + ")" : "") + ":", ...(before.length ? before.map(gsFileLine) : ["(keine)"]));
+  // Ausfall-Eintrag: nichts zu verweisen
+  if (!l.cancelled) {
+    parts.push("", "## PDF-Dateien des Kurses für Verweise ([[pdf:<file_id>]])", "Diese Sitzung:", ...(own.length ? own.map(gsFileLine) : ["(noch keine)"]));
+    if (prev) parts.push("Vorige Sitzung „" + prev.title + "“" + (prev.lesson_date ? " (" + fmtDay(prev.lesson_date) + ")" : "") + ":", ...(before.length ? before.map(gsFileLine) : ["(keine)"]));
+    // Verweise auf PDFs weiterer Sitzungen (z. B. aus einem früheren Zwischenstopp übernommen) – je Sitzung; Eltern sehen nur die früherer Sitzungen
+    const groups = new Map();
+    for (const f of refOthers) { if (!groups.has(f.lesson_id)) groups.set(f.lesson_id, []); groups.get(f.lesson_id).push(f); }
+    if (groups.size) parts.push("Weitere Sitzungen, auf die der Verlaufsplan verweist:");
+    for (const fs of groups.values()) {
+      const f0 = fs[0], ok = refCounts(lessonOfRow(f0), l);
+      parts.push("Sitzung „" + (f0.lesson_title || "") + "“ (" + (f0.lesson_date ? fmtDay(f0.lesson_date) : "ohne Termin") + ")" +
+        (ok ? ":" : " – liegt nicht vor dieser Sitzung, deshalb sehen Eltern diese Dateien hier nicht:"), ...fs.map(gsFileLine));
+    }
+  }
   parts.push(...cardsSection(ctx.files));
   parts.push(...(await designedSection(db, l.id, (a) => (a === "student" ? "für die Kinder" : a === "teacher" ? "nur Lehrkraft" : "zum Ausdrucken"))));
   if (results.length) parts.push("", "## Gespeicherter Stundenentwurf (save_planning_result)", results[results.length - 1].content.slice(0, 20000));
@@ -286,12 +317,15 @@ async function gsLessonDump(db, l) {
 function cardsSection(files) {
   const sets = files.filter((f) => f.cards != null);
   if (!sets.length) return [];
-  const out = ["", "## Bildkarten (eine Seite = eine Karte; Erzähltexte ändern mit set_picture_card_texts, eigene Gestaltung mit add_picture_cards und file_id)"];
+  const out = ["", "## Bildkarten (eine Seite = eine Karte; Erzähltexte ändern mit set_picture_card_texts, die Gestaltung deiner eigenen Karten mit add_picture_cards und file_id – hochgeladene Karten lassen sich nicht neu gestalten)"];
   for (const f of sets) {
-    const d = cardData(f), current = f.card_img_at != null && f.card_img_at === cardVersion(f) && (f.card_pages || 0) > 0;
-    const n = current ? f.card_pages : f.status === "ready" ? f.pages : null;
-    const state = f.designed && f.status !== "ready" ? (f.render_error ? "Druck fehlgeschlagen: " + f.render_error : "wartet auf den Druck") : current ? "Bilder bereit" : "Bilder werden erstellt, sobald die Lehrkraft Unterricks öffnet";
-    out.push("- file_id " + f.id + ": „" + f.name + "“ (" + (f.designed ? "von dir gestaltet" : "von der Lehrkraft hochgeladen – die Bilder kannst du nicht sehen") + "; " + (n ? n + (n === 1 ? " Karte" : " Karten") + ", " : "") + state +
+    // neu gestaltet, aber noch nicht gedruckt: Bilder und Seitenzahl gehören zur alten Gestaltung – Eltern sehen die Karten erst mit den neuen Bildern (F00)
+    const redesign = !!f.designed && f.status === "ready" && f.html_at != null && (f.pdf_at == null || f.html_at > f.pdf_at);
+    const d = cardData(f), current = !redesign && f.card_img_at != null && f.card_img_at === cardVersion(f) && (f.card_pages || 0) > 0;
+    const n = current ? f.card_pages : f.status === "ready" && !redesign ? f.pages : null;
+    const state = f.designed && (f.status !== "ready" || redesign) ? (f.render_error ? "Druck fehlgeschlagen: " + f.render_error : redesign ? "neue Gestaltung wartet auf den Druck – bis die neuen Bilder erstellt sind, sehen Eltern die Karten nicht" : "wartet auf den Druck")
+      : current ? "Bilder bereit" : "Bilder werden erstellt, sobald die Lehrkraft Unterricks öffnet";
+    out.push("- file_id " + f.id + ": „" + f.name + "“ (" + (f.designed ? "von dir gestaltet" : "von der Lehrkraft hochgeladen – die Bilder kannst du nicht sehen, die Gestaltung nicht ersetzen") + "; " + (n ? n + (n === 1 ? " Karte" : " Karten") + ", " : "") + state +
       "; Eltern sehen sie: " + (d.share ? "ja" : "nein") + ") → " + pdfRef(f.id));
     if (n && d.texts.length !== n) out.push("  Achtung: " + n + (n === 1 ? " Karte" : " Karten") + ", aber " + d.texts.length + " Erzähltext" + (d.texts.length === 1 ? "" : "e") + ".");
     out.push(...(d.texts.length ? d.texts.map((t, i) => "  " + (i + 1) + ". " + (t || "(kein Erzähltext)")) : ["  (noch keine Erzähltexte)"]));
@@ -307,6 +341,11 @@ function listFilter(a) {
   if (a.kurs) { args.push(a.kurs); where.push("subject='gs' AND klass=?" + args.length); }
   return { where: where.length ? " WHERE " + where.join(" AND ") : "", args };
 }
+/* Stand der Sitzung einer Stunde (get_unit, Grundschule) – „nicht weglassen“ genau dann, wenn save_unit_plan die Stunde nicht wegfallen ließe (F21) */
+function gsLessonState(l) {
+  const has = [l.hasPlan ? "Verlaufsplan" : null, l.pdfs ? l.pdfs + (l.pdfs === 1 ? " PDF" : " PDFs") : null, l.cards ? "Bildkarten" : null].filter(Boolean);
+  return has.length ? " – schon geplant: " + has.join(", ") + "; nicht weglassen" : l.hasContent ? " – hat schon Inhalte (z. B. Ideen, Hinweis oder Inhalt für die Eltern, Elternlink, Material, Planungsverlauf); nicht weglassen" : " – noch leer";
+}
 /* get_unit einer Grundschul-Einheit: Kurs im Kopf, ohne Klausur, jede Stunde mit uid und Sitzung (bzw. „[ohne Termin]“) */
 function gsUnitText(u, now = Date.now()) {
   const g = (u.course && u.course.gs) || null, n = u.course && Number.isInteger(u.course.classSize) ? u.course.classSize : null;
@@ -318,7 +357,7 @@ function gsUnitText(u, now = Date.now()) {
     "", "## Plan", JSON.stringify(u.plan, null, 1), "", "## Ablauf (Zeilen; uid = Kennung der Stunde)",
     ...u.rows.map((r, i) => { const l = byRow.get(r.uid);
       return (i + 1) + ". [uid " + r.uid + "] " + (r.date ? fmtDay(r.date) + (r.time ? " " + r.time : "") : "[ohne Termin]") + (r.minutes ? " (" + r.minutes + " min)" : "") + ": " + r.stundenfrage +
-        (r.schritt != null ? " [Lernschritt " + (r.schritt + 1) + "]" : "") + (l ? " (Sitzung " + l.id + ")" : "") + (r.ablauf.length ? "\n   - " + r.ablauf.join("\n   - ") : ""); }),
+        (r.schritt != null ? " [Lernschritt " + (r.schritt + 1) + "]" : "") + (l ? " (Sitzung " + l.id + gsLessonState(l) + ")" : "") + (r.ablauf.length ? "\n   - " + r.ablauf.join("\n   - ") : ""); }),
     "", "## Sitzungen", ...(u.lessons.length ? u.lessons.map((l) => "- " + l.id + " " + (l.date ? fmtDay(l.date) : "[ohne Termin]") + ": " + l.title + (l.cancelled ? " (ausgefallen – Ausfall-Eintrag für die Eltern)" : "")) : ["(noch keine)"])];
   // Krankmeldungen: ausgefallene Termine, Stunden ohne Termin, freie Termine bis zum Ende, ob die Einheit überarbeitet werden muss
   const rv = u.revise || null, items = rv ? rv.items : [];
@@ -338,6 +377,21 @@ function gsUnitText(u, now = Date.now()) {
 }
 
 const NO_MATERIAL = "Diese Sitzung ist ein Ausfall-Eintrag (Unterricht ausgefallen) – dafür gibt es kein Material. Die verschobene Stunde hat eine eigene Sitzung (siehe get_unit).";
+const NO_PLANNING = "Diese Sitzung ist ein Ausfall-Eintrag (Unterricht ausgefallen) – hier wird nichts geplant. Die verschobene Stunde hat eine eigene Sitzung (siehe get_unit).";
+// Grundschule: Textmaterial sehen weder Kinder noch Eltern, und der Verlaufsplan kann nicht darauf verweisen (Abschlussprüfung F24)
+const NO_GS_TEXT = "In der Grundschule gibt es kein Textmaterial: Es erschiene weder bei den Kindern noch bei den Eltern und ließe sich im Verlaufsplan nicht verweisen. " +
+  "Gestalte das Material als HTML-Seite und lege es mit add_material_pdf ab – Unterricks speichert es auch, wenn der Drucker gerade ausgelastet ist, und druckt es dann automatisch nach. " +
+  "Nur als Rückfall für eine Vorlage zum Ausdrucken: add_print_material.";
+// Verweise im Verlaufsplan, die keine sind (z. B. der Platzhalter „[[pdf:<file_id>]]“ aus dem Beispiel oder eine file_id in Großbuchstaben): erscheinen nur als Text (F20)
+const PLAN_REF_ONE = new RegExp("^" + PLAN_REF_RE.source + "$");
+function invalidPlanRefs(text) {
+  const out = [];
+  for (const m of String(text == null ? "" : text).matchAll(/\[\[\s*pdf\s*:[^\]\n]*\]\]/gi)) {
+    const x = m[0].length > 60 ? m[0].slice(0, 57) + "…" : m[0];
+    if (!PLAN_REF_ONE.test(m[0]) && !out.includes(x) && out.length < 20) out.push(x);
+  }
+  return out;
+}
 async function callTool(c, name, a) {
   a = a && typeof a === "object" ? a : {};
   switch (name) {
@@ -366,7 +420,7 @@ async function callTool(c, name, a) {
     }
     case "get_lesson": {
       const l = await getLesson(c.db, a.lesson_id);
-      if (l.subject === GS_SUBJECT) return toolText(await gsLessonDump(c.db, l), { lesson_id: l.id, portal_version: l.portal_version, verlaufsplan_version: l.portal_version });
+      if (l.subject === GS_SUBJECT) return toolText(await gsLessonDump(c, l), { lesson_id: l.id, portal_version: l.portal_version, verlaufsplan_version: l.portal_version });
       return toolText(await lessonDump(c.db, l), { lesson_id: l.id, portal_version: l.portal_version });
     }
     case "list_units": {
@@ -430,6 +484,8 @@ async function callTool(c, name, a) {
       let unitId, uid;
       if (a.lesson_id) {
         const l = await getLesson(c.db, a.lesson_id);
+        if (l.cancelled) return toolError("Diese Sitzung ist ein Ausfall-Eintrag (Unterricht ausgefallen) – sie hat keine eigene Stunde in der Einheit. Die verschobene Stunde hat eine eigene Sitzung; " +
+          "mit unit_id und der uid der Stunde aus get_unit passt du sie an.");
         if (!l.unit_id || !l.unit_row) return toolError("Diese Sitzung gehört zu keiner Unterrichtseinheit.");
         unitId = l.unit_id; uid = l.unit_row;
       } else if (a.unit_id && typeof a.uid === "string" && /^[a-f0-9]{8}$/.test(a.uid)) { unitId = a.unit_id; uid = a.uid; }
@@ -458,7 +514,7 @@ async function callTool(c, name, a) {
       return toolText("Gespeichert.", { lesson: lessonOut(l) });
     }
     case "save_planning_result": {
-      await getLesson(c.db, a.lesson_id);
+      if ((await getLesson(c.db, a.lesson_id)).cancelled) return toolError(NO_PLANNING);
       const t = cleanText(a.text, LIMITS.answer).trim();
       if (!t) return toolError("Der Text ist leer.");
       await c.db.batch([
@@ -547,28 +603,42 @@ async function callTool(c, name, a) {
       const l = await getLesson(c.db, a.lesson_id);
       if (l.subject !== GS_SUBJECT) return toolError("Nur für Grundschul-Sitzungen – sonst save_schulportal_entry.");
       if (typeof a.text !== "string" || !a.text.trim()) return toolError("Der Verlaufsplan ist leer.");
-      // Verweise prüfen (eine Abfrage): PDFs aus Sitzungen dieses Kurses
-      const fr = await c.db.prepare("SELECT f.id, f.lesson_id, f.name, f.area, f.kind, f.mime, f.status, f.source, f.cards, f.card_pages, f.card_img_at, f.pdf_at, f.created_at, l.lesson_date " +
+      // Verweise prüfen (eine Abfrage): PDFs aus Sitzungen dieses Kurses – diese Sitzung zuerst, dann die früheren (neueste zuerst)
+      const fr = await c.db.prepare("SELECT f.id, f.lesson_id, f.name, l.title AS lesson_title, l.lesson_date, l.start_time AS lesson_start, l.created_at AS lesson_created " +
         "FROM files f JOIN lessons l ON l.id = f.lesson_id WHERE l.subject='gs' AND l.klass=?1 AND f.kind='file' AND f.mime='application/pdf' AND f.area NOT IN ('archive','presentation') " +
         "ORDER BY (f.lesson_id=?2) DESC, l.lesson_date DESC, f.created_at LIMIT 500").bind(l.klass, l.id).all();
-      const files = fr.results || [], known = new Set(files.map((f) => f.id));
-      const unknown = planRefs(a.text).all.filter((id) => !known.has(id));
+      const files = fr.results || [], byId = new Map(files.map((f) => [f.id, f]));
+      // für die Eltern zählen nur Verweise auf Dateien dieser oder einer früheren Sitzung (wie parentFiles – Abschlussprüfung F18)
+      const counts = (f) => f.lesson_id === l.id || refCounts(lessonOfRow(f), l);
+      const refs = planRefs(a.text).all;
+      const unknown = refs.filter((id) => !byId.has(id)), later = refs.filter((id) => byId.has(id) && !counts(byId.get(id)));
+      const invalid = invalidPlanRefs(a.text);
       let p;
       try { p = await savePortal(c.db, l.id, a.text, Number.isInteger(a.base_version) ? a.base_version : null, "claude", c.now); }
       catch (e) {
         if (e instanceof HttpError && e.code === "portal_conflict") return toolError("Der Verlaufsplan wurde inzwischen geändert (aktuelle Version " + e.extra.current.version + "). Bitte get_lesson erneut aufrufen und die Änderungen der Lehrkraft berücksichtigen.");
         throw e;
       }
-      const pm = parentMaterial(p.text, files, l.id), byId = new Map(files.map((f) => [f.id, f.name]));
-      const parentsSee = [...pm.cards, ...pm.files].map((id) => "„" + byId.get(id) + "“").join(", ") || "noch kein Material";
-      const valid = files.slice(0, 20).map((f) => f.id + " („" + f.name + "“)").join(", ");
-      return toolText("Verlaufsplan gespeichert (Version " + p.version + ")." +
-        (unknown.length ? " Achtung: Diese Verweise gehören zu keiner PDF des Kurses: " + unknown.map(pdfRef).join(", ") + ". Gültige file_id: " + (valid || "(noch keine PDF-Dateien im Kurs)") +
-          ". Bitte korrigieren (save_verlaufsplan mit base_version " + p.version + ")." : "") +
-        " Eltern sehen nach der Stunde: " + parentsSee + ".", { version: p.version, unknown_refs: unknown });
+      // was Eltern nach der Stunde sehen: genau die Prüfung der Elternansicht (F01/F18)
+      const pf = await parentFiles(c, { ...l, portal: p.text });
+      const parentsSee = [...pf.cards, ...pf.files].map((f) => "„" + f.name + "“").join(", ") || "noch kein Material";
+      const valid = [...files.filter(counts), ...files.filter((f) => !counts(f))].slice(0, 20).map((f) => f.id + " („" + f.name + "“)").join(", ");
+      const t = ["Verlaufsplan gespeichert (Version " + p.version + ")."];
+      if (unknown.length) t.push("Achtung: Diese Verweise gehören zu keiner PDF des Kurses: " + unknown.map(pdfRef).join(", ") + ".");
+      if (invalid.length) t.push("Achtung: Diese Verweise sind ungültig und erscheinen nur als Text: " + invalid.join(", ") + " – ein Verweis lautet genau [[pdf:<file_id>]] mit der file_id aus get_lesson " +
+        "(16 Zeichen, Kleinbuchstaben a–f und Ziffern), optional mit „|Beschriftung“ (höchstens 200 Zeichen).");
+      if (unknown.length || invalid.length) t.push("Gültige file_id: " + (valid || "(noch keine PDF-Dateien im Kurs)") + ". Bitte korrigieren (save_verlaufsplan mit base_version " + p.version + ").");
+      if (later.length) t.push("Achtung: Eltern sehen " + (later.length === 1 ? "diesen Verweis" : "diese Verweise") + " zu dieser Stunde nicht, " +
+        (l.lesson_date ? "weil die Datei nicht zu dieser oder einer früheren Sitzung gehört" : "weil diese Sitzung noch keinen Termin hat") + ": " +
+        later.map((id) => { const f = byId.get(id); return "„" + f.name + "“ (Sitzung „" + (f.lesson_title || "") + "“, " + (f.lesson_date ? fmtDay(f.lesson_date) : "ohne Termin") + ")"; }).join(", ") +
+        ". Für die Eltern nur Material dieser oder einer früheren Sitzung verweisen.");
+      t.push("Eltern sehen nach der Stunde: " + parentsSee + ".");
+      return toolText(t.join(" "), { version: p.version, unknown_refs: unknown, invalid_refs: invalid, later_refs: later });
     }
     case "add_text_material": {
-      if ((await getLesson(c.db, a.lesson_id)).cancelled) return toolError(NO_MATERIAL);
+      const lx = await getLesson(c.db, a.lesson_id);
+      if (lx.cancelled) return toolError(NO_MATERIAL);
+      if (lx.subject === GS_SUBJECT) return toolError(NO_GS_TEXT);
       const area = a.bereich === "schueler" ? "student" : a.bereich === "lehrkraft" ? "teacher" : "";
       const f = await insertTextMaterial(c.db, a.lesson_id, area, a.titel, a.markdown, "claude", c.now);
       return toolText("Material „" + f.name + "“ gespeichert (" + (area === "student" ? "für Schüler:innen sichtbar" : "nur für die Lehrkraft") + ").", { file_id: f.id });

@@ -45,11 +45,15 @@ const courseOfRow = (r) => gsCourseOut({ id: r.klass, grade: r.c_grade, classes:
 /* ---------- Dateien, die Eltern zu einer Sitzung sehen (die einzige Prüfung: Nutzlast und /datei) ----------
    PDFs der Kinder und Bildkarten dieser Sitzung und die, auf die ihr Verlaufsplan verweist – Verweise nur auf Dateien früherer Sitzungen
    desselben Kurses (nie auf spätere). Dazu in derselben Runde: Datum der nächsten Sitzung (Hausaufgabe) und ob es vorherige Sitzungen gibt. */
+// gilt ein Verweis auf eine Datei der Sitzung t (Datum, Beginn, Anlegezeit) für die Sitzung l? – dieselbe Regel wie die Abfrage in parentFiles
+// (für die Antworten des Connectors; Abschlussprüfung F01/F18/F19)
+export const refCounts = (t, l) => !!t.lesson_date && !!l.lesson_date && (t.lesson_date !== l.lesson_date ? t.lesson_date < l.lesson_date
+  : t.start_time && l.start_time && t.start_time !== l.start_time ? t.start_time < l.start_time : t.created_at < l.created_at);
 export async function parentFiles(c, lesson, { prevTo = null } = {}) {
   const refs = planRefs(lesson.portal).all.slice(0, 200);
   const hz = lesson.lesson_date ? schoolYearOf(lesson.lesson_date) : null;
   const [fr, nr] = await c.db.batch([
-    c.db.prepare("SELECT f.id, f.lesson_id, f.name, f.area, f.kind, f.mime, f.status, f.source, f.pages, f.size, f.cards, f.card_pages, f.card_img_at, f.pdf_at, f.created_at, " +
+    c.db.prepare("SELECT f.id, f.lesson_id, f.name, f.area, f.kind, f.mime, f.status, f.source, f.pages, f.size, f.cards, f.card_pages, f.card_img_at, f.pdf_at, f.html_at, f.created_at, " +
       "s.w AS cw, s.h AS ch FROM files f JOIN lessons l ON l.id = f.lesson_id LEFT JOIN slides s ON s.file_id = f.id AND s.n = 1 " +
       "WHERE l.subject='gs' AND l.klass=?1 AND f.kind='file' AND f.mime='application/pdf' AND (f.area='student' OR f.cards IS NOT NULL) " +
       "AND (f.lesson_id=?2 OR (f.id IN (SELECT value FROM json_each(?3)) AND l.lesson_date IS NOT NULL AND (l.lesson_date < ?4 OR (l.lesson_date = ?4 AND " +

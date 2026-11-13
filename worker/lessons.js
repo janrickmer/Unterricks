@@ -261,13 +261,13 @@ export async function routeLessonGet(c, id) {
    vorigen Sitzung verweist – für die Namen im Verlaufsplan, „PDF-Verweis einfügen …“ und die Elternansicht */
 export async function gsRefFiles(db, l, prev) {
   const ids = [...new Set([...planRefs(l.portal).all, ...(prev ? planRefs(prev.portal).all : [])])].slice(0, 200);
-  const r = await db.prepare("SELECT f.id, f.lesson_id, f.name, f.area, f.kind, f.mime, f.status, f.source, f.pages, f.cards, f.card_pages, f.card_img_at, f.pdf_at, f.created_at, " +
+  const r = await db.prepare("SELECT f.id, f.lesson_id, f.name, f.area, f.kind, f.mime, f.status, f.source, f.pages, f.cards, f.card_pages, f.card_img_at, f.pdf_at, f.html_at, f.created_at, " +
     "(f.html IS NOT NULL) AS designed, l.lesson_date, l.start_time AS lesson_start, l.created_at AS lesson_created, l.title AS lesson_title FROM files f JOIN lessons l ON l.id = f.lesson_id " +
     "WHERE l.subject='gs' AND l.klass=?1 AND f.lesson_id<>?2 AND f.kind='file' AND f.mime='application/pdf' AND f.area NOT IN ('archive','presentation') " +
     "AND (f.lesson_id=?3 OR f.id IN (SELECT value FROM json_each(?4))) ORDER BY l.lesson_date, f.created_at LIMIT 300").bind(l.klass, l.id, prev ? prev.id : "", JSON.stringify(ids)).all();
   return (r.results || []).map((f) => ({ id: f.id, name: f.name, lessonId: f.lesson_id, lessonTitle: f.lesson_title || "", date: f.lesson_date || null, lessonStart: f.lesson_start || null, lessonCreatedAt: f.lesson_created ?? null, area: f.area, kind: f.kind, mime: f.mime,
     status: f.status, source: f.source || null, pages: f.pages ?? null, designed: !!f.designed, cards: f.cards, cardPages: f.card_pages ?? null, cardImgAt: f.card_img_at ?? null,
-    pdfAt: f.pdf_at ?? null, createdAt: f.created_at, previous: !!prev && f.lesson_id === prev.id }));
+    pdfAt: f.pdf_at ?? null, htmlAt: f.html_at ?? null, createdAt: f.created_at, previous: !!prev && f.lesson_id === prev.id }));
 }
 
 /* Nachbarsitzungen derselben Klasse im selben Fach (nach Datum, bei gleichem Datum nach Anlegezeit) */

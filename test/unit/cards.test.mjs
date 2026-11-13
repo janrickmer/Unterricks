@@ -178,3 +178,58 @@ test("Connector: add_picture_cards (gedruckt, Abweichung, nur Grundschule), set_
   // Gymnasium: get_lesson ohne Bildkarten-Abschnitt
   assert.ok(!(await mcp("get_lesson", { lesson_id: sek.id })).content[0].text.includes("Bildkarten"));
 });
+
+/* Abschlussprüfung Gruppe B */
+test("F00: neu gestaltete Bildkarten sehen Eltern erst mit den neuen Bildern – nie neue Erzähltexte zu alten Bildern (Server, Browser, get_lesson)", async () => {
+  const PA = await import("../../worker/parents.js");
+  const { c, l } = await setup({ BROWSER: { quickAction: async () => new Response(PDF(3)) } });
+  const mcp = await mcpOf(c);
+  const html = "<style>@page{size:A4 landscape;margin:0}</style><section>1</section><section>2</section><section>3</section>";
+  const id = (await mcp("add_picture_cards", { lesson_id: l.id, titel: "Josef", html, erzaehltexte: ["Alt 1", "Alt 2", "Alt 3"] })).structuredContent.file_id;
+  let f = await F.getFile(c.db, id);
+  for (const n of [1, 2, 3]) assert.equal((await slide(c, id, n)).status, 200);
+  assert.equal((await call(c, CA.routeCardsReady, "POST", "/x", { pages: 3, version: f.pdf_at }, id)).status, 200);
+  const lesson = await L.getLesson(c.db, l.id);
+  assert.deepEqual((await PA.parentFiles(c, lesson)).cards.map((x) => x.id), [id], "aktuell → Eltern sehen sie");
+  assert.ok((await mcp("get_lesson", { lesson_id: l.id })).content[0].text.includes("3 Karten, Bilder bereit"));
+  // neu gestaltet, der Drucker ist nicht erreichbar: html_at > pdf_at, die Bilder stammen aus der alten Gestaltung
+  delete c.env.BROWSER;
+  const r = await mcp("add_picture_cards", { lesson_id: l.id, titel: "Josef", html: html.replace("<section>3</section>", ""), erzaehltexte: ["Neu 1", "Neu 2"], file_id: id });
+  assert.ok(!r.isError && r.content[0].text.includes("noch nicht als PDF gedruckt"), r.content[0].text);
+  f = await F.getFile(c.db, id);
+  assert.ok(f.status === "ready" && f.html_at > f.pdf_at && f.card_img_at === f.pdf_at, "Ausgangslage wie im Befund");
+  // Elternansicht (Server): nicht mehr zu sehen
+  assert.deepEqual((await PA.parentFiles(c, lesson)).cards, []);
+  // Browser der Lehrkraft: fileOut (design.outdated) und refFiles einer anderen Sitzung (htmlAt) – dieselbe Regel
+  const plan = "- [[pdf:" + id + "]]";
+  const lf = (await call(c, L.routeLessonGet, "GET", "/x", undefined, l.id)).data.files.find((x) => x.id === id);
+  assert.deepEqual(parentMaterial(plan, [{ ...lf, lessonId: l.id }], l.id).cards, []);
+  const later = await L.createLesson(c.db, { subject: "gs", klass: lesson.klass, title: "Josef verzeiht", date: "2026-11-10", startTime: "08:00", durationMin: 45 }, c.now + 5);
+  await L.savePortal(c.db, later.id, plan, null, "lehrkraft", c.now);
+  const ref = (await call(c, L.routeLessonGet, "GET", "/x", undefined, later.id)).data.refFiles.find((x) => x.id === id);
+  assert.ok(ref && ref.htmlAt === f.html_at, "refFiles tragen htmlAt");
+  assert.deepEqual(parentMaterial(plan, [ref], later.id).cards, []);
+  assert.deepEqual((await PA.parentFiles(c, await L.getLesson(c.db, later.id))).cards, [], "auch als Verweis einer späteren Sitzung nicht");
+  // get_lesson: nicht „Bilder bereit“, keine alte Seitenzahl
+  const t = (await mcp("get_lesson", { lesson_id: l.id })).content[0].text;
+  assert.ok(t.includes("„Josef.pdf“ (von dir gestaltet; neue Gestaltung wartet auf den Druck – bis die neuen Bilder erstellt sind, sehen Eltern die Karten nicht; Eltern sehen sie: ja)") && !t.includes("Bilder bereit"), t);
+  assert.ok(t.includes("Eltern sehen nach der Stunde: noch kein Material"), t);
+  // hochgeladene Bildkarten (ohne Gestaltung) bleiben sichtbar, solange ihre Bilder aktuell sind
+  const up = (await uploadCards(c, l.id, PDF(2), "name=Arche&share=1")).data.file;
+  await slide(c, up.id, 1); await slide(c, up.id, 2);
+  await call(c, CA.routeCardsReady, "POST", "/x", { pages: 2, version: up.cards.version }, up.id);
+  assert.deepEqual((await PA.parentFiles(c, lesson)).cards.map((x) => x.id), [up.id]);
+});
+
+test("F23: add_picture_cards mit der file_id hochgeladener Bildkarten – klare Auskunft statt „kein gestaltetes Material“; Beschreibung nennt set_picture_card_texts", async () => {
+  const { c, l } = await setup();
+  const mcp = await mcpOf(c);
+  const up = (await uploadCards(c, l.id, PDF(2), "name=Verlag&share=0")).data.file;
+  const r = await mcp("add_picture_cards", { lesson_id: l.id, titel: "Eigene Karten", html: "<section>1</section>", erzaehltexte: ["a"], file_id: up.id });
+  assert.ok(r.isError && r.content[0].text.startsWith("Diese Bildkarten hat die Lehrkraft hochgeladen – ihre Gestaltung lässt sich nicht ersetzen.") && r.content[0].text.includes("set_picture_card_texts"), r.content[0].text);
+  assert.equal((await F.getFile(c.db, up.id)).cards, JSON.stringify({ v: 1, texts: [], share: false, rev: 0 }), "nichts geändert");
+  const apc = (await mcp(null)).tools.find((t) => t.name === "add_picture_cards");
+  assert.ok(apc.description.includes("Bildkarten, die die Lehrkraft hochgeladen hat, lassen sich nicht neu gestalten – ihre Erzähltexte änderst du mit set_picture_card_texts"));
+  const t = (await mcp("get_lesson", { lesson_id: l.id })).content[0].text;
+  assert.ok(t.includes("hochgeladene Karten lassen sich nicht neu gestalten") && t.includes("die Gestaltung nicht ersetzen"), t);
+});
