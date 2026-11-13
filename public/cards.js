@@ -120,12 +120,13 @@ export function cardsCard({ lessonId, st, insertRef, onChange = () => {} }) {
   async function load(id) {
     try { const r = await tapi("GET", "/api/teacher/files/" + id + "/cards"); data.set(id, r); return r; } catch (e) { data.set(id, { error: e.message }); return null; }
   }
-  // offene Erzähltexte sofort speichern
-  async function saveTexts(id, box) {
+  // offene Erzähltexte sofort speichern – aus dem Kasten, der gerade zu sehen ist (nach einem Neuaufbau trägt er die getippten Texte weiter)
+  async function saveTexts(id, box0) {
     const ed = editing.get(id); if (!ed) return;
     clearTimeout(ed.timer); ed.timer = null;
     ed.chain = ed.chain.then(async () => {
       const d = data.get(id); if (!d || d.error) return;
+      const box = el.querySelector("#cs-" + id) || box0;
       const texts = [...box.querySelectorAll("textarea.cs-text")].map((t) => t.value);
       const sline = box.querySelector(".cs-save");
       stateLine(sline, "Speichert …");
@@ -201,13 +202,13 @@ export function cardsCard({ lessonId, st, insertRef, onChange = () => {} }) {
       }
     });
     const acts = h("div", { class: "row cs-acts" },
-      h("a", { class: "btn small", href: "#/lk/datei/" + f.id, target: "_blank", rel: "noopener" }, "Als PDF ansehen", h("span", { class: "sr-only", text: " (öffnet in neuem Tab)" })),
-      insertRef ? h("button", { class: "btn small", type: "button", onclick: () => insertRef(f.id) }, icon("plus"), "In den Verlaufsplan einfügen") : null,
-      failMsg ? h("button", { class: "btn small", type: "button", onclick: () => { prog.delete(f.id); queueCards({ id: f.id, version: f.cards.version }, { again: true }); paintSet(f.id); } }, "Bilder erneut erstellen") : null,
-      printFail(f, designState(f)) ? h("button", { class: "btn small", type: "button", onclick: () => { if (f.design) f.design = { ...f.design, error: null }; rq.again(f); paintSet(f.id); } }, "Erneut drucken") : null,
-      h("button", { class: "btn small danger", type: "button", onclick: async () => {
+      h("a", { class: "btn small", id: "cs-pdf-" + f.id, href: "#/lk/datei/" + f.id, target: "_blank", rel: "noopener" }, "Als PDF ansehen", h("span", { class: "sr-only", text: " (öffnet in neuem Tab)" })),
+      insertRef ? h("button", { class: "btn small", id: "cs-ins-" + f.id, type: "button", onclick: () => insertRef(f.id) }, icon("plus"), "In den Verlaufsplan einfügen") : null,
+      failMsg ? h("button", { class: "btn small", id: "cs-retry-" + f.id, type: "button", onclick: () => { prog.delete(f.id); queueCards({ id: f.id, version: f.cards.version }, { again: true }); paintSet(f.id); } }, "Bilder erneut erstellen") : null,
+      printFail(f, designState(f)) ? h("button", { class: "btn small", id: "cs-reprint-" + f.id, type: "button", onclick: () => { if (f.design) f.design = { ...f.design, error: null }; rq.again(f); paintSet(f.id); } }, "Erneut drucken") : null,
+      h("button", { class: "btn small danger", id: "cs-del-" + f.id, type: "button", onclick: async () => {
         if (!(await confirmDialog("Bildkarten löschen", "„" + f.name + "“ mit allen Kartenbildern und Erzähltexten endgültig löschen? Ein Verweis im Verlaufsplan zeigt danach „PDF nicht gefunden“.", "Endgültig löschen", true))) return;
-        try { await tapi("DELETE", "/api/teacher/files/" + f.id); st.files = st.files.filter((x) => x.id !== f.id); data.delete(f.id); paint(); onChange(); toast("Bildkarten gelöscht.", "ok"); } catch (e) { errToast(e); }
+        try { await tapi("DELETE", "/api/teacher/files/" + f.id); st.files = st.files.filter((x) => x.id !== f.id); data.delete(f.id); editing.delete(f.id); paint(); onChange(); toast("Bildkarten gelöscht.", "ok"); } catch (e) { errToast(e); }
       } }, "Löschen"));
     // Vorschau mit dem Betrachter der Elternansicht (beim Öffnen jeweils mit den aktuellen Texten)
     let preview = null;
@@ -227,21 +228,45 @@ export function cardsCard({ lessonId, st, insertRef, onChange = () => {} }) {
     paintWarn(f.id, box);
     return box;
   }
-  // neu laden und neu aufbauen – offene Eingaben vorher speichern (nie verwerfen)
-  function reloadSet(id) {
-    const ed = editing.get(id), box = el.querySelector("#cs-" + id);
-    return (ed && (ed.dirty || ed.timer) && box ? saveTexts(id, box) : Promise.resolve()).then(() => load(id)).then(() => paintSet(id));
+  // offene Eingaben speichern, dann neu aufbauen (nie verwerfen); reloadSet lädt dazwischen den Stand des Servers neu
+  const saveOpen = (id) => { const ed = editing.get(id), box = el.querySelector("#cs-" + id); return ed && (ed.dirty || ed.timer) && box ? saveTexts(id, box) : Promise.resolve(); };
+  const reloadSet = (id) => saveOpen(id).then(() => load(id)).then(() => paintSet(id));
+  const repaintSet = (id) => saveOpen(id).then(() => paintSet(id));
+  /* Neuaufbau, ohne den Fokus zu verlieren: dasselbe Element (über die id; bei einem Erzähltext samt Schreibmarke), sonst die Überschrift des
+     Satzes, sonst die der Karte „Bildkarten“ – nur, wenn der Fokus vorher in scope lag und inzwischen nicht woanders ist */
+  function keepFocus(scope, rebuild) {
+    const a = document.activeElement, inside = !!a && a !== scope && scope.contains(a);
+    const had = inside ? a.id : "", setEl = inside && a.closest ? a.closest(".cardset") : null, setId = setEl ? setEl.id : "";
+    const sel = inside && a.tagName === "TEXTAREA" ? [a.selectionStart, a.selectionEnd] : null;
+    rebuild();
+    if (!inside) return;
+    const now = document.activeElement;
+    if (now && now !== document.body && now.isConnected) return;
+    const x = (had && el.querySelector("#" + CSS.escape(had))) || (setId && el.querySelector("#" + CSS.escape(setId) + " h3")) || el.querySelector("#gs-cards-h");
+    if (!x) return;
+    if (!/^(A|BUTTON|INPUT|TEXTAREA|SELECT)$/.test(x.tagName) && !x.hasAttribute("tabindex")) x.setAttribute("tabindex", "-1");
+    x.focus({ preventScroll: true });
+    if (sel && x.tagName === "TEXTAREA" && x.id === had) { try { x.setSelectionRange(sel[0], sel[1]); } catch {} }
   }
+  // noch nicht gespeicherte Erzähltexte (der Zeitgeber läuft noch) über einen Neuaufbau retten – der Zeitgeber speichert sie danach
+  const typed = (scope) => {
+    const m = new Map();
+    for (const t of scope.querySelectorAll("textarea.cs-text")) { const b = t.closest(".cardset"), ed = b && editing.get(b.id.slice(3)); if (ed && (ed.dirty || ed.timer)) m.set(t.id, t.value); }
+    return m;
+  };
+  const retype = (m) => { for (const [tid, v] of m) { const t = el.querySelector("#" + CSS.escape(tid)); if (t) t.value = v; } };
   function paintSet(id) {
     const old = el.querySelector("#cs-" + id), f = fileOfSet(id);
     if (!old || !f) { paint(); return; }
-    const had = old.contains(document.activeElement) ? document.activeElement.id : null;
-    const nb = setBox(f); old.replaceWith(nb);
-    if (had) { const x = nb.querySelector("#" + CSS.escape(had)); if (x) x.focus({ preventScroll: true }); }
+    const keep = typed(old);
+    keepFocus(old, () => { old.replaceWith(setBox(f)); retype(keep); });
   }
   function paint() {
-    const list = setsOf();
-    clear(sets).append(...(list.length ? list.map(setBox) : [h("p", { class: "muted small", text: "Noch keine Bildkarten. Claude gestaltet sie beim Planen („Stunde mit Claude planen“), oder Sie laden eine PDF hoch." })]));
+    const list = setsOf(), keep = typed(sets);
+    keepFocus(sets, () => {
+      clear(sets).append(...(list.length ? list.map(setBox) : [h("p", { class: "muted small", text: "Noch keine Bildkarten. Claude gestaltet sie beim Planen („Stunde mit Claude planen“), oder Sie laden eine PDF hoch." })]));
+      retype(keep);
+    });
   }
   // ein Satz braucht neue Bilder? (gedruckt bzw. hochgeladen, Bilder fehlen oder passen nicht mehr)
   function ensure(f) {
@@ -259,11 +284,12 @@ export function cardsCard({ lessonId, st, insertRef, onChange = () => {} }) {
       return;
     }
     const box = el.querySelector("#cs-" + ev.id), s = box && box.querySelector(".cs-state");
-    if (ev.state === "fail") { paintSet(ev.id); return; }
+    if (ev.state === "fail") { repaintSet(ev.id); return; }
     if (s) { const t = stateText(f, data.get(ev.id)); if (s.textContent !== t) s.textContent = t; }
   });
-  const unq = rq.on({ done: (nf) => { const f = fileOfSet(nf.id); if (!f) return; Object.assign(f, nf); reloadSet(nf.id).then(() => { ensure(f); onChange(); }); },
-    fail: (f0, e, quota) => { if (quota) { for (const f of setsOf()) paintSet(f.id); } else if (fileOfSet(f0.id)) paintSet(f0.id); } });
+  // dieselbe Druck-Warteschlange druckt auch die Arbeitsblätter der Sitzung: nur Bildkarten betreffen diese Karte
+  const unq = rq.on({ done: (nf) => { const f = fileOfSet(nf.id); if (!isSet(f)) return; Object.assign(f, nf); reloadSet(nf.id).then(() => { ensure(f); onChange(); }); },
+    fail: (f0, e, quota) => { if (quota) { for (const f of setsOf()) repaintSet(f.id); } else if (isSet(fileOfSet(f0.id))) repaintSet(f0.id); } });
   onLeave(() => {
     unsub(); unq();
     for (const [id, ed] of editing) if (ed.timer || ed.dirty) { const box = el.querySelector("#cs-" + id); if (box) saveTexts(id, box); }

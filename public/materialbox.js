@@ -23,11 +23,13 @@ export function dropZone(label, hint, onFiles, accept, multiple = true) {
 
 /* Grundschule (gs: true): eigene Überschriften und Hinweise (labels), Dateien ausblenden (exclude, z. B. Bildkarten), ein Abzeichen je Datei
    (fileBadge(f) → Element, z. B. „Eltern sehen sie“), je PDF der Kinder „Auch ausdrucken (n×)“ (printCopies = Anzahl beim Einschalten) –
-   solche PDFs stehen zusätzlich auf der Druckliste; subtitle/groupLabel für Text-PDFs und den Namen der ZIP-Datei. */
-export function materialBox({ lessonId: id, st, L, gs = false, labels = {}, exclude = null, fileBadge = null, printCopies = null, subtitle = null, groupLabel = null }) {
+   solche PDFs stehen zusätzlich auf der Druckliste; subtitle/groupLabel für Text-PDFs und den Namen der ZIP-Datei; onChange() nach jeder Änderung
+   an den Dateien, die Name, Stand oder Bereich einer PDF betrifft (gedruckt, gelöscht, umbenannt, verschoben – z. B. für den Verlaufsplan). */
+export function materialBox({ lessonId: id, st, L, gs = false, labels = {}, exclude = null, fileBadge = null, printCopies = null, subtitle = null, groupLabel = null, onChange = null }) {
   const lb = { student: "Für Schüler:innen zugänglich", teacher: "Nur für Lehrkräfte", toStudent: "Für Schüler:innen", toTeacher: "Nur für Lehrkraft",
     nowStudent: "Jetzt für Schüler:innen sichtbar.", nowTeacher: "Jetzt nur noch für Lehrkräfte.", teacherHint: "Wird Schüler:innen nie angezeigt", hint: null, ...labels };
   const shown = (f) => !exclude || !exclude(f);
+  const changed = () => { if (onChange) onChange(); };
   const textSub = () => subtitle || subjectName(L().subject) + " · " + L().klass;
   /* ======================= Materialien ======================= */
   const lists = { student: h("div", { class: "list" }), teacher: h("div", { class: "list" }) };
@@ -54,7 +56,7 @@ export function materialBox({ lessonId: id, st, L, gs = false, labels = {}, excl
     printNote.classList.toggle("hidden", !n);
   };
   onLeave(rq.on({
-    done: (nf) => { const f = st.files.find((x) => x.id === nf.id); if (!f) return; Object.assign(f, nf); if (!nf.design) delete f.design; repaintFile(f.id); },
+    done: (nf) => { const f = st.files.find((x) => x.id === nf.id); if (!f) return; Object.assign(f, nf); if (!nf.design) delete f.design; repaintFile(f.id); changed(); },
     note: (fid, t) => { if (t) rNotes.set(fid, t); else rNotes.delete(fid); const f = st.files.find((x) => x.id === fid); for (const el of rEls.get(fid) || []) if (el.isConnected && f) el.textContent = designMeta(f); },
     fail: (f0, e, quota) => { if (quota) { toast(e.message, "err", 9000); paintFiles(); paintPrint(); } else repaintFile(f0.id); },
     busy: showBusy,
@@ -89,15 +91,15 @@ export function materialBox({ lessonId: id, st, L, gs = false, labels = {}, excl
     }
     acts.append(...nn(
       h("button", { class: "btn small", type: "button", title: "In den anderen Bereich verschieben", onclick: async () => {
-        try { const r = await tapi("PATCH", "/api/teacher/files/" + f.id, { body: { area: other } }); Object.assign(f, r.file); if (!r.file.print) delete f.print; paintFiles(); if (gs) paintPrint(); toast(other === "student" ? lb.nowStudent : lb.nowTeacher, "ok"); } catch (e) { errToast(e); }
+        try { const r = await tapi("PATCH", "/api/teacher/files/" + f.id, { body: { area: other } }); Object.assign(f, r.file); if (!r.file.print) delete f.print; paintFiles(); if (gs) paintPrint(); changed(); toast(other === "student" ? lb.nowStudent : lb.nowTeacher, "ok"); } catch (e) { errToast(e); }
       } }, icon("right"), other === "student" ? lb.toStudent : lb.toTeacher),
       f.kind === "link" ? null : h("button", { class: "btn small ghost", type: "button", "aria-label": "Umbenennen", onclick: async () => {
         const n = prompt("Neuer Name:", f.name); if (!n) return;
-        try { const r = await tapi("PATCH", "/api/teacher/files/" + f.id, { body: { name: n } }); Object.assign(f, r.file); paintFiles(); } catch (e) { errToast(e); }
+        try { const r = await tapi("PATCH", "/api/teacher/files/" + f.id, { body: { name: n } }); Object.assign(f, r.file); paintFiles(); if (gs) paintPrint(); changed(); } catch (e) { errToast(e); }
       } }, icon("edit")),
       h("button", { class: "btn small ghost danger", type: "button", "aria-label": "Löschen", onclick: async () => {
         if (!(await confirmDialog("Datei löschen", "„" + f.name + "“ endgültig löschen?", "Löschen", true))) return;
-        try { await tapi("DELETE", "/api/teacher/files/" + f.id); st.files = st.files.filter((x) => x !== f); paintFiles(); } catch (e) { errToast(e); }
+        try { await tapi("DELETE", "/api/teacher/files/" + f.id); st.files = st.files.filter((x) => x !== f); paintFiles(); if (gs) paintPrint(); changed(); } catch (e) { errToast(e); }
       } }, icon("trash"))));
     const src = (f.source === "claude" ? " · von Claude" : f.source === "chat" ? " · aus dem Chat" : f.source === "vertretung" ? " · Vertretung" : f.source === "uebernommen" ? " · übernommen" : f.source === "notfall" ? " · Notfall-Feibeitsblatt (automatisch aus dem Feibeitsblatt " + formatCode(f.fbCode || "") + ")" : "") + " · " + fmtTime(f.createdAt);
     const row = h("div", { class: "item" + (des && des.error ? " design-err" : "") }, fileIcon(f.name, f.mime, f.kind), h("div", { class: "main" }, h("div", { class: "name", text: f.name }),
@@ -228,14 +230,14 @@ export function materialBox({ lessonId: id, st, L, gs = false, labels = {}, excl
       h("button", { class: "btn small ghost", type: "button", "aria-label": "Umbenennen – " + f.name, onclick: async () => {
         const n = prompt("Name der Druckvorlage (ohne Anzahl und Druckart):", f.name.replace(/\.pdf$/i, ""));
         if (!n || !n.trim()) return;
-        await save({ name: n.trim() + (f.kind === "file" ? ".pdf" : "") }); paintPrint();
+        await save({ name: n.trim() + (f.kind === "file" ? ".pdf" : "") }); paintPrint(); changed();
       } }, icon("edit")),
       f.area === "student" ? h("button", { class: "btn small ghost", type: "button", onclick: async () => {
         try { const r = await tapi("PATCH", "/api/teacher/files/" + f.id, { body: { copies: null } }); Object.assign(f, r.file); delete f.print; paintPrint(); paintFiles(); toast("„" + f.name + "“ steht nicht mehr auf der Druckliste (das Material für die Kinder bleibt).", "ok"); } catch (e) { errToast(e); }
       } }, "Nicht ausdrucken") :
       h("button", { class: "btn small ghost danger", type: "button", "aria-label": "Löschen – " + f.name, onclick: async () => {
         if (!(await confirmDialog("Druckvorlage löschen", "„" + (f.printName || f.name) + "“ endgültig löschen?", "Löschen", true))) return;
-        try { await tapi("DELETE", "/api/teacher/files/" + f.id); st.files = st.files.filter((x) => x !== f); paintPrint(); } catch (e) { errToast(e); }
+        try { await tapi("DELETE", "/api/teacher/files/" + f.id); st.files = st.files.filter((x) => x !== f); paintPrint(); changed(); } catch (e) { errToast(e); }
       } }, icon("trash")));
     const row = h("div", { class: "item printrow" + (des && des.error ? " design-err" : "") }, fileIcon(f.name, "application/pdf", "file"), h("div", { class: "main" }, nameEl,
       h("div", { class: "pset" }, h("label", { class: "small pcount" }, copies, h("span", { text: "Exemplare" })), duplex, color),

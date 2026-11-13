@@ -340,6 +340,16 @@ implementiert und im End-to-End-Test geprüft (Ausnahmen unten ausdrücklich gen
   (Textmaterial sehen weder Kinder noch Eltern; Hinweis auf `add_material_pdf` bzw. `add_print_material`). Bei einem Ausfall-Eintrag nennt
   `get_lesson` keine Aufforderungen zum Planen; `save_planning_result`, `update_lesson` und `update_unit_row` lehnen ihn mit eigener Meldung ab, und sein
   Planungsverlauf geht mit ihm (rückgängig, Einheit löschen).
+  Ergänzungen der Abschlussprüfung (Oberfläche): „wird gedruckt …“ gilt nur für gestaltetes Material ohne PDF (`refPending` in `portalview.js`;
+  hochgeladene Bildkarten öffnen sich immer, auch solange ihre Bilder entstehen), und beim Klick zählt der Stand der Datei. Der Verlaufsplan zeichnet
+  sich neu, sobald eine PDF gedruckt, eine Datei gelöscht, umbenannt oder verschoben ist oder Bildkarten fertig sind (`onChange` von `materialBox` –
+  nur in der Grundschule gesetzt – und von `cardsCard`); ein fokussierter Verweis behält den Fokus. Löschen und Umbenennen im Materialkasten bauen auch
+  die Druckliste neu. Der Konflikt-Dialog des Verlaufsplans ohne Wahl geschlossen: „Nicht gespeichert – Konflikt offen“, der Text gilt als ungespeichert
+  (nie still ersetzt). „Krankmeldung rückgängig machen“ auf der Seite des Ausfall-Eintrags führt zur Sitzung, die wieder an diesem Termin liegt (sonst
+  zur Einheit). Der Dialog „Stunde ausfallen lassen?“ öffnet sich nie doppelt; `modal()` (`ui.js`) fokussiert ohne Eingabefeld und Hauptknopf den
+  ersten Knopf unten („Abbrechen“ – auch in den roten Rückfragen am Gymnasium). `contextMenu` gibt den Fokus beim Schließen an den Auslöser zurück,
+  und Tab schließt das Menü (geht vom Auslöser aus weiter). Die Felder der Sitzungsdaten sind beschriftet (`label for`). Tests der Oberfläche ohne
+  Browser: `test/unit/gsui.test.mjs` mit der DOM-Nachbildung `test/unit/fake-dom.mjs` (Attrappen für `app.js` und `teacher.js`).
 
 * **Grundschule: Bildkarten (Ergänzung vom 12.11.2026).** Wird eine Geschichte mit Bildkarten erzählt, gehört zur Sitzung eine PDF mit einer
   Karte je Seite und einem gekürzten Erzähltext je Karte (`files.cards` = `{v:1, texts, share, rev}`, Bereich „nur Lehrkraft“ – Schüler:innen
@@ -354,6 +364,10 @@ implementiert und im End-to-End-Test geprüft (Ausnahmen unten ausdrücklich gen
   Gestaltung gedruckt ist und ihre Bilder erstellt sind (`parentMaterial`: `html_at > pdf_at` bzw. `design.outdated`) – nie neue Erzähltexte
   zu alten Bildern; `get_lesson` sagt dann „neue Gestaltung wartet auf den Druck“. Hochgeladene Bildkarten lassen sich nicht neu gestalten
   (`add_picture_cards` mit ihrer `file_id` antwortet mit einem Hinweis auf `set_picture_card_texts`).
+  Ergänzungen der Abschlussprüfung (Oberfläche): Wird ein Kartensatz neu aufgebaut (Bilder fertig oder gescheitert, Druck gescheitert, neu geladen),
+  bleiben noch nicht gespeicherte Erzähltexte samt Schreibmarke stehen (scheitert etwas, wird vorher gespeichert); der Fokus bleibt auf demselben
+  Element, sonst auf der Überschrift des Satzes bzw. – nach dem Löschen – auf „Bildkarten“. Druckaufträge anderer Materialien der Sitzung (dieselbe
+  Warteschlange) bauen die Karte nicht mehr neu auf.
 
 * **Grundschule: Elternansicht (Ergänzung vom 12.11.2026).** Auf der Sitzungsseite kopiert „Sitzungslink für Eltern kopieren“ einen geheimen
   Link `…#/eltern/<Token>` (192 Bit, `randomToken(24)`); in D1 stehen nur `lessons.parent_hash` (SHA-256 von `eltern|v1|<Token>`, zum
@@ -364,6 +378,8 @@ implementiert und im End-to-End-Test geprüft (Ausnahmen unten ausdrücklich gen
   Folgetag), vorher nur „Diese Unterrichtssitzung hat noch nicht stattgefunden.“. Inhalt: Hinweis der Lehrkraft (rot, ganz oben), Bildkarten
   (nur freigegeben, mit aktuellen Bildern, nur bis zum Zwischenstopp), „Inhalt der Unterrichtsstunde“, „Hausaufgabe“ (nur, wenn eingetragen),
   die PDFs der Kinder (`parentMaterial`, dieselbe Regel wie im Browser der Lehrkraft; Verweise nur auf PDFs früherer Sitzungen des Kurses).
+  Die Sitzungsseite holt den Link beim Zurückkehren in den Tab neu (in einem anderen Fenster erneuert oder per Krankmeldung dem Ausfall-Eintrag
+  übergeben) – „Sitzungslink für Eltern kopieren“ kopiert nie einen veralteten Link.
   Nie Ideen, Verlaufsplan, Chat, Code, Beschreibung des Kurses oder Material der Lehrkraft. Ungültige Links zählen je IP (30 in 10 Minuten →
   10 Minuten gesperrt, geprüft vor dem Nachschlagen); alle Antworten `no-store` und `X-Robots-Tag: noindex, nofollow`; die Seite lädt nur
   vom eigenen Server und speichert nichts im Browser. „Elternansicht ausprobieren“ zeigt der Lehrkraft dieselbe Ansicht ohne Zeitsperre

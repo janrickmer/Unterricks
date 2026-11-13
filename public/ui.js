@@ -124,7 +124,9 @@ export function modal({ title, body, actions = [], wide = false, onClose }) {
   back.addEventListener("mousedown", (e) => { if (e.target === back) close(); });
   document.addEventListener("keydown", onKey);
   document.body.append(back);
-  const f = box.querySelector("input, textarea, select, button.primary");
+  // ohne Eingabefeld und ohne Hauptknopf (z. B. Rückfragen mit einem roten Knopf): der erste Knopf unten („Abbrechen“) – sonst bliebe der Fokus
+  // hinter dem Dialog, und Enter auf dem Auslöser öffnete ihn ein zweites Mal
+  const f = box.querySelector("input, textarea, select, button.primary") || foot.querySelector("button");
   // nur fokussieren, wenn im Dialog noch nichts fokussiert ist (sonst würde schnelles Tippen ins falsche Feld umgelenkt)
   if (f) setTimeout(() => { if (!box.contains(document.activeElement)) f.focus(); }, 30);
   return { close, el: content };

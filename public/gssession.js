@@ -36,11 +36,21 @@ function autoSave(id, L, el, key, lessonKey, stateEl, onSaved) {
   return { dirty: () => !!t || el.value !== (L()[lessonKey] || ""), flush: () => { if (t) save(); } };
 }
 /* Karte „Elternansicht“ (Sitzung und Ausfall-Eintrag): Sitzungslink kopieren, Elternansicht ausprobieren, Hinweis der Lehrkraft, Link erneuern.
-   Der Link wird beim Aufbau schon geholt, damit das Kopieren im Klick selbst geschieht (Safari erlaubt die Zwischenablage nur dort). */
+   Der Link wird beim Aufbau schon geholt, damit das Kopieren im Klick selbst geschieht (Safari erlaubt die Zwischenablage nur dort) – und beim
+   Zurückkehren in den Tab neu: In einem anderen Fenster kann er inzwischen erneuert oder (Krankmeldung) dem Ausfall-Eintrag übergeben worden sein. */
 function parentsCardDom(id, L, { status, noteState, noteTA }) {
-  let linkToken = null;
+  let linkToken = null, tokenRun = 0, tokenP = null;
   const linkUrl = (t) => location.origin + location.pathname + "#/eltern/" + t;
-  tapi("GET", "/api/teacher/lessons/" + id + "/parent-link").then((r) => { if (r.token) linkToken = r.token; }).catch(() => {});
+  const fetchToken = () => {
+    const run = ++tokenRun;
+    const p = tapi("GET", "/api/teacher/lessons/" + id + "/parent-link").then((r) => { if (run === tokenRun) linkToken = r.token || null; }).catch(() => {})
+      .finally(() => { if (tokenP === p) tokenP = null; });
+    tokenP = p;
+  };
+  fetchToken();
+  const onBack = () => { if (document.visibilityState === "visible") fetchToken(); };
+  document.addEventListener("visibilitychange", onBack); window.addEventListener("focus", onBack);
+  onLeave(() => { document.removeEventListener("visibilitychange", onBack); window.removeEventListener("focus", onBack); });
   function linkModal(url) {
     modal({ title: "Sitzungslink für Eltern", body: (el) => {
       const inp = h("input", { id: "gs-link-input", readonly: true, value: url, "aria-describedby": "gs-link-h", onfocus: (e) => e.target.select() });
@@ -51,7 +61,8 @@ function parentsCardDom(id, L, { status, noteState, noteTA }) {
   }
   async function copyLink() {
     try {
-      if (!linkToken) { const r = await tapi("POST", "/api/teacher/lessons/" + id + "/parent-link", { body: {} }); linkToken = r.token; L().hasParentLink = true; }
+      if (tokenP) await tokenP;   // wird gerade neu geholt (zurück im Tab): nie den alten Link kopieren
+      if (!linkToken) { const r = await tapi("POST", "/api/teacher/lessons/" + id + "/parent-link", { body: {} }); tokenRun++; linkToken = r.token; L().hasParentLink = true; }
       const url = linkUrl(linkToken);
       if (await copyText(url)) toast("Sitzungslink für Eltern kopiert.", "ok"); else linkModal(url);
     } catch (e) { errToast(e); }
@@ -61,7 +72,7 @@ function parentsCardDom(id, L, { status, noteState, noteTA }) {
     if (!(await confirmDialog("Link erneuern", "Neuen Link erzeugen? Der bisherige Link funktioniert danach nicht mehr.", "Neuen Link erzeugen", true))) return;
     try {
       const r = await tapi("POST", "/api/teacher/lessons/" + id + "/parent-link", { body: { renew: true } });
-      linkToken = r.token; L().hasParentLink = true;
+      tokenRun++; linkToken = r.token; L().hasParentLink = true;
       toast("Neuer Sitzungslink erzeugt – der bisherige funktioniert nicht mehr. Kopieren Sie ihn mit „Sitzungslink für Eltern kopieren“.", "ok", 8000);
     } catch (e) { errToast(e); }
   } }, "Neuen Link erzeugen");
@@ -129,6 +140,18 @@ export async function gsSessionPage(id, d) {
     unstopBtn.classList.toggle("hidden", !hasStop(ta.value));
     paintParents(); paintSummaryHint();
   }
+  // von außen (eine PDF ist gedruckt, Bildkarten fertig, eine Datei gelöscht oder umbenannt): neu zeichnen, ohne den Fokus eines Verweises
+  // in der Vorschau zu verlieren – „(wird gedruckt …)“ verschwindet, sobald die PDF da ist
+  function repaintPlan() {
+    const a = document.activeElement, links = () => [...pv.querySelectorAll("a")];
+    const k = a && a !== pv && pv.contains(a) ? links().indexOf(a) : -1, fid = k >= 0 ? a.dataset.file : null;
+    const nth = fid ? links().filter((x) => x.dataset.file === fid).indexOf(a) : -1;
+    paintPlan();
+    const now = document.activeElement;
+    if (k < 0 || (now && now !== document.body && now.isConnected)) return;
+    const n = (fid ? links().filter((x) => x.dataset.file === fid)[nth] : null) || links()[k];
+    if (n) n.focus({ preventScroll: true });
+  }
   function schedulePlan() { plan.dirty = true; if (planState.textContent !== "Ungespeicherte Änderungen …") stateLine(planState, "Ungespeicherte Änderungen …"); clearTimeout(plan.timer); plan.timer = setTimeout(() => flushPlan(), 1200); }
   function setPlanText(t) { ta.value = t; paintPlan(); schedulePlan(); }
   function flushPlan(force) {
@@ -151,13 +174,16 @@ export async function gsSessionPage(id, d) {
   }
   function planConflict(cur, mine) {
     return new Promise((resolve) => {
-      modal({ title: "Der Verlaufsplan wurde inzwischen an anderer Stelle geändert", wide: true, onClose: () => resolve(),
+      let chosen = false;
+      // ohne Wahl geschlossen (Esc, ×, daneben geklickt): Ihre Fassung bleibt ungespeichert – nie still durch die gespeicherte ersetzen
+      const onClose = () => { if (!chosen) { plan.dirty = true; stateLine(planState, "Nicht gespeichert – Konflikt offen", "err"); } resolve(); };
+      modal({ title: "Der Verlaufsplan wurde inzwischen an anderer Stelle geändert", wide: true, onClose,
         body: (el) => el.append(h("p", { text: "Der Verlaufsplan wurde " + (cur.source === "claude" ? "von Claude über den Connector" : "in einem anderen Fenster") + " geändert (Version " + cur.version + "). Welche Fassung soll gelten?" }),
           h("div", { class: "portal-wrap" }, h("div", null, h("h3", { text: "Ihre Fassung" }), h("pre", { class: "portal-preview mono", style: { whiteSpace: "pre-wrap" }, text: mine })),
             h("div", null, h("h3", { text: "Gespeicherte Fassung" }), h("pre", { class: "portal-preview mono", style: { whiteSpace: "pre-wrap" }, text: cur.text })))),
         actions: [
-          { label: "Gespeicherte Fassung übernehmen", onClick: () => { ta.value = cur.text; plan.version = cur.version; plan.dirty = false; Object.assign(L(), { portal: cur.text, portalVersion: cur.version, portalUpdatedAt: cur.updatedAt, portalSource: cur.source }); paintPlan(); stateLine(planState, planInfo()); } },
-          { label: "Meine Fassung speichern", class: "primary", onClick: () => { plan.dirty = true; flushPlan(true); } },
+          { label: "Gespeicherte Fassung übernehmen", onClick: () => { chosen = true; ta.value = cur.text; plan.version = cur.version; plan.dirty = false; Object.assign(L(), { portal: cur.text, portalVersion: cur.version, portalUpdatedAt: cur.updatedAt, portalSource: cur.source }); paintPlan(); stateLine(planState, planInfo()); } },
+          { label: "Meine Fassung speichern", class: "primary", onClick: () => { chosen = true; plan.dirty = true; flushPlan(true); } },
         ] });
     });
   }
@@ -193,7 +219,12 @@ export async function gsSessionPage(id, d) {
       : [{ label: [icon("pause"), "Zwischenstopp einfügen"], onClick: () => stopAt(line) }, ...(hasStop(ta.value) ? [{ label: "Zwischenstopp entfernen", danger: true, onClick: dropStop }] : [])]);
   }
   stopBtn.addEventListener("click", stopDialog);
-  unstopBtn.addEventListener("click", dropStop);
+  // der Knopf verschwindet mit dem letzten Zwischenstopp – der Fokus fiele sonst auf body
+  unstopBtn.addEventListener("click", () => {
+    dropStop();
+    const a = document.activeElement;
+    if (unstopBtn.classList.contains("hidden") && (!a || a === document.body || a === unstopBtn)) stopBtn.focus();
+  });
   pv.addEventListener("contextmenu", (e) => { const el = e.target.closest("[data-line]"); if (!el || e.shiftKey) return; e.preventDefault(); stopMenu(Number(el.dataset.line), e.clientX, e.clientY); });
   pv.addEventListener("click", (e) => {
     if (!window.matchMedia("(pointer: coarse)").matches || e.target.closest("a, button")) return;
@@ -288,7 +319,7 @@ export async function gsSessionPage(id, d) {
     ta.focus({ preventScroll: true }); ta.setSelectionRange(ta.value.length, ta.value.length);
     toast("Verweis auf die Bildkarten am Ende des Verlaufsplans eingefügt – schieben Sie ihn an die Stelle, an der Sie erzählen.", "ok", 6000);
   };
-  const cardsBox = cardsCard({ lessonId: id, st, insertRef: insertCardRef, onChange: () => paintParents() });
+  const cardsBox = cardsCard({ lessonId: id, st, insertRef: insertCardRef, onChange: () => repaintPlan() });
 
   /* ======================= Material und Druckliste (materialbox.js) ======================= */
   const badgeEls = new Map();   // Datei-ID → Abzeichen „Eltern sehen sie“ …
@@ -314,7 +345,7 @@ export async function gsSessionPage(id, d) {
     if (!parentsQueued) { parentsQueued = true; queueMicrotask(() => { parentsQueued = false; paintParents(); }); }
     return h("div", { class: "gs-badge" }, el);
   };
-  const box = materialBox({ lessonId: id, st, L, gs: true, fileBadge, printCopies: () => classSize, exclude: (f) => f.cards != null,
+  const box = materialBox({ lessonId: id, st, L, gs: true, fileBadge, printCopies: () => classSize, exclude: (f) => f.cards != null, onChange: () => repaintPlan(),
     subtitle: course ? course.label : "Grundschule", groupLabel: "Grundschule - " + (course ? course.short : "Kurs"),
     labels: { student: "Material für die Kinder (Eltern sehen die PDF-Dateien nach der Stunde)", teacher: "Nur für Sie", toStudent: "Für die Kinder", toTeacher: "Nur für Sie",
       nowStudent: "Jetzt im Material für die Kinder.", nowTeacher: "Jetzt nur noch für Sie.", teacherHint: "Sehen weder Kinder noch Eltern",
@@ -372,10 +403,10 @@ export async function gsSessionPage(id, d) {
     sickBtn, sickWhy ? h("p", { class: "hint", id: "gs-sick-why", text: sickWhy }) : null);
 
   /* ======================= Sitzungsdaten (Seitenleiste) ======================= */
-  const fTitle = h("input", { value: L().title, maxlength: "200" }), fTopic = h("input", { value: L().topic, maxlength: "500" });
-  const fDate = h("input", { type: "date", value: L().date || "", "aria-label": "Datum der Sitzung" }), fDur = h("input", { type: "number", min: "5", max: "600", step: "5", value: L().durationMin || "" });
-  const fStart = h("input", { type: "time", step: "300", value: L().startTime || "", "aria-label": "Beginn der Sitzung (Uhrzeit)" });
-  const fIdeas = h("textarea", { rows: "4", value: L().ideas, placeholder: "Ideen, Wünsche, Materialhinweise …" });
+  const fTitle = h("input", { id: "gs-m-title", value: L().title, maxlength: "200" }), fTopic = h("input", { id: "gs-m-topic", value: L().topic, maxlength: "500" });
+  const fDate = h("input", { id: "gs-m-date", type: "date", value: L().date || "", "aria-label": "Datum der Sitzung" }), fDur = h("input", { id: "gs-m-dur", type: "number", min: "5", max: "600", step: "5", value: L().durationMin || "" });
+  const fStart = h("input", { id: "gs-m-start", type: "time", step: "300", value: L().startTime || "", "aria-label": "Beginn der Sitzung (Uhrzeit)" });
+  const fIdeas = h("textarea", { id: "gs-m-ideas", rows: "4", value: L().ideas, placeholder: "Ideen, Wünsche, Materialhinweise …" });
   const metaState = h("span", { class: "save-state" });
   const syncRow = (patch) => { if (st.unit) { const x = (st.unit.rows || []).find((y) => y.uid === L().unitRow); if (x) Object.assign(x, patch); } };
   let metaT = null;
@@ -406,10 +437,10 @@ export async function gsSessionPage(id, d) {
     } catch (e) { fDate.value = od || ""; errToast(e); }
   });
   const metaCard = h("section", { class: "card", id: "gs-meta" }, h("div", { class: "section-title" }, h("h2", { text: "Sitzungsdaten" }), metaState),
-    h("div", { class: "field" }, h("label", null, "Titel"), fTitle), h("div", { class: "field" }, h("label", null, "Thema"), fTopic),
-    h("div", { class: "meta-grid" }, h("div", { class: "field" }, h("label", null, "Datum"), fDate), h("div", { class: "field" }, h("label", null, "Beginn (Uhrzeit)"), fStart),
-      h("div", { class: "field" }, h("label", null, "Dauer (Minuten)"), fDur)),
-    h("div", { class: "field" }, h("label", null, "Ideen und Wünsche"), fIdeas),
+    h("div", { class: "field" }, h("label", { for: "gs-m-title" }, "Titel"), fTitle), h("div", { class: "field" }, h("label", { for: "gs-m-topic" }, "Thema"), fTopic),
+    h("div", { class: "meta-grid" }, h("div", { class: "field" }, h("label", { for: "gs-m-date" }, "Datum"), fDate), h("div", { class: "field" }, h("label", { for: "gs-m-start" }, "Beginn (Uhrzeit)"), fStart),
+      h("div", { class: "field" }, h("label", { for: "gs-m-dur" }, "Dauer (Minuten)"), fDur)),
+    h("div", { class: "field" }, h("label", { for: "gs-m-ideas" }, "Ideen und Wünsche"), fIdeas),
     h("button", { class: "btn small danger", type: "button", onclick: async () => {
       if (!(await confirmDialog("Sitzung löschen", "Die Sitzung mit Verlaufsplan, Inhalt für die Eltern und allen Dateien endgültig löschen?", "Endgültig löschen", true))) return;
       try { await tapi("DELETE", "/api/teacher/lessons/" + id); plan.dirty = false; toast("Sitzung gelöscht.", "ok"); go(coursePage); } catch (e) { errToast(e); }
@@ -433,7 +464,7 @@ export async function gsSessionPage(id, d) {
       const old = st.files;
       st.files = r.files; st.refFiles = r.refFiles || [];
       if (filesChanged) { box.paintFiles(); box.paintPrint(); }
-      paintPlan();
+      repaintPlan();
       if (cardsChanged) cardsBox.refresh(old);
     }
     if ((r.messages || []).length !== st.messages.length) { st.messages = r.messages; paintDraft(); }
@@ -441,7 +472,7 @@ export async function gsSessionPage(id, d) {
     if (r.lesson.portalVersion !== plan.version && !plan.dirty && !busyField(ta)) {
       plan.version = r.lesson.portalVersion; ta.value = r.lesson.portal || "";
       Object.assign(L(), { portal: r.lesson.portal, portalVersion: r.lesson.portalVersion, portalUpdatedAt: r.lesson.portalUpdatedAt, portalSource: r.lesson.portalSource });
-      paintPlan(); stateLine(planState, "Aktualisiert · " + planInfo());
+      repaintPlan(); stateLine(planState, "Aktualisiert · " + planInfo());
     }
     for (const [el, k, f, s] of [[sumTA, "parentSummary", sumF, sumState], [hwTA, "homework", hwF, hwState], [noteTA, "parentNote", noteF, noteState]]) {
       const nv = r.lesson[k] || "";
@@ -470,7 +501,10 @@ export async function gsSessionPage(id, d) {
 }
 
 /* ---------- Krankmeldung: Vorschau, dann ausführen (POST /api/teacher/lessons/<id>/cancel) ---------- */
+let cancelOpen = false;   // nie zwei Dialoge übereinander (Enter auf dem Knopf, bevor der Dialog den Fokus hat): der untere bliebe mit alter Version stehen
 function cancelDialog(id, done) {
+  if (cancelOpen) return;
+  cancelOpen = true;
   const body = h("div", { class: "stack" });
   const err = h("p", { class: "err", role: "alert" });
   let version = null, ready = false, running = false;
@@ -490,7 +524,7 @@ function cancelDialog(id, done) {
     try { const r = await tapi("POST", "/api/teacher/lessons/" + id + "/cancel", { body: { dryRun: true } }); version = r.version; paint(r.plan); ready = true; }
     catch (e) { clear(body).append(err); err.textContent = e.message; }
   };
-  modal({ title: "Stunde ausfallen lassen?", wide: true, body: (el) => el.append(body), actions: [
+  modal({ title: "Stunde ausfallen lassen?", wide: true, body: (el) => el.append(body), onClose: () => { cancelOpen = false; }, actions: [
     { label: "Abbrechen" },
     { label: "Ausfallen lassen und verschieben", class: "danger", onClick: async () => {
       if (!ready || running) return false;
@@ -541,6 +575,13 @@ async function gsPlaceholderPage(id, d, main, course, coursePage) {
       if (!(await confirmDialog("Ausfall-Eintrag löschen", "Ausfall-Eintrag löschen? Der Elternlink dieses Termins funktioniert danach nicht mehr; die Termine der Einheit bleiben, wie sie sind.", "Löschen", true))) return;
       try { await tapi("DELETE", "/api/teacher/lessons/" + id); toast("Ausfall-Eintrag gelöscht.", "ok"); go(unit ? "#/lk/u/" + unit.id : coursePage); } catch (e) { errToast(e); }
     } }, icon("trash"), "Ausfall-Eintrag löschen"));
-  main.append(h("div", { class: "stack gs-stack" }, ...nn(unit ? reviseBox(unit, { unitLink: true, onChange: () => go("#/lk/s/" + id) }) : null, info, parents, del)));
+  // „Erledigt“: diese Seite neu laden. „Krankmeldung rückgängig machen“ löscht diesen Ausfall-Eintrag – dann zur Sitzung, die wieder an diesem
+  // Termin liegt (sonst zur Einheit), statt eine Seite zu laden, die es nicht mehr gibt
+  const afterRevise = (u) => {
+    const ls = u && Array.isArray(u.lessons) ? u.lessons : null;
+    if (!ls || ls.some((x) => x.id === id)) { go("#/lk/s/" + id); return; }
+    go(item && item.lessonId && ls.some((x) => x.id === item.lessonId) ? "#/lk/s/" + item.lessonId : "#/lk/u/" + unit.id);
+  };
+  main.append(h("div", { class: "stack gs-stack" }, ...nn(unit ? reviseBox(unit, { unitLink: true, onChange: afterRevise }) : null, info, parents, del)));
   onLeave(() => noteF.flush());
 }
