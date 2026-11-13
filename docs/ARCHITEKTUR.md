@@ -752,7 +752,10 @@ implementiert und im End-to-End-Test geprüft (Ausnahmen unten ausdrücklich gen
   (15–30 Minuten, `studentSlideExp`): wiederholte Abrufe liefern dieselben Adressen (Browser-Cache). Je Abruf ≤ 5 D1-Anweisungen. Der
   Browser holt die Links blockweise, lädt die Nachbarfolien vor, zeigt ein spät geladenes Bild nie über einer neueren Auswahl, holt bei einem
   Ladefehler einmal frische Links und zeigt sonst „Erneut versuchen“; ohne Folienbilder (ältere Präsentation) nur den Download. Platzhalter-
-  (Code-)Folien erscheinen wie in der PDF als Folienbild, nicht als Live-Codefolie.
+  (Code-)Folien erscheinen wie in der PDF als Folienbild, nicht als Live-Codefolie. Ändert die Lehrkraft die Markierung nach der Freigabe
+  (`not_shown` bzw. ein anderes `total` in der Antwort), lädt die Seite die Daten der Sitzung neu und übernimmt die neue Zahl im selben Fenster
+  (`update` – gewählte Folie, soweit noch frei, Fokus und Vollbild bleiben); ein Block, der vor einer Erweiterung nur bis zur alten Grenze
+  angefragt war, wird für die neuen Folien neu geholt.
 
 ## 4i. Druckliste „Von der Lehrkraft auszudrucken“ (Ergänzung vom 10.11.2026)
 

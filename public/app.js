@@ -351,15 +351,17 @@ async function studentRoom(lessonId) {
   onLeave(() => { closed = true; tband.stop(); clearInterval(pollT); clearInterval(pingT); clearTimeout(reT); document.removeEventListener("visibilitychange", onVis); try { ws && ws.close(); } catch {} });
 
   // Präsentation nach der Sitzung: erst 5 Minuten nach dem Ende; ist die letzte gezeigte Folie markiert, nur bis dorthin. Statt eines Knopfs
-  // ein Folienfenster (Nachtrag 19) mit „Diese Präsentation herunterladen“ darunter; beim Neuladen der Daten bleibt es stehen, solange sich
-  // an der Präsentation nichts geändert hat (gewählte Folie bleibt)
-  let pres = d.presentation, viewer = null, viewerKey = "";
-  const dropViewer = () => { if (viewer) { viewer.destroy(); viewer = null; viewerKey = ""; } };
+  // ein Folienfenster (Nachtrag 19) mit „Diese Präsentation herunterladen“ darunter; beim Neuladen der Daten bleibt es stehen, solange es
+  // dieselbe Präsentation ist (gewählte Folie, Fokus und Vollbild bleiben; eine geänderte Markierung übernimmt es selbst)
+  let pres = d.presentation, viewer = null, viewerKey = "", viewerPres = "";
+  const dropViewer = () => { if (viewer) { viewer.destroy(); viewer = null; viewerKey = ""; viewerPres = ""; } };
   onLeave(dropViewer);
   const renderPres = () => {
     const unlocked = !!pres && pres.unlockAt !== null && Date.now() + offset >= pres.unlockAt;
-    const key = unlocked ? [pres.name, pres.pages, pres.upTo || 0].join("|") : "";
-    if (viewer && key === viewerKey && viewer.el.isConnected) return;
+    const ident = unlocked ? [pres.name, pres.pages].join("|") : "", key = unlocked ? ident + "|" + (pres.upTo || 0) : "";
+    if (viewer && viewer.el.isConnected && key === viewerKey) return;
+    if (viewer && viewer.el.isConnected && unlocked && ident === viewerPres) { viewer.update({ total: pres.upTo || pres.pages, cut: !!pres.upTo }); viewerKey = key; return; }
+    const hadFocus = !!viewer && viewer.el.contains(document.activeElement);
     dropViewer(); clear(presRow);
     if (!pres) return;
     if (unlocked) {
@@ -369,8 +371,10 @@ async function studentRoom(lessonId) {
           return { ...r, slides: (r.slides || []).map((x) => ({ ...x, url: apiUrl(x.url) })) };
         },
         download: async () => { const r = await sapi("POST", "/api/student/lessons/" + lessonId + "/presentation-link", { body: { inline: false } }); downloadUrl(r.url, ""); } });
-      viewerKey = key;
+      viewerKey = key; viewerPres = ident;
       presRow.append(viewer.el);
+      // andere Präsentation, während der Fokus im alten Fenster war: nicht auf der Seite verlieren
+      if (hadFocus && (!document.activeElement || document.activeElement === document.body)) viewer.focus();
     } else if (pres.unlockAt === null) {
       presRow.append(h("span", { class: "muted small", text: "Die Präsentation kannst du nach dem Unterricht selbst öffnen." }));
     } else {

@@ -1342,6 +1342,9 @@ async function main() {
     ok(sl.status === 200 && sl.data.total === 2 && sl.data.slides.map((x) => x.n).join() === "1,2" && sl3.status === 403 && sl3.data.code === "not_shown"
       && (await fetch(BASE + sl.data.slides[1].url)).status === 200 && (await fetch(BASE + guess)).status === 403 && (await fetch(BASE + sl.data.slides[1].url.replace("p=st&", ""))).status === 403,
       "Server: Folienlinks nur bis zur Markierung, Folie 3 weder per Anfrage noch durch Raten der Nummer");
+    const slAnon = await fetch(BASE + "/api/student/lessons/" + lessonId + "/presentation-slides", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ from: 1, to: 2 }) });
+    const slOther = await SA("POST", "/api/student/lessons/" + "f".repeat(16) + "/presentation-slides", { from: 1, to: 2 });
+    ok(slAnon.status === 401 && slOther.status === 403 && slOther.data.code === "no_access", "… ohne Anmeldung (401) und für eine nicht freigeschaltete Sitzung (403) keine Folienlinks");
     // „Diese Präsentation herunterladen“: die gekürzte PDF als Datei
     // (der Download selbst meldet keine Antwort an Playwright: den Link aus der Antwort von presentation-link noch einmal abrufen)
     const [svDl, svLink] = await Promise.all([sp.waitForEvent("download", { timeout: 15000 }), sp.waitForResponse((r) => r.url().includes("/presentation-link"), { timeout: 15000 }).then((r) => r.json()),

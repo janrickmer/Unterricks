@@ -22,10 +22,11 @@ export const slideCount = (n, total) => "Folie " + n + " von " + total;
 const SWIPE_PX = 40, LOADING_DELAY_MS = 250, EXP_MARGIN_MS = 60e3;
 
 /* o: { total, cut, fetchSlides(from, to) → { total, slides: [{ n, url, w, h }], exp }, download() → Promise, now() (Uhr des Servers),
-        image() → neues Bild (Tests), onStale() (Freigabe oder Präsentation hat sich geändert: Seite neu laden) } */
+        image() → neues Bild (Tests), onStale() (Freigabe, Markierung oder Präsentation hat sich geändert: Seite neu laden) }
+   Rückgabe: { el, n, total, go(k), update({ total, cut }) (Markierung geändert – Fenster, Fokus und Vollbild bleiben), focus(), destroy() } */
 export function slideViewer(o) {
   const B = STUDENT_SLIDE_BLOCK, now = o.now || (() => Date.now()), makeImage = o.image || (() => new Image());
-  let total = Math.max(1, Number(o.total) || 1), n = 1, seq = 0, alive = true, staleSaid = false, loadT = null, ratioSet = false;
+  let total = Math.max(1, Number(o.total) || 1), n = 1, seq = 0, alive = true, staleSaid = false, loadT = null, ratioSet = false, fallback = false;
   const blocks = new Map(), warm = new Map();   // Block → { p, exp, map }, vorgeladene Bilder (Verweis hält sie im Speicher)
 
   const img = h("img", { alt: "", draggable: "false", hidden: true });
@@ -48,10 +49,11 @@ export function slideViewer(o) {
   const stage = h("div", { class: "sv-stage", "aria-live": "off" }, frame, bar, h("span", { class: "sr-only", id: keysId, text: SV_TEXT.keys }));
   const dl = h("button", { class: "btn primary sv-dl", type: "button" }, icon("download"), SV_TEXT.download);
   const dlMsg = h("p", { class: "sv-dlmsg small", role: "status" });
-  const el = h("section", { class: "card slideview", "aria-labelledby": "sv-h" },
-    h("h2", { id: "sv-h", text: SV_TEXT.title }),
-    o.cut ? h("p", { class: "muted small sv-cut", text: SV_TEXT.cut }) : null,
+  const head = h("h2", { id: "sv-h", text: SV_TEXT.title });
+  const cutEl = h("p", { class: "muted small sv-cut", text: SV_TEXT.cut });
+  const el = h("section", { class: "card slideview", "aria-labelledby": "sv-h" }, head, o.cut ? cutEl : null,
     stage, live, h("div", { class: "sv-dlrow" }, dl, fsBtn), dlMsg);
+  const setCut = (on) => { if (on && !cutEl.isConnected) head.after(cutEl); else if (!on) cutEl.remove(); };
 
   const paintBar = () => {
     count.textContent = slideCount(n, total);
@@ -66,18 +68,25 @@ export function slideViewer(o) {
     const have = blocks.get(b);
     if (have && !force && (have.p || fresh(have))) return have.p || Promise.resolve(have);
     const from = b * B + 1;
-    const ent = { p: null, exp: 0, map: new Map() };
-    ent.p = o.fetchSlides(from, Math.min(total, from + B - 1)).then((r) => {
+    const ent = { p: null, exp: 0, map: new Map(), to: Math.min(total, from + B - 1) };   // to: bis hierher angefragt (Stand der Freigabe damals)
+    ent.p = o.fetchSlides(from, ent.to).then((r) => {
       ent.p = null; ent.exp = Number(r && r.exp) || undefined;
       for (const s of (r && r.slides) || []) if (Number.isInteger(s.n) && s.url) ent.map.set(s.n, s);
-      if (r && Number.isInteger(r.total) && r.total >= 1 && r.total !== total) { total = r.total; if (n > total) n = total; paintBar(); }
+      // Markierung inzwischen geändert: Zähler anpassen und die Seite die Daten der Sitzung neu holen lassen (Satz „So weit …“)
+      if (r && Number.isInteger(r.total) && r.total >= 1 && r.total !== total) { total = r.total; if (n > total) n = total; paintBar(); stale(); }
       ent.noSlides = !((r && r.slides) || []).length;
       return ent;
     }, (e) => { if (blocks.get(b) === ent) blocks.delete(b); throw e; });
     blocks.set(b, ent);
     return ent.p;
   }
-  const slideOf = async (k, force) => (await block(Math.floor((k - 1) / B), force)).map.get(k) || null;
+  // Ist die Freigabe seit dem Abruf eines Blocks gewachsen (Markierung später gesetzt bzw. aufgehoben), fehlen dort Folien: neu holen
+  async function slideOf(k, force) {
+    const b = Math.floor((k - 1) / B);
+    let e = await block(b, force);
+    if (!e.map.has(k) && k > e.to && k <= total) e = await block(b, true);
+    return e.map.get(k) || null;
+  }
 
   function setRatio(s) {
     if (ratioSet || !s || !(s.w > 0) || !(s.h > 0)) return;
@@ -92,14 +101,16 @@ export function slideViewer(o) {
   }
   function noSlidesFallback() {
     if (!alive) return;
+    fallback = true;
     stage.replaceWith(h("p", { class: "sv-none", text: SV_TEXT.noSlides }));
     fsBtn.remove();
     live.textContent = "";
   }
   async function show(k, { say = false, force = false } = {}) {
+    if (fallback) return;
     n = Math.min(Math.max(1, k), total);
     paintBar();
-    const my = ++seq;
+    const my = ++seq, want = n;
     err.hidden = true;
     clearTimeout(loadT); loadT = setTimeout(() => { if (my === seq && alive) frame.classList.add("loading"); }, LOADING_DELAY_MS);
     if (say) live.textContent = slideCount(n, total);
@@ -113,6 +124,7 @@ export function slideViewer(o) {
       return fail(e);
     }
     if (my !== seq || !alive) return;
+    if (want > total) return show(total, { say: true });   // Markierung beim Abruf zurückgesetzt: bis zur neuen letzten Folie
     if (!s) {
       const first = blocks.get(0);
       if (first && first.noSlides && n <= B) return noSlidesFallback();   // ältere Präsentation ohne Folienbilder
@@ -205,6 +217,17 @@ export function slideViewer(o) {
     el,
     get n() { return n; }, get total() { return total; },
     go: (k) => show(k, { say: true }),
+    // Markierung geändert (dieselbe Präsentation): Fenster bleibt stehen – samt Fokus und Vollbild –, die gewählte Folie auch, soweit noch frei
+    update(u) {
+      if (!alive) return;
+      const t = Math.max(1, Number(u && u.total) || 1);
+      setCut(!!(u && u.cut)); staleSaid = false;
+      if (t === total) return;
+      total = t; blocks.clear(); warm.clear();
+      if (fallback) return;
+      show(Math.min(n, total), { say: true });
+    },
+    focus() { (frame.isConnected ? frame : dl).focus(); },
     destroy() {
       alive = false; clearTimeout(loadT); warm.clear();
       document.removeEventListener("fullscreenchange", paintFs);

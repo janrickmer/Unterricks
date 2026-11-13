@@ -154,6 +154,68 @@ test("Markierung inzwischen zurückgesetzt (403 not_shown): bis zur neuen letzte
   m.v.destroy();
 });
 
+/* Server-Attrappe mit veränderlicher Freigabe (die Lehrkraft setzt oder ändert die Markierung nach der Freigabe) */
+function liveServer(start) {
+  const st = { allowed: start, calls: [] };
+  st.fetchSlides = async (from, to) => {
+    st.calls.push([from, to]);
+    if (from > st.allowed) throw new ApiError("So weit seid ihr im Unterricht nicht gekommen.", 403, { code: "not_shown", total: st.allowed });
+    const last = Math.min(to, st.allowed, from + STUDENT_SLIDE_BLOCK - 1), slides = [];
+    for (let n = from; n <= last; n++) slides.push({ n, w: 1920, h: 1080, url: "https://api.test/api/slide/f/" + n + ".jpg" });
+    return { total: st.allowed, from, to: last, exp: st.exp, slides };
+  };
+  return st;
+}
+
+test("Markierung geändert (update aus der Seite): dasselbe Fenster samt Fokus, die Folie bleibt soweit frei, „So weit …“ folgt", async () => {
+  const im = images(), srv = liveServer(7); srv.exp = Date.now() + 20 * 60e3;
+  const m = mount({ total: 7, cut: true, fetchSlides: srv.fetchSlides, image: im.image, download: async () => {} });
+  await until(() => im.made.length >= 1, "Folie 1"); im.load(1);
+  m.v.go(5); await until(() => im.srcs().some((s) => s.endsWith("/5.jpg")), "Folie 5"); im.load(5);
+  m.frame.focus();
+  srv.allowed = 3;
+  m.v.update({ total: 3, cut: true });
+  await until(() => m.v.n === 3, "auf die neue letzte Folie");
+  assert.equal(m.count.textContent, "Folie 3 von 3"); assert.equal(m.live.textContent, "Folie 3 von 3");
+  assert.equal(m.next.getAttribute("aria-disabled"), "true");
+  assert.ok(m.v.el.isConnected && document.activeElement === m.frame, "Fenster und Fokus bleiben");
+  assert.equal(m.v.el.querySelector(".sv-cut").textContent, SV_TEXT.cut);
+  srv.allowed = 12;
+  m.v.update({ total: 12, cut: false });
+  assert.equal(m.v.el.querySelector(".sv-cut"), null, "Markierung aufgehoben: kein Satz zur Kürzung mehr");
+  assert.equal(m.v.n, 3); assert.equal(m.count.textContent, "Folie 3 von 12");
+  m.v.go(9); await until(() => im.srcs().some((s) => s.endsWith("/9.jpg")), "Folie 9 nach dem Aufheben");
+  im.load(9); assert.equal(m.v.el.querySelector(".sv-err").hidden, true);
+  m.v.destroy();
+});
+
+test("Freigabe nach dem Abruf eines Blocks gewachsen bzw. geschrumpft: keine Fehlermeldung, sondern neu holen bzw. neue letzte Folie", async () => {
+  let t = Date.now(); const im = images(), srv = liveServer(7); srv.exp = t + 20 * 60e3; let stale = 0;
+  const m = mount({ total: 7, cut: true, now: () => t, fetchSlides: srv.fetchSlides, image: im.image, download: async () => {}, onStale: () => stale++ });
+  await until(() => im.made.length >= 1, "Folie 1"); im.load(1);
+  assert.deepEqual(srv.calls[0], [1, 7]);
+  // Markierung aufgehoben, die Links laufen ab: der nächste Abruf meldet 12 – Folie 8 fehlt im Block, der nur bis 7 angefragt war
+  srv.allowed = 12; t += 21 * 60e3; srv.exp = t + 20 * 60e3;
+  m.v.go(2); await until(() => m.v.total === 12, "neue Freigabe übernommen"); im.load(2);
+  assert.equal(stale, 1, "die Seite holt die Daten der Sitzung neu (Satz „So weit …“)");
+  m.v.go(8); await until(() => im.srcs().some((s) => s.endsWith("/8.jpg")), "Folie 8 geholt");
+  im.load(8);
+  assert.equal(m.v.el.querySelector(".sv-err").hidden, true, "kein „konnte nicht geladen werden“");
+  assert.equal(m.count.textContent, "Folie 8 von 12");
+  // Markierung auf 3 zurückgesetzt, die Links laufen ab, Folie 9 gewählt: der Block meldet 3 – Folie 3 statt eines Fehlers
+  m.v.update({ total: 12, cut: false });
+  srv.allowed = 3; t += 21 * 60e3; srv.exp = t + 20 * 60e3;
+  m.v.go(2); await until(() => m.v.total === 3, "geschrumpft");
+  await until(() => im.srcs().some((s) => s.endsWith("/2.jpg")), "Folie 2");
+  m.v.update({ total: 3, cut: true });
+  m.v.go(1); im.load(1); t += 21 * 60e3; srv.allowed = 2; srv.exp = t + 20 * 60e3;
+  m.v.go(3); await until(() => m.v.n === 2, "auf die neue letzte Folie");
+  await until(() => im.srcs().filter((s) => s.endsWith("/2.jpg")).length >= 2, "Folie 2 erneut");
+  im.load(2);
+  assert.equal(m.count.textContent, "Folie 2 von 2"); assert.equal(m.v.el.querySelector(".sv-err").hidden, true);
+  m.v.destroy();
+});
+
 test("ältere Präsentation ohne Folienbilder: kein leeres Fenster, nur Hinweis und Download", async () => {
   const im = images(), srv = server({ total: 6, noSlides: true });
   const m = mount({ total: 6, fetchSlides: srv.fetchSlides, image: im.image, download: async () => {} });

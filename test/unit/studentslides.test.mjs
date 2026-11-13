@@ -101,6 +101,25 @@ test("ohne Freischaltung 403, ohne Präsentation 404, ältere Präsentation ohne
   assert.equal(r.total, 5); assert.deepEqual(r.slides, []);
 });
 
+test("ohne Anmeldung 401, abgelaufene Anmeldung 403; aus einer anderen Sitzung nichts – weder Links noch Folienbilder", async () => {
+  const c = await setup({ pages: 12, shownUntil: 7 });
+  const req = (headers, lesson = LESSON) => ({ ...c, request: new Request("https://x/api/student/lessons/" + lesson + "/presentation-slides", { method: "POST", headers: { "Content-Type": "application/json", ...headers }, body: JSON.stringify({ from: 1, to: 7 }) }) });
+  await rejects(routeStudentPresentationSlides(req({}), LESSON), 401, "unauthorized");
+  await rejects(routeStudentPresentationSlides(req({ Authorization: "Bearer falsch" }), LESSON), 401, "unauthorized");
+  await rejects(routeStudentPresentationSlides({ ...req({ Authorization: "Bearer " + TOKEN }), now: c.now + 2 * 3600e3 }, LESSON), 403, "session_expired");
+  // zweite Sitzung mit eigener Präsentation, für die dieses Gerät nicht freigeschaltet ist
+  const L2 = "bbbbbbbbbbbbbbbb", F2 = "fedcba9876543210", db = c.db.raw;
+  db.prepare("INSERT INTO lessons(id, subject, klass, title, duration_min, lesson_date, start_time, code, created_at, updated_at) VALUES(?, 'powi', 'Q2G', 'Andere', 90, ?, ?, 'P3RT7Z', ?, ?)").run(L2, DATE, START, c.now, c.now);
+  db.prepare("INSERT INTO files(id, lesson_id, area, kind, name, mime, size, pages, status, created_at, updated_at) VALUES(?, ?, 'presentation', 'file', 'Andere.pdf', 'application/pdf', 1000, 5, 'ready', ?, ?)").run(F2, L2, c.now, c.now);
+  for (let n = 1; n <= 5; n++) { db.prepare("INSERT INTO slides(file_id, n, size, w, h) VALUES(?, ?, 3, 1920, 1080)").run(F2, n); await c.env.FILES.put(slideKey(L2, F2, n), new Uint8Array([9, 9, n])); }
+  await rejects(routeStudentPresentationSlides(req({ Authorization: "Bearer " + TOKEN }, L2), L2), 403, "no_access");
+  // ein Link der eigenen Sitzung mit der Datei-Kennung der anderen: Signatur passt nicht
+  const { slides: [s1] } = await slides(c, { from: 1, to: 1 });
+  await rejects(fetchSlide(c, s1.url.replace(FILE, F2)), 403, "link_expired");
+  await rejects(fetchSlide(c, "/api/slide/" + F2 + "/1?p=st&e=" + (c.now + 60e3) + "&s=AAAA"), 403);
+  await rejects(fetchSlide(c, "/api/slide/" + F2 + "/1"), 403);
+});
+
 test("Ablauf auf Viertelstunden gerundet (15–30 Minuten): dieselben Folien bekommen innerhalb eines Fensters dieselben Adressen", async () => {
   const c = await setup({ pages: 12, shownUntil: null });
   const t0 = Math.ceil(c.now / STUDENT_SLIDE_WINDOW_MS) * STUDENT_SLIDE_WINDOW_MS + 1000;   // knapp nach Beginn eines Fensters
