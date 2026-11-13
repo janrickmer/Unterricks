@@ -172,6 +172,7 @@ const ROUTES = [
   ["GET", "/api/student/lessons/" + ID, S.routeStudentLesson],
   ["POST", "/api/student/files/" + ID + "/link", S.routeStudentFileLink],
   ["POST", "/api/student/lessons/" + ID + "/presentation-link", S.routeStudentPresentationLink],
+  ["POST", "/api/student/lessons/" + ID + "/presentation-slides", S.routeStudentPresentationSlides],
   ["POST", "/api/student/lessons/" + ID + "/ask", S.routeStudentAsk],
   ["POST", "/api/student/lessons/" + ID + "/live-ticket", S.routeStudentLiveTicket],
   ["GET", "/api/student/lessons/" + ID + "/live", S.routeStudentLiveState],

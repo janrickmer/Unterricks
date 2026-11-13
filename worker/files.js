@@ -481,6 +481,17 @@ export async function slideUrl(secret, fileId, n, ttl, now = Date.now()) {
   const { e, s } = await signLink(secret, ["slide", fileId, n], ttl, now);
   return "/api/slide/" + fileId + "/" + n + "?e=" + e + "&s=" + encodeURIComponent(s);
 }
+/* Folienfenster der Schüler:innen nach der Sitzung (Nachtrag 19): eigene Signatur (p=st), damit routeSlide beim Ausliefern noch einmal gegen
+   die markierte letzte gezeigte Folie prüft – ein gültiger Link jenseits einer inzwischen zurückgesetzten Markierung liefert nichts.
+   Ablauf auf Viertelstunden gerundet (15–30 Minuten): wer dieselben Folien erneut anfragt, bekommt dieselben Adressen (Browser-Cache). */
+export const STUDENT_SLIDE_WINDOW_MS = 15 * 60e3;
+export const studentSlideExp = (now) => (Math.floor(now / STUDENT_SLIDE_WINDOW_MS) + 2) * STUDENT_SLIDE_WINDOW_MS;
+export async function studentSlideUrl(secret, fileId, n, exp, now = Date.now()) {
+  const { e, s } = await signLink(secret, ["slide", fileId, n, "st"], exp - now, now);
+  return "/api/slide/" + fileId + "/" + n + "?p=st&e=" + e + "&s=" + encodeURIComponent(s);
+}
+// so weit dürfen Schüler:innen nach der Freigabe (bei markierter letzter gezeigter Folie nur bis dorthin – wie die heruntergeladene PDF)
+export const studentSlideLimit = (f) => (f.shown_until && f.shown_until < f.pages ? f.shown_until : f.pages);
 export async function downloadUrl(secret, f, inline, ttl = 10 * 60e3, now = Date.now(), cut = false) {
   const disp = inline && INLINE_SAFE.test(f.mime) ? "i" : "a";
   const { e, s } = await signLink(secret, cut ? ["dl", f.id, disp, "cut"] : ["dl", f.id, disp], ttl, now);
@@ -514,10 +525,12 @@ export async function routeDownload(c, fileId) {
   } });
 }
 export async function routeSlide(c, fileId, nRaw) {
-  const u = new URL(c.request.url), n = Number(nRaw);
-  if (!Number.isInteger(n) || !(await checkLink(requireSecret(c.env), ["slide", fileId, n], u.searchParams.get("e"), u.searchParams.get("s"), c.now)))
+  const u = new URL(c.request.url), n = Number(nRaw), st = u.searchParams.get("p") === "st";
+  if (!Number.isInteger(n) || !(await checkLink(requireSecret(c.env), st ? ["slide", fileId, n, "st"] : ["slide", fileId, n], u.searchParams.get("e"), u.searchParams.get("s"), c.now)))
     throw new HttpError(403, "link_expired", "Diese Folie ist nicht (mehr) freigegeben.");
   const f = await getFile(c.db, fileId);
+  if (st && !(f.area === "presentation" && f.status === "ready" && n >= 1 && n <= studentSlideLimit(f)))
+    throw new HttpError(403, "link_expired", "Diese Folie ist nicht (mehr) freigegeben.");
   const obj = await c.env.FILES.get(slideKey(f.lesson_id, f.id, n));
   if (!obj) throw new HttpError(404, "not_found", "Folie nicht gefunden.");
   return new Response(obj.body, { headers: { "Content-Type": (obj.httpMetadata && obj.httpMetadata.contentType) || "image/jpeg", "Cache-Control": "private, max-age=3600", "X-Content-Type-Options": "nosniff" } });

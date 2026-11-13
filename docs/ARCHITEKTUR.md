@@ -149,6 +149,7 @@ implementiert und im End-to-End-Test geprüft (Ausnahmen unten ausdrücklich gen
 | | `public/beamer.js` | Beamerfenster (`#/beamer`): nur die aktuelle Folie – verbunden mit dem Präsentationsfenster per `BroadcastChannel` oder, als Beamergerät, über den Server (Beamer-Code) |
 | | `public/codeslide.js` | die Codefolie (Sitzungscode + QR-Code) für Beamer, Präsentationsmodus und Live-Ansicht der Schüler:innen |
 | | `public/timerband.js` | Timer der Live-Präsentation (Nachtrag 16): Band oben über der Folie bei Schüler:innen, Beamerfenster, Beamergerät und Lehrkraft |
+| | `public/slideviewer.js` | Folienfenster der Schüler:innen nach der Sitzung (Nachtrag 19): Folie 1 bis zur Markierung durchblättern, „Diese Präsentation herunterladen“, siehe 4h |
 | | `public/pdfmaker.js`, `public/markdown.js` | Textmaterial als PDF (Rückfall), sicheres Markdown |
 | | `worker/render.js`, `public/designrender.js` | Claudes Gestaltung (HTML) als PDF drucken (Browser Run), Stand und Nachdruck auf der Sitzungsseite (4m) |
 
@@ -241,7 +242,7 @@ implementiert und im End-to-End-Test geprüft (Ausnahmen unten ausdrücklich gen
    `{on}` schaltet `codeShown`. Die Nachricht `state` trägt dann `view: "code"`, `code`, `title`, `lines` – die Schüler:innen-Seite zeigt
    daraus dieselbe Codefolie (Abzeichen „Sitzungscode“ bzw. „Folie n / m“). Folie 0 hat kein Folienbild (kein `url`); an Codefolien der
    PDF bleibt `url` als Rückfall für ältere, gecachte Seiten. „Bis hier gezeigt“ ist auf der Codefolie gesperrt (keine Seite der PDF);
-   `v` bleibt auch über „Präsentation für alle beenden“ hinweg monoton. Die PDF zum Selbstöffnen gibt der Server erst 5 Minuten nach dem Ende der Sitzung frei – bei markierter
+   `v` bleibt auch über „Präsentation für alle beenden“ hinweg monoton. Die PDF zum Selbstöffnen (und das Folienfenster) gibt der Server erst 5 Minuten nach dem Ende der Sitzung frei – bei markierter
    letzter Folie nur gekürzt (siehe 4h).
    **Vorschau und Beamerfenster** (nur im Browser der Lehrkraft, ohne Server): Der Präsentationsmodus zeigt neben der aktuellen Folie
    die nächste (`nextSlideOf`: nach Folie 0 Folie 1, eine Platzhalterfolie als Codefolie, bei „Sitzungscode zeigen“ die Folie darunter,
@@ -740,6 +741,18 @@ implementiert und im End-to-End-Test geprüft (Ausnahmen unten ausdrücklich gen
   (`PUT /api/teacher/files/:id/shown?until=n`, R2 `…-bis`, `files.shown_until`/`cut_size`). Schüler:innen bekommen danach nur diese
   Datei („… (Folie 1–n).pdf“, eigener signierter Link); fehlt sie, gibt es nichts (nie die vollständige). Die Live-Anzeige bleibt
   unberührt.
+* **Folienfenster nach der Sitzung (Nachtrag 19):** Statt eines Knopfs „… selbst öffnen“ zeigt die Schüleransicht nach der Freigabe die
+  Folienbilder (`public/slideviewer.js`): zuerst Folie 1, weiter/zurück (Knöpfe, Wischen, Pfeiltasten), Zähler „Folie n von m“ (m = Markierung,
+  sonst alle Seiten), darunter „Diese Präsentation herunterladen“ (`presentation-link` mit `inline: false` → Anhang, bei Markierung die gekürzte
+  PDF). `POST /api/student/lessons/:id/presentation-slides {from, to}` prüft Freischaltung und Freigabezeit wie `presentation-link` und liefert
+  höchstens `STUDENT_SLIDE_BLOCK` (10) signierte Folienlinks je Anfrage – nie jenseits der Markierung (`from` dahinter → 403 `not_shown` mit
+  `total`), samt Maßen (`slides.w/h`) für das Seitenverhältnis. Die Links tragen eine eigene Signatur (`["slide", fileId, n, "st"]`, `p=st`):
+  `routeSlide` prüft beim Ausliefern erneut gegen die **jetzige** Markierung und `status='ready'` – auch ein noch gültiger Link wird nach dem
+  Zurücksetzen der Markierung wertlos; ohne `p=st` bzw. mit veränderter Nummer passt die Signatur nicht. Ablauf auf Viertelstunden gerundet
+  (15–30 Minuten, `studentSlideExp`): wiederholte Abrufe liefern dieselben Adressen (Browser-Cache). Je Abruf ≤ 5 D1-Anweisungen. Der
+  Browser holt die Links blockweise, lädt die Nachbarfolien vor, zeigt ein spät geladenes Bild nie über einer neueren Auswahl, holt bei einem
+  Ladefehler einmal frische Links und zeigt sonst „Erneut versuchen“; ohne Folienbilder (ältere Präsentation) nur den Download. Platzhalter-
+  (Code-)Folien erscheinen wie in der PDF als Folienbild, nicht als Live-Codefolie.
 
 ## 4i. Druckliste „Von der Lehrkraft auszudrucken“ (Ergänzung vom 10.11.2026)
 

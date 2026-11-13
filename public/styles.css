@@ -430,6 +430,47 @@ main.narrow .homework { background: var(--gelb-t); border-color: color-mix(in sr
 .live:fullscreen, .live.max { border-radius: 0; aspect-ratio: auto; width: 100vw; height: 100vh; }
 .live.max { position: fixed; inset: 0; z-index: 60; }
 
+/* ---------- Folienfenster nach der Sitzung (Nachtrag 19): die Präsentation bis zur letzten gezeigten Folie durchblättern ----------
+ * Fläche wie das Live-Fenster (Projektionsfläche, in beiden Modi gleich), im Seitenverhältnis der Folien, höchstens 78 % der Fensterhöhe
+ * (sonst wird eingepasst). Darunter „Vorherige Folie“, Zähler, „Nächste Folie“; am Handy nur die Pfeile (Name bleibt für Screenreader). */
+.presrow { margin: .6rem 0 1.2rem; }
+.presrow > .slideview { margin-top: 1rem; }
+.slideview h2 { margin-bottom: .2rem; }
+.slideview .sv-cut { margin: 0 0 .1rem; }
+.sv-stage { display: grid; gap: .6rem; margin-top: .75rem; }
+.sv-frame { position: relative; display: grid; grid-template: minmax(0, 1fr) / minmax(0, 1fr); place-items: center; width: 100%; aspect-ratio: var(--sv-ar, 16 / 9);
+  max-height: 78vh; background: #0b111e; color: #cfd8e6; border: 1px solid var(--line); border-radius: var(--radius-s); overflow: hidden; touch-action: pan-y pinch-zoom; }
+.sv-frame:focus-visible { border-radius: var(--radius-s); }
+.sv-frame > img, .sv-frame > .sv-spin, .sv-frame > .sv-err { grid-area: 1 / 1; }
+.sv-frame > img { width: 100%; height: 100%; object-fit: contain; display: block; user-select: none; -webkit-user-drag: none; transition: opacity .2s var(--ease); }
+.sv-frame > [hidden] { display: none; }
+.sv-frame.loading > img { opacity: .35; }
+.sv-spin { display: none; width: 2.4rem; height: 2.4rem; border: 3px solid rgba(255, 255, 255, .85); border-right-color: transparent; border-radius: 50%; animation: spin .8s linear infinite; }
+.sv-frame.loading .sv-spin { display: block; }
+.sv-err { display: grid; justify-items: center; gap: .65rem; max-width: 30rem; padding: 1rem 1.2rem; text-align: center; }
+.sv-err p { margin: 0; color: #e8edf6; font-weight: 700; }
+.sv-frame .btn { --ring: #fff; background: rgba(10, 16, 30, .62); border-color: rgba(255, 255, 255, .55); color: #fff; }
+.sv-frame .btn:hover { background: rgba(10, 16, 30, .84); }
+.sv-bar { display: flex; align-items: center; gap: .6rem; }
+.sv-bar .btn { flex: none; position: relative; }
+.sv-count { flex: 1 1 auto; min-width: 0; margin: 0; text-align: center; font-weight: 700; font-variant-numeric: tabular-nums; }
+.sv-exit { margin-left: .35rem; } .sv-exit[hidden] { display: none; }
+.sv-dlrow { display: flex; flex-wrap: wrap; align-items: center; gap: .6rem; margin-top: 1rem; }
+.sv-dlmsg { margin: .55rem 0 0; } .sv-dlmsg:empty { margin: 0; }
+.sv-none { margin: .75rem 0 0; color: var(--muted); }
+/* Vollbild (bzw. ohne Vollbild-Schnittstelle als Ebene über der Seite): Folie so groß wie möglich, die Knöpfe darunter hell auf dunkel */
+.sv-stage.full { margin: 0; width: 100vw; height: 100vh; height: 100dvh; padding: .75rem; grid-template-rows: minmax(0, 1fr) auto; background: #0b111e; }
+.sv-stage.max { position: fixed; inset: 0; z-index: 60; }
+.sv-stage.full .sv-frame { aspect-ratio: auto; max-height: none; height: 100%; border: 0; border-radius: 0; }
+.sv-stage.full .sv-count { color: #e8edf6; }
+.sv-stage.full .sv-bar .btn { --ring: #fff; background: rgba(255, 255, 255, .14); border-color: rgba(255, 255, 255, .45); color: #fff; }
+.sv-stage.full .sv-bar .btn:hover { background: rgba(255, 255, 255, .24); }
+@media (max-width: 560px) {
+  .sv-bar .sv-lbl { position: absolute; width: 1px; height: 1px; margin: -1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }
+  .sv-bar .btn { min-width: 52px; min-height: 48px; padding-inline: .7rem; }
+}
+@media (prefers-reduced-motion: reduce) { .sv-spin { animation-duration: 2.4s; } .sv-frame > img { transition: none; } }
+
 /* ---------- Präsentationsmodus und Beamer-Code ---------- */
 .presenter { --ar: 1.7778; position: fixed; inset: 0; z-index: 100; background: #000; display: grid; grid-template-rows: minmax(0, 1fr) auto; }
 .presenter:focus { outline: none; }

@@ -1,10 +1,11 @@
 // app.js – Einstieg: Router und Schüleransicht. Die Lehrkräfteansicht wird erst bei Bedarf geladen (teacher.js).
-import { h, $, clear, nn, store, deviceId, api, apiUrl, wsUrl, ApiError, toast, errToast, busy, copyText, fmtBytes, fmtDate, fmtClock, fileIcon, downloadUrl, downloadBlob, topbar, icon, setFach, pageHead, modal } from "./ui.js";
-import { SUBJECTS, CLASS_GROUPS, STUDENT_LOGIN_MIN, subjectName, formatCode, normalizeCode, fmtDay, classShort, isAnalogClass, webUrlLabel, fmtClockBerlin, fmtDayBerlin, slidesUpTo } from "./shared.js";
+import { h, $, clear, store, deviceId, api, apiUrl, wsUrl, ApiError, toast, errToast, busy, copyText, fmtBytes, fmtDate, fmtClock, fileIcon, downloadUrl, downloadBlob, topbar, icon, setFach, pageHead, modal } from "./ui.js";
+import { SUBJECTS, CLASS_GROUPS, STUDENT_LOGIN_MIN, subjectName, formatCode, normalizeCode, fmtDay, classShort, isAnalogClass, webUrlLabel, fmtClockBerlin, fmtDayBerlin } from "./shared.js";
 import { paintPortalPreview } from "./portalview.js";
 import { codeSlideDom } from "./codeslide.js";
 import { timerBand } from "./timerband.js";
 import { renderMarkdown } from "./markdown.js";
+import { slideViewer } from "./slideviewer.js";
 
 // Nie in fremden Seiten eingebettet anzeigen: Auf GitHub Pages fehlen die Schutz-Header (frame-ancestors gilt nicht als <meta>)
 if (window.top !== window.self) { document.documentElement.hidden = true; throw new Error("Unterricks lässt sich nicht in andere Seiten einbetten."); }
@@ -239,7 +240,7 @@ async function studentRoom(lessonId) {
     else if (fs) fs.call(live).catch(() => live.classList.toggle("max"));
     else live.classList.toggle("max");
   });
-  const presRow = h("div", { class: "row", style: { margin: ".6rem 0 1.2rem" } });
+  const presRow = h("div", { class: "presrow" });
   // Hausaufgabe aus dieser Sitzung bis zur nächsten Sitzung – der Server liefert sie erst ab 15 Minuten vor dem Ende der Sitzung
   const hwBox = h("div");
   const paintHomework = (hw) => {
@@ -349,15 +350,27 @@ async function studentRoom(lessonId) {
   document.addEventListener("visibilitychange", onVis);
   onLeave(() => { closed = true; tband.stop(); clearInterval(pollT); clearInterval(pingT); clearTimeout(reT); document.removeEventListener("visibilitychange", onVis); try { ws && ws.close(); } catch {} });
 
-  // Präsentation selbst öffnen: erst 5 Minuten nach dem Ende der Sitzung; ist die letzte gezeigte Folie markiert, nur bis dorthin
-  let pres = d.presentation;
+  // Präsentation nach der Sitzung: erst 5 Minuten nach dem Ende; ist die letzte gezeigte Folie markiert, nur bis dorthin. Statt eines Knopfs
+  // ein Folienfenster (Nachtrag 19) mit „Diese Präsentation herunterladen“ darunter; beim Neuladen der Daten bleibt es stehen, solange sich
+  // an der Präsentation nichts geändert hat (gewählte Folie bleibt)
+  let pres = d.presentation, viewer = null, viewerKey = "";
+  const dropViewer = () => { if (viewer) { viewer.destroy(); viewer = null; viewerKey = ""; } };
+  onLeave(dropViewer);
   const renderPres = () => {
-    clear(presRow);
+    const unlocked = !!pres && pres.unlockAt !== null && Date.now() + offset >= pres.unlockAt;
+    const key = unlocked ? [pres.name, pres.pages, pres.upTo || 0].join("|") : "";
+    if (viewer && key === viewerKey && viewer.el.isConnected) return;
+    dropViewer(); clear(presRow);
     if (!pres) return;
-    const unlocked = pres.unlockAt !== null && Date.now() + offset >= pres.unlockAt;
     if (unlocked) {
-      presRow.append(...nn(h("button", { class: "btn primary", type: "button", onclick: (e) => openPresentation(e.currentTarget) }, pres.upTo ? "Präsentation (" + slidesUpTo(pres.upTo) + ") selbst öffnen" : "Präsentation selbst öffnen und durchklicken"),
-        pres.upTo ? h("span", { class: "muted small", text: "So weit, wie ihr im Unterricht gekommen seid." }) : null));
+      viewer = slideViewer({ total: pres.upTo || pres.pages, cut: !!pres.upTo, now: () => Date.now() + offset, onStale: () => refresh(),
+        fetchSlides: async (from, to) => {
+          const r = await sapi("POST", "/api/student/lessons/" + lessonId + "/presentation-slides", { body: { from, to } });
+          return { ...r, slides: (r.slides || []).map((x) => ({ ...x, url: apiUrl(x.url) })) };
+        },
+        download: async () => { const r = await sapi("POST", "/api/student/lessons/" + lessonId + "/presentation-link", { body: { inline: false } }); downloadUrl(r.url, ""); } });
+      viewerKey = key;
+      presRow.append(viewer.el);
     } else if (pres.unlockAt === null) {
       presRow.append(h("span", { class: "muted small", text: "Die Präsentation kannst du nach dem Unterricht selbst öffnen." }));
     } else {
@@ -376,13 +389,6 @@ async function studentRoom(lessonId) {
   const onVisCh = () => { if (document.visibilityState === "visible" && pending.some((t) => Date.now() + offset >= t)) refresh(); };
   document.addEventListener("visibilitychange", onVisCh);
   onLeave(() => { clearTimeout(chT); document.removeEventListener("visibilitychange", onVisCh); });
-  async function openPresentation(btn) {
-    const w = window.open("about:blank", "_blank");
-    await busy(btn, async () => {
-      try { const r = await sapi("POST", "/api/student/lessons/" + lessonId + "/presentation-link", { body: { inline: true } }); if (w) w.location.href = apiUrl(r.url); else location.href = apiUrl(r.url); }
-      catch (e) { if (w) w.close(); errToast(e); }
-    }, "Öffne …");
-  }
   renderPres();
 
   // 2) Materialien und Feibeitsblätter

@@ -3,11 +3,11 @@
 import { HttpError, bad, json, readJson, isId, requireSecret, sha256Hex, LOCKS, lockedFor, registerFail, lockedError, fmtWait, cleanLine, cleanText } from "./lib.js";
 import { callTask, taskProviders, TASKS } from "./ai.js";
 import { requireStudent } from "./auth.js";
-import { getFile, downloadUrl } from "./files.js";
+import { getFile, downloadUrl, studentSlideUrl, studentSlideExp, studentSlideLimit } from "./files.js";
 import { nextLessonDate } from "./lessons.js";
 import { getSubstitute, substituteForStudents } from "./substitute.js";
 import { liveTicket, liveState } from "./live.js";
-import { normalizeCode, isValidCode, subjectName, classShort, isCourseClass, courseMembers, cleanWebUrl, lessonTimes, fmtClockBerlin, studentHelpPrompt, STUDENT_HELP_LIMITS, GS_SUBJECT } from "../public/shared.js";
+import { normalizeCode, isValidCode, subjectName, classShort, isCourseClass, courseMembers, cleanWebUrl, lessonTimes, fmtClockBerlin, studentHelpPrompt, STUDENT_HELP_LIMITS, GS_SUBJECT, STUDENT_SLIDE_BLOCK } from "../public/shared.js";
 import { loadSubjectConfigs } from "./bases.js";
 
 /* Zeitpunkte der Sitzung (Vorgabe der Lehrkraft vom 10.11.2026): die Hausaufgabe erst ab 15 Minuten vor dem Ende, die ganze Präsentation
@@ -98,18 +98,41 @@ export async function routeStudentFileLink(c, fileId) {
   return json({ ok: true, url: await downloadUrl(requireSecret(c.env), f, false, 10 * 60e3, c.now) });
 }
 
-export async function routeStudentPresentationLink(c, lessonId) {
+// Präsentation frei? Erst 5 Minuten nach dem Ende der Sitzung (ohne Beginn oder Dauer nie) – für die PDF und für das Folienfenster
+async function releasedPresentation(c, lessonId, cols) {
   const { lesson } = await requireAccess(c, lessonId);
   const times = timesOf(lesson);
   if (!times) throw new HttpError(403, "not_yet", "Die Präsentation kannst du nach dem Unterricht selbst öffnen – deine Lehrkraft hat die Uhrzeit der Sitzung noch nicht eingetragen.");
   if (c.now < times.presentationAt) throw new HttpError(403, "not_yet", "Die Präsentation kannst du ab " + fmtClockBerlin(times.presentationAt) + " Uhr selbst öffnen (5 Minuten nach dem Unterricht).", { unlockAt: times.presentationAt });
-  const f = await c.db.prepare("SELECT * FROM files WHERE lesson_id=?1 AND area='presentation' AND status='ready' LIMIT 1").bind(lessonId).first();
+  const f = await c.db.prepare("SELECT " + cols + " FROM files WHERE lesson_id=?1 AND area='presentation' AND status='ready' LIMIT 1").bind(lessonId).first();
   if (!f) throw new HttpError(404, "not_found", "Zu dieser Sitzung gibt es noch keine Präsentation.");
+  return f;
+}
+
+export async function routeStudentPresentationLink(c, lessonId) {
+  const f = await releasedPresentation(c, lessonId, "*");
   const body = await readJson(c.request, 1000);
   // letzte gezeigte Folie markiert: nur die gekürzte PDF (Folie 1 bis zur Markierung), nie die vollständige
   const cut = f.shown_until && f.shown_until < f.pages;
   if (cut && !f.cut_size) throw new HttpError(409, "not_ready", "Die Präsentation wird gerade vorbereitet. Bitte versuch es gleich noch einmal.");
   return json({ ok: true, url: await downloadUrl(requireSecret(c.env), f, body.inline !== false, 10 * 60e3, c.now, !!cut) });
+}
+
+/* Folienfenster nach der Sitzung (Nachtrag 19): signierte, kurzlebige Links auf die Folienbilder from…to – höchstens STUDENT_SLIDE_BLOCK
+   auf einmal (je Folie ein HMAC) und nie jenseits der markierten letzten gezeigten Folie (wie die heruntergeladene PDF). Ohne Folienbilder
+   (ältere Präsentation) ist slides leer – die Seite bietet dann nur die PDF an. */
+export async function routeStudentPresentationSlides(c, lessonId) {
+  const f = await releasedPresentation(c, lessonId, "id, pages, shown_until");
+  const body = await readJson(c.request, 1000);
+  const total = studentSlideLimit(f), from = Number(body.from), to = body.to === undefined ? from : Number(body.to);
+  if (!Number.isInteger(from) || !Number.isInteger(to) || from < 1 || to < from) throw bad("Ungültige Foliennummer.");
+  if (from > total) throw new HttpError(403, "not_shown", total < f.pages ? "So weit seid ihr im Unterricht nicht gekommen – freigegeben " + (total === 1 ? "ist nur Folie 1." : "sind Folie 1 bis " + total + ".")
+    : "Diese Folie gibt es in der Präsentation nicht.", { total });
+  const last = Math.min(to, total, from + STUDENT_SLIDE_BLOCK - 1);
+  const rows = await c.db.prepare("SELECT n, w, h FROM slides WHERE file_id=?1 AND n BETWEEN ?2 AND ?3 ORDER BY n").bind(f.id, from, last).all();
+  const secret = requireSecret(c.env), exp = studentSlideExp(c.now), slides = [];
+  for (const r of rows.results || []) slides.push({ n: r.n, w: r.w || null, h: r.h || null, url: await studentSlideUrl(secret, f.id, r.n, exp, c.now) });
+  return json({ ok: true, authLeftMs: c.authLeftMs, total, from, to: last, exp, slides });
 }
 
 /* KI-Begriffshilfe (Wunsch der Lehrkraft vom 10.11.2026): nur mit Einwilligung, nur während der Stunde, nur Fachbegriffe und Unterrichtsinhalt.

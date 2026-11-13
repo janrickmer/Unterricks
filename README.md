@@ -154,7 +154,10 @@ Feibeitsblatt braucht keine Änderung. Die Adressen stehen in `wrangler.jsonc` (
 * **Beginn, Hausaufgabe, Präsentation:** Den Beginn der Sitzung tragen Sie im Stundenplan der Einheit (je Wochentag) oder in der
   Sitzung ein. Schüler:innen sehen die Hausaufgabe ab 15 Minuten vor dem Ende und können die Präsentation 5 Minuten nach dem Ende selbst
   öffnen – ohne Beginn weder noch. Am Ende der Stunde markieren Sie die letzte gezeigte Folie (im Vollbild „Bis hier gezeigt“ oder in
-  der Sitzung, auch per Rechtsklick); Schüler:innen bekommen dann nur die Folien bis dorthin. „Für den Beamer zeigen“ zeigt neben dem
+  der Sitzung, auch per Rechtsklick); Schüler:innen bekommen dann nur die Folien bis dorthin. Nach der Freigabe zeigt die Schüleransicht
+  die Präsentation in einem Folienfenster (zuerst Folie 1, „Vorherige Folie“/„Nächste Folie“, Wischen und Pfeiltasten, Vollbild; mit
+  Markierung „Folie 3 von 7“ und „So weit, wie ihr im Unterricht gekommen seid.“), darunter „Diese Präsentation herunterladen“ – die PDF
+  bis zur Markierung als Datei. Folien nach der Markierung liefert der Server auch auf Umwegen nicht aus. „Für den Beamer zeigen“ zeigt neben dem
   Code einen QR-Code zu unterricks.janrickmer.de – dieselbe Codefolie erscheint beim Start der Präsentation vor Folie 1.
 * **Arbeitsblätter und Material von Claude:** Claude gestaltet Arbeitsblätter, Texte, Schaubilder, Kärtchen und Erwartungshorizonte
   selbst als HTML-Seite und legt sie über den Connector ab (`add_material_pdf`); Unterricks druckt sie unverändert mit Chromium als

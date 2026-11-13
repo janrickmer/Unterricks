@@ -163,6 +163,8 @@ export const printFileName = (p) => (Number(p.copies) || 1) + "x - " + (p.duplex
 export const cleanCopies = (v) => { const n = Number(v); return Number.isInteger(n) && n >= 1 && n <= PRINT_LIMITS.copies ? n : null; };
 /* „Folie 1–12“ bzw. „Folie 1“ (Präsentation bis zur letzten gezeigten Folie) */
 export const slidesUpTo = (n) => (n === 1 ? "Folie 1" : "Folie 1–" + n);
+// Folienfenster der Schüler:innen nach der Sitzung (Nachtrag 19): so viele Folienlinks liefert der Server je Anfrage (je Folie ein HMAC)
+export const STUDENT_SLIDE_BLOCK = 10;
 export const fmtClockBerlin = (ms) => new Date(ms).toLocaleTimeString("de-DE", { hour: "2-digit", minute: "2-digit", timeZone: "Europe/Berlin" });
 export const fmtDayBerlin = (ms) => new Date(ms).toLocaleDateString("de-DE", { weekday: "short", day: "2-digit", month: "2-digit", year: "numeric", timeZone: "Europe/Berlin" });
 export const fmtDay = (iso) => (isIsoDate(iso) ? weekday(iso) + ", " + iso.slice(8, 10) + "." + iso.slice(5, 7) + "." + iso.slice(0, 4) : "");

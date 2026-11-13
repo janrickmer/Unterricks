@@ -1280,6 +1280,8 @@ async function main() {
     ok(!hwTxt.includes("unterricks.janrickmer.de"), "der Schulportal-Hinweis erscheint in Unterricks nicht");
     ok(/Die Präsentation kannst du ab (\S+ \S+, )?\d\d:\d\d Uhr selbst öffnen \(5 Minuten nach dem Unterricht\)\./.test(await sp.locator("main").textContent()) && (await SA("POST", "/api/student/lessons/" + lessonId + "/presentation-link", {})).status === 403,
       "während der Stunde: Hausaufgabe ab 15 Minuten vor dem Ende sichtbar, Präsentation erst 5 Minuten nach dem Ende (serverseitig gesperrt)");
+    ok(await sp.locator("section.slideview").count() === 0 && (await SA("POST", "/api/student/lessons/" + lessonId + "/presentation-slides", { from: 1, to: 3 })).status === 403,
+      "… auch das Folienfenster (Nachtrag 19) erst danach – vorher liefert der Server keine Folienlinks");
     // KI-Begriffshilfe während der Stunde: Einwilligung, dann nur die Frage an die KI
     await sp.getByRole("button", { name: "KI-Begriffshilfe nutzen" }).click();
     const km = sp.locator(".modal", { hasText: "KI-Begriffshilfe nutzen?" });
@@ -1307,8 +1309,49 @@ async function main() {
     ok(await sp.locator(".item", { hasText: "Das Bundesverfassungsgericht" }).locator(".badge", { hasText: "Hausaufgabe" }).count() === 1, "… und in ihrer Sitzungsliste");
     // Sitzung vorbei (Beginn vor zwei Stunden): Präsentation frei – wegen der Markierung nur Folie 1–2; keine Begriffshilfe mehr
     await setWhen(Date.now() - 120 * 60e3);
+    // Folienfenster statt Knopf (Nachtrag 19): zuerst Folie 1, weiter/zurück nur bis zur markierten letzten gezeigten Folie (hier 2 von 3)
+    const slideReqs = [], onSlideReq = (r) => { const m = /\/api\/slide\/[a-f0-9]{16}\/(\d+)\?(.*)$/.exec(r.url()); if (m) slideReqs.push({ n: Number(m[1]), st: m[2].startsWith("p=st&") }); };
+    sp.on("request", onSlideReq);
     await sp.goto(BASE + "/#/schueler/s/" + lessonId);
-    await sp.getByRole("button", { name: "Präsentation (Folie 1–2) selbst öffnen" }).waitFor({ timeout: 10000 });
+    const sv = sp.locator("section.slideview");
+    await sv.locator('.sv-frame > img[alt="Folie 1 von 2"]:not([hidden])').waitFor({ timeout: 15000 });
+    ok(await sp.getByRole("button", { name: /selbst öffnen/ }).count() === 0 && (await sv.locator("h2").textContent()) === "Präsentation aus dem Unterricht"
+      && (await sv.locator(".sv-cut").textContent()) === "So weit, wie ihr im Unterricht gekommen seid." && (await sv.locator(".sv-count").textContent()) === "Folie 1 von 2"
+      && await sv.locator(".sv-prev").getAttribute("aria-disabled") === "true" && await sv.locator(".sv-next").getAttribute("aria-disabled") === "false",
+      "nach der Freigabe: Folienfenster mit Folie 1 statt „… selbst öffnen“, „So weit, wie ihr im Unterricht gekommen seid.“, „Vorherige Folie“ gesperrt");
+    const svGeo = await sv.evaluate((el) => { const f = el.querySelector(".sv-frame").getBoundingClientRect(), b = (s) => el.querySelector(s).getBoundingClientRect(); return { ar: f.width / f.height, min: Math.min(b(".sv-prev").height, b(".sv-next").height, b(".sv-dl").height, b(".sv-fs").height) }; });
+    ok(Math.abs(svGeo.ar - 16 / 9) < 0.03 && svGeo.min >= 44, "Rahmen im Seitenverhältnis der Folien (" + svGeo.ar.toFixed(3) + "), Knöpfe mindestens 44 px");
+    await sp.screenshot({ ...SHOT, path: join(OUT, "schueler-folienfenster.png"), fullPage: true });
+    await sv.getByRole("button", { name: "Nächste Folie" }).click();
+    await sv.locator('.sv-frame:not(.loading) > img[alt="Folie 2 von 2"]:not([hidden])').waitFor({ timeout: 10000 });
+    ok((await sv.locator(".sv-count").textContent()) === "Folie 2 von 2" && await sv.locator(".sv-next").getAttribute("aria-disabled") === "true" && (await sv.locator('[role="status"].sr-only').first().textContent()) === "Folie 2 von 2",
+      "„Nächste Folie“ → Folie 2 von 2 (angesagt); am Ende gesperrt");
+    // gesperrt per aria-disabled (der Fokus bleibt): Playwright klickt so einen Knopf nicht – das Klickereignis direkt auslösen
+    await sv.locator(".sv-next").dispatchEvent("click"); await sv.locator(".sv-frame").focus(); await sp.keyboard.press("ArrowRight"); await sp.waitForTimeout(500);
+    ok((await sv.locator(".sv-count").textContent()) === "Folie 2 von 2", "… auch per Klick und Pfeiltaste nicht weiter");
+    await sp.keyboard.press("ArrowLeft");
+    await sv.locator('.sv-frame:not(.loading) > img[alt="Folie 1 von 2"]:not([hidden])').waitFor({ timeout: 10000 });
+    ok(true, "Pfeiltaste links im Fenster → Folie 1");
+    await sp.emulateMedia({ colorScheme: "dark" }); await sp.waitForTimeout(200);
+    await sv.screenshot({ ...SHOT, path: join(OUT, "schueler-folienfenster-dunkel.png") });
+    await sp.emulateMedia({ colorScheme: "light" });
+    sp.off("request", onSlideReq);
+    ok(slideReqs.length >= 2 && slideReqs.every((x) => x.n <= 2 && x.st), "Folienbilder nur 1–2 (auch beim Vorladen), alle über die eigene Signatur (" + slideReqs.map((x) => x.n).join(",") + ")");
+    const sl = await SA("POST", "/api/student/lessons/" + lessonId + "/presentation-slides", { from: 1, to: 3 }), sl3 = await SA("POST", "/api/student/lessons/" + lessonId + "/presentation-slides", { from: 3 });
+    const guess = sl.data.slides[1].url.replace("/2?", "/3?");
+    ok(sl.status === 200 && sl.data.total === 2 && sl.data.slides.map((x) => x.n).join() === "1,2" && sl3.status === 403 && sl3.data.code === "not_shown"
+      && (await fetch(BASE + sl.data.slides[1].url)).status === 200 && (await fetch(BASE + guess)).status === 403 && (await fetch(BASE + sl.data.slides[1].url.replace("p=st&", ""))).status === 403,
+      "Server: Folienlinks nur bis zur Markierung, Folie 3 weder per Anfrage noch durch Raten der Nummer");
+    // „Diese Präsentation herunterladen“: die gekürzte PDF als Datei
+    // (der Download selbst meldet keine Antwort an Playwright: den Link aus der Antwort von presentation-link noch einmal abrufen)
+    const [svDl, svLink] = await Promise.all([sp.waitForEvent("download", { timeout: 15000 }), sp.waitForResponse((r) => r.url().includes("/presentation-link"), { timeout: 15000 }).then((r) => r.json()),
+      sv.getByRole("button", { name: "Diese Präsentation herunterladen" }).click()]);
+    const svRes = await fetch(BASE + svLink.url), svPdf = await PDFDocument.load(readFileSync(await svDl.path())), svCd = svRes.headers.get("content-disposition") || "";
+    // Chromium unter einer Sprachumgebung ohne UTF-8 (POSIX, so in der Test-Sandbox) verwirft Namen mit „–“ und nimmt „download“ – geprüft wird der Name vom Server
+    const utf8Env = /utf-?8/i.test(process.env.LC_ALL || process.env.LC_CTYPE || process.env.LANG || "");
+    ok(svPdf.getPageCount() === 2 && svLink.url.includes("p=cut") && svLink.url.includes("d=a") && /^attachment; /.test(svCd) && svCd.includes("filename*=UTF-8''BVerfG%20(Folie%201%E2%80%932).pdf")
+      && (/Folie 1–2\)\.pdf$/.test(svDl.suggestedFilename()) || (!utf8Env && svDl.suggestedFilename() === "download")),
+      "„Diese Präsentation herunterladen“ lädt die gekürzte PDF als Datei (2 Seiten, „BVerfG (Folie 1–2).pdf“; im Browser „" + svDl.suggestedFilename() + "“)");
     ok(await sp.locator(".kihelp").count() === 0 && (await SA("POST", "/api/student/lessons/" + lessonId + "/ask", { question: "Und jetzt?", consent: true })).status === 403, "nach der Stunde: keine KI-Begriffshilfe mehr (auch serverseitig)");
     const pl = await SA("POST", "/api/student/lessons/" + lessonId + "/presentation-link", { inline: false });
     const cutRes = await fetch(BASE + pl.data.url), cutDoc = await PDFDocument.load(new Uint8Array(await cutRes.arrayBuffer()));
@@ -1321,8 +1364,9 @@ async function main() {
     ok(!pl2.data.url.includes("p=cut") && (await PDFDocument.load(new Uint8Array(await (await fetch(BASE + pl2.data.url)).arrayBuffer()))).getPageCount() === 3, "Markierung aufgehoben (Rechtsklick auf eine Folie): alle 3 Folien");
     await tp.locator("#shown-sel").selectOption("1");
     await tp.locator(".toast", { hasText: "nur Folie 1." }).waitFor({ timeout: 15000 });
-    await sp.reload(); await sp.getByRole("button", { name: "Präsentation (Folie 1) selbst öffnen" }).waitFor({ timeout: 10000 });
-    ok(true, "Auswahl „Folie 1“: Schüler:innen bekommen nur die erste Folie");
+    await sp.reload(); await sp.locator('section.slideview .sv-frame > img[alt="Folie 1 von 1"]:not([hidden])').waitFor({ timeout: 15000 });
+    ok((await sp.locator(".sv-count").textContent()) === "Folie 1 von 1" && await sp.locator(".sv-prev").getAttribute("aria-disabled") === "true" && await sp.locator(".sv-next").getAttribute("aria-disabled") === "true",
+      "Auswahl „Folie 1“: Schüler:innen bekommen nur die erste Folie (Folienfenster „Folie 1 von 1“, beide Richtungen gesperrt)");
 
     await tp.locator(".portal-preview p", { hasText: "3) Partnerarbeit" }).click({ button: "right" });
     await tp.locator(".ctxmenu").getByRole("menuitem", { name: "Zwischenstopp einfügen" }).click();
@@ -2880,6 +2924,13 @@ async function main() {
         await p.screenshot({ path: join(OUT, "mobil", ("Desktop" + (dark ? "-dunkel" : "") + "-" + label).replace(/[^A-Za-z0-9äöüÄÖÜß]+/g, "-") + ".png"), fullPage: true }).catch(() => {});
         await ctx.close();
       }
+      // Präsentation nach der Sitzung (Nachtrag 19): das Folienfenster auf Handy und iPad, hell und dunkel – danach läuft die Stunde wieder
+      const wr = berlinAt(Date.now() - 120 * 60e3);
+      await TT("PATCH", "/api/teacher/lessons/" + lessonId, { date: wr.date, startTime: wr.time });
+      const svReady = async (p) => { await p.locator("section.slideview").waitFor({ timeout: 15000 }); await p.locator(".sv-frame > img:not([hidden]), .sv-none").first().waitFor({ timeout: 15000 }); };
+      for (const dev of ["iPhone SE", "iPhone 13", "iPad (gen 7)", "iPad (gen 7) landscape"]) for (const dark of [false, true])
+        await audit(dev, "Sitzung nach der Freigabe – Folienfenster (Schüler:in)", sStore, "#/schueler/s/" + lessonId, svReady, dark);
+      await TT("PATCH", "/api/teacher/lessons/" + lessonId, { date: w.date, startTime: w.time });
       // Grundschule und Elternansicht auch im dunklen Farbschema (Handy und iPad)
       for (const dev of ["iPhone SE", "iPad (gen 7)"]) {
         for (const [label, hash] of GS_PAGES) await audit(dev, label, tStore, hash, null, true);

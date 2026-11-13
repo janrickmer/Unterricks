@@ -123,6 +123,8 @@ class FElement extends FNode {
     super(doc);
     this.nodeType = 1; this.tagName = String(tag).toUpperCase(); this.localName = String(tag).toLowerCase();
     this._attrs = new Map(); this.style = {}; this.classList = new FClassList(this);
+    // style.setProperty (CSS-Variablen) nicht aufzählbar, damit Vergleiche der Stile unverändert bleiben
+    Object.defineProperty(this.style, "setProperty", { value(k, v) { this[k] = String(v); } });
     this._value = undefined; this._checked = undefined; this._sel = null;
     const el = this;
     this.dataset = new Proxy({}, {
