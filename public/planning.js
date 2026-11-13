@@ -424,7 +424,12 @@ export function stopRules(ps, opt = {}) {
   if (want("uebernehmen")) out.push(unitId ? "Übernehmen: Plane den offenen Teil in diese Stunde ein. Was dadurch in dieser Stunde keinen Platz mehr hat, rückt in die nächste Stunde der Einheit, deren Überhang in die übernächste usw. – " +
       "die Termine bleiben (keine Stunde einschieben, keine Sitzung verschieben). Zeige " + w("mir", "ihr") + ", welche Stunden der Einheit sich wie ändern. Am Ende der Einheit bleibt so ein Überhang: Frage " + w("mich", "sie") +
       ", ob die Einheit um eine Stunde verlängert werden kann" + (end ? " (neues Ende laut Stundenplan: " + fmtDay(end) + ")" : "") + " oder ob an einer Stelle gekürzt werden soll. Soll gekürzt werden: Mache " + w("mir", "ihr") + " genau drei Vorschläge, an welcher Stelle der Einheit gekürzt werden kann " +
-      "(je mit den Folgen für die zentrale Lernaufgabe), nenne einen davon als Favoriten mit Begründung und warte auf " + w("meine", "ihre") + " Wahl."
+      "(je mit den Folgen für die zentrale Lernaufgabe), nenne einen davon als Favoriten mit Begründung und warte auf " + w("meine", "ihre") + " Wahl. " +
+      // Abschlussprüfung: schon geplante spätere Sitzungen folgen der Einheit nicht von selbst (Druckaufträge, Nr. 14, zeigen sonst das alte Material)
+      (save ? "Ist eine der Stunden, in die Inhalte nachrücken, schon geplant (" + (gs ? "Verlaufsplan, PDFs – siehe `get_unit`" : "Schulportal-Eintrag, Material – siehe `get_lesson` ihrer Sitzung") +
+        "), sage " + w("es mir", "es ihr") + ": Die Sitzung dieser Stunde passt sich samt Material und Druckliste nicht von selbst an – "
+        : "Weise " + w("mich", "sie") + " darauf hin: Ist eine der Stunden, in die Inhalte nachrücken, schon geplant, passt sich ihre Sitzung samt Material und Druckliste nicht von selbst an – ") +
+      w("ich plane", "die Lehrkraft plant") + " sie dort mit „Stunde mit Claude planen“ neu."
     : "Übernehmen: Plane den offenen Teil in diese Stunde ein (diese Sitzung gehört zu keiner Unterrichtseinheit – es rückt nichts nach).");
   if (want("verzichten")) out.push("Verzichten: Plane die Stunde ohne den offenen Teil.");
   const adj = [];

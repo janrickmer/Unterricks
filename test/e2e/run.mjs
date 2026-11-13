@@ -1133,7 +1133,22 @@ async function main() {
       await np.locator(".presenter.with-notes .notespane", { hasText: NOTE3 }).waitFor({ timeout: 15000 });
       await nbp.locator(".beamer .bm-stage .codeslide, .beamer .bm-stage > img").first().waitFor({ timeout: 15000 });
       ok(!(await nbp.content()).includes("NOTIZGEHEIM"), "Beamergerät verbunden: Notizen bei der Lehrkraft, das Beamergerät zeigt keine");
+      // Zusammenspiel mit dem Timer (Nr. 16): die Folie wird unter dem Band schmaler – die Notizen bleiben so breit wie sie und über der Leiste;
+      // das Band steht auch am Beamergerät und bei der Schülerin, Notizen nirgends; „Präsentation für alle beenden“ nimmt den Timer überall weg
+      await npr.locator(".tmbtn").click(); await npr.locator(".tmc").waitFor();
+      await npr.locator(".tmc").getByRole("button", { name: "2 Min", exact: true }).click();
+      await npr.locator(".tmc").getByRole("button", { name: "Timer starten" }).click();
+      await np.locator(".presenter .stage .tband:not([hidden])").waitFor({ timeout: 10000 });
+      await nbp.locator(".beamer .tband:not([hidden])").waitFor({ timeout: 10000 });
+      await nsp.locator(".live .tband:not([hidden])").waitFor({ timeout: 10000 });
+      await sleep(400);
+      const geoT = await np.evaluate(() => { const r = (q) => document.querySelector(q).getBoundingClientRect(), a = r(".presenter .stage"), b = r(".presenter .notespane"), t = r(".presenter .stage .tband"), bar = r(".presenter .bar");
+        return { sw: Math.round(a.width), nw: Math.round(b.width), band: Math.abs(t.top - a.top) < 2, below: b.top >= a.bottom - 1, aboveBar: b.bottom <= bar.top + 1 }; });
+      ok(geoT.band && geoT.below && geoT.aboveBar && Math.abs(geoT.sw - geoT.nw) < 3 && !(await nbp.content()).includes("NOTIZGEHEIM") && !(await nsp.content()).includes("NOTIZGEHEIM"),
+        "Timer + Notizen: Band über der Folie, Notizen darunter so breit wie die Folie (" + geoT.sw + "/" + geoT.nw + " px) und über der Leiste; Band am Beamergerät und bei der Schülerin, dort keine Notizen");
       await npr.getByRole("button", { name: "Präsentation für alle beenden" }).click();
+      await nbp.locator(".beamer", { hasText: "Die Präsentation ist beendet." }).waitFor({ timeout: 15000 });
+      ok(await nbp.locator(".beamer .tband:not([hidden])").count() === 0, "„Präsentation für alle beenden“: Timer auch am Beamergerät weg");
       await nsp.locator(".live .placeholder").waitFor({ timeout: 10000 });
       await nbctx.close();
       // Notizen in der Sitzung ansehen und bearbeiten (nur Lehrkraft): speichern → Präsentation und Anmerkungs-PDF aktualisiert

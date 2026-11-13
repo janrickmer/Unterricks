@@ -517,6 +517,10 @@ main.narrow .homework { background: var(--gelb-t); border-color: color-mix(in sr
 /* so breit wie die Folie darüber (Höhe der Folienzelle = 66 % der Spalte abzüglich Abstand) */
 .presenter.with-notes .notespane { display: block; justify-self: center; width: min(100%, calc((66cqh - var(--ngap)) * var(--ar))); min-height: 0; overflow: auto; overscroll-behavior: contain;
   padding: .65rem 1rem .8rem; background: #141c2e; color: #f1f4fa; border-radius: 8px; box-shadow: 0 0 0 1px rgba(255, 255, 255, .14); }
+/* mit Timer (Nachtrag 16) wird die Folie unter dem Band schmaler – die Notizen bleiben so breit wie sie: Höhe des Bandes wie bei
+   .presenter.with-next .stage.has-timer, hier in Einheiten der Spalte (Folienzelle = volle Breite, 66 % der Höhe abzüglich Abstand) */
+.presenter.with-notes .curcol:has(.stage.has-timer) .notespane { --ntbh: calc(clamp(1rem, min(3.2cqw, calc((66cqh - var(--ngap)) * .056)), 4.5rem) * 1.6);
+  width: min(100%, calc((66cqh - var(--ngap) - var(--ntbh)) * var(--ar))); }
 .presenter .notespane:focus-visible { outline: 3px solid #fff; outline-offset: 2px; }
 .presenter .pn-head { margin: 0 0 .35rem; color: #9fb0cc; font-size: clamp(.8rem, 1.1vw, 1rem); font-weight: 800; letter-spacing: .06em; text-transform: uppercase; }
 .presenter .pn-list { margin: 0; padding-left: 1.25em; display: grid; gap: .3em; font-size: clamp(1rem, 1.55vw, 1.4rem); line-height: 1.35; }

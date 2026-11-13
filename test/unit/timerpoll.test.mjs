@@ -84,3 +84,19 @@ test("Band: Größe nach dem Live-Kästchen der Schüler:innen (Container), Schr
   const puls = /@keyframes tb-puls \{ 50% \{ background: (#[0-9a-f]{6}); \} \}/.exec(css)[1];
   assert.ok(contrast(t["--timer-over-ink"], puls) >= 4.5, "Aufblinken " + puls + ": " + contrast(t["--timer-over-ink"], puls).toFixed(2));
 });
+
+// Abschlussprüfung (Zusammenspiel Nr. 16 + Nr. 20): mit Timer wird die Folie der Lehrkraft unter dem Band schmaler (.presenter.with-next
+// .stage.has-timer) – die Notizen darunter waren dann bis zu ~70 px breiter als die Folie (Laptop 1366×768: Folie 644, Notizen 707 px).
+// Jetzt zieht die Breite der Notizen dieselbe Bandhöhe ab, in Einheiten der Spalte (Folienzelle = volle Breite, 66 % der Höhe abzüglich Abstand).
+test("Notizen mit Timer: so breit wie die Folie unter dem Band (gleiche Bandhöhe wie .tband, in Einheiten der Spalte)", () => {
+  const tb = /\n\.tband \{([^}]*)\}/.exec(css)[1];
+  assert.match(tb, /--tb-fs: clamp\(1rem, min\(3\.2cqw, 5\.6cqh\), 4\.5rem\)/);
+  assert.match(tb, /height: calc\(var\(--tb-fs\) \* 1\.6\)/);
+  assert.match(css, /\.presenter\.with-notes \.curcol \{[^}]*grid-template-rows: minmax\(0, 1fr\) minmax\(0, 34%\)/, "Folienzelle = 66 % der Spalte abzüglich Abstand");
+  const m = /\.presenter\.with-notes \.curcol:has\(\.stage\.has-timer\) \.notespane \{([^}]*)\}/.exec(css);
+  assert.ok(m, "eigene Breite der Notizen bei laufendem Timer");
+  assert.match(m[1], /--ntbh: calc\(clamp\(1rem, min\(3\.2cqw, calc\(\(66cqh - var\(--ngap\)\) \* \.056\)\), 4\.5rem\) \* 1\.6\)/, "Bandhöhe wie .tband (3,2 % der Breite bzw. 5,6 % der Höhe der Folienzelle, × 1,6)");
+  assert.match(m[1], /width: min\(100%, calc\(\(66cqh - var\(--ngap\) - var\(--ntbh\)\) \* var\(--ar\)\)\)/, "Breite = (Höhe der Folienzelle − Band) × Seitenverhältnis");
+  // die Folie selbst: Rahmen um das Band höher, Breite aus (Höhe − Band) × Seitenverhältnis – dieselbe Rechnung
+  assert.match(css, /\.presenter\.with-next \.stage\.has-timer \{ --tbh: calc\(clamp\(1rem, min\(3\.2cqw, 5\.6cqh\), 4\.5rem\) \* 1\.6\); aspect-ratio: auto;\s*width: min\(100cqw, calc\(\(100cqh - var\(--tbh\)\) \* var\(--ar\)\)\)/);
+});

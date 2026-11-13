@@ -363,7 +363,9 @@ implementiert und im End-to-End-Test geprüft (Ausnahmen unten ausdrücklich gen
     geschafft im Wortlaut, in der Grundschule das Material danach mit file_id, Stand) und ein eigener Schritt direkt nach `get_lesson`: erklären
     und fragen (übernehmen oder verzichten, mit `update_lesson` festhalten); **übernehmen** = in diese Stunde einplanen, was keinen Platz mehr
     hat, rückt in die nächste Stunde usw., die Termine bleiben; für den Überhang am Ende fragt Claude immer: um eine Stunde verlängern (mit
-    dem neuen Ende laut Stundenplan, `slotsAfterEnd`) oder kürzen (genau drei Vorschläge, einer als Favorit mit Begründung); **verzichten** =
+    dem neuen Ende laut Stundenplan, `slotsAfterEnd`) oder kürzen (genau drei Vorschläge, einer als Favorit mit Begründung); ist eine spätere Stunde,
+    in die Inhalte nachrücken, schon geplant, weist Claude darauf hin (ihre Sitzung samt Material und Druckliste – und damit die Druckaufträge, 4n –
+    folgt der Einheit nicht von selbst; die Lehrkraft plant sie neu); **verzichten** =
     ohne den offenen Teil planen. Erst nach der bestätigten und gespeicherten
     Stunde passt Claude die Einheit an: übernehmen → `extend_unit` (bei Verlängerung) und `update_unit_row` mit `stunden` (Zeile der vorigen
     Stunde = was tatsächlich behandelt wurde, diese und jede weitere geänderte Stunde, die Kürzung); verzichten → `update_unit_row` mit der
@@ -798,7 +800,7 @@ nicht in einer PDF, die Schüler:innen (oder Eltern, eine öffentliche Seite) be
   spätere Folie nicht mehr über einen Link mit. Folienbilder sind Bilder der bereinigten Seiten. Nicht entfernbar: unsichtbarer Text auf den Seiten
   selbst (weiße Schrift, ausgeblendete Ebenen) – der Prompt verlangt deshalb ausdrücklich den Dateianhang.
 * **Präsentationsansicht** (`public/presenter.js`): unter der großen aktuellen Folie „Notizen zu Folie n“ als Stichpunkte (rollbar, Pfeil hoch/runter
-  rollen dort, die übrigen Tasten blättern weiter; ein Drittel der Spalte, so breit wie die Folie), „Keine Notizen zu dieser Folie.“ bzw. „Codefolie vor
+  rollen dort, die übrigen Tasten blättern weiter; ein Drittel der Spalte, so breit wie die Folie – mit Timer zieht die Breite dieselbe Bandhöhe ab wie die Folie), „Keine Notizen zu dieser Folie.“ bzw. „Codefolie vor
   Folie 1“. Nur mit eingeblendeter Vorschau und getrenntem Beamerbild (`beamers` aus dem Durable Object oder ein Beamerfenster im BroadcastChannel,
   das meldet, dass es zu sehen ist (`vis` in „following“), solange der Browser nicht nur einen Bildschirm kennt (`screen.isExtended === false`, Chrome/Edge):
   ein Beamerfenster auf demselben, gespiegelten Bildschirm bzw. ein zweiter Tab am iPad ist kein getrenntes Beamerbild – dann sagt die Leiste „Notizen

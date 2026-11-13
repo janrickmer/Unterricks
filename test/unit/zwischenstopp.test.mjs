@@ -394,3 +394,23 @@ test("Connector: neue Werkzeuge in tools/list, Beschreibungen zum Zwischenstopp"
   assert.ok(t("extend_unit").description.includes("NUR nach ausdrücklicher Zustimmung der Lehrkraft"));
   for (const n of ["save_schulportal_entry", "save_verlaufsplan"]) assert.ok(t(n).description.includes("Eine vorhandene Zeile „" + STOP + "“ lässt du unverändert an ihrer Stelle; setze selbst keine."), n);
 });
+
+// Abschlussprüfung (Zusammenspiel Nr. 13 + Nr. 14): „Inhalte rücken nach“ ändert nur die Zeilen der Einheit – eine schon geplante spätere Sitzung
+// behält ihren Eintrag, ihr Material und ihre Druckliste (die Druckaufträge für den nächsten Arbeitstag zeigten sonst unbemerkt das alte Material).
+// Claude weist darauf hin; nur beim Übernehmen mit Einheit, in beiden Schulformen, in get_lesson und im Backup-Chat sinngemäß.
+test("Übernehmen: Hinweis auf schon geplante spätere Sitzungen (Material und Druckliste passen sich nicht von selbst an)", () => {
+  const sek = P.claudeLessonPrompt({ ...F.sekCtx(P.unitContext), previousStop: PREV, now: NOW });
+  assert.ok(sek.includes("Ist eine der Stunden, in die Inhalte nachrücken, schon geplant (Schulportal-Eintrag, Material – siehe `get_lesson` ihrer Sitzung), sage es mir: " +
+    "Die Sitzung dieser Stunde passt sich samt Material und Druckliste nicht von selbst an – ich plane sie dort mit „Stunde mit Claude planen“ neu."));
+  const g = F.gsCtx(P.unitContext);
+  const gs = G.claudeGsLessonPrompt({ ...g, previousStop: { ...PREV, unitId: g.unit.id }, now: NOW });
+  assert.ok(gs.includes("schon geplant (Verlaufsplan, PDFs – siehe `get_unit`), sage es mir: Die Sitzung dieser Stunde passt sich samt Material und Druckliste nicht von selbst an"));
+  const lk = P.stopRules(PREV, { unitId: PREV.unitId, who: "lk", save: true }).join("\n");
+  assert.ok(lk.includes("sage es ihr: Die Sitzung dieser Stunde passt sich samt Material und Druckliste nicht von selbst an – die Lehrkraft plant sie dort mit „Stunde mit Claude planen“ neu."));
+  const chat = P.stopRules(PREV, { unitId: PREV.unitId, who: "lk", save: false }).join("\n");
+  assert.ok(chat.includes("Weise sie darauf hin: Ist eine der Stunden, in die Inhalte nachrücken, schon geplant, passt sich ihre Sitzung samt Material und Druckliste nicht von selbst an") && !chat.includes("get_lesson"));
+  // nicht beim Verzichten (die folgenden Stunden bleiben unverändert) und nicht ohne Einheit (es rückt nichts nach)
+  const d = P.claudeLessonPrompt({ ...F.sekCtx(P.unitContext), previousStop: { ...PREV, decision: { choice: "verzichten", at: at("2026-11-11T09:00:00Z") } }, now: NOW });
+  const o = P.claudeLessonPrompt({ ...F.sekCtx(P.unitContext), unit: null, row: null, unitText: "", previousStop: { ...PREV, row: null, unitId: null, unitRow: null, sameUnit: false }, now: NOW });
+  assert.ok(!d.includes("in die Inhalte nachrücken") && !o.includes("in die Inhalte nachrücken"));
+});

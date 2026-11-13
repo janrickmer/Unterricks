@@ -134,12 +134,14 @@ Feibeitsblatt braucht keine Änderung. Die Adressen stehen in `wrangler.jsonc` (
   Schrift oder ausgeblendete Ebenen) – deshalb bittet der Prompt ausdrücklich nur um den Dateianhang. Ältere Präsentationen
   mit einem Code auf den Folien: Unterricks ersetzt ihn beim Hochladen durch den Code dieser Sitzung (wo das nicht sicher geht, z. B.
   bei einem unruhigen Foto hinter dem Code, bleibt die Folie unverändert und die Meldung nennt sie). Am Stundenende: Hausaufgabe eintragen und per
-  Rechtsklick im Verlaufsplan „Zwischenstopp einfügen“, falls nicht alles geschafft wurde. In der nächsten Sitzung zeigt dann die Karte
+  Rechtsklick im Schulportal-Eintrag „Zwischenstopp einfügen“, falls nicht alles geschafft wurde. In der nächsten Sitzung zeigt dann die Karte
   „Die letzte Stunde wurde nicht vollständig beendet“, was nicht geschafft wurde. Beim Planen mit Claude („Stunde mit Claude planen“)
   erklärt Claude zuerst den offenen Teil und fragt, ob er in diese Stunde übernommen oder darauf verzichtet wird (die Karte zeigt danach
   „Entschieden am …“). Übernehmen: Was keinen Platz mehr hat, rückt in die nächste Stunde der Einheit usw. – die Termine bleiben; für den
   Überhang am Ende fragt Claude, ob die Einheit um eine Stunde verlängert werden kann (bis zum nächsten Termin laut Stundenplan – Claude nennt
-  ihn; nach Ihrer Zustimmung trägt Claude das selbst ein, mit Sitzung) oder ob gekürzt wird (drei Vorschläge, einer als Favorit). Verzichten: In der Zeile
+  ihn; nach Ihrer Zustimmung trägt Claude das selbst ein, mit Sitzung) oder ob gekürzt wird (drei Vorschläge, einer als Favorit). Ist eine
+  spätere Stunde, in die Inhalte nachrücken, schon geplant, sagt Claude es Ihnen: Deren Sitzung samt Material und Druckliste (und damit die
+  Druckaufträge) passt sich nicht von selbst an – planen Sie sie dort mit „Stunde mit Claude planen“ neu. Verzichten: In der Zeile
   der vorigen Stunde steht danach, was tatsächlich behandelt wurde und worauf verzichtet wurde. Angepasst wird die Einheit erst, wenn Sie
   die Planung der neuen Stunde bestätigt haben. Setzen Sie den Zwischenstopp, nachdem die nächste Sitzung schon geplant ist, öffnen Sie
   dort erneut „Stunde mit Claude planen“. „Für das Schulportal kopieren“ bei der
