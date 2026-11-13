@@ -4,8 +4,9 @@
 // Lehrkraft weiter die aktuelle und die nächste. Ohne Anmeldung am Beamergerät:
 //   1. POST /api/beamer/pair → Beamer-Code (6 Ziffern, 10 Minuten) und geheimer pairKey (in D1 nur dessen SHA-256)
 //   2. die Lehrkraft koppelt: POST /api/teacher/lessons/:id/beamer {code} → Sitzung und Generation (beamerGen des Durable Objects) in der Zeile
-//   3. das Gerät fragt alle 2 s nach (POST /api/beamer/pair/poll) und holt die Kopplung genau einmal ab (die Zeile wird gelöscht) – mit einem
-//      signierten Beamer-Schlüssel (6 h) aus Sitzung und Generation
+//   3. das Gerät fragt nach (POST /api/beamer/pair/poll, als lange Abfrage: der Server hält sie bis zu 12 s und sieht alle 2 s in D1 nach – ein
+//      Gerät, das stundenlang einen Code zeigt, braucht so 300 statt 1 800 Aufrufe je Stunde vom Tageskontingent) und holt die Kopplung genau
+//      einmal ab (die Zeile wird gelöscht) – mit einem signierten Beamer-Schlüssel (6 h) aus Sitzung und Generation
 //   4. mit dem Schlüssel: Live-Ticket (WebSocket, Rolle „beamer“) bzw. Stand alle 2 s (Rückfall)
 // „Beamer trennen“ erhöht die Generation im Durable Object: alle Schlüssel dieser Sitzung gelten nicht mehr, offene Verbindungen schließen.
 import { HttpError, bad, json, readJson, isId, requireSecret, sha256Hex, timingSafeEqual, randomBytes, hex, signLink, checkLink, hitLimit, fmtWait } from "./lib.js";
@@ -17,6 +18,8 @@ import { normBeamerCode, GS_SUBJECT } from "../public/shared.js";
 export const BEAMER_TTL = 6 * 3600e3;                         // ein gekoppeltes Gerät bleibt 6 Stunden mit der Sitzung verbunden
 export const PAIR_LIMIT = { max: 300, windowMs: 3600e3 };      // neue Beamer-Codes je IP und Stunde (Schulnetz: viele Geräte, eine IP)
 export const BEAMER_CODE_GONE = "Diesen Beamer-Code gibt es nicht (mehr). Auf dem Beamer steht nach dem Neuladen ein neuer.";
+// lange Abfrage des Beamer-Codes: höchstens checks weitere Leseanweisungen im Abstand von stepMs (sleep austauschbar für Unit-Tests)
+export const POLL_HOLD = { checks: 6, stepMs: 2000, sleep: (ms) => new Promise((r) => setTimeout(r, ms)) };
 const GONE = "Dieser Beamer-Code ist abgelaufen. Ein neuer wird geholt.";
 const DISCONNECTED = "Dieses Gerät ist nicht mehr als Beamer verbunden.";
 
@@ -63,23 +66,35 @@ export async function routeBeamerPair(c) {
   throw new HttpError(503, "busy", "Gerade ist kein Beamer-Code frei. Bitte gleich noch einmal versuchen.");
 }
 
-/* POST /api/beamer/pair/poll {code, pairKey} (öffentlich): {paired:false} bzw. einmal {paired:true, lessonId, key, exp}; sonst 404 pair_gone */
+/* POST /api/beamer/pair/poll {code, pairKey, wait?} (öffentlich): {paired:false} bzw. einmal {paired:true, lessonId, key, exp}; sonst 404 pair_gone.
+   wait: true = lange Abfrage – noch nicht gekoppelt, hält der Server die Antwort bis zu POLL_HOLD.checks × stepMs (nie über den Ablauf des Codes
+   hinaus) und sieht dabei in D1 nach; nur mit schon angelegtem Schema (c.warm), so bleibt jeder Aufruf unter 50 D1-Anweisungen */
 export async function routeBeamerPoll(c) {
   const body = await readJson(c.request, 2000);
   const code = normBeamerCode(body.code), pk = isPairKey(body.pairKey) ? body.pairKey : null;
   if (!code || !pk) throw new HttpError(404, "pair_gone", GONE);
-  const row = await c.db.prepare("SELECT key_hash, created_at, lesson_id, beamer_gen FROM beamer_pairs WHERE code=?1").bind(code).first();
   const kh = await pairHash(pk);
-  if (!row || !timingSafeEqual(row.key_hash, kh)) throw new HttpError(404, "pair_gone", GONE);
-  if (!row.lesson_id) {
-    if (row.created_at <= c.now - PAIR_TTL) throw new HttpError(404, "pair_gone", GONE);
-    return json({ ok: true, paired: false, expiresInMs: row.created_at + PAIR_TTL - c.now });
+  const read = async () => {
+    const r = await c.db.prepare("SELECT key_hash, created_at, lesson_id, beamer_gen FROM beamer_pairs WHERE code=?1").bind(code).first();
+    if (!r || !timingSafeEqual(r.key_hash, kh)) throw new HttpError(404, "pair_gone", GONE);
+    return r;
+  };
+  let row = await read(), at = c.now;   // at = Zeitpunkt der letzten Abfrage (gewartet wird in festen Schritten)
+  const hold = body.wait === true && c.warm === true;
+  for (let i = 0; hold && !row.lesson_id && i < POLL_HOLD.checks && row.created_at + PAIR_TTL > at + POLL_HOLD.stepMs; i++) {
+    await POLL_HOLD.sleep(POLL_HOLD.stepMs);
+    at += POLL_HOLD.stepMs;
+    row = await read();
   }
-  if (row.created_at <= c.now - PAIR_KEEP) throw new HttpError(404, "pair_gone", GONE);
+  if (!row.lesson_id) {
+    if (row.created_at <= at - PAIR_TTL) throw new HttpError(404, "pair_gone", GONE);
+    return json({ ok: true, paired: false, expiresInMs: row.created_at + PAIR_TTL - at });
+  }
+  if (row.created_at <= at - PAIR_KEEP) throw new HttpError(404, "pair_gone", GONE);
   // genau einmal: nur wer die Zeile löscht, bekommt den Schlüssel
   const del = await c.db.prepare("DELETE FROM beamer_pairs WHERE code=?1 AND key_hash=?2 AND lesson_id IS NOT NULL RETURNING lesson_id, beamer_gen").bind(code, kh).first();
   if (!del || !isId(del.lesson_id) || !Number.isInteger(del.beamer_gen)) throw new HttpError(404, "pair_gone", GONE);
-  const k = await beamerKey(requireSecret(c.env), del.lesson_id, del.beamer_gen, c.now);
+  const k = await beamerKey(requireSecret(c.env), del.lesson_id, del.beamer_gen, at);
   return json({ ok: true, paired: true, lessonId: del.lesson_id, key: k.key, exp: k.exp });
 }
 
@@ -113,14 +128,15 @@ async function beamerBody(c) {
   const lessonId = isId(body.lessonId) ? body.lessonId : null;
   const gen = lessonId ? await checkBeamerKey(requireSecret(c.env), lessonId, body.key, c.now) : null;
   if (gen === null) throw gone403();
-  return { lessonId, gen };
+  return { lessonId, gen, exp: Number(body.key.split(".")[1]) };
 }
-/* POST /api/beamer/live-ticket {lessonId, key}: kurzlebiges WebSocket-Ticket (Rolle beamer) und das Fach (Farbe der Codefolie) */
+/* POST /api/beamer/live-ticket {lessonId, key}: kurzlebiges WebSocket-Ticket (Rolle beamer) und das Fach (Farbe der Codefolie). Das Ticket trägt
+   Generation und Ablauf des Schlüssels („Generation.Ablauf“): das Durable Object schließt die Verbindung, sobald der Schlüssel abgelaufen ist */
 export async function routeBeamerTicket(c) {
-  const { lessonId, gen } = await beamerBody(c);
+  const { lessonId, gen, exp } = await beamerBody(c);
   const [l, cur] = await Promise.all([c.db.prepare("SELECT subject FROM lessons WHERE id=?1").bind(lessonId).first(), genOf(c.env, lessonId)]);
   if (!l || l.subject === GS_SUBJECT || cur !== gen) throw gone403();
-  return json({ ok: true, fach: l.subject, ...(await liveTicket(c, lessonId, "beamer", String(gen))) });
+  return json({ ok: true, fach: l.subject, ...(await liveTicket(c, lessonId, "beamer", gen + "." + exp)) });
 }
 /* POST /api/beamer/live {lessonId, key}: Stand der Präsentation (Rückfall, wenn der WebSocket ausfällt) – ohne D1 */
 export async function routeBeamerLive(c) {

@@ -8,6 +8,9 @@
 //    Präsentation unter „Beamer verbinden“ ein. Danach kommt die aktuelle Folie über das Durable Object der Sitzung (WebSocket, ersatzweise
 //    alle 2 s abgefragt; worker/beamer.js). Gekoppelt bleibt es auch nach dem Neuladen (localStorage u.beamer), bis die Lehrkraft es trennt
 //    oder der Schlüssel nach 6 Stunden abläuft. Ohne Präsentation zeigt es wieder einen Code – für die nächste Stunde in diesem Raum.
+//    Den Code fragt es als lange Abfrage ab (der Server hält sie bis zu 12 s); hat zwei Stunden lang niemand einen Code eingegeben und niemand
+//    das Gerät berührt, holt es keinen neuen mehr (ein vergessenes Gerät verbraucht sonst Tag und Nacht das Tageskontingent des Servers) –
+//    Tippen, Klicken oder „Neuen Beamer-Code anzeigen“ holt wieder einen.
 import { h, api, apiUrl, wsUrl, setFach, rand, store } from "./ui.js";
 import { render, onLeave } from "./app.js";
 import { BEAMER_CHANNEL, beamerFollow, cleanBeamerView, presenterKey, beamerScreen, fmtBeamerCode, normBeamerCode, readBeamerLink } from "./shared.js";
@@ -22,6 +25,9 @@ export const BEAMER_PAIR_HOW = "Tippen Sie in der Präsentation auf Ihrem iPad a
 export const BEAMER_PAIR_TTL = "Der Code gilt 10 Minuten – danach erscheint hier von selbst ein neuer.";
 export const BEAMER_LINKED = "Verbunden. Sobald die Präsentation läuft, erscheint hier die aktuelle Folie.";
 export const BEAMER_CUT = "Getrennt – dieses Gerät zeigt keine Präsentation mehr.";
+export const BEAMER_PAIR_IDLE = "Seit zwei Stunden hat hier niemand einen Beamer-Code eingegeben – dieses Gerät holt deshalb keinen neuen mehr.";
+export const BEAMER_PAIR_AGAIN = "Neuen Beamer-Code anzeigen";
+export const BEAMER_PAIR_IDLE_MS = 2 * 3600e3;
 export const BEAMER_DEV_HINT = "Dieses Gerät zeigt am Beamer nur die aktuelle Folie. Gesteuert wird auf dem Gerät der Lehrkraft – Tasten und Presenter wirken hier nicht. " +
   "Am Beamer-iPad die „Automatische Sperre“ am besten auf „Nie“ stellen.";
 const LINK_KEY = "u.beamer";
@@ -80,7 +86,7 @@ export function beamerPage() {
     if (m.t === "claim" || st !== before) tell();   // übernommen bzw. neu beansprucht: das Präsentationsfenster schickt dann die Folie
     if (m.t === "show") {
       const v = cleanBeamerView(m.view, slideBase);
-      if (v) { localFach = typeof m.fach === "string" ? m.fach : null; localNote = ""; setFach(localFach); show(v); stopPairing(); syncHold(); }
+      if (v) { localFach = typeof m.fach === "string" ? m.fach : null; localNote = ""; setFach(localFach); show(v); codeSince = null; stopPairing(); syncHold(); }
     }
   };
 
@@ -89,8 +95,9 @@ export function beamerPage() {
   const pairMsg = h("p", { class: "bm-msg", role: "status" });
   const pairCode = h("p", { class: "bm-code", "aria-live": "polite", "aria-atomic": "true" });
   const pairState = h("p", { class: "bm-ttl" });
+  const pairAgain = h("button", { class: "btn bm-again", type: "button", hidden: true, onclick: () => attend() }, BEAMER_PAIR_AGAIN);
   const pairBox = h("div", { class: "bm-pair" }, pairMsg, h("p", { class: "bm-k", text: "Beamer-Code" }), pairCode,
-    h("p", { class: "bm-how", text: BEAMER_PAIR_HOW }), pairState);
+    h("p", { class: "bm-how", text: BEAMER_PAIR_HOW }), pairState, pairAgain);
   function enterDevice() {
     if (dev || !alive) return;
     dev = true;
@@ -113,8 +120,9 @@ export function beamerPage() {
   function paint() {
     if (!alive || !dev || localOn()) return;
     const v = srvView(srvLive);
-    if (v) { stopPairing(); setFach(srvFach); showSrv(v); return; }
-    if (link && !srvLive) { stopPairing(); wait("Verbinde mit der Präsentation …"); return; }
+    if (v) { codeSince = null; stopPairing(); setFach(srvFach); showSrv(v); return; }
+    if (link && !srvLive) { codeSince = null; stopPairing(); wait("Verbinde mit der Präsentation …"); return; }
+    if (codeSince === null) codeSince = Date.now();
     seq++;
     pairMsg.textContent = srvNote || localNote || (link && srvLive && !srvWas ? BEAMER_LINKED : "");
     if (stage.firstChild !== pairBox) stage.replaceChildren(pairBox);
@@ -134,19 +142,35 @@ export function beamerPage() {
     if (v.next) { const p = new Image(); p.src = v.next; }   // nächste Folie vorab laden
   }
 
-  // Beamer-Code: nur solange er zu sehen ist (Seite sichtbar, keine Folie) – sonst fragt das Gerät nicht nach
-  let pair = null, pairBusy = false, pairT = null, pairFails = 0, pairErr = "";
-  const wantPair = () => alive && dev && !localOn() && !srvView(srvLive) && !(link && !srvLive) && document.visibilityState === "visible";
+  // Beamer-Code: nur solange er zu sehen ist (Seite sichtbar, keine Folie) und das Gerät nicht seit zwei Stunden unbeachtet Codes zeigt –
+  // sonst fragt das Gerät nicht nach
+  let pair = null, pairBusy = false, pairPolling = false, pairT = null, pairFails = 0, pairErr = "", codeSince = null;
+  const pairIdle = () => codeSince !== null && Date.now() - codeSince >= BEAMER_PAIR_IDLE_MS;
+  const wantPair = () => alive && dev && !localOn() && !srvView(srvLive) && !(link && !srvLive) && document.visibilityState === "visible" && !pairIdle();
   function paintCode() {
-    pairCode.textContent = pair ? fmtBeamerCode(pair.code) : "";
-    pairCode.classList.toggle("wait", !pair);
-    pairState.textContent = pairErr || (pair ? BEAMER_PAIR_TTL : "Beamer-Code wird geholt …");
+    const off = pairIdle();
+    pairBox.classList.toggle("off", off);
+    pairAgain.hidden = !off;
+    pairCode.textContent = pair && !off ? fmtBeamerCode(pair.code) : "";
+    pairCode.classList.toggle("wait", !pair || off);
+    pairState.textContent = off ? BEAMER_PAIR_IDLE : pairErr || (pair ? BEAMER_PAIR_TTL : "Beamer-Code wird geholt …");
+  }
+  // jemand ist am Gerät (Tippen, Klicken, wieder sichtbar): die zwei Stunden beginnen neu, ein abgestelltes Gerät holt wieder einen Code
+  function attend() {
+    if (!alive || !dev || codeSince === null) return;
+    const was = pairIdle();
+    codeSince = Date.now();
+    if (was) { paintCode(); syncHold(); ensurePairing(); }
   }
   function stopPairing() { clearTimeout(pairT); pairT = null; }
-  function ensurePairing() {
-    if (!wantPair()) { stopPairing(); return; }
+  function ensurePairing(delay = 2000) {
+    if (!wantPair()) {
+      stopPairing();
+      if (pairIdle()) { pair = null; paintCode(); syncHold(); }   // abgestellt: der alte Code verschwindet, die Bildschirmsperre darf wieder greifen
+      return;
+    }
     if (!pair || Date.now() >= pair.until) { if (!pairBusy) newPair(); }
-    else if (!pairT) pairT = setTimeout(pollPair, 2000);
+    else if (!pairT && !pairPolling) pairT = setTimeout(pollPair, delay);
   }
   async function newPair() {
     stopPairing(); pairBusy = true; pair = null; paintCode();
@@ -170,17 +194,22 @@ export function beamerPage() {
     pairT = null;
     if (!wantPair() || !pair) return ensurePairing();
     if (Date.now() >= pair.until) return newPair();
-    const p = pair;
+    const p = pair, t0 = Date.now();
+    pairPolling = true;
     try {
-      const r = await api("POST", "/api/beamer/pair/poll", { body: { code: p.code, pairKey: p.pairKey } });
+      // lange Abfrage: der Server antwortet, sobald gekoppelt ist, sonst nach bis zu 12 s
+      const r = await api("POST", "/api/beamer/pair/poll", { body: { code: p.code, pairKey: p.pairKey, wait: true } });
+      pairPolling = false;
       if (!alive || pair !== p) return;
       if (r.paired === true) { pair = null; adopt({ lessonId: r.lessonId, key: r.key, exp: r.exp }); return; }
       if (pairErr) { pairErr = ""; paintCode(); }
     } catch (e) {
+      pairPolling = false;
       if (!alive || pair !== p) return;
       if (e && e.status === 404) { pair = null; return ensurePairing(); }   // abgelaufen: neuer Code
+      return ensurePairing();
     }
-    ensurePairing();
+    ensurePairing(Math.max(250, 2000 - (Date.now() - t0)));   // gleich weiter – höchstens alle 2 s, falls der Server nicht wartet
   }
   // gekoppelt (auch an eine andere Sitzung): Schlüssel merken und verbinden
   function adopt(l) {
@@ -252,7 +281,7 @@ export function beamerPage() {
   // AirPlay bricht ab (ohne Unterstützung still)
   let lock = null, lockWant = false;
   async function syncHold() {
-    lockWant = alive && (dev || localOn());
+    lockWant = alive && ((dev && (!!link || !pairIdle())) || localOn());
     if (!lockWant) { const l = lock; lock = null; if (l) try { await l.release(); } catch {} return; }
     if (lock || !navigator.wakeLock || typeof navigator.wakeLock.request !== "function" || document.visibilityState !== "visible") return;
     try {
@@ -263,6 +292,7 @@ export function beamerPage() {
   }
   const onVis = () => {
     if (document.visibilityState !== "visible") { stopPairing(); return; }
+    attend();
     syncHold();
     if (!dev) return;
     if (link && (!ws || ws.readyState > 1)) { clearTimeout(reT); connect(); }
@@ -300,6 +330,7 @@ export function beamerPage() {
   document.addEventListener("webkitfullscreenchange", onFs);
   root.addEventListener("mousemove", wake);
   root.addEventListener("pointerdown", wake);   // iPad: Tippen zeigt die Leiste
+  root.addEventListener("pointerdown", () => attend());
   root.addEventListener("focusin", wake);
   window.addEventListener("pagehide", bye);
   wake();

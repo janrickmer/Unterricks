@@ -1,6 +1,6 @@
 // index.js – Einstieg des Unterricks-Workers: Routing, Fehlerbehandlung, Sicherheitskopfzeilen der Seite, Durable Object.
 import { HttpError, json, fail, clientIp, corsHeaders, withCors } from "./lib.js";
-import { ensureSchema, cleanupStatements } from "./db.js";
+import { ensureSchema, schemaWarm, cleanupStatements } from "./db.js";
 import * as A from "./auth.js";
 import * as L from "./lessons.js";
 import * as F from "./files.js";
@@ -193,6 +193,7 @@ async function handleApi(request, env, ctx, path) {
     if (r.method !== request.method) { allowed.push(r.method); continue; }
     const c = { request, env, db: env.DB, now: Date.now(), ip: clientIp(request), waitUntil: (p) => ctx && ctx.waitUntil && ctx.waitUntil(p) };
     if (!r.opts.noDb) {
+      c.warm = schemaWarm();   // Schema schon vor dieser Anfrage angelegt (siehe db.js)
       await ensureSchema(env.DB);
       if (Math.random() < 0.01) c.waitUntil(env.DB.batch(cleanupStatements(env.DB, c.now)).catch(() => {}));
     }

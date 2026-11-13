@@ -113,7 +113,10 @@ export const INDEXES = [
   "CREATE INDEX IF NOT EXISTS lessons_day ON lessons(lesson_date)",
 ];
 
-let ready = null;
+let ready = null, warm = false;
+/* true, sobald das Schema in diesem Isolate angelegt ist – vor ensureSchema abgefragt: false heißt, diese Anfrage legt es gerade an (bis zu 41
+   Anweisungen), lange Abfragen (Beamer-Code) halten dann nicht (höchstens 50 D1-Anweisungen je Aufruf im Free-Plan) */
+export const schemaWarm = () => warm;
 export function ensureSchema(db) {
   if (!ready) ready = (async () => {
     await db.batch(SCHEMA.map((s) => db.prepare(s)));
@@ -127,6 +130,7 @@ export function ensureSchema(db) {
       }
     }
     try { await db.batch(INDEXES.map((s) => db.prepare(s))); } catch (e) { console.warn("Index nicht angelegt:", e && e.message); }
+    warm = true;
   })().catch((e) => { ready = null; throw e; });
   return ready;
 }

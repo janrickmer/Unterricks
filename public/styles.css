@@ -512,6 +512,12 @@ main.narrow .homework { background: var(--gelb-t); border-color: color-mix(in sr
 .beamer .bm-code.wait::before { content: "··· ···" / ""; color: #5b6a85; }
 .beamer .bm-how { margin: clamp(.3rem, 1.5vh, 1rem) 0 0; max-width: 34em; color: #e8edf6; font-size: clamp(1.05rem, 2.3vw, 1.7rem); font-weight: 700; line-height: 1.35; }
 .beamer .bm-ttl { margin: 0; color: #9fb0cc; font-size: clamp(.95rem, 1.7vw, 1.2rem); }
+/* zwei Stunden unbeachtet: kein Code mehr, nur der Hinweis und „Neuen Beamer-Code anzeigen“ */
+.beamer .bm-pair.off .bm-k, .beamer .bm-pair.off .bm-code, .beamer .bm-pair.off .bm-how { display: none; }
+.beamer .bm-pair.off .bm-ttl { max-width: 34em; color: #e8edf6; font-size: clamp(1.05rem, 2.3vw, 1.7rem); font-weight: 700; line-height: 1.35; }
+.beamer .bm-again { margin-top: clamp(.3rem, 1.5vh, 1rem); background: #1d2840; color: #fff; border-color: #8796b3; --ring: #fff; }   /* Kante 7:1 auf Schwarz */
+.beamer .bm-again:hover { background: #26324d; }
+.beamer .bm-again[hidden] { display: none; }
 /* Präsentationsmodus: „Beamer verbinden“ – Eingabefeld innerhalb der Präsentation (Vollbild bleibt), über allem (Tippen daneben blättert nicht) */
 .presenter .devstate { color: #e8edf6; }
 .presenter .bmc-back { position: absolute; inset: 0; z-index: 5; display: grid; grid-template-columns: minmax(0, 1fr); justify-items: center; align-items: start;

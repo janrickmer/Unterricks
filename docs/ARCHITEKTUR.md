@@ -260,26 +260,35 @@ implementiert und im End-to-End-Test geprüft (Ausnahmen unten ausdrücklich gen
    solange es die Seite beansprucht; das Beamerfenster als Pop-up bleibt unverändert. Ablauf:
    `POST /api/beamer/pair` (öffentlich; Zähler je gehashter IP 300/h in `locks` per `hitLimit`, ein Upsert) → Beamer-Code (6 Ziffern aus
    `crypto.getRandomValues` ohne Modulo-Verzerrung, Anzeige „482 913“, 10 Minuten) und geheimer `pairKey` (16 Byte); D1 `beamer_pairs` speichert
-   nur dessen SHA-256 (3 Anweisungen: Zähler, abgelaufene Codes löschen, `INSERT … ON CONFLICT DO NOTHING RETURNING`). Das Gerät fragt alle 2 s
-   `POST /api/beamer/pair/poll {code, pairKey}` (Hash in konstanter Zeit verglichen) – nur solange der Code zu sehen und die Seite sichtbar ist;
-   nach 10 Minuten holt es still einen neuen. Die Lehrkraft gibt den Code in der Präsentation ein: `POST /api/teacher/lessons/:id/beamer {code}`
+   nur dessen SHA-256 (3 Anweisungen: Zähler, abgelaufene Codes löschen, `INSERT … ON CONFLICT DO NOTHING RETURNING`). Das Gerät fragt
+   `POST /api/beamer/pair/poll {code, pairKey, wait: true}` (Hash in konstanter Zeit verglichen) als **lange Abfrage**: noch nicht gekoppelt, hält
+   der Worker die Antwort bis zu 12 s und sieht alle 2 s in D1 nach (`POLL_HOLD`, höchstens 8 Anweisungen; nur wenn das Schema in diesem Isolate
+   schon angelegt war – `schemaWarm()`, sonst sofort –, damit kein Aufruf über 50 Anweisungen kommt). So kostet ein Gerät, das einen Code zeigt,
+   etwa 300 statt 1 800 Aufrufe je Stunde vom Tageskontingent (100 000), bei gleicher Wartezeit nach dem Koppeln (≤ 2 s). Gefragt wird nur, solange
+   der Code zu sehen und die Seite sichtbar ist; nach 10 Minuten holt es still einen neuen. Hat **zwei Stunden** lang niemand einen Code
+   eingegeben und niemand das Gerät berührt (Tippen, Klicken, wieder sichtbar), holt es keinen neuen mehr, gibt die Bildschirmsperre frei und zeigt
+   „Neuen Beamer-Code anzeigen“ – ein vergessenes Gerät (z. B. ein PC am Beamer über Nacht) verbraucht sonst Tag und Nacht das Kontingent.
+   Die Lehrkraft gibt den Code in der Präsentation ein: `POST /api/teacher/lessons/:id/beamer {code}`
    (angemeldet; nicht Grundschule; Leerzeichen/Bindestriche erlaubt, genau 6 Ziffern) setzt in **einer** bedingten Anweisung
    (`UPDATE … WHERE code=? AND lesson_id IS NULL AND created_at > jetzt − 10 min RETURNING`) Sitzung und **Generation** (`bgen` im Durable
    Object, `/beamer-gen`), sonst 404 `beamer_code`. Die nächste Abfrage holt die Kopplung **genau einmal** ab (`DELETE … RETURNING`, bis 12 Minuten
    nach dem Erzeugen) und bekommt den **Beamer-Schlüssel** `Generation.Ablauf.HMAC("beamer|Sitzung|Generation|Ablauf")` (6 h; `signLink`),
    gespeichert im Gerät (`localStorage` `u.beamer` = {lessonId, key, exp}) – so verbindet es sich auch nach dem Neuladen wieder. Mit dem Schlüssel:
    `POST /api/beamer/live-ticket {lessonId, key}` (Signatur, aktuelle Generation, Sitzung besteht; liefert das Fach für die Farbe der Codefolie)
-   → kurzlebiges WebSocket-Ticket `["live", Sitzung, "beamer", Generation]`; `POST /api/beamer/live` = Stand alle 2 s als Rückfall (ohne D1).
+   → kurzlebiges WebSocket-Ticket `["live", Sitzung, "beamer", "Generation.Ablauf"]` (Ablauf des Schlüssels, mitsigniert); `POST /api/beamer/live` =
+   Stand alle 2 s als Rückfall (ohne D1).
    Ungültig, abgelaufen oder getrennt → 403 `beamer_gone`: das Gerät verwirft den Schlüssel und zeigt einen neuen Code. Der Schlüssel steht nie in
    einer Adresse (nur das 2-Minuten-Ticket). Im Durable Object ist **„beamer“ eine dritte Rolle**: Beamer bekommen dieselbe Nachricht wie die
    Schüler:innen und zusätzlich `next` (signierter Link der nächsten Folie zum Vorladen, nur wenn sie ein Folienbild ist – `liveNext` in
    `worker/livestate.js`, dieselbe Regel wie `nextSlideOf` der Vorschau), zählen nicht als Schüler:innen (die Lehrkraft bekommt `beamers` in
-   `state` und `{t:"count"}`) und steuern nichts; eine veraltete Generation weist es bei `/ws` und `/state` ab (403). „Beamer trennen“
+   `state` und `{t:"count"}`) und steuern nichts; eine veraltete Generation weist es bei `/ws` und `/state` ab (403). Jede Beamer-Verbindung trägt den
+   Ablauf ihres Schlüssels als Anhang (`serializeAttachment`): ist er vorbei, schließt die nächste Nachricht an alle sie mit 4001 – die Kopplung gilt
+   auch bei offenem WebSocket höchstens 6 Stunden. „Beamer trennen“
    (`POST /api/teacher/lessons/:id/beamer/disconnect` → `/beamer-reset`) erhöht die Generation und schließt alle Beamer-Verbindungen mit Code 4001;
    beim Löschen der Sitzung bzw. beim Zurücksetzen (`/reset?beamers=1`) ebenso. „Präsentation für alle beenden“ lässt die Kopplung bestehen:
    das Gerät zeigt „Die Präsentation ist beendet.“ und einen neuen Code (startet dieselbe Sitzung neu, zeigt es sie wieder; ein Code aus einer
    anderen Sitzung holt es dorthin). Das Gerät hält den Bildschirm wach (`navigator.wakeLock`, bei `visibilitychange` neu, ohne Unterstützung
-   still). Keine zusätzliche D1-Abfrage im Durable Object; je Kopplungsanfrage höchstens 3 Anweisungen. Abgelaufene Codes räumt
+   still). Keine zusätzliche D1-Abfrage im Durable Object; je Kopplungsanfrage höchstens 3 Anweisungen (lange Abfrage höchstens 8). Abgelaufene Codes räumt
    `cleanupStatements` mit auf.
 7. **Material.** Zwei Bereiche (Schüler:innen / nur Lehrkraft). Jede Schüler-Abfrage filtert serverseitig auf den
    Schülerbereich; Downloads laufen über kurzlebige signierte Links. KI-Material wird mit „Als Material übernehmen“ als

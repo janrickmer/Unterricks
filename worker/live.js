@@ -5,7 +5,9 @@
 // (codeShown) erscheinen bei allen als Codefolie (view "code" mit code, title, lines) – Code, Titel und Platzhalter schickt die Lehrkraft beim Start.
 // Beamergeräte (Nachtrag 15, worker/beamer.js): dritte Rolle „beamer“ – sehen dasselbe wie die Schüler:innen und zusätzlich die nächste Folie
 // zum Vorladen (next), zählen nicht als Schüler:innen (die Lehrkraft bekommt ihre Zahl als beamers) und steuern nichts. Ihre Schlüssel tragen
-// die Generation bgen; „Beamer trennen“ (/beamer-reset) erhöht sie und schließt alle Beamer-Verbindungen (Code 4001).
+// die Generation bgen; „Beamer trennen“ (/beamer-reset) erhöht sie und schließt alle Beamer-Verbindungen (Code 4001). Eine Beamer-Verbindung merkt
+// sich den Ablauf ihres Schlüssels (Anhang exp): ist er vorbei, schließt die nächste Nachricht an alle sie ebenfalls (4001) – die Kopplung gilt
+// so auch bei offenem WebSocket höchstens 6 Stunden.
 import { DurableObject } from "cloudflare:workers";
 import { HttpError, json, requireSecret, signLink, checkLink, isId } from "./lib.js";
 import { LIVE_IDLE as IDLE, liveReduce, liveView, liveNext } from "./livestate.js";
@@ -21,19 +23,23 @@ export class LiveRoom extends DurableObject {
     try { ctx.setWebSocketAutoResponse(new WebSocketRequestResponsePair("ping", "pong")); } catch {}
   }
   async state() { return { ...IDLE, ...((await this.ctx.storage.get("state")) || {}) }; }   // ältere Stände ohne die neuen Felder
-  async message(role, st) {
+  async message(role, st, gone = []) {
     st = st || (await this.state());
     const out = { t: "state", active: !!st.active, slide: st.slide, pages: st.pages, v: st.v, updatedAt: st.updatedAt };
     const view = liveView(st);   // Folienbild nur für echte Seiten; Codefolie vor Folie 1, an Platzhalterfolien und bei „Sitzungscode zeigen“
     if (view.slide) out.url = await slideUrl(requireSecret(this.env), st.fileId, view.slide, SLIDE_TTL);
     if (view.code) Object.assign(out, { view: "code", ...view.code });
-    if (role === "teacher") { out.fileId = st.fileId; out.students = this.ctx.getWebSockets("student").length; out.beamers = this.ctx.getWebSockets("beamer").length; }
+    if (role === "teacher") { out.fileId = st.fileId; out.students = this.ctx.getWebSockets("student").length; out.beamers = this.ctx.getWebSockets("beamer").filter((ws) => !gone.includes(ws)).length; }
     if (role === "beamer") { const k = liveNext(st); if (k) out.next = await slideUrl(requireSecret(this.env), st.fileId, k, SLIDE_TTL); }   // vorladen
     return out;
   }
   async broadcast(st) {
-    const forStudents = JSON.stringify(await this.message("student", st)), forTeachers = JSON.stringify(await this.message("teacher", st));
-    const all = this.ctx.getWebSockets(), role = (ws) => { const t = this.ctx.getTags(ws); return t.includes("teacher") ? "teacher" : t.includes("beamer") ? "beamer" : "student"; };
+    // Beamer mit abgelaufenem Schlüssel: schließen statt weiter Folien schicken (das Gerät zeigt dann einen neuen Beamer-Code)
+    const now = Date.now(), expired = this.ctx.getWebSockets("beamer").filter((ws) => beamerExpired(ws, now));
+    for (const ws of expired) { try { ws.close(4001, "abgelaufen"); } catch {} }
+    const forStudents = JSON.stringify(await this.message("student", st)), forTeachers = JSON.stringify(await this.message("teacher", st, expired));
+    const all = this.ctx.getWebSockets().filter((ws) => !expired.includes(ws));
+    const role = (ws) => { const t = this.ctx.getTags(ws); return t.includes("teacher") ? "teacher" : t.includes("beamer") ? "beamer" : "student"; };
     const forBeamers = all.some((ws) => role(ws) === "beamer") ? JSON.stringify(await this.message("beamer", st)) : forStudents;
     for (const ws of all) {
       const r = role(ws);
@@ -62,8 +68,11 @@ export class LiveRoom extends DurableObject {
       return new Response("getrennt", { status: 403 });
     if (url.pathname === "/ws") {
       if ((request.headers.get("Upgrade") || "").toLowerCase() !== "websocket") return new Response("WebSocket erwartet", { status: 426 });
+      const exp = Number(url.searchParams.get("exp"));   // Beamer: Ablauf des Schlüssels (aus dem signierten Ticket)
+      if (role === "beamer" && !(Number.isFinite(exp) && exp > Date.now())) return new Response("abgelaufen", { status: 403 });
       const pair = new WebSocketPair(), [client, server] = Object.values(pair);
       this.ctx.acceptWebSocket(server, [role]);
+      if (role === "beamer") server.serializeAttachment({ exp });
       server.send(JSON.stringify(await this.message(role)));
       if (role !== "teacher") this.countToTeachers();
       return new Response(null, { status: 101, webSocket: client });
@@ -104,6 +113,11 @@ export class LiveRoom extends DurableObject {
   }
 }
 
+function beamerExpired(ws, now) {
+  let a = null; try { a = ws.deserializeAttachment(); } catch {}
+  return !!a && Number.isFinite(a.exp) && a.exp <= now;
+}
+
 export const stub = (env, lessonId) => env.LIVE.get(env.LIVE.idFromName(lessonId));
 
 export async function liveTicket(c, lessonId, role, sub) {
@@ -120,8 +134,14 @@ export async function routeLiveSocket(c, lessonId) {
   if (!isId(lessonId) || !(await checkLink(requireSecret(c.env), ["live", lessonId, role, sub], u.searchParams.get("e"), u.searchParams.get("s"), c.now)))
     throw new HttpError(403, "bad_ticket", "Die Verbindung wurde abgelehnt. Bitte die Seite neu laden.");
   if ((c.request.headers.get("Upgrade") || "").toLowerCase() !== "websocket") throw new HttpError(426, "upgrade_required", "WebSocket erwartet.");
-  // Beamer: u = Generation seines Schlüssels – das Durable Object lehnt eine veraltete ab
-  return stub(c.env, lessonId).fetch(new Request("https://live/ws?role=" + role + (role === "beamer" ? "&gen=" + encodeURIComponent(sub) : ""), { headers: c.request.headers }));
+  // Beamer: u = „Generation.Ablauf“ seines Schlüssels – das Durable Object lehnt eine veraltete Generation ab und schließt nach dem Ablauf
+  let extra = "";
+  if (role === "beamer") {
+    const m = /^(\d{1,9})\.(\d{10,16})$/.exec(sub);
+    if (!m) throw new HttpError(403, "bad_ticket", "Die Verbindung wurde abgelehnt. Bitte die Seite neu laden.");
+    extra = "&gen=" + m[1] + "&exp=" + m[2];
+  }
+  return stub(c.env, lessonId).fetch(new Request("https://live/ws?role=" + role + extra, { headers: c.request.headers }));
 }
 export async function routeTeacherLiveTicket(c, lessonId) {
   await requireTeacher(c);

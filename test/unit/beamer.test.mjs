@@ -7,7 +7,9 @@ import { register } from "node:module";
 register("data:text/javascript," + encodeURIComponent('export async function resolve(s, c, n) { return s === "cloudflare:workers" ? { url: "data:text/javascript," + encodeURIComponent("export class DurableObject { constructor(ctx, env) { this.ctx = ctx; this.env = env; } }"), shortCircuit: true } : n(s, c); }'));
 
 class FakeWs {
-  constructor() { this.sent = []; this.closed = null; }
+  constructor() { this.sent = []; this.closed = null; this.att = null; }
+  serializeAttachment(v) { this.att = structuredClone(v); }
+  deserializeAttachment() { return this.att === null ? null : structuredClone(this.att); }
   send(m) { if (this.closed) throw new Error("geschlossen"); this.sent.push(m); }
   close(code, reason) { if (!this.closed) this.closed = { code, reason }; }
   msgs() { return this.sent.filter((x) => x !== "pong").map((x) => JSON.parse(x)); }
@@ -43,8 +45,9 @@ function roomCtx() {
     setWebSocketAutoResponse() {} };
 }
 const UP = { headers: { Upgrade: "websocket" } };
-async function join(room, role, gen) {
-  const res = await room.fetch(new Request("https://live/ws?role=" + role + (gen !== undefined ? "&gen=" + gen : ""), UP));
+const FAR = 4_000_000_000_000;   // Ablauf eines Beamer-Schlüssels weit in der Zukunft
+async function join(room, role, gen, exp = FAR) {
+  const res = await room.fetch(new Request("https://live/ws?role=" + role + (gen !== undefined ? "&gen=" + gen : "") + (exp !== null ? "&exp=" + exp : ""), UP));
   if (res.status !== 101) return { status: res.status };
   const server = room.ctx.socks[room.ctx.socks.length - 1].ws;
   return { status: 101, ws: server };
@@ -216,7 +219,9 @@ test("Kopplung: Code holen, Lehrkraft gibt ihn ein, das Gerät holt den Schlüss
   assert.equal((await c.db.prepare("SELECT COUNT(*) AS n FROM beamer_pairs").first()).n, 0);
   // Live-Ticket und Stand mit dem Schlüssel
   r = await call(c, BM.routeBeamerTicket, "/api/beamer/live-ticket", { lessonId: LESSON, key });
-  assert.equal(r.status, 200); assert.equal(r.data.fach, "powi"); assert.match(r.data.url, /^\/api\/live\/aaaaaaaaaaaaaaaa\?r=beamer&u=0&e=\d+&s=/); assert.equal(r.d1, 1);
+  assert.equal(r.status, 200); assert.equal(r.data.fach, "powi"); assert.equal(r.d1, 1);
+  assert.equal(new URL("https://x" + r.data.url).searchParams.get("u"), "0." + key.split(".")[1], "Ticket: Generation und Ablauf des Schlüssels (signiert)");
+  assert.match(r.data.url, /^\/api\/live\/aaaaaaaaaaaaaaaa\?r=beamer&u=0\.\d+&e=\d+&s=/);
   const ws = await routeLiveSocket({ ...c, request: new Request("https://unterricks.test" + r.data.url, UP) }, LESSON);
   assert.equal(ws.status, 101, "WebSocket mit dem Ticket");
   const forged = r.data.url.replace("r=beamer", "r=student");
@@ -297,4 +302,102 @@ test("Beamer-Codes je IP begrenzt (Schulnetz: großzügig), andere IPs unberühr
   await pair(c);
   const rows = (await c.db.prepare("SELECT k FROM locks WHERE k LIKE 'bp:ip:%'").all()).results.map((x) => x.k);
   assert.ok(rows.some((k) => /^bp:ip:[a-f0-9]{64}$/.test(k)) && rows.every((k) => !k.includes("203.0.113.7")));
+});
+
+/* ---------- Befunde der Sicherheitsprüfung (13.11.2026) ---------- */
+test("lange Abfrage des Beamer-Codes: hält bis zu 12 s, sieht alle 2 s nach, antwortet sofort nach dem Koppeln – höchstens 8 D1-Anweisungen", async () => {
+  const c = await setup();
+  const keep = BM.POLL_HOLD.sleep;
+  try {
+    assert.deepEqual([BM.POLL_HOLD.checks, BM.POLL_HOLD.stepMs], [6, 2000]);
+    const p = await pair(c);
+    const held = (body) => call(c, BM.routeBeamerPoll, "/api/beamer/pair/poll", { code: p.data.code, pairKey: p.data.pairKey, ...body });
+    let sleeps = [];
+    BM.POLL_HOLD.sleep = async (ms) => { sleeps.push(ms); };
+    // ohne wait bzw. bei kaltem Schema (diese Anfrage legt es gerade an): sofort, eine Anweisung
+    c.warm = true;
+    let r = await held({});
+    assert.deepEqual([r.status, r.data.paired, r.d1, sleeps.length], [200, false, 1, 0]);
+    c.warm = false;
+    r = await held({ wait: true });
+    assert.deepEqual([r.data.paired, r.d1, sleeps.length], [false, 1, 0], "Schema noch nicht angelegt: nicht halten (sonst über 50 Anweisungen)");
+    delete c.warm;
+    r = await held({ wait: true });
+    assert.deepEqual([r.data.paired, r.d1, sleeps.length], [false, 1, 0]);
+    // gehalten, niemand koppelt: 6 × 2 s, dann paired:false mit der verbleibenden Zeit
+    c.warm = true;
+    r = await held({ wait: true });
+    assert.deepEqual([r.status, r.data.paired, r.d1, sleeps], [200, false, 7, [2000, 2000, 2000, 2000, 2000, 2000]]);
+    assert.equal(r.data.expiresInMs, 10 * 60e3 - 12000);
+    // falscher pairKey: sofort 404, ohne zu warten
+    sleeps = [];
+    r = await call(c, BM.routeBeamerPoll, "/api/beamer/pair/poll", { code: p.data.code, pairKey: "0".repeat(32), wait: true });
+    assert.deepEqual([r.status, r.d1, sleeps.length], [404, 1, 0]);
+    // die Lehrkraft koppelt während der Abfrage (nach dem dritten Warten): die Antwort kommt gleich danach, mit dem Schlüssel
+    BM.POLL_HOLD.sleep = async (ms) => {
+      sleeps.push(ms);
+      if (sleeps.length === 3) {
+        const n = c.db.counter.n;
+        const req = new Request("https://unterricks.test/api/teacher/lessons/" + LESSON + "/beamer", { method: "POST", headers: { "Content-Type": "application/json", Authorization: "Bearer " + TOKEN }, body: JSON.stringify({ code: p.data.code }) });
+        await BM.routeTeacherBeamerPair({ ...c, request: req, waitUntil: () => {} }, LESSON);
+        c.db.counter.n = n;
+      }
+    };
+    r = await held({ wait: true });
+    assert.deepEqual([r.status, r.data.paired, r.data.lessonId, sleeps.length, r.d1], [200, true, LESSON, 3, 5], "drei Mal gewartet, vier Mal gelesen, einmal abgeholt");
+    assert.equal(r.data.exp, c.now + 3 * 2000 + 6 * 3600e3, "Schlüssel ab dem Abholen 6 Stunden");
+    assert.equal(await BM.checkBeamerKey(SECRET, LESSON, r.data.key, c.now + 6000), 0);
+    r = await held({ wait: true });
+    assert.equal(r.status, 404, "abgeholt: auch die lange Abfrage bekommt ihn nicht noch einmal");
+    // kurz vor dem Ablauf des Codes: nie über den Ablauf hinaus halten
+    const p2 = await pair(c);
+    c.now += 10 * 60e3 - 5000; sleeps = []; BM.POLL_HOLD.sleep = async (ms) => { sleeps.push(ms); };
+    r = await call(c, BM.routeBeamerPoll, "/api/beamer/pair/poll", { code: p2.data.code, pairKey: p2.data.pairKey, wait: true });
+    assert.deepEqual([r.data.paired, sleeps.length, r.data.expiresInMs], [false, 2, 1000]);
+    // verschwindet der Code während der Abfrage (Aufräumen), endet sie mit 404
+    const p3 = await pair(c);
+    sleeps = []; BM.POLL_HOLD.sleep = async (ms) => { sleeps.push(ms); if (sleeps.length === 2) c.db.raw.prepare("DELETE FROM beamer_pairs WHERE code=?").run(p3.data.code); };
+    r = await call(c, BM.routeBeamerPoll, "/api/beamer/pair/poll", { code: p3.data.code, pairKey: p3.data.pairKey, wait: true });
+    assert.deepEqual([r.status, r.data.code, sleeps.length], [404, "pair_gone", 2]);
+  } finally { BM.POLL_HOLD.sleep = keep; }
+});
+
+test("Schema-Kennzeichen: erst nach dem Anlegen „warm“ (die lange Abfrage hält nur dann)", async () => {
+  const { schemaWarm, ensureSchema } = await import("../../worker/db.js");
+  const { fakeD1 } = await import("./fake-d1.mjs");
+  assert.equal(schemaWarm(), false);
+  await ensureSchema(fakeD1());
+  assert.equal(schemaWarm(), true);
+});
+
+test("Durable Object: eine offene Beamer-Verbindung endet mit dem Ablauf ihres Schlüssels (4001), Lehrkraft-Zahl stimmt", async () => {
+  const room = new LiveRoom(roomCtx(), { SETTINGS_SECRET: "nur-test-geheimnis" });
+  const t = await join(room, "teacher");
+  assert.equal((await join(room, "beamer", 0, null)).status, 403, "ohne Ablauf abgelehnt");
+  assert.equal((await join(room, "beamer", 0, Date.now() - 1)).status, 403, "abgelaufener Schlüssel abgelehnt");
+  assert.equal((await join(room, "beamer", 0, "x")).status, 403);
+  const soon = await join(room, "beamer", 0, Date.now() + 40), later = await join(room, "beamer", 0);
+  assert.equal(soon.status, 101); assert.equal(later.status, 101);
+  assert.deepEqual(t.ws.last(), { t: "count", students: 0, beamers: 2 });
+  await new Promise((r) => setTimeout(r, 60));
+  await room.webSocketMessage(t.ws, JSON.stringify(startMsg()));
+  assert.deepEqual(soon.ws.closed, { code: 4001, reason: "abgelaufen" }, "abgelaufen: geschlossen statt Folien");
+  assert.equal(soon.ws.msgs().filter((m) => m.active).length, 0, "keine Folie nach dem Ablauf");
+  assert.equal(later.ws.last().active, true); assert.equal(later.ws.closed, null);
+  assert.equal(t.ws.last().beamers, 1, "die Lehrkraft zählt den abgelaufenen nicht mehr");
+  await drop(room, soon.ws);
+  assert.deepEqual(t.ws.last(), { t: "count", students: 0, beamers: 1 });
+});
+
+test("WebSocket-Ticket des Beamers: nur mit Generation und Ablauf; der Ablauf ist signiert", async () => {
+  const c = await setup();
+  const { liveTicket } = await import("../../worker/live.js");
+  const ws = async (url) => routeLiveSocket({ ...c, request: new Request("https://unterricks.test" + url, UP) }, LESSON);
+  const old = await liveTicket(c, LESSON, "beamer", "0");   // Form ohne Ablauf (vor dieser Änderung)
+  await assert.rejects(ws(old.url), (e) => e.status === 403 && e.code === "bad_ticket");
+  const exp = c.now + 3600e3, good = await liveTicket(c, LESSON, "beamer", "0." + exp);
+  assert.equal((await ws(good.url)).status, 101);
+  await assert.rejects(ws(good.url.replace("u=0." + exp, "u=0." + (exp + 9e9))), (e) => e.status === 403, "Ablauf verlängert: Signatur passt nicht");
+  const room = c.rooms.get(LESSON), s = room.ctx.socks[room.ctx.socks.length - 1];
+  assert.deepEqual([s.tags, s.ws.deserializeAttachment()], [["beamer"], { exp }]);
 });

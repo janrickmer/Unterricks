@@ -86,7 +86,8 @@ Feibeitsblatt braucht keine Änderung. Die Adressen stehen in `wrangler.jsonc` (
   Klasse trotzdem nur die aktuelle Folie sieht, öffnen Sie auf einem zweiten Gerät am Beamer (ein Schul-iPad, das an Apple TV spiegelt, oder
   ein PC bzw. Laptop am Beamer) `unterricks.janrickmer.de/#/beamer` – am besten als Lesezeichen bzw. auf dem Home-Bildschirm; auf der
   Startseite steht unten „Dieses Gerät als Beamer verwenden“. Das Gerät zeigt groß einen sechsstelligen **Beamer-Code** (10 Minuten
-  gültig, danach erscheint von selbst ein neuer). In der Präsentation auf Ihrem iPad tippen Sie auf **„Beamer verbinden“** (auf allen
+  gültig, danach erscheint von selbst ein neuer; hat zwei Stunden lang niemand einen Code eingegeben oder das Gerät berührt, holt es keinen
+  neuen mehr – dann dort auf „Neuen Beamer-Code anzeigen“ tippen). In der Präsentation auf Ihrem iPad tippen Sie auf **„Beamer verbinden“** (auf allen
   Geräten, auch auf dem iPad) und geben den Code ein – das Feld öffnet sich in der Präsentation, das Vollbild bleibt. Spiegeln Sie Ihr
   iPad dann nicht. Nach etwa 2 Sekunden zeigt das Gerät am Beamer nur die aktuelle Folie (bzw. die Codefolie); Ihr iPad zeigt weiter die
   aktuelle und die nächste Folie und steuert, der Knopf heißt dann „Beamer verbunden“. Tasten und ein Presenter wirken nur auf Ihrem

@@ -798,6 +798,29 @@ async function main() {
       await bp.locator(".beamer .bm-msg", { hasText: "Die Präsentation ist beendet." }).waitFor({ timeout: 10000 });
       await sp.locator(".live .placeholder").waitFor({ timeout: 10000 });
       await ictx.close(); await bctx.close();
+      // Beamergerät ohne Kopplung: lange Abfrage (höchstens eine Abfrage je 12 s statt alle 2 s); nach zwei Stunden ohne Eingabe holt es keinen
+      // Code mehr und gibt die Bildschirmsperre frei, Tippen holt wieder einen (Uhr der Seite per page.clock vorgestellt)
+      const kctx = await browser.newContext({ viewport: { width: 1280, height: 720 } });
+      await kctx.addInitScript(() => { window.__wl = []; window.__wlr = 0; try { Object.defineProperty(navigator, "wakeLock", { configurable: true, value: { request: async (t) => { window.__wl.push(t); return { release: async () => { window.__wlr++; }, addEventListener() {} }; } } }); } catch {} });
+      const kp = await kctx.newPage(); watch(kp, "Beamergerät (unbeachtet)");
+      const polls = []; kp.on("request", (q) => { if (q.url().includes("/api/beamer/pair/poll")) polls.push(JSON.parse(q.postData() || "{}")); });
+      await kp.clock.install();
+      await kp.goto(BASE + "/#/beamer");
+      const kcode = kp.locator(".beamer .bm-code", { hasText: /^\d{3} \d{3}$/ });
+      await kcode.waitFor({ timeout: 10000 });
+      const n0 = polls.length; await sleep(9000);
+      ok(polls.length - n0 <= 3 && polls.length > 0 && polls.every((b) => b.wait === true), "Beamer-Code als lange Abfrage: " + (polls.length - n0) + " Abfragen in 9 s (statt etwa 5)");
+      await kp.clock.fastForward("02:00:30");
+      await kp.locator(".beamer .bm-pair.off .bm-ttl", { hasText: "Seit zwei Stunden hat hier niemand einen Beamer-Code eingegeben – dieses Gerät holt deshalb keinen neuen mehr." }).waitFor({ timeout: 20000 });
+      const nIdle = polls.length; await sleep(3000);
+      ok(!(await kp.locator(".beamer .bm-code").isVisible()) && polls.length === nIdle && (await kp.evaluate(() => window.__wlr)) >= 1,
+        "zwei Stunden unbeachtet: kein Code mehr, keine Abfragen, Bildschirmsperre freigegeben");
+      await kp.screenshot({ ...SHOT, path: join(OUT, "beamergeraet-unbeachtet.png") });
+      const wl0 = (await kp.evaluate(() => window.__wl)).length;
+      await kp.getByRole("button", { name: "Neuen Beamer-Code anzeigen" }).click();
+      await kcode.waitFor({ timeout: 10000 });
+      ok(await kp.getByRole("button", { name: "Neuen Beamer-Code anzeigen" }).isHidden() && (await kp.evaluate(() => window.__wl)).length > wl0, "„Neuen Beamer-Code anzeigen“: wieder ein Code, Bildschirm wieder wach gehalten");
+      await kctx.close();
     }
 
     /* ---------- Claude-Connector (MCP) ---------- */
