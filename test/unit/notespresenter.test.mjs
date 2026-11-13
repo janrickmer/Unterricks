@@ -138,3 +138,28 @@ test("Beamerfenster nur auf einem Bildschirm (screen.isExtended false) bzw. gera
     assert.ok(!JSON.stringify(P.posts).includes(SECRET), "nie im BroadcastChannel");
   } finally { P.pres.end(false); delete window.screen; }
 });
+
+// Ablaufprüfung: Beamer als erweiterten Bildschirm eingerichtet, während die Präsentation läuft – der Hinweis zum Beamerfenster in der Leiste folgt
+// (vorher stand dort weiter „nur ein Bildschirm erkannt“, während schon die Notizen erschienen) und umgekehrt
+test("Beamerfenster geöffnet, dann Bildschirm erweitert bzw. wieder gespiegelt: Notizen und Hinweis in der Leiste passen zusammen", async () => {
+  const scr = new EventTarget(); scr.isExtended = false;
+  window.screen = scr;
+  const openWas = window.open;
+  window.open = () => ({ focus() {} });
+  const P = await open();
+  try {
+    const { BEAMER_ONE_SCREEN } = await import("../../public/shared.js");
+    const beam = () => document.querySelector(".presenter .beamstate").textContent;
+    right();
+    [...document.querySelectorAll(".presenter button")].find((b) => b.textContent === "Beamerfenster öffnen").click();
+    P.bc.onmessage({ data: { t: "following", id: P.pid, bid: "b1", vis: true } });
+    assert.ok(beam().includes(BEAMER_ONE_SCREEN), "nur ein Bildschirm: die Leiste sagt es");
+    assert.equal(P.shown(), false);
+    scr.isExtended = true; scr.dispatchEvent(new Event("change"));
+    assert.equal(P.shown(), true, "erweitert: Notizen");
+    assert.equal(beam(), "Beamerfenster verbunden", "… und die Leiste sagt nicht mehr „nur ein Bildschirm erkannt“");
+    scr.isExtended = false; scr.dispatchEvent(new Event("change"));
+    assert.equal(P.shown(), false, "wieder gespiegelt: keine Notizen");
+    assert.ok(beam().includes(BEAMER_ONE_SCREEN), "… und der Hinweis ist wieder da");
+  } finally { P.pres.end(false); delete window.screen; window.open = openWas; }
+});

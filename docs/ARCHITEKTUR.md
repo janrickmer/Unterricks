@@ -806,7 +806,8 @@ nicht in einer PDF, die Schüler:innen (oder Eltern, eine öffentliche Seite) be
   wieder nach vorn, zählt ein Beamerfenster erst nach seiner neuen Meldung auf „who“);
   „Vorschau“/Taste V blendet beides aus. Fehlt das getrennte Beamerbild, nennt die Leiste 12 s lang (beim Start und nach dem Trennen) „Notizen erscheinen,
   sobald ein Beamerfenster oder Beamergerät verbunden ist – Ihre Anmerkungs-PDF finden Sie unter „Material nur für die Lehrkraft“.“; „Beamer verbinden“
-  nennt es ebenfalls. Ein einzeln gespiegeltes iPad bleibt, wie es war.
+  nennt es ebenfalls. Ein einzeln gespiegeltes iPad bleibt, wie es war. Ändert sich der Bildschirm (`screen` „change“: erweitert bzw. wieder
+  gespiegelt), folgen Notizen und der Hinweis „nur ein Bildschirm erkannt“ zum Beamerfenster gemeinsam.
 * **Anmerkungs-PDF** (`annotatedPdfBytes` in `public/pdfnotes.js`): jede Folie (bereinigt kopiert), dahinter eine Anmerkungsfolie im selben Format
   („Anmerkungen zu Folie n“, bei Codefolien „(Codefolie)“, Stichpunkte; Schrift bis 14 pt kleiner, sonst Fortsetzungsseiten; Standardschrift mit
   WinAnsi – andere Zeichen ersetzt wie in `pdfmaker.js`; ohne Notizen „Keine Anmerkungen zu dieser Folie.“). `PUT …/files/:id/annotated?rev=n` legt
@@ -816,7 +817,11 @@ nicht in einer PDF, die Schüler:innen (oder Eltern, eine öffentliche Seite) be
   KI-Kontext und nicht in Prompts, nicht in der Sitzungsdatei (sie entsteht beim Laden neu) und wird bei „Übernehmen“ einer Vertretung nicht kopiert.
 * **Sitzung** (`public/notesedit.js`): in der Präsentationskarte „Notizen zu den Folien (nur für Sie)“, „Notizen ansehen und bearbeiten“ (je Folie
   Vorschaubild + Textfeld, ein Stichpunkt je Zeile), „Notizen speichern“ (409 → Rückfrage „Neuen Stand laden“ / „Meine Fassung speichern“), „JSON aus
-  dem Chat einfügen“; die PDF bleibt unverändert. Sitzungsdatei: `files[].slideNotes` an der Präsentation (gilt beim Laden vor dem Anhang; fehlt das
+  dem Chat einfügen“; die PDF bleibt unverändert. Würde das Speichern ein Feld kürzen (mehr als 12 Stichpunkte, einer über 300 Zeichen,
+  `noteFieldIssue` in `public/shared.js`), sagt es ein Hinweis unter dem Feld (`aria-describedby`) und danach die Meldung („Gekürzt bei Folie …“); nach
+  dem Speichern – auch nach der Rückfrage – steht der Fokus wieder auf „Notizen speichern“, wenn er auf body gefallen war. Trägt eine hochgeladene PDF
+  `unterricks-notizen.json`, aber ohne lesbare Notizen (`scanPdfNotes` → `notesFile`), sagt die Meldung nach dem Hochladen es; Löschen und
+  „Andere Präsentation hochladen“ nennen die Notizen, die mit der Präsentation gehen. Sitzungsdatei: `files[].slideNotes` an der Präsentation (gilt beim Laden vor dem Anhang; fehlt das
   Feld – ältere Datei –, gilt der Anhang). Connector: `get_lesson` nennt die Zahl der Folien mit Notizen (ohne Text).
 * **D1**: drei Spalten mehr (`files.notes`, `clean_size`, `notes_of`; beim ersten Aufruf nach dem Ausrollen bis zu 44 Anweisungen für das Schema);
   Notizen-Routen 2–4 Anweisungen, `…/annotated` bis 8.

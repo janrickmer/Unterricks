@@ -13,7 +13,7 @@ import { substituteCards } from "./substitute.js";
 import { paintPortalPreview, portalPreview, contextMenu, prevStopCard, stopNextHint } from "./portalview.js";
 import { renderMarkdown } from "./markdown.js";
 import { materialBox, dropZone } from "./materialbox.js";
-import { notesPanel, notesDirty } from "./notesedit.js";
+import { notesPanel, notesDirty, NOTES_UNREADABLE, NOTES_DELETE_TEXT, NOTES_REPLACE_HINT } from "./notesedit.js";
 import { personLabel, personKey, cleanPhoto, PHOTO_TASKS_MAX, materialRuns, taskTextFmt, fbLinksOf } from "./fbclient.js";
 
 const MODES = [["planning", "Planung"], ["ideas", "Ideen weiterentwickeln"], ["material", "Material erstellen"]];
@@ -491,12 +491,12 @@ export async function sessionPage(id) {
       h("div", { class: "item" }, fileIcon(p.name, p.mime), h("div", { class: "main" }, h("div", { class: "name", text: p.name }), h("div", { class: "meta", text: p.pages + " Folien · " + fmtBytes(p.size) })),
         h("div", { class: "acts" }, h("button", { class: "btn small", type: "button", onclick: (e) => viewPdf(e.currentTarget, p) }, "PDF ansehen"),
           h("button", { class: "btn small ghost danger", type: "button", onclick: async () => {
-            if (!(await confirmDialog("Präsentation löschen", "Präsentation und Folienbilder löschen? Eine laufende Live-Anzeige endet.", "Löschen", true))) return;
+            if (!(await confirmDialog("Präsentation löschen", p.notes ? NOTES_DELETE_TEXT : "Präsentation und Folienbilder löschen? Eine laufende Live-Anzeige endet.", "Löschen", true))) return;
             try { await tapi("DELETE", "/api/teacher/files/" + p.id); st.files = st.files.filter((x) => x !== p); st.slides = null; swapAnnotated(p.id, null); paintPres(); } catch (e) { errToast(e); }
           } }, icon("trash")))),
       ...nn(thumbs, cleanBox, shownBox, presRel, notesBox, startBtn, liveLine),
       h("p", { class: "hint", text: "Startet das Vollbild hier und zeigt dieselbe Folie oben in der Schüleransicht aller freigeschalteten Schüler:innen. Beim Start erscheint zuerst die Codefolie mit dem Sitzungscode und dem QR-Code dieser Sitzung; läuft die Präsentation schon, geht es an der laufenden Stelle weiter. „Sitzungscode zeigen“ (Taste C) blendet die Codefolie jederzeit wieder ein. Weiter mit →, Leertaste, Bildtaste (Presenter) oder Tippen; Schüler:innen können nicht selbst blättern. Selbst öffnen können sie die Präsentation erst " + PRESENTATION_AFTER_END_MIN + " Minuten nach dem Ende der Sitzung – bei markierter letzter Folie nur bis dorthin." }),
-      h("details", { class: "box" }, h("summary", null, "Andere Präsentation hochladen"), zone));
+      h("details", { class: "box" }, h("summary", null, "Andere Präsentation hochladen"), p.notes ? h("p", { class: "hint", text: NOTES_REPLACE_HINT }) : null, zone));
   }
   // „PDF ansehen“: das Fenster direkt im Klick öffnen (sonst blockt Safari es nach der Anfrage) und erst dann zum signierten Link führen –
   // der Link zeigt auf den Worker (apiUrl), nicht auf die Herkunft der Oberfläche (auf GitHub Pages gäbe es sonst 404)
@@ -537,7 +537,7 @@ export async function sessionPage(id) {
           (sw.missed.length ? " Auf " + folien(sw.missed) + " steht noch der alte Sitzungscode " + formatCode(sw.from) + " – dort ließ er sich nicht sicher ersetzen; bitte die Folie ändern oder den Code dieser Sitzung (" + formatCode(sw.to) + ") ansagen." : "") : "");
       // Notizen (Nachtrag 20): „Notizen zu n Folien übernommen“ – bzw. nichts; Probleme ruhig dazu (die Präsentation bleibt nutzbar)
       const nn0 = out.notes ? " Notizen zu " + out.notes + (out.notes === 1 ? " Folie" : " Folien") + " übernommen." : "";
-      const extra = (out.annotated && out.annotated.error ? " Die Anmerkungs-PDF ließ sich nicht erstellen (" + out.annotated.error + ") – speichern Sie die Notizen in der Präsentationskarte erneut." : "") +
+      const extra = (out.notesBad ? " " + NOTES_UNREADABLE : "") + (out.annotated && out.annotated.error ? " Die Anmerkungs-PDF ließ sich nicht erstellen (" + out.annotated.error + ") – speichern Sie die Notizen in der Präsentationskarte erneut." : "") +
         (out.clean && !out.clean.ok ? " Die Fassung ohne Notizen für Schüler:innen ließ sich nicht erzeugen (" + out.clean.error + ") – siehe Hinweis in der Präsentationskarte." : "");
       const bad = (sw && sw.missed.length) || !!extra;
       toast("Präsentation bereit (" + out.pages + " Folien)." + nn0 + note + extra, bad ? "err" : "ok", note || nn0 || extra ? (bad ? 20000 : 12000) : undefined);

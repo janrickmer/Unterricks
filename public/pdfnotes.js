@@ -41,7 +41,9 @@ export async function scanPdfNotes(doc, opt = {}) {
   if (opt.bytes && opt.lib) {
     try { carriers = pdfCarriers(await opt.lib.PDFDocument.load(opt.bytes, { updateMetadata: false }), opt.lib); } catch {}
   }
-  return { attachments: files.length, needsClean: files.length > 0 || noteAnnots || unsure || carriers.length > 0, raw: pickNotes(files), ...(carriers.length ? { carriers } : {}) };
+  // notesFile: es gibt einen Anhang unterricks-notizen.json – bleibt die Übernahme leer, sagt die Meldung nach dem Hochladen, dass er nicht lesbar war
+  return { attachments: files.length, needsClean: files.length > 0 || noteAnnots || unsure || carriers.length > 0, raw: pickNotes(files),
+    ...(files.some((f) => isNotesFileName(f.name)) ? { notesFile: true } : {}), ...(carriers.length ? { carriers } : {}) };
 }
 
 /* ---------- Anmerkungs-PDF ---------- */

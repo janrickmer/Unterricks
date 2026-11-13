@@ -88,6 +88,12 @@ test("JSON aus dem Chat einfügen: Block mit ```json, roher Text, Folien außerh
   assert.throws(() => S.parseNotesJson("keine Notizen", 3), /kein JSON-Block/);
   assert.throws(() => S.parseNotesJson('{"folien": [ {"folie": 1, ', 3), /unvollständig oder fehlerhaft/);
   assert.throws(() => S.parseNotesJson('{"foo": 1}', 3), /erwarteten Format/);
+  // Ablaufprüfung: die ganze Antwort aus dem Chat kopiert, vor dem JSON-Block steht ein anderer Code-Block (das Python-Skript, mit dem Claude es versuchte)
+  const chat = "Das Einbetten ging hier nicht:\n```python\nimport json\nnotizen = {\"v\": 1}\n```\nHier die Notizen:\n```json\n" +
+    JSON.stringify({ v: 1, folien: [{ folie: 2, notizen: ["Impuls"] }] }, null, 2) + "\n```\nViel Erfolg!";
+  assert.deepEqual(S.parseNotesJson(chat, 3), { notes: [{ n: 2, items: ["Impuls"] }], slides: 1, dropped: [] });
+  assert.equal(S.parseNotesJson('```json {"folien":[{"folie":1,"notizen":["a"]}]}```', 3).slides, 1, "Block in einer Zeile");
+  assert.throws(() => S.parseNotesJson("```python\nnotizen = {\"v\": 1}\n```", 3), /erwarteten Format/);
 });
 
 test("Präsentations-Prompt erklärt die Notizen: Dateianhang unterricks-notizen.json, Format, pypdf, Rückfall im Chat – nicht mehr nur im Chat", () => {
@@ -139,6 +145,15 @@ test("Notizen aus der PDF lesen (PDF.js): Anhang unterricks-notizen.json, Anhän
   assert.deepEqual(pickNotes([{ name: "UNTERRICKS-NOTIZEN.JSON", content: j(NOTES) }]), NOTES);
   assert.deepEqual(pickNotes([{ name: "kaputt.json", content: te.encode("{") }, { name: "notes.json", content: j(NOTES) }]), NOTES);
   assert.equal(pickNotes([{ name: "bild.png", content: j(NOTES) }, { name: "andere.json", content: j({ x: 1 }) }]), null);
+  // Ablaufprüfung: Anhang unterricks-notizen.json vorhanden, aber nicht lesbar (kein gültiges JSON) – notesFile, damit die Meldung nach dem
+  // Hochladen es sagt (sonst blieben die Notizen still aus)
+  const bad = await PDFDocument.create(); bad.addPage([960, 540]);
+  await bad.attach(te.encode('{"v":1,"folien":[{"folie":1,"notizen":["a"]},]'), S.NOTES_FILE, { mimeType: "application/json" });
+  const bdoc = await pdfjs.getDocument({ data: (await bad.save()).slice(), isEvalSupported: false, verbosity: 0 }).promise;
+  const bscan = await scanPdfNotes(bdoc);
+  assert.ok(bscan.notesFile === true && bscan.raw === null && bscan.needsClean === true, JSON.stringify(bscan));
+  await bdoc.destroy();
+  assert.equal((await scanPdfNotes(await pdfjs.getDocument({ data: (await deckPdf()).slice(), isEvalSupported: false, verbosity: 0 }).promise)).notesFile, true);
 });
 
 test("Anmerkungs-PDF: hinter jeder Folie eine Anmerkungsfolie im selben Format, Codefolie gekennzeichnet, Fortsetzung bei langen Notizen", async () => {

@@ -121,7 +121,11 @@ Feibeitsblatt braucht keine Änderung. Die Adressen stehen in `wrangler.jsonc` (
   nicht zuverlässig möglich (AirPlay spiegelt) – deshalb gibt es zusätzlich unter **„Material nur für die Lehrkraft“** die **„Präsentation
   mit Anmerkungen – <Titel>.pdf“**: jede Folie, dahinter eine Anmerkungsfolie mit ihren Notizen (z. B. zum Ausdrucken neben dem iPad). In der
   Präsentationskarte der Sitzung zeigt **„Notizen ansehen und bearbeiten“** je Folie das Vorschaubild und ein Textfeld (ein Stichpunkt je
-  Zeile); „Notizen speichern“ (mit Versionsschutz) erneuert die Anmerkungs-PDF, die PDF der Präsentation bleibt unverändert. Schüler:innen
+  Zeile); „Notizen speichern“ (mit Versionsschutz) erneuert die Anmerkungs-PDF, die PDF der Präsentation bleibt unverändert. Grenzen: je Folie
+  höchstens 12 Stichpunkte mit je 300 Zeichen – was darüber hinausgeht, kürzt Unterricks beim Speichern und sagt es vorher am Feld und danach in
+  der Meldung; in der Anmerkungs-PDF erscheinen Zeichen, die die Standardschrift nicht kennt (z. B. Emojis oder griechische Buchstaben), als „?“.
+  Eine neu hochgeladene PDF ersetzt mit der alten Präsentation auch deren Notizen (es gelten die der neuen PDF); findet Unterricks im Anhang
+  keine lesbaren Notizen, sagt es die Meldung nach dem Hochladen. Schüler:innen
   sehen die Notizen **nie**: weder live noch im Beamerfenster oder am Beamergerät, nicht in den Folienbildern und nicht in der PDF nach der
   Stunde – sie bekommen eine bereinigte Fassung ohne Anhänge und ohne Kommentare (Links bleiben), auch gekürzt bis zur markierten Folie;
   solange die fehlt, bekommen sie gar keine. Bereinigt wird auch, wenn Claude die Notizen entgegen dem Prompt anders in die PDF geschrieben

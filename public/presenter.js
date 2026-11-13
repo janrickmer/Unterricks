@@ -183,7 +183,9 @@ export async function rasterizeAndUpload(file, fileId, token, onProgress, opt = 
     try { const { makeAnnotated } = await import("./pdfnotes.js"); annotated = await makeAnnotated({ id: fileId, name: file.name }, { token, notes, rev, codeSlides: sent, bytes }); }
     catch (e) { annotated = { error: e && e.message ? e.message : String(e) }; }
   }
-  return { pages: n, thumbs, file: ready.file, codeSlides: (ready.file && ready.file.codeSlides) || sent, notes: notes.length, clean: cleanState, annotated,
+  // notesBad: die PDF trägt unterricks-notizen.json, daraus kam aber nichts (z. B. kein gültiges JSON oder ein anderes Format) – sonst bliebe das still
+  const notesBad = !(opt.notes !== undefined && opt.notes !== null) && !!scan.notesFile && !notes.length;
+  return { pages: n, thumbs, file: ready.file, codeSlides: (ready.file && ready.file.codeSlides) || sent, notes: notes.length, notesBad, clean: cleanState, annotated,
     swapped: swappedOn.length || missedOn.length ? { from: oldCode, to: want, slides: swappedOn, missed: missedOn } : null };
 }
 
@@ -642,7 +644,9 @@ export async function startPresenter({ lessonId, file, token, startSlide = 0, on
     paintNotes();
     if (document.visibilityState === "visible") { live.hello(); if (bc && beamers.size) try { bc.postMessage({ t: "who" }); } catch {} }
   };
-  const onScreen = () => paintNotes();   // Beamer als erweiterten Bildschirm eingerichtet bzw. wieder gespiegelt (Chrome, Edge)
+  // Beamer als erweiterten Bildschirm eingerichtet bzw. wieder gespiegelt (Chrome, Edge): auch der Hinweis zum Beamerfenster in der Leiste folgt –
+  // sonst stünde dort weiter „nur ein Bildschirm erkannt“, während schon die Notizen erscheinen
+  const onScreen = () => { if (beamers.size || beamOne) { beamOne = oneScreen(); paintBeam(); } paintNotes(); };
   const isFs = () => !!(document.fullscreenElement || document.webkitFullscreenElement);
   function toggleFs() {
     if (isFs()) (document.exitFullscreen || document.webkitExitFullscreen).call(document);

@@ -509,11 +509,22 @@ export const NOTES_FILE = "unterricks-notizen.json";
 export const NOTES_LIMITS = { slides: 300, items: 12, chars: 300, total: 200000 };
 export const isNotesFileName = (name) => /^unterricks[-_ ]?notizen\.json$/i.test(String(name == null ? "" : name).trim().replace(/^.*[\\/]/, ""));
 // ein Stichpunkt: einzeilig, ohne Steuer- und Formatzeichen, ohne vorangestelltes Aufzählungszeichen, höchstens 300 Zeichen (ganze Zeichen)
+const noteRaw = (s) => cleanSlideLine(String(s), 4000).replace(/^(?:[-–—•·*▪◦‣]|\d{1,2}[.)])\s+/, "").trim();
 export function noteLine(s) {
   if (typeof s !== "string" && typeof s !== "number") return "";
-  const t = cleanSlideLine(String(s), 4000).replace(/^(?:[-–—•·*▪◦‣]|\d{1,2}[.)])\s+/, "").trim();
+  const t = noteRaw(s);
   const cps = Array.from(t);
   return (cps.length > NOTES_LIMITS.chars ? cps.slice(0, NOTES_LIMITS.chars).join("").trim() : t);
+}
+/* Notizfeld der Sitzung (ein Stichpunkt je Zeile): kürzt das Speichern etwas weg (mehr als 12 Stichpunkte, einer über 300 Zeichen)? → Hinweis
+   unter dem Feld bzw. "" – sonst verschwände beim Speichern still Text der Lehrkraft */
+export function noteFieldIssue(text) {
+  const items = String(text == null ? "" : text).split(/\r\n|\r|\n/).map(noteRaw).filter(Boolean);
+  const many = items.length > NOTES_LIMITS.items, long = items.slice(0, NOTES_LIMITS.items).some((t) => Array.from(t).length > NOTES_LIMITS.chars);
+  const max = NOTES_LIMITS.items, ch = NOTES_LIMITS.chars;
+  return many && long ? "Mehr als " + max + " Stichpunkte, und mindestens einer hat mehr als " + ch + " Zeichen – gespeichert werden nur die ersten " + max + ", zu lange gekürzt."
+    : many ? "Mehr als " + max + " Stichpunkte – gespeichert werden nur die ersten " + max + "."
+    : long ? "Mindestens ein Stichpunkt hat mehr als " + ch + " Zeichen – er wird beim Speichern gekürzt." : "";
 }
 /* fremde Daten (Anhang der PDF, JSON aus dem Chat, Sitzungsdatei, Server): {folien:[{folie, notizen}]}, {slides:[{n, items}]} oder [{n|folie, items|notizen}];
    notizen auch als Text (eine Zeile = ein Stichpunkt). pages = Seitenzahl der PDF (Folien jenseits entfallen) */
@@ -550,16 +561,26 @@ export const notesText = (items) => (Array.isArray(items) ? items.join("\n") : "
 export function parseNotesJson(text, pages) {
   const s = String(text == null ? "" : text).trim();
   if (!s) throw new Error("Bitte fügen Sie zuerst den JSON-Block aus dem Chat ein.");
-  const fence = /```(?:json)?\s*([\s\S]*?)```/i.exec(s), body = fence ? fence[1].trim() : s;
-  const a = body.indexOf("{"), b = body.indexOf("[");
-  const start = a < 0 ? b : b < 0 ? a : Math.min(a, b), endCh = start >= 0 && body[start] === "[" ? "]" : "}";
-  const end = body.lastIndexOf(endCh);
-  if (start < 0) throw new Error("Im eingefügten Text steht kein JSON-Block mit Notizen.");
-  let raw;
-  try { if (end <= start) throw 0; raw = JSON.parse(body.slice(start, end + 1)); } catch { throw new Error("Der JSON-Block ist unvollständig oder fehlerhaft – bitte den ganzen Block aus dem Chat kopieren (von { bis })."); }
-  const all = cleanSlideNotes(raw, NOTES_LIMITS.slides), notes = cleanSlideNotes(raw, pages);
-  if (!all.length) throw new Error("Im JSON-Block stehen keine Notizen im erwarteten Format ({\"folien\": [{\"folie\": 1, \"notizen\": [\"…\"]}]}).");
-  return { notes, slides: notes.length, dropped: all.filter((x) => !notes.some((y) => y.n === x.n)).map((x) => x.n) };
+  // Kandidaten: zuerst ```json-Blöcke, dann übrige Code-Blöcke (z. B. steht davor das Python-Skript, mit dem Claude es versucht hat), zuletzt der ganze Text
+  const fences = [...s.matchAll(/```([A-Za-z0-9_+-]*)[ \t]*\n?([\s\S]*?)```/g)];
+  const bodies = [...fences.filter((f) => /json/i.test(f[1])), ...fences.filter((f) => !/json/i.test(f[1]))].map((f) => f[2].trim()).concat(s);
+  let found = false, parsed = false;
+  for (const body of bodies) {
+    const a = body.indexOf("{"), b = body.indexOf("[");
+    const start = a < 0 ? b : b < 0 ? a : Math.min(a, b), endCh = start >= 0 && body[start] === "[" ? "]" : "}";
+    const end = body.lastIndexOf(endCh);
+    if (start < 0) continue;
+    found = true;
+    let raw;
+    try { if (end <= start) throw 0; raw = JSON.parse(body.slice(start, end + 1)); } catch { continue; }
+    parsed = true;
+    const all = cleanSlideNotes(raw, NOTES_LIMITS.slides), notes = cleanSlideNotes(raw, pages);
+    if (!all.length) continue;
+    return { notes, slides: notes.length, dropped: all.filter((x) => !notes.some((y) => y.n === x.n)).map((x) => x.n) };
+  }
+  if (!found) throw new Error("Im eingefügten Text steht kein JSON-Block mit Notizen.");
+  if (!parsed) throw new Error("Der JSON-Block ist unvollständig oder fehlerhaft – bitte den ganzen Block aus dem Chat kopieren (von { bis }).");
+  throw new Error("Im JSON-Block stehen keine Notizen im erwarteten Format ({\"folien\": [{\"folie\": 1, \"notizen\": [\"…\"]}]}).");
 }
 // Name der Anmerkungs-PDF (nur für die Lehrkraft): „Präsentation mit Anmerkungen – BVerfG.pdf“
 export const annotatedName = (presName) => "Präsentation mit Anmerkungen – " + (String(presName == null ? "" : presName).replace(/\.pdf$/i, "").replace(/[\\/:*?"<>|\u0000-\u001f]+/g, " ").replace(/\s+/g, " ").trim().slice(0, 150) || "Präsentation") + ".pdf";
