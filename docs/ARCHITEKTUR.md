@@ -61,6 +61,7 @@ implementiert und im End-to-End-Test geprüft (Ausnahmen unten ausdrücklich gen
 | „Inhalt der Unterrichtsstunde“ | formuliert Claude beim Planen elternverständlich (2–3 Sätze); in der Sitzung änderbar |
 | Krankmeldung (Grundschule) | **kein Vertretungsmaterial**: die Stunde und alle folgenden rücken um einen Termin; die letzte, die hinter das Ende rutscht, bleibt **ohne Datum** in der Einheit, bis die Lehrkraft bzw. Claude über den Überarbeitungs-Prompt entscheidet |
 | Aufforderung an die Lehrkraft (Nachtrag) | Muss die Lehrkraft auf Material zurückgreifen, das nur sie hat (z. B. Vorlesetext, Lösung), steht das als eigener Stichpunkt **unterstrichen** – im Verlaufsplan der Grundschule (mit gelbem PDF-Verweis) und im Schulportal-Eintrag des Gymnasiums; Materialtitel, Leitfragen und Codes bleiben kursiv |
+| Druckaufträge für den nächsten Arbeitstag (Nachtrag vom 13.11.2026) | Ganz oben auf **beiden Startseiten** (Gymnasium und Übersicht „Grundschule“) ein **oranges Feld mit Drucker-Symbol**, jeweils mit den Druckaufträgen **beider Schulformen**; **nach Sitzung gruppiert**, jede Datei einzeln herunterladbar und benannt wie in der Druckliste der Sitzung, dazu ein Knopf, der **alle Dateien nacheinander einzeln** herunterlädt (**keine ZIP-Datei**); „nächster Arbeitstag“ = Mo–Do der folgende Tag, Fr/Sa/So der Montag, ohne Unterricht dort (Ferien, Feiertag, kein Termin laut Stundenplan) der nächste Tag mit Unterricht; siehe 4n |
 
 ## 2. Gesamtarchitektur
 
@@ -119,6 +120,7 @@ implementiert und im End-to-End-Test geprüft (Ausnahmen unten ausdrücklich gen
 | | `worker/parents.js` | Elternansicht der Grundschule: geheimer Link je Sitzung (nur Hash + verschlüsselte Kopie in D1), öffentliche Routen `/api/eltern/*` (Zeitsperre bis zum Ende der Sitzung, Material bis zum Zwischenstopp, vorherige Sitzungen des Schuljahres, PDF-Links, Sperre je IP), Vorschau der Lehrkraft |
 | | `worker/cards.js` | Bildkarten der Grundschule: PDF hochladen (eine Seite = eine Karte), Kartenbilder mit Stand der PDF, Erzähltexte und Freigabe für Eltern, signierte Bilder (`/api/card/…`), von Claude gestaltete Bildkarten |
 | | `public/weekcal.js` | Wochenkalender auf der Startseite der Lehrkraft (Raster bzw. Liste je Tag) |
+| | `worker/printjobs.js`, `public/printnext.js` | Druckaufträge für den nächsten Arbeitstag (`GET /api/teacher/print-next`; Feld ganz oben auf beiden Startseiten), siehe 4n |
 | | `worker/substitute.js` | Krankheitsvertretung: Vorschlag, Bestätigen (Archiv), Wiederherstellen, Übertragen |
 | Oberfläche | `public/app.js` | Router, Startseite, Schüleransicht |
 | | `public/teacher.js`, `public/session.js` | Lehrkräfteansicht (Fach → Klasse/Kurs → Einheiten), Sitzungsansicht |
@@ -329,7 +331,8 @@ implementiert und im End-to-End-Test geprüft (Ausnahmen unten ausdrücklich gen
 
 ## 4b. Unterrichtseinheiten, Planungsgrundlagen, Krankheitsvertretung (Ergänzung vom 10.11.2026)
 
-* **Wochenkalender (Ergänzung vom 11.11.2026).** Ganz oben auf der Startseite der Lehrkraft (`public/weekcal.js`, über den Fächern).
+* **Wochenkalender (Ergänzung vom 11.11.2026).** Ganz oben auf der Startseite der Lehrkraft (`public/weekcal.js`, über den Fächern; seit
+  dem 13.11.2026 direkt unter dem Feld „Druckaufträge für den nächsten Arbeitstag“, 4n).
   `GET /api/teacher/schedule` liefert alle Einheiten mit Stundenplan und Zeitraum – nur die Rahmendaten (Beginn, Ende, Klausur,
   Wochentage mit Dauer und Uhrzeit, Ferien/Ausfälle), nie Plan, Ablauf oder Notizen – und nur Klassen, die laut Fach-Einstellungen
   unterrichtet werden. Die Woche rechnet der Browser (`weekSchedule` in `public/planning.js`, gemeinsam mit `computeSlots`): Eine
@@ -685,6 +688,37 @@ implementiert und im End-to-End-Test geprüft (Ausnahmen unten ausdrücklich gen
 * Claude gestaltet Vorlagen selbst und legt sie mit `add_material_pdf` (bereich „druck“, mit Anzahl, beidseitig und Farbe) ab – der
   Server druckt sie als A4-PDF (4m); `add_print_material` (Markdown) bleibt als Rückfall. Bei einer Vertretung kommt die Druckliste mit
   ins Archiv.
+
+## 4n. Druckaufträge für den nächsten Arbeitstag (Nachtrag der Lehrkraft vom 13.11.2026, Anforderung 14)
+
+* **Server** (`worker/printjobs.js`, `GET /api/teacher/print-next`, nur angemeldet): „Heute“ ist das Datum in Europe/Berlin (`berlinToday(c.now)`),
+  der nominelle nächste Arbeitstag `nextWorkday` (Mo–Do der folgende Tag, Fr/Sa/So der Montag; `public/planning.js`). Tag der Druckaufträge
+  ist der früheste Tag ab dort (höchstens `PRINT_AHEAD_DAYS` = 70 Tage weiter, `printTargetDay`), an dem Unterricht ist: eine nicht
+  ausgefallene Sitzung (`lessons.lesson_date`, `cancelled = 0` – Ausfall-Einträge der Grundschule zählen nie) oder ein Termin laut
+  Stundenplan einer Einheit (`computeSlots`: Ferien/Ausfälle der Einheit und ausgefallene Termine zählen nicht; dieselbe Auswahl der
+  Einheiten wie der Wochenkalender – `scheduleUnit` in `worker/units.js`: nur unterrichtete Klassen bzw. bestehende Grundschulkurse,
+  beide Schulformen). Gelesen werden nur Einheiten, deren Zeitraum das Suchfenster berührt (`json_extract` auf `params`). Die
+  Druckaufträge sind dieselbe Auswahl wie `printFiles()` der Sitzung (`public/materialbox.js`): alles im Bereich `print`, in der
+  Grundschule zusätzlich PDFs der Kinder mit „Auch ausdrucken“ (`print_copies`, ohne Bildkarten); nie Archiv oder Präsentation.
+  Antwort `{today, candidate, date (null = nichts gefunden), sessions: [{id, subject, klass, title, date, startTime, school, label,
+  subtitle, course?, files}]}`, Sitzungen nach Beginn (ohne Uhrzeit zuletzt), dann Klasse bzw. Kurs, Dateien in der Reihenfolge der
+  Sitzung (`fileOut` ohne den Text von Textmaterial und ohne Claudes Gestaltung); auch Sitzungen ohne Druckaufträge (für die Zeile
+  „Ohne Druckaufträge: …“). 7 D1-Anweisungen (Anmeldung, Fach-Einstellungen, ein Batch mit Einheiten/Kursen/frühester Sitzung, ein
+  Batch mit den Sitzungen und Dateien des Tages), ohne Tag 5.
+* **Oberfläche** (`public/printnext.js`, `printNextCard()`): auf der Startseite „Gymnasium“ (`teacher.js`) und der Übersicht
+  „Grundschule“ (`grundschule.js`) direkt unter dem Kopfband und vor dem Wochenkalender, lädt eigenständig (ein Fehler dort verhindert
+  die Seite nicht; „Erneut versuchen“). Zeile zum Tag („für morgen, Mittwoch, 19.11.2026“ bzw. „Am Montag, 16.11.2026, ist laut
+  Stundenplan kein Unterricht – deshalb …“), je Sitzung eine Gruppe (Überschrift = Link zur Sitzung; „In der Sitzung bearbeiten“ führt
+  zu `#/lk/s/<id>/druckliste`: die Sitzung öffnet sich mit ihrer Druckliste im Blick, Fokus auf deren Überschrift – nur, wenn niemand den
+  Fokus schon gesetzt hat). Je Datei der Druck-Name (`printName`) und „Herunterladen“ wie in der Sitzung (PDF über den signierten Link,
+  Textmaterial als A4-PDF mit `markdownToPdf` – den Text holt der Browser dann über `GET /api/teacher/lessons/<id>`; gestaltete
+  Vorlagen erst, wenn ihre PDF gedruckt ist – ausstehende gibt das Feld wie die Sitzung in die gemeinsame Druck-Warteschlange des Tabs
+  und baut ihre Zeile neu, sobald sie gedruckt sind). **„Alle Dateien herunterladen“** lädt die fertigen Dateien nacheinander (je Datei
+  Abruf über den signierten Link bzw. Textmaterial als PDF, dann ein einzelner Download unter dem Druck-Namen, 1,2 s Pause dazwischen –
+  Browser blockieren schnelle Mehrfach-Downloads), Fortschritt und Abschlussmeldung in einer Statuszeile (`role="status"`), noch nicht
+  gedruckte Vorlagen und Fehler werden genannt; gesperrt per `aria-disabled` (der Fokus bleibt), Abbruch beim Verlassen der Seite. Kehrt
+  die Lehrkraft an einem anderen Tag in den Tab zurück, lädt das Feld neu. Farbe: Orange (`--orange`, `--orange-t`) nur für dieses Feld
+  (Wunsch der Lehrkraft), hell und dunkel mit Kontrast AA.
 
 ## 4j. Sitzung als Datei (Ergänzung vom 10.11.2026)
 

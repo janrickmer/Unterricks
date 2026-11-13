@@ -20,6 +20,8 @@
   /* Folienstift-Farben (Flächen) und ihre Tönungen */
   --blau: #2557c7; --violett: #6a3cc0; --kupfer: #b2490c; --marke: #16264a; --gelb: #ffd43b; --gelb-kante: #e5b80f; --rot: #c8281e; --gruen: #14794a;
   --blau-t: #e5ebf8; --violett-t: #ede8f7; --kupfer-t: #f6e9e2; --marke-t: #e8edf7; --gelb-t: #fff5cf; --rot-t: #fbe9e7; --gruen-t: #e3f2ea;
+  /* Orange: nur das Feld „Druckaufträge für den nächsten Arbeitstag“ (Wunsch der Lehrkraft, Anforderung 14) – keine Warnfarbe */
+  --orange: #e05d00; --orange-t: #fff0dc; --orange-ink: #fff;
   /* Fach der Seite (ohne Fach: Marke) */
   --fach: var(--marke); --fach-t: var(--marke-t); --fach-text: var(--marke);
   /* Zustände als Text */
@@ -48,6 +50,7 @@
     --ground: #0b111e; --surface: #131b2c; --surface-2: #1a2438; --paper: #182134; --text: #e8edf6; --muted: #a6b2c7; --line: #26324a; --line-ui: #5a6884;
     --marke: #23396a;
     --blau-t: #1a2a4f; --violett-t: #261d45; --kupfer-t: #3a2216; --marke-t: #1c2436; --gelb-t: #3a3214; --rot-t: #3d1a1a; --gruen-t: #12301f;
+    --orange: #ff9a45; --orange-t: #37230f; --orange-ink: #13213b;
     --fach-text: #c9d3e6; --ok: #5fd39a; --warn: var(--text); --err: #ff8a80;
     --foil: color-mix(in srgb, var(--fach) 30%, #c8d0de); --foil-op: .72;
     --shadow: 0 1px 2px rgba(0, 0, 0, .35), 0 10px 24px -12px rgba(0, 0, 0, .65);
@@ -820,6 +823,38 @@ img.sub-photo { max-width: 100%; max-height: 60vh; border-radius: 12px; border: 
   .wk-nav { display: grid; grid-template-columns: auto auto minmax(0, 1fr); gap: .25rem; justify-items: start; }
   .wk-range { grid-column: 1 / -1; order: -1; margin: 0; }   /* Zeitraum oben, darunter ‹ › Heute (Tab-Reihenfolge bleibt) */
 }
+
+/* ---------- Druckaufträge für den nächsten Arbeitstag (printnext.js, ganz oben auf beiden Startseiten der Lehrkraft) ----------
+   Orange ist die Kennfarbe genau dieses Feldes (Wunsch der Lehrkraft): Fläche --orange-t, 2px-Kante und Drucker-Schild in --orange, Schrift
+   immer --text/--muted (Kontrast AA hell und dunkel); je Sitzung eine Gruppe mit Haarlinie, Fach-Schild wie im Wochenkalender. */
+.card.printnext { background: var(--orange-t); border: 2px solid var(--orange); }
+.pn-head { display: flex; align-items: flex-start; justify-content: space-between; gap: .6rem 1rem; flex-wrap: wrap; }
+.pn-title { display: flex; align-items: center; gap: .85rem; min-width: 0; flex: 1 1 18rem; }
+.pn-ico { flex: none; width: 48px; height: 48px; border-radius: 12px; display: grid; place-items: center; background: var(--orange); color: var(--orange-ink); }
+.pn-ico .ico { width: 28px; height: 28px; }
+.pn-tt { min-width: 0; }
+.pn-tt h2 { margin: 0; }
+.pn-tt h2:focus { outline: none; } .pn-tt h2:focus-visible { outline: 3px solid var(--fach-text); outline-offset: 3px; border-radius: 4px; }
+.pn-day { margin: .2rem 0 0; font-weight: 700; color: var(--text); }
+.pn-status { margin: .6rem 0 0; font-weight: 700; }
+.pn-status:empty { margin: 0; }
+.pn-body { margin-top: .4rem; }
+.pn-body.skeleton { padding: 1rem; }
+.pn-empty, .pn-err { margin: .5rem 0 0; }
+.pn-group { border-top: 1px solid color-mix(in srgb, var(--orange) 30%, var(--line)); margin-top: .75rem; padding-top: .6rem; }
+.pn-gh { display: flex; align-items: center; justify-content: space-between; gap: .3rem .8rem; flex-wrap: wrap; }
+.pn-gh h3 { margin: 0; font-size: 1.02rem; min-width: 0; flex: 1 1 16rem; }
+.pn-gh h3 a { color: var(--text); text-decoration: none; display: block; padding: .6rem 0; line-height: 1.45; }   /* ganze Zeile als Ziel (≥ 44 px), der Titel bricht im Fließtext um */
+.pn-gh h3 a:hover .pn-t, .pn-gh h3 a:focus-visible .pn-t { text-decoration: underline; }
+.pn-time { font-variant-numeric: tabular-nums; color: var(--muted); font-weight: 700; }
+.pn-gh .ftag { display: inline-block; min-width: 0; padding: .12rem .45rem; font-size: .74rem; vertical-align: .08em; }
+.pn-t { font-weight: 600; overflow-wrap: anywhere; }
+.pn-edit { font-size: .92rem; }
+.card.printnext .item { padding-inline: .2rem; }
+.card.printnext .list > .item + .item { border-top-color: color-mix(in srgb, var(--orange) 22%, var(--line)); }
+.pn-none { margin: .8rem 0 0; }
+.pn-hint { margin: .8rem 0 0; }
+@media (max-width: 560px) { .pn-all { width: 100%; } .pn-ico { width: 42px; height: 42px; } .pn-ico .ico { width: 24px; height: 24px; } }
 
 /* Grundschule: Übersicht der Kurse (unter dem Wochenkalender) */
 .gs-courses { margin-top: 1.2rem; }

@@ -32,6 +32,9 @@ colors:
   gruen: "#14794a"
   gruen-tief: "#116a40"
   gruen-t: "#e3f2ea"
+  # Kennfarbe des Feldes „Druckaufträge für den nächsten Arbeitstag“ (Wunsch der Lehrkraft, nur dort)
+  orange: "#e05d00"
+  orange-t: "#fff0dc"
   # Projektionsfläche des Live-Fensters (in beiden Modi gleich)
   stage: "#0b111e"
   stage-text: "#cfd8e6"
@@ -52,6 +55,8 @@ colors:
   gelb-t-dark: "#3a3214"
   rot-t-dark: "#3d1a1a"
   gruen-t-dark: "#12301f"
+  orange-dark: "#ff9a45"
+  orange-t-dark: "#37230f"
   fach-text-dark: "#c9d3e6"
   blau-text-dark: "#8db0ff"
   violett-text-dark: "#bfa6ff"
@@ -415,6 +420,7 @@ Die Markerfolie – der Hauptweg und, ganz dünn aufgetragen, Aufgaben und Ziele
 Die Signale – jede Farbe hat genau einen Auftrag.
 - **Signalrot** (`--rot`, #c8281e): Zwischenstopp (Reiter, Kante des Abdeckblatts, Abzeichen), Live (Abzeichen „LIVE“, Knopf „Präsentation für alle beenden“) und Fehler (`--err`: Fehlertexte, Fehlerhinweise, Fehler-Toasts und Knöpfe für endgültige Aktionen). Die tiefe Stufe `rot-tief` (#a81f17) trägt den Hover des Live-Knopfs und den Fehler-Toast, die Tönung `--rot-t` (#fbe9e7) Hinweise und Abzeichen.
 - **Erledigt-Grün** (`--gruen`, #14794a) als `--ok`: gespeichert, verbunden, festgelegt, aktiv – in Zustandszeilen mit Häkchen. Die tiefe Stufe `gruen-tief` (#116a40) trägt Erfolgs-Toasts und das Erledigt-Abzeichen im Kopfband, die Tönung `--gruen-t` (#e3f2ea) Hinweise und Abzeichen.
+- **Druckauftrags-Orange** (`--orange`, #e05d00, mit `--orange-t` #fff0dc; dunkel #ff9a45 und #37230f, dort das Drucker-Symbol in #13213b): ausschließlich das Feld „Druckaufträge für den nächsten Arbeitstag“ auf den beiden Startseiten – ausdrücklicher Wunsch der Lehrkraft („ein orangenes Feld mit einem Drucker als Symbol“). Kennfarbe dieses einen Feldes, keine Warnfarbe; Schrift darauf immer `--text`/`--muted`.
 - **Warnungen haben keine eigene Farbe.** `--warn` ist `--text`: `.warnc` und `.notice.warn` zeigen Tinte mit dem Warnsymbol (`--ico-alert`, als Maske in Schriftfarbe); der Hinweis liegt auf `--paper`.
 
 ### Neutral
@@ -612,8 +618,12 @@ Der Kopf jeder Seite: Fach, Kurs und Stand auf einen Blick.
 - **Ruhend (`.live.idle`):** ein helles, kompaktes Feld in `--fach-t` mit Kante `color-mix(in srgb, var(--fach) 22%, transparent)`, Radius 16px, ohne Schatten; Titel „Noch keine Live-Präsentation“ in 800/1.08rem und `--fach-text`.
 - **Live:** erst wenn eine Folie läuft, wird es zur Projektionsfläche – `stage`, 16:9, Radius 16px, `--shadow-lift`, das Bild mit `object-fit: contain` auf #000 (bzw. die Codefolie, die die Fläche ganz füllt). Oben links die Abzeichen „LIVE“ und „Folie n / m“ (auf der Codefolie vor Folie 1 und bei „Sitzungscode zeigen“: „Sitzungscode“), unten rechts „Groß“ mit Erweitern-Symbol in `rgba(255, 255, 255, .14)` (Kante `rgba(255, 255, 255, .35)`, Hover `rgba(255, 255, 255, .24)`); im Vollbild ohne Radius.
 
+### Druckaufträge für den nächsten Arbeitstag (`.printnext`, `public/printnext.js`)
+- Karte ganz oben auf beiden Startseiten (Gymnasium und Übersicht „Grundschule“), direkt unter dem Kopfband und vor dem Wochenkalender. Fläche `--orange-t` mit 2px-Kante `--orange` (keine Seitenbalken); links das Drucker-Symbol (`icon("printer")`) weiß auf einem orangen Schild (48px, Radius 12px, `aria-hidden`), daneben h2 „Druckaufträge für den nächsten Arbeitstag“ und darunter in 700 der Tag („für morgen, Mittwoch, 19.11.2026“ bzw. der Satz zum übersprungenen Tag); rechts der Primärknopf „Alle Dateien herunterladen“ (auf dem Handy volle Breite), darunter die Statuszeile in 700.
+- Je Sitzung eine Gruppe mit Haarlinie oben (`--orange` 30 % in `--line`): h3 als Link zur Sitzung (ganze Zeile, mindestens 44px) mit Beginn in `--muted`, Fach-Schild `.ftag` („Grundschule“ grün), Klasse bzw. Kurs und Titel; rechts „In der Sitzung bearbeiten“ (`btn ghost` mit Stift). Dateien wie in der Druckliste (`.item.printrow`: Dateisymbol, Druckname in 700, Größe bzw. Stand der Gestaltung in `--muted`), je Zeile „Herunterladen“ (`btn`, 44px). Darunter klein „Ohne Druckaufträge: …“ und der Hinweis zu „Alle Dateien herunterladen“ (einzelne Dateien, keine ZIP-Datei; der Browser fragt womöglich nach).
+
 ### Wochenkalender (`.weekcal`, `public/weekcal.js`)
-- Karte ganz oben auf der Startseite der Lehrkraft, direkt unter dem Kopfband und vor den Fachkacheln (für Screenreader folgt eine verborgene h2 „Fächer“). Kopf: h2 „Ihre Woche“, rechts Pfeil-Knöpfe (`icon("left")`/`icon("right")`, 44px, aria-label „Vorige Woche“/„Nächste Woche“), der Zeitraum mit KW (`aria-live`) und „Heute“ (in der laufenden Woche `aria-disabled`, behält den Fokus). Beim Blättern wird nur der Inhalt neu gebaut.
+- Karte ganz oben auf der Startseite der Lehrkraft, direkt unter dem Kopfband bzw. den Druckaufträgen und vor den Fachkacheln (für Screenreader folgt eine verborgene h2 „Fächer“). Kopf: h2 „Ihre Woche“, rechts Pfeil-Knöpfe (`icon("left")`/`icon("right")`, 44px, aria-label „Vorige Woche“/„Nächste Woche“), der Zeitraum mit KW (`aria-live`) und „Heute“ (in der laufenden Woche `aria-disabled`, behält den Fokus). Beim Blättern wird nur der Inhalt neu gebaut.
 - **Ab 1000px Zeitraster:** links die Zeitachse (volle Stunden, Haarlinien `--line`), fünf Tagesspalten `minmax(0, 1fr)`; Einträge absolut nach Uhrzeit (`--m`, `--dur`, 1,35px je Minute, mindestens 40 Minuten hoch), Überschneidungen in Spuren nebeneinander. Über dem Raster je Tag die Zeile „ohne Uhrzeit“ (gleich hoch in allen Spalten). Heute: das Datum als Tinte-Marke, die Spalte zart getönt (`--marke` 6 %). **Unter 1000px** (Handy, iPad hochkant): Liste je Tag – Zeit links, rechts Fach-Schild, Klasse und Einheit.
 - **Eintrag** (`a.wk-ev[data-fach]`): Tönung des Fachs (`--blau-t`/`--violett-t`/`--kupfer-t`) mit Kante 30 % Fachfarbe, Schrift immer `--text`/`--muted`; Fach als `.ftag` (Text, nie nur Farbe – hier stehen alle drei Fächer nebeneinander, daher fest eingetragene Fachfarben wie bei Kachel und Schild), Klasse fett, Titel der Einheit einzeilig in `--muted`, Klausur als neutrale `.badge`. Ein Eintrag ist ein Link auf die Klasse bzw. den Kurs; sein Name beginnt mit Wochentag und Datum (sr-only). „Entfällt: …“ und „kein Unterricht“ klein in `--muted`.
 
@@ -681,7 +691,7 @@ Zur Plattform gehört dagegen `.escbox`, auch wenn es am Anfang dieses Abschnitt
 ### Don't:
 - **Don't:** Volles Gelb außerhalb der Hauptweg-Karte – kein gelber Knopf, Zähler oder Chip. (Seit dem 10.11.2026 ist auch der Präsentations-Knopf neutral und der Zähler an den Klassenknöpfen in der Fachfarbe.)
 - **Don't:** Rot für etwas anderes als Zwischenstopp, Live und Fehler; Grün für etwas, das nicht erledigt oder gespeichert ist.
-- **Don't:** Eine Warnfarbe einführen – kein Ocker, kein Orange.
+- **Don't:** Eine Warnfarbe einführen – kein Ocker, kein Orange. (Einzige Ausnahme, auf Wunsch der Lehrkraft: Orange als Kennfarbe des Feldes „Druckaufträge für den nächsten Arbeitstag“ – nie als Warnung und nirgends sonst.)
 - **Don't:** Graue Lernplattform-Karten mit einem einzigen Blau – jede Seite trägt ihr Fach bzw. die Marke flächig im Kopfband.
 - **Don't:** Ein Fach nur durch Farbe kennzeichnen.
 - **Don't:** Verläufe, Leuchten oder harte Versatzschatten; `linear-gradient(var(--fach) 0 0)` im Kopfband ist nur ein einfarbiger Kniff für die randlose Fläche.

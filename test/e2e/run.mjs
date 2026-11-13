@@ -141,6 +141,13 @@ async function main() {
     await tp.getByRole("button", { name: "Zugang einrichten" }).click();
     await waitTeacherHome(tp, tLogin, "Einrichtung");
     ok(true, "eingerichtet und angemeldet");
+    // Druckaufträge für den nächsten Arbeitstag (Anforderung 14): ganz oben über dem Wochenkalender – noch ohne Unterricht
+    const printTop = () => tp.evaluate(() => { const c = document.querySelector("main .printnext"), w = document.querySelector("main .weekcal");
+      return !!c && !!w && !!c.previousElementSibling && c.previousElementSibling.matches("header.pagehead") && !!(c.compareDocumentPosition(w) & Node.DOCUMENT_POSITION_FOLLOWING); });
+    await tp.locator(".printnext .pn-empty").waitFor({ timeout: 15000 });
+    ok(await printTop() && await tp.locator(".printnext h2").textContent() === "Druckaufträge für den nächsten Arbeitstag"
+      && await tp.locator(".printnext .pn-empty").textContent() === "In den nächsten Wochen ist kein Unterricht geplant." && await tp.locator(".printnext .pn-all").isHidden(),
+      "Startseite: Feld „Druckaufträge für den nächsten Arbeitstag“ ganz oben (vor dem Wochenkalender) – noch ohne Unterricht");
     const token = await tp.evaluate(() => localStorage.getItem("u.ttoken"));
     const T = (method, path, body) => fetch(BASE + path, { method, headers: { Authorization: "Bearer " + token, ...(body ? { "Content-Type": "application/json" } : {}) }, body: body ? JSON.stringify(body) : undefined }).then(async (r) => ({ status: r.status, data: await r.json().catch(() => null) }));
     const again = await fetch(BASE + "/api/teacher/setup", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ username: "x", salt: "a".repeat(22), iterations: 600000, authKey: "b".repeat(43), deviceId: "c".repeat(43) }) });
@@ -204,6 +211,8 @@ async function main() {
       await tp.waitForURL(/#\/lk\/grundschule$/);
       await tp.locator("h1", { hasText: "Grundschule" }).waitFor({ timeout: 10000 });
       await tp.locator(".weekcal .wk-body:not(.skeleton)").waitFor({ timeout: 15000 });
+      await tp.locator(".printnext .pn-empty").waitFor({ timeout: 15000 });
+      ok(await printTop() && await tp.locator(".printnext .pn-empty").textContent() === "In den nächsten Wochen ist kein Unterricht geplant.", "Grundschule: dasselbe Feld „Druckaufträge …“ ganz oben, vor dem Wochenkalender");
       ok((await tp.locator('.topbar nav a[aria-current="page"]').allTextContents()).join("|") === "Grundschule" && await tp.locator("html").getAttribute("data-fach") === "gs"
         && await tp.locator(".weekcal").count() === 1 && await tp.getByText("Noch keine Kurse – legen Sie mit „Neuen Kurs anlegen“ den ersten an.").count() === 1,
         "Grundschule: Menüpunkt markiert (aria-current), grüne Bereichsfarbe, Wochenkalender, noch keine Kurse");
@@ -2090,6 +2099,100 @@ async function main() {
       ok((await tool("save_substitute_plan", { lesson_id: nl[0].id, analyse: { kompetenz: "a", stundenfrage: "b", inhalte: [] }, schritte: [{ titel: "a", anleitung: "b" }], abgabe: "x" })).isError === true,
         "Connector: keine Vertretungsstunde in der Grundschule");
       gsNoah = { unitId: nu.id, lessons: nl.map((l) => l.id) };
+    }
+
+    /* ---------- Druckaufträge für den nächsten Arbeitstag (Anforderung 14) ---------- */
+    step("Druckaufträge für den nächsten Arbeitstag: ganz oben auf beiden Startseiten, beide Schulformen, Namen wie in der Druckliste, einzeln und alle nacheinander (keine ZIP-Datei)");
+    {
+      const { berlinToday, daysBetween } = await import("../../public/shared.js");
+      const { nextWorkday } = await import("../../public/planning.js");
+      const DAYS = ["Sonntag", "Montag", "Dienstag", "Mittwoch", "Donnerstag", "Freitag", "Samstag"];
+      const longDay = (d) => DAYS[new Date(d + "T12:00:00Z").getUTCDay()] + ", " + d.slice(8, 10) + "." + d.slice(5, 7) + "." + d.slice(0, 4);
+      // je Schulform eine Einheit mit genau einer Stunde am nächsten Arbeitstag – er ist damit der Tag der Druckaufträge, an jedem Wochentag des Laufs
+      const now0 = berlinToday(), cand = nextWorkday(now0), wd = new Date(cand + "T12:00:00Z").getUTCDay();
+      const oneLesson = async (subject, klass, time, title) => {
+        const u = (await T("POST", "/api/teacher/units", { subject, klass, title, params: { start: cand, end: cand, weekdays: [{ day: wd, minutes: 45, time }] } })).data.unit;
+        await T("PATCH", "/api/teacher/units/" + u.id, { plan: { titel: title, lernaufgabe: "Lernaufgabe: " + title }, rows: [{ stundenfrage: title, ablauf: ["Einstieg"], date: cand, time, minutes: 45 }] });
+        return (await T("POST", "/api/teacher/units/" + u.id + "/sessions")).data.unit.lessons[0].id;
+      };
+      const gymL = await oneLesson("powi", "9D", "07:50", "Wählen ab 16?"), gsL = await oneLesson("gs", gsRelId, "09:40", "Die Schöpfung");
+      const a4 = async (label) => { const d = await PDFDocument.create(); d.addPage([595.28, 841.89]).drawText(label, { x: 50, y: 760, size: 20 }); return Buffer.from(await d.save()); };
+      const up = (path, buf) => fetch(BASE + path, { method: "POST", headers: { Authorization: "Bearer " + token, "Content-Type": "application/pdf" }, body: buf }).then((x) => x.json());
+      await up("/api/teacher/lessons/" + gymL + "/print?copies=27&duplex=0&name=" + encodeURIComponent("Wahlplakat.pdf"), await a4("Wahlplakat"));
+      r = await tool("add_print_material", { lesson_id: gymL, titel: "Kaertchen Wahlrecht", markdown: "# Kärtchen\n\n- aktives Wahlrecht\n- passives Wahlrecht", anzahl: 14, beidseitig: false, farbe: false });
+      ok(!r.isError, "Gymnasium (PoWi 9D, nächster Arbeitstag): PDF und Textmaterial auf der Druckliste");
+      const kid = (await up("/api/teacher/lessons/" + gsL + "/files?area=student&name=" + encodeURIComponent("Schoepfung Arbeitsblatt.pdf"), await a4("Schoepfung"))).file;
+      await T("PATCH", "/api/teacher/files/" + kid.id, { copies: 22 });
+      r = await tool("add_material_pdf", { lesson_id: gsL, bereich: "druck", titel: "Ausmalbild Schoepfung", html: "<h1>Ausmalbild</h1><p>Licht und Dunkel</p>", anzahl: 22, beidseitig: false, farbe: false });
+      ok(!r.isError, "Grundschule (Religion 2ab): PDF der Kinder mit „Auch ausdrucken (22×)“ und eine von Claude gestaltete Druckvorlage");
+      const pn = await T("GET", "/api/teacher/print-next");
+      const pnFiles = pn.data.sessions.flatMap((x) => x.files), ready = pnFiles.filter((f) => !(f.design && f.status !== "ready")).map((f) => f.printName);
+      ok(pn.status === 200 && pn.data.candidate === cand && pn.data.date === cand && (await fetch(BASE + "/api/teacher/print-next")).status === 401,
+        "GET /api/teacher/print-next: Tag " + cand + " (heute " + now0 + "), nur angemeldet");
+      // Startseite Gymnasium: ganz oben, Tag, beide Schulformen gruppiert, Namen wie in der Druckliste der Sitzung
+      await tp.goto(BASE + "/#/lk");
+      const card = tp.locator(".printnext"), gymG = card.locator(".pn-group", { has: tp.locator('a[href="#/lk/s/' + gymL + '"]') }), gsG = card.locator(".pn-group", { has: tp.locator('a[href="#/lk/s/' + gsL + '"]') });
+      await gymG.waitFor({ timeout: 15000 });
+      const dayWant = "für " + (daysBetween(now0, cand) === 1 ? "morgen, " : "") + longDay(cand);
+      ok(await printTop() && await card.locator(".pn-ico svg").count() === 1 && (await card.locator("#pn-day").textContent()) === dayWant, "Startseite: Feld ganz oben mit Drucker-Symbol und Tag („" + dayWant + "“)");
+      const gymNames = await gymG.locator(".pn-row .name").allTextContents(), gsNames = await gsG.locator(".pn-row .name").allTextContents();
+      ok((await gymG.locator("h3").textContent()) === "07:50 PoWi 9D – Wählen ab 16?" && (await gsG.locator("h3").textContent()) === "09:40 Grundschule Religion 2ab – Die Schöpfung"
+        && JSON.stringify(gymNames) === JSON.stringify(["27x - einseitig - sw - Wahlplakat.pdf", "14x - einseitig - sw - Kaertchen Wahlrecht.pdf"])
+        && JSON.stringify(gsNames) === JSON.stringify(["22x - beidseitig - sw - Schoepfung Arbeitsblatt.pdf", "22x - einseitig - sw - Ausmalbild Schoepfung.pdf"]),
+        "je Sitzung eine Gruppe (Beginn, Fach/Klasse bzw. Grundschulkurs, Titel) mit den Druck-Namen: " + gymNames.concat(gsNames).join(" | "));
+      // einzeln herunterladen (PDF über den signierten Link, Textmaterial als A4-PDF) – Name wie in der Sitzung
+      let [dl] = await Promise.all([tp.waitForEvent("download", { timeout: 30000 }), gymG.getByRole("button", { name: "Herunterladen – 27x - einseitig - sw - Wahlplakat.pdf" }).click()]);
+      const one = readFileSync(await dl.path());
+      ok(dl.suggestedFilename() === "27x - einseitig - sw - Wahlplakat.pdf" && one.subarray(0, 5).toString() === "%PDF-", "Einzel-Download: „" + dl.suggestedFilename() + "“");
+      [dl] = await Promise.all([tp.waitForEvent("download", { timeout: 30000 }), gymG.getByRole("button", { name: "Herunterladen – 14x - einseitig - sw - Kaertchen Wahlrecht.pdf" }).click()]);
+      ok(dl.suggestedFilename() === "14x - einseitig - sw - Kaertchen Wahlrecht.pdf" && readFileSync(await dl.path()).subarray(0, 5).toString() === "%PDF-", "Textmaterial als A4-PDF: „" + dl.suggestedFilename() + "“");
+      // „Alle Dateien herunterladen“: nacheinander je eine Datei, keine ZIP-Datei, Fortschritt in der Statuszeile
+      const got = [], onDl = (d) => got.push(d);
+      tp.on("download", onDl);
+      const allBtn = card.locator("button.pn-all");   // während des Laufs heißt der Knopf „Lade die Dateien …“
+      await allBtn.click();
+      await card.locator("#pn-status", { hasText: /^Lade 1 von / }).waitFor({ timeout: 10000 });
+      const during = await allBtn.getAttribute("aria-disabled");
+      await card.locator("#pn-status", { hasText: /^Fertig/ }).waitFor({ timeout: 90000 });
+      await tp.waitForTimeout(500);
+      tp.off("download", onDl);
+      const allNames = got.map((d) => d.suggestedFilename()), heads = await Promise.all(got.map(async (d) => readFileSync(await d.path()).subarray(0, 5).toString()));
+      // Chromium dieser Testumgebung (ohne UTF-8-Locale) speichert Namen mit Umlauten als „download“ – Dateien anderer Sitzungen dürfen so heißen
+      const sameName = (n, want) => n === want || (n === "download" && /[^\x20-\x7e]/.test(want));
+      ok(during === "true" && allNames.length === ready.length && allNames.every((n, i) => sameName(n, ready[i])) && ["27x - einseitig - sw - Wahlplakat.pdf", "14x - einseitig - sw - Kaertchen Wahlrecht.pdf",
+        "22x - beidseitig - sw - Schoepfung Arbeitsblatt.pdf", "22x - einseitig - sw - Ausmalbild Schoepfung.pdf"].every((n) => allNames.includes(n)) && !allNames.some((n) => /\.zip$/i.test(n)) && heads.every((x) => x === "%PDF-")
+        && (await card.locator("#pn-status").textContent()).startsWith("Fertig: Alle " + ready.length + " Dateien sind einzeln heruntergeladen."),
+        "„Alle Dateien herunterladen“: " + allNames.length + " einzelne PDF-Dateien nacheinander (keine ZIP-Datei), währenddessen gesperrt (" + during + "), Abschlussmeldung – " + allNames.join(" | "));
+      await tp.screenshot({ ...SHOT, path: join(OUT, "druckauftraege-gymnasium.png") });
+      await tp.emulateMedia({ colorScheme: "dark" }); await tp.waitForTimeout(200);
+      await tp.screenshot({ ...SHOT, path: join(OUT, "druckauftraege-gymnasium-dunkel.png") });
+      await tp.setViewportSize({ width: 810, height: 1080 }); await tp.waitForTimeout(200);
+      await tp.screenshot({ ...SHOT, path: join(OUT, "druckauftraege-gymnasium-ipad-dunkel.png") });
+      await tp.emulateMedia({ colorScheme: "light" }); await tp.waitForTimeout(200);
+      await tp.screenshot({ ...SHOT, path: join(OUT, "druckauftraege-gymnasium-ipad.png") });
+      // Übersicht Grundschule: dasselbe Feld ganz oben, mit beiden Schulformen
+      await tp.goto(BASE + "/#/lk/grundschule");
+      await gymG.waitFor({ timeout: 15000 }); await gsG.waitFor({ timeout: 15000 });
+      ok(await printTop() && JSON.stringify(await gsG.locator(".pn-row .name").allTextContents()) === JSON.stringify(gsNames) && JSON.stringify(await gymG.locator(".pn-row .name").allTextContents()) === JSON.stringify(gymNames),
+        "Übersicht „Grundschule“: dasselbe Feld ganz oben (vor dem Wochenkalender), mit den Druckaufträgen beider Schulformen");
+      await tp.screenshot({ ...SHOT, path: join(OUT, "druckauftraege-grundschule-ipad.png") });
+      await tp.emulateMedia({ colorScheme: "dark" }); await tp.waitForTimeout(200);
+      await tp.screenshot({ ...SHOT, path: join(OUT, "druckauftraege-grundschule-ipad-dunkel.png") });
+      await tp.setViewportSize({ width: 1440, height: 950 }); await tp.waitForTimeout(200);
+      await tp.screenshot({ ...SHOT, path: join(OUT, "druckauftraege-grundschule-dunkel.png") });
+      await tp.emulateMedia({ colorScheme: "light" }); await tp.waitForTimeout(200);
+      await tp.screenshot({ ...SHOT, path: join(OUT, "druckauftraege-grundschule.png") });
+      // „In der Sitzung bearbeiten“: Sitzung mit ihrer Druckliste im Blick (Fokus auf deren Überschrift); dort dieselben Namen
+      await gsG.getByRole("link", { name: /in der Sitzung bearbeiten$/ }).click();
+      await tp.waitForURL(new RegExp("#/lk/s/" + gsL + "/druckliste$"));
+      await tp.locator("#printcard .printrow").first().waitFor({ timeout: 15000 });
+      await tp.waitForFunction(() => document.activeElement && document.activeElement.closest("#printcard") && document.activeElement.tagName === "H2", null, { timeout: 10000 });
+      ok(JSON.stringify(await tp.locator("#printcard .printrow .name").allTextContents()) === JSON.stringify(gsNames)
+        && await tp.locator("#printcard h2").evaluate((el) => { const r = el.getBoundingClientRect(); return r.top >= 0 && r.top < innerHeight; }),
+        "„In der Sitzung bearbeiten“: Grundschul-Sitzung mit der Druckliste im Blick (Fokus auf „Von der Lehrkraft auszudrucken“), dieselben Namen");
+      await tp.goto(BASE + "/#/lk/s/" + gymL + "/druckliste");
+      await tp.locator("#printcard .printrow").first().waitFor({ timeout: 15000 });
+      ok(JSON.stringify(await tp.locator("#printcard .printrow .name").allTextContents()) === JSON.stringify(gymNames), "Gymnasium: Druckliste der Sitzung nennt dieselben Namen wie das Feld");
     }
 
     /* ---------- GitHub Pages: dieselbe Oberfläche von einer anderen Herkunft ---------- */

@@ -6,6 +6,7 @@ import { SUBJECTS, subjectName, gradeInfo, isValidClass, isValidSubject, formatC
 import { missingFor } from "./bases-detect.js";
 import { portalPreview } from "./portalview.js";
 import { weekCard } from "./weekcal.js";
+import { printNextCard } from "./printnext.js";
 import { FbClient } from "./fbclient.js";
 import { deriveLogin, rememberKey, recallKey, forgetKey, sealLink, openLink, linkData, sameApi } from "./fblink.js";
 
@@ -297,12 +298,14 @@ async function subjectsPage() {
   render(teacherBar("lessons"), main);
   // Wochenkalender ganz oben: lädt eigenständig (ein Fehler dort verhindert die Fächer nicht)
   const week = weekCard(() => tapi("GET", "/api/teacher/schedule").then((r) => r.units));
+  // darüber das Feld „Druckaufträge für den nächsten Arbeitstag“ (beide Schulformen; lädt ebenso eigenständig)
+  const prints = printNextCard();
   resumeCleanup();
   printPending();
   cardsPendingRun();
   let all; try { all = await loadLessons(); } catch (e) { clear(main).append(h("p", { class: "err", text: e.message })); return; }
   clear(main).append(...nn(pageHead({ title: "Welches Fach unterrichten Sie?", sub: "Planung in Unterrichtseinheiten – jede Sitzung gehört zu einer Stunde ihrer Einheit." }),
-    week, h("h2", { class: "sr-only", text: "Fächer" }),
+    prints, week, h("h2", { class: "sr-only", text: "Fächer" }),
     h("div", { class: "tiles" }, SUBJECTS.map((s) => {
       const n = all.filter((l) => l.subject === s.id).length;
       return h("a", { class: "tile", href: "#/lk/f/" + s.id, dataset: { fach: s.id } }, h("div", { class: "t", text: s.name }), h("div", { class: "s", text: n ? n + " Sitzung" + (n === 1 ? "" : "en") : "Noch keine Sitzungen" }));
@@ -865,6 +868,14 @@ export async function fileOpenPage(id) {
   try { const r = await tapi("POST", "/api/teacher/files/" + id + "/link", { body: { inline: true } }); location.replace(apiUrl(r.url)); }
   catch (e) { stateLine(st, e.message, "err"); main.append(h("p", { class: "small muted", text: "Sie können diesen Tab schließen." })); }
 }
+/* Nach dem Aufbau einer Sitzung über „In der Sitzung bearbeiten“: zur Druckliste scrollen und ihre Überschrift fokussieren – nur, solange noch
+   dieselbe Seite offen ist und niemand den Fokus schon woandershin gesetzt hat */
+function showPrintCard(hash) {
+  const card = document.getElementById("printcard"), head = card && card.querySelector("h2");
+  if (!head || location.hash !== hash || (document.activeElement && document.activeElement !== document.body)) return;
+  card.scrollIntoView({ block: "start" });
+  head.setAttribute("tabindex", "-1"); head.focus({ preventScroll: true });
+}
 /* ---------- Router der Lehrkräfteansicht ---------- */
 export async function route(hash) {
   await config();
@@ -876,7 +887,8 @@ export async function route(hash) {
   if (hash === "#/lk/einstellungen") return settingsPage();
   if ((m = /^#\/lk\/f\/([a-z]+)$/.exec(hash))) return classesPage(m[1]);
   if ((m = /^#\/lk\/f\/([a-z]+)\/([A-Z0-9-]{2,5})$/.exec(hash))) return lessonsPage(m[1], m[2]);
-  if ((m = /^#\/lk\/s\/([a-f0-9]{16})$/.exec(hash))) return (await import("./session.js")).sessionPage(m[1]);
+  // „/druckliste“ (aus dem Feld „Druckaufträge“ der Startseiten): die Sitzung mit ihrer Druckliste „Von der Lehrkraft auszudrucken“ im Blick
+  if ((m = /^#\/lk\/s\/([a-f0-9]{16})(\/druckliste)?$/.exec(hash))) { await (await import("./session.js")).sessionPage(m[1]); if (m[2]) showPrintCard(hash); return; }
   if ((m = /^#\/lk\/u\/([a-f0-9]{16})$/.exec(hash))) return (await import("./units.js")).unitPage(m[1]);
   if ((m = /^#\/lk\/escape\/([a-f0-9]{16})$/.exec(hash))) return (await import("./escape.js")).escapePage(m[1], { teacher: true });
   if (hash === "#/lk/grundschule" || hash === "#/lk/grundschule/") return (await import("./grundschule.js")).gsOverviewPage();

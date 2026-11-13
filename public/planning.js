@@ -121,7 +121,33 @@ export function weekSchedule(units, monday) {
 }
 /* Welche Woche zeigt der Kalender zuerst? Die laufende – am Wochenende die kommende (Montag bis Freitag). */
 export const calendarWeek = (today) => { const m = mondayOf(today); return isWeekend(today) ? addDays(m, 7) : m; };
-const MONTHS = ["Januar", "Februar", "März", "April", "Mai", "Juni", "Juli", "August", "September", "Oktober", "November", "Dezember"];
+
+/* ---------- Druckaufträge für den nächsten Arbeitstag (beide Startseiten der Lehrkraft, Anforderung 14) ----------
+ * Nomineller nächster Arbeitstag nach today (Datum an der Schule, Europe/Berlin): Montag bis Donnerstag der folgende Tag, Freitag, Samstag
+ * und Sonntag der Montag. */
+export function nextWorkday(today) {
+  if (!isIsoDate(today)) return null;
+  const wd = new Date(today + "T12:00:00Z").getUTCDay();   // 0 = Sonntag … 6 = Samstag
+  return addDays(today, wd === 5 ? 3 : wd === 6 ? 2 : 1);
+}
+export const PRINT_AHEAD_DAYS = 70;   // so weit sucht das Feld nach dem nächsten Tag mit Unterricht (Sommerferien: sechs Wochen)
+/* Tag, für den das Feld die Druckaufträge zeigt: der früheste Tag ab candidate (höchstens ahead Tage weiter), an dem Unterricht ist – eine
+   nicht ausgefallene Sitzung (lessonDates) oder ein Termin laut Stundenplan einer Einheit (units wie GET /api/teacher/schedule; computeSlots:
+   Ferien, Feiertage und ausgefallene Termine der Einheit zählen nicht). Ohne solchen Tag: null (z. B. nach dem Ende aller Einheiten). */
+export function printTargetDay(candidate, units, lessonDates = [], ahead = PRINT_AHEAD_DAYS) {
+  if (!isIsoDate(candidate)) return null;
+  const last = addDays(candidate, ahead);
+  let best = null;
+  for (const d of Array.isArray(lessonDates) ? lessonDates : []) if (isIsoDate(d) && d >= candidate && d <= last && (!best || d < best)) best = d;
+  for (const u of Array.isArray(units) ? units : []) {
+    const p = normalizeParams(u && u.params), until = best || last;
+    if (!p.start || !p.end || p.end < p.start || !p.weekdays.length || p.end < candidate || p.start > until) continue;
+    const s = computeSlots({ ...p, start: p.start > candidate ? p.start : candidate, end: p.end < until ? p.end : until });
+    if (s.length && (!best || s[0].date < best)) best = s[0].date;
+  }
+  return best;
+}
+const MONTHS =["Januar", "Februar", "März", "April", "Mai", "Juni", "Juli", "August", "September", "Oktober", "November", "Dezember"];
 const dmy = (iso) => [Number(iso.slice(8, 10)), Number(iso.slice(5, 7)) - 1, iso.slice(0, 4)];
 /* „9.–13. November 2026“, „30. November – 4. Dezember 2026“, „28. Dezember 2026 – 1. Januar 2027“ */
 export function weekRangeText(monday) {

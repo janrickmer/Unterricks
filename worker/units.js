@@ -179,6 +179,17 @@ export async function routeUnitsList(c) {
 /* Wochenkalender der Startseite (beider Schulformen): alle Einheiten mit Stundenplan und Zeitraum (nur Rahmendaten – nie Plan, Ablauf oder
    Notizen), am Gymnasium nur Klassen, die laut Fach-Einstellungen unterrichtet werden, in der Grundschule nur vorhandene Kurse (mit ihrem
    Namen in course). Die Wochen rechnet der Browser (weekSchedule in public/planning.js). */
+/* Einheit (Zeile aus units) für den Wochenkalender und die Druckaufträge (printjobs.js): nur Klassen, die laut Fach-Einstellungen unterrichtet
+   werden, bzw. bestehende Grundschulkurse (gs = Map Kennung → gsCourseOut), mit Zeitraum und Stundenplan – sonst null */
+export function scheduleUnit(x, gs, cfgs) {
+  const course = x.subject === GS_SUBJECT ? gs.get(x.klass) : null;
+  if (course === undefined) return null;
+  if (!course && (!isValidSubject(x.subject) || !classAllowed(cfgs[x.subject], x.klass))) return null;
+  const p = normalizeParams(parseJ(x.params, {}));
+  if (!p.start || !p.end || p.end < p.start || !p.weekdays.length) return null;
+  return { id: x.id, subject: x.subject, klass: x.klass, title: x.title, params: { start: p.start, end: p.end, exam: p.exam, weekdays: p.weekdays, breaks: p.breaks, ...(p.cancelled ? { cancelled: p.cancelled } : {}) },
+    ...(course ? { course: { id: course.id, short: course.short, label: course.label } } : {}) };
+}
 export async function routeSchedule(c) {
   await requireTeacher(c);
   const cfgs = await loadSubjectConfigs(c.db);
@@ -188,15 +199,7 @@ export async function routeSchedule(c) {
   ]);
   const gs = new Map((g.results || []).map((x) => [x.id, gsCourseOut(x)]));
   const units = [];
-  for (const x of r.results || []) {
-    const course = x.subject === GS_SUBJECT ? gs.get(x.klass) : null;
-    if (course === undefined) continue;
-    if (!course && (!isValidSubject(x.subject) || !classAllowed(cfgs[x.subject], x.klass))) continue;
-    const p = normalizeParams(parseJ(x.params, {}));
-    if (!p.start || !p.end || p.end < p.start || !p.weekdays.length) continue;
-    units.push({ id: x.id, subject: x.subject, klass: x.klass, title: x.title, params: { start: p.start, end: p.end, exam: p.exam, weekdays: p.weekdays, breaks: p.breaks, ...(p.cancelled ? { cancelled: p.cancelled } : {}) },
-      ...(course ? { course: { id: course.id, short: course.short, label: course.label } } : {}) });
-  }
+  for (const x of r.results || []) { const u = scheduleUnit(x, gs, cfgs); if (u) units.push(u); }
   return json({ ok: true, units });
 }
 export async function routeUnitCreate(c) {

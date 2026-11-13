@@ -17,6 +17,7 @@ import * as CS from "./courses.js";
 import * as GS from "./gs.js";
 import * as CA from "./cards.js";
 import * as PA from "./parents.js";
+import * as PJ from "./printjobs.js";
 
 export { LiveRoom } from "./live.js";
 
@@ -74,6 +75,7 @@ const ROUTES = [
   // Unterrichtseinheiten
   ["GET", "/api/teacher/units", U.routeUnitsList],
   ["GET", "/api/teacher/schedule", U.routeSchedule],
+  ["GET", "/api/teacher/print-next", PJ.routePrintNext],   // Druckaufträge für den nächsten Arbeitstag (beide Startseiten)
   ["GET", "/api/teacher/course-settings", CS.routeCourseSettingsGet],
   ["PUT", "/api/teacher/course-settings", CS.routeCourseSettingsPut],
   ["POST", "/api/teacher/units", U.routeUnitCreate],

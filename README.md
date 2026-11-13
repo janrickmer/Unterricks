@@ -103,7 +103,19 @@ Feibeitsblatt braucht keine Änderung. Die Adressen stehen in `wrangler.jsonc` (
   Benutzerkonto speichern“). Danach verbindet sich Unterricks auf jedem Gerät, auf dem Sie sich mit Ihrem Passwort anmelden,
   automatisch; Geräte, die schon vorher angemeldet waren, entsperren sie einmal mit dem Unterricks-Passwort. Der Server sieht dabei
   weder Passwort noch Schlüssel.
-* **Wochenkalender:** Ganz oben auf Ihrer Startseite steht die Woche (Mo–Fr) mit Ihrem Unterricht – aus den Stundenplänen Ihrer
+* **Druckaufträge für den nächsten Arbeitstag:** Ganz oben auf beiden Startseiten (Startseite „Gymnasium“ und Übersicht
+  „Grundschule“) steht ein oranges Feld mit Drucker-Symbol. Es zeigt die Druckaufträge **beider Schulformen** für den nächsten Tag mit
+  Unterricht: Montag bis Donnerstag den folgenden Tag, Freitag bis Sonntag den Montag; ist dort laut Stundenplan kein Unterricht (Ferien,
+  Feiertag oder ein ausgefallener Termin – maßgeblich sind die Stundenpläne der Einheiten und die Termine der Sitzungen, Ausfall-Einträge
+  der Grundschule zählen nicht), nennt das Feld den freien Tag und zeigt den nächsten Tag mit Unterricht (höchstens 70 Tage voraus).
+  Nach Sitzung gruppiert (Beginn, Fach und Klasse bzw. Grundschulkurs, Titel – ein Klick öffnet die Sitzung) stehen alle Dateien genau
+  so wie in deren Liste „Von der Lehrkraft auszudrucken“, z. B. „28x - beidseitig - sw - Arbeitsblatt.pdf“ (in der Grundschule auch
+  Arbeitsblätter der Kinder mit „Auch ausdrucken“). Jede Datei lässt sich einzeln herunterladen; **„Alle Dateien herunterladen“** lädt
+  alle nacheinander als einzelne PDF-Dateien – bewusst keine ZIP-Datei – mit kurzer Pause dazwischen (Ihr Browser fragt beim ersten Mal
+  womöglich, ob die Seite mehrere Dateien herunterladen darf). Von Claude gestaltete Vorlagen, die noch als PDF gedruckt werden, kommen
+  erst danach dazu und werden genannt. Anzahl, Druckart und Namen ändern Sie in der Sitzung („In der Sitzung bearbeiten“ springt zu
+  deren Druckliste); das Feld selbst ist nur eine Übersicht.
+* **Wochenkalender:** Ganz oben auf Ihrer Startseite (unter den Druckaufträgen) steht die Woche (Mo–Fr) mit Ihrem Unterricht – aus den Stundenplänen Ihrer
   Unterrichtseinheiten (Wochentag, Uhrzeit, Dauer, Zeitraum, Ferien/Ausfälle). Mit ‹ › blättern Sie, „Heute“ führt zurück; am
   Wochenende zeigt er die kommende Woche. Unterricht ohne eingetragene Uhrzeit steht in der Zeile „ohne Uhrzeit“. Ein Klick auf einen
   Eintrag öffnet die Klasse bzw. den Kurs. Auf dem Handy und dem iPad hochkant erscheint die Woche als Liste je Tag. Der Kalender zeigt
@@ -189,7 +201,8 @@ Feibeitsblatt braucht keine Änderung. Die Adressen stehen in `wrangler.jsonc` (
 
 ## Grundschule
 
-Menü **„Grundschule“** (zwischen „Gymnasium“ und „Planungsgrundlagen“). Oben steht der Wochenkalender beider Schulformen, darunter
+Menü **„Grundschule“** (zwischen „Gymnasium“ und „Planungsgrundlagen“). Ganz oben stehen die **Druckaufträge für den nächsten
+Arbeitstag** (dasselbe Feld wie auf der Startseite „Gymnasium“, mit beiden Schulformen), darunter der Wochenkalender beider Schulformen,
 „Ihre Kurse“ und „Zuletzt bearbeitet“.
 
 * **Kurs anlegen:** Knopf **„Neuen Kurs anlegen“** im Kopf der Seite → Jahrgang 1–4, eine bis drei Klassen (a, b, c – z. B. alle Kinder aus
