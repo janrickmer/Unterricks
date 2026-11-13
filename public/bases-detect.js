@@ -200,3 +200,8 @@ export function missingForGs(bases, course) {
   const has = (bases || []).some((b) => b.kind === "gs-curriculum" && (b.subject === undefined || b.subject === "evrel") && wantedGsSections(b, grade).length);
   return has ? [] : ["Schulcurriculum Ev. Religion (Grundschule) für Jahrgang " + grade];
 }
+// Gibt es im laufenden Schuljahr (z. B. „2026/27“) einen Religionskurs dieses Jahrgangs? Nur dann meldet die Status-Tabelle bei Ev. Religion
+// „fehlt“ – Kurse früherer Schuljahre zählen nicht; ein Kurs ohne eingetragenes Schuljahr zählt als laufend.
+export function gsReligionCourseIn(courses, grade, schoolYear) {
+  return (courses || []).some((k) => k && k.religion && String(k.grade) === String(grade) && (!k.schoolYear || k.schoolYear === schoolYear));
+}

@@ -4,7 +4,7 @@ import { normalizeParams, computeSlots, lessonSlots, normalizePlan, normalizeRow
   claudeUnitPrompt, claudeSubstitutePrompt, claudeLessonPrompt, lessonChatName, normalizeSubstitute, SUBSTITUTE_SHARE } from "../../public/planning.js";
 import { SYSTEM_PROMPT_ROLE, UNIT_RULE_BASE, ANALOG_RULE, PORTAL_EXAMPLE } from "../../public/shared.js";
 import { detectKcgo, detectErlass, detectCurriculum, detectECurriculum, parseRanges, formatRanges, pageText, wantedSections, missingFor,
-  detectGsCurriculum, detectSections, wantedGsSections, missingForGs, BASE_KINDS } from "../../public/bases-detect.js";
+  detectGsCurriculum, detectSections, wantedGsSections, missingForGs, gsReligionCourseIn, BASE_KINDS } from "../../public/bases-detect.js";
 
 let n = 0;
 const uid = () => (n++).toString(16).padStart(8, "0");
@@ -290,6 +290,13 @@ test("Schulcurriculum Grundschule (Ev. Religion Jg. 1–4): Jahrgänge erkennen,
   assert.deepEqual(missingForGs([{ ...b, scope: ["1"] }], { religion: true, grade: 2 }), ["Schulcurriculum Ev. Religion (Grundschule) für Jahrgang 2"]);
   assert.deepEqual(missingForGs([{ ...b, subject: "gs1a2b3c4d" }], { religion: true, grade: 3 }), ["Schulcurriculum Ev. Religion (Grundschule) für Jahrgang 3"]);
   assert.deepEqual(missingForGs([], { religion: false, grade: 3 }), []);
+  // „fehlt“ in der Status-Tabelle nur bei einem Religionskurs dieses Jahrgangs im laufenden Schuljahr (frühere Schuljahre zählen nicht)
+  const ks = [{ religion: true, grade: 2, schoolYear: "2025/26" }, { religion: false, grade: 3, schoolYear: "2026/27" }, { religion: true, grade: 4, schoolYear: null }];
+  assert.equal(gsReligionCourseIn(ks, "2", "2026/27"), false, "Kurs aus dem Vorjahr");
+  assert.equal(gsReligionCourseIn(ks, "2", "2025/26"), true);
+  assert.equal(gsReligionCourseIn(ks, "3", "2026/27"), false, "kein Religionskurs");
+  assert.equal(gsReligionCourseIn(ks, 4, "2026/27"), true, "ohne Schuljahr zählt er als laufend");
+  assert.equal(gsReligionCourseIn(null, "1", "2026/27"), false);
   // das Gymnasium bleibt, wie es war: ein Grundschul-Curriculum ersetzt kein Schulcurriculum der Sek I
   assert.deepEqual(missingFor([b], "evrel", "Evangelische Religion", "5A"), ["Schulcurriculum Evangelische Religion für Jahrgang 5"]);
 });

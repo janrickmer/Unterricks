@@ -470,8 +470,8 @@ async function settingsPage() {
  * backup.js), eine letzte Bestätigung und das Löschen (worker/reset.js: Datenbank in einem Schritt, Dateien in Runden). */
 export const RESET_LABEL = "Alle Unterrichtsinhalte löschen und Unterricks zurücksetzen";
 const DELETED_TEXT = "Gelöscht werden alle Unterrichtseinheiten und Unterrichtssitzungen mit allem, was dazugehört: Rahmendaten, Leupold-Schema und Ablauf, Planung der Sitzungen, " +
-  "Materialien, Präsentationen, Planungsverläufe, Schulportal-Einträge, Hausaufgaben, Drucklisten, Verknüpfungen und Entwürfe von Feibeitsblättern, Vertretungspläne und die Freischaltungen der Schüler:innen.";
-const KEPT_TEXT = "Es bleiben: Ihr Zugang und Ihr Passwort, die Planungsgrundlagen, die Fach-Einstellungen mit den Kursen, die KI-Einstellungen, der Claude-Connector, die Feibeitsblatt-Verbindung, " +
+  "Materialien, Präsentationen, Planungsverläufe, Schulportal-Einträge, Hausaufgaben, Drucklisten, Verknüpfungen und Entwürfe von Feibeitsblättern, Vertretungspläne, die Freischaltungen der Schüler:innen sowie in der Grundschule Verlaufspläne, Bildkarten und Elternlinks.";
+const KEPT_TEXT = "Es bleiben: Ihr Zugang und Ihr Passwort, die Planungsgrundlagen (mit ihren PDF-Dateien), die Fach-Einstellungen mit den Kursen, die Kurseinstellungen (Stundenplan und Schülerzahl), die Grundschulkurse, die KI-Einstellungen, der Claude-Connector, die Feibeitsblatt-Verbindung, " +
   "das Schülerpasswort und die angemeldeten Schülergeräte. Die Feibeitsblätter selbst und die Abgaben darin bleiben im Feibeitsblatt.";
 function resetSection() {
   const status = h("p", { class: "small", role: "status" });

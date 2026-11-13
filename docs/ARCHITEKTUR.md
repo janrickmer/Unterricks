@@ -1,6 +1,6 @@
 # Unterricks – Architektur, Prüfergebnisse und Grenzen
 
-Stand: 10.11.2026. Dieses Dokument beschreibt, wie die Plattform aufgebaut ist und welche Funktionen vollständig, eingeschränkt
+Stand: 13.11.2026 (Grundschule ergänzt, Abschnitt 1a und 4b). Dieses Dokument beschreibt, wie die Plattform aufgebaut ist und welche Funktionen vollständig, eingeschränkt
 oder bewusst nicht umgesetzt sind – mit Begründung. Es gibt keine Platzhalter-Funktionen: Was in der Oberfläche steht, ist
 implementiert und im End-to-End-Test geprüft (Ausnahmen unten ausdrücklich genannt).
 
@@ -80,6 +80,22 @@ implementiert und im End-to-End-Test geprüft (Ausnahmen unten ausdrücklich gen
   Fällt der WebSocket aus, fragt der Browser den Stand alle 2 s über HTTP ab.
 * **Keine Fremdbibliotheken zur Laufzeit** außer PDF.js (Folienbilder im Browser der Lehrkraft) und pdf-lib (Textmaterial → PDF),
   beide gebündelt unter `/vendor/` (keine CDN-Abhängigkeit).
+
+## 1a. Entscheidungen der Lehrkraft vom 12.11.2026 (Grundschule, Kurseinstellungen, Elternansicht)
+
+| Frage | Entscheidung |
+|---|---|
+| Kurseinstellungen | **Je Kurs** (Gymnasium und Grundschule): Stundenplan (wann der Kurs stattfindet) und Schülerzahl. Neue Einheiten übernehmen den Stundenplan (in der Einheit änderbar); Claude kennt die Schülerzahl (z. B. als Zahl der Ausdrucke) |
+| Menü | „**Gymnasium** · **Grundschule** · Planungsgrundlagen · Einstellungen · Abmelden“ („Unterricht“ heißt seitdem „Gymnasium“) |
+| Wochenkalender | zeigt **immer beide Schulformen** – auf der Startseite „Gymnasium“ und im Bereich „Grundschule“; Grundschul-Termine gekennzeichnet, Klick öffnet den Kurs |
+| Grundschulkurse | Jahrgang 1–4, eine bis drei Klassen (a–c), Fach Religion oder ein frei benanntes Fach mit optionaler Beschreibung; Knopf **„Neuen Kurs anlegen“** gleich oben im Bereich; bei einem anderen Fach optional ein Curriculum als PDF |
+| Planungsgrundlagen | **überall anklickbar** in einem neuen Tab: neu hochgeladene als Original-PDF (in R2), ältere als lesbarer Text, bis die PDF nachgereicht wird; Ev. Religion auch Jahrgänge 1–4 (Schulcurriculum der Grundschule) |
+| Grundschul-Sitzung | **kein Schulportal-Eintrag**, keine Präsentation: ganz oben der **Verlaufsplan** (Button „Bearbeiten“, Zwischenstopp) mit den PDF-Namen **gelb markiert** (dunkle Schrift auf gelbem Grund, als Link unterstrichen), Materialkasten, ganz unten Elternlink, „Elternansicht ausprobieren“ und „Hinweis der Lehrkraft“ |
+| Elternlink | nur ein **geheimer, unerratbarer Link je Sitzung**; wer ihn hat, sieht diese und die vorherigen Sitzungen des Kurses im Schuljahr – jede erst nach ihrem Ende |
+| Bildkarten | PDF hochladen (eine Seite = eine Karte) **oder – meistens – von Claude gestaltet**; Claude schreibt je Karte einen gekürzten Erzähltext, die Lehrkraft prüft ihn; Hinweis: Verlagskarten dürfen meist nicht online weitergegeben werden |
+| „Inhalt der Unterrichtsstunde“ | formuliert Claude beim Planen elternverständlich (2–3 Sätze); in der Sitzung änderbar |
+| Krankmeldung (Grundschule) | **kein Vertretungsmaterial**: die Stunde und alle folgenden rücken um einen Termin; die letzte, die hinter das Ende rutscht, bleibt **ohne Datum** in der Einheit, bis die Lehrkraft bzw. Claude über den Überarbeitungs-Prompt entscheidet |
+| Aufforderung an die Lehrkraft (Nachtrag) | Muss die Lehrkraft auf Material zurückgreifen, das nur sie hat (z. B. Vorlesetext, Lösung), steht das als eigener Stichpunkt **unterstrichen** – im Verlaufsplan der Grundschule (mit gelbem PDF-Verweis) und im Schulportal-Eintrag des Gymnasiums; Materialtitel, Leitfragen und Codes bleiben kursiv |
 
 ## 3. Komponenten und Dateien
 
@@ -298,6 +314,23 @@ implementiert und im End-to-End-Test geprüft (Ausnahmen unten ausdrücklich gen
   beider Schulformen (Grundschule gekennzeichnet, Klick öffnet den Kurs). Claude: `list_gs_courses`, Filter `fach: "gs"` bzw. `kurs`,
   `get_unit` mit Kurs und uid je Stunde, `get_planning_basis` mit dem Ziel des Kurses. In der Sicherung liegen die Einheiten unter
   „Grundschule/<Kurs> - <Titel>/…“.
+
+* **Grundschule: Sitzung und Verlaufsplan (Ergänzung vom 12.11.2026).** Eine Grundschul-Sitzung öffnet ihre eigene Seite (`gssession.js`;
+  `session.js` verzweigt nach dem Laden). Der Verlaufsplan steht in `lessons.portal` (dieselbe Spalte und derselbe Versionsschutz wie der
+  Schulportal-Eintrag, aber nie ins Schulportal kopiert): nummerierte Phasen mit Minuten und Sozialform, Stichpunkte, **fett**, ~~kursiv~~,
+  __unterstrichen__ und Verweise `[[pdf:<file_id>]]` bzw. `[[pdf:<file_id>|Text]]` (`parsePlanMarkup`, `planRefs` in `public/shared.js`). In der
+  Ansicht wird ein Verweis zum gelb markierten, unterstrichenen Namen der PDF (Link `#/lk/datei/<id>` in einem neuen Tab, signierter Link
+  inline; „wird gedruckt …“, solange Claudes Gestaltung noch nicht gedruckt ist, „PDF nicht gefunden“ bei einer fremden oder gelöschten
+  Datei). Verweise gelten nur auf PDFs des eigenen Kurses (`refFiles`). Der Zwischenstopp ist dieselbe Zeile „⏸ Zwischenstopp“ wie im
+  Schulportal-Eintrag: per Dialog „Wo haben Sie aufgehört?“, Rechtsklick oder Antippen. Weitere Felder nur in der Grundschule
+  (`parentSummary`, `parentNote`; am Gymnasium 400 „Nur bei Sitzungen der Grundschule.“). PDFs für die Kinder können eine Druckanzahl
+  tragen („Auch ausdrucken (22×)“, `print_copies` an der Schülerdatei) und stehen dann auf der Druckliste. Claude: `get_lesson` im
+  Grundschul-Aufbau (Kurs, Kinder, Verlaufsplan, Elternfelder, PDFs des Kurses mit `file_id`, Bildkarten, Ausfälle – kein Sitzungscode),
+  `save_verlaufsplan` (prüft die Verweise und sagt, was Eltern sehen), `update_lesson` mit `inhalt_eltern`, `add_material_pdf` mit `anzahl`;
+  `save_schulportal_entry`, `propose_feibeitsblatt` und `save_substitute_plan` lehnen Grundschul-Sitzungen ab. Die Regel zur unterstrichenen
+  Aufforderung an die Lehrkraft (Nachtrag Nr. 12) steht in `VERLAUFSPLAN_RULES` (`gsplanning.js`) und am Gymnasium als `PORTAL_TEACHER_RULE`
+  (`shared.js`) in den Anweisungen des Connectors, bei `save_schulportal_entry`, im Prompt „Stunde mit Claude planen“ und im
+  Schulportal-Teil der Vertretung; die kostenlose KI schreibt die Aufforderung in ‹…›, Unterricks macht daraus __…__.
 
 * **Grundschule: Bildkarten (Ergänzung vom 12.11.2026).** Wird eine Geschichte mit Bildkarten erzählt, gehört zur Sitzung eine PDF mit einer
   Karte je Seite und einem gekürzten Erzähltext je Karte (`files.cards` = `{v:1, texts, share, rev}`, Bereich „nur Lehrkraft“ – Schüler:innen
@@ -610,7 +643,14 @@ implementiert und im End-to-End-Test geprüft (Ausnahmen unten ausdrücklich gen
   * Die Passwortabfrage nutzt dieselbe Sperre wie die Anmeldung. Die Meldung sagt das, und auch „Zugangsdaten ändern“ zählt
     Fehlversuche.
   * Neue Sitzungen sind nie betroffen (nur gemerkte Kennungen).
-  * Nicht gelöscht: `teacher`, `teacher_tokens`, `trusted_devices`, `locks`, `settings`, `bases`, `base_pages`, `student_devices`.
+  * Nicht gelöscht: `teacher`, `teacher_tokens`, `trusted_devices`, `locks`, `settings`, `bases`, `base_pages` (samt Original-PDFs unter
+    `b/` in R2), `student_devices`, `course_settings` (Kurseinstellungen) und `gs_courses` (Grundschulkurse).
+  * Grundschule: Verlaufspläne, Inhalt und Hinweis für die Eltern stehen in `lessons`, Bildkarten in `files`/`slides` – sie gehen mit. Die
+    Elternlinks enden mit ihren Sitzungen (`parent_hash` gibt es nicht mehr → 404). In der Sicherung liegen die Kurse unter
+    „Grundschule/<Kurs> - <Einheit>/“; die Sitzungsdatei trägt zusätzlich `lesson.parentSummary`/`parentNote`, je Bildkarten-Datei
+    `cards: {texts, share}` und bei einem Ausfall-Eintrag `source.cancelled` (eigener Ordner „… - Unterricht ausgefallen“); den Elternlink
+    nie. „Lies mich.txt“ erklärt das nur, wenn die Sicherung Grundschul-Inhalte enthält. Laden lassen sich Grundschul-Einheiten und
+    -Sitzungen bisher nicht (die Knöpfe „Einheit als Datei“ und „Sitzung als Datei“ fehlen in der Grundschule).
 
 ## 4m. Material von Claude gestaltet, vom Server gedruckt (Ergänzung vom 11.11.2026)
 
@@ -801,6 +841,10 @@ stattdessen der von Anthropic vorgesehene Weg in umgekehrter Richtung (Connector
 * **Grenzen des Schülerzugangs:** Das gemeinsame Passwort ist keine echte Authentifizierung – wer Passwort und Code kennt,
   kommt in die Sitzung. Die Freigaben (Hausaufgabe, Präsentation, Begriffshilfe) richten sich nach Datum, Beginn und Dauer der Sitzung
   (Ortszeit Europe/Berlin), nicht mehr nach dem Gerät.
+* **Elternansicht (Grundschule):** kein Konto, nur der geheime Link (192 Bit; in D1 nur Hash und verschlüsselte Kopie). Öffentlich
+  sind nur `POST /api/eltern/*` mit dem Token im Rumpf; jede Antwort `no-store` und `X-Robots-Tag: noindex, nofollow`, Fehlversuche je IP
+  gesperrt, Inhalt erst nach dem Ende der Sitzung und nie Ideen, Verlaufsplan, Code oder Material der Lehrkraft (Abschnitt 4b). Namen von
+  Kindern prüft die Plattform nicht – die Prompts verbieten sie, die Eingabefelder weisen darauf hin.
 * **Gespeicherte Feibeitsblatt-Verbindung:** Ende-zu-Ende verschlüsselt (Abschnitt 4g). Der Server kann sie nicht öffnen; wer nur ein
   Anmelde-Token der Lehrkraft hätte (ohne das Gerät), könnte den Umschlag abrufen und das Unterricks-Passwort offline durchprobieren
   (600 000 PBKDF2-Runden je Versuch) – deshalb ein langes Passwort wählen. „Alle anderen Geräte abmelden“ entzieht verlorenen Geräten den Zugang.

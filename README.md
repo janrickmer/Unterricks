@@ -3,7 +3,9 @@
 Digitale Unterrichtsplattform für Politik und Wirtschaft, Evangelische Religion und Ethik: Unterrichtssitzungen mit KI planen,
 Schulportal-Eintrag erzeugen, Prompts für Claude, Material in zwei getrennten Bereichen, Live-Präsentation auf den Geräten der
 Schüler:innen, Feibeitsblätter direkt anlegen und Abgaben einsehen – plus Connector, mit dem Claude (Pro-Abo) in claude.ai
-direkt mit den Sitzungen arbeitet.
+direkt mit den Sitzungen arbeitet. Für den Unterricht an einer **Grundschule** gibt es einen eigenen Bereich: Kurse der Jahrgänge
+1–4, Verlaufspläne mit gelb markierten PDF-Dateien, Bildkarten, eine Elternansicht über einen geheimen Link und das Verschieben der
+Stunden bei Krankheit (siehe [Grundschule](#grundschule)).
 
 **Architektur, Prüfergebnis zur Claude-Integration, Kosten und Grenzen:** [docs/ARCHITEKTUR.md](docs/ARCHITEKTUR.md) ·
 **Gestaltung („Folie & Aufdecken“):** [DESIGN.md](DESIGN.md)
@@ -96,7 +98,13 @@ Feibeitsblatt braucht keine Änderung. Die Adressen stehen in `wrangler.jsonc` (
 * **Wochenkalender:** Ganz oben auf Ihrer Startseite steht die Woche (Mo–Fr) mit Ihrem Unterricht – aus den Stundenplänen Ihrer
   Unterrichtseinheiten (Wochentag, Uhrzeit, Dauer, Zeitraum, Ferien/Ausfälle). Mit ‹ › blättern Sie, „Heute“ führt zurück; am
   Wochenende zeigt er die kommende Woche. Unterricht ohne eingetragene Uhrzeit steht in der Zeile „ohne Uhrzeit“. Ein Klick auf einen
-  Eintrag öffnet die Klasse bzw. den Kurs. Auf dem Handy und dem iPad hochkant erscheint die Woche als Liste je Tag.
+  Eintrag öffnet die Klasse bzw. den Kurs. Auf dem Handy und dem iPad hochkant erscheint die Woche als Liste je Tag. Der Kalender zeigt
+  immer beide Schulformen – auf der Startseite „Gymnasium“ ebenso wie im Bereich „Grundschule“; Termine der Grundschule sind mit
+  „Grundschule“ gekennzeichnet und öffnen den Grundschulkurs.
+* **Aufforderungen an die Lehrkraft unterstrichen:** Muss die Lehrkraft an einer Stelle auf Material zurückgreifen, das nur sie hat
+  (z. B. einen Vorlesetext oder eine Lösung), schreiben Claude und die kostenlose KI das als eigenen, unterstrichenen Stichpunkt in die
+  Phase, z. B. `- __Lehrkraft liest den Vorlesetext ~~Die Arche Noah~~ vor.__` im Schulportal-Eintrag (bzw. im Verlaufsplan der
+  Grundschule mit dem gelb markierten PDF-Verweis). Materialtitel, Leitfragen und Codes bleiben kursiv.
 * **Beginn, Hausaufgabe, Präsentation:** Den Beginn der Sitzung tragen Sie im Stundenplan der Einheit (je Wochentag) oder in der
   Sitzung ein. Schüler:innen sehen die Hausaufgabe ab 15 Minuten vor dem Ende und können die Präsentation 5 Minuten nach dem Ende selbst
   öffnen – ohne Beginn weder noch. Am Ende der Stunde markieren Sie die letzte gezeigte Folie (im Vollbild „Bis hier gezeigt“ oder in
@@ -126,13 +134,18 @@ Feibeitsblatt braucht keine Änderung. Die Adressen stehen in `wrangler.jsonc` (
     ihren Inhalt (Materialien, Präsentation, Planungsverlauf, Hausaufgabe, Feibeitsblatt-Entwürfe), mit angepassten Datumsangaben.
   * Geladen werden kann auch nur die Einheitsdatei (.json) aus einer Sicherung. Dann kommt nur die Planung.
 * **Unterricks zurücksetzen** (Einstellungen, ganz unten): **„Alle Unterrichtsinhalte löschen und Unterricks zurücksetzen“**.
-  * Gelöscht werden alle Unterrichtseinheiten und Sitzungen mit allem, was dazugehört.
-  * Es bleiben: Zugang, Planungsgrundlagen, Fach-Einstellungen mit Kursen, KI, Connector, Feibeitsblatt-Verbindung, Schülerpasswort
-    und Schülergeräte. Die Feibeitsblätter und ihre Abgaben bleiben im Feibeitsblatt.
+  * Gelöscht werden alle Unterrichtseinheiten und Sitzungen mit allem, was dazugehört – in der Grundschule auch Verlaufspläne,
+    Bildkarten und Elternlinks (die verteilten Links funktionieren danach nicht mehr).
+  * Es bleiben: Zugang, Planungsgrundlagen (mit ihren PDF-Dateien), Fach-Einstellungen mit Kursen, Kurseinstellungen (Stundenplan und
+    Schülerzahl), die Grundschulkurse, KI, Connector, Feibeitsblatt-Verbindung, Schülerpasswort und Schülergeräte. Die Feibeitsblätter
+    und ihre Abgaben bleiben im Feibeitsblatt.
   * Zuerst fragt Unterricks Ihr Passwort ab (zwei Fehlversuche sperren wie bei der Anmeldung 30 Minuten). Dann bietet es eine
     Sicherung als ZIP-Datei an: 1. Ebene Fächer, 2. Ebene Einheiten mit der Einheitsdatei, 3. Ebene die Sitzungen, chronologisch
     nummeriert, je als Sitzungsdatei. Sitzungen ohne Einheit liegen in „… - Sitzungen ohne Einheit“.
   * Vertretene Sitzungen bringen ihre ursprüngliche Planung mit (in der Sitzungsdatei unter „archive“ und im Ordner „archiv/“).
+  * Die Grundschule liegt im Ordner „Grundschule/<Kurs> - <Einheit>/…“. Ihre Sitzungsdateien enthalten Verlaufsplan, Inhalt und
+    Hinweis für die Eltern, Material und Bildkarten mit Erzähltexten; ein ausgefallener Termin steht als eigener Ordner
+    „… - Unterricht ausgefallen“. Wieder in die Grundschule laden lassen sie sich bisher nicht („Lies mich.txt“ sagt es).
   * Gelöscht wird erst nach einer letzten Bestätigung mit Kästchen. Dort lässt sich die Sicherung auch erneut herunterladen. Hat sich
     seit der Sicherung etwas geändert (z. B. über Claude), löscht Unterricks nichts und bittet, neu zu sichern.
 * **KI-Begriffshilfe:** Während der Stunde können Schüler:innen unter der Live-Präsentation Fachbegriffe kurz und einfach erklären
@@ -165,6 +178,51 @@ Feibeitsblatt braucht keine Änderung. Die Adressen stehen in `wrangler.jsonc` (
   Escape-Room nach dem bekannten Aufbau mit Feibeitsblatt-Finale) → Vorschau ansehen, prüfen und bestätigen (die ursprüngliche
   Planung wird archiviert und bleibt wiederherstellbar). Für das Anlegen des Feibeitsblatts beim Bestätigen muss die Sitzung mit
   dem Feibeitsblatt verbunden sein (Türcode + Passwort im Abschnitt „Feibeitsblatt“).
+
+## Grundschule
+
+Menü **„Grundschule“** (zwischen „Gymnasium“ und „Planungsgrundlagen“). Oben steht der Wochenkalender beider Schulformen, darunter
+„Ihre Kurse“ und „Zuletzt bearbeitet“.
+
+* **Kurs anlegen:** Knopf **„Neuen Kurs anlegen“** im Kopf der Seite → Jahrgang 1–4, eine bis drei Klassen (a, b, c – z. B. alle Kinder aus
+  2a oder gemischt 2a und 2b), Fach **„Religion (evangelisch)“** oder **„Anderes Fach“** mit Namen und optional einer Beschreibung, was
+  die Kinder in diesem Kurs lernen sollen (Claude kennt so das Ziel des Kurses). Dazu im selben Schritt die Termine pro Woche (mit
+  Uhrzeit), die Zahl der Kinder und das Schuljahr; bei einem anderen Fach als Religion lässt sich gleich ein Curriculum oder eine andere
+  Planungsgrundlage als PDF hochladen. Planungsgrundlage eines Religionskurses ist das Schulcurriculum Ev. Religion (Grundschule) unter
+  *Planungsgrundlagen → Evangelische Religion* („Schulcurriculum Grundschule (Jahrgänge 1–4)“).
+* **Kursseite:** Unterrichtseinheiten mit ihren Sitzungen, Kurseinstellungen, „Fach, Klassen und Beschreibung“, die Planungsgrundlagen
+  des Kurses und **„Neue Unterrichtseinheit planen“**. Einheiten planen Sie wie am Gymnasium (Rahmendaten → „Einheit mit Claude
+  planen“ → Leupold-Schema und Tabelle → „Einheit festlegen und Sitzungen anlegen“) – ohne Klausurtermin, nur mit analogem Material.
+* **Sitzung (Lehreransicht):** Ganz oben der **Verlaufsplan** (Phasen mit Minuten und Sozialform). Claude schreibt ihn beim Planen
+  („Stunde mit Claude planen“ → `save_verlaufsplan`); mit **„Bearbeiten“** ändern Sie ihn selbst (wird automatisch gespeichert,
+  daneben die Vorschau). Die PDF-Dateien stehen dort, wo sie benutzt werden, **gelb markiert und unterstrichen** – ein Klick öffnet die
+  PDF in einem neuen Tab („PDF-Verweis einfügen …“ beim Bearbeiten). Wurden Sie nicht fertig: **„Zwischenstopp eintragen …“**, Rechtsklick
+  auf eine Zeile oder am iPad eine Zeile antippen. Darunter der Stundenentwurf, die Einordnung in die Einheit, „Stunde mit Claude
+  planen“, die **Bildkarten**, der **Materialkasten** (PDFs für die Kinder – mit „Auch ausdrucken (22×)“ zusätzlich auf der Druckliste
+  – und Material nur für Sie; jede Datei sagt, ob Eltern sie sehen), die Druckliste, **„Inhalt und Hausaufgabe (für die Eltern)“**
+  (Claude formuliert den Inhalt in 2–3 Sätzen, Sie können ihn ändern) und ganz unten die Karte **„Elternansicht“**. Kein
+  Schulportal-Eintrag, keine Präsentation, kein Sitzungscode.
+* **Bildkarten:** Claude gestaltet sie beim Planen selbst (eine Karte je Seite, mit einem gekürzten Erzähltext je Karte zum
+  Nacherzählen), oder Sie laden eine PDF hoch (eine Seite = eine Karte). Die Erzähltexte prüfen und ändern Sie unter jeder Karte.
+  Hochgeladene Bildkarten sehen Eltern erst, wenn Sie „Eltern dürfen diese Bildkarten sehen“ ankreuzen – Bildkarten von Verlagen dürfen
+  meist nicht online weitergegeben werden. Die Bilder für die Elternansicht erstellt Ihr Browser, sobald Sie Unterricks öffnen.
+* **Elternansicht:** **„Sitzungslink für Eltern kopieren“** legt einen geheimen, nicht erratbaren Link in die Zwischenablage (zum
+  Weitergeben, z. B. per Elternbrief oder Messenger). Wer ihn hat, sieht diese Sitzung und alle vorherigen Sitzungen dieses Kurses im
+  Schuljahr – jede erst, wenn sie laut Plan zu Ende ist (vorher „Diese Unterrichtssitzung hat noch nicht stattgefunden.“). Eltern sehen:
+  den **„Hinweis der Lehrkraft“** (optional, ganz oben in einem roten Feld), die Bildkarten zum Durchklicken mit dem Erzähltext, den
+  „Inhalt der Unterrichtsstunde“, die „Hausaufgabe“ (nur, wenn eine eingetragen ist), das „Material für die Schüler“ (nur PDFs der
+  Kinder) und „Vorherige Unterrichtssitzungen dieses Schuljahres ansehen“. Bei einem Zwischenstopp nur das Material bis dorthin. Nie
+  Ideen, Verlaufsplan, Code oder Material nur für Sie. **„Elternansicht ausprobieren“** zeigt Ihnen die Ansicht schon vorher. Ist ein
+  Link in falsche Hände geraten: „Link erneuern“ – der bisherige funktioniert dann nicht mehr. Bitte in Hinweisen und Texten für Eltern
+  keine Namen von Kindern nennen.
+* **Krankheit:** Karte „Krankheit“ → **„Krankmeldung: Diese Stunde fällt aus“**. Eine Vorschau zeigt, wohin die Stunden rücken: Diese
+  und alle folgenden Stunden der Einheit wandern um je einen Termin nach hinten (mit Verlaufsplan und Material); die letzte Stunde, die
+  hinter das Ende der Einheit rutscht, bleibt ohne Datum in der Einheit stehen. Eltern sehen für den ausgefallenen Termin, dass der
+  Unterricht leider nicht stattfinden konnte (der bisherige Elternlink gilt für diesen Termin weiter). In der Einheit und in jeder ihrer
+  Sitzungen steht dann ein **roter Kasten** „Die Einheit muss wegen der Ausfälle überarbeitet werden“ mit **„Einheit mit Claude
+  überarbeiten“** (kopiert den passenden Prompt; Claude passt die Einheit mit `save_unit_plan` an und verteilt die Termine neu),
+  „Erledigt – Hinweis entfernen“ und – solange die Einheit seither nicht geändert wurde – „Krankmeldung rückgängig machen“.
+  Vertretungsmaterial entsteht in der Grundschule nicht.
 
 ## Entwicklung
 

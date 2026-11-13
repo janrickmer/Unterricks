@@ -1916,6 +1916,7 @@ async function main() {
     }
 
     step("Grundschule: Krankmeldung verschiebt die Stunden, roter Kasten, Überarbeitung mit Claude, rückgängig");
+    let gsNoah = null;   // Einheit „Noah“ (für die Mobil-Prüfung: roter Kasten, Ausfall-Eintrag)
     {
       const { berlinToday } = await import("../../public/shared.js");
       const { calendarWeek, computeSlots, lessonSlots } = await import("../../public/planning.js");
@@ -2027,6 +2028,7 @@ async function main() {
       ok(await tp.locator(".revisebox").count() === 0 && (await tp.locator(".pagehead .chips").textContent()).includes(fmtDay(addDays(end4, 1))), "Sitzung 4: neuer Termin, kein roter Kasten");
       ok((await tool("save_substitute_plan", { lesson_id: nl[0].id, analyse: { kompetenz: "a", stundenfrage: "b", inhalte: [] }, schritte: [{ titel: "a", anleitung: "b" }], abgabe: "x" })).isError === true,
         "Connector: keine Vertretungsstunde in der Grundschule");
+      gsNoah = { unitId: nu.id, lessons: nl.map((l) => l.id) };
     }
 
     /* ---------- GitHub Pages: dieselbe Oberfläche von einer anderen Herkunft ---------- */
@@ -2325,8 +2327,8 @@ async function main() {
       await TT("PATCH", "/api/teacher/lessons/" + lessonId, { date: w.date, startTime: w.time });
       const report = [];
       mkdirSync(join(OUT, "mobil"), { recursive: true });
-      const audit = async (dev, label, store, hash, prep) => {
-        const ctx = await browser.newContext({ ...devices[dev] });
+      const audit = async (dev, label, store, hash, prep, dark = false) => {
+        const ctx = await browser.newContext({ ...devices[dev], ...(dark ? { colorScheme: "dark" } : {}) });
         if (store) await ctx.addInitScript((s) => { if (!sessionStorage.getItem("audit")) { for (const [k, v] of Object.entries(JSON.parse(s))) localStorage.setItem(k, v); sessionStorage.setItem("audit", "1"); } }, store);
         const p = await ctx.newPage(); watch(p, "Mobil " + dev + " " + label);
         try {
@@ -2338,18 +2340,29 @@ async function main() {
           if (prep) await prep(p);
           await p.waitForTimeout(300);
           const r = await horizontalIssues(p), stray = await strayTexts(p);
-          report.push({ dev, label, hash, ...r, stray });
-          ok(r.issues.length === 0, dev + ": " + label + " – nur senkrecht scrollbar" + (r.issues.length ? " (" + r.issues.length + " Stellen, siehe mobile-audit.json)" : ""));
-          if (stray.length) ok(false, dev + ": " + label + " – Textrest „" + stray[0].text + "“ sichtbar (" + stray[0].sel + ")");
+          const who = dev + (dark ? " (dunkel)" : "");
+          report.push({ dev: who, label, hash, ...r, stray });
+          ok(r.issues.length === 0, who + ": " + label + " – nur senkrecht scrollbar" + (r.issues.length ? " (" + r.issues.length + " Stellen, siehe mobile-audit.json)" : ""));
+          if (stray.length) ok(false, who + ": " + label + " – Textrest „" + stray[0].text + "“ sichtbar (" + stray[0].sel + ")");
           // Bildschirmfoto bei Fundstellen, mit MOBILE_SHOTS=1 von jeder Seite (zum Ansehen der Anpassungen)
-          if (r.issues.length || process.env.MOBILE_SHOTS) await p.screenshot({ path: join(OUT, "mobil", (dev + "-" + label).replace(/[^A-Za-z0-9äöüÄÖÜß]+/g, "-") + ".png"), fullPage: true }).catch(() => {});
-        } catch (e) { ok(false, dev + ": " + label + " – Prüfung nicht möglich: " + e.message.split("\n")[0]); }
+          if (r.issues.length || process.env.MOBILE_SHOTS) await p.screenshot({ path: join(OUT, "mobil", (dev + (dark ? "-dunkel" : "") + "-" + label).replace(/[^A-Za-z0-9äöüÄÖÜß]+/g, "-") + ".png"), fullPage: true }).catch(() => {});
+        } catch (e) { ok(false, dev + (dark ? " (dunkel)" : "") + ": " + label + " – Prüfung nicht möglich: " + e.message.split("\n")[0]); }
         await ctx.close();
       };
       const T_PAGES = [["Fächer", "#/lk"], ["Klassen PoWi", "#/lk/f/powi"], ["Kurse Ethik", "#/lk/f/ethik"], ["Sitzungen Q2 GK", "#/lk/f/powi/Q2-GK"], ["Unterrichtseinheit", "#/lk/u/" + unitId],
         ["Sitzung", "#/lk/s/" + lessonId], ["Sitzung mit Vertretung", "#/lk/s/" + l2.id], ["Sitzung mit Escape-Room", "#/lk/s/" + l3.id], ["Planungsgrundlagen", "#/lk/grundlagen"],
         ["Planungsgrundlagen PoWi", "#/lk/grundlagen/powi"], ["Einstellungen", "#/lk/einstellungen"], ["Escape-Room-Vorschau", "#/lk/escape/" + l3.id],
         ["Planungsgrundlagen Ev. Religion", "#/lk/grundlagen/evrel"], ["Planungsgrundlage (Text)", "#/lk/grundlage/" + txtBaseId], ["Elternansicht (Vorschau)", "#/lk/eltern/" + parentLessonId]];
+      // Grundschule: Übersicht, Kurs, Einheit, Sitzung (Verlaufsplan, Bildkarten, Material, Elternkarte) und nach einer Krankmeldung roter Kasten und
+      // Ausfall-Eintrag – dafür fällt die 3. Stunde der Einheit „Noah“ (Wochen voraus) noch einmal aus
+      const npv = await TT("POST", "/api/teacher/lessons/" + gsNoah.lessons[2] + "/cancel", { dryRun: true });
+      await TT("POST", "/api/teacher/lessons/" + gsNoah.lessons[2] + "/cancel", { version: npv.version });
+      const noahU = (await TT("GET", "/api/teacher/units/" + gsNoah.unitId)).unit, noahPh = noahU.lessons.filter((l) => l.cancelled).pop();
+      ok(noahU.revise && noahU.revise.open && !!noahPh, "Mobil-Prüfung: Einheit „Noah“ mit rotem Kasten und Ausfall-Eintrag");
+      const GS_PAGES = [["Grundschule", "#/lk/grundschule"], ["Grundschulkurs", "#/lk/grundschule/k/" + gsRelId], ["Grundschul-Einheit", "#/lk/u/" + gsUnitId],
+        ["Grundschul-Einheit mit rotem Kasten", "#/lk/u/" + gsNoah.unitId], ["Grundschul-Sitzung", "#/lk/s/" + parentLessonId], ["Grundschul-Sitzung mit rotem Kasten", "#/lk/s/" + gsNoah.lessons[2]],
+        ["Ausfall-Eintrag", "#/lk/s/" + noahPh.id], ["Elternansicht (Vorschau)", "#/lk/eltern/" + parentLessonId], ["Elternansicht des Ausfall-Eintrags (Vorschau)", "#/lk/eltern/" + noahPh.id]];
+      T_PAGES.push(...GS_PAGES.filter(([label]) => !T_PAGES.some((x) => x[0] === label)));
       const P_PAGES = [["Elternansicht", "#/eltern/" + parentToken]];
       const S_PAGES = [["Sitzungsliste", "#/schueler"], ["Sitzung (Schüler:in)", "#/schueler/s/" + lessonId], ["Vertretung (Schüler:in)", "#/schueler/s/" + l2.id], ["Escape-Room", "#/schueler/escape/" + l3.id]];
       for (const dev of ["iPhone SE", "iPhone 13", "iPad (gen 7)"]) {
@@ -2360,6 +2373,21 @@ async function main() {
         for (const [label, hash] of S_PAGES) await audit(dev, label, sStore, hash);
         for (const [label, hash] of P_PAGES) await audit(dev, label, null, hash);   // Eltern: ohne gespeicherte Daten
       }
+      // MOBILE_SHOTS=1: Grundschule und Elternansicht zusätzlich am großen Bildschirm, hell und dunkel (zum Ansehen)
+      if (process.env.MOBILE_SHOTS) for (const dark of [false, true]) for (const [label, hash, store] of [...GS_PAGES.map((x) => [...x, tStore]), ...P_PAGES.map((x) => [...x, null])]) {
+        const ctx = await browser.newContext({ viewport: { width: 1440, height: 950 }, colorScheme: dark ? "dark" : "light" });
+        if (store) await ctx.addInitScript((st) => { if (!sessionStorage.getItem("audit")) { for (const [k, v] of Object.entries(JSON.parse(st))) localStorage.setItem(k, v); sessionStorage.setItem("audit", "1"); } }, store);
+        const p = await ctx.newPage(); watch(p, "Bildschirmfoto " + label);
+        await p.goto(BASE + "/" + hash); await p.locator("main").first().waitFor({ timeout: 15000 }).catch(() => {});
+        await p.waitForFunction(() => !document.querySelector(".skeleton"), null, { timeout: 15000 }).catch(() => {}); await p.waitForTimeout(1200);
+        await p.screenshot({ path: join(OUT, "mobil", ("Desktop" + (dark ? "-dunkel" : "") + "-" + label).replace(/[^A-Za-z0-9äöüÄÖÜß]+/g, "-") + ".png"), fullPage: true }).catch(() => {});
+        await ctx.close();
+      }
+      // Grundschule und Elternansicht auch im dunklen Farbschema (Handy und iPad)
+      for (const dev of ["iPhone SE", "iPad (gen 7)"]) {
+        for (const [label, hash] of GS_PAGES) await audit(dev, label, tStore, hash, null, true);
+        for (const [label, hash] of P_PAGES) await audit(dev, label, null, hash, null, true);
+      }
       for (const dev of ["iPhone SE", "iPhone 13"]) {
         await audit(dev, "Dialog „Stunde mit Claude planen“", tStore, "#/lk/s/" + lessonId, async (p) => { await p.getByRole("button", { name: "Stunde mit Claude planen" }).first().click(); await p.locator(".modal").waitFor(); });
         await audit(dev, "Dialog „Link hinzufügen“", tStore, "#/lk/s/" + lessonId, async (p) => { await p.getByRole("button", { name: "Link hinzufügen" }).first().click(); await p.locator(".modal").waitFor(); });
@@ -2369,6 +2397,9 @@ async function main() {
           await p.evaluate(() => { for (const k of Object.keys(localStorage)) if (k.startsWith("u.kihelp.")) localStorage.removeItem(k); });
           await p.reload(); await p.locator("main").first().waitFor(); await p.waitForFunction(() => !document.querySelector(".skeleton"), null, { timeout: 15000 }).catch(() => {});
           await p.getByRole("button", { name: "KI-Begriffshilfe nutzen" }).click(); await p.locator(".modal").waitFor(); });
+        await audit(dev, "Verlaufsplan bearbeiten (Grundschule)", tStore, "#/lk/s/" + parentLessonId, async (p) => { await p.locator("#gsplan").getByRole("button", { name: "Bearbeiten" }).click(); await p.locator("#gsplan-text").waitFor(); });
+        await audit(dev, "Dialog „Wo haben Sie aufgehört?“", tStore, "#/lk/s/" + parentLessonId, async (p) => { await p.getByRole("button", { name: "Zwischenstopp eintragen …" }).click(); await p.locator(".modal").waitFor(); });
+        await audit(dev, "Dialog „Stunde ausfallen lassen?“", tStore, "#/lk/s/" + gsNoah.lessons[0], async (p) => { await p.locator("#gs-sick-btn").click(); await p.locator(".modal .cancel-table").waitFor({ timeout: 15000 }); });
         await audit(dev, "Präsentationsmodus", tStore, "#/lk/s/" + lessonId, async (p) => {
           await p.getByRole("button", { name: "Ich bin im Unterricht und starte die Präsentation für alle." }).click(); await p.locator(".presenter").waitFor();
           await p.waitForTimeout(400); });
@@ -2405,6 +2436,15 @@ async function main() {
         && names.some((n) => n.startsWith("Ethik/")), "Ordner je Fach und Einheit, gleichnamige Einheiten getrennt (z. B. „Politik und Wirtschaft/Q2 GK - Gewaltenteilung und BVerfG/01 - …“)");
       ok(names.some((n) => n.startsWith("Grundschule/Religion 2ab - Josef und seine Brüder/Unterrichtseinheit - Grundschule - Religion 2ab - Josef und seine Brüder.json"))
         && names.filter((n) => n.startsWith("Grundschule/Religion 2ab - Josef und seine Brüder/") && n.endsWith("/Unterrickssitzung.zip")).length === 4, "Grundschule: „Grundschule/Religion 2ab - Josef und seine Brüder/…“ mit Einheitsdatei und 4 Sitzungen");
+      const lies = new TextDecoder().decode(bz.find((x) => x.name === "Lies mich.txt").data);
+      ok(lies.includes("Grundschule:") && /„Grundschule\/Religion 2ab - [^“/]+\/“/.test(lies) && lies.includes("Nicht in der Sicherung: die Elternlinks.")
+        && lies.includes("Unterricht ausgefallen"), "„Lies mich.txt“ nennt die Grundschule (Ordner, Verlaufsplan, Eltern, Ausfall-Einträge, keine Elternlinks)");
+      const gsSess = names.filter((n) => n.startsWith("Grundschule/Religion 2ab - Josef und seine Brüder/") && n.endsWith("/Unterrickssitzung.zip"));
+      const gsData = [];
+      for (const n of gsSess) { const z = await readZip(bz.find((x) => x.name === n).data); gsData.push(JSON.parse(new TextDecoder().decode(z.find((x) => x.name === "sitzung.json").data))); }
+      ok(gsData.some((d) => d.lesson.portal.includes("[[pdf:") && d.lesson.parentSummary) && gsData.some((d) => d.files.some((f) => f.cards && f.cards.texts.length === 3))
+        && gsData.every((d) => !JSON.stringify(d).includes(parentToken)), "Grundschul-Sitzungsdateien: Verlaufsplan, Inhalt für die Eltern, Bildkarten mit Erzähltexten – nie der Elternlink");
+      ok(names.some((n) => /^Grundschule\/Religion 2ab - Noah und die Arche\/\d{2} - [^/]+ - Unterricht ausgefallen\/Unterrickssitzung\.zip$/.test(n)), "Ausfall-Eintrag als eigener Sitzungsordner „… - Unterricht ausgefallen“");
       const anyS = await readZip(bz.find((x) => x.name === sess[0]).data);
       ok(anyS.some((x) => x.name === "sitzung.json"), "jede Sitzung ist eine Sitzungsdatei, die sich mit „Sitzung aus Datei laden“ wieder laden lässt");
       const cm = tp.locator(".modal", { hasText: "Sicherung heruntergeladen – jetzt löschen?" }); await cm.waitFor({ timeout: 60000 });
@@ -2425,6 +2465,10 @@ async function main() {
       const gsAfter = (await TR("GET", "/api/teacher/gs/courses")).data.courses || [];
       ok(gsAfter.length === 2 && gsAfter.every((k) => k.counts.units === 0 && k.counts.lessons === 0) && gsAfter.some((k) => k.settings && k.settings.classSize === 22),
         "Grundschulkurse und ihre Kurseinstellungen bleiben; ihre Einheiten und Sitzungen sind gelöscht");
+      ok(((await TR("GET", "/api/teacher/course-settings?subject=ethik&klass=7-K")).data.settings || {}).classSize === 24, "Kurseinstellungen des Gymnasiums bleiben (Ethik 7-K: 24 Schüler:innen)");
+      const kept = await tp.locator("#resetcard").textContent();
+      ok(kept.includes("die Kurseinstellungen (Stundenplan und Schülerzahl), die Grundschulkurse") && kept.includes("die Planungsgrundlagen (mit ihren PDF-Dateien)")
+        && kept.includes("sowie in der Grundschule Verlaufspläne, Bildkarten und Elternlinks."), "Einstellungen nennen, was bleibt und was gelöscht wird – auch für die Grundschule");
       await tp.goto(BASE + "/#/lk"); await tp.locator("main").first().waitFor();
       ok((await TR("POST", "/api/teacher/reset", { authKey: "x".repeat(43) })).status === 403, "der Server verlangt das Passwort auch selbst (ohne richtiges Passwort kein Zurücksetzen)");
     }

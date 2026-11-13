@@ -2,7 +2,7 @@
 // für die Sitzungsseite („Sitzung als Datei“), die Einheit als Datei und die große Sicherung (backup.js). Format: sessionfile.js.
 import { apiUrl, upload } from "./ui.js";
 import { T, tapi } from "./teacher.js";
-import { formatCode } from "./shared.js";
+import { formatCode, GS_SUBJECT } from "./shared.js";
 import { SESSION_FILE, sessionFileName, sheetToDraft, cleanSessionFile, adaptDates } from "./sessionfile.js";
 import { makeZip, readZip } from "./zip.js";
 
@@ -34,6 +34,8 @@ export async function fetchFileBytes(f) {
    full: für die Sicherung – auch das Archiv einer Vertretung (ursprüngliche Planung, Dateien unter „archiv/“), der Vertretungsplan selbst
    und noch nicht fertig verarbeitete Präsentationen; eine Datei, die sich nicht laden lässt, fehlt dann (missing) statt abzubrechen.
    cancelled() bricht vor jeder Datei ab. → {name, bytes (ZIP), files, notes, missing} */
+/* Bildkarten (Grundschule): Erzähltexte und Freigabe für Eltern kommen mit in die Sitzungsdatei */
+const cardsOf = (f) => (f.cards ? { cards: { texts: Array.isArray(f.cards.texts) ? f.cards.texts : [], share: !!f.cards.share } } : {});
 export async function buildSessionZip(detail, { fb = T.fb, onStep = () => {}, homework, portal, full = false, cancelled = () => false, fileName } = {}) {
   const L = detail.lesson, unit = detail.unit || null;
   const rows = unit ? unit.rows || [] : [], idx = rows.findIndex((r) => r.uid === L.unitRow);
@@ -59,7 +61,7 @@ export async function buildSessionZip(detail, { fb = T.fb, onStep = () => {}, ho
       if (html == null) continue;
       const design = "gestaltung/" + (++g) + " - " + safeName(f.name.replace(/\.pdf$/i, "")) + ".html";
       entries.push({ name: design, data: te.encode(html) });
-      const base = { area: f.area, kind: "file", name: f.name, mime: "application/pdf", design, ...(f.print ? { print: f.print } : {}) };
+      const base = { area: f.area, kind: "file", name: f.name, mime: "application/pdf", design, ...(f.print ? { print: f.print } : {}), ...cardsOf(f) };
       if (f.status === "ready" && !f.design.outdated) {
         const data = await grab(f);
         if (data) { const path = "dateien/" + (++k) + " - " + safeName(f.name); entries.push({ name: path, data }); files.push({ ...base, path, rendered: true }); continue; }
@@ -67,7 +69,7 @@ export async function buildSessionZip(detail, { fb = T.fb, onStep = () => {}, ho
       files.push(base);
       continue;
     }
-    const base = { area: f.area, kind: f.kind, name: f.name, mime: f.mime, ...(f.print ? { print: f.print } : {}) };
+    const base = { area: f.area, kind: f.kind, name: f.name, mime: f.mime, ...(f.print ? { print: f.print } : {}), ...cardsOf(f) };
     if (f.area === "archive") {   // ursprüngliches Material einer vertretenen Sitzung – nur in der Sicherung
       if (!full) continue;
       if (f.kind === "text") archived.push({ kind: "text", name: f.name, text: f.text || "" });
@@ -103,6 +105,11 @@ export async function buildSessionZip(detail, { fb = T.fb, onStep = () => {}, ho
     lesson: { title: L.title, topic: L.topic, ideas: L.ideas || "", homework: homework !== undefined ? homework : L.homework || "", portal: portal !== undefined ? portal : L.portal || "" },
     chat: (detail.messages || []).filter((m) => (m.role === "user" || m.role === "assistant") && m.model !== "begruessung").map((m) => ({ role: m.role, content: m.content, model: m.model || null, mode: m.mode || null })),
     files, drafts, sheets, notes };
+  // Grundschule: Inhalt und Hinweis für die Eltern, Ausfall-Eintrag (nie der Elternlink); am Gymnasium bleibt die Datei, wie sie war
+  if (L.subject === GS_SUBJECT) {
+    Object.assign(data.lesson, { parentSummary: L.parentSummary || "", parentNote: L.parentNote || "" });
+    if (L.cancelled) data.source.cancelled = true;
+  }
   const sub = detail.substitute;
   if (full && sub) {
     // Vertretung: der Plan selbst und – nach dem Bestätigen – die ursprüngliche Planung der Lehrkraft (Schulportal, Hausaufgabe, Feibeitsblätter, Material)

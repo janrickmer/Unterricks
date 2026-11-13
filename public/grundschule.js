@@ -54,9 +54,13 @@ function gsCourseList(courses) {
   const cur = courses.filter((c) => !c.schoolYear || c.schoolYear >= year), old = courses.filter((c) => c.schoolYear && c.schoolYear < year);
   const tile = (c) => {
     const s = c.settings || {};
-    const info = [whenText(s.weekdays) || null, Number.isInteger(s.classSize) ? kids(s.classSize) : null, sessions((c.counts || {}).lessons || 0)].filter(Boolean).join(" · ");
+    // je Termin und Angabe ein unteilbares Stück („Mo 08:00“, „22 Kinder“) – der Text bleibt derselbe, er bricht nur nicht mitten darin um
+    const nw = (t) => h("span", { class: "nowrap", text: t });
+    const parts = [(s.weekdays || []).length ? (s.weekdays || []).map((w) => nw(whenText([w]))) : null, Number.isInteger(s.classSize) ? [nw(kids(s.classSize))] : null,
+      [nw(sessions((c.counts || {}).lessons || 0))]].filter(Boolean);
+    const info = h("div", { class: "s" }, ...parts.flatMap((xs, i) => [i ? " · " : null, ...xs.flatMap((x, k) => [k ? ", " : null, x])]).filter(Boolean));
     return h("a", { class: "tile", href: "#/lk/grundschule/k/" + c.id, dataset: { fach: "gs" } },
-      h("div", { class: "t", text: gsCourseShort(c) }), h("div", { class: "s", text: info }),
+      h("div", { class: "t", text: gsCourseShort(c) }), info,
       c.revise ? h("div", { class: "s" }, h("span", { class: "badge stop", text: "überarbeiten" })) : null);
   };
   const byGrade = (list) => [1, 2, 3, 4].flatMap((g) => { const xs = list.filter((c) => c.grade === g); return xs.length ? [h("h3", { text: "Jahrgang " + g }), h("div", { class: "tiles" }, xs.map(tile))] : []; });
@@ -206,7 +210,7 @@ export async function gsCoursePage(id) {
     settings && settings.weekdays.length ? whenText(settings.weekdays, true) : null, course.schoolYear ? "Schuljahr " + course.schoolYear : null].filter(Boolean).join(" · ");
   function paint() {
     const byDateAsc = (a, b) => (a.date === b.date ? a.createdAt - b.createdAt : (a.date || "￿") < (b.date || "￿") ? -1 : 1);
-    const unitBox = h("div", { class: "stack" });
+    const unitBox = h("div", { class: "stack gs-units" });
     if (!units.length) unitBox.append(h("p", { class: "muted", text: "Noch keine Unterrichtseinheit. Legen Sie rechts die erste an." }));
     for (const u of units) {
       const ls = lessons.filter((l) => l.unitId === u.id).sort(byDateAsc), dates = ls.map((l) => l.date).filter(Boolean).sort();
@@ -358,19 +362,32 @@ export function reviseBox(unit, opt = {}) {
     after: "Wenn Claude die Einheit gespeichert hat, kommen Sie hierher zurück: Die Seite lädt die neuen Termine beim Zurückkehren – der rote Hinweis verschwindet dann.",
     prompt: () => claudeUnitRevisionPrompt({ unit: full || unit, now: Date.now() }) }) }, "Einheit mit Claude überarbeiten");
   const doneBtn = h("button", { class: "btn", type: "button", onclick: (e) => busy(e.currentTarget, async () => {
-    try { const r = await tapi("PATCH", "/api/teacher/units/" + unit.id, { body: { reviseDone: true } }); toast("Hinweis entfernt.", "ok"); if (opt.onChange) opt.onChange(r.unit); }
+    try { const r = await tapi("PATCH", "/api/teacher/units/" + unit.id, { body: { reviseDone: true } }); toast("Hinweis entfernt.", "ok"); if (opt.onChange) opt.onChange(r.unit); refocus(); }
     catch (x) { errToast(x); }
   }) }, icon("check"), "Erledigt – Hinweis entfernen");
   const undoBtn = rv.canUndo ? h("button", { class: "btn ghost danger", type: "button", onclick: async (e) => {
     const b = e.currentTarget;
     if (!(await confirmDialog("Krankmeldung rückgängig machen", "Krankmeldung rückgängig machen? Die Termine werden wie vorher; der Ausfall-Eintrag wird gelöscht.", "Rückgängig machen", true))) return;
     busy(b, async () => {
-      try { const r = await tapi("POST", "/api/teacher/units/" + unit.id + "/cancel/undo", { body: { undoId: rv.undoId } }); toast("Krankmeldung rückgängig gemacht – die Termine sind wie vorher.", "ok"); if (opt.onChange) opt.onChange(r.unit); }
+      try { const r = await tapi("POST", "/api/teacher/units/" + unit.id + "/cancel/undo", { body: { undoId: rv.undoId } }); toast("Krankmeldung rückgängig gemacht – die Termine sind wie vorher.", "ok"); if (opt.onChange) opt.onChange(r.unit); refocus(); }
       catch (x) { errToast(x); }
     });
   } }, "Krankmeldung rückgängig machen") : null;
-  return h("section", { class: "card revisebox", role: "region", "aria-labelledby": hid },
+  // Verschwindet der Kasten (Erledigt, rückgängig), fiele der Fokus auf body: dann – und nur dann – auf die Überschrift der (neu aufgebauten) Seite
+  const refocus = () => {
+    let n = 0;
+    const tick = () => {
+      const a = document.activeElement;
+      if (a && a !== document.body) return;
+      const h1 = !box.isConnected ? document.querySelector("main h1") : null;
+      if (h1) { if (!h1.hasAttribute("tabindex")) h1.setAttribute("tabindex", "-1"); h1.focus(); }
+      else if (++n < 30) setTimeout(tick, 100);
+    };
+    setTimeout(tick, 0);
+  };
+  const box = h("section", { class: "card revisebox", role: "region", "aria-labelledby": hid },
     h("h2", { id: hid }, icon("alert"), h("span", { text: "Die Einheit muss wegen der Ausfälle überarbeitet werden" })),
     ...text.map((t) => h("p", { text: t })),
     h("div", { class: "row" }, claudeBtn, doneBtn, undoBtn, opt.unitLink ? h("a", { class: "btn ghost", href: "#/lk/u/" + unit.id }, "Zur Einheit") : null));
+  return box;
 }

@@ -416,7 +416,7 @@ export async function gsSessionPage(id, d) {
     } }, "Sitzung löschen"));
 
   main.append(h("div", { class: "session-grid gs-session" },
-    h("div", { class: "stack" }, planCard, draftCard, unitCard, claudeCard, cardsBox.el, box.filesCard, box.printCard, contentCard, parentsCard),
+    h("div", { class: "stack gs-stack" }, planCard, draftCard, unitCard, claudeCard, cardsBox.el, box.filesCard, box.printCard, contentCard, parentsCard),
     h("aside", { class: "side" }, metaCard, sickCard)));
   setEditing(false);
   paintRevise();
@@ -541,6 +541,6 @@ async function gsPlaceholderPage(id, d, main, course, coursePage) {
       if (!(await confirmDialog("Ausfall-Eintrag löschen", "Ausfall-Eintrag löschen? Der Elternlink dieses Termins funktioniert danach nicht mehr; die Termine der Einheit bleiben, wie sie sind.", "Löschen", true))) return;
       try { await tapi("DELETE", "/api/teacher/lessons/" + id); toast("Ausfall-Eintrag gelöscht.", "ok"); go(unit ? "#/lk/u/" + unit.id : coursePage); } catch (e) { errToast(e); }
     } }, icon("trash"), "Ausfall-Eintrag löschen"));
-  main.append(h("div", { class: "stack" }, ...nn(unit ? reviseBox(unit, { unitLink: true, onChange: () => go("#/lk/s/" + id) }) : null, info, parents, del)));
+  main.append(h("div", { class: "stack gs-stack" }, ...nn(unit ? reviseBox(unit, { unitLink: true, onChange: () => go("#/lk/s/" + id) }) : null, info, parents, del)));
   onLeave(() => noteF.flush());
 }

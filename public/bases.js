@@ -5,8 +5,8 @@
 import { h, clear, toast, errToast, busy, modal, confirmDialog, fmtTime, fmtBytes, icon, pageHead, upload, apiUrl, stateLine } from "./ui.js";
 import { render, go } from "./app.js";
 import { T, tapi, teacherBar } from "./teacher.js";
-import { SUBJECTS, subjectName, isValidSubject, CLASS_GROUPS, Q_COURSES, classShort } from "./shared.js";
-import { BASE_KINDS, detectSections, parseRanges, formatRanges, sectionLabel, pageText, wantedSections, missingFor, wantedGsSections, missingForGs, baseKindLabel } from "./bases-detect.js";
+import { SUBJECTS, subjectName, isValidSubject, CLASS_GROUPS, Q_COURSES, classShort, schoolYearOf, berlinToday } from "./shared.js";
+import { BASE_KINDS, detectSections, parseRanges, formatRanges, sectionLabel, pageText, wantedSections, missingFor, wantedGsSections, missingForGs, gsReligionCourseIn, baseKindLabel } from "./bases-detect.js";
 
 let pdfjsP = null;
 function pdfjs() {
@@ -197,11 +197,12 @@ export async function basesPage(subject) {
       h("p", { class: "hint", text: "Angezeigt werden nur die Jahrgänge, in denen " + name + " laut Fach-Einstellungen unterrichtet wird. Q-Kurse: Grundkurs (GK) und Leistungskurs (LK) je Kurshalbjahr." }),
       subject === "evrel" ? gsStatus(head) : null);
   }
-  /* Ev. Religion: Schulcurriculum der Grundschule je Jahrgang 1–4 („fehlt“ nur, wenn es einen Religionskurs dieses Jahrgangs gibt) */
+  /* Ev. Religion: Schulcurriculum der Grundschule je Jahrgang 1–4 („fehlt“ nur, wenn es im laufenden Schuljahr einen Religionskurs dieses Jahrgangs gibt) */
   function gsStatus(head) {
+    const sy = (schoolYearOf(berlinToday()) || {}).label;
     const tbody = h("tbody", { role: "rowgroup" }, ["1", "2", "3", "4"].map((g) => {
       const docs = bases.filter((b) => b.kind === "gs-curriculum" && wantedGsSections(b, g).length), miss = missingForGs(bases, { religion: true, grade: g });
-      const course = gsCourses.some((k) => k && k.religion && String(k.grade) === g);
+      const course = gsReligionCourseIn(gsCourses, g, sy);
       return h("tr", { role: "row" }, h("td", { text: "Grundschule Jg. " + g, "data-label": "Jahrgang / Kurs", role: "cell" }),
         h("td", { class: "small", "data-label": "Verwendete Grundlagen", role: "cell" }, docs.length ? docs.map((b) => h("div", null, baseLink({ id: b.id, title: b.title, pages: formatRanges([...new Set(wantedGsSections(b, g).map((w) => w.n))]) }))) : h("span", { class: "muted", text: "–" })),
         h("td", { class: "small", "data-label": "Status", role: "cell" }, !miss.length ? h("span", { class: "ok" }, icon("check"), "vollständig")

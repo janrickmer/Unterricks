@@ -6,7 +6,7 @@
 //   Große Sicherung: Fach / Einheit / Sitzungen – dieselben Einheitsordner; Sitzungen ohne Einheit je Klasse in einem eigenen Ordner.
 import { T, tapi, fbAutoConnect } from "./teacher.js";
 import { readZip, ZipBlob } from "./zip.js";
-import { berlinToday } from "./shared.js";
+import { berlinToday, GS_SUBJECT } from "./shared.js";
 import * as UF from "./unitfile.js";
 import { buildSessionZip, readSessionZip, planSessionImport, applySessionImport, retry } from "./sessionio.js";
 
@@ -131,7 +131,7 @@ export async function applyPending(unitId, lessons, rec, { onStep = () => {} } =
 }
 
 /* ---------- Große Sicherung: alle Einheiten und Sitzungen ---------- */
-const README = (when, counts) => [
+const README = (when, counts, gs) => [
   "Sicherung aus Unterricks vom " + when + ".",
   "",
   "Aufbau: Fach / Unterrichtseinheit / Sitzungen (chronologisch nummeriert).",
@@ -146,8 +146,24 @@ const README = (when, counts) => [
   "- Eine Einheit: den Ordner der Einheit als ZIP-Datei packen (oder nur die Einheitsdatei wählen) und auf der Planungsseite einer neuen",
   "  Einheit „Einheit aus Datei laden“ nutzen. Mit der ZIP-Datei bekommen die Sitzungen beim Anlegen ihre gesicherten Inhalte.",
   "",
+  ...(gs ? GS_README(gs) : []),
   "Inhalt: " + counts.units + " Unterrichtseinheiten, " + counts.lessons + " Sitzungen.",
 ].join("\r\n");
+/* nur, wenn die Sicherung Einheiten oder Sitzungen der Grundschule enthält (sonst bleibt „Lies mich.txt“ wie bisher); example = erster Ordner */
+const GS_README = (example) => [
+  "Grundschule:",
+  "- Die Kurse der Grundschule liegen im Ordner „Grundschule“, z. B. „" + example + "/“ – aufgebaut wie die Fächer:",
+  "  Unterrichtseinheit / Sitzungen (chronologisch nummeriert).",
+  "- Die Sitzungsdatei einer Grundschul-Sitzung enthält den Verlaufsplan (in sitzung.json unter „portal“, mit den PDF-Verweisen",
+  "  [[pdf:…]] und dem Zwischenstopp), Inhalt und Hinweis für die Eltern („parentSummary“, „parentNote“), die Hausaufgabe, die PDFs",
+  "  und die Bildkarten samt Erzähltexten (bei der Datei unter „cards“).",
+  "- Ein Termin, an dem der Unterricht wegen einer Krankmeldung ausfiel, steht als eigener Sitzungsordner „… - Unterricht ausgefallen“",
+  "  (in sitzung.json „source.cancelled“); die verschobenen Stunden liegen an ihrem neuen Termin.",
+  "- Nicht in der Sicherung: die Elternlinks. Nach dem Zurücksetzen gelten die verteilten Links nicht mehr.",
+  "- Einheiten und Sitzungen der Grundschule lassen sich bisher nicht wieder in die Grundschule laden – die Dateien dienen zum",
+  "  Nachlesen und zum Wiederverwenden der Inhalte (z. B. mit Claude).",
+  "",
+];
 
 /* → {blob, name, counts {units, lessons}, notes, missing} */
 export async function buildBackup({ onStep = () => {}, onProgress = () => {}, cancelled = () => false } = {}) {
@@ -159,7 +175,7 @@ export async function buildBackup({ onStep = () => {}, onProgress = () => {}, ca
   const zip = new ZipBlob(), notes = [], missing = [], total = lessons.length, tot = idx.totals || {};
   if ((tot.units || 0) > units.length) missing.push((tot.units - units.length) + " Unterrichtseinheiten (zu viele für eine Sicherung)");
   if ((tot.lessons || 0) > lessons.length) missing.push((tot.lessons - lessons.length) + " Sitzungen (zu viele für eine Sicherung)");
-  let done = 0;
+  let done = 0, gsExample = null;
   const step = (m) => onStep(m);
   const track = (r) => { done += r.sessions; notes.push(...r.notes); missing.push(...r.missing); onProgress(done, total); };
   const order = (a, b) => UF.subjectOrder(a.subject) - UF.subjectOrder(b.subject) || String(a.klass).localeCompare(String(b.klass), "de", { numeric: true });
@@ -167,6 +183,7 @@ export async function buildBackup({ onStep = () => {}, onProgress = () => {}, ca
   for (const u of [...units].sort((a, b) => order(a, b) || String((a.params || {}).start || "").localeCompare(String((b.params || {}).start || "")) || String(a.title).localeCompare(String(b.title), "de"))) {
     if (cancelled()) throw new Cancelled();
     const prefix = zip.unique(UF.subjectFolderName(u.subject) + "/" + UF.unitFolderName(u, gsShort(u.klass)), true);
+    if (u.subject === GS_SUBJECT && !gsExample) gsExample = prefix;
     const mine = lessons.filter((l) => l.unitId === u.id);
     const fullU = (await retry(() => tapi("GET", "/api/teacher/units/" + u.id))).unit;   // Plan und Zeilen je Einheit (die Übersicht bleibt klein)
     const r = await addUnit(zip, prefix, fullU, mine, { fb, cancelled, gsShort: gsShort(u.klass), onStep: (m) => step(UF.subjectFolderName(u.subject) + " · " + m) });
@@ -177,11 +194,12 @@ export async function buildBackup({ onStep = () => {}, onProgress = () => {}, ca
   for (const l of loose) { const k = l.subject + "|" + l.klass; if (!groups.has(k)) groups.set(k, []); groups.get(k).push(l); }
   for (const g of [...groups.values()].sort((a, b) => order(a[0], b[0]))) {
     const prefix = zip.unique(UF.subjectFolderName(g[0].subject) + "/" + UF.looseFolderName(g[0].klass, gsShort(g[0].klass)), true);
+    if (g[0].subject === GS_SUBJECT && !gsExample) gsExample = prefix;
     track(await addUnit(zip, prefix, { title: "", rows: [] }, g, { fb, cancelled, onStep: (m) => step(UF.subjectFolderName(g[0].subject) + " · " + m) }));
   }
   if (cancelled()) throw new Cancelled();
   const today = berlinToday();
-  zip.add("Lies mich.txt", te.encode(README(today.slice(8, 10) + "." + today.slice(5, 7) + "." + today.slice(0, 4), { units: units.length, lessons: lessons.length })));
+  zip.add("Lies mich.txt", te.encode(README(today.slice(8, 10) + "." + today.slice(5, 7) + "." + today.slice(0, 4), { units: units.length, lessons: lessons.length }, gsExample)));
   zip.add(UF.BACKUP_FILE.json, te.encode(JSON.stringify({ kind: UF.BACKUP_FILE.kind, v: UF.BACKUP_FILE.v, exportedAt: Date.now(), units: units.length, lessons: lessons.length, notes, missing }, null, 1)));
   return { blob: zip.finish(), name: UF.backupFileName(today), counts: { units: units.length, lessons: lessons.length }, notes, missing, mark: idx.mark || null };
 }
