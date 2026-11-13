@@ -4,10 +4,10 @@
 import { api, apiUrl } from "./ui.js";
 import { isNotesFileName, cleanSlideNotes, NOTES_LIMITS } from "./shared.js";
 import { sanitizer } from "./pdfmaker.js";
-import { stripPage, pdfLib } from "./pdfcut.js";
+import { stripPage, pdfLib, pdfCarriers, copyPagesSafe } from "./pdfcut.js";
 
-// Anmerkungen, die Notizen tragen können: Schüler:innen bekommen dann nur die bereinigte Fassung (pdfcut.js, cleanPdfBytes)
-export const NOTE_ANNOTS = new Set(["Text", "Popup", "FileAttachment"]);
+// Anmerkungen: jede außer Links kann Notizen tragen (Kommentar, Rechteck, Freitext …) – Schüler:innen bekommen dann nur die bereinigte Fassung
+// (pdfcut.js, cleanPdfBytes; sie behält ohnehin nur Links)
 const MAX_JSON = 3 * 1024 * 1024;
 const decodeJson = (u8) => { try { return JSON.parse(new TextDecoder("utf-8").decode(u8).replace(/^﻿/, "")); } catch { return null; } };
 /* Anhänge [{name, content: Uint8Array}] → Rohdaten der Notizen: zuerst unterricks-notizen.json (ohne Groß-/Kleinschreibung), sonst eine JSON-Datei
@@ -19,22 +19,29 @@ export function pickNotes(files) {
   return null;
 }
 /* PDF.js-Dokument durchsehen: Dateianhänge (EmbeddedFiles) und Anmerkungen je Seite. needsClean = Schüler:innen bekommen nur eine bereinigte Fassung
-   (Anhänge oder Notiz-Anmerkungen vorhanden); raw = Notizen aus dem Anhang (ungeprüft) */
-export async function scanPdfNotes(doc) {
+   (Anhänge, Anmerkungen außer Links oder – mit opt.bytes und opt.lib (pdf-lib) – andere mögliche Notiz-Träger, pdfCarriers in pdfcut.js); raw = Notizen
+   aus dem Anhang (ungeprüft). Lässt sich ein Teil nicht lesen, gilt die Fassung als nötig (lieber bereinigt als Notizen bei Schüler:innen). */
+export async function scanPdfNotes(doc, opt = {}) {
   const files = [];
-  let atts = null;
-  try { atts = await doc.getAttachments(); } catch {}
+  let atts = null, unsure = false;
+  try { atts = await doc.getAttachments(); } catch { unsure = true; }
   for (const k of Object.keys(atts || {})) { const a = atts[k]; if (a && a.content) files.push({ name: a.filename || k, content: a.content }); }
   let noteAnnots = false;
   for (let i = 1; i <= doc.numPages; i++) {
     let an = [];
-    try { an = await (await doc.getPage(i)).getAnnotations(); } catch {}
+    try { an = await (await doc.getPage(i)).getAnnotations(); } catch { unsure = true; }
     for (const a of an || []) {
-      if (NOTE_ANNOTS.has(a.subtype)) noteAnnots = true;
-      if (a.subtype === "FileAttachment" && a.file && a.file.content) files.push({ name: a.file.filename || "", content: a.file.content });
+      if (a && a.subtype !== "Link") noteAnnots = true;
+      if (a && a.subtype === "FileAttachment" && a.file && a.file.content) files.push({ name: a.file.filename || "", content: a.file.content });
     }
   }
-  return { attachments: files.length, needsClean: files.length > 0 || noteAnnots, raw: pickNotes(files) };
+  // pdf-lib sieht auch, was PDF.js nicht zeigt (Metadaten, Seiteneinträge, nicht mehr erreichbare Objekte); lässt sich die PDF dort nicht laden
+  // (z. B. geschützt), bleibt es bei PDF.js – bereinigen ließe sie sich dann ohnehin nicht
+  let carriers = [];
+  if (opt.bytes && opt.lib) {
+    try { carriers = pdfCarriers(await opt.lib.PDFDocument.load(opt.bytes, { updateMetadata: false }), opt.lib); } catch {}
+  }
+  return { attachments: files.length, needsClean: files.length > 0 || noteAnnots || unsure || carriers.length > 0, raw: pickNotes(files), ...(carriers.length ? { carriers } : {}) };
 }
 
 /* ---------- Anmerkungs-PDF ---------- */
@@ -110,7 +117,7 @@ export async function annotatedPdfBytes(bytes, notes, lib, { codeSlides = [], ti
   const F = { r: await out.embedFont(StandardFonts.Helvetica), b: await out.embedFont(StandardFonts.HelveticaBold) };
   const clean = sanitizer(F.r), holders = new Set((codeSlides || []).map((x) => x && x.n));
   const byN = new Map(cleanSlideNotes(notes, total).map((x) => [x.n, x.items]));
-  const copied = await out.copyPages(src, Array.from({ length: total }, (_, i) => i));
+  const copied = copyPagesSafe(out, src, Array.from({ length: total }, (_, i) => i), lib);
   for (let i = 0; i < total; i++) {
     const pg = out.addPage(copied[i]);
     let box = { width: 960, height: 540 };

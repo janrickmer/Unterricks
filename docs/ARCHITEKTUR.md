@@ -261,7 +261,8 @@ implementiert und im End-to-End-Test geprüft (Ausnahmen unten ausdrücklich gen
    (Chrome/Edge mit mehreren Bildschirmen), die Window Management API (`getScreenDetails`, `beamerScreen`), sonst Vollbild auf dem
    Bildschirm, auf dem das Fenster liegt.
    **Notizen der Lehrkraft** (Nachtrag 20, siehe 4o) zeigt der Präsentationsmodus unter der großen aktuellen Folie nur, wenn die Vorschau
-   eingeblendet ist **und** das Beamerbild getrennt läuft (Beamerfenster per BroadcastChannel oder Beamergerät laut `beamers` des Durable Objects);
+   eingeblendet ist **und** das Beamerbild getrennt läuft (Beamergerät laut `beamers` des Durable Objects oder ein Beamerfenster per BroadcastChannel,
+   das zu sehen ist und nicht auf demselben Bildschirm liegt – siehe 4o);
    sie stehen nie in Nachrichten an Beamerfenster, Durable Object, Beamergerät oder Schüler:innen.
    **Beamer über ein zweites Gerät** (Nachtrag 15, `worker/beamer.js`): Meldet sich auf `#/beamer` binnen 1,5 s kein Präsentationsfenster im
    selben Browser, ist die Seite ein **Beamergerät** (z. B. Schul-iPad an Apple TV). Ein lokales Präsentationsfenster hat weiter Vorrang,
@@ -775,9 +776,15 @@ nicht in einer PDF, die Schüler:innen (oder Eltern, eine öffentliche Seite) be
   `parseNotesJson` liest den Rückfall aus dem Chat (```json …``` oder rohes JSON) mit verständlichen Meldungen.
 * **Hochladen** (`rasterizeAndUpload` in `public/presenter.js`, `scanPdfNotes` in `public/pdfnotes.js`): PDF.js liest die Anhänge (`getAttachments`, dazu
   FileAttachment-Anmerkungen) und sucht `unterricks-notizen.json` (Groß-/Kleinschreibung egal, sonst eine JSON-Datei mit „folien“). Trägt die PDF
-  Anhänge oder Notiz-Anmerkungen (Text, Popup, FileAttachment), erzeugt der Browser zuerst mit pdf-lib die **Fassung für Schüler:innen**
-  (`cleanPdfBytes` in `public/pdfcut.js`: Seiten kopiert, an der Quelle vor dem Kopieren bereinigt – nur Link-Anmerkungen bleiben, kein `/AF`; der
-  Dateianhang ist nicht über die Seiten erreichbar und kommt nicht mit) und lädt sie hoch (`PUT …/files/:id/clean`, R2 `…-ohne-notizen`,
+  Anhänge, Anmerkungen außer Links (Kommentar, Rechteck, Freitext, Formularfeld …) oder – laut `pdfCarriers` (pdf-lib, ganzer Objektbestand samt
+  Objekt-Streams und nicht mehr erreichbarer Objekte) – andere mögliche Notiz-Träger (eingebettete Dateien auch nur über `/AF`, XMP-Metadaten bzw.
+  Titel/Autor/Betreff/Stichwörter mit Notiz-Wörtern oder viel Text, eigene Dokumenteigenschaften, ungewöhnliche Seiteneinträge wie `/PieceInfo`,
+  `/Metadata`, `/AA` oder eigene Schlüssel), oder lässt sich ein Teil nicht durchsehen, erzeugt der Browser zuerst mit pdf-lib die **Fassung für
+  Schüler:innen** (`cleanPdfBytes` in `public/pdfcut.js`: neue PDF ohne Metadaten des Dokuments; Seiten an der Quelle vor dem Kopieren bereinigt –
+  nur Link-Anmerkungen und die Seiteneinträge aus `PAGE_KEEP` bleiben, kein `/AF`; der Dateianhang ist nicht über die Seiten erreichbar und kommt
+  nicht mit; `copyPagesSafe`: Verweise auf andere Seiten – z. B. ein Link auf eine spätere Folie – zeigen auf deren Kopie bzw. ins Leere, statt die
+  Seite samt Inhalt und Anmerkungen als verwaistes Objekt mitzukopieren; `/OCProperties` kommt mit, damit ausgeblendete Ebenen ausgeblendet
+  bleiben) und lädt sie hoch (`PUT …/files/:id/clean`, R2 `…-ohne-notizen`,
   `files.clean_size`); die **Folienbilder entstehen dann aus ihr**. Scheitert das, rendert PDF.js die Originalseiten ohne Anmerkungen und die Sitzung
   zeigt „Fassung für Schüler:innen erzeugen“. `POST …/ready` bekommt `notes` und `clean: true` – `clean_size` ist dann mindestens 0 (Pflicht) und wird
   durch ein späteres `…/ready` ohne `clean` nie aufgehoben. Ältere Präsentationen ohne Anhänge bleiben, wie sie waren (`clean_size` NULL).
@@ -787,10 +794,16 @@ nicht in einer PDF, die Schüler:innen (oder Eltern, eine öffentliche Seite) be
   entfernen die Anmerkungs-PDF.
 * **Schüler:innen**: `presentation-link` liefert bei `clean_size` nicht NULL nur die bereinigte Fassung (`p=clean`, eigene Signatur), fehlt sie, 409
   „wird gerade vorbereitet“ – nie die hochgeladene PDF. Die gekürzte Fassung („Bis hier gezeigt“, `markShown`) wird dann ebenfalls bereinigt; der Server
-  nimmt sie nur mit `clean=1` an (eine ältere, noch offene Seite kürzte ohne). Folienbilder sind Bilder der bereinigten Seiten.
+  nimmt sie nur mit `clean=1` an (eine ältere, noch offene Seite kürzte ohne). Gekürzt wird immer mit `copyPagesSafe` – auch ohne Notizen kommt eine
+  spätere Folie nicht mehr über einen Link mit. Folienbilder sind Bilder der bereinigten Seiten. Nicht entfernbar: unsichtbarer Text auf den Seiten
+  selbst (weiße Schrift, ausgeblendete Ebenen) – der Prompt verlangt deshalb ausdrücklich den Dateianhang.
 * **Präsentationsansicht** (`public/presenter.js`): unter der großen aktuellen Folie „Notizen zu Folie n“ als Stichpunkte (rollbar, Pfeil hoch/runter
   rollen dort, die übrigen Tasten blättern weiter; ein Drittel der Spalte, so breit wie die Folie), „Keine Notizen zu dieser Folie.“ bzw. „Codefolie vor
-  Folie 1“. Nur mit eingeblendeter Vorschau und getrenntem Beamerbild (`beamers.size` im BroadcastChannel oder `beamers` aus dem Durable Object);
+  Folie 1“. Nur mit eingeblendeter Vorschau und getrenntem Beamerbild (`beamers` aus dem Durable Object oder ein Beamerfenster im BroadcastChannel,
+  das meldet, dass es zu sehen ist (`vis` in „following“), solange der Browser nicht nur einen Bildschirm kennt (`screen.isExtended === false`, Chrome/Edge):
+  ein Beamerfenster auf demselben, gespiegelten Bildschirm bzw. ein zweiter Tab am iPad ist kein getrenntes Beamerbild – dann sagt die Leiste „Notizen
+  erscheinen, sobald das Beamerfenster auf einem zweiten Bildschirm zu sehen ist – sonst sähe die Klasse sie mit.“; kommt das Präsentationsfenster
+  wieder nach vorn, zählt ein Beamerfenster erst nach seiner neuen Meldung auf „who“);
   „Vorschau“/Taste V blendet beides aus. Fehlt das getrennte Beamerbild, nennt die Leiste 12 s lang (beim Start und nach dem Trennen) „Notizen erscheinen,
   sobald ein Beamerfenster oder Beamergerät verbunden ist – Ihre Anmerkungs-PDF finden Sie unter „Material nur für die Lehrkraft“.“; „Beamer verbinden“
   nennt es ebenfalls. Ein einzeln gespiegeltes iPad bleibt, wie es war.

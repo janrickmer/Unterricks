@@ -86,7 +86,8 @@ export function beamerPage() {
   const localOn = () => !!(st && !st.ended);
   let localFach = null, localNote = "";
   const ch = typeof BroadcastChannel === "function" ? new BroadcastChannel(BEAMER_CHANNEL) : null;
-  const tell = () => ch && ch.postMessage({ t: "following", bid, id: st && !st.ended ? st.id : null });
+  // vis: ob dieses Fenster gerade zu sehen ist – das Präsentationsfenster zeigt die Notizen der Lehrkraft nur, solange es das ist (Nachtrag 20)
+  const tell = () => ch && ch.postMessage({ t: "following", bid, id: st && !st.ended ? st.id : null, vis: document.visibilityState !== "hidden" });
   if (ch) ch.onmessage = (ev) => {
     const m = ev.data;
     if (!m || typeof m !== "object") return;
@@ -330,6 +331,7 @@ export function beamerPage() {
     } catch {}
   }
   const onVis = () => {
+    if (localOn()) tell();   // sichtbar bzw. verdeckt an das Präsentationsfenster (Notizen)
     if (document.visibilityState !== "visible") { stopPairing(); return; }
     attend();
     syncHold();

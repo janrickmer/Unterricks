@@ -12,12 +12,16 @@ const loadErr = (e, what) => new Error("Diese PDF lässt sich im Browser nicht "
   ". Bitte die Präsentation ohne Kennwortschutz als PDF exportieren und erneut hochladen.");
 
 /* Seite für Schüler:innen bereinigen – an der QUELLE vor dem Kopieren: pdf-lib kopiert nur, was die Seite noch erreicht (was erst nach dem
-   Kopieren entfernt würde, stünde als verwaistes Objekt trotzdem in der Datei). Es bleiben nur Link-Anmerkungen; /AF (zugeordnete Dateien) entfällt.
+   Kopieren entfernt würde, stünde als verwaistes Objekt trotzdem in der Datei). Es bleiben nur Link-Anmerkungen; von der Seite selbst nur die
+   Einträge in PAGE_KEEP – /AF (zugeordnete Dateien), /Metadata, /PieceInfo, /AA, /Thumb und eigene Schlüssel entfallen (Prüfung der
+   Datenschutzgarantie: dort könnten Notizen stehen, und pdf-lib kopiert sonst jeden Eintrag der Seite mit).
    lib = pdf-lib (PDFName, PDFArray, PDFDict) */
+export const PAGE_KEEP = new Set(["Type", "Parent", "Resources", "MediaBox", "CropBox", "BleedBox", "TrimBox", "ArtBox", "Rotate", "Contents", "Annots", "Group", "Tabs",
+  "UserUnit", "Trans", "Dur", "BoxColorInfo"]);
 export function stripPage(page, lib) {
   const { PDFName, PDFArray, PDFDict } = lib, node = page.node, ctx = node.context;
   const N = (k) => PDFName.of(k), safe = (f) => { try { return f(); } catch { return undefined; } };
-  node.delete(N("AF"));
+  for (const k of node.keys()) if (!PAGE_KEEP.has(k.asString().slice(1))) node.delete(k);
   const annots = safe(() => node.lookupMaybe(N("Annots"), PDFArray));
   if (!annots) { node.delete(N("Annots")); return; }
   const keep = [];
@@ -25,11 +29,77 @@ export function stripPage(page, lib) {
     const ref = annots.get(i), a = safe(() => ctx.lookupMaybe(ref, PDFDict));
     const sub = a && safe(() => a.lookupMaybe(N("Subtype"), PDFName));
     if (sub && sub.asString() === "/Link") {
-      for (const k of ["AF", "Popup", "IRT"]) a.delete(N(k));
+      for (const k of ["AF", "Popup", "IRT", "P"]) a.delete(N(k));
       keep.push(ref);
     }
   }
   if (keep.length) node.set(PDFName.of("Annots"), ctx.obj(keep)); else node.delete(PDFName.of("Annots"));
+}
+
+/* Seiten idx von src nach out kopieren, ohne dass andere Seiten mitkommen: pdf-lib kopiert alles, was eine Seite erreicht – ein Link auf eine
+   andere Folie (Inhaltsverzeichnis, „zurück zur Übersicht“) brächte deren Seite samt Inhalt und Anmerkungen als verwaistes Objekt mit (bei
+   „Bis hier gezeigt“ also spätere Folien und ihre Notizen). Deshalb zeigen Verweise auf kopierte Seiten auf ihre Kopie, Verweise auf alle
+   übrigen Seiten auf ein leeres Objekt (der Link führt dann ins Leere). Ausgeblendete Ebenen (/OCProperties) bleiben ausgeblendet – ohne sie
+   zeigte die Kopie verborgenen Inhalt. lib = pdf-lib (PDFObjectCopier, PDFPage, PDFName, PDFNull) → kopierte Seiten in der Reihenfolge von idx */
+export function copyPagesSafe(out, src, idx, lib) {
+  const { PDFObjectCopier, PDFPage, PDFName, PDFNull } = lib;
+  const copier = PDFObjectCopier.for(src.context, out.context), pages = src.getPages(), mapped = new Map(), nowhere = out.context.nextRef();
+  out.context.assign(nowhere, PDFNull);
+  for (const i of idx) mapped.set(pages[i].ref, out.context.nextRef());
+  for (const p of pages) copier.traversedObjects.set(p.ref, mapped.get(p.ref) || nowhere);
+  const copied = idx.map((i) => {
+    const ref = mapped.get(pages[i].ref), node = copier.copy(pages[i].node);
+    out.context.assign(ref, node);
+    return PDFPage.of(node, ref, out);
+  });
+  const oc = src.catalog.get(PDFName.of("OCProperties"));
+  if (oc) { try { out.catalog.set(PDFName.of("OCProperties"), copier.copy(oc)); } catch {} }
+  return copied;
+}
+
+/* Wo außer dem Dateianhang Notizen stecken könnten (Prüfung der Datenschutzgarantie, Nachtrag 20): trifft eines zu, bekommen Schüler:innen nur die
+   bereinigte Fassung – auch wenn die KI die Notizen entgegen dem Prompt nicht als unterricks-notizen.json eingebettet hat. Sucht im ganzen Objektbestand
+   (auch in Objekt-Streams und in Objekten, die keine Seite mehr erreicht): eingebettete Dateien, Anmerkungen außer Links (Kommentar, Rechteck,
+   Freitext, Formularfeld …), ungewöhnliche Seiteneinträge, XMP-Metadaten bzw. Dokumenteigenschaften mit Notiz-Wörtern oder viel Text, eigene
+   Schlüssel der Dokumenteigenschaften. Lieber einmal zu oft bereinigt (die Kopie zeigt dieselben Seiten) als Notizen bei Schüler:innen.
+   src = von pdf-lib geladenes Dokument, lib = pdf-lib → Liste der Gründe (leer = nichts gefunden) */
+const PAGE_USUAL = new Set([...PAGE_KEEP, "StructParents", "Thumb", "LastModified"]);   // gängig (PowerPoint, Keynote, Acrobat), ohne Text
+const INFO_KEYS = new Set(["Title", "Author", "Subject", "Keywords", "Creator", "Producer", "CreationDate", "ModDate", "Trapped"]);
+const NOTE_WORDS = /notiz|anmerkung|sprecher|speaker|lehrkraft/i;
+// viel Text oder Notiz-Wörter (Dokumenteigenschaften höchstens max Zeichen, XMP ohne Tags höchstens 1500)
+export const noteLike = (text, max) => { const t = String(text || ""); return t.length > max || NOTE_WORDS.test(t); };
+export function pdfCarriers(src, lib) {
+  const { PDFName, PDFDict, PDFArray, PDFRawStream, PDFString, PDFHexString, decodePDFRawStream } = lib;
+  const N = (k) => PDFName.of(k), why = new Set(), safe = (f) => { try { return f(); } catch { return undefined; } };
+  const nm = (v) => (v instanceof PDFName ? v.asString().slice(1) : "");
+  const txt = (v) => (v instanceof PDFString || v instanceof PDFHexString ? safe(() => v.decodeText()) || "" : "");
+  const cat = src.catalog, names = safe(() => cat.lookupMaybe(N("Names"), PDFDict));
+  if (cat.has(N("AF")) || (names && names.has(N("EmbeddedFiles")))) why.add("Dateianhang");
+  const annot = (d) => { const sub = nm(safe(() => d.lookup(N("Subtype")))); if (sub !== "Link") why.add("Anmerkung " + (sub || "ohne Typ")); };
+  for (const [, obj] of src.context.enumerateIndirectObjects()) {
+    const d = obj instanceof PDFDict ? obj : obj && obj.dict instanceof PDFDict ? obj.dict : null;
+    if (!d) continue;
+    const type = nm(d.get(N("Type")));
+    if (type === "EmbeddedFile" || d.has(N("EF")) || d.has(N("RF"))) why.add("Dateianhang");
+    if (type === "Annot" || (d.has(N("Subtype")) && d.has(N("Rect")))) annot(d);
+    if (type === "Metadata") {
+      if (!(obj instanceof PDFRawStream) || obj.contents.length > 4 * 1024 * 1024) { why.add("XMP-Metadaten"); continue; }
+      const x = safe(() => new TextDecoder("utf-8").decode(decodePDFRawStream(obj).decode()));
+      if (x === undefined || noteLike(x.replace(/<[^>]*>/g, " ").replace(/\s+/g, " ").trim(), 1500)) why.add("XMP-Metadaten");
+    }
+  }
+  for (const p of src.getPages()) {
+    for (const k of p.node.keys()) if (!PAGE_USUAL.has(nm(k))) why.add("Seiteneintrag /" + nm(k));
+    const an = safe(() => p.node.lookupMaybe(N("Annots"), PDFArray));
+    for (let i = 0; an && i < an.size(); i++) { const a = safe(() => p.node.context.lookupMaybe(an.get(i), PDFDict)); if (a) annot(a); }
+  }
+  const info = safe(() => src.context.lookup(src.context.trailerInfo.Info));
+  if (info instanceof PDFDict) for (const [k, v] of info.entries()) {
+    const key = nm(k);
+    if (!INFO_KEYS.has(key)) why.add("Dokumenteigenschaft /" + key);
+    else if (/^(Title|Author|Subject|Keywords)$/.test(key) && noteLike(txt(v), 300)) why.add("Dokumenteigenschaft /" + key);
+  }
+  return [...why];
 }
 
 /* PDF-Bytes → neue PDF mit den Seiten 1..n (PDFDocument von pdf-lib wird übergeben, damit es auch im Test läuft).
@@ -44,9 +114,10 @@ export async function cutPdfBytes(bytes, n, PDFDocument, opt = {}) {
 }
 async function copyOut(src, n, PDFDocument, opt) {
   if (opt.clean) for (const p of src.getPages().slice(0, n)) stripPage(p, opt.lib);
-  const out = await PDFDocument.create();
-  for (const p of await out.copyPages(src, Array.from({ length: n }, (_, i) => i))) out.addPage(p);
-  try { const t = src.getTitle(); if (t) out.setTitle(t); } catch {}
+  const out = await PDFDocument.create(), idx = Array.from({ length: n }, (_, i) => i);
+  // mit pdf-lib (opt.lib): ohne mitkopierte spätere Seiten (copyPagesSafe); sonst wie bisher
+  for (const p of opt.lib ? copyPagesSafe(out, src, idx, opt.lib) : await out.copyPages(src, idx)) out.addPage(p);
+  try { const t = src.getTitle(); if (t && !noteLike(t, 200)) out.setTitle(t); } catch {}   // der Titel nur, wenn er keine Notizen tragen kann
   out.setProducer("Unterricks"); out.setCreator("Unterricks");
   return out.save();
 }

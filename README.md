@@ -115,6 +115,8 @@ Feibeitsblatt braucht keine Änderung. Die Adressen stehen in `wrangler.jsonc` (
   großen aktuellen Folie** – aber **nur, wenn das Beamerbild getrennt läuft**: mit verbundenem Beamerfenster (erweiterter Bildschirm) oder
   Beamergerät („Beamer verbinden“). Ein einzeln gespiegeltes iPad (z. B. per AirPlay an Apple TV) oder ein gespiegelter Laptop zeigt sie
   nie – sonst sähe die Klasse sie mit; dort bleibt alles, wie es war (Folie und Vorschau), und die Leiste sagt kurz, wann Notizen erscheinen.
+  Auch ein Beamerfenster zählt nur, solange es zu sehen ist und – in Chrome und Edge – ein zweiter Bildschirm erkannt ist (ein Beamerfenster auf
+  demselben, gespiegelten Bildschirm oder ein zweiter Tab am iPad ist kein getrenntes Beamerbild).
   „Vorschau“ (Taste V) blendet Vorschau und Notizen gemeinsam aus. Ein eigener Knopf am iPad, der nur die Folien an Apple TV schickt, ist
   nicht zuverlässig möglich (AirPlay spiegelt) – deshalb gibt es zusätzlich unter **„Material nur für die Lehrkraft“** die **„Präsentation
   mit Anmerkungen – <Titel>.pdf“**: jede Folie, dahinter eine Anmerkungsfolie mit ihren Notizen (z. B. zum Ausdrucken neben dem iPad). In der
@@ -122,7 +124,10 @@ Feibeitsblatt braucht keine Änderung. Die Adressen stehen in `wrangler.jsonc` (
   Zeile); „Notizen speichern“ (mit Versionsschutz) erneuert die Anmerkungs-PDF, die PDF der Präsentation bleibt unverändert. Schüler:innen
   sehen die Notizen **nie**: weder live noch im Beamerfenster oder am Beamergerät, nicht in den Folienbildern und nicht in der PDF nach der
   Stunde – sie bekommen eine bereinigte Fassung ohne Anhänge und ohne Kommentare (Links bleiben), auch gekürzt bis zur markierten Folie;
-  solange die fehlt, bekommen sie gar keine. Ältere Präsentationen
+  solange die fehlt, bekommen sie gar keine. Bereinigt wird auch, wenn Claude die Notizen entgegen dem Prompt anders in die PDF geschrieben
+  hat (Kommentare oder Formen mit Text, Metadaten, Dokumenteigenschaften) – dann übernimmt Unterricks sie aber nicht als Notizen; bitten Sie
+  Claude in dem Fall um den JSON-Block für „JSON aus dem Chat einfügen“. Nicht entfernen lässt sich Text, der unsichtbar auf den Folien selbst steht (z. B. weiße
+  Schrift oder ausgeblendete Ebenen) – deshalb bittet der Prompt ausdrücklich nur um den Dateianhang. Ältere Präsentationen
   mit einem Code auf den Folien: Unterricks ersetzt ihn beim Hochladen durch den Code dieser Sitzung (wo das nicht sicher geht, z. B.
   bei einem unruhigen Foto hinter dem Code, bleibt die Folie unverändert und die Meldung nennt sie). Am Stundenende: Hausaufgabe eintragen und per
   Rechtsklick im Verlaufsplan „Zwischenstopp einfügen“, falls nicht alles geschafft wurde. In der nächsten Sitzung zeigt dann die Karte

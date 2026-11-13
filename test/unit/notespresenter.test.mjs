@@ -100,3 +100,41 @@ test("Präsentation ohne Notizen: mit Beamer bleibt alles wie bisher (kein Notiz
     assert.equal(document.querySelectorAll(".presenter .bmc-notes").length, 0);
   } finally { P.pres.end(false); }
 });
+
+// Datenschutzprüfung: Ein Beamerfenster auf demselben Bildschirm ist kein getrenntes Beamerbild – gespiegelt sähe die Klasse die Notizen, sobald das
+// Präsentationsfenster vorn ist (Laptop gespiegelt; am iPad ein zweiter Tab mit dem Beamerfenster)
+test("Beamerfenster nur auf einem Bildschirm (screen.isExtended false) bzw. gerade nicht zu sehen: keine Notizen; dieses Fenster zurück im Vordergrund: erst nach neuer Meldung", async () => {
+  const scr = new EventTarget(); scr.isExtended = false;
+  window.screen = scr;
+  const P = await open();
+  try {
+    const { NOTES_SCREEN_HINT } = await import("../../public/presenter.js");
+    right();
+    P.bc.onmessage({ data: { t: "following", id: P.pid, bid: "b1", vis: true } });
+    assert.equal(P.shown(), false, "nur ein Bildschirm: das Beamerfenster liegt auf dem gespiegelten Bildschirm");
+    assert.equal(P.hint(), NOTES_SCREEN_HINT);
+    assert.ok(P.posts.some((m) => m.t === "show"), "das Beamerfenster bekommt die Folie trotzdem");
+    scr.isExtended = true; scr.dispatchEvent(new Event("change"));
+    assert.equal(P.shown(), true, "Beamer als erweiterter Bildschirm: Notizen");
+    assert.ok(P.text().includes(SECRET));
+    P.bc.onmessage({ data: { t: "following", id: P.pid, bid: "b1", vis: false } });
+    assert.equal(P.shown(), false, "Beamerfenster gerade nicht zu sehen (z. B. Tab hinter diesem): keine Notizen");
+    P.bc.onmessage({ data: { t: "following", id: P.pid, bid: "b1", vis: true } });
+    assert.equal(P.shown(), true);
+    // dieses Fenster im Hintergrund und zurück: keine Notizen, bis das Beamerfenster auf „who“ meldet, dass es zu sehen ist
+    document.visibilityState = "hidden"; document.dispatchEvent(new D.Event("visibilitychange"));
+    assert.equal(P.shown(), false);
+    const before = P.posts.length;
+    document.visibilityState = "visible"; document.dispatchEvent(new D.Event("visibilitychange"));
+    assert.equal(P.shown(), false, "nicht schon beim ersten Bild nach der Rückkehr");
+    assert.ok(P.posts.slice(before).some((m) => m.t === "who"), "fragt die Beamerfenster neu");
+    P.bc.onmessage({ data: { t: "following", id: P.pid, bid: "b1", vis: true } });
+    assert.equal(P.shown(), true);
+    // ein Beamergerät (eigenes Gerät am Beamer) zählt auch bei nur einem Bildschirm hier
+    scr.isExtended = false; scr.dispatchEvent(new Event("change"));
+    assert.equal(P.shown(), false);
+    P.state({ beamers: 1 });
+    assert.equal(P.shown(), true);
+    assert.ok(!JSON.stringify(P.posts).includes(SECRET), "nie im BroadcastChannel");
+  } finally { P.pres.end(false); delete window.screen; }
+});

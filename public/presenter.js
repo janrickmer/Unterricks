@@ -105,7 +105,10 @@ export async function rasterizeAndUpload(file, fileId, token, onProgress, opt = 
   let scan = { needsClean: false, raw: null }, cleanState = null, renderOpt = {};
   if (!cards) {
     const { scanPdfNotes } = await import("./pdfnotes.js");
-    try { scan = await scanPdfNotes(doc); } catch {}
+    let plib = null;
+    try { plib = await (await import("./pdfcut.js")).pdfLib(); } catch {}
+    // auch mit pdf-lib durchsehen (Metadaten, Seiteneinträge …); scheitert die Durchsicht selbst, lieber bereinigen als Notizen bei Schüler:innen
+    try { scan = await scanPdfNotes(doc, { bytes, lib: plib }); } catch { scan = { needsClean: true, raw: null }; }
     if (scan.needsClean) {
       cleanState = { needed: true, ok: false, error: null };
       try {
@@ -245,6 +248,9 @@ export const TIMER_MAX_NOTE = "Insgesamt höchstens " + TIMER_TOTAL_MAX_MIN + " 
 // gespiegeltes iPad oder ein gespiegelter Laptop zeigt sie nie (die Klasse sähe sie mit)
 export const NOTES_HINT = "Notizen erscheinen, sobald ein Beamerfenster oder Beamergerät verbunden ist – Ihre Anmerkungs-PDF finden Sie unter „Material nur für die Lehrkraft“.";
 export const NOTES_PAIR_HINT = "Mit verbundenem Beamer sehen Sie hier unter der aktuellen Folie Ihre Notizen – am Beamer erscheinen sie nie.";
+// Beamerfenster verbunden, aber auf demselben Bildschirm (nur ein Bildschirm erkannt bzw. das Fenster ist gerade nicht zu sehen, z. B. ein Tab am iPad):
+// keine Notizen – ein gespiegelter Bildschirm zeigte sie sonst der Klasse, sobald das Präsentationsfenster vorn ist (Datenschutzprüfung)
+export const NOTES_SCREEN_HINT = "Notizen erscheinen, sobald das Beamerfenster auf einem zweiten Bildschirm zu sehen ist – sonst sähe die Klasse sie mit.";
 export const NOTES_HINT_MS = 12000;   // so lange steht der Hinweis in der Leiste (sonst bräche sie am iPad hochkant in eine dritte Zeile)
 export const NOTES_NONE = "Keine Notizen zu dieser Folie.";
 export async function startPresenter({ lessonId, file, token, startSlide = 0, onEnd, slides, onMark, shownUntil = null, code = "", title = "" }) {
@@ -303,8 +309,11 @@ export async function startPresenter({ lessonId, file, token, startSlide = 0, on
   const nextBtn = h("button", { class: "btn small", type: "button", "aria-pressed": String(showNext), "aria-label": "Vorschau der nächsten Folie",
     title: "Vorschau der nächsten Folie ein- oder ausblenden (Taste V)", onclick: () => setNext(!showNext) }, "Vorschau");
   function setNext(on) { showNext = on; store.set(NEXT_KEY, on ? "1" : "0"); nextBtn.setAttribute("aria-pressed", String(on)); root.classList.toggle("with-next", on); paint(); }
-  // getrennt = das Beamerbild läuft auf einem anderen Bildschirm: Beamerfenster (BroadcastChannel) oder Beamergerät (Zahl aus dem Durable Object)
-  const separate = () => beamers.size > 0 || beamersN > 0;
+  // getrennt = das Beamerbild läuft auf einem anderen Bildschirm: Beamergerät (Zahl aus dem Durable Object) oder ein Beamerfenster (BroadcastChannel),
+  // das gerade zu sehen ist (meldet es selbst: ein Tab hinter diesem Fenster bzw. am iPad ist es nicht) – und nie, wenn der Browser nur einen
+  // Bildschirm kennt (screen.isExtended === false: dann läge das Beamerfenster auf demselben, gespiegelten Bildschirm)
+  const oneScreen = () => !!(window.screen && window.screen.isExtended === false);
+  const separate = () => beamersN > 0 || (!oneScreen() && [...beamers].some((b) => beamVis.get(b) === true));
   function paintNotes() {
     const on = hasNotes && showNext && separate();
     root.classList.toggle("with-notes", on);
@@ -319,7 +328,7 @@ export async function startPresenter({ lessonId, file, token, startSlide = 0, on
     notesAt = cur;
   }
   function paintNotesHint() {
-    const want = hasNotes && showNext && !separate() && Date.now() < hintUntil, t = want ? NOTES_HINT : "";
+    const want = hasNotes && showNext && !separate() && Date.now() < hintUntil, t = want ? (beamers.size ? NOTES_SCREEN_HINT : NOTES_HINT) : "";
     if (notesHint.textContent !== t) notesHint.textContent = t;
   }
   function showNotesHint() {
@@ -330,7 +339,7 @@ export async function startPresenter({ lessonId, file, token, startSlide = 0, on
   }
   // Beamerfenster: nicht auf Tablets und Handys (dort gibt es kein zweites Fenster neben dem Präsentationsfenster)
   const bc = typeof BroadcastChannel === "function" ? new BroadcastChannel(BEAMER_CHANNEL) : null;
-  const pid = hex(rand(8)), beamers = new Set();
+  const pid = hex(rand(8)), beamers = new Set(), beamVis = new Map();   // beamVis: Beamerfenster gerade zu sehen (eigene Meldung, vis)
   let claimAt = Date.now();
   const touchOnly = typeof matchMedia === "function" && matchMedia("(hover: none) and (pointer: coarse)").matches;
   const beamBtn = bc && !touchOnly ? h("button", { class: "btn small", type: "button", onclick: () => openBeamer(),
@@ -612,15 +621,28 @@ export async function startPresenter({ lessonId, file, token, startSlide = 0, on
     const m = ev.data;
     if (!m || typeof m !== "object" || typeof m.bid !== "string") return;
     if (m.t === "hello") claim();
-    else if (m.t === "following") { const was = separate(); if (m.id === pid) { beamers.add(m.bid); sendShow(); } else beamers.delete(m.bid); paintBeam(); if (was && !separate()) showNotesHint(); paintNotes(); }
-    else if (m.t === "bye") { const was = separate(); beamers.delete(m.bid); paintBeam(); if (was && !separate()) showNotesHint(); paintNotes(); }
+    else if (m.t === "following") {
+      const was = separate(), fresh = m.id === pid && !beamers.has(m.bid);
+      // ältere Beamerfenster ohne vis gelten als zu sehen; solange dieses Fenster nicht zu sehen ist, zählt keins (siehe onVis)
+      if (m.id === pid) { beamers.add(m.bid); beamVis.set(m.bid, m.vis !== false && document.visibilityState !== "hidden"); sendShow(); }
+      else { beamers.delete(m.bid); beamVis.delete(m.bid); }
+      paintBeam(); if ((was || fresh) && !separate()) showNotesHint(); paintNotes();
+    }
+    else if (m.t === "bye") { const was = separate(); beamers.delete(m.bid); beamVis.delete(m.bid); paintBeam(); if (was && !separate()) showNotesHint(); paintNotes(); }
     else if (m.t === "cmd" && m.id === pid && beamers.has(m.bid)) run(m.cmd);
   };
   const onHide = () => { if (bc) try { bc.postMessage({ t: "end", id: pid, why: "close" }); } catch {} };
   const onShow = (e) => { if (e.persisted && bc) { claimAt = Date.now(); claim(); } };   // aus dem Verlauf zurück: Beamerfenster wieder übernehmen
   // wieder sichtbar (z. B. nach der Bildschirmsperre des iPads): den Stand neu holen – sonst zeigte der Timer hier und im Beamerfenster bis zur
   // nächsten Nachricht die Restzeit von vor der Sperre (performance.now() zählt auf manchen Geräten im Ruhezustand nicht weiter)
-  const onVis = () => { if (document.visibilityState === "visible") live.hello(); };
+  // Notizen (Datenschutzprüfung): verdeckt bzw. im Hintergrund zählt kein Beamerfenster mehr – wieder vorn erst, wenn es meldet, dass es zu sehen ist
+  // (sonst stünden die Notizen am iPad beim Wechsel zurück zu diesem Tab kurz auf dem gespiegelten Bildschirm, bevor das Beamerfenster „verdeckt“ meldet)
+  const onVis = () => {
+    for (const b of beamVis.keys()) beamVis.set(b, false);
+    paintNotes();
+    if (document.visibilityState === "visible") { live.hello(); if (bc && beamers.size) try { bc.postMessage({ t: "who" }); } catch {} }
+  };
+  const onScreen = () => paintNotes();   // Beamer als erweiterten Bildschirm eingerichtet bzw. wieder gespiegelt (Chrome, Edge)
   const isFs = () => !!(document.fullscreenElement || document.webkitFullscreenElement);
   function toggleFs() {
     if (isFs()) (document.exitFullscreen || document.webkitExitFullscreen).call(document);
@@ -665,9 +687,11 @@ export async function startPresenter({ lessonId, file, token, startSlide = 0, on
   window.addEventListener("pagehide", onHide);
   window.addEventListener("pageshow", onShow);
   document.addEventListener("visibilitychange", onVis);
+  try { if (window.screen && typeof window.screen.addEventListener === "function") window.screen.addEventListener("change", onScreen); } catch {}
   function end(stopForAll) {
     document.removeEventListener("keydown", onKey); clearTimeout(idleT); clearTimeout(devWaitT); clearTimeout(hintT); tb.stop();
     window.removeEventListener("pagehide", onHide); window.removeEventListener("pageshow", onShow); document.removeEventListener("visibilitychange", onVis);
+    try { if (window.screen && typeof window.screen.removeEventListener === "function") window.screen.removeEventListener("change", onScreen); } catch {}
     if (bc) { try { bc.postMessage({ t: "end", id: pid, why: stopForAll ? "stop" : "close" }); } catch {} bc.close(); }
     if (stopForAll) live.send({ t: "stop" });
     setTimeout(() => live.close(), stopForAll ? 400 : 0);

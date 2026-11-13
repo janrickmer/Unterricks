@@ -97,7 +97,8 @@ async function pdf(pages, label, oldCode, holder) {
 }
 
 // Präsentation mit Notizen der Lehrkraft (Nachtrag 20) wie von Claude: Dateianhang unterricks-notizen.json; auf Folie 1 zusätzlich ein Kommentar
-// (Notiz-Anmerkung) und ein Link, der für Schüler:innen bleibt. Frei erfundene Inhalte.
+// (Notiz-Anmerkung), ein Link, der für Schüler:innen bleibt, und ein Link auf Folie 3 (Inhaltsverzeichnis); Datenschutzprüfung: Notizen auch an
+// anderen Stellen (XMP, eigene Dokumenteigenschaft, eigener Seiteneintrag auf Folie 2, Kommentar auf Folie 3). Frei erfundene Inhalte.
 const NOTE1 = "NOTIZGEHEIM Impuls: Was wäre, wenn eine Person alle Macht hätte?", NOTE3 = "NOTIZGEHEIM Partnerarbeit ankündigen";
 async function notesPdf() {
   const d = await PDFDocument.create(), f = await d.embedFont(StandardFonts.HelveticaBold), reg = await d.embedFont(StandardFonts.Helvetica);
@@ -111,7 +112,21 @@ async function notesPdf() {
   const ctx = d.context;
   const c1 = ctx.register(ctx.obj({ Type: "Annot", Subtype: "Text", Rect: [900, 500, 920, 520], Contents: PDFString.of("NOTIZGEHEIM Kommentar") }));
   const ln = ctx.register(ctx.obj({ Type: "Annot", Subtype: "Link", Rect: [60, 30, 260, 60], Border: [0, 0, 0], A: { Type: "Action", S: "URI", URI: PDFString.of("https://example.org/") } }));
-  d.getPage(0).node.set(PDFName.of("Annots"), ctx.obj([c1, ln]));
+  const toc = ctx.register(ctx.obj({ Type: "Annot", Subtype: "Link", Rect: [60, 100, 400, 140], Border: [0, 0, 0], Dest: [d.getPage(2).ref, PDFName.of("Fit")] }));
+  d.getPage(0).node.set(PDFName.of("Annots"), ctx.obj([c1, ln, toc]));
+  d.getPage(2).node.set(PDFName.of("Annots"), ctx.obj([ctx.register(ctx.obj({ Type: "Annot", Subtype: "Text", Rect: [900, 500, 920, 520], Contents: PDFString.of("NOTIZGEHEIM Kommentar zu Folie 3") }))]));
+  d.getPage(1).node.set(PDFName.of("UnterricksNotizen"), PDFString.of("NOTIZGEHEIM Seiteneintrag"));
+  d.getInfoDict().set(PDFName.of("Notizen"), PDFString.of("NOTIZGEHEIM Dokumenteigenschaft"));
+  d.catalog.set(PDFName.of("Metadata"), ctx.register(ctx.stream(new TextEncoder().encode('<x:xmpmeta xmlns:x="adobe:ns:meta/"><rdf:RDF xmlns:rdf="http://www.w3.org/1999/02/22-rdf-syntax-ns#"><rdf:Description rdf:about="" xmlns:dc="http://purl.org/dc/elements/1.1/"><dc:description>NOTIZGEHEIM XMP</dc:description></rdf:Description></rdf:RDF></x:xmpmeta>'), { Type: "Metadata", Subtype: "XML" })));
+  return Buffer.from(await d.save());
+}
+// Datenschutzprüfung: Notizen NICHT als Anhang, sondern nur in XMP-Metadaten und in einem Rechteck-Kommentar (die KI hat sich nicht an den Prompt gehalten)
+async function notesElsewherePdf() {
+  const d = await PDFDocument.create(), f = await d.embedFont(StandardFonts.HelveticaBold);
+  for (let i = 1; i <= 3; i++) d.addPage([960, 540]).drawText("Ohne Anhang " + i, { x: 60, y: 270, size: 44, font: f });
+  const ctx = d.context;
+  d.catalog.set(PDFName.of("Metadata"), ctx.register(ctx.stream(new TextEncoder().encode('<x:xmpmeta xmlns:x="adobe:ns:meta/"><rdf:RDF xmlns:rdf="http://www.w3.org/1999/02/22-rdf-syntax-ns#"><rdf:Description rdf:about="" xmlns:dc="http://purl.org/dc/elements/1.1/"><dc:description>NOTIZXMP Notizen zu Folie 1: Impuls</dc:description></rdf:Description></rdf:RDF></x:xmpmeta>'), { Type: "Metadata", Subtype: "XML" })));
+  d.getPage(1).node.set(PDFName.of("Annots"), ctx.obj([ctx.register(ctx.obj({ Type: "Annot", Subtype: "Square", Rect: [10, 10, 40, 40], Contents: PDFString.of("NOTIZXMP Rechteck") }))]));
   return Buffer.from(await d.save());
 }
 // alle Bytes einer PDF samt entpackter Streams (Objekt-Streams, Anhänge) als Text – findet auch komprimierte Notizen
@@ -123,6 +138,11 @@ function pdfAllText(buf) {
     const e = b.indexOf("endstream", a); if (e < 0) break;
     try { parts.push(inflateSync(b.subarray(a, e)).toString("utf8")); } catch {}
     i = e + 9;
+  }
+  // Zeichenketten in Hex-Form (Text auf den Folien, Dokumenteigenschaften): <FEFF…> als UTF-16, sonst Latin-1
+  for (const p of parts.slice()) for (const m of p.matchAll(/<([0-9A-Fa-f\s]{4,})>/g)) {
+    const h = Buffer.from(m[1].replace(/\s+/g, ""), "hex");
+    parts.push(h[0] === 0xfe && h[1] === 0xff ? new TextDecoder("utf-16be").decode(h.subarray(2)) : h.toString("latin1"));
   }
   return parts.join("\n");
 }
@@ -1030,6 +1050,8 @@ async function main() {
       const nStore = await tp.evaluate(() => JSON.stringify(localStorage));
       const copyStore = (s) => { if (!sessionStorage.getItem("x")) { for (const [k, v] of Object.entries(JSON.parse(s))) localStorage.setItem(k, v); sessionStorage.setItem("x", "1"); } };
       const nctx = await browser.newContext({ viewport: { width: 1440, height: 900 } }); await nctx.addInitScript(copyStore, nStore);
+      // Laptop mit Beamer als erweitertem Bildschirm (headless kennt nur einen); window.__oneScreen = true spielt „gespiegelt“ nach (Datenschutzprüfung)
+      await nctx.addInitScript(() => { try { Object.defineProperty(Screen.prototype, "isExtended", { configurable: true, get() { return window.__oneScreen !== true; } }); } catch {} });
       const np = await nctx.newPage(); watch(np, "Lehrkraft (Notizen)");
       await np.goto(BASE + "/#/lk/s/" + nl.id);
       await np.locator("section.card", { hasText: "Präsentation für den Unterricht" }).locator("input[type=file]").first().setInputFiles({ name: "Notizen-Test.pdf", mimeType: "application/pdf", buffer: await notesPdf() });
@@ -1058,9 +1080,15 @@ async function main() {
         "ohne Beamerfenster bzw. Beamergerät: keine Notizen (wie bisher Folie und Vorschau), nur der Hinweis in der Leiste");
       await np.mouse.move(400, 300);
       await np.screenshot({ ...SHOT, path: join(OUT, "notizen-praesentation-ohne-beamer.png") });
-      // Beamerfenster verbunden: Notizen unter der aktuellen Folie, das Beamerfenster zeigt nur die Folie
+      // Beamerfenster verbunden: Notizen unter der aktuellen Folie, das Beamerfenster zeigt nur die Folie – aber nie, solange nur ein Bildschirm erkannt ist
+      // (gespiegelter Laptop: das Beamerfenster läge auf demselben Bildschirm, die Klasse sähe die Notizen, sobald das Präsentationsfenster vorn ist)
+      await np.evaluate(() => { window.__oneScreen = true; });
       const [nbw] = await Promise.all([nctx.waitForEvent("page"), npr.getByRole("button", { name: "Beamerfenster öffnen" }).click()]);
       watch(nbw, "Beamerfenster (Notizen)");
+      await nbw.waitForFunction(() => /\/1\?/.test((document.querySelector(".beamer .bm-stage > img") || {}).src || ""), null, { timeout: 10000 });
+      await np.locator(".presenter .notehint", { hasText: "Notizen erscheinen, sobald das Beamerfenster auf einem zweiten Bildschirm zu sehen ist – sonst sähe die Klasse sie mit." }).waitFor({ timeout: 10000 });
+      ok(await np.locator(".presenter.with-notes").count() === 0 && !(await npr.textContent()).includes("NOTIZGEHEIM"), "Beamerfenster bei nur einem Bildschirm (gespiegelt): keine Notizen, Hinweis in der Leiste");
+      await np.evaluate(() => { window.__oneScreen = false; screen.dispatchEvent(new Event("change")); });
       await np.locator(".presenter.with-notes .notespane").waitFor({ timeout: 10000 });
       await nbw.waitForFunction(() => /\/1\?/.test((document.querySelector(".beamer .bm-stage > img") || {}).src || ""), null, { timeout: 10000 });
       const notesTxt = () => npr.locator(".notespane").textContent();
@@ -1172,10 +1200,21 @@ async function main() {
       const npl2 = await SN("POST", "/api/student/lessons/" + nl.id + "/presentation-link", { inline: false });
       const ncut = Buffer.from(await (await fetch(BASE + npl2.data.url)).arrayBuffer());
       ok(npl2.data.url.includes("p=cut") && !pdfAllText(ncut).includes("NOTIZGEHEIM") && !pdfAllText(ncut).includes("EmbeddedFile") && (await PDFDocument.load(ncut)).getPageCount() === 2, "… gekürzt (Folie 1–2) ebenfalls ohne Notizen");
+      ok(pdfAllText(nfull).includes("Urteil: Ist das BVerfG") && !pdfAllText(ncut).includes("Urteil: Ist das BVerfG"), "… und der Link auf Folie 3 bringt Folie 3 (samt ihrem Kommentar) nicht in die gekürzte Fassung");
       const gl = await tool("get_lesson", { lesson_id: nl.id });
       ok(gl.content[0].text.includes("## Notizen der Lehrkraft zur Präsentation") && gl.content[0].text.includes("Zu 1 von 3 Folien gibt es Notizen") && !gl.content[0].text.includes("NOTIZJSON"), "Connector get_lesson nennt die Notizen kurz (ohne ihren Text)");
       // aufräumen: Präsentation samt Anmerkungs-PDF löschen, Datum und Beginn zurück
       ok((await T("DELETE", "/api/teacher/files/" + npres.id)).status === 200 && !(await T("GET", "/api/teacher/lessons/" + nl.id)).data.files.some((f) => f.notesOf), "Präsentation gelöscht: die Anmerkungs-PDF geht mit");
+      // Datenschutzprüfung: Notizen ohne Anhang (nur XMP und ein Rechteck-Kommentar) – auch dann bekommen Schüler:innen nur die bereinigte Fassung
+      await np.reload();
+      await np.locator("section.card", { hasText: "Präsentation für den Unterricht" }).locator("input[type=file]").first().setInputFiles({ name: "Ohne-Anhang.pdf", mimeType: "application/pdf", buffer: await notesElsewherePdf() });
+      await np.locator(".toast", { hasText: "Präsentation bereit (3 Folien)." }).waitFor({ timeout: 40000 });
+      const opres = (await T("GET", "/api/teacher/lessons/" + nl.id)).data.files.find((f) => f.area === "presentation");
+      const opl = await SN("POST", "/api/student/lessons/" + nl.id + "/presentation-link", { inline: false });
+      const ofull = Buffer.from(await (await fetch(BASE + opl.data.url)).arrayBuffer());
+      ok(opres.notes === 0 && opres.cleanNeeded === true && opres.cleanReady === true && opl.data.url.includes("p=clean") && !pdfAllText(ofull).includes("NOTIZXMP")
+        && pdfAllText(ofull).includes("Ohne Anhang 3"), "Notizen nur in XMP und einem Kommentar (ohne Anhang): Schüler:innen bekommen die bereinigte Fassung ohne sie");
+      ok((await T("DELETE", "/api/teacher/files/" + opres.id)).status === 200, "Präsentation ohne Anhang gelöscht");
       await T("PATCH", "/api/teacher/lessons/" + nl.id, { date: nl.date, startTime: nl.startTime || null });
       await nsctx.close(); await nctx.close();
     }
