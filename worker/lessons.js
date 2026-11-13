@@ -11,16 +11,18 @@ import { gsCourseStmt, gsCourseOut } from "./gs.js";
 import {
   isValidClass, isValidSubject, isValidCode, normalizeCode, greetingText, planningSystemPrompt, portalMessages, feibeitsblattMessages,
   chatTranscript, extractJsonObject, validatePortalData, renderPortalEntry, normalizeFbDraft, isIsoDate, hasStop, gradeKey, isClockTime, printFileName, GS_SUBJECT,
-  planRefs, parentOpensAt, stopParts,
+  planRefs, parentOpensAt, stopParts, planFingerprint, TEACHER_SUMMARY_MAX,
 } from "../public/shared.js";
 import { unitContext, STOP_CHOICE_TEXT, stopChatSection } from "../public/planning.js";
 
-export const LIMITS = { title: 200, topic: 500, ideas: 20000, homework: 10000, portal: 30000, message: 30000, answer: 100000, textMaterial: 200000, parentSummary: 800, parentNote: 2000 };
+export const LIMITS = { title: 200, topic: 500, ideas: 20000, homework: 10000, portal: 30000, message: 30000, answer: 100000, textMaterial: 200000, parentSummary: 800, parentNote: 2000, teacherSummary: TEACHER_SUMMARY_MAX };
 
 export const lessonOut = (r, extra = {}) => ({
   id: r.id, subject: r.subject, klass: r.klass, title: r.title, topic: r.topic, durationMin: r.duration_min ?? null, date: r.lesson_date || null, startTime: r.start_time || null, studentAi: r.student_ai === undefined || r.student_ai === null ? true : !!r.student_ai,
   ideas: r.ideas, homework: r.homework || "", code: r.code, unitId: r.unit_id || null, unitRow: r.unit_row || null, portal: r.portal, portalVersion: r.portal_version, portalUpdatedAt: r.portal_updated_at ?? null, portalSource: r.portal_source || null,
   createdAt: r.created_at, updatedAt: r.updated_at,
+  // Zusammenfassung der Sitzung für die Lehrkraft (Nachtrag 21) – nur in Routen der Lehrkraft (lessonOut gibt es nur dort)
+  teacherSummary: r.teacher_summary || "", teacherSummaryAt: r.teacher_summary_at ?? null, teacherSummaryPlan: r.teacher_summary_plan || null,
   // Grundschule: Inhalt und Hinweis für die Eltern, Ausfall-Eintrag, ob es einen Elternlink gibt (nie der Link selbst)
   ...(r.subject === GS_SUBJECT ? { parentSummary: r.parent_summary || "", parentNote: r.parent_note || "", cancelled: !!r.cancelled, hasParentLink: !!r.parent_hash } : {}), ...extra,
 });
@@ -136,6 +138,12 @@ function lessonFields(body, partial) {
   // Grundschule: „Inhalt der Unterrichtsstunde“ und „Hinweis der Lehrkraft“ für die Elternansicht
   if (partial && body.parentSummary !== undefined) f.parent_summary = cleanText(body.parentSummary, LIMITS.parentSummary).trim();
   if (partial && body.parentNote !== undefined) f.parent_note = cleanText(body.parentNote, LIMITS.parentNote).trim();
+  // Zusammenfassung der Sitzung für die Lehrkraft (Nachtrag 21): zu lang → Meldung statt still zu kürzen (Claude soll sie selbst kürzen)
+  if (partial && body.teacherSummary !== undefined) {
+    const t = cleanText(body.teacherSummary).trim();
+    if (t.length > LIMITS.teacherSummary) throw bad("Die Zusammenfassung der Sitzung für die Lehrkraft ist zu lang (" + t.length + " Zeichen, höchstens " + LIMITS.teacherSummary + ") – bitte kürzen.");
+    f.teacher_summary = t;
+  }
   // Beginn (Uhrzeit, freiwillig): ohne ihn sehen Schüler:innen weder Hausaufgabe noch Präsentation (siehe lessonTimes)
   if (!partial || body.startTime !== undefined) {
     const t = body.startTime === undefined || body.startTime === null ? "" : String(body.startTime).trim();
@@ -347,8 +355,27 @@ export async function updateLesson(db, id, body, now) {
   if ((f.parent_summary !== undefined || f.parent_note !== undefined) && old.subject !== GS_SUBJECT) throw bad("Nur bei Sitzungen der Grundschule.");
   // Ausfall-Eintrag (Krankmeldung, Grundschule): nur der Hinweis für die Eltern lässt sich ändern
   if (old.cancelled && keys.some((k) => k !== "parent_note")) throw bad("Bei einem Ausfall-Eintrag lässt sich nur der Hinweis der Lehrkraft für die Eltern ändern.");
-  const sets = keys.map((k, i) => k + "=?" + (i + 2)).join(", ");
-  await db.prepare("UPDATE lessons SET " + sets + ", updated_at=?" + (keys.length + 2) + " WHERE id=?1").bind(id, ...keys.map((k) => f[k]), now).run();
+  // Zusammenfassung für die Lehrkraft (Nachtrag 21): mit Zeitpunkt und Fingerabdruck der Planung (Hinweis, wenn die Planung danach geändert wird).
+  // teacherSummaryBase (Sitzungsseite): Stand, auf dem die Bearbeitung beruht – hat inzwischen jemand anderes (z. B. Claude) gespeichert, meldet der
+  // Server 409 statt still zu überschreiben (wie beim Schulportal-Eintrag); ohne Base (Connector, „Meine Fassung speichern“) wird gespeichert
+  let guard = "", base = null;
+  if (f.teacher_summary !== undefined) {
+    f.teacher_summary_at = f.teacher_summary ? now : null;
+    f.teacher_summary_plan = f.teacher_summary ? planFingerprint(old.portal) : null;
+    if (body.teacherSummaryBase !== undefined) {
+      base = body.teacherSummaryBase;
+      if (base !== null && !Number.isInteger(base)) throw bad("Stand der Zusammenfassung fehlt.");
+    }
+  }
+  const cols = Object.keys(f);
+  if (body.teacherSummaryBase !== undefined && f.teacher_summary !== undefined) guard = " AND teacher_summary_at IS ?" + (cols.length + 3);
+  const sets = cols.map((k, i) => k + "=?" + (i + 2)).join(", ");
+  const r = await db.prepare("UPDATE lessons SET " + sets + ", updated_at=?" + (cols.length + 2) + " WHERE id=?1" + guard).bind(id, ...cols.map((k) => f[k]), now, ...(guard ? [base] : [])).run();
+  if (guard && !(r.meta && r.meta.changes)) {
+    const cur = await getLesson(db, id);
+    throw new HttpError(409, "summary_conflict", "Die Zusammenfassung der Sitzung für die Lehrkraft wurde inzwischen an anderer Stelle geändert.",
+      { current: { text: cur.teacher_summary || "", at: cur.teacher_summary_at ?? null, plan: cur.teacher_summary_plan || null } });
+  }
   if (old.unit_id && old.unit_row && ((f.lesson_date && f.lesson_date !== old.lesson_date) || (f.duration_min !== undefined && f.duration_min !== old.duration_min) ||
       (f.start_time !== undefined && f.start_time !== (old.start_time || null)))) {
     try {
@@ -394,7 +421,7 @@ export async function routeLessonDelete(c, id) {
 
 /* ---------- Sitzung aus einer Datei übernehmen (public/sessionfile.js) ----------
  * Der Browser hat die Datei gelesen und die Datumsangaben in den Texten schon an diese Sitzung angepasst. Hier: Titel, Thema, Ideen,
- * Hausaufgabe, Schulportal-Eintrag und Planungsverlauf ersetzen; Textmaterial, Links, Druckvorlagen (Text) und Feibeitsblatt-Entwürfe
+ * Hausaufgabe, Zusammenfassung für die Lehrkraft, Schulportal-Eintrag und Planungsverlauf ersetzen; Textmaterial, Links, Druckvorlagen (Text) und Feibeitsblatt-Entwürfe
  * kommen dazu. Datum, Beginn, Dauer, Klasse und Code dieser Sitzung bleiben. Dateien lädt der Browser danach einzeln hoch. */
 export async function routeLessonImport(c, id) {
   await requireTeacher(c);
@@ -408,6 +435,12 @@ export async function routeLessonImport(c, id) {
   if (typeof les.topic === "string") f.topic = cleanLine(les.topic, LIMITS.topic);
   if (typeof les.ideas === "string") f.ideas = cleanText(les.ideas, LIMITS.ideas);
   if (typeof les.homework === "string") f.homework = cleanText(les.homework, LIMITS.homework).trim();
+  // Zusammenfassung für die Lehrkraft (Nachtrag 21): kommt mit der Planung aus der Datei (ohne = leer) – ihr Fingerabdruck gehört zum Eintrag aus der Datei
+  if (typeof les.teacherSummary === "string") {
+    f.teacher_summary = cleanText(les.teacherSummary, LIMITS.teacherSummary).trim();
+    f.teacher_summary_at = f.teacher_summary ? c.now : null;
+    f.teacher_summary_plan = f.teacher_summary ? planFingerprint(typeof les.portal === "string" ? cleanText(les.portal, LIMITS.portal) : l.portal) : null;
+  }
   const keys = Object.keys(f), stmts = [];
   if (keys.length) stmts.push(c.db.prepare("UPDATE lessons SET " + keys.map((k, i) => k + "=?" + (i + 2)).join(", ") + ", updated_at=?" + (keys.length + 2) + " WHERE id=?1").bind(id, ...keys.map((k) => f[k]), c.now));
   // Planungsverlauf ersetzen (Reihenfolge bleibt: json_each in der Reihenfolge der Liste)

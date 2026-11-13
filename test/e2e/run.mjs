@@ -214,7 +214,7 @@ async function main() {
     r = await T("POST", "/api/teacher/ai/models", { provider: "custom" });
     ok(r.data && r.data.models.includes("mock-2"), "verfügbare Modelle abrufbar");
 
-    const { addDays, fmtDay, lessonTimes, fmtClockBerlin } = await import("../../public/shared.js");
+    const { addDays, fmtDay, lessonTimes, fmtClockBerlin, summaryHead } = await import("../../public/shared.js");
     const today = new Date().toLocaleDateString("sv-SE");
     // Connector früh einrichten: Claude (simuliert über MCP) plant Einheit und Vertretung
     const mc = (await T("POST", "/api/teacher/mcp")).data;
@@ -478,6 +478,33 @@ async function main() {
     await tp.waitForFunction(() => document.querySelector("#hw").value.includes("(von Claude)"), null, { timeout: 10000 }).then(() => ok(true, "beim Zurückkehren: Hausaufgabe übernommen"), () => ok(false, "beim Zurückkehren: Hausaufgabe übernommen"));
     await tp.locator(".msg.assistant", { hasText: "Stundenentwurf von Claude" }).waitFor({ timeout: 10000 });
     ok(true, "… und Claudes Entwurf erscheint im Planungsverlauf");
+    // Nr. 21: als letzten Speicherschritt schreibt Claude die Zusammenfassung der Sitzung für die Lehrkraft – sie steht ganz oben, darüber die Kopfzeile aus
+    // den aktuellen Sitzungsdaten (Fach · Jahrgang · Wochentag, Datum, Beginn)
+    ok(lessonPrompt.includes("`update_lesson` mit `zusammenfassung_lehrkraft`") && lessonPrompt.indexOf("zusammenfassung_lehrkraft") < lessonPrompt.indexOf("Sage mir zum Schluss kurz"),
+      "Prompt: letzter Speicherschritt ist die Zusammenfassung der Sitzung für die Lehrkraft (update_lesson, zusammenfassung_lehrkraft)");
+    ok(await tp.locator("#tsum .tsum-empty").isVisible() && (await tp.locator("#tsum .tsum-empty").textContent()) === "Noch keine Zusammenfassung. Claude schreibt sie, wenn Sie die Planung im Chat ablegen lassen – oder Sie tragen sie selbst ein.",
+      "Zusammenfassung noch leer: Hinweis");
+    const SUM1 = "Zu Beginn zeigt die Lehrkraft eine Karikatur zur Macht im Staat und sammelt im Plenum erste Antworten (etwa zehn Minuten).\n\n" +
+      "Danach lesen die Schüler:innen in Partnerarbeit M1 und ordnen die drei Gewalten zu. Stolperstelle: Viele verwechseln Bundesrat und Bundestag.";
+    const lnow = (await T("GET", "/api/teacher/lessons/" + lessonId)).data.lesson;
+    r = await tool("update_lesson", { lesson_id: lessonId, zusammenfassung_lehrkraft: SUM1 });
+    ok(!r.isError && r.content[0].text.includes("Unterricks setzt darüber automatisch: „" + summaryHead(lnow) + "“"), "Claude speichert die Zusammenfassung; die Rückmeldung nennt die Kopfzeile („" + summaryHead(lnow) + "“)");
+    await tp.evaluate(() => document.dispatchEvent(new Event("visibilitychange")));
+    await tp.locator("#tsum-text p", { hasText: "verwechseln Bundesrat und Bundestag" }).waitFor({ timeout: 10000 });
+    ok((await tp.locator("#tsum-text p").allTextContents()).length === 2 && (await tp.locator("#tsum-head").textContent()) === summaryHead(lnow) && (await tp.locator("#tsum-h").evaluate((e) => e.tagName)) === "H2"
+      && (await tp.locator("#tsum-h").textContent()) === "Zusammenfassung der Sitzung für die Lehrkraft", "beim Zurückkehren: Karte „Zusammenfassung der Sitzung für die Lehrkraft“ mit Kopfzeile und zwei Absätzen");
+    ok(await tp.evaluate(() => { const t = document.querySelector("#tsum"), head = document.querySelector("main > header.pagehead");
+      return !!t && !!head && head.nextElementSibling === t && [...document.querySelectorAll("main section.card")][0] === t && !!(t.compareDocumentPosition(document.querySelector(".claudeplan")) & Node.DOCUMENT_POSITION_FOLLOWING); }),
+      "die Karte steht ganz oben – direkt unter dem Kopfband, vor allen anderen Karten");
+    await tp.evaluate(() => window.scrollTo(0, 0)); await tp.screenshot({ ...SHOT, path: join(OUT, "lehrkraft-zusammenfassung.png") });
+    // selbst bearbeiten
+    await tp.locator("#tsum-edit-btn").click();
+    ok(await tp.evaluate(() => document.activeElement && document.activeElement.id === "tsum-ta") && (await tp.inputValue("#tsum-ta")) === SUM1, "„Bearbeiten“: Textfeld mit dem Text, Fokus darin");
+    await tp.locator("#tsum-ta").fill(SUM1 + "\n\nZum Schluss das Tafelbild fotografieren.");
+    await tp.locator("#tsum").getByRole("button", { name: "Speichern", exact: true }).click();
+    await tp.locator('#tsum .save-state[data-state="ok"]', { hasText: "Gespeichert" }).waitFor({ timeout: 10000 });
+    ok((await T("GET", "/api/teacher/lessons/" + lessonId)).data.lesson.teacherSummary.endsWith("Zum Schluss das Tafelbild fotografieren.") && (await tp.locator("#tsum-text p").count()) === 3
+      && await tp.evaluate(() => document.activeElement && document.activeElement.id === "tsum-edit-btn"), "von der Lehrkraft geändert und gespeichert, Fokus zurück auf „Bearbeiten“");
 
     step("Material hochladen (zwei getrennte Bereiche) und aus dem Chat übernehmen");
     await tp.locator(".zones input[type=file]").nth(0).setInputFiles({ name: "Arbeitsblatt BVerfG.pdf", mimeType: "application/pdf", buffer: await pdf(1, "Arbeitsblatt") });
@@ -600,6 +627,7 @@ async function main() {
     const sbody = await sp.locator("main").textContent();
     ok(sbody.includes("Arbeitsblatt BVerfG.pdf") && sbody.includes("Ablauf aus dem Chat"), "freigegebenes Material sichtbar");
     ok(!sbody.includes("Erwartungshorizont GEHEIM"), "Material „nur für Lehrkräfte“ ist nicht sichtbar");
+    ok(!sbody.includes("verwechseln Bundesrat") && !sbody.includes("Zusammenfassung der Sitzung"), "die Zusammenfassung für die Lehrkraft (Nr. 21) sehen Schüler:innen nicht");
     const slk = sp.locator(".item", { hasText: "Erklärvideo der bpb" }).getByRole("link", { name: /Öffnen/ });
     ok(await slk.getAttribute("href") === "https://www.bpb.de/mediathek/video/bverfg" && await slk.getAttribute("target") === "_blank" && /noopener/.test(await slk.getAttribute("rel") || "") && !sbody.includes("Interne Linkliste GEHEIM"),
       "Schüler:innen öffnen den Link in neuem Tab; der Link „nur für Lehrkräfte“ ist unsichtbar");
@@ -612,9 +640,11 @@ async function main() {
     const dl = await fetch(BASE + link.data.url);
     ok(dl.status === 200 && /attachment/.test(dl.headers.get("content-disposition")) && (await dl.arrayBuffer()).byteLength > 500, "Schüler-Material herunterladbar (Datei für GoodNotes)");
     ok((await SA("GET", "/api/teacher/lessons/" + lessonId)).status === 401, "Schüler-Zugang öffnet keine Lehrkraft-Schnittstelle");
+    ok(!JSON.stringify((await SA("GET", "/api/student/lessons/" + lessonId)).data).includes("verwechseln Bundesrat"), "… auch nicht per Schnittstelle der Schüler:innen");
     await sp.goto(BASE + "/");
     await sp.waitForURL(/#\/schueler$/);
-    ok(await sp.locator(".item", { hasText: "Das Bundesverfassungsgericht" }).isVisible(), "beim nächsten Besuch: Sitzung ohne erneuten Code in der Liste");
+    // die Liste lädt die Startseite erst nach /api/student/me – darauf warten (isVisible allein prüfte nur den Augenblick nach dem Wechsel der Adresse)
+    ok(await sp.locator(".item", { hasText: "Das Bundesverfassungsgericht" }).waitFor({ timeout: 10000 }).then(() => true, () => false), "beim nächsten Besuch: Sitzung ohne erneuten Code in der Liste");
     await sp.locator(".item", { hasText: "Das Bundesverfassungsgericht" }).click();
     await sp.locator(".live .placeholder").waitFor();
     ok(await sp.locator(".live .placeholder").isVisible(), "Live-Fenster ganz oben (wartet auf die Lehrkraft)");
@@ -1250,6 +1280,8 @@ async function main() {
     r = await rpc({ jsonrpc: "2.0", id: 5, method: "tools/call", params: { name: "get_lesson", arguments: { lesson_id: lessonId }, _meta: meta } });
     const dump = r.data.result.content[0].text;
     ok(dump.includes("Q2") && dump.includes("Manuell ergänzt") && dump.includes("Ablauf aus dem Chat"), "Claude liest die aktuelle Sitzung inkl. Schulportal-Eintrag");
+    ok(dump.includes("\n## Zusammenfassung der Sitzung für die Lehrkraft\nKopfzeile (setzt Unterricks automatisch aus den aktuellen Sitzungsdaten): ") && dump.includes("Zum Schluss das Tafelbild fotografieren."),
+      "get_lesson: Abschnitt „Zusammenfassung der Sitzung für die Lehrkraft“ mit Kopfzeile und Text");
     const ver = r.data.result.structuredContent.portal_version;
     r = await rpc({ jsonrpc: "2.0", id: 6, method: "tools/call", params: { name: "add_text_material", arguments: { lesson_id: lessonId, bereich: "schueler", titel: "Von Claude: Arbeitsauftrag", markdown: "# Auftrag\n- Lies M1\n- Fasse zusammen" } } });
     ok(!r.data.result.isError, "Claude legt Material ab");
@@ -1520,6 +1552,10 @@ async function main() {
       return t;
     };
     await setWhen(Date.now() - 80 * 60e3);
+    {
+      const lw = (await T("GET", "/api/teacher/lessons/" + lessonId)).data.lesson;
+      ok((await tp.locator("#tsum-head").textContent()) === summaryHead(lw), "Zusammenfassung: die Kopfzeile folgt Datum und Beginn sofort („" + summaryHead(lw) + "“)");
+    }
     await sp.reload();
     await sp.locator(".homework").waitFor();
     const hwTxt = await sp.locator(".homework").textContent();
@@ -1638,9 +1674,15 @@ async function main() {
     ok((await sp.locator(".sv-count").textContent()) === "Folie 1 von 1" && await sp.locator(".sv-prev").getAttribute("aria-disabled") === "true" && await sp.locator(".sv-next").getAttribute("aria-disabled") === "true",
       "Auswahl „Folie 1“: Schüler:innen bekommen nur die erste Folie (Folienfenster „Folie 1 von 1“, beide Richtungen gesperrt)");
 
+    // Nr. 21: Zusammenfassung (von Claude) zum jetzigen Eintrag – der Zwischenstopp ändert die Planung nicht (kein Hinweis „danach geändert“)
+    ok(!(await tool("update_lesson", { lesson_id: lessonId, zusammenfassung_lehrkraft: "Zuerst ein Blitzlicht, dann Partnerarbeit mit M1, zum Schluss die Sicherung im Plenum." })).isError, "Claude überarbeitet die Zusammenfassung");
+    await tp.evaluate(() => document.dispatchEvent(new Event("visibilitychange")));
+    await tp.locator("#tsum-text p", { hasText: "Zuerst ein Blitzlicht" }).waitFor({ timeout: 10000 });
+    ok(!(await tp.locator("#tsum .tsum-note").isVisible()), "Zusammenfassung zum aktuellen Eintrag: kein Hinweis");
     await tp.locator(".portal-preview p", { hasText: "3) Partnerarbeit" }).click({ button: "right" });
     await tp.locator(".ctxmenu").getByRole("menuitem", { name: "Zwischenstopp einfügen" }).click();
     ok((await tp.inputValue("#portal")).includes("⏸ Zwischenstopp\n**3) Partnerarbeit**"), "Rechtsklick in der Vorschau → Zwischenstopp vor der Zeile");
+    ok(!(await tp.locator("#tsum .tsum-note").isVisible()), "ein Zwischenstopp ändert die Planung nicht: kein Hinweis an der Zusammenfassung");
     ok(await tp.locator(".portal-preview .stopfield").count() === 1, "als kleines Feld in der Vorschau");
     ok(await tp.locator("#stop-next").isVisible() && (await tp.locator("#stop-next").textContent()).startsWith("Zwischenstopp gesetzt.")
       && (await tp.locator("#stop-next").textContent()).includes("ob der offene Teil übernommen oder darauf verzichtet wird."), "Hinweis: beim Planen der nächsten Sitzung fragt Claude nach dem offenen Teil (Anforderung 13)");
@@ -1664,6 +1706,16 @@ async function main() {
     await tp.locator(".ctxmenu").waitFor();
     await tp.locator("section.card").filter({ has: tp.locator("h2", { hasText: /^Schulportal-Eintrag$/ }) }).screenshot({ ...SHOT, path: join(OUT, "lehrkraft-zwischenstopp.png") });
     await tp.keyboard.press("Escape");
+    {
+      // eine echte Änderung (auch ungespeichert im Editor) → Hinweis; zurückgenommen → weg
+      const before = await tp.inputValue("#portal");
+      await tp.locator("#portal").evaluate((el) => { el.value += "\n- Ergänzung der Lehrkraft"; el.dispatchEvent(new Event("input", { bubbles: true })); });
+      ok(await tp.locator("#tsum .tsum-note").isVisible() && (await tp.locator("#tsum .tsum-note").textContent()) === "Die Planung wurde danach geändert – die Zusammenfassung ist vielleicht nicht mehr aktuell.",
+        "Schulportal-Eintrag nach der Zusammenfassung geändert: Hinweis „Die Planung wurde danach geändert …“");
+      await tp.locator("#portal").evaluate((el, v) => { el.value = v; el.dispatchEvent(new Event("input", { bubbles: true })); }, before);
+      ok(!(await tp.locator("#tsum .tsum-note").isVisible()), "… Änderung zurückgenommen: Hinweis weg");
+      await sleep(1800);
+    }
     await tp.locator(".homework").screenshot({ ...SHOT, path: join(OUT, "lehrkraft-hausaufgabe.png") });
 
     await tp.goto(BASE + "/#/lk/s/" + l2.id);
@@ -2309,10 +2361,20 @@ async function main() {
         "save_verlaufsplan: gültig; Eltern sehen nach der Stunde die beiden Blätter der Kinder");
       ok(!(await tool("update_lesson", { lesson_id: les2.id, inhalt_eltern: "Wir haben gehört, wie Josef nach Ägypten kam." })).isError
         && (await tool("update_lesson", { lesson_id: lessonId, inhalt_eltern: "x" })).isError === true, "update_lesson inhalt_eltern: Grundschule ja, Gymnasium abgelehnt");
+      // Nr. 21: Zusammenfassung der Sitzung für die Lehrkraft auch in der Grundschule (Kopfzeile mit Kursfach und Klassen)
+      const GSUM = "Im Sitzkreis singen alle das Begrüßungslied. Dann liest die Lehrkraft den Vorlesetext vor.\n\nDanach bearbeiten die Kinder in Einzelarbeit das Arbeitsblatt. Stolperstelle: Die Traumdeutung des Pharaos braucht Zeit.";
+      g = await tool("update_lesson", { lesson_id: les2.id, zusammenfassung_lehrkraft: GSUM });
+      const gd = (await T("GET", "/api/teacher/lessons/" + les2.id)).data, ghead = summaryHead(gd.lesson, gd.course && gd.course.gs);
+      ok(!g.isError && ghead.startsWith("Religion · Jahrgang 2 (Klassen 2a, 2b) · ") && g.content[0].text.includes("Unterricks setzt darüber automatisch: „" + ghead + "“"),
+        "Grundschule: update_lesson zusammenfassung_lehrkraft – Kopfzeile mit dem Kurs („" + ghead + "“)");
       // b) Sitzungsseite der Lehrkraft: Verlaufsplan ganz oben, PDF-Namen gelb markiert als Links in einen neuen Tab
       await tp.goto(BASE + "/#/lk/s/" + les2.id);
       const plan = tp.locator("#gsplan");
       await plan.locator("a.pdfref").nth(2).waitFor({ timeout: 15000 });
+      ok(await tp.evaluate(() => { const t = document.querySelector("#tsum"); return !!t && document.querySelector("main > header.pagehead").nextElementSibling === t && !!(t.compareDocumentPosition(document.querySelector("#gsplan")) & Node.DOCUMENT_POSITION_FOLLOWING); })
+        && (await tp.locator("#tsum-head").textContent()) === ghead && (await tp.locator("#tsum-text p").allTextContents()).length === 2 && (await tp.locator("#tsum-text").textContent()).includes("Traumdeutung des Pharaos"),
+        "Grundschul-Sitzung: Zusammenfassung ganz oben (vor dem Verlaufsplan) mit Kopfzeile und Text");
+      await tp.evaluate(() => window.scrollTo(0, 0)); await tp.screenshot({ ...SHOT, path: join(OUT, "grundschule-zusammenfassung.png") });
       ok(await tp.evaluate(() => { const s = document.querySelector(".gs-session > .stack"); return !!s && s.firstElementChild && s.firstElementChild.id === "gsplan"; })
         && await tp.locator('.topbar nav a[aria-current="page"]').textContent() === "Grundschule" && (await plan.locator(".save-state").textContent()).includes("Version 2 · zuletzt von Claude"),
         "Sitzungsseite: Verlaufsplan als erste Karte, Menüpunkt Grundschule, „Version 2 · zuletzt von Claude“");
@@ -2525,6 +2587,12 @@ async function main() {
       ok((await ep.locator(".pv-meta").textContent()).startsWith("Religion · Jahrgang 2 (Klassen 2a, 2b) · ") && (await ep.locator(".pv-summary").textContent()).includes("Wir haben gehört, wie Josef nach Ägypten kam.")
         && (await ep.locator(".pv-homework").textContent()).includes("Male ein Bild von Josef.") && await ep.title() === "Unterricht am " + dPrev.split("-").reverse().join("."),
         "Kurs, Inhalt der Unterrichtsstunde, Hausaufgabe, Titel des Tabs");
+      {
+        const ej = await (await fetch(BASE + "/api/eltern/sitzung", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ token: parentToken }) })).json();
+        const ev = await (await fetch(BASE + "/api/eltern/verlauf", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ token: parentToken }) })).json();
+        ok(ej.ok && ev.ok && !(await ep.locator("main").textContent()).includes("Traumdeutung des Pharaos") && !JSON.stringify(ej).includes("Traumdeutung") && !JSON.stringify(ev).includes("Traumdeutung")
+          && (await T("GET", "/api/teacher/lessons/" + les2.id)).data.lesson.teacherSummary.includes("Traumdeutung des Pharaos"), "die Zusammenfassung für die Lehrkraft (Nr. 21) sehen Eltern nie – weder auf der Seite noch in den Antworten");
+      }
       const cv = ep.locator(".pv-cards figure.cardview");
       await cv.locator(".cv-count", { hasText: "Karte 1 von 3" }).waitFor({ timeout: 10000 });
       ok(await ep.locator(".pv-cards").getAttribute("aria-label") === "Bildkarten: Bildkarten – Josef in Ägypten" && (await cv.locator("figcaption").textContent()) === "Josef kommt nach Ägypten."
@@ -2920,7 +2988,8 @@ async function main() {
     {
       const num = (iso) => iso.slice(8, 10) + "." + iso.slice(5, 7) + "." + iso.slice(0, 4);
       let srcL = (await T("GET", "/api/teacher/lessons/" + lessonId)).data.lesson;
-      await T("PATCH", "/api/teacher/lessons/" + lessonId, { homework: "Lies M2 bis " + num(srcL.nextDate) + ".", ideas: "Test am " + num(srcL.date) + ", Projekttag am 24.12.2030." });
+      const tsumOf = (d) => "Am " + num(d) + " beginnt die Stunde mit einer Karikatur; danach Partnerarbeit mit M1.";
+      await T("PATCH", "/api/teacher/lessons/" + lessonId, { homework: "Lies M2 bis " + num(srcL.nextDate) + ".", ideas: "Test am " + num(srcL.date) + ", Projekttag am 24.12.2030.", teacherSummary: tsumOf(srcL.date) });
       await tp.goto(BASE + "/#/lk/s/" + lessonId); await tp.reload();
       await tp.locator("#fbcard .badge.ok", { hasText: "verbunden" }).first().waitFor({ timeout: 20000 });
       const [sdl] = await Promise.all([tp.waitForEvent("download", { timeout: 60000 }), tp.locator(".sessionio").getByRole("button", { name: "Sitzung als Datei herunterladen" }).click()]);
@@ -2931,6 +3000,7 @@ async function main() {
         && sj.files.some((f) => f.area === "print" && f.kind === "text") && !sj.files.some((f) => /Notfall-Feibeitsblatt/.test(f.name)) && sj.files.filter((f) => f.path).every((f) => sz.some((x) => x.name === f.path));
       if (!okFiles) console.log("    Inhalt:", JSON.stringify(sj.files.map((f) => f.area + ":" + f.kind + ":" + (f.path || f.name))), sz.map((x) => x.name).join(" | "));
       ok(okFiles, "Datei enthält Planung, Materialien, Links, Präsentation und Druckliste (ohne Notfall-Feibeitsblatt)");
+      ok(sj.lesson.teacherSummary === tsumOf(srcL.date), "… und die Zusammenfassung für die Lehrkraft (Nr. 21, ohne Kopfzeile)");
       if (!sj.drafts.some((d) => d.title === "Mock-Blatt BVerfG")) console.log("    Entwürfe:", JSON.stringify(sj.drafts.map((d) => d.title)), "Hinweise:", JSON.stringify(sj.notes));
       ok(sj.drafts.some((d) => d.title === "Mock-Blatt BVerfG" && d.tasks.length === 2), "… und das verknüpfte Feibeitsblatt als Entwurf (Inhalt aus dem Feibeitsblatt)");
       const sDes = sj.files.find((f) => f.name === "Arbeitsblatt Gewaltenteilung.pdf");
@@ -2950,6 +3020,8 @@ async function main() {
       ok(tl.lesson.title === srcL.title && tl.lesson.date === target.date && tl.lesson.durationMin === target.durationMin && (tl.lesson.startTime || null) === (target.startTime || null), "Inhalte übernommen; Datum, Beginn und Dauer der geöffneten Sitzung bleiben");
       ok(!tl.lesson.homework.includes(num(srcL.nextDate)) && (!tl.lesson.nextDate || tl.lesson.homework.includes(num(tl.lesson.nextDate))) && tl.lesson.ideas.includes(num(target.date)) && tl.lesson.ideas.includes("24.12.2030"),
         "Datumsangaben an die neue Sitzung angepasst (Hausaufgabe bis zur nächsten Sitzung, Datum der Sitzung)");
+      ok(tl.lesson.teacherSummary === tsumOf(target.date) && (await tp.locator("#tsum-head").textContent()) === summaryHead(tl.lesson) && (await tp.locator("#tsum-text").textContent()).includes(num(target.date)),
+        "Zusammenfassung für die Lehrkraft übernommen (Datum angepasst), Kopfzeile aus den Daten dieser Sitzung");
       ok(tl.files.some((f) => f.area === "presentation" && f.status === "ready" && f.pages === 3 && JSON.stringify((f.codeSlides || []).map((c) => c.n)) === "[3]") && tl.files.some((f) => f.kind === "link" && f.url === "https://www.bpb.de/mediathek/video/bverfg")
         && tl.files.filter((f) => f.area === "print").length === 4 && tl.files.some((f) => f.name === "Erwartungshorizont GEHEIM.docx" && f.area === "teacher") && tl.drafts.some((d) => d.data && d.data.title === "Mock-Blatt BVerfG"),
         "Präsentation (mit Folien und erkannter Codefolie), Links, Druckliste, Lehrkraft-Material und Feibeitsblatt-Entwurf übernommen");

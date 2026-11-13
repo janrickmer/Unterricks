@@ -49,14 +49,22 @@ const BEFORE = { sek: "f2c21230cad34f85d878845ceaaf4452ed56590e00fa034835b44d706
 // Nr. 17 (13.11.2026): der Gymnasium-Prompt bekommt genau einen Satz zu Links in Feibeitsblättern (FB_LINK_RULE in FEIBEITSBLATT_INFO) – ohne ihn
 // bleibt er byte-gleich; Jg. 5/6 (keine Feibeitsblätter) und die Grundschule bleiben ganz unverändert
 const withoutLinkRule = (p) => { assert.equal(p.split(" " + S.FB_LINK_RULE).length - 1, 1, "der Satz zu Links steht genau einmal im Prompt"); return p.replace(" " + S.FB_LINK_RULE, ""); };
-test("ohne Zwischenstopp: beide Prompts byte-gleich zum Stand vor S11 (Gymnasium: bis auf den Satz zu Links in Feibeitsblättern)", () => {
+// Nr. 21 (13.11.2026): beide Prompts bekommen genau einen letzten Speicherschritt (Zusammenfassung der Sitzung für die Lehrkraft) und den Zusatz für den
+// Rückfall ohne Connector – ohne beide bleiben sie byte-gleich
+const withoutSummary = (p, gs, analog = false) => {
+  const step = "\n" + S.summarySaveStep(gs, analog);
+  assert.equal(p.split(step).length - 1, 1, "der Schritt zur Zusammenfassung steht genau einmal im Prompt");
+  assert.equal(p.split(S.SUMMARY_FALLBACK).length - 1, 1, "der Zusatz für den Rückfall steht genau einmal im Prompt");
+  return p.replace(step, "").replace(S.SUMMARY_FALLBACK, "");
+};
+test("ohne Zwischenstopp: beide Prompts byte-gleich zum Stand vor S11 (Gymnasium: bis auf den Satz zu Links in Feibeitsblättern; beide bis auf die Zusammenfassung)", () => {
   const s = F.sekCtx(P.unitContext), g = F.gsCtx(P.unitContext);
-  assert.equal(sha(withoutLinkRule(P.claudeLessonPrompt(s))), BEFORE.sek);
+  assert.equal(sha(withoutLinkRule(withoutSummary(P.claudeLessonPrompt(s), false))), BEFORE.sek);
   const sek6 = P.claudeLessonPrompt({ ...s, klass: "6B", unit: null, row: null, unitText: "", messages: [] }), gs = G.claudeGsLessonPrompt(g), gs0 = G.claudeGsLessonPrompt({ ...g, unit: null, row: null, unitText: "" });
   for (const p of [sek6, gs, gs0]) assert.ok(!p.includes(S.FB_LINK_RULE) && !p.includes("[Linktext](https://…)"));
-  assert.equal(sha(sek6), BEFORE.sek6);
-  assert.equal(sha(gs), BEFORE.gs);
-  assert.equal(sha(gs0), BEFORE.gs0);
+  assert.equal(sha(withoutSummary(sek6, false, true)), BEFORE.sek6);
+  assert.equal(sha(withoutSummary(gs, true)), BEFORE.gs);
+  assert.equal(sha(withoutSummary(gs0, true)), BEFORE.gs0);
 });
 
 const PREV = { id: "abcdefabcdefabcd", title: "Was ist Macht?", date: "2026-11-10", portal: "**1) Einstieg**\n- Karikatur\n" + STOP + "\n**2) Partnerarbeit**\n- ~~M1~~ lesen", portalVersion: 4,
@@ -132,7 +140,7 @@ test("Grundschule mit Zwischenstopp: Verlaufsplan, uid, Material nach dem Zwisch
     assert.ok(p.includes(s), s);
   const sec = p.slice(p.indexOf("## Vorige Stunde"), p.indexOf("## Feste Vorgaben"));
   assert.ok(!sec.includes("Schulportal-Eintrag") && !p.includes("ihre Nummer `nr`"));
-  assert.ok(p.includes("Plane dann mit den Angaben oben und gib mir den Verlaufsplan am Ende zum Kopieren aus. Ändert sich wegen des offenen Teils"));
+  assert.ok(p.includes("Plane dann mit den Angaben oben und gib mir den Verlaufsplan am Ende zum Kopieren aus" + S.SUMMARY_FALLBACK + ". Ändert sich wegen des offenen Teils"));
 });
 
 test("Prompt „Einheit nach Ausfällen überarbeiten“: Verlängern über extend_unit statt „trage ich in den Rahmendaten ein“", () => {

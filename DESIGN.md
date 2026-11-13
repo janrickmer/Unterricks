@@ -610,7 +610,13 @@ Der Kopf jeder Seite: Fach, Kurs und Stand auf einen Blick.
 
 ### Hauptweg-Markerfolie (`.claudeplan`)
 - **Stil:** Karte in `--gelb` mit Kante `--gelb-kante`; alle Schrift #13213b, Hinweise mit Deckkraft .85; Abzeichen „Hauptweg“ in #13213b mit gelber Schrift; ein großer Primärknopf in #13213b (54px) – „Stunde mit Claude planen“ bzw. „Einheit mit Claude planen“; darunter der Verweis auf das Backup; Aufklapper mit Haarlinie `rgba(19, 33, 59, .22)`.
-- **Platz:** vorn in der Hauptspalte (davor stehen nur Vertretung und voriger Zwischenstopp). Das Backup bleibt erreichbar, drängt sich aber nicht vor – es ist eine normale Karte weiter unten.
+- **Platz:** vorn in der Hauptspalte (davor stehen nur Vertretung und voriger Zwischenstopp; über beiden Spalten nur die Zusammenfassung für die Lehrkraft). Das Backup bleibt erreichbar, drängt sich aber nicht vor – es ist eine normale Karte weiter unten.
+
+### Zusammenfassung der Sitzung für die Lehrkraft (`.tsum`, `public/tsummary.js`, Nachtrag 21)
+- **Platz:** die erste Karte der Sitzung, direkt unter dem Kopfband über die volle Breite (vor Hauptspalte und Seitenleiste) – in beiden Schulformen.
+- **Stil:** normale Karte (`--surface`, kein Gelb – der Hauptweg bleibt die Markerfolie darunter). Kopfzeile `.tsum-head` (Fach · Jahrgang · Wochentag, Datum, Beginn) als Fläche in `--fach-t` mit Schrift `--text` in 700/.98rem, Radius 10px; darunter der Text `.tsum-text` gut lesbar in 1.04rem/1.62, höchstens 75ch breit, Absätze mit .65em Abstand (Zeilenumbrüche bleiben); „Stand: …“ in .86rem `--muted`.
+- **Hinweis:** „Die Planung wurde danach geändert …“ bzw. der Satz zur Vertretung als `.notice.warn` (Tinte mit Warnsymbol, keine Signalfarbe).
+- **Bearbeiten:** Knopf „Bearbeiten“ mit Stift-Symbol rechts im Kartenkopf (Zustand `stateLine()` daneben); das Textfeld wächst mit dem Text (bis gut zwei Drittel der Fensterhöhe), darunter Hinweis und Zeichenzähler, dann „Speichern“ (primär) und „Abbrechen“.
 
 ### Abdeckblatt am Zwischenstopp (`stopField()`, `.covered`)
 - **Reiter (`.stopfield`):** `--rot`, weiß, 700 in .9rem, Innenabstand .32rem .75rem, nur oben gerundet (8px), Pause-Symbol und „**Zwischenstopp** – bis hierher geschafft, ab hier weiterarbeiten“; er sitzt auf der Kante des Blatts.

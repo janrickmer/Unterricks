@@ -299,6 +299,21 @@ a.item:hover { border-color: color-mix(in srgb, var(--fach-text) 55%, var(--line
 .meta-grid { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: .7rem; }
 .meta-grid .full { grid-column: 1 / -1; }
 
+/* Zusammenfassung der Sitzung für die Lehrkraft (Nachtrag 21, tsummary.js): ganz oben über die volle Breite – Kopfzeile auf der Fachtönung, darunter
+   gut lesbarer Fließtext (Absätze aus dem Text, Zeilenumbrüche bleiben), Hinweis „danach geändert“ in Tinte mit Warnsymbol */
+.card.tsum { margin-bottom: 1.25rem; }
+.tsum-head { display: inline-block; max-width: 100%; margin: 0 0 .8rem; padding: .4rem .75rem; border-radius: var(--radius-s); background: var(--fach-t); color: var(--text); font-weight: 700; font-size: .98rem; }
+.tsum-text { max-width: 75ch; font-size: 1.04rem; line-height: 1.62; }
+.tsum-text p { margin: 0 0 .65em; white-space: pre-line; }
+.tsum-text p:last-child { margin-bottom: 0; }
+.tsum-empty { margin: 0; max-width: 75ch; }
+.tsum-meta { margin: .65rem 0 0; font-size: .86rem; color: var(--muted); }
+.tsum-note { margin: .75rem 0 0; max-width: 75ch; }
+.tsum-edit textarea { min-height: 13rem; }
+.tsum-edit .field { margin-bottom: .6rem; }
+.tsum-edit .hint { margin-bottom: 0; }
+.tsum-pre { white-space: pre-wrap; font-family: var(--font); min-height: 0; }
+
 /* Hauptweg: gelbe Markerfolie */
 .claudeplan { background: var(--gelb); border-color: var(--gelb-kante); color: #13213b; }
 .claudeplan h2, .claudeplan p, .claudeplan .hint, .claudeplan summary { color: #13213b; }

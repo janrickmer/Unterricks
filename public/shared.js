@@ -1091,6 +1091,71 @@ export const gsCourseShort = (c) => c.subjectName + " " + c.grade + c.classes.jo
 export const gsCourseLabel = (c) => c.subjectName + " · Jahrgang " + c.grade + " (" + (c.classes.length > 1 ? "Klassen " : "Klasse ") + gsClassList(c) + ")";
 export const gsGradeText = (c) => "Jahrgangsstufe " + c.grade + " der Grundschule, " +
   (c.classes.length > 1 ? "Kurs mit Kindern aus den Klassen " + andList(c.classes.map((x) => c.grade + x)) : "Klasse " + c.grade + c.classes[0]);
+
+/* ---------- Zusammenfassung der Sitzung für die Lehrkraft (Nachtrag 21) ----------
+ * Claude schreibt beim Ablegen der Planung (update_lesson, zusammenfassung_lehrkraft) den Ablauf der Stunde in schlichten Sätzen; die Kopfzeile darüber
+ * (Fach, Jahrgang, Wochentag mit Datum und Beginn) setzt Unterricks immer aus den aktuellen Sitzungsdaten – sie stimmt auch nach dem Verschieben.
+ * Nur für die Lehrkraft: nie in Schüler-, Eltern-, Beamer- oder Live-Routen. lessons.teacher_summary_plan = Fingerabdruck der Planung (Schulportal-Eintrag
+ * bzw. Verlaufsplan ohne Zwischenstopp) beim Speichern der Zusammenfassung – ändert sich die Planung danach, weist die Sitzungsseite darauf hin. */
+export const TEACHER_SUMMARY_TITLE = "Zusammenfassung der Sitzung für die Lehrkraft";
+export const TEACHER_SUMMARY_MAX = 4000;
+const WD_LONG = ["Sonntag", "Montag", "Dienstag", "Mittwoch", "Donnerstag", "Freitag", "Samstag"];
+/* Lerngruppe: „Jahrgang 8 (Klasse 8b)“, „Jahrgang 8 (Kurs 8-K)“, „E-Phase (EA)“, „E-Phase (Kurs E-K)“, „Q3 Leistungskurs“; Grundschule (course =
+   gsCourseOut): „Jahrgang 2 (Klassen 2a, 2b)“ */
+export function summaryGroup(klass, course) {
+  if (course && Number.isInteger(Number(course.grade)) && Array.isArray(course.classes) && course.classes.length)
+    return "Jahrgang " + course.grade + " (" + (course.classes.length > 1 ? "Klassen " : "Klasse ") + gsClassList(course) + ")";
+  const k = String(klass || "");
+  if (isCourseClass(k)) return k[0] === "E" ? "E-Phase (Kurs " + k + ")" : "Jahrgang " + parseInt(k, 10) + " (Kurs " + k + ")";
+  let m = /^(\d+)([A-H])$/.exec(k);
+  if (m) return "Jahrgang " + m[1] + " (Klasse " + m[1] + m[2].toLowerCase() + ")";
+  if (/^E[A-H]$/.test(k)) return "E-Phase (" + k + ")";
+  m = /^Q([1-4])-(GK|LK)$/.exec(k);
+  if (m) return "Q" + m[1] + " " + KURSARTEN[m[2]];
+  return k;
+}
+/* Wochentag, Datum und Beginn: „Dienstag, 17.11.2026, 8:00 Uhr“ – ohne Uhrzeit „…, Beginn noch nicht eingetragen“, ohne Datum „Termin noch nicht eingetragen“ */
+export function summaryWhen(date, startTime) {
+  if (!isIsoDate(date)) return "Termin noch nicht eingetragen";
+  const day = WD_LONG[new Date(utcNoon(date)).getUTCDay()] + ", " + date.slice(8, 10) + "." + date.slice(5, 7) + "." + date.slice(0, 4);
+  return day + ", " + (isClockTime(startTime) ? Number(startTime.slice(0, 2)) + ":" + startTime.slice(3) + " Uhr" : "Beginn noch nicht eingetragen");
+}
+/* Kopfzeile der Zusammenfassung aus den aktuellen Daten: l = {subject, klass, date, startTime}, course = Grundschulkurs (gsCourseOut) oder null
+   „Politik und Wirtschaft · Jahrgang 8 (Klasse 8b) · Dienstag, 17.11.2026, 8:00 Uhr“ */
+export function summaryHead(l, course) {
+  const gs = l && l.subject === GS_SUBJECT;
+  const fach = gs ? (course && course.subjectName) || "Grundschule" : subjectName(l && l.subject) || String((l && l.subject) || "");
+  return [fach, summaryGroup(l && l.klass, gs ? course : null), summaryWhen(l && l.date, l && l.startTime)].filter(Boolean).join(" · ");
+}
+/* Fingerabdruck der Planung (FNV-1a, 32 Bit): ohne Zwischenstopp-Zeile und unabhängig von Leerraum – ein Zwischenstopp ändert die Planung nicht */
+export function planFingerprint(text) {
+  const s = removeStops(text).replace(/\s+/g, " ").trim();
+  let x = 0x811c9dc5;
+  for (let i = 0; i < s.length; i++) { x ^= s.charCodeAt(i); x = Math.imul(x, 0x01000193) >>> 0; }
+  return "p1:" + x.toString(16).padStart(8, "0");
+}
+/* wurde die Planung nach der Zusammenfassung geändert? (plan = gespeicherter Fingerabdruck; ohne Zusammenfassung bzw. Fingerabdruck: nein) */
+export const summaryOutdated = (summary, plan, planText) => !!String(summary || "").trim() && typeof plan === "string" && !!plan && planFingerprint(planText) !== plan;
+/* „13.11.2026, 14:05 Uhr“ (Schulzeit Europe/Berlin) */
+export const fmtStampBerlin = (ms) => new Date(ms).toLocaleDateString("de-DE", { day: "2-digit", month: "2-digit", year: "numeric", timeZone: "Europe/Berlin" }) + ", " + fmtClockBerlin(ms) + " Uhr";
+/* Was Claude schreibt (Werkzeugbeschreibung von update_lesson und die Prompts „Stunde mit Claude planen“): mode false = Gymnasium, true = Grundschule,
+   "beide" = Connector (beide Schulformen); noFb = ohne Feibeitsblätter (Jg. 5/6, analog) */
+export function teacherSummaryRules(mode, noFb = false) {
+  const both = mode === "beide", gs = mode === true;
+  const kids = both ? "Schüler:innen bzw. Kinder" : gs ? "Kinder" : "Schüler:innen", kidsDat = both ? "Schüler:innen bzw. Kindern" : gs ? "Kindern" : "Schüler:innen";
+  return "Schreibe sie so, dass eine Lehrkraft, die nicht an der Planung beteiligt war, versteht, was in der Stunde passieren wird: " +
+    "den Ablauf der Reihe nach mit ungefähren Minuten und Sozialformen, was die Lehrkraft jeweils tut und sagt, was die " + kids + " tun, " +
+    "die Materialien mit ihrem Titel" + (gs || noFb ? "" : " (ein Feibeitsblatt mit seinem Code)") + ", die erwarteten Ergebnisse, die Hausaufgabe und mögliche Stolperstellen. " +
+    "Form: schlichte, gut vorlesbare Sätze in kurzen Absätzen – kein Markdown, keine Schulportal-Zeichen, keine Tabellen, keine Aufzählungszeichen; etwa 120 bis 300 Wörter. " +
+    "Fach, Jahrgang, Wochentag und Beginn setzt Unterricks automatisch darüber – wiederhole sie nicht. Nenne nie Namen von " + kidsDat + ".";
+}
+/* Prompt „Stunde mit Claude planen“: letzter Speicherschritt (gs = Grundschule, analog = Jg. 5/6 ohne Feibeitsblätter) und der Zusatz für den Rückfall
+   ohne Connector – je genau einmal im Prompt; ohne sie ist der Prompt byte-gleich zum Stand vor Nachtrag 21 (Test in zwischenstopp.test.mjs) */
+export const summarySaveStep = (gs, analog = false) => (gs
+  ? "   - Zum Schluss speicherst du die „" + TEACHER_SUMMARY_TITLE + "“ mit `update_lesson` und `zusammenfassung_lehrkraft` (Unterricks zeigt sie ganz oben in der Sitzung, nur mir – nie den Eltern). "
+  : "   - Zum Schluss die „" + TEACHER_SUMMARY_TITLE + "“ → `update_lesson` mit `zusammenfassung_lehrkraft` (Unterricks zeigt sie ganz oben in der Sitzung, nur mir – nie den Schüler:innen). ") +
+  teacherSummaryRules(!!gs, !!analog) + " Überarbeiten wir die Planung später (z. B. nach einem Zwischenstopp), passe auch die Zusammenfassung an.";
+export const SUMMARY_FALLBACK = " – dazu die „" + TEACHER_SUMMARY_TITLE + "“ (schlichte Sätze, etwa 120 bis 300 Wörter, ohne Fach, Jahrgang und Uhrzeit), die ich in Unterricks selbst eintrage";
 /* Eingaben für einen Grundschulkurs prüfen (Browser und Worker); partial: nur die übergebenen Felder, current: bisheriger Stand.
    → {grade, classes, religion, subjectName, description[, schoolYear]}; wirft Error mit deutscher Meldung */
 export function normalizeGsCourse(raw, { partial = false, current = null } = {}) {

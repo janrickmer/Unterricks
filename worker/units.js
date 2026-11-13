@@ -99,7 +99,7 @@ async function applyPlanByPosition(db, u, planRaw, rowsRaw, baseVersion, source,
 }
 
 /* leere Sitzung (darf beim Überarbeiten mit ihrer Zeile wegfallen): nichts geplant, kein Material, kein Chat außer der Begrüßung, kein Elternlink */
-const EMPTY_LESSON = "(lessons.portal='' AND lessons.parent_summary='' AND lessons.parent_note='' AND lessons.homework='' AND lessons.ideas='' AND lessons.parent_hash IS NULL AND lessons.cancelled=0 " +
+const EMPTY_LESSON = "(lessons.portal='' AND lessons.parent_summary='' AND lessons.parent_note='' AND lessons.homework='' AND lessons.ideas='' AND lessons.teacher_summary='' AND lessons.parent_hash IS NULL AND lessons.cancelled=0 " +
   "AND NOT EXISTS(SELECT 1 FROM files f WHERE f.lesson_id=lessons.id) AND NOT EXISTS(SELECT 1 FROM chat ch WHERE ch.lesson_id=lessons.id AND COALESCE(ch.model,'')<>'begruessung') " +
   "AND NOT EXISTS(SELECT 1 FROM fb_sheets x WHERE x.lesson_id=lessons.id) AND NOT EXISTS(SELECT 1 FROM fb_drafts x WHERE x.lesson_id=lessons.id) AND NOT EXISTS(SELECT 1 FROM substitutes x WHERE x.lesson_id=lessons.id))";
 async function applyPlanByUid(db, u, planRaw, rowsRaw, baseVersion, source, now) {

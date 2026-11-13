@@ -15,6 +15,7 @@ import { renderMarkdown } from "./markdown.js";
 import { materialBox, dropZone } from "./materialbox.js";
 import { notesPanel, notesDirty, NOTES_UNREADABLE, NOTES_DELETE_TEXT, NOTES_REPLACE_HINT } from "./notesedit.js";
 import { personLabel, personKey, cleanPhoto, PHOTO_TASKS_MAX, materialRuns, taskTextFmt, fbLinksOf } from "./fbclient.js";
+import { summaryCard } from "./tsummary.js";
 
 const MODES = [["planning", "Planung"], ["ideas", "Ideen weiterentwickeln"], ["material", "Material erstellen"]];
 
@@ -58,6 +59,11 @@ export async function sessionPage(id) {
   clear(main).append(pageHead({ fach: L().subject, title: heading, sub: subline,
     crumbs: [["#/lk", "Fächer"], ["#/lk/f/" + L().subject, subjectName(L().subject)], ["#/lk/f/" + L().subject + "/" + L().klass, classShort(L().klass)],
       ...(st.unit ? [["#/lk/u/" + st.unit.id, st.unit.title || "Einheit"]] : []), L().title] }));
+
+  /* ======================= Zusammenfassung der Sitzung für die Lehrkraft (Nachtrag 21): ganz oben, vor allem anderen ======================= */
+  // Kopfzeile aus den aktuellen Daten (folgt Datum und Beginn), Hinweis bei geänderter Planung (auch ungespeichert im Editor) bzw. bestätigter Vertretung
+  const tsum = summaryCard({ id, L, planText: () => (portalTA ? portalTA.value : L().portal || ""), substituteActive: () => !!st.sub && st.sub.status === "aktiv" });
+  onTimes.push(tsum.paintHead);
 
   /* ======================= Unterrichtseinheit ======================= */
   const unitCard = h("section", { class: "card unitbox" });
@@ -210,7 +216,7 @@ export async function sessionPage(id) {
   const presPromptBtn = h("button", { class: "btn big", type: "button" }, "Prompt für die Präsentation kopieren");
   const presPromptOut = h("div");
   const genPortalBtn = h("button", { class: "btn primary", type: "button" }, "Schulportal-Eintrag erstellen");
-  function paintPreview() { paintPortalPreview(preview, portalTA.value); updateStopBtns(); }
+  function paintPreview() { paintPortalPreview(preview, portalTA.value); updateStopBtns(); tsum.paintNote(); }
   /* ---- Zwischenstopp: Rechtsklick auf eine Zeile (Textfeld oder Vorschau) → „Zwischenstopp einfügen“ (vor dieser Zeile) ---- */
   const stopBtn = h("button", { class: "btn", type: "button", title: "Vor der Zeile mit der Schreibmarke einfügen" }, icon("pause"), "Zwischenstopp einfügen");
   const unstopBtn = h("button", { class: "btn ghost hidden", type: "button" }, "Zwischenstopp entfernen");
@@ -1069,7 +1075,7 @@ export async function sessionPage(id) {
         h("p", null, "Aus „", h("strong", { text: file.name }), "“: " + (src.title || "Sitzung") + (src.sessionNo ? " – Sitzung Nr. " + src.sessionNo : "") + (src.unitTitle ? " der Einheit „" + src.unitTitle + "“" : "") +
           (src.klass ? " (" + (subjectShort(src.subject) || "") + " " + classShort(src.klass) + (src.date ? ", " + fmtDay(src.date) : "") + ")" : "") + "."),
         h("ul", { class: "small" },
-          h("li", { text: "Titel, Thema, Ideen und Wünsche, Hausaufgabe, Schulportal-Eintrag und Planungsverlauf ersetzen den bisherigen Stand dieser Sitzung." }),
+          h("li", { text: "Titel, Thema, Ideen und Wünsche, Hausaufgabe, Zusammenfassung für die Lehrkraft, Schulportal-Eintrag und Planungsverlauf ersetzen den bisherigen Stand dieser Sitzung." }),
           h("li", { text: "Dazu kommen: " + [texts.length + links.length + bins.filter((f) => f.area === "student" || f.area === "teacher").length + " Materialien", prints.length + bins.filter((f) => f.area === "print").length + " Druckvorlagen",
             pres ? "die Präsentation" + (curPres() ? " (ersetzt die bisherige)" : "") : null, data.drafts.length + " Feibeitsblatt-Entwürfe"].filter(Boolean).join(", ") + "." }),
           h("li", { text: "Datum, Beginn und Dauer bleiben die dieser Sitzung (" + cur.date + ", " + cur.time + ", " + cur.dur + "); die Fälligkeit der Hausaufgabe richtet sich nach der nächsten Sitzung dieser Lerngruppe." +
@@ -1111,7 +1117,7 @@ export async function sessionPage(id) {
     h("div", { class: "row" }, exportBtn, importBtn, importInput),
     h("p", { class: "hint", text: "Beim Laden einer Datei bleiben Datum, Beginn und Dauer dieser Sitzung; Datumsangaben in den Texten passt Unterricks an diese Sitzung an. Notfall-Feibeitsblätter entstehen neu, sobald die Feibeitsblätter angelegt sind." }));
 
-  main.append(h("div", { class: "session-grid" },
+  main.append(tsum.el, h("div", { class: "session-grid" },
     h("div", { class: "stack" }, sub.main, prevEl, planCard, unitCard, chatCard, portalCard, hwCard, presPromptCard, filesCard, presCard, fbCard, printCard),
     h("aside", { class: "side" }, codeCard, metaCard, sub.side)), ioCard);
 
@@ -1126,11 +1132,12 @@ export async function sessionPage(id) {
       if (filesKey(r.files) !== filesKey(st.files)) { st.files = r.files; paintFiles(); paintPrint(); }
       if (r.drafts.length !== st.drafts.length || r.sheets.length !== st.sheets.length) { st.drafts = r.drafts; st.sheets = r.sheets; paintFb(); ensureNotfall(st.sheets.filter((x) => !notfallFile(x.code)).map((x) => x.code)); }
       const subKey = (x) => (x ? x.status + ":" + x.updatedAt : "");
-      if (subKey(r.substitute) !== subKey(st.sub)) { st.drafts = r.drafts; st.sub = r.substitute; sub.paint(); if (r.substitute && r.substitute.status === "vorschlag") toast("Claude hat einen Vertretungsvorschlag gespeichert – bitte prüfen.", "ok", 6000); }
+      if (subKey(r.substitute) !== subKey(st.sub)) { st.drafts = r.drafts; st.sub = r.substitute; sub.paint(); tsum.paintNote(); if (r.substitute && r.substitute.status === "vorschlag") toast("Claude hat einen Vertretungsvorschlag gespeichert – bitte prüfen.", "ok", 6000); }
       if (r.unit && st.unit && r.unit.version !== st.unit.version) { st.unit = r.unit; paintUnit(); }
       // Zwischenstopp der vorigen Sitzung: inzwischen gesetzt, verschoben oder (mit Claude) entschieden – auch der Prompt nimmt dann den neuen Stand
       if (JSON.stringify(r.previousStop || null) !== JSON.stringify(d.previousStop || null)) { d.previousStop = r.previousStop; paintPrev(); }
       d.nextLesson = r.nextLesson;
+      tsum.update(r.lesson);   // Zusammenfassung (z. B. von Claude mit update_lesson) – nie in eine laufende Bearbeitung
       // Hausaufgabe und Sitzungsdaten (z. B. von Claude mit update_lesson) – nie in ein Feld schreiben, das gerade bearbeitet wird
       const busyField = (el) => document.activeElement === el;
       if ((r.lesson.homework || "") !== (L().homework || "") && !busyField(hwTA) && !hwT && hwTA.value === (L().homework || "")) {

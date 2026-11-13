@@ -107,6 +107,11 @@ export const COLUMNS = [
   ["files", "notes", "TEXT"],
   ["files", "clean_size", "INTEGER"],
   ["files", "notes_of", "TEXT"],
+  // Zusammenfassung der Sitzung für die Lehrkraft (Nachtrag 21, nur Lehrkraft; schreibt Claude mit update_lesson bzw. die Lehrkraft): Text, Zeitpunkt
+  // (NULL = nie bzw. gelöscht) und Fingerabdruck der Planung zu diesem Zeitpunkt (planFingerprint, NULL = unbekannt) für den Hinweis „danach geändert“
+  ["lessons", "teacher_summary", "TEXT NOT NULL DEFAULT ''"],
+  ["lessons", "teacher_summary_at", "INTEGER"],
+  ["lessons", "teacher_summary_plan", "TEXT"],
 ];
 
 // Indizes über nachträglich ergänzte Spalten (nach den Spalten angelegt; ein Fehler – z. B. alte Doppelungen – hält den Betrieb nicht auf)

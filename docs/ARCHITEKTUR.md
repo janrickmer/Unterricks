@@ -64,6 +64,7 @@ implementiert und im End-to-End-Test geprüft (Ausnahmen unten ausdrücklich gen
 | Krankmeldung (Grundschule) | **kein Vertretungsmaterial**: die Stunde und alle folgenden rücken um einen Termin; die letzte, die hinter das Ende rutscht, bleibt **ohne Datum** in der Einheit, bis die Lehrkraft bzw. Claude über den Überarbeitungs-Prompt entscheidet |
 | Aufforderung an die Lehrkraft (Nachtrag) | Muss die Lehrkraft auf Material zurückgreifen, das nur sie hat (z. B. Vorlesetext, Lösung), steht das als eigener Stichpunkt **unterstrichen** – im Verlaufsplan der Grundschule (mit gelbem PDF-Verweis) und im Schulportal-Eintrag des Gymnasiums; Materialtitel, Leitfragen und Codes bleiben kursiv |
 | Druckaufträge für den nächsten Arbeitstag (Nachtrag vom 13.11.2026) | Ganz oben auf **beiden Startseiten** (Gymnasium und Übersicht „Grundschule“) ein **oranges Feld mit Drucker-Symbol**, jeweils mit den Druckaufträgen **beider Schulformen**; **nach Sitzung gruppiert**, jede Datei einzeln herunterladbar und benannt wie in der Druckliste der Sitzung, dazu ein Knopf, der **alle Dateien nacheinander einzeln** herunterlädt (**keine ZIP-Datei**); „nächster Arbeitstag“ = Mo–Do der folgende Tag, Fr/Sa/So der Montag, ohne Unterricht dort (Ferien, Feiertag, kein Termin laut Stundenplan) der nächste Tag mit Unterricht; siehe 4n |
+| Zusammenfassung der Sitzung für die Lehrkraft (Nachtrag 21 vom 13.11.2026) | Gibt die Lehrkraft Claude frei, die Planung abzulegen, schreibt Claude **als letzten Speicherschritt** eine kurze Zusammenfassung des Ablaufs (verständlich für eine Lehrkraft, die nicht mitgeplant hat); Unterricks zeigt sie in der Lehreransicht der Sitzung **ganz oben** in „Zusammenfassung der Sitzung für die Lehrkraft“ (Gymnasium und Grundschule). Rückfrage zur Kopfzeile: **„Unterricks automatisch“** – Fach, Jahrgang, Wochentag mit Datum und Beginn setzt Unterricks aus den aktuellen Sitzungsdaten darüber (stimmt auch nach dem Verschieben); Claude schreibt nur den Ablauf. Grundlage des späteren Podcasts (Nachtrag 22); siehe 4p |
 
 ## 2. Gesamtarchitektur
 
@@ -151,6 +152,7 @@ implementiert und im End-to-End-Test geprüft (Ausnahmen unten ausdrücklich gen
 | | `public/codeslide.js` | die Codefolie (Sitzungscode + QR-Code) für Beamer, Präsentationsmodus und Live-Ansicht der Schüler:innen |
 | | `public/timerband.js` | Timer der Live-Präsentation (Nachtrag 16): Band oben über der Folie bei Schüler:innen, Beamerfenster, Beamergerät und Lehrkraft |
 | | `public/slideviewer.js` | Folienfenster der Schüler:innen nach der Sitzung (Nachtrag 19): Folie 1 bis zur Markierung durchblättern, „Diese Präsentation herunterladen“, siehe 4h |
+| | `public/tsummary.js` | Karte „Zusammenfassung der Sitzung für die Lehrkraft“ ganz oben in beiden Sitzungsseiten (Kopfzeile, Text, Hinweis, Bearbeiten mit Rückfrage bei 409), siehe 4p |
 | | `public/pdfnotes.js`, `public/notesedit.js` | Notizen der Lehrkraft zu den Folien (Nachtrag 20): aus dem Dateianhang der PDF lesen (PDF.js), Anmerkungs-PDF erzeugen (pdf-lib); Notizen in der Sitzung ansehen und bearbeiten, siehe 4o |
 | | `public/pdfmaker.js`, `public/markdown.js` | Textmaterial als PDF (Rückfall), sicheres Markdown |
 | | `worker/render.js`, `public/designrender.js` | Claudes Gestaltung (HTML) als PDF drucken (Browser Run), Stand und Nachdruck auf der Sitzungsseite (4m) |
@@ -827,6 +829,50 @@ nicht in einer PDF, die Schüler:innen (oder Eltern, eine öffentliche Seite) be
   Feld – ältere Datei –, gilt der Anhang). Connector: `get_lesson` nennt die Zahl der Folien mit Notizen (ohne Text).
 * **D1**: drei Spalten mehr (`files.notes`, `clean_size`, `notes_of`; beim ersten Aufruf nach dem Ausrollen bis zu 44 Anweisungen für das Schema);
   Notizen-Routen 2–4 Anweisungen, `…/annotated` bis 8.
+
+## 4p. Zusammenfassung der Sitzung für die Lehrkraft (Nachtrag der Lehrkraft vom 13.11.2026, Anforderung 21)
+
+Grundsatz: Die Zusammenfassung ist **nur für die Lehrkraft** – nie in Schüler-, Eltern-, Beamer- oder Live-Routen (die bauen ihre Antworten aus
+einzeln gewählten Feldern; `lessonOut` gibt es nur in Lehrkraft-Routen und im Connector). Unit-Test `tsummary.test.mjs`, E2E (Schüleransicht,
+Elternansicht samt `POST /api/eltern/sitzung` und `…/verlauf`).
+
+* **D1** (`worker/db.js`, additiv): `lessons.teacher_summary` (Text, höchstens 4000 Zeichen, `TEACHER_SUMMARY_MAX`), `teacher_summary_at` (ms, NULL =
+  keine) und `teacher_summary_plan` = Fingerabdruck der Planung beim Speichern (`planFingerprint`: Schulportal-Eintrag bzw. Verlaufsplan ohne
+  Zwischenstopp-Zeile, Leerraum zusammengefasst, FNV-1a 32 Bit). Beim ersten Aufruf nach dem Ausrollen drei `ALTER TABLE` mehr (41 + 3 Anweisungen für das
+  Schema). Eine Sitzung mit Zusammenfassung ist nicht „leer“ (`EMPTY_LESSON` in `worker/units.js`: darf beim Überarbeiten einer Einheit nicht wegfallen).
+* **Speichern** (`updateLesson` in `worker/lessons.js`): `teacherSummary` (PATCH der Sitzungsseite bzw. `update_lesson`); leer = löschen (Zeitpunkt und
+  Fingerabdruck NULL); zu lang → 400 mit Meldung (nie still gekürzt). Die Sitzungsseite schickt `teacherSummaryBase` (der Stand, auf dem die Bearbeitung
+  beruht): eine Anweisung `… WHERE id=?1 AND teacher_summary_at IS ?n` – hat inzwischen jemand anderes gespeichert (z. B. Claude), 409
+  `summary_conflict` mit `current {text, at, plan}`; „Meine Fassung speichern“ sendet ohne Base. Ausfall-Einträge (Grundschule): abgelehnt.
+* **Kopfzeile** (`summaryHead` in `public/shared.js`, nie gespeichert): „Fach · Jahrgang · Wochentag, Datum, Beginn“ aus den aktuellen Daten, z. B.
+  „Politik und Wirtschaft · Jahrgang 8 (Klasse 8b) · Dienstag, 17.11.2026, 8:00 Uhr“; Kurs „Jahrgang 8 (Kurs 8-K)“, E-Phase „E-Phase (EA)“ bzw.
+  „E-Phase (Kurs E-K)“, Oberstufe „Q3 Leistungskurs“, Grundschule Kursfach + „Jahrgang 2 (Klassen 2a, 2b)“; ohne Uhrzeit „…, Beginn noch nicht
+  eingetragen“, ohne Datum „Termin noch nicht eingetragen“. Dieselbe Funktion nutzen Sitzungsseite, `get_lesson`, die Rückmeldung von `update_lesson`
+  (und später der Podcast).
+* **Connector** (`worker/mcp.js`): Server-Anweisungen („Legst du Unterrichtsinhalte einer Sitzung ab …, schreibe immer auch die … mit update_lesson
+  (zusammenfassung_lehrkraft) – auch, wenn du die Planung später überarbeitest (z. B. nach einem Zwischenstopp)“), `update_lesson` mit
+  `zusammenfassung_lehrkraft` (Schema mit `maxLength` 4000 und den Regeln aus `teacherSummaryRules`), Satz in `save_schulportal_entry` und
+  `save_verlaufsplan` („Schreibe danach auch die …“). Die Rückmeldung nennt Wortzahl, Anfang und die Kopfzeile, die Unterricks darüber setzt, und
+  warnt bei Markdown/Aufzählungszeichen bzw. mehr als 400 Wörtern. `get_lesson`: Abschnitt „## Zusammenfassung der Sitzung für die Lehrkraft“ mit
+  Kopfzeile, Text und Stand (bzw. „(noch leer – schreibe sie mit update_lesson und zusammenfassung_lehrkraft)“), Hinweis bei geänderter Planung bzw.
+  bestätigter Vertretung; Gymnasium vor dem Planungsverlauf, Grundschule vor dem Inhalt für die Eltern; Ausfall-Einträge ohne Abschnitt.
+* **Prompts**: „Stunde mit Claude planen“ beider Schulformen (`summarySaveStep` als letzter Unterpunkt von Schritt 4 – in Jg. 5/6 und in der Grundschule
+  ohne „(ein Feibeitsblatt mit seinem Code)“ –, `SUMMARY_FALLBACK` im Rückfall
+  ohne Connector – ohne beide sind die Prompts byte-gleich, SHA-Test in `zwischenstopp.test.mjs`); „Einheit nach Ausfällen überarbeiten“ (Grundschule,
+  Schritt 5). Nicht im Vertretungs- und Präsentations-Prompt, nicht im Backup-Chat (die kostenlose KI kann nichts ablegen; die Lehrkraft trägt eine
+  Zusammenfassung dort selbst ein).
+* **Oberfläche** (`public/tsummary.js`, `summaryCard()`): Karte direkt unter dem Kopfband über die volle Breite, vor allen anderen Karten (Gymnasium:
+  vor Vertretung, Zwischenstopp-Hinweis und „Stunde mit Claude planen“; Grundschule: vor rotem Kasten und Verlaufsplan). `h2`, Kopfzeile, Absätze
+  (Leerzeile = neuer Absatz, nur `textContent`), „Stand: …“ (Berliner Zeit), leer „Noch keine Zusammenfassung. …“. Hinweis „Die Planung wurde danach
+  geändert – die Zusammenfassung ist vielleicht nicht mehr aktuell.“, sobald der Fingerabdruck der (auch ungespeicherten) Planung nicht mehr passt; bei
+  bestätigter Vertretung (Gymnasium) „Für diese Sitzung gilt die bestätigte Vertretungsstunde – …“. „Bearbeiten“ → Textfeld (wächst mit, Zeichenzähler,
+  Strg/⌘+Enter speichert), „Speichern“/„Abbrechen“ (Rückfrage nur bei Änderungen), Fokus danach zurück auf „Bearbeiten“; 409 → Dialog wie beim
+  Schulportal-Eintrag. Beim Zurückkehren in den Tab (`onVis`) übernimmt die Karte einen neuen Stand von Claude – nie in eine laufende Bearbeitung.
+  Die Kopfzeile folgt Datum- und Beginnänderungen sofort (`onTimes` bzw. `paintSubline`).
+* **Sitzung als Datei / Sicherung**: `lesson.teacherSummary` in `sitzung.json` (nur, wenn es eine gibt – sonst bleibt die Datei gleich), Datumsangaben
+  beim Laden angepasst (`adaptDates`); `routeLessonImport` übernimmt sie mit dem Fingerabdruck des Eintrags aus der Datei bzw. leert sie. Vertretung:
+  Bestätigen und Wiederherstellen ändern die Zusammenfassung nicht (sie beschreibt die ursprüngliche Planung, siehe Hinweis); „Übernehmen“ in eine andere
+  Sitzung kopiert sie nicht.
 
 ## 4i. Druckliste „Von der Lehrkraft auszudrucken“ (Ergänzung vom 10.11.2026)
 

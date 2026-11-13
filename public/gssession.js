@@ -16,6 +16,7 @@ import { renderMarkdown } from "./markdown.js";
 import { materialBox } from "./materialbox.js";
 import { cardsCard } from "./cards.js";
 import { reviseBox } from "./grundschule.js";
+import { summaryCard } from "./tsummary.js";
 
 const isPdf = (f) => !!f && f.kind === "file" && f.mime === "application/pdf" && f.area !== "archive" && f.area !== "presentation";
 const NOT_YET = "„Diese Unterrichtssitzung hat noch nicht stattgefunden.“";
@@ -110,7 +111,9 @@ export async function gsSessionPage(id, d) {
   /* ======================= Kopf ======================= */
   const heading = h("h1", { text: L().title });
   const subline = h("div", { class: "chips" });
+  let tsum = null;   // Zusammenfassung für die Lehrkraft (Nachtrag 21) – entsteht, sobald der Verlaufsplan da ist (ihr Hinweis vergleicht mit ihm)
   const paintSubline = () => {
+    if (tsum) tsum.paintHead();   // Kopfzeile folgt Datum und Beginn
     const r = row(), idx = r && st.unit ? (st.unit.rows || []).indexOf(r) : -1;
     clear(subline).append(...nn(idx >= 0 ? h("span", { class: "chip strong", text: "Stunde " + (idx + 1) + " von " + st.unit.rows.length }) : null,
       course ? h("span", { class: "chip", text: course.subjectName }) : null, course ? h("span", { class: "chip", text: course.grade + course.classes.join(""), title: course.gradeText }) : null,
@@ -139,6 +142,7 @@ export async function gsSessionPage(id, d) {
     pv.classList.toggle("hidden", !ta.value.trim() && !plan.editing);
     unstopBtn.classList.toggle("hidden", !hasStop(ta.value));
     paintStopNext(); paintParents(); paintSummaryHint();
+    if (tsum) tsum.paintNote();
   }
   // von außen (eine PDF ist gedruckt, Bildkarten fertig, eine Datei gelöscht oder umbenannt): neu zeichnen, ohne den Fokus eines Verweises
   // in der Vorschau zu verlieren – „(wird gedruckt …)“ verschwindet, sobald die PDF da ist
@@ -475,7 +479,9 @@ export async function gsSessionPage(id, d) {
   };
   prevEl = prevCardOf();
 
-  main.append(h("div", { class: "session-grid gs-session" },
+  /* ======================= Zusammenfassung der Sitzung für die Lehrkraft (Nachtrag 21): ganz oben, vor dem Verlaufsplan ======================= */
+  tsum = summaryCard({ id, L, course, planText: () => ta.value });
+  main.append(tsum.el, h("div", { class: "session-grid gs-session" },
     h("div", { class: "stack gs-stack" }, planCard, prevEl, draftCard, unitCard, claudeCard, cardsBox.el, box.filesCard, box.printCard, contentCard, parentsCard),
     h("aside", { class: "side" }, metaCard, sickCard)));
   setEditing(false);
@@ -501,6 +507,7 @@ export async function gsSessionPage(id, d) {
     // Zwischenstopp der vorigen Sitzung: inzwischen gesetzt, verschoben oder (mit Claude) entschieden – auch der Prompt nimmt dann den neuen Stand
     if (JSON.stringify(r.previousStop || null) !== JSON.stringify(d.previousStop || null) || filesChanged) { d.previousStop = r.previousStop; paintPrev(); }
     d.nextLesson = r.nextLesson;
+    tsum.update(r.lesson);   // Zusammenfassung (z. B. von Claude mit update_lesson) – nie in eine laufende Bearbeitung
     if (r.lesson.portalVersion !== plan.version && !plan.dirty && !busyField(ta)) {
       plan.version = r.lesson.portalVersion; ta.value = r.lesson.portal || "";
       Object.assign(L(), { portal: r.lesson.portal, portalVersion: r.lesson.portalVersion, portalUpdatedAt: r.lesson.portalUpdatedAt, portalSource: r.lesson.portalSource });

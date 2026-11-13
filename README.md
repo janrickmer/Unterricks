@@ -155,6 +155,20 @@ Feibeitsblatt braucht keine Änderung. Die Adressen stehen in `wrangler.jsonc` (
   z. B. „Jg. 8 - PoWi - Sitzung 1 - Das Bundesverfassungsgericht“ (Jahrgang bzw. „E-Phase“/„Q2 GK“, Fach, Stunde in der
   Einheit, Titel der Sitzung); den Namen vergibt claude.ai selbst – passt er nicht, im Dialog „Chat-Namen kopieren“ und in
   claude.ai über „Umbenennen“ einfügen.
+* **Zusammenfassung der Sitzung für die Lehrkraft:** Gibt man Claude im Chat frei, die Planung abzulegen, schreibt Claude als letzten
+  Speicherschritt auch eine kurze Zusammenfassung des Ablaufs – so, dass eine Lehrkraft, die nicht mitgeplant hat, versteht, was in der
+  Stunde passieren wird (Ablauf mit ungefähren Minuten und Sozialformen, was die Lehrkraft tut und sagt, was die Schüler:innen tun,
+  Materialien mit Titel, Feibeitsblatt mit Code, erwartete Ergebnisse, Hausaufgabe, Stolperstellen; schlichte Sätze, etwa 120–300 Wörter,
+  ohne Namen von Schüler:innen). Connector: `update_lesson` mit `zusammenfassung_lehrkraft` (höchstens 4000 Zeichen, leer = löschen);
+  `get_lesson` zeigt sie im Abschnitt „Zusammenfassung der Sitzung für die Lehrkraft“. Sie steht in der Sitzung **ganz oben** (Gymnasium und
+  Grundschule) in der Karte „Zusammenfassung der Sitzung für die Lehrkraft“. Die erste Zeile setzt Unterricks **automatisch** aus den
+  aktuellen Sitzungsdaten – Fach, Jahrgang, Wochentag mit Datum und Beginn, z. B. „Politik und Wirtschaft · Jahrgang 8 (Klasse 8b) ·
+  Dienstag, 17.11.2026, 8:00 Uhr“ (ohne Uhrzeit „Beginn noch nicht eingetragen“); sie stimmt deshalb auch nach dem Verschieben. Darunter
+  der Text, „Stand: …“ und – wurde der Schulportal-Eintrag bzw. Verlaufsplan danach geändert (ein Zwischenstopp zählt nicht) – der
+  Hinweis „Die Planung wurde danach geändert – die Zusammenfassung ist vielleicht nicht mehr aktuell.“ Mit **„Bearbeiten“** ändern Sie
+  sie selbst (leeren und speichern = löschen); hat Claude inzwischen eine neue Fassung gespeichert, fragt Unterricks wie beim
+  Schulportal-Eintrag, welche gilt. Plant Claude ohne Connector, gibt es die Zusammenfassung am Ende zum Kopieren aus. Schüler:innen,
+  Eltern, Beamer und Live-Präsentation sehen sie nie; sie kommt mit „Sitzung als Datei“ (Datumsangaben angepasst) und der Sicherung mit.
 * **Feibeitsblatt-Verbindung:** Türcode und Feibeitsblatt-Passwort nur einmal eingeben (Haken „Verbindung verschlüsselt in meinem
   Benutzerkonto speichern“). Danach verbindet sich Unterricks auf jedem Gerät, auf dem Sie sich mit Ihrem Passwort anmelden,
   automatisch; Geräte, die schon vorher angemeldet waren, entsperren sie einmal mit dem Unterricks-Passwort. Der Server sieht dabei
@@ -279,7 +293,8 @@ Arbeitstag** (dasselbe Feld wie auf der Startseite „Gymnasium“, mit beiden S
   des Kurses (ließ sich die Original-PDF nicht speichern, reichen Sie sie dort mit „Original-PDF hinzufügen“ nach) und **„Neue
   Unterrichtseinheit planen“**. Einheiten planen Sie wie am Gymnasium (Rahmendaten → „Einheit mit Claude
   planen“ → Leupold-Schema und Tabelle → „Einheit festlegen und Sitzungen anlegen“) – ohne Klausurtermin, nur mit analogem Material.
-* **Sitzung (Lehreransicht):** Ganz oben der **Verlaufsplan** (Phasen mit Minuten und Sozialform). Claude schreibt ihn beim Planen
+* **Sitzung (Lehreransicht):** Ganz oben die **Zusammenfassung der Sitzung für die Lehrkraft** (wie am Gymnasium, Kopfzeile z. B.
+  „Religion · Jahrgang 2 (Klassen 2a, 2b) · Montag, 16.11.2026, 9:50 Uhr“), darunter der **Verlaufsplan** (Phasen mit Minuten und Sozialform). Claude schreibt ihn beim Planen
   („Stunde mit Claude planen“ → `save_verlaufsplan`); mit **„Bearbeiten“** ändern Sie ihn selbst (wird automatisch gespeichert,
   daneben die Vorschau). Die PDF-Dateien stehen dort, wo sie benutzt werden, **gelb markiert und unterstrichen** – ein Klick öffnet die
   PDF in einem neuen Tab („PDF-Verweis einfügen …“ beim Bearbeiten). Wurden Sie nicht fertig: **„Zwischenstopp eintragen …“**, Rechtsklick
@@ -300,7 +315,7 @@ Arbeitstag** (dasselbe Feld wie auf der Startseite „Gymnasium“, mit beiden S
   den **„Hinweis der Lehrkraft“** (optional, ganz oben in einem roten Feld), die Bildkarten zum Durchklicken mit dem Erzähltext, den
   „Inhalt der Unterrichtsstunde“, die „Hausaufgabe“ (nur, wenn eine eingetragen ist), das „Material für die Schüler“ (nur PDFs der
   Kinder) und „Vorherige Unterrichtssitzungen dieses Schuljahres ansehen“. Bei einem Zwischenstopp nur das Material bis dorthin. Nie
-  Ideen, Verlaufsplan, Code oder Material nur für Sie. **„Elternansicht ausprobieren“** zeigt Ihnen die Ansicht schon vorher. Ist ein
+  Ideen, Verlaufsplan, Zusammenfassung für die Lehrkraft, Code oder Material nur für Sie. **„Elternansicht ausprobieren“** zeigt Ihnen die Ansicht schon vorher. Ist ein
   Link in falsche Hände geraten: „Link erneuern“ – der bisherige funktioniert dann nicht mehr. Bitte in Hinweisen und Texten für Eltern
   keine Namen von Kindern nennen.
 * **Krankheit:** Karte „Krankheit“ → **„Krankmeldung: Diese Stunde fällt aus“**. Eine Vorschau zeigt, wohin die Stunden rücken: Diese

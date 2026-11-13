@@ -15,7 +15,7 @@ import { insertTextMaterial, insertPrintText, saveDesign, renderDesign, getFile 
 import { shortImages } from "./render.js";
 import { ESCAPE_FORMAT_HINT, PART_TYPES } from "../public/escape-data.js";
 import { SUBJECTS, ALL_CLASSES, subjectName, gradeInfo, formatCode, lessonContext, chatTranscript, PORTAL_RULES, PORTAL_EXAMPLE, PORTAL_TEACHER_RULE, SYSTEM_PROMPT_ROLE, FEIBEITSBLATT_INFO, FB_LINK_HINT, classShort, fmtDay, materialDesignText, printFileName, GS_SUBJECT,
-  STOP_LINE, hasStop, planRefs, pdfRef, PLAN_REF_RE, NOTES_FILE } from "../public/shared.js";
+  STOP_LINE, hasStop, planRefs, pdfRef, PLAN_REF_RE, NOTES_FILE, TEACHER_SUMMARY_TITLE, TEACHER_SUMMARY_MAX, teacherSummaryRules, summaryHead, summaryOutdated, fmtStampBerlin } from "../public/shared.js";
 import { gsLessonContext, GS_MATERIAL_RULES, CARD_DESIGN_RULES, VERLAUFSPLAN_EXAMPLE, VERLAUFSPLAN_RULES } from "../public/gsplanning.js";
 import { saveCardSet, setCardTexts } from "./cards.js";
 import { parentFiles, refCounts } from "./parents.js";
@@ -28,6 +28,8 @@ const INSTRUCTIONS = "Unterricks ist die Unterrichtsplattform der Lehrkraft (Fä
   "Planungsgrundlagen (Schulcurriculum, KCGO, E-Phasen-Curriculum, Abiturerlass je Kurs) liefert get_planning_basis. In den Jahrgängen 5 und 6 gibt es keine iPads: dort nur analoges, ausdruckbares Material. " +
   "Jede Unterrichtssitzung hat Fach, Klasse, Thema, Dauer, Ideen der Lehrkraft, einen Planungsverlauf (Chat), Materialien, Feibeitsblätter und einen Schulportal-Eintrag. " +
   "Lies vor dem Planen immer zuerst die Sitzung mit get_lesson. Speichere Ergebnisse nur, wenn die Lehrkraft das möchte. " +
+  "Legst du Unterrichtsinhalte einer Sitzung ab (nach Freigabe der Lehrkraft), schreibe immer auch die „" + TEACHER_SUMMARY_TITLE + "“ mit update_lesson (zusammenfassung_lehrkraft) – " +
+  "auch, wenn du die Planung später überarbeitest (z. B. nach einem Zwischenstopp); das gilt am Gymnasium und in der Grundschule. " +
   "Arbeitsblätter und alle anderen Materialien als Datei (für Schüler:innen, nur für die Lehrkraft oder zum Ausdrucken) gestaltest du selbst als HTML-Seite und legst sie mit add_material_pdf ab – Unterricks druckt sie unverändert als A4-PDF; add_text_material und add_print_material (Markdown) nur als Rückfall, wenn der PDF-Druck nicht funktioniert. " +
   "Ist die Lehrkraft krank, legst du mit save_substitute_plan einen Vertretungsvorschlag ab (mit Abgabe: Feibeitsblatt oder ein Escape-Room nach der Vorlage der Plattform mit Feibeitsblatt-Finale); die Lehrkraft prüft und bestätigt ihn in der Plattform. " +
   "Eine Zeile „⏸ Zwischenstopp“ im Schulportal-Eintrag ist eine interne Markierung der Lehrkraft: Bis dorthin wurde die Stunde geschafft, ab dort ist der Inhalt offen (sie wird beim Kopieren ins Schulportal entfernt). " +
@@ -47,6 +49,8 @@ const CLASS_ARG = { type: "string", description: "Klasse/Kurs, z. B. 7B, EA, Q2-
 const UNIT_ID = { type: "string", description: "ID der Unterrichtseinheit (16 Hex-Zeichen, aus list_units)", pattern: "^[a-f0-9]{16}$" };
 const ID_ARG = { type: "string", description: "Sitzungs-ID (16 Hex-Zeichen, aus list_lessons)", pattern: "^[a-f0-9]{16}$" };
 const ro = { readOnlyHint: true, destructiveHint: false, openWorldHint: false };
+// Speicher-Werkzeuge der Planung (Nachtrag 21): danach die Zusammenfassung für die Lehrkraft
+const SUMMARY_AFTER_SAVE = "Schreibe danach auch die „" + TEACHER_SUMMARY_TITLE + "“ mit update_lesson (zusammenfassung_lehrkraft) bzw. passe sie an.";
 const wr = { readOnlyHint: false, destructiveHint: false, openWorldHint: false };
 
 const T = (d) => ({ type: "string", description: d }), I = (d) => ({ type: "integer", description: d });
@@ -84,13 +88,16 @@ const TOOLS = [
     inputSchema: { type: "object", properties: { lesson_id: ID_ARG }, required: ["lesson_id"], additionalProperties: false } },
   { name: "update_lesson", title: "Sitzungsdaten ändern", annotations: wr,
     description: "Ändert Titel, Thema, Dauer, Datum, Beginn (Uhrzeit), das Notizfeld „Ideen und Wünsche“ oder die Hausaufgabe (bis zur nächsten Sitzung; Schüler:innen sehen sie ab 15 Minuten vor dem Ende der Sitzung) einer Sitzung (nur übergebene Felder). " +
-      "Mit zwischenstopp hältst du die Entscheidung der Lehrkraft zum offenen Teil der vorigen Sitzung fest (get_lesson, Abschnitt „Vorige Stunde nicht vollständig beendet“).",
+      "Mit zwischenstopp hältst du die Entscheidung der Lehrkraft zum offenen Teil der vorigen Sitzung fest (get_lesson, Abschnitt „Vorige Stunde nicht vollständig beendet“). " +
+      "Mit zusammenfassung_lehrkraft speicherst du die „" + TEACHER_SUMMARY_TITLE + "“ (Gymnasium und Grundschule; Unterricks zeigt sie ganz oben in der Sitzung, nur der Lehrkraft) – " +
+      "immer, wenn du Unterrichtsinhalte der Sitzung ablegst, als letzten Speicherschritt, und erneut, wenn du die Planung später überarbeitest.",
     inputSchema: { type: "object", properties: { lesson_id: ID_ARG, titel: { type: "string", maxLength: 200 }, thema: { type: "string", maxLength: 500 },
       dauer_minuten: { type: "integer", minimum: 5, maximum: 600 }, datum: { type: "string", pattern: "^\\d{4}-\\d{2}-\\d{2}$" },
       beginn: { type: "string", pattern: "^([01]\\d|2[0-3]):[0-5]\\d$", description: "Uhrzeit des Unterrichtsbeginns, z. B. 07:45" }, ideen: { type: "string", maxLength: 20000 },
       hausaufgabe: { type: "string", maxLength: 10000, description: "Schulportal-Zeichen erlaubt; leer = keine Hausaufgabe (Grundschule: schlichter Text für Eltern und Kinder, ohne Schulportal-Zeichen; Eltern sehen sie nach der Stunde)" },
       inhalt_eltern: { type: "string", maxLength: 800, description: "nur Grundschule: Inhalt der Unterrichtsstunde für die Eltern – 2–3 Sätze, elternverständlich: worum es ging und was die Kinder lernen sollten; nie Namen von Kindern" },
-      zwischenstopp: { type: "string", enum: STOP_CHOICES, description: "Entscheidung der Lehrkraft zum offenen Teil der vorigen Sitzung nach ihrem Zwischenstopp: \"uebernehmen\" (in diese Stunde einbauen) oder \"verzichten\" – nur, was die Lehrkraft entschieden hat" } },
+      zwischenstopp: { type: "string", enum: STOP_CHOICES, description: "Entscheidung der Lehrkraft zum offenen Teil der vorigen Sitzung nach ihrem Zwischenstopp: \"uebernehmen\" (in diese Stunde einbauen) oder \"verzichten\" – nur, was die Lehrkraft entschieden hat" },
+      zusammenfassung_lehrkraft: { type: "string", maxLength: TEACHER_SUMMARY_MAX, description: TEACHER_SUMMARY_TITLE + " (nie für Schüler:innen oder Eltern sichtbar). " + teacherSummaryRules("beide") + " Leer = löschen." } },
       required: ["lesson_id"], additionalProperties: false } },
   { name: "save_planning_result", title: "Planungsergebnis in der Sitzung speichern", annotations: wr,
     description: "Speichert ein Planungsergebnis (z. B. den ausgearbeiteten Stundenentwurf) als Nachricht „Claude“ im Planungsverlauf der Sitzung, damit Schulportal-Eintrag und Präsentations-Prompt der Plattform darauf aufbauen.",
@@ -98,13 +105,13 @@ const TOOLS = [
   { name: "save_schulportal_entry", title: "Schulportal-Eintrag speichern", annotations: { ...wr, destructiveHint: true },
     description: "Ersetzt den Schulportal-Eintrag der Sitzung. Format: Schulportal-Zeichen (**fett**, ~~kursiv~~, __unterstrichen__, --durchgestrichen--, Zeilen mit \"- \"), Struktur wie in der Vorlage (nummerierte fette Phasen, Stichpunkte, „--> Nächste Stunde“). " + PORTAL_TEACHER_RULE + " " +
       "Eine vorhandene Zeile „" + STOP_LINE + "“ lässt du unverändert an ihrer Stelle; setze selbst keine. " +
-      "Übergib base_version aus get_lesson, damit keine neuere Änderung der Lehrkraft überschrieben wird.",
+      "Übergib base_version aus get_lesson, damit keine neuere Änderung der Lehrkraft überschrieben wird. " + SUMMARY_AFTER_SAVE,
     inputSchema: { type: "object", properties: { lesson_id: ID_ARG, text: { type: "string", maxLength: 30000 }, base_version: { type: "integer", minimum: 0 } }, required: ["lesson_id", "text"], additionalProperties: false } },
   { name: "save_verlaufsplan", title: "Verlaufsplan speichern (Grundschule)", annotations: { ...wr, destructiveHint: true },
     description: "Nur für Sitzungen der Grundschule (statt des Schulportal-Eintrags): ersetzt den Verlaufsplan der Sitzung. Format: " + VERLAUFSPLAN_RULES + " " +
       "Lege das Material vorher an (add_material_pdf, Bildkarten mit add_picture_cards) und nimm seine file_id aus der Antwort oder aus get_lesson. " +
       "Eine Zeile „" + STOP_LINE + "“ setzt nur die Lehrkraft (bis dorthin wurde die Stunde geschafft): Eltern sehen nur das Material bis zum Zwischenstopp. Eine vorhandene Zeile „" + STOP_LINE + "“ lässt du unverändert an ihrer Stelle; setze selbst keine. " +
-      "Übergib base_version aus get_lesson, damit keine neuere Änderung der Lehrkraft überschrieben wird. Beispiel:\n" + VERLAUFSPLAN_EXAMPLE,
+      "Übergib base_version aus get_lesson, damit keine neuere Änderung der Lehrkraft überschrieben wird. " + SUMMARY_AFTER_SAVE + " Beispiel:\n" + VERLAUFSPLAN_EXAMPLE,
     inputSchema: { type: "object", properties: { lesson_id: ID_ARG, text: { type: "string", maxLength: 30000 }, base_version: { type: "integer", minimum: 0 } }, required: ["lesson_id", "text"], additionalProperties: false } },
   { name: "add_material_pdf", title: "Material gestalten (PDF)", annotations: wr,
     description: "Legt ein von dir gestaltetes Material als PDF-Datei in der Sitzung ab: Arbeitsblätter, Texte und Quellen, Schaubilder, Tafelbilder, Kärtchen, Erwartungshorizonte – alles, was Schüler:innen oder die Lehrkraft als Datei bekommen. " +
@@ -232,10 +239,21 @@ const TOOLS = [
 const toolText = (text, structured) => ({ content: [{ type: "text", text }], ...(structured ? { structuredContent: structured } : {}) });
 const toolError = (text) => ({ content: [{ type: "text", text }], isError: true });
 
+/* Abschnitt „Zusammenfassung der Sitzung für die Lehrkraft“ von get_lesson (Nachtrag 21): Kopfzeile wie in der Sitzung (aus den aktuellen Daten), Text,
+   Stand und – wurde die Planung danach geändert bzw. gilt eine Vertretung – ein Hinweis. course = Grundschulkurs (gsCourseOut) oder null */
+function summarySection(l, course, { substitute = false } = {}) {
+  const gs = l.subject === GS_SUBJECT, t = String(l.teacher_summary || "").trim();
+  const out = ["", "## " + TEACHER_SUMMARY_TITLE, "Kopfzeile (setzt Unterricks automatisch aus den aktuellen Sitzungsdaten): " + summaryHead({ subject: l.subject, klass: l.klass, date: l.lesson_date, startTime: l.start_time }, course)];
+  if (!t) return [...out, "(noch leer – schreibe sie mit update_lesson und zusammenfassung_lehrkraft)"];
+  out.push(t, "(Stand: " + (l.teacher_summary_at ? fmtStampBerlin(l.teacher_summary_at) : "unbekannt") + ")");
+  if (substitute) out.push("Für diese Sitzung gilt die bestätigte Vertretungsstunde – die Zusammenfassung beschreibt die ursprüngliche Planung.");
+  else if (summaryOutdated(t, l.teacher_summary_plan, l.portal)) out.push("Achtung: Der " + (gs ? "Verlaufsplan" : "Schulportal-Eintrag") + " wurde danach geändert – passe die Zusammenfassung mit update_lesson (zusammenfassung_lehrkraft) an, wenn du die Planung überarbeitest.");
+  return out;
+}
 async function lessonDump(db, l, now = Date.now()) {
   const ctx = await lessonCtx(db, l);
-  const [msgs, drafts, prev] = await Promise.all([chatMessages(db, l.id, 80), db.prepare("SELECT id, data, status, sheet_code FROM fb_drafts WHERE lesson_id=?1 ORDER BY created_at DESC LIMIT 10").bind(l.id).all(),
-    previousLesson(db, l)]);
+  const [msgs, drafts, prev, sub] = await Promise.all([chatMessages(db, l.id, 80), db.prepare("SELECT id, data, status, sheet_code FROM fb_drafts WHERE lesson_id=?1 ORDER BY created_at DESC LIMIT 10").bind(l.id).all(),
+    previousLesson(db, l), getSubstitute(db, l.id)]);
   // Zwischenstopp der vorigen Sitzung: Geschafft / Nicht geschafft, Stand der Entscheidung und die Regeln (Anforderung 13)
   const ps = await prevStopInfo(db, l, prev, ctx.unit);
   const parts = [
@@ -243,6 +261,7 @@ async function lessonDump(db, l, now = Date.now()) {
     "Sitzungscode für Schüler:innen: " + formatCode(l.code),
     "", "## Schulportal-Eintrag (Version " + l.portal_version + (l.portal_source ? ", zuletzt von " + l.portal_source : "") + ")", l.portal || "(noch leer)",
     ...(ps ? stopLessonLines(ps, { gs: false, unitId: ctx.unit ? ctx.unit.id : null, unit: ctx.unit, now }) : []),
+    ...summarySection(l, null, { substitute: !!sub && sub.status === "aktiv" }),
     "", "## Planungsverlauf", chatTranscript(msgs, 60000) || "(leer)",
   ];
   const ds = (drafts.results || []);
@@ -255,7 +274,6 @@ async function lessonDump(db, l, now = Date.now()) {
   const pn = await db.prepare("SELECT pages, CASE WHEN json_valid(notes) THEN json_array_length(notes, '$.slides') ELSE 0 END AS n FROM files WHERE lesson_id=?1 AND area='presentation' AND status='ready' LIMIT 1").bind(l.id).first();
   if (pn && pn.n > 0) parts.push("", "## Notizen der Lehrkraft zur Präsentation", "Zu " + pn.n + " von " + pn.pages + " Folien gibt es Notizen (nur für die Lehrkraft: in ihrer Präsentationsansicht und in der „Präsentation mit Anmerkungen“ unter „Material nur für die Lehrkraft“). " +
     "Neue Notizen gehören als Dateianhang " + NOTES_FILE + " in eine neue PDF der Präsentation.");
-  const sub = await getSubstitute(db, l.id);
   if (sub) parts.push("", "## Krankheitsvertretung", "Status: " + sub.status + (sub.status === "aktiv" ? " (die ursprüngliche Planung ist archiviert)" : " (Vorschlag liegt der Lehrkraft vor)"));
   if (l.unit_id) parts.push("", "Unterrichtseinheit: " + l.unit_id + " (Details mit get_unit; Planungsgrundlagen mit get_planning_basis)");
   parts.push("", "## Rolle des Planungsassistenten der Plattform (zur Orientierung)", SYSTEM_PROMPT_ROLE);
@@ -319,6 +337,7 @@ async function gsLessonDump(c, l) {
     ...(hasStop(l.portal) ? ["(„" + STOP_LINE + "“ hat die Lehrkraft gesetzt: bis dorthin wurde die Stunde geschafft, alles danach ist noch offen.)"] : []),
     parentsLine,
     ...(ps ? stopLessonLines({ ...ps, openFiles: openFilesOf(ps, [...ctx.files, ...others]) }, { gs: true, unitId: ctx.unit ? ctx.unit.id : null, unit: ctx.unit, now: c.now }) : []),
+    ...(l.cancelled ? [] : summarySection(l, ctx.course)),
     "", "## Inhalt der Unterrichtsstunde (für die Eltern)", l.parent_summary || (l.cancelled ? "(Ausfall-Eintrag – keiner)" : "(noch leer – formuliere ihn mit update_lesson und inhalt_eltern)"),
     "", "## Hinweis der Lehrkraft für die Eltern (nur lesen)", l.parent_note || "(keiner)",
   ];
@@ -429,6 +448,19 @@ function invalidPlanRefs(text) {
     if (!out.includes(x) && out.length < 20) out.push(x);
   }
   return out;
+}
+/* Rückmeldung von update_lesson zur Zusammenfassung (Nachtrag 21): kurz, mit der Kopfzeile, die Unterricks darüber setzt, und Hinweisen zur Form */
+async function summaryNote(c, l) {
+  const t = String(l.teacher_summary || "").trim();
+  if (!t) return TEACHER_SUMMARY_TITLE + " gelöscht.";
+  let course = null;
+  if (l.subject === GS_SUBJECT) { try { course = gsCourseOut(await getGsCourse(c.db, l.klass)); } catch {} }
+  const words = t.split(/\s+/).filter(Boolean).length;
+  const out = [TEACHER_SUMMARY_TITLE + " gespeichert (" + words + (words === 1 ? " Wort" : " Wörter") + ", beginnt mit „" + (t.length > 80 ? t.slice(0, 77).trimEnd() + " …" : t) + "“). " +
+    "Unterricks setzt darüber automatisch: „" + summaryHead({ subject: l.subject, klass: l.klass, date: l.lesson_date, startTime: l.start_time }, course) + "“."];
+  if (/(\*\*|~~|__|`)|^\s*(#{1,6}\s|[-*•]\s|\d+[.)]\s|\|)/m.test(t)) out.push("Achtung: Die Zusammenfassung erscheint als schlichter Text – schreibe sie ohne Markdown, Schulportal-Zeichen, Aufzählungszeichen und Tabellen.");
+  if (words > 400) out.push("Sie ist länger als vorgesehen (etwa 120 bis 300 Wörter) – kürze sie, wenn möglich.");
+  return out.join(" ");
 }
 async function callTool(c, name, a) {
   a = a && typeof a === "object" ? a : {};
@@ -592,6 +624,10 @@ async function callTool(c, name, a) {
       if (a.ideen !== undefined) b.ideas = a.ideen;
       if (a.hausaufgabe !== undefined) b.homework = a.hausaufgabe;
       if (a.inhalt_eltern !== undefined) b.parentSummary = a.inhalt_eltern;
+      if (a.zusammenfassung_lehrkraft !== undefined) {
+        if (typeof a.zusammenfassung_lehrkraft !== "string") return toolError("zusammenfassung_lehrkraft ist ein Text (leer = löschen).");
+        b.teacherSummary = a.zusammenfassung_lehrkraft;
+      }
       let { lesson: l } = await updateLesson(c.db, a.lesson_id, b, c.now);
       if (stopPrev) {
         await c.db.prepare("UPDATE lessons SET stop_decision=?2, updated_at=?3 WHERE id=?1").bind(l.id, stopDecisionJson(a.zwischenstopp, stopPrev, c.now), c.now).run();
@@ -599,7 +635,8 @@ async function callTool(c, name, a) {
         stopNote = " Entscheidung zum offenen Teil der vorigen Sitzung „" + stopPrev.title + "“ festgehalten: " + STOP_CHOICE_TEXT[a.zwischenstopp] +
           (l.unit_id || stopPrev.unit_row ? " Passe die Einheit an, sobald die Lehrkraft die Planung dieser Stunde bestätigt hat (siehe get_lesson)." : "");
       }
-      return toolText("Gespeichert." + stopNote, { lesson: lessonOut(l), ...(stopPrev ? { zwischenstopp: a.zwischenstopp } : {}) });
+      const sumNote = a.zusammenfassung_lehrkraft !== undefined ? " " + (await summaryNote(c, l)) : "";
+      return toolText("Gespeichert." + stopNote + sumNote, { lesson: lessonOut(l), ...(stopPrev ? { zwischenstopp: a.zwischenstopp } : {}) });
     }
     case "save_planning_result": {
       if ((await getLesson(c.db, a.lesson_id)).cancelled) return toolError(NO_PLANNING);

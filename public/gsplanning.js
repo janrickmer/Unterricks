@@ -1,6 +1,6 @@
 // gsplanning.js – Prompts für Claude in der Grundschule (Wunsch der Lehrkraft vom 12.11.2026): Einheit planen. Gemeinsam für Browser und
 // Worker (keine DOM-Zugriffe). Die Kinder arbeiten nicht digital: nur analoges, ausdruckbares Material.
-import { fmtDay, SYSTEM_PROMPT_ROLE, UNIT_RULE_BASE, materialDesignText } from "./shared.js";
+import { fmtDay, SYSTEM_PROMPT_ROLE, UNIT_RULE_BASE, materialDesignText, summarySaveStep, SUMMARY_FALLBACK } from "./shared.js";
 import { lessonSlots, paramsText, freeSlots, normalizeParams, stopCarrySection, stopCarryStep, stopFallbackText } from "./planning.js";
 
 export const GS_RULE = "In der Grundschule arbeiten die Kinder nicht digital: Plane ausschließlich analoges Material (ausdruckbare Arbeitsblätter, Bildkarten, Tafel- und Bodenbilder) – keine Feibeitsblätter, keine Escape-Rooms, keine Online-Aufgaben, keine Präsentation zum Mitverfolgen.";
@@ -166,12 +166,13 @@ export function claudeGsLessonPrompt(ctx) {
     "   - Den „Inhalt der Unterrichtsstunde“ für die Eltern speicherst du mit `update_lesson` und `inhalt_eltern`: 2–3 elternverständliche Sätze, worum es ging und was die Kinder lernen sollten. Eine Hausaufgabe nur, wenn wir eine vereinbart haben (`hausaufgabe`, schlichter Text ohne Zeichen).",
     "   - Den ausgearbeiteten Stundenentwurf (Verlauf mit Minuten, Begründung, Erwartungen) speicherst du mit `save_planning_result`.",
     unit ? "   - Eine abgestimmte Abweichung von der Einheit (Stundenfrage, grober Ablauf) hältst du mit `update_unit_row` fest." : null,
+    summarySaveStep(true),
     k(5) + "Sage mir zum Schluss kurz, was du gespeichert hast.",
     "",
     "Vorlage für den Verlaufsplan (so sieht er aus; <file_id> durch die Kennungen deiner Dateien ersetzen):",
     VERLAUFSPLAN_EXAMPLE,
     "",
-    "Falls der Connector „Unterricks“ in diesem Chat nicht verfügbar ist, sage es mir sofort (beim ersten Mal muss er im Chat verbunden und sein Zugriff erlaubt werden). Plane dann mit den Angaben oben und gib mir den Verlaufsplan am Ende zum Kopieren aus." +
+    "Falls der Connector „Unterricks“ in diesem Chat nicht verfügbar ist, sage es mir sofort (beim ersten Mal muss er im Chat verbunden und sein Zugriff erlaubt werden). Plane dann mit den Angaben oben und gib mir den Verlaufsplan am Ende zum Kopieren aus" + SUMMARY_FALLBACK + "." +
       (ps ? stopFallbackText(ps, stopOpt) : ""),
   ].filter((l) => l !== null).join("\n").replace(/\n{3,}/g, "\n\n");
 }
@@ -214,7 +215,7 @@ export function claudeUnitRevisionPrompt(ctx) {
     "2. Schlage mir zwei oder drei Möglichkeiten vor, wie die Einheit trotz der Ausfälle ihre zentrale Lernaufgabe erreicht – z. B. Stunden zusammenlegen oder kürzen, eine Stunde ohne Termin streichen oder mit einer anderen zusammenführen, oder die Einheit verlängern (stimme ich zu, trägst du das mit `extend_unit` ein: Die Plattform setzt das Ende auf den nächsten Termin laut Stundenplan, gibt zuerst den Stunden ohne Termin einen Termin und legt ihre Sitzungen an – sofort in der Einheit sichtbar). Nenne zu jeder Möglichkeit kurz Vor- und Nachteile.",
     "3. Warte auf meine Entscheidung.",
     "4. Soll verlängert werden, rufe zuerst `extend_unit` auf (mit `base_version` aus `get_unit` und `termine` – so viele Termine, wie gebraucht werden, höchstens 3; neue Stunden nur, wenn wir welche vereinbart haben). Speichere dann die überarbeitete Einheit mit `save_unit_plan` (mit `base_version` aus `get_unit` bzw. aus der Antwort von `extend_unit`) und gib bei jeder Stunde, die bleibt, ihre `uid` an. Stunden, deren Sitzung schon geplant ist oder schon Inhalte hat, lässt du nicht weg (Inhalt und Stundenfrage darfst du ändern); nur Stunden ohne Sitzung oder mit „noch nicht geplant“ dürfen wegfallen. Die Termine verteilt die Plattform neu.",
-    "5. Passe betroffene Sitzungen nur nach meiner Zustimmung an (`save_verlaufsplan`, `update_lesson` mit `inhalt_eltern`).",
+    "5. Passe betroffene Sitzungen nur nach meiner Zustimmung an (`save_verlaufsplan`, `update_lesson` mit `inhalt_eltern` und – für mich – `zusammenfassung_lehrkraft`, die „Zusammenfassung der Sitzung für die Lehrkraft“).",
     "",
     "Nenne nie Namen von Kindern.",
     "",
