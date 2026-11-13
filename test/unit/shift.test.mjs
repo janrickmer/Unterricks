@@ -551,3 +551,20 @@ test("F17: save_unit_plan ohne uid bei einer Grundschul-Einheit mit Sitzungen wi
   const d = tools.find((t) => t.name === "save_unit_plan").description;
   assert.ok(d.includes("Grundschule (get_unit nennt dort die uid jeder Stunde)") && d.includes("ebenso einen Plan ganz ohne uid") && d.includes("Am Gymnasium nennt get_unit keine uid"), d);
 });
+
+test("F05 (Kontrolle): rückgängig stellt die damals verschobenen Sitzungen genau aus ihrem Schnappschuss her und lässt frühere Sitzungen unberührt", async () => {
+  const { c, unitId, ids } = await setup();
+  // Stunde 4: Zeile ohne Länge, Sitzung mit 60 Minuten (der Termin hat 45) – nach rückgängig wieder 60 wie vor der Krankmeldung
+  const u0 = await unitGet(c, unitId);
+  await c.db.prepare("UPDATE units SET rows=?2 WHERE id=?1").bind(unitId, JSON.stringify(u0.rows.map((r, i) => (i === 3 ? { ...r, minutes: null } : r)))).run();
+  await c.db.prepare("UPDATE lessons SET duration_min=60, updated_at=1 WHERE id=?1").bind(ids[3]).run();
+  await c.db.prepare("UPDATE lessons SET updated_at=1 WHERE id IN (?1, ?2)").bind(ids[0], ids[1]).run();
+  const v = (await call(c, GS.routeLessonCancel, "POST", "/x", { dryRun: true }, ids[2])).data.version;
+  const r = (await call(c, GS.routeLessonCancel, "POST", "/x", { version: v }, ids[2])).data;
+  assert.equal((await lessonRow(c, ids[3])).duration_min, 45, "am neuen Termin die Länge des Termins");
+  assert.equal((await call(c, GS.routeCancelUndo, "POST", "/x", { undoId: r.unit.revise.undoId }, unitId)).status, 200);
+  const l4 = await lessonRow(c, ids[3]);
+  assert.deepEqual([l4.lesson_date, l4.start_time, l4.duration_min], ["2026-11-12", "08:00", 60]);
+  assert.deepEqual((await Promise.all(ids.map((id) => lessonRow(c, id)))).map((l) => l.lesson_date), DATES);
+  assert.deepEqual([(await lessonRow(c, ids[0])).updated_at, (await lessonRow(c, ids[1])).updated_at], [1, 1], "Sitzungen vor der ausgefallenen Stunde bleiben unberührt");
+});

@@ -13,7 +13,8 @@ import { normalizeParams, computeSlots, normalizePlan, normalizeRows, assignDate
 const newUid = () => randomId(4);
 const parseJ = (s, d) => { try { const v = JSON.parse(s); return v ?? d; } catch { return d; } };
 /* units.revise (Grundschule, Krankmeldung): {v, open, items: [{id, date, time, minutes, lessonId, placeholderId, title, at, lengths}], undated: [uid],
-   undo: {id, version, rows, lessons, lessonId, placeholderId, slot} | null}. Nach außen nie der Schnappschuss – nur, ob er noch gilt. */
+   undo: {id, version, rows, lessons, lessonId, placeholderId, slot (Termin laut Stundenplan wie in params.cancelled), prevOpen} | null}.
+   Nach außen nie der Schnappschuss – nur, ob er noch gilt. */
 export const reviseData = (raw) => {
   const r = parseJ(raw, null);
   if (!r || typeof r !== "object") return null;

@@ -9,7 +9,7 @@ import { courseSettingsOut } from "./courses.js";
 import { GS_SUBJECT, isGsCourseId, normalizeGsCourse, gsCourseShort, gsCourseLabel, gsGradeText, schoolYearOf, berlinToday } from "../public/shared.js";
 import { normalizeCourseSettings, planCancellation, normalizeParams } from "../public/planning.js";
 import { getLesson } from "./lessons.js";
-import { getUnit, linkedLessons, reviseData, unitFull, mirrorStmt } from "./units.js";
+import { getUnit, linkedLessons, reviseData, unitFull } from "./units.js";
 import { wantedGsSections, missingForGs } from "../public/bases-detect.js";
 
 const parseJ = (s, d) => { try { const v = JSON.parse(s); return v ?? d; } catch { return d; } };
@@ -215,14 +215,23 @@ export async function routeCancelUndo(c, id) {
   // der rote Kasten wie vor dieser Krankmeldung (ältere Schnappschüsse ohne prevOpen: offen)
   const revise = items.length ? { ...rev, open: typeof undo.prevOpen === "boolean" ? undo.prevOpen : true, items, undated: rows.filter((r) => !r.date).map((r) => r.uid), undo: null } : null;
   const G = "EXISTS(SELECT 1 FROM units WHERE id=?2 AND version=?3)";
+  /* Termine der Sitzungen wie vor der Krankmeldung: die damals verschobenen genau aus ihrem Schnappschuss (wie bisher), Sitzungen, die erst danach
+     für eine der verschobenen Zeilen angelegt wurden, aus ihrer Zeile (Abschlussprüfung F05); Sitzungen früherer Stunden bleiben unberührt */
+  const snapL = new Map((undo.lessons || []).map((x) => [x.id, x]));
+  const back = lessons.filter((l) => !l.cancelled && l.row && snap.has(l.row)).map((l) => {
+    const r = snap.get(l.row);
+    return snapL.get(l.id) || { id: l.id, d: r.date || null, t: r.time || null, m: r.minutes ?? null };
+  });
   // Elternlink zurück zur Sitzung wie bei der Krankmeldung: der jetzige Hash des Ausfall-Eintrags (auch nach „Link erneuern“), in der Datenbank gelesen
   const res = await c.db.batch([
     c.db.prepare("UPDATE lessons SET parent_hash='~'||parent_hash WHERE id=?1 AND cancelled=1 AND parent_hash IS NOT NULL AND " + G).bind(undo.placeholderId, u.id, u.version),
     c.db.prepare("UPDATE lessons SET parent_hash=(SELECT substr(p.parent_hash,2) FROM lessons p WHERE p.id=?4), parent_sealed=(SELECT p.parent_sealed FROM lessons p WHERE p.id=?4) " +
       "WHERE id=?1 AND cancelled=0 AND EXISTS(SELECT 1 FROM lessons p WHERE p.id=?4 AND substr(p.parent_hash,1,1)='~') AND " + G).bind(undo.lessonId, u.id, u.version, undo.placeholderId),
     c.db.prepare("DELETE FROM lessons WHERE id=?1 AND cancelled=1 AND " + G).bind(undo.placeholderId, u.id, u.version),
-    // Termine aller Sitzungen der Einheit aus den Zeilen – auch Sitzungen, die erst nach der Krankmeldung angelegt wurden (Abschlussprüfung F05)
-    mirrorStmt(c.db, rows, lessons, c.now, "EXISTS(SELECT 1 FROM units WHERE id=?3 AND version=?4)", u.id, u.version),
+    c.db.prepare("UPDATE lessons SET lesson_date=(SELECT json_extract(value,'$.d') FROM json_each(?1) WHERE json_extract(value,'$.id')=lessons.id), " +
+      "start_time=(SELECT json_extract(value,'$.t') FROM json_each(?1) WHERE json_extract(value,'$.id')=lessons.id), " +
+      "duration_min=COALESCE((SELECT json_extract(value,'$.m') FROM json_each(?1) WHERE json_extract(value,'$.id')=lessons.id), duration_min), updated_at=?4 " +
+      "WHERE id IN (SELECT json_extract(value,'$.id') FROM json_each(?1)) AND cancelled=0 AND " + G).bind(JSON.stringify(back), u.id, u.version, c.now),
     c.db.prepare("UPDATE units SET params=?3, rows=?4, revise=?5, version=version+1, updated_at=?6, source='lehrkraft' WHERE id=?1 AND version=?2 RETURNING version")
       .bind(u.id, u.version, JSON.stringify(p2), JSON.stringify(rows), revise ? JSON.stringify(revise) : null, c.now),
   ]);
