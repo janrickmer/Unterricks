@@ -17,7 +17,7 @@ import { normBeamerCode, GS_SUBJECT } from "../public/shared.js";
 
 export const BEAMER_TTL = 6 * 3600e3;                         // ein gekoppeltes Gerät bleibt 6 Stunden mit der Sitzung verbunden
 export const PAIR_LIMIT = { max: 300, windowMs: 3600e3 };      // neue Beamer-Codes je IP und Stunde (Schulnetz: viele Geräte, eine IP)
-export const BEAMER_CODE_GONE = "Diesen Beamer-Code gibt es nicht (mehr). Auf dem Beamer steht nach dem Neuladen ein neuer.";
+export const BEAMER_CODE_GONE = "Diesen Beamer-Code gibt es nicht (mehr). Bitte geben Sie die Ziffern ein, die jetzt auf dem Beamer stehen.";
 // lange Abfrage des Beamer-Codes: höchstens checks weitere Leseanweisungen im Abstand von stepMs (sleep austauschbar für Unit-Tests)
 export const POLL_HOLD = { checks: 6, stepMs: 2000, sleep: (ms) => new Promise((r) => setTimeout(r, ms)) };
 const GONE = "Dieser Beamer-Code ist abgelaufen. Ein neuer wird geholt.";

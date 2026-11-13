@@ -1,7 +1,7 @@
 // presenter.js – Präsentation (PDF) in Folienbilder umwandeln und im Vollbild live für alle zeigen.
 import { h, clear, api, apiUrl, wsUrl, toast, errToast, icon, store, rand, busy } from "./ui.js";
 import { isValidCode, formatCode, slideTextLines, slideCodeBoxes, slideSessionCode, codeCover, coverFill, codeFontStyle, codeSlideLines, cleanCodeSlides,
-  nextSlideOf, nextSlideLabel, presenterKey, BEAMER_CHANNEL, normBeamerCode, PUBLIC_URL } from "./shared.js";
+  nextSlideOf, nextSlideLabel, presenterKey, BEAMER_CHANNEL, normBeamerCode, PUBLIC_URL, beamerWindowNote } from "./shared.js";
 import { codeSlideDom } from "./codeslide.js";
 
 let pdfjsP = null;
@@ -195,6 +195,8 @@ export const BEAMER_PAIR_HINT = "Der Code steht auf dem Gerät am Beamer – dor
   "Spiegeln Sie dieses Gerät dann nicht auf den Beamer: Der Beamer zeigt das zweite Gerät, Sie sehen hier weiter die nächste Folie.";
 export const BEAMER_CODE_MISSING = "Bitte geben Sie die sechs Ziffern ein, die auf dem Beamer stehen.";
 const beamersText = (n) => (n === 1 ? "Beamer verbunden" : n + " Beamer verbunden");
+const BEAMER_CUT_NOTE = "Beamer getrennt";
+export const BEAMER_NOTE_MS = 6000;   // so lange steht „Beamer getrennt“ in der Leiste
 const hex = (b) => Array.from(b, (x) => x.toString(16).padStart(2, "0")).join("");
 export async function startPresenter({ lessonId, file, token, startSlide = 0, onEnd, slides, onMark, shownUntil = null, code = "", title = "" }) {
   const s = slides || (await fetchSlides(file.id, token));
@@ -250,7 +252,7 @@ export async function startPresenter({ lessonId, file, token, startSlide = 0, on
   const beamBtn = bc && !touchOnly ? h("button", { class: "btn small", type: "button", onclick: () => openBeamer(),
     title: "Zweites Fenster nur mit der aktuellen Folie – für den Beamer als erweiterten Bildschirm. Hier sehen Sie weiter die nächste Folie." }, "Beamerfenster öffnen") : null;
   const beamState = h("span", { class: "small beamstate", "aria-live": "polite" });
-  let beamNote = "";   // Hinweis zum Beamerfenster in der Leiste – Toasts sind im Vollbild nicht zu sehen
+  let beamNote = "", beamOne = false;   // Hinweis zum Beamerfenster in der Leiste – Toasts sind im Vollbild nicht zu sehen; beamOne: nur ein Bildschirm erkannt
   // Beamer über ein zweites Gerät (Nachtrag 15): auch auf Tablets – Code des Beamergeräts in einem Feld innerhalb der Präsentation eingeben
   // (kein Seitenwechsel, das Vollbild bleibt); verbunden zeigt die Leiste „Beamer verbunden“ (Zahl aus dem Durable Object)
   let beamersN = 0, devNote = "", devWaitT = null;
@@ -294,7 +296,7 @@ export async function startPresenter({ lessonId, file, token, startSlide = 0, on
   let adopted = false, moved = false;
   const live = new TeacherLive(lessonId, token, (m) => {
     if ((m.t === "count" || m.t === "state") && Number.isInteger(m.beamers) && m.beamers >= 0 && m.beamers !== beamersN) {
-      beamersN = m.beamers; if (beamersN) { devNote = ""; clearTimeout(devWaitT); } paintDev();
+      beamersN = m.beamers; if (beamersN) { devNote = ""; clearTimeout(devWaitT); } paintDev(); paintBeam();
     }
     if (m.t === "count") students = m.students;
     else if (m.t === "state") {
@@ -365,7 +367,9 @@ export async function startPresenter({ lessonId, file, token, startSlide = 0, on
     await busy(btn, async () => {
       try {
         await api("POST", "/api/teacher/lessons/" + lessonId + "/beamer/disconnect", { token });
-        clearTimeout(devWaitT); beamersN = 0; devNote = "Beamer getrennt"; paintDev(); closePair(keyed);
+        clearTimeout(devWaitT); beamersN = 0; devNote = BEAMER_CUT_NOTE; paintDev(); paintBeam(); closePair(keyed);
+        // nur kurz sichtbar: der Knopf heißt wieder „Beamer verbinden“ – sonst bräche die Leiste am iPad dauerhaft in eine dritte Zeile
+        devWaitT = setTimeout(() => { if (devNote === BEAMER_CUT_NOTE) { devNote = ""; paintDev(); } }, BEAMER_NOTE_MS);
       } catch (err) { if (!pairWrap.hidden) pairErr.textContent = err && err.message ? err.message : String(err); }
     }, "Trenne …");
   }
@@ -402,18 +406,22 @@ export async function startPresenter({ lessonId, file, token, startSlide = 0, on
     try { bc.postMessage({ t: "show", id: pid, at: claimAt, fach: document.documentElement.dataset.fach || null, view }); } catch {}
   }
   const claim = () => { try { bc.postMessage({ t: "claim", id: pid, at: claimAt }); } catch {} };
-  function paintBeam() { beamState.textContent = beamers.size ? "Beamerfenster verbunden" + (beamNote ? " · " + beamNote : "") : beamNote; }
+  function paintBeam() {
+    const note = beamOne ? beamerWindowNote(true, beamersN) : beamNote;   // ist schon ein Beamergerät verbunden, nennt der Hinweis es nicht mehr als Ausweg
+    const t = beamers.size ? "Beamerfenster verbunden" + (note ? " · " + note : "") : note;
+    if (beamState.textContent !== t) beamState.textContent = t;   // Live-Region: nur Änderungen ansagen
+  }
   function openBeamer() {
     let w = null;
     try { w = window.open(location.pathname + location.search + "#/beamer", "unterricks-beamer", "popup=yes,width=1024,height=640"); } catch {}
     if (!w) {
-      beamNote = "Beamerfenster blockiert – bitte Pop-up-Fenster für diese Seite erlauben und noch einmal öffnen."; paintBeam();
+      beamNote = "Beamerfenster blockiert – bitte Pop-up-Fenster für diese Seite erlauben und noch einmal öffnen."; beamOne = false; paintBeam();
       if (!isFs()) toast("Das Beamerfenster wurde blockiert. Bitte erlauben Sie Pop-up-Fenster für diese Seite und klicken Sie noch einmal auf „Beamerfenster öffnen“.", "err", 9000);
       return;
     }
     claimAt = Date.now(); claim();   // ein schon offenes Beamerfenster folgt jetzt dieser Präsentation
     try { w.focus(); } catch {}
-    beamNote = window.screen && window.screen.isExtended === false ? "nur ein Bildschirm erkannt: Beamer als erweiterten Bildschirm einrichten – gespiegelt sieht die Klasse die Vorschau (Taste V blendet sie aus) – oder verbinden Sie ein zweites Gerät am Beamer („Beamer verbinden“)" : "";
+    beamOne = !!(window.screen && window.screen.isExtended === false); beamNote = "";
     paintBeam();
   }
   if (bc) bc.onmessage = (ev) => {

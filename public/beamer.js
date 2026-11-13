@@ -13,7 +13,7 @@
 //    Tippen, Klicken oder „Neuen Beamer-Code anzeigen“ holt wieder einen.
 import { h, api, apiUrl, wsUrl, setFach, rand, store } from "./ui.js";
 import { render, onLeave } from "./app.js";
-import { BEAMER_CHANNEL, beamerFollow, cleanBeamerView, presenterKey, beamerScreen, fmtBeamerCode, normBeamerCode, readBeamerLink } from "./shared.js";
+import { BEAMER_CHANNEL, beamerFollow, cleanBeamerView, presenterKey, beamerScreen, fmtBeamerCode, normBeamerCode, readBeamerLink, readBeamerPair } from "./shared.js";
 import { codeSlideDom } from "./codeslide.js";
 
 const hex = (b) => Array.from(b, (x) => x.toString(16).padStart(2, "0")).join("");
@@ -31,6 +31,14 @@ export const BEAMER_PAIR_IDLE_MS = 2 * 3600e3;
 export const BEAMER_DEV_HINT = "Dieses Gerät zeigt am Beamer nur die aktuelle Folie. Gesteuert wird auf dem Gerät der Lehrkraft – Tasten und Presenter wirken hier nicht. " +
   "Am Beamer-iPad die „Automatische Sperre“ am besten auf „Nie“ stellen.";
 const LINK_KEY = "u.beamer";
+// noch nicht abgeholter Beamer-Code dieses Tabs: nach dem Neuladen bleibt er stehen (ein schon abgelesener Code koppelt sonst ein Gerät, das ihn
+// nicht mehr abfragt – die Lehrkraft sähe „Beamer gekoppelt – verbindet sich …“, der Beamer aber weiter einen anderen Code)
+const PAIR_KEY = "u.beamerpair";
+const tabStore = {
+  get() { try { return sessionStorage.getItem(PAIR_KEY); } catch { return null; } },
+  set(p) { try { sessionStorage.setItem(PAIR_KEY, JSON.stringify(p)); } catch {} },
+  del() { try { sessionStorage.removeItem(PAIR_KEY); } catch {} },
+};
 
 export function beamerPage() {
   const bid = hex(rand(8)), slideBase = apiUrl("/api/slide/");
@@ -102,10 +110,16 @@ export function beamerPage() {
     if (dev || !alive) return;
     dev = true;
     root.classList.add("bm-device");
+    root.setAttribute("aria-label", "Beamer von Unterricks");
+    document.title = "Unterricks – Beamer";   // so heißt auch das Lesezeichen bzw. das Symbol auf dem Home-Bildschirm
     hint.textContent = BEAMER_DEV_HINT;
-    if (!window.opener) closeBtn.remove();   // ein Tab aus einem Lesezeichen lässt sich nicht per Skript schließen
+    // ein Tab aus einem Lesezeichen lässt sich nicht per Skript schließen – stattdessen zurück zur Startseite (wer „Dieses Gerät als Beamer
+    // verwenden“ versehentlich angetippt hat, z. B. in der Web-App vom Home-Bildschirm ohne Zurück-Knopf, steckt sonst fest)
+    if (!window.opener) closeBtn.replaceWith(h("a", { class: "btn small", href: "#/" }, "Zur Startseite"));
     link = readBeamerLink(store.get(LINK_KEY));
     if (!link) store.del(LINK_KEY);
+    pair = link ? null : readBeamerPair(tabStore.get());   // nach dem Neuladen: derselbe Code, solange er gilt
+    if (!pair) tabStore.del();
     syncHold();
     if (link) connect();
     paint();
@@ -178,7 +192,8 @@ export function beamerPage() {
       const r = await api("POST", "/api/beamer/pair");
       if (!alive) return;
       if (!normBeamerCode(r.code) || typeof r.pairKey !== "string") throw new Error("Ungültige Antwort");
-      pair = { code: r.code, pairKey: r.pairKey, until: Date.now() + Math.max(60e3, Number(r.ttlMs) || 600e3) };
+      pair = { code: r.code, pairKey: r.pairKey, until: Date.now() + Math.max(60e3, Math.min(600e3, Number(r.ttlMs) || 600e3)) };
+      tabStore.set(pair);
       pairFails = 0; pairErr = "";
     } catch (e) {
       if (!alive) return;
@@ -213,6 +228,7 @@ export function beamerPage() {
   }
   // gekoppelt (auch an eine andere Sitzung): Schlüssel merken und verbinden
   function adopt(l) {
+    tabStore.del();   // abgeholt: diesen Code gibt es nicht mehr
     const v = readBeamerLink(JSON.stringify(l));
     if (!v) { ensurePairing(); return; }
     closeLive();

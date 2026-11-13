@@ -585,6 +585,19 @@ export function readBeamerLink(raw, now = Date.now()) {
     || !/^\d{1,9}\.\d{10,16}\.[A-Za-z0-9_-]{20,100}$/.test(d.key) || !Number.isFinite(d.exp) || d.exp <= now) return null;
   return { lessonId: d.lessonId, key: d.key, exp: d.exp };
 }
+/* noch nicht abgeholter Beamer-Code dieses Tabs (sessionStorage u.beamerpair) {code, pairKey, until}: Nach dem Neuladen zeigt das Gerät denselben
+   Code weiter – sonst koppelte ein schon abgelesener Code ein Gerät, das ihn nicht mehr abfragt. Nur in dieser Form und noch gültig (höchstens
+   11 Minuten in der Zukunft), sonst null */
+export function readBeamerPair(raw, now = Date.now()) {
+  let d = null; try { d = typeof raw === "string" ? JSON.parse(raw) : null; } catch { return null; }
+  if (!d || typeof d !== "object" || typeof d.code !== "string" || normBeamerCode(d.code) !== d.code || typeof d.pairKey !== "string"
+    || !/^[a-f0-9]{32}$/.test(d.pairKey) || !Number.isFinite(d.until) || d.until <= now || d.until > now + 11 * 60e3) return null;
+  return { code: d.code, pairKey: d.pairKey, until: d.until };
+}
+/* Hinweis in der Leiste, nachdem das Beamerfenster auf nur einem Bildschirm geöffnet wurde: den Weg über ein zweites Gerät nennt er nur, solange
+   keines verbunden ist */
+export const BEAMER_ONE_SCREEN = "nur ein Bildschirm erkannt: Beamer als erweiterten Bildschirm einrichten – gespiegelt sieht die Klasse die Vorschau (Taste V blendet sie aus)";
+export const beamerWindowNote = (oneScreen, devices = 0) => (oneScreen ? BEAMER_ONE_SCREEN + (devices > 0 ? "" : " – oder verbinden Sie ein zweites Gerät am Beamer („Beamer verbinden“)") : "");
 
 /* Öffentliche Adresse der Oberfläche (GitHub Pages mit eigener Domain) – für Hinweise im Schulportal */
 export const PUBLIC_URL = "https://unterricks.janrickmer.de";

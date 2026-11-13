@@ -265,7 +265,9 @@ implementiert und im End-to-End-Test geprüft (Ausnahmen unten ausdrücklich gen
    der Worker die Antwort bis zu 12 s und sieht alle 2 s in D1 nach (`POLL_HOLD`, höchstens 8 Anweisungen; nur wenn das Schema in diesem Isolate
    schon angelegt war – `schemaWarm()`, sonst sofort –, damit kein Aufruf über 50 Anweisungen kommt). So kostet ein Gerät, das einen Code zeigt,
    etwa 300 statt 1 800 Aufrufe je Stunde vom Tageskontingent (100 000), bei gleicher Wartezeit nach dem Koppeln (≤ 2 s). Gefragt wird nur, solange
-   der Code zu sehen und die Seite sichtbar ist; nach 10 Minuten holt es still einen neuen. Hat **zwei Stunden** lang niemand einen Code
+   der Code zu sehen und die Seite sichtbar ist; nach 10 Minuten holt es still einen neuen. Ein noch nicht abgeholter Code bleibt beim Neuladen
+   stehen (`sessionStorage` `u.beamerpair` = {code, pairKey, until} dieses Tabs, `readBeamerPair`) – sonst koppelte ein schon abgelesener Code
+   ein Gerät, das ihn nicht mehr abfragt. Hat **zwei Stunden** lang niemand einen Code
    eingegeben und niemand das Gerät berührt (Tippen, Klicken, wieder sichtbar), holt es keinen neuen mehr, gibt die Bildschirmsperre frei und zeigt
    „Neuen Beamer-Code anzeigen“ – ein vergessenes Gerät (z. B. ein PC am Beamer über Nacht) verbraucht sonst Tag und Nacht das Kontingent.
    Die Lehrkraft gibt den Code in der Präsentation ein: `POST /api/teacher/lessons/:id/beamer {code}`

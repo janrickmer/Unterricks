@@ -86,7 +86,7 @@ Feibeitsblatt braucht keine Änderung. Die Adressen stehen in `wrangler.jsonc` (
   Klasse trotzdem nur die aktuelle Folie sieht, öffnen Sie auf einem zweiten Gerät am Beamer (ein Schul-iPad, das an Apple TV spiegelt, oder
   ein PC bzw. Laptop am Beamer) `unterricks.janrickmer.de/#/beamer` – am besten als Lesezeichen bzw. auf dem Home-Bildschirm; auf der
   Startseite steht unten „Dieses Gerät als Beamer verwenden“. Das Gerät zeigt groß einen sechsstelligen **Beamer-Code** (10 Minuten
-  gültig, danach erscheint von selbst ein neuer; hat zwei Stunden lang niemand einen Code eingegeben oder das Gerät berührt, holt es keinen
+  gültig, danach erscheint von selbst ein neuer; beim Neuladen bleibt er stehen; hat zwei Stunden lang niemand einen Code eingegeben oder das Gerät berührt, holt es keinen
   neuen mehr – dann dort auf „Neuen Beamer-Code anzeigen“ tippen). In der Präsentation auf Ihrem iPad tippen Sie auf **„Beamer verbinden“** (auf allen
   Geräten, auch auf dem iPad) und geben den Code ein – das Feld öffnet sich in der Präsentation, das Vollbild bleibt. Spiegeln Sie Ihr
   iPad dann nicht. Nach etwa 2 Sekunden zeigt das Gerät am Beamer nur die aktuelle Folie (bzw. die Codefolie); Ihr iPad zeigt weiter die
@@ -97,7 +97,7 @@ Feibeitsblatt braucht keine Änderung. Die Adressen stehen in `wrangler.jsonc` (
   erneut, zeigt er sie wieder, ein Code aus einer anderen Sitzung holt ihn dorthin. Grenzen: Ein spiegelndes iPad behält sein
   Seitenverhältnis (Ränder am Beamer). Am Beamer-iPad die **„Automatische Sperre“** (Einstellungen → Anzeige & Helligkeit) auf „Nie“
   stellen – Unterricks hält den Bildschirm wach, wo der Browser das erlaubt; sperrt sich das iPad trotzdem, bricht AirPlay ab. Das
-  Beamergerät braucht keine Anmeldung, sieht nur, was auch die Schüler:innen live sehen, und zählt nicht als Schüler:in. Ältere Präsentationen
+  Beamergerät braucht keine Anmeldung, zeigt nur, was auch die Schüler:innen live sehen (die nächste Folie lädt es nur unsichtbar vor), und zählt nicht als Schüler:in. Ältere Präsentationen
   mit einem Code auf den Folien: Unterricks ersetzt ihn beim Hochladen durch den Code dieser Sitzung (wo das nicht sicher geht, z. B.
   bei einem unruhigen Foto hinter dem Code, bleibt die Folie unverändert und die Meldung nennt sie). Am Stundenende: Hausaufgabe eintragen und per
   Rechtsklick im Verlaufsplan „Zwischenstopp einfügen“, falls nicht alles geschafft wurde. In der nächsten Sitzung zeigt dann die Karte

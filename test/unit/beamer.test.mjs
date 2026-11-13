@@ -31,7 +31,7 @@ const BM = await import("../../worker/beamer.js");
 const { routeLiveSocket } = await import("../../worker/live.js");
 const { liveNext, LIVE_IDLE, liveReduce } = await import("../../worker/livestate.js");
 const { sha256Hex, hitLimit } = await import("../../worker/lib.js");
-const { normBeamerCode, fmtBeamerCode, readBeamerLink, nextSlideOf } = await import("../../public/shared.js");
+const { normBeamerCode, fmtBeamerCode, readBeamerLink, readBeamerPair, beamerWindowNote, BEAMER_ONE_SCREEN, nextSlideOf } = await import("../../public/shared.js");
 const { BEAMER_PAIR_TTL_MS, BEAMER_PAIR_KEEP_MS, cleanupStatements } = await import("../../worker/db.js");
 
 /* ctx des Durable Objects: Speicher, Verbindungen mit Tags; webSocketClose entfernt sie (wie die Laufzeit), ws.close allein nicht */
@@ -86,6 +86,26 @@ test("Beamer-Schlüssel: signiert mit Sitzung und Generation, 6 Stunden gültig"
   assert.equal(readBeamerLink(JSON.stringify({ lessonId: LESSON, ...k }), k.exp), null, "abgelaufen");
   for (const bad of ["{", "null", JSON.stringify({ lessonId: "x", ...k }), JSON.stringify({ lessonId: LESSON, key: "<b>", exp: k.exp }), null])
     assert.equal(readBeamerLink(bad, now), null);
+});
+
+test("Beamergerät: noch nicht abgeholter Code dieses Tabs bleibt nach dem Neuladen stehen (nur gültig und in dieser Form)", () => {
+  const now = 1_800_000_000_000, p = { code: "012345", pairKey: "a".repeat(32), until: now + 600e3 };
+  assert.deepEqual(readBeamerPair(JSON.stringify({ ...p, extra: 1 }), now), p);
+  assert.equal(readBeamerPair(JSON.stringify(p), p.until), null, "abgelaufen: ein neuer Code wird geholt");
+  assert.equal(readBeamerPair(JSON.stringify({ ...p, until: now + 12 * 60e3 }), now), null, "Ablauf zu weit in der Zukunft (Uhr verstellt)");
+  for (const bad of ["{", "null", null, JSON.stringify({ ...p, code: "012 345" }), JSON.stringify({ ...p, code: "12345" }), JSON.stringify({ ...p, pairKey: "A".repeat(32) }),
+    JSON.stringify({ ...p, pairKey: "a".repeat(31) }), JSON.stringify({ ...p, until: "1" }), JSON.stringify({ ...p, until: null })])
+    assert.equal(readBeamerPair(bad, now), null, String(bad));
+});
+
+test("Hinweis zum Beamerfenster auf nur einem Bildschirm: den Weg über ein zweites Gerät nur, solange keines verbunden ist", () => {
+  const one = "nur ein Bildschirm erkannt: Beamer als erweiterten Bildschirm einrichten – gespiegelt sieht die Klasse die Vorschau (Taste V blendet sie aus)";
+  assert.equal(BEAMER_ONE_SCREEN, one);
+  assert.equal(beamerWindowNote(true, 0), one + " – oder verbinden Sie ein zweites Gerät am Beamer („Beamer verbinden“)", "Wortlaut wie bisher");
+  assert.equal(beamerWindowNote(true), beamerWindowNote(true, 0));
+  assert.equal(beamerWindowNote(true, 1), one, "ein Beamergerät ist schon verbunden");
+  assert.equal(beamerWindowNote(true, 2), one);
+  assert.equal(beamerWindowNote(false, 0), ""); assert.equal(beamerWindowNote(false, 1), "");
 });
 
 test("nächste Folie zum Vorladen: wie die Vorschau der Lehrkraft, nur Folienbilder", () => {
@@ -207,7 +227,7 @@ test("Kopplung: Code holen, Lehrkraft gibt ihn ein, das Gerät holt den Schlüss
   r = await tpair(c, p.data.code.slice(0, 3) + " " + p.data.code.slice(3));
   assert.deepEqual([r.status, r.data.ok], [200, true]); assert.ok(r.d1 <= 3, "Anmeldung, Sitzung, eine bedingte Anweisung: " + r.d1);
   r = await tpair(c, p.data.code);
-  assert.deepEqual([r.status, r.data.code, r.data.error], [404, "beamer_code", "Diesen Beamer-Code gibt es nicht (mehr). Auf dem Beamer steht nach dem Neuladen ein neuer."], "schon gekoppelt");
+  assert.deepEqual([r.status, r.data.code, r.data.error], [404, "beamer_code", "Diesen Beamer-Code gibt es nicht (mehr). Bitte geben Sie die Ziffern ein, die jetzt auf dem Beamer stehen."], "schon gekoppelt");
   r = await poll(c, { code: p.data.code, pairKey: "f".repeat(32) });
   assert.equal(r.status, 404, "fremder pairKey bekommt die Kopplung nicht");
   r = await poll(c, p.data);

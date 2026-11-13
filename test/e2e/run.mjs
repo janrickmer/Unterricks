@@ -720,8 +720,14 @@ async function main() {
       await codeEl.waitFor({ timeout: 10000 });
       const bcode = (await codeEl.textContent()).replace(" ", "");
       ok(new URL(bp.url()).hash === "#/beamer" && (await bp.locator(".beamer .bm-how").textContent()) === "Tippen Sie in der Präsentation auf Ihrem iPad auf „Beamer verbinden“ und geben Sie diesen Code ein."
-        && (await bp.evaluate(() => window.__wl)).includes("screen") && await bp.locator(".beamer .bm-bar").getByRole("button", { name: "Fenster schließen" }).count() === 0,
+        && (await bp.evaluate(() => window.__wl)).includes("screen") && await bp.locator(".beamer .bm-bar").getByRole("button", { name: "Fenster schließen" }).count() === 0
+        && await bp.locator(".beamer .bm-bar").getByRole("link", { name: "Zur Startseite" }).getAttribute("href") === "#/",
         "Startseite → „Dieses Gerät als Beamer verwenden“: großer Beamer-Code (" + bcode + "), Bildschirmsperre verhindert");
+      // Neuladen, bevor jemand den Code eingegeben hat: derselbe Code bleibt stehen (sonst koppelte der schon abgelesene Code ein Gerät, das ihn
+      // nicht mehr abfragt)
+      await bp.reload();
+      await codeEl.waitFor({ timeout: 10000 });
+      ok((await codeEl.textContent()).replace(" ", "") === bcode && await bp.title() === "Unterricks – Beamer", "Neuladen vor dem Koppeln: derselbe Beamer-Code; Titel „Unterricks – Beamer“ (Lesezeichen, Home-Bildschirm)");
       await bp.mouse.move(300, 300);
       await bp.screenshot({ ...SHOT, path: join(OUT, "beamergeraet-code.png") });
       // Lehrkraft am iPad (Touch): kein Beamerfenster, aber „Beamer verbinden“
@@ -746,7 +752,7 @@ async function main() {
       await ip.locator("#bmc-in").fill(String((Number(bcode) + 1) % 1e6).padStart(6, "0"));
       await ip.locator("#bmc-in").press("ArrowRight"); await ip.locator("#bmc-in").press("Backspace"); await ip.locator("#bmc-in").pressSequentially(String((Number(bcode) + 1) % 10));
       await ip.keyboard.press("Enter");
-      await ip.locator("#bmc-err", { hasText: "Diesen Beamer-Code gibt es nicht (mehr). Auf dem Beamer steht nach dem Neuladen ein neuer." }).waitFor({ timeout: 10000 });
+      await ip.locator("#bmc-err", { hasText: "Diesen Beamer-Code gibt es nicht (mehr). Bitte geben Sie die Ziffern ein, die jetzt auf dem Beamer stehen." }).waitFor({ timeout: 10000 });
       ok(await dlg.isVisible() && (await ipr.locator(".counter").textContent()) === "Sitzungscode" && await ip.locator("#bmc-in").getAttribute("aria-invalid") === "true",
         "falscher Code: Meldung im Feld; Pfeiltaste und Rücktaste im Feld blättern nicht");
       await ip.locator("#bmc-in").fill(bcode.slice(0, 3) + " " + bcode.slice(3));
@@ -773,13 +779,18 @@ async function main() {
       await ip.screenshot({ ...SHOT, path: join(OUT, "lehrkraft-ipad-beamer-verbunden.png") });
       // „Beamer trennen“: der Schlüssel gilt nicht mehr, der Beamer zeigt einen neuen Code
       await ipr.getByRole("button", { name: "Beamer verbunden" }).click();
+      const barRows = () => ip.evaluate(() => Math.round(document.querySelector(".presenter .bar").getBoundingClientRect().height));
+      const bar0 = await barRows();
       await dlg.getByRole("button", { name: "Beamer trennen" }).click();
+      await ipr.locator(".devstate", { hasText: "Beamer getrennt" }).waitFor({ timeout: 10000 });
       await bp.locator(".beamer .bm-msg", { hasText: "Getrennt – dieses Gerät zeigt keine Präsentation mehr." }).waitFor({ timeout: 10000 });
       await codeEl.waitFor({ timeout: 10000 });
       const code2 = (await codeEl.textContent()).replace(" ", "");
       const oldKey = await fetch(BASE + "/api/beamer/live-ticket", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ lessonId, key: linkBefore.key }) });
-      ok(code2 !== bcode && (await ipr.locator(".devstate").textContent()) === "Beamer getrennt" && await ipr.getByRole("button", { name: "Beamer verbinden" }).count() === 1
+      ok(code2 !== bcode && await ipr.getByRole("button", { name: "Beamer verbinden" }).count() === 1
         && await bp.evaluate(() => localStorage.getItem("u.beamer")) === null && oldKey.status === 403, "„Beamer trennen“: der Beamer zeigt „Getrennt“ und einen neuen Code; der alte Schlüssel gilt nicht mehr (403)");
+      await ip.waitForFunction(() => document.querySelector(".presenter .devstate").textContent === "", null, { timeout: 15000 });
+      ok(await barRows() === bar0, "„Beamer getrennt“ steht nur kurz in der Leiste – danach ist sie am iPad wieder so hoch wie vorher (" + bar0 + " px)");
       await bp.screenshot({ ...SHOT, path: join(OUT, "beamergeraet-getrennt.png") });
       // neu koppeln, dann „Präsentation für alle beenden“: beendet + neuer Code, das Gerät bleibt mit der Sitzung verbunden
       await ipr.getByRole("button", { name: "Beamer verbinden" }).click();
