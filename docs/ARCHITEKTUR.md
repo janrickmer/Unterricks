@@ -294,11 +294,13 @@ implementiert und im End-to-End-Test geprüft (Ausnahmen unten ausdrücklich gen
     public/planning.js): Abschnitt „## Vorige Stunde nicht vollständig beendet“ (vorige Sitzung mit ID, geplante Zeile, Geschafft und Nicht
     geschafft im Wortlaut, in der Grundschule das Material danach mit file_id, Stand) und ein eigener Schritt direkt nach `get_lesson`: erklären
     und fragen (übernehmen oder verzichten, mit `update_lesson` festhalten); **übernehmen** = in diese Stunde einplanen, was keinen Platz mehr
-    hat, rückt in die nächste Stunde usw., die Termine bleiben; bleibt am Ende etwas übrig: um eine Stunde verlängern oder kürzen (genau drei
-    Vorschläge, einer als Favorit mit Begründung); **verzichten** = ohne den offenen Teil planen. Erst nach der bestätigten und gespeicherten
+    hat, rückt in die nächste Stunde usw., die Termine bleiben; für den Überhang am Ende fragt Claude immer: um eine Stunde verlängern (mit
+    dem neuen Ende laut Stundenplan, `slotsAfterEnd`) oder kürzen (genau drei Vorschläge, einer als Favorit mit Begründung); **verzichten** =
+    ohne den offenen Teil planen. Erst nach der bestätigten und gespeicherten
     Stunde passt Claude die Einheit an: übernehmen → `extend_unit` (bei Verlängerung) und `update_unit_row` mit `stunden` (Zeile der vorigen
     Stunde = was tatsächlich behandelt wurde, diese und jede weitere geänderte Stunde, die Kürzung); verzichten → `update_unit_row` mit der
-    `lesson_id` der vorigen Sitzung (Ablauf = was behandelt wurde + „Verzichtet: …“), die folgenden Stunden bleiben. Ist schon entschieden,
+    `lesson_id` der vorigen Sitzung (Ablauf = was behandelt wurde + „Verzichtet: …“), die folgenden Stunden bleiben. Gehört nur die vorige
+    Stunde zu einer Einheit, passt Claude auch beim Übernehmen deren Zeile über die `lesson_id` an (Ablauf = was behandelt wurde). Ist schon entschieden,
     fragt Claude nicht erneut. Ohne Connector gibt Claude die geänderten Zeilen als Tabelle aus, samt dem neuen Ende (nächster Termin laut
     Stundenplan). Ohne Zwischenstopp sind beide Prompts byte-gleich zum Stand davor (Unit-Test mit SHA-256).
   * **Connector.** `get_lesson` (beide Schulformen) enthält denselben Abschnitt mit den Regeln (`stopLessonLines`) – so wirkt ein

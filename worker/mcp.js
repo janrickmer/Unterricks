@@ -231,7 +231,7 @@ const TOOLS = [
 const toolText = (text, structured) => ({ content: [{ type: "text", text }], ...(structured ? { structuredContent: structured } : {}) });
 const toolError = (text) => ({ content: [{ type: "text", text }], isError: true });
 
-async function lessonDump(db, l) {
+async function lessonDump(db, l, now = Date.now()) {
   const ctx = await lessonCtx(db, l);
   const [msgs, drafts, prev] = await Promise.all([chatMessages(db, l.id, 80), db.prepare("SELECT id, data, status, sheet_code FROM fb_drafts WHERE lesson_id=?1 ORDER BY created_at DESC LIMIT 10").bind(l.id).all(),
     previousLesson(db, l)]);
@@ -241,7 +241,7 @@ async function lessonDump(db, l) {
     "# Sitzung " + l.id, lessonContext(ctx, { portal: false, materialText: true, materialMax: 20000 }),
     "Sitzungscode für Schüler:innen: " + formatCode(l.code),
     "", "## Schulportal-Eintrag (Version " + l.portal_version + (l.portal_source ? ", zuletzt von " + l.portal_source : "") + ")", l.portal || "(noch leer)",
-    ...(ps ? stopLessonLines(ps, { gs: false, unitId: ctx.unit ? ctx.unit.id : null, unit: ctx.unit, now: Date.now() }) : []),
+    ...(ps ? stopLessonLines(ps, { gs: false, unitId: ctx.unit ? ctx.unit.id : null, unit: ctx.unit, now }) : []),
     "", "## Planungsverlauf", chatTranscript(msgs, 60000) || "(leer)",
   ];
   const ds = (drafts.results || []);
@@ -454,7 +454,7 @@ async function callTool(c, name, a) {
     case "get_lesson": {
       const l = await getLesson(c.db, a.lesson_id);
       if (l.subject === GS_SUBJECT) return toolText(await gsLessonDump(c, l), { lesson_id: l.id, portal_version: l.portal_version, verlaufsplan_version: l.portal_version });
-      return toolText(await lessonDump(c.db, l), { lesson_id: l.id, portal_version: l.portal_version });
+      return toolText(await lessonDump(c.db, l, c.now), { lesson_id: l.id, portal_version: l.portal_version });
     }
     case "list_units": {
       const { where, args } = listFilter(a);
@@ -574,7 +574,8 @@ async function callTool(c, name, a) {
       let stopNote = "", stopPrev = null;
       if (a.zwischenstopp !== undefined) {
         if (!STOP_CHOICES.includes(a.zwischenstopp)) return toolError("zwischenstopp ist \"uebernehmen\" oder \"verzichten\".");
-        stopPrev = await previousLesson(c.db, l0);
+        // mit neuem Datum im selben Aufruf: die vorige Sitzung zum neuen Datum (sonst gälte die Entscheidung nach dem Speichern nicht)
+        stopPrev = await previousLesson(c.db, a.datum !== undefined ? { ...l0, lesson_date: a.datum } : l0);
         if (!stopPrev || !hasStop(stopPrev.portal)) return toolError("Die vorige Sitzung hat keinen Zwischenstopp.");
       }
       const b = {};

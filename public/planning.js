@@ -359,7 +359,8 @@ function stopFacts(ps, opt) {
   const gs = !!opt.gs, p = stopPartsOf(ps), d = stopDecisionOf(ps), r = ps.row, out = [];
   out.push("In der vorigen Sitzung „" + str(ps.title) + "“" + (ps.date || ps.id ? " (" + [ps.date ? fmtDay(ps.date) : null, ps.id ? "Sitzungs-ID " + ps.id : null].filter(Boolean).join("; ") + ")" : "") +
     " habe ich einen Zwischenstopp markiert: Bis zur Zeile „" + STOP_LINE + "“ in " + (gs ? "ihrem Verlaufsplan" : "ihrem Schulportal-Eintrag") + " wurde die Stunde geschafft, alles danach ist noch offen.");
-  if (r) out.push((ps.sameUnit === false ? "Sie gehört zu einer anderen Unterrichtseinheit („" + str(ps.unitTitle) + "“, ID " + str(ps.unitId) + "), dort ist sie " : "In der Einheit ist sie ") +
+  if (r) out.push((ps.sameUnit === false ? "Sie gehört zu" + (opt.unitId ? " einer anderen Unterrichtseinheit („" + str(ps.unitTitle) + "“, ID " + str(ps.unitId) + ")" : "r Unterrichtseinheit „" + str(ps.unitTitle) + "“ (ID " + str(ps.unitId) + ")") +
+    ", dort ist sie " : "In der Einheit ist sie ") +
     rowWhich(r, gs) + ": geplante Stundenfrage „" + str(r.stundenfrage) + "“" + ((r.ablauf || []).length ? "; geplanter grober Ablauf: " + r.ablauf.join("; ") : "") + ".");
   out.push("Geschafft (bis zum Zwischenstopp):\n<<<\n" + (p.done ? clip(p.done, 3000) : "(nichts – der Zwischenstopp steht am Anfang)") + "\n>>>");
   out.push("Nicht geschafft (nach dem Zwischenstopp):\n<<<\n" + (p.open ? clip(p.open, 4000) : "(nichts – der Zwischenstopp steht am Ende)") + "\n>>>");
@@ -373,7 +374,7 @@ function stopFactLines(ps, opt) {
   const gs = !!opt.gs, p = stopPartsOf(ps), d = stopDecisionOf(ps), r = ps.row;
   const out = ["Vorige Sitzung: „" + str(ps.title) + "“" + (ps.date ? " (" + fmtDay(ps.date) + ")" : "") + (ps.id ? ", Sitzungs-ID " + ps.id : "") + " – die Lehrkraft hat dort einen Zwischenstopp gesetzt (" +
     (gs ? "Verlaufsplan" : "Schulportal-Eintrag") + (Number.isInteger(ps.portalVersion) ? ", Version " + ps.portalVersion : "") + ")."];
-  if (r) out.push((ps.sameUnit === false ? "Zeile der Einheit (andere Einheit „" + str(ps.unitTitle) + "“, unit_id " + str(ps.unitId) + "): " : "Zeile der Einheit: ") + rowWhich(r, gs) +
+  if (r) out.push((ps.sameUnit === false ? "Zeile der Einheit (" + (opt.unitId ? "andere " : "") + "Einheit „" + str(ps.unitTitle) + "“, unit_id " + str(ps.unitId) + "): " : "Zeile der Einheit: ") + rowWhich(r, gs) +
     " – geplante Stundenfrage: „" + str(r.stundenfrage) + "“", ...((r.ablauf || []).length ? ["Geplanter grober Ablauf:", ...r.ablauf.map((a) => "- " + a)] : []));
   else out.push("Die vorige Sitzung gehört zu keiner Zeile einer Unterrichtseinheit.");
   out.push("Geschafft (bis zum Zwischenstopp):", "<<<", p.done ? clip(p.done, 6000) : "(nichts – der Zwischenstopp steht am Anfang)", ">>>",
@@ -388,14 +389,15 @@ function stopFactLines(ps, opt) {
 export function stopRules(ps, opt = {}) {
   const gs = !!opt.gs, d = stopDecisionOf(ps), unitId = opt.unitId || null, save = opt.save !== false, lk = opt.who === "lk", r = ps.row;
   const w = (ich, sie) => (lk ? sie : ich), want = (c) => !d || d.choice === c, sameRow = !!(r && unitId && ps.sameUnit !== false), out = [];
+  const end = want("uebernehmen") && unitId ? nextEndOf(opt) : null;
   out.push(d ? w("Ich habe schon entschieden: ", "Die Lehrkraft hat schon entschieden: ") + STOP_CHOICE_TEXT[d.choice] + " (am " + stopDecidedOn(d) + "). Frage nicht erneut, außer " + w("ich möchte", "sie möchte") + " es ändern" +
       (save ? " (dann halte die neue Entscheidung mit `update_lesson` und `zwischenstopp` fest); passe die Einheit an, falls das noch nicht geschehen ist." : ".")
     : "Erkläre " + w("mir", "der Lehrkraft") + " zuerst in wenigen Stichpunkten, was in der vorigen Stunde nicht geschafft wurde (Inhalte, Aufgaben, Material nach dem Zwischenstopp). Frage " + w("mich", "sie") +
       ", ob du es in diese Stunde einbauen sollst oder ob " + w("wir darauf verzichten", "darauf verzichtet wird") + ". Warte auf " + w("meine", "ihre") + " Antwort" +
       (save ? " und halte sie mit `update_lesson` fest (`zwischenstopp`: \"uebernehmen\" oder \"verzichten\")." : "."));
   if (want("uebernehmen")) out.push(unitId ? "Übernehmen: Plane den offenen Teil in diese Stunde ein. Was dadurch in dieser Stunde keinen Platz mehr hat, rückt in die nächste Stunde der Einheit, deren Überhang in die übernächste usw. – " +
-      "die Termine bleiben (keine Stunde einschieben, keine Sitzung verschieben). Zeige " + w("mir", "ihr") + ", welche Stunden der Einheit sich wie ändern. Bleibt am Ende etwas übrig, frage " + w("mich", "sie") +
-      ", ob die Einheit um eine Stunde verlängert werden kann oder ob an einer Stelle gekürzt werden soll. Soll gekürzt werden: Mache " + w("mir", "ihr") + " genau drei Vorschläge, an welcher Stelle der Einheit gekürzt werden kann " +
+      "die Termine bleiben (keine Stunde einschieben, keine Sitzung verschieben). Zeige " + w("mir", "ihr") + ", welche Stunden der Einheit sich wie ändern. Am Ende der Einheit bleibt so ein Überhang: Frage " + w("mich", "sie") +
+      ", ob die Einheit um eine Stunde verlängert werden kann" + (end ? " (neues Ende laut Stundenplan: " + fmtDay(end) + ")" : "") + " oder ob an einer Stelle gekürzt werden soll. Soll gekürzt werden: Mache " + w("mir", "ihr") + " genau drei Vorschläge, an welcher Stelle der Einheit gekürzt werden kann " +
       "(je mit den Folgen für die zentrale Lernaufgabe), nenne einen davon als Favoriten mit Begründung und warte auf " + w("meine", "ihre") + " Wahl."
     : "Übernehmen: Plane den offenen Teil in diese Stunde ein (diese Sitzung gehört zu keiner Unterrichtseinheit – es rückt nichts nach).");
   if (want("verzichten")) out.push("Verzichten: Plane die Stunde ohne den offenen Teil.");
@@ -406,9 +408,10 @@ export function stopRules(ps, opt = {}) {
       ", `base_version` (aus `get_unit` bzw. der Antwort von `extend_unit`) und `stunden` – in einer Speicherung " + (sameRow ? "die Zeile der vorigen Stunde (Ablauf = was tatsächlich behandelt wurde), " : "") +
       "diese Stunde und jede weitere geänderte Stunde, auch die gewählte Kürzung; je Stunde " + (gs ? "ihre `uid`" : "ihre Nummer `nr`") + " aus `get_unit`." +
       (r && !sameRow ? " Die Zeile der vorigen Stunde (andere Einheit) passt du mit `update_unit_row` und `lesson_id` " + ps.id + " an: Ablauf = was tatsächlich behandelt wurde." : ""));
+  else if (want("uebernehmen") && r) adj.push((save ? "Übernehmen → `update_unit_row` mit `lesson_id` " + ps.id + " (Zeile der vorigen Stunde)" : "Übernehmen → die Zeile der vorigen Stunde") +
+    ": Ablauf = was tatsächlich behandelt wurde (der offene Teil steht dann in dieser Sitzung).");
   if (want("verzichten") && r) adj.push((save ? "Verzichten → `update_unit_row` mit `lesson_id` " + ps.id + " (Zeile der vorigen Stunde)" : "Verzichten → die Zeile der vorigen Stunde") +
     ": Ablauf = was tatsächlich behandelt wurde, dazu ein Stichpunkt „Verzichtet: …“; die folgenden Stunden bleiben unverändert.");
-  const end = want("uebernehmen") && unitId ? nextEndOf(opt) : null;
   if (adj.length) out.push(!save
     ? "Du kannst in der Plattform nichts speichern: Nenne " + w("mir", "der Lehrkraft") + " am Ende, was " + w("ich", "sie") + " in der Einheit ändern muss, als Tabelle zum Übertragen (Stunde, Stundenfrage, grober Ablauf): " + adj.join(" ") +
       (want("uebernehmen") && unitId ? " Bei einer Verlängerung nenne " + w("mir", "ihr") + " auch das neue Ende für die Rahmendaten" + (end ? " (laut Stundenplan der nächste Termin nach dem bisherigen Ende: " + fmtDay(end) + ")" : "") + "." : "")
@@ -423,7 +426,7 @@ export const stopCarryStep = (ps, n, opt = {}) => n + ". Zur vorigen Stunde (Zwi
 // Satz für den Rückfall ohne Connector (andere KI): Änderungen der Einheit als Tabelle zum Übertragen, bei einer Verlängerung das neue Ende
 export function stopFallbackText(ps, opt = {}) {
   const d = stopDecisionOf(ps), want = (c) => !d || d.choice === c, ext = want("uebernehmen") && !!opt.unitId;
-  if (!ext && !(want("verzichten") && ps.row)) return "";
+  if (!ext && !ps.row) return "";   // sonst ändert sich die Zeile der vorigen Stunde (verzichten bzw. übernehmen ohne Einheit dieser Sitzung)
   const end = ext ? nextEndOf(opt) : null;
   return " Ändert sich wegen des offenen Teils der vorigen Stunde die Einheit, gib mir die geänderten Zeilen als Tabelle (Stunde, Stundenfrage, grober Ablauf) zum Übertragen aus" +
     (ext ? " und sage mir bei einer Verlängerung, welches neue Ende ich in den Rahmendaten eintrage" + (end ? " (laut Stundenplan der nächste Termin nach dem bisherigen Ende: " + fmtDay(end) + ")" : "") : "") + ".";

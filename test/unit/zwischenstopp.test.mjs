@@ -72,7 +72,8 @@ test("Gymnasium mit Zwischenstopp: Geschafft/Nicht geschafft, eigener Schritt na
     v.indexOf("\n2. Zur vorigen Stunde") < v.indexOf("\n3. Frage mich dann nach der Dauer") && v.includes("\n4. Plane mit mir dialogisch") && v.includes("\n5. Speichere nur") && v.includes("\n6. Sage mir zum Schluss"));
   for (const s of ["Erkläre mir zuerst in wenigen Stichpunkten, was in der vorigen Stunde nicht geschafft wurde (Inhalte, Aufgaben, Material nach dem Zwischenstopp). Frage mich, ob du es in diese Stunde einbauen sollst oder ob wir darauf verzichten.",
     "`update_lesson` fest (`zwischenstopp`: \"uebernehmen\" oder \"verzichten\")", "rückt in die nächste Stunde der Einheit, deren Überhang in die übernächste usw. – die Termine bleiben (keine Stunde einschieben, keine Sitzung verschieben)",
-    "ob die Einheit um eine Stunde verlängert werden kann oder ob an einer Stelle gekürzt werden soll", "genau drei Vorschläge", "nenne einen davon als Favoriten mit Begründung", "Verzichten: Plane die Stunde ohne den offenen Teil.",
+    // Entscheidung b: am Ende wird immer verlängert oder gekürzt (keine Bedingung „bleibt etwas übrig“); die Frage nennt das neue Ende (Entscheidung c)
+    "Am Ende der Einheit bleibt so ein Überhang: Frage mich, ob die Einheit um eine Stunde verlängert werden kann (neues Ende laut Stundenplan: Di, 08.12.2026) oder ob an einer Stelle gekürzt werden soll.", "genau drei Vorschläge", "nenne einen davon als Favoriten mit Begründung", "Verzichten: Plane die Stunde ohne den offenen Teil.",
     "Erst wenn ich die Planung dieser Stunde bestätigt habe und du sie gespeichert hast, passt du die Einheit an", "`extend_unit` (Einheit fedcba9876543210", "`update_unit_row` mit `unit_id` fedcba9876543210",
     "die Zeile der vorigen Stunde (Ablauf = was tatsächlich behandelt wurde)", "je Stunde ihre Nummer `nr` aus `get_unit`", "Verzichten → `update_unit_row` mit `lesson_id` abcdefabcdefabcd", "„Verzichtet: …“",
     "die folgenden Stunden bleiben unverändert", "Sage mir danach, was sich in der Einheit geändert hat."])
@@ -96,6 +97,16 @@ test("schon entschieden: nicht erneut fragen, nur die gewählte Regel; ohne Einh
   // Sitzung ohne Einheit, vorige ohne Zeile: nur erklären/fragen und einbauen bzw. weglassen
   const o = P.claudeLessonPrompt({ ...base, unit: null, row: null, unitText: "", previousStop: { ...PREV, row: null, unitId: null, unitRow: null, sameUnit: false } });
   assert.ok(o.includes("es rückt nichts nach") && !o.includes("extend_unit") && !o.includes("update_unit_row") && !o.includes("Erst wenn ich die Planung") && !o.includes("Ändert sich wegen des offenen Teils"));
+  // diese Sitzung ohne Einheit, die vorige Stunde in einer Einheit: Übernehmen passt trotzdem deren Zeile an (was tatsächlich behandelt wurde) – nicht „andere“ Einheit
+  const n = P.claudeLessonPrompt({ ...base, unit: null, row: null, unitText: "", previousStop: { ...PREV, sameUnit: false, unitRow: null, unitTitle: "Gewaltenteilung" } });
+  assert.ok(n.includes("Sie gehört zur Unterrichtseinheit „Gewaltenteilung“ (ID fedcba9876543210), dort ist sie Stunde 1") && !n.includes("anderen Unterrichtseinheit")
+    && n.includes("Übernehmen → `update_unit_row` mit `lesson_id` abcdefabcdefabcd (Zeile der vorigen Stunde): Ablauf = was tatsächlich behandelt wurde (der offene Teil steht dann in dieser Sitzung).")
+    && n.includes("Verzichten → `update_unit_row` mit `lesson_id` abcdefabcdefabcd") && !n.includes("extend_unit") && n.includes("es rückt nichts nach"), n.slice(n.indexOf("## Vorige"), n.indexOf("## Vorige") + 3000));
+  assert.ok(n.endsWith("gib mir die geänderten Zeilen als Tabelle (Stunde, Stundenfrage, grober Ablauf) zum Übertragen aus."), "Rückfall: Tabelle auch beim Übernehmen ohne Einheit");
+  const nu = P.claudeLessonPrompt({ ...base, unit: null, row: null, unitText: "", previousStop: { ...PREV, sameUnit: false, unitRow: null, unitTitle: "Gewaltenteilung", decision: { choice: "uebernehmen", at: at("2026-11-11T09:00:00Z") } } });
+  assert.ok(nu.includes("Übernehmen → `update_unit_row` mit `lesson_id` abcdefabcdefabcd") && !nu.includes("Verzichten") && nu.endsWith("zum Übertragen aus."), "schon übernommen: nur die Zeile der vorigen Stunde");
+  const sec = P.stopLessonLines({ ...PREV, sameUnit: false, unitRow: null, unitTitle: "Gewaltenteilung" }, { gs: false, unitId: null }).join("\n");
+  assert.ok(sec.includes("Zeile der Einheit (Einheit „Gewaltenteilung“, unit_id fedcba9876543210): Stunde 1") && !sec.includes("andere Einheit"), sec);
   // vorige Stunde in einer anderen Einheit: genannt; Verzicht über ihre lesson_id
   const f = P.claudeLessonPrompt({ ...base, previousStop: { ...PREV, sameUnit: false, unitRow: null, unitId: "9".repeat(16), unitTitle: "Wahlen" } });
   assert.ok(f.includes("Sie gehört zu einer anderen Unterrichtseinheit („Wahlen“, ID " + "9".repeat(16) + "), dort ist sie Stunde 1") && !f.includes("in einer Speicherung die Zeile der vorigen Stunde")
@@ -212,6 +223,22 @@ test("Gymnasium: previousStop mit Teilen und Zeile, get_lesson-Abschnitt, Entsch
   assert.equal(ps2.decision, null);
   assert.equal(ps2.done, "");
   // Ausfall-Einträge nehmen keine Entscheidung an (Grundschule: siehe unten); Gymnasium: Ausfall gibt es nicht
+});
+
+test("update_lesson zwischenstopp mit neuem datum: es zählt die vorige Sitzung zum neuen Datum", async () => {
+  const c = await base();
+  const { ids } = await unitWith(c, { subject: "powi", klass: "8B", end: "2026-11-12", n: 4 });   // Di 03.11., Do 05.11., Di 10.11., Do 12.11.
+  await L.savePortal(c.db, ids[0], "**1) A**\n" + STOP + "\n**2) Offen**", null, "lehrkraft", c.now);
+  // Sitzung 3 rückt auf den 04.11. – direkt hinter die Sitzung mit dem Zwischenstopp
+  let r = await mcp(c, "update_lesson", { lesson_id: ids[2], datum: "2026-11-04", zwischenstopp: "verzichten" });
+  assert.ok(!r.isError && r.text.includes("„Stunde 1“ festgehalten: Auf den offenen Teil wird verzichtet."), r.text);
+  const d = (await getLesson(c, ids[2])).previousStop;
+  assert.ok(d && d.id === ids[0] && d.decision && d.decision.choice === "verzichten", JSON.stringify(d && d.decision));
+  // Sitzung 2 rückt hinter Sitzung 4: ihre vorige Sitzung hat dann keinen Zwischenstopp – abgelehnt, nichts gespeichert
+  r = await mcp(c, "update_lesson", { lesson_id: ids[1], datum: "2026-11-13", zwischenstopp: "uebernehmen" });
+  assert.ok(r.isError && r.text === "Die vorige Sitzung hat keinen Zwischenstopp.", r.text);
+  const l2 = await L.getLesson(c.db, ids[1]);
+  assert.deepEqual([l2.lesson_date, l2.stop_decision ?? null], ["2026-11-05", null]);
 });
 
 test("Gymnasium: update_unit_row mit stunden – eine Speicherung, Version, Nummern nur mit base_version, nichts halb gespeichert", async () => {

@@ -87,9 +87,9 @@ Feibeitsblatt braucht keine Änderung. Die Adressen stehen in `wrangler.jsonc` (
   Rechtsklick im Verlaufsplan „Zwischenstopp einfügen“, falls nicht alles geschafft wurde. In der nächsten Sitzung zeigt dann die Karte
   „Die letzte Stunde wurde nicht vollständig beendet“, was nicht geschafft wurde. Beim Planen mit Claude („Stunde mit Claude planen“)
   erklärt Claude zuerst den offenen Teil und fragt, ob er in diese Stunde übernommen oder darauf verzichtet wird (die Karte zeigt danach
-  „Entschieden am …“). Übernehmen: Was keinen Platz mehr hat, rückt in die nächste Stunde der Einheit usw. – die Termine bleiben; bleibt am
-  Ende etwas übrig, fragt Claude, ob die Einheit um eine Stunde verlängert werden kann (das trägt Claude nach Ihrer Zustimmung selbst ein:
-  bis zum nächsten Termin laut Stundenplan, mit Sitzung) oder ob gekürzt wird (drei Vorschläge, einer als Favorit). Verzichten: In der Zeile
+  „Entschieden am …“). Übernehmen: Was keinen Platz mehr hat, rückt in die nächste Stunde der Einheit usw. – die Termine bleiben; für den
+  Überhang am Ende fragt Claude, ob die Einheit um eine Stunde verlängert werden kann (bis zum nächsten Termin laut Stundenplan – Claude nennt
+  ihn; nach Ihrer Zustimmung trägt Claude das selbst ein, mit Sitzung) oder ob gekürzt wird (drei Vorschläge, einer als Favorit). Verzichten: In der Zeile
   der vorigen Stunde steht danach, was tatsächlich behandelt wurde und worauf verzichtet wurde. Angepasst wird die Einheit erst, wenn Sie
   die Planung der neuen Stunde bestätigt haben. Setzen Sie den Zwischenstopp, nachdem die nächste Sitzung schon geplant ist, öffnen Sie
   dort erneut „Stunde mit Claude planen“. „Für das Schulportal kopieren“ bei der
