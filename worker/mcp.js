@@ -378,17 +378,21 @@ function gsUnitText(u, now = Date.now()) {
 
 const NO_MATERIAL = "Diese Sitzung ist ein Ausfall-Eintrag (Unterricht ausgefallen) – dafür gibt es kein Material. Die verschobene Stunde hat eine eigene Sitzung (siehe get_unit).";
 const NO_PLANNING = "Diese Sitzung ist ein Ausfall-Eintrag (Unterricht ausgefallen) – hier wird nichts geplant. Die verschobene Stunde hat eine eigene Sitzung (siehe get_unit).";
+const NO_UPDATE = "Diese Sitzung ist ein Ausfall-Eintrag (Unterricht ausgefallen) – daran ändert nur die Lehrkraft ihren Hinweis für die Eltern, hier wird nichts geplant. " +
+  "Die verschobene Stunde hat eine eigene Sitzung (siehe get_unit); dort trägst du z. B. den Inhalt für die Eltern ein.";
 // Grundschule: Textmaterial sehen weder Kinder noch Eltern, und der Verlaufsplan kann nicht darauf verweisen (Abschlussprüfung F24)
 const NO_GS_TEXT = "In der Grundschule gibt es kein Textmaterial: Es erschiene weder bei den Kindern noch bei den Eltern und ließe sich im Verlaufsplan nicht verweisen. " +
   "Gestalte das Material als HTML-Seite und lege es mit add_material_pdf ab – Unterricks speichert es auch, wenn der Drucker gerade ausgelastet ist, und druckt es dann automatisch nach. " +
   "Nur als Rückfall für eine Vorlage zum Ausdrucken: add_print_material.";
 // Verweise im Verlaufsplan, die keine sind (z. B. der Platzhalter „[[pdf:<file_id>]]“ aus dem Beispiel oder eine file_id in Großbuchstaben): erscheinen nur als Text (F20)
-const PLAN_REF_ONE = new RegExp("^" + PLAN_REF_RE.source + "$");
+// gültige Verweise (genau wie planRefs) zuerst heraus; was dann noch mit „[[pdf:“ beginnt, ist ungültig – bis „]]“ oder, wenn die Klammer nicht
+// geschlossen ist (z. B. „[[pdf:<file_id>]“), bis zum nächsten „[[“ bzw. Zeilenende
 function invalidPlanRefs(text) {
   const out = [];
-  for (const m of String(text == null ? "" : text).matchAll(/\[\[\s*pdf\s*:[^\]\n]*\]\]/gi)) {
-    const x = m[0].length > 60 ? m[0].slice(0, 57) + "…" : m[0];
-    if (!PLAN_REF_ONE.test(m[0]) && !out.includes(x) && out.length < 20) out.push(x);
+  const rest = String(text == null ? "" : text).replace(PLAN_REF_RE, " ");
+  for (const m of rest.matchAll(/\[\[\s*pdf\s*:(?:(?!\]\]|\[\[)[^\n])*(?:\]\])?/gi)) {
+    const s = m[0].trim(), x = s.length > 60 ? s.slice(0, 57) + "…" : s;
+    if (!out.includes(x) && out.length < 20) out.push(x);
   }
   return out;
 }
@@ -500,7 +504,8 @@ async function callTool(c, name, a) {
         "). Die Lehrkraft prüft und bestätigt ihn in der Plattform" + (p.escape_room ? " (mit Vorschau des Escape-Rooms)." : "."));
     }
     case "update_lesson": {
-      await getLesson(c.db, a.lesson_id);
+      // Ausfall-Eintrag (Grundschule): dort ändert nur die Lehrkraft ihren Hinweis für die Eltern – den kann der Connector nicht setzen (F22)
+      if ((await getLesson(c.db, a.lesson_id)).cancelled) return toolError(NO_UPDATE);
       const b = {};
       if (a.titel !== undefined) b.title = a.titel;
       if (a.thema !== undefined) b.topic = a.thema;
@@ -610,15 +615,16 @@ async function callTool(c, name, a) {
       const files = fr.results || [], byId = new Map(files.map((f) => [f.id, f]));
       // für die Eltern zählen nur Verweise auf Dateien dieser oder einer früheren Sitzung (wie parentFiles – Abschlussprüfung F18)
       const counts = (f) => f.lesson_id === l.id || refCounts(lessonOfRow(f), l);
-      const refs = planRefs(a.text).all;
-      const unknown = refs.filter((id) => !byId.has(id)), later = refs.filter((id) => byId.has(id) && !counts(byId.get(id)));
-      const invalid = invalidPlanRefs(a.text);
       let p;
       try { p = await savePortal(c.db, l.id, a.text, Number.isInteger(a.base_version) ? a.base_version : null, "claude", c.now); }
       catch (e) {
         if (e instanceof HttpError && e.code === "portal_conflict") return toolError("Der Verlaufsplan wurde inzwischen geändert (aktuelle Version " + e.extra.current.version + "). Bitte get_lesson erneut aufrufen und die Änderungen der Lehrkraft berücksichtigen.");
         throw e;
       }
+      // geprüft wird der gespeicherte Text (bereinigt wie in savePortal) – genau das, was Verlaufsplan und Elternansicht lesen
+      const refs = planRefs(p.text).all;
+      const unknown = refs.filter((id) => !byId.has(id)), later = refs.filter((id) => byId.has(id) && !counts(byId.get(id)));
+      const invalid = invalidPlanRefs(p.text);
       // was Eltern nach der Stunde sehen: genau die Prüfung der Elternansicht (F01/F18)
       const pf = await parentFiles(c, { ...l, portal: p.text });
       const parentsSee = [...pf.cards, ...pf.files].map((f) => "„" + f.name + "“").join(", ") || "noch kein Material";

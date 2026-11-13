@@ -619,3 +619,17 @@ test("F22: Ausfall-Eintrag – get_lesson ohne „noch leer – …“-Aufforder
   assert.equal((await call(c, U.routeUnitDelete, "DELETE", "/x", undefined, unitId)).status, 200);
   assert.equal(await left(P2), 0);
 });
+
+test("F22 (Kontrolle): update_lesson auf einem Ausfall-Eintrag – klare Ablehnung statt „nur der Hinweis der Lehrkraft“ (den der Connector nicht setzen kann)", async () => {
+  const { c, ids } = await setup();
+  const v = (await call(c, GS.routeLessonCancel, "POST", "/x", { dryRun: true }, ids[2])).data.version;
+  const P1 = (await call(c, GS.routeLessonCancel, "POST", "/x", { version: v }, ids[2])).data.placeholderId;
+  const before = await lessonRow(c, P1);
+  for (const args of [{ inhalt_eltern: "Heute fiel der Unterricht aus." }, { titel: "x" }, {}]) {
+    const r = await mcp(c, "update_lesson", { lesson_id: P1, ...args });
+    assert.ok(r.isError && r.text.startsWith("Diese Sitzung ist ein Ausfall-Eintrag") && r.text.includes("siehe get_unit") && !r.text.includes("lässt sich nur der Hinweis"), r.text);
+  }
+  assert.deepEqual(await lessonRow(c, P1), before, "nichts geändert");
+  // die verschobene Stunde selbst lässt sich weiter ändern
+  assert.ok(!(await mcp(c, "update_lesson", { lesson_id: ids[2], inhalt_eltern: "Wir hören von Josef." })).isError);
+});

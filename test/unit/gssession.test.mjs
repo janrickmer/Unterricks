@@ -280,3 +280,20 @@ test("F24: add_text_material in der Grundschule abgelehnt (mit Hinweis auf add_m
   const desc = (await mcp(null)).tools.find((t) => t.name === "add_text_material").description;
   assert.ok(desc.startsWith("RÜCKFALL") && desc.includes("Nicht in der Grundschule"));
 });
+
+test("F20 (Kontrolle): nicht geschlossene Verweise und Verweise, die erst durch das Bereinigen beim Speichern zerfallen, werden gemeldet", async () => {
+  const { c, l2, file } = await setup();
+  const mcp = await mcpOf(c);
+  const ab = await file(l2.id, "student", "AB.pdf");
+  // „]“ statt „]]“: kein Verweis, nur Text; das gültige „[[pdf:…]]“ dahinter bleibt gültig
+  let r = await mcp("save_verlaufsplan", { lesson_id: l2.id, text: "- [[pdf:" + ab + "] Arbeitsblatt [[pdf:" + ab + "]]", base_version: 0 });
+  assert.ok(!r.isError && r.content[0].text.includes("Achtung: Diese Verweise sind ungültig und erscheinen nur als Text: [[pdf:" + ab + "] Arbeitsblatt – ein Verweis lautet genau"), r.content[0].text);
+  assert.deepEqual(r.structuredContent.invalid_refs, ["[[pdf:" + ab + "] Arbeitsblatt"]);
+  // Wagenrücklauf in der Beschriftung: gespeichert wird er als Zeilenumbruch – der Verweis zerfällt, und die Antwort sagt es
+  r = await mcp("save_verlaufsplan", { lesson_id: l2.id, text: "- [[pdf:" + ab + "|Arbeits\rblatt]]", base_version: 1 });
+  assert.equal((await L.getLesson(c.db, l2.id)).portal, "- [[pdf:" + ab + "|Arbeits\nblatt]]");
+  assert.ok(!r.isError && r.structuredContent.invalid_refs.length === 1 && r.structuredContent.invalid_refs[0].startsWith("[[pdf:" + ab + "|Arbeits"), r.content[0].text);
+  // eine Beschriftung mit „[[“ ist für den Verlaufsplan ein gültiger Verweis – keine Meldung
+  r = await mcp("save_verlaufsplan", { lesson_id: l2.id, text: "- [[pdf:" + ab + "|siehe [[Bild]]", base_version: 2 });
+  assert.deepEqual([r.structuredContent.invalid_refs, r.content[0].text], [[], "Verlaufsplan gespeichert (Version 3). Eltern sehen nach der Stunde: „AB.pdf“."]);
+});

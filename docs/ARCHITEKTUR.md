@@ -334,10 +334,11 @@ implementiert und im End-to-End-Test geprüft (Ausnahmen unten ausdrücklich gen
   Ergänzungen der Abschlussprüfung: „Eltern sehen nach der Stunde“ in `get_lesson` und `save_verlaufsplan` kommt aus `parentFiles`
   (`worker/parents.js`), also genau aus der Prüfung der Elternansicht; `get_lesson` nennt auch PDFs älterer Sitzungen, auf die der Verlaufsplan
   verweist (mit Namen), und markiert Verweise auf spätere Sitzungen. `save_verlaufsplan` warnt vor Verweisen, die Eltern nicht sehen (Datei einer
-  späteren Sitzung bzw. Sitzung ohne Termin), und vor ungültigen Verweisen, die nur als Text erscheinen (z. B. der Platzhalter `[[pdf:<file_id>]]`);
-  die vorgeschlagenen file_id stehen in der Reihenfolge diese Sitzung → frühere → spätere. `add_text_material` lehnt Grundschul-Sitzungen ab
+  späteren Sitzung bzw. Sitzung ohne Termin), und vor ungültigen Verweisen, die nur als Text erscheinen (z. B. der Platzhalter `[[pdf:<file_id>]]`
+  oder eine nicht geschlossene Klammer; geprüft wird der gespeicherte, bereinigte Text); die vorgeschlagenen file_id stehen in der Reihenfolge
+  diese Sitzung → frühere → spätere. `add_text_material` lehnt Grundschul-Sitzungen ab
   (Textmaterial sehen weder Kinder noch Eltern; Hinweis auf `add_material_pdf` bzw. `add_print_material`). Bei einem Ausfall-Eintrag nennt
-  `get_lesson` keine Aufforderungen zum Planen; `save_planning_result` und `update_unit_row` lehnen ihn mit eigener Meldung ab, und sein
+  `get_lesson` keine Aufforderungen zum Planen; `save_planning_result`, `update_lesson` und `update_unit_row` lehnen ihn mit eigener Meldung ab, und sein
   Planungsverlauf geht mit ihm (rückgängig, Einheit löschen).
 
 * **Grundschule: Bildkarten (Ergänzung vom 12.11.2026).** Wird eine Geschichte mit Bildkarten erzählt, gehört zur Sitzung eine PDF mit einer
