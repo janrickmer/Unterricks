@@ -1112,7 +1112,15 @@ async function main() {
     await tp.locator(".modal", { hasText: "Feibeitsblatt prüfen und anlegen" }).waitFor({ timeout: 20000 });
     ok(await tp.locator(".modal textarea").nth(2).inputValue().then((v) => v.includes("Normenkontrolle") && v.includes("Altersgemäße Erwartung (Q2, Grundkurs)")), "Entwurf mit „Auftrag an die KI“ zum Prüfen – sichtbar mit der altersgemäßen Erwartung");
     ok(await tp.locator(".modal .hint", { hasText: "Keine Musterlösung, sondern ein Auftrag an die korrigierende KI" }).count() >= 1, "Editor erklärt: Auftrag an die KI, keine Musterlösung");
-    await tp.locator(".modal textarea").first().fill("Erkläre zwei Aufgaben des Bundesverfassungsgerichts (geändert).");
+    await tp.locator(".modal textarea").first().fill("Erkläre mit [dem Lexikon der bpb](https://www.bpb.de/kurz-knapp/lexika/politiklexikon/17561/gewaltenteilung/) zwei Aufgaben des Bundesverfassungsgerichts (geändert).");
+    // Nr. 17: Links im Material und in der Aufgabenstellung – im Entwurf als Vorschau anklickbar (neuer Tab), im Feibeitsblatt als Link-Läufe
+    await tp.locator(".modal textarea").nth(1).fill("Das BVerfG wacht über das **Grundgesetz**. Mehr: https://www.bundesverfassungsgericht.de/ und [Wikipedia](https://de.wikipedia.org/wiki/Bundesverfassungsgericht_(Deutschland)).");
+    const prevLinks = await tp.locator(".modal .fblinks a").evaluateAll((as) => as.map((a) => [a.textContent, a.getAttribute("href"), a.target, a.rel].join(" | ")));
+    if (prevLinks.length !== 3) console.log("    Vorschau:", JSON.stringify(prevLinks));
+    ok(prevLinks.length === 3 && prevLinks[0] === "dem Lexikon der bpb (öffnet in neuem Tab) | https://www.bpb.de/kurz-knapp/lexika/politiklexikon/17561/gewaltenteilung/ | _blank | noopener noreferrer"
+      && prevLinks[1].startsWith("https://www.bundesverfassungsgericht.de/ (öffnet in neuem Tab) | https://www.bundesverfassungsgericht.de/ | _blank")
+      && prevLinks[2] === "Wikipedia (öffnet in neuem Tab) | https://de.wikipedia.org/wiki/Bundesverfassungsgericht_(Deutschland) | _blank | noopener noreferrer",
+      "Entwurf: Links aus Aufgabenstellung und Material als Vorschau – anklickbar in neuem Tab (noopener, noreferrer)");
     await tp.locator(".modal").getByRole("button", { name: "Feibeitsblatt jetzt anlegen" }).click();
     await tp.locator(".modal", { hasText: "erhält einen Code" }).getByRole("button", { name: "Anlegen", exact: true }).click();
     await tp.locator(".modal", { hasText: "Feibeitsblatt angelegt" }).waitFor({ timeout: 20000 });
@@ -1122,6 +1130,10 @@ async function main() {
     ok(created && created.tasks.every((t) => t.solution === "" || (t.solution.includes("Altersgemäße Erwartung (Q2, Grundkurs): Das legt nur das Anspruchsniveau fest") && t.solution.split("Altersgemäße Erwartung").length === 2)),
       "jeder Auftrag an die KI trägt die altersgemäße Erwartung der Lerngruppe (Q2, Grundkurs)");
     ok(Array.isArray(created.tasks[0].material) && created.tasks[0].material[0].some((x) => x.f === "b"), "Material im Feibeitsblatt-Format (Absätze/Läufe)");
+    const linkRuns = (paras) => (paras || []).flat().filter((x) => x.h).map((x) => x.t + " → " + x.h);
+    ok(JSON.stringify(linkRuns(created.tasks[0].material)) === JSON.stringify(["https://www.bundesverfassungsgericht.de/ → https://www.bundesverfassungsgericht.de/", "Wikipedia → https://de.wikipedia.org/wiki/Bundesverfassungsgericht_(Deutschland)"])
+      && JSON.stringify(linkRuns(created.tasks[0].textFmt)) === JSON.stringify(["dem Lexikon der bpb → https://www.bpb.de/kurz-knapp/lexika/politiklexikon/17561/gewaltenteilung/"]) && !created.tasks[1].textFmt,
+      "angelegtes Blatt: Links als Link-Läufe im Material und in der Aufgabenstellung (textFmt; ohne Link kein textFmt)");
     // Notfall-Feibeitsblatt: entsteht gleich nach dem Anlegen (noch ohne Checkliste → ohne QR-Code) im Material für Schüler:innen
     const notfallOf = async (code) => ((await T("GET", "/api/teacher/lessons/" + lessonId)).data.files || []).filter((f) => f.source === "notfall" && f.fbCode === code && f.area !== "archive");
     const waitNotfall = async (code, pred) => { for (let i = 0; i < 60; i++) { const fs = await notfallOf(code); if (fs.length && pred(fs)) return fs; await sleep(250); } return notfallOf(code); };
@@ -1130,6 +1142,8 @@ async function main() {
     ok(nf.length === 1 && nf[0].area === "student" && nf[0].name === "Notfall-Feibeitsblatt – Mock-Blatt BVerfG.pdf" && nf[0].mime === "application/pdf", "Notfall-Feibeitsblatt automatisch im Material für Schüler:innen (" + (nf[0] && nf[0].name) + ")");
     let nfPdf = nf.length ? await pdfOf(nf[0]) : "";
     ok(nfPdf.startsWith("%PDF-1.7") && nfPdf.trim().endsWith("%%EOF") && !nfPdf.includes("#checkliste="), "… als PDF wie im Feibeitsblatt, ohne Checkliste noch ohne QR-Code");
+    ok(nfPdf.includes("/URI (https://www.bundesverfassungsgericht.de/)") && nfPdf.includes("/URI (https://de.wikipedia.org/wiki/Bundesverfassungsgericht_\\(Deutschland\\))") && nfPdf.includes("/URI (https://www.bpb.de/kurz-knapp/"),
+      "Notfall-Feibeitsblatt: die Links aus Material und Aufgabenstellung als Adresse mit Link (wie im analogen Arbeitsblatt)");
     await tp.getByRole("button", { name: "Checkliste vorschlagen lassen" }).click();
     await tp.getByRole("button", { name: "Checkliste bestätigen" }).click();
     await sleep(500);
@@ -1141,7 +1155,16 @@ async function main() {
     ok(await fbSec.locator(".notfall", { hasText: "Notfall-Feibeitsblatt im Material für Schüler:innen (mit QR-Code zur Checkliste)" }).count() === 1, "Feibeitsblatt-Abschnitt zeigt den Stand des Notfall-Feibeitsblatts");
     await sp.reload();
     const nfBox = sp.locator("section.notfallbox");
+    // Nr. 18: beim Laden zugeklappt – sichtbar nur die Titelzeile (Überschrift, ≥ 44 px); erst aufgeklappt der rote Hinweis und die PDF
+    const nfSum = nfBox.locator("details.nfdetails > summary");
+    await nfSum.waitFor();
+    const nfClosed = async () => await nfBox.locator("details").evaluate((d) => !d.open) && !(await nfBox.locator(".alarm").isVisible()) && !(await nfBox.locator(".item").first().isVisible());
+    ok(await nfClosed() && (await nfSum.textContent()) === "Notfall-Feibeitsblätter (nur bei technischen Problemen)" && await nfSum.locator("h2#nf-h").count() === 1
+      && (await nfSum.boundingBox()).height >= 44 && await nfBox.getAttribute("aria-labelledby") === "nf-h", "Schüler:innen: Notfall-Kästchen zugeklappt – nur die Titelzeile, kein roter Hinweis, keine Datei sichtbar");
+    await nfBox.screenshot({ ...SHOT, path: join(OUT, "schueler-notfall-zu.png") });
+    await nfSum.focus(); await sp.keyboard.press("Enter");   // per Tastatur aufklappen
     await nfBox.locator(".item", { hasText: "Notfall-Feibeitsblatt – Mock-Blatt BVerfG.pdf" }).waitFor();
+    ok(await nfBox.locator("details").evaluate((d) => d.open) && await nfBox.locator(".alarm").isVisible(), "aufgeklappt (Tastatur): roter Hinweis und Notfall-Feibeitsblatt sichtbar");
     ok(await nfBox.locator(".item", { hasText: "Notfall-Feibeitsblatt – Mock-Blatt BVerfG.pdf" }).getByRole("button", { name: "Herunterladen" }).count() === 1
       && (await nfBox.locator(".alarm").textContent()).startsWith("Achtung! Eigentlich sollst du mit den digitalen Feibeitsblättern arbeiten, die du in dieser Sitzung aufrufen kannst.")
       && await nfBox.locator(".alarm").evaluate((el) => getComputedStyle(el).backgroundColor) === "rgb(200, 40, 30)"
@@ -1208,8 +1231,11 @@ async function main() {
     ok(nfB[0].area === "teacher" && nfA[0].area === "student", "erneuert bleibt es „nur für Lehrkräfte“, wenn die Lehrkraft es dorthin gestellt hatte");
     await tp.screenshot({ ...SHOT, path: join(OUT, "lehrkraft-notfall-nachholen.png") });
     await sp.reload();
+    await nfSum.waitFor();
+    ok(await nfClosed(), "nach dem Neuladen wieder zugeklappt (nichts gemerkt)");
+    await nfSum.click();
     await sp.locator("section.notfallbox .item", { hasText: "Notfall-Feibeitsblatt – Altes Blatt.pdf" }).waitFor();
-    ok(true, "Schüler:innen sehen das nachgeholte Notfall-Feibeitsblatt im Kästchen mit dem roten Hinweis");
+    ok(await nfBox.locator(".alarm").isVisible(), "Schüler:innen sehen das nachgeholte Notfall-Feibeitsblatt im Kästchen mit dem roten Hinweis");
     for (const lid of oldIds) await T("DELETE", "/api/teacher/lessons/" + lid + "/sheets/MCK7Q4");
     ok((await nfOld(oldIds[0])).length === 0 && (await nfOld(oldIds[1])).length === 0, "Blatt entfernt: nachgeholte Notfall-Feibeitsblätter wieder weg");
     await tp.goto(BASE + "/#/lk/s/" + lessonId); await fbSec.waitFor();
@@ -1908,12 +1934,17 @@ async function main() {
       ok((await T("GET", "/api/teacher/gs/courses/" + gsRelId)).data.course.description === "Wir lernen Geschichten aus der Bibel kennen.", "Kurs ändern: Beschreibung gespeichert, Fokus bleibt auf „Speichern“");
       // g) Wochenkalender auf beiden Startseiten: Termine beider Schulformen, Klick öffnet den Grundschulkurs
       for (const [hash, label] of [["#/lk", "Startseite Gymnasium"], ["#/lk/grundschule", "Grundschule"]]) {
+        // der Wechsel #/lk → #/lk/grundschule lädt die Seite nicht neu: ohne das Entfernen fände waitFor noch den Kalender der vorigen Seite,
+        // die danach ersetzt wird (Wettlauf, am 13.11.2026 einmal aufgetreten)
+        await tp.evaluate(() => document.querySelectorAll(".weekcal").forEach((el) => el.remove()));
         await tp.goto(BASE + "/" + hash);
-        await tp.locator('.weekcal .wk-ev[data-fach="gs"]').first().waitFor({ timeout: 15000 });
+        await tp.waitForFunction(() => document.querySelectorAll('.weekcal .wk-ev[data-fach="gs"]').length === 5, null, { timeout: 15000 }).catch(() => {});
         const gev = tp.locator('.weekcal .wk-ev[data-fach="gs"]').first();
-        ok(await tp.locator('.weekcal .wk-ev[data-fach="gs"]').count() === 5 && await gev.locator(".ftag").textContent() === "Grundschule" && await gev.locator(".ftag").getAttribute("data-fach") === "gs"
-          && (await gev.locator("strong").textContent()) === "Religion 2ab" && (await gev.getAttribute("title")).startsWith("Grundschule, 08:00–08:45 Religion 2ab")
-          && await tp.locator('.weekcal .wk-ev:not([data-fach="gs"])').count() > 0, label + ": Wochenkalender mit den Terminen beider Schulformen (Grundschule gekennzeichnet)");
+        const wk = { gs: await tp.locator('.weekcal .wk-ev[data-fach="gs"]').count(), tag: await gev.locator(".ftag").textContent(), tagFach: await gev.locator(".ftag").getAttribute("data-fach"),
+          name: await gev.locator("strong").textContent(), title: await gev.getAttribute("title"), other: await tp.locator('.weekcal .wk-ev:not([data-fach="gs"])').count() };
+        const wkOk = wk.gs === 5 && wk.tag === "Grundschule" && wk.tagFach === "gs" && wk.name === "Religion 2ab" && String(wk.title).startsWith("Grundschule, 08:00–08:45 Religion 2ab") && wk.other > 0;
+        if (!wkOk) console.log("    Wochenkalender:", JSON.stringify(wk));
+        ok(wkOk, label + ": Wochenkalender mit den Terminen beider Schulformen (Grundschule gekennzeichnet)");
       }
       await tp.locator('.weekcal .wk-ev[data-fach="gs"]').first().click();
       await tp.waitForURL(new RegExp("#/lk/grundschule/k/" + gsRelId + "$"));

@@ -631,7 +631,16 @@ body:has(> .presenter) #toasts { top: 1rem; bottom: auto; }   /* im Präsentatio
 .kiconsent { margin: .5rem 0 .9rem; padding-left: 1.2rem; display: grid; grid-template-columns: minmax(0, 1fr); gap: .4rem; }
 /* Schüler:innen: Notfall-Feibeitsblätter in eigenem Kästchen unter dem Material – kleinere Schrift, beginnt mit einem roten Hinweis */
 .notfallbox { font-size: .9rem; }
-.notfallbox h2 { font-size: 1.05rem; margin-top: .9rem; }
+/* zugeklappt (Nr. 18): nur die Titelzeile mit Winkel, ruhig wie eine Überschrift; aufgeklappt der rote Hinweis und die Dateien */
+.nfdetails > summary { list-style: none; cursor: pointer; display: flex; align-items: center; gap: .6rem; min-height: 44px; margin: -.3rem -.45rem; padding: .3rem .45rem; border-radius: var(--radius-s); }
+.nfdetails > summary::-webkit-details-marker { display: none; }
+.nfdetails > summary::before { content: ""; width: .55em; height: .55em; border-right: 2px solid currentColor; border-bottom: 2px solid currentColor; transform: rotate(-45deg); transition: transform .2s var(--ease); flex: none; }
+.nfdetails[open] > summary::before { transform: rotate(45deg); }
+@media (hover: hover) { .nfdetails > summary:hover { background: var(--surface-2); } }
+.notfallbox .nfdetails > summary h2 { font-size: 1.05rem; margin: 0; }
+.nfbody { display: grid; grid-template-columns: minmax(0, 1fr); gap: .9rem; margin-top: .85rem; }
+/* Entwurf eines Feibeitsblatts: Vorschau der Links, die dort anklickbar werden (Nr. 17) */
+.fblinks { overflow-wrap: anywhere; }
 .notfallbox .item .name { font-size: .95rem; }
 .alarm { display: flex; gap: .6rem; align-items: flex-start; margin: 0; background: var(--rot); color: #fff; border-radius: var(--radius-s); padding: .8rem 1rem;
   font-size: .95rem; font-weight: 600; line-height: 1.45; box-shadow: 0 0 0 3px color-mix(in srgb, var(--rot) 30%, transparent); }

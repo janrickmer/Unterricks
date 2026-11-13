@@ -13,7 +13,7 @@ import { substituteCards } from "./substitute.js";
 import { paintPortalPreview, portalPreview, contextMenu, prevStopCard, stopNextHint } from "./portalview.js";
 import { renderMarkdown } from "./markdown.js";
 import { materialBox, dropZone } from "./materialbox.js";
-import { personLabel, personKey, cleanPhoto, PHOTO_TASKS_MAX } from "./fbclient.js";
+import { personLabel, personKey, cleanPhoto, PHOTO_TASKS_MAX, materialRuns, taskTextFmt, fbLinksOf } from "./fbclient.js";
 
 const MODES = [["planning", "Planung"], ["ideas", "Ideen weiterentwickeln"], ["material", "Material erstellen"]];
 
@@ -672,6 +672,19 @@ export async function sessionPage(id) {
       h("div", { class: "row" }, h("div", { class: "grow" }, wish), genBtn)));
   }
 
+  // Links, die im Feibeitsblatt anklickbar werden (Nr. 17): Vorschau unter dem Feld, zum Prüfen in neuem Tab (wie bei den Schüler:innen)
+  function linkPreview(runsOf) {
+    const box = h("p", { class: "hint fblinks hidden" });
+    const paint = () => {
+      const links = fbLinksOf(runsOf());
+      clear(box).classList.toggle("hidden", !links.length);
+      if (links.length) box.append("Im Feibeitsblatt anklickbar: ", ...links.flatMap((l, k) => [k ? " · " : "",
+        h("a", { href: l.h, target: "_blank", rel: "noopener noreferrer", title: l.h }, l.t, h("span", { class: "sr-only", text: " (öffnet in neuem Tab)" }))]));
+    };
+    paint();
+    return { box, paint };
+  }
+
   function editDraft(dr, opt = {}) {
     const data = JSON.parse(JSON.stringify(dr.data));
     // jeder Auftrag an die KI bekommt sichtbar die altersgemäße Erwartung der Lerngruppe (das Feibeitsblatt kennt den Jahrgang nicht)
@@ -681,8 +694,9 @@ export async function sessionPage(id) {
     const paintTasks = () => {
       clear(tasksBox);
       data.tasks.forEach((t, i) => {
-        const text = h("textarea", { rows: "3", value: t.text, oninput: (e) => { t.text = e.target.value; } });
-        const mat = h("textarea", { rows: "3", value: t.material || "", oninput: (e) => { t.material = e.target.value; } });
+        const textLinks = linkPreview(() => taskTextFmt(t.text) || []), matLinks = linkPreview(() => materialRuns(t.material || ""));
+        const text = h("textarea", { rows: "3", value: t.text, oninput: (e) => { t.text = e.target.value; textLinks.paint(); } });
+        const mat = h("textarea", { rows: "3", value: t.material || "", "aria-describedby": "fbmat-hint-" + i, oninput: (e) => { t.material = e.target.value; matLinks.paint(); } });
         const solWarn = h("p", { class: "small warnc" + (looksLikeSolution(t.solution) ? "" : " hidden"), role: "status", text: "Das sieht nach einer Musterlösung aus. Formulieren Sie bitte einen Auftrag an die KI, z. B. „Achte darauf, ob die Antwort … enthält.“ – die KI soll beraten, nicht abgleichen." });
         const sol = h("textarea", { rows: "6", value: t.solution || "", oninput: (e) => { t.solution = e.target.value; solWarn.classList.toggle("hidden", !looksLikeSolution(t.solution)); } });
         const typ = h("select", { style: { width: "auto" } }, h("option", { value: "text", selected: t.answer.type === "text" ? true : null }, "Textfeld"), h("option", { value: "table", selected: t.answer.type === "table" ? true : null }, "Tabelle"),
@@ -700,8 +714,10 @@ export async function sessionPage(id) {
             h("button", { class: "btn small ghost iconbtn", type: "button", "aria-label": "Aufgabe " + (i + 1) + " nach oben", disabled: i === 0 ? true : null, onclick: () => { data.tasks.splice(i - 1, 0, data.tasks.splice(i, 1)[0]); paintTasks(); } }, icon("up")),
             h("button", { class: "btn small ghost iconbtn", type: "button", "aria-label": "Aufgabe " + (i + 1) + " nach unten", disabled: i === data.tasks.length - 1 ? true : null, onclick: () => { data.tasks.splice(i + 1, 0, data.tasks.splice(i, 1)[0]); paintTasks(); } }, icon("down")),
             h("button", { class: "btn small ghost danger", type: "button", disabled: data.tasks.length === 1 ? true : null, onclick: () => { data.tasks.splice(i, 1); paintTasks(); } }, "Entfernen"))),
-          h("div", { class: "field" }, h("label", null, "Aufgabenstellung"), text),
-          h("div", { class: "field" }, h("label", null, "Material (optional, Text)"), mat),
+          h("div", { class: "field" }, h("label", null, "Aufgabenstellung"), text, textLinks.box),
+          h("div", { class: "field" }, h("label", null, "Material (optional, Text)"), mat,
+            h("p", { class: "hint", id: "fbmat-hint-" + i, text: "**fett** wird fett. Links zu anderen Internetseiten als [Linktext](https://…) oder vollständige Adresse (https://…) – im Feibeitsblatt werden sie anklickbar und öffnen sich in einem neuen Tab (auch in der Aufgabenstellung)." }),
+            matLinks.box),
           solBox,
           h("div", { class: "row" }, h("span", { class: "small", text: "Antwort als:" }), typ), tableBox,
           h("p", { class: "hint" + (t.answer.type === "photo" ? "" : " hidden"), text: "Foto: Die Schüler:innen fotografieren z. B. ihr Lernprodukt und laden das Bild hoch (verkleinert, ohne Ortsdaten, verschlüsselt). Fotos gehen nie an die KI – deshalb gibt es hier keinen Auftrag an die KI." })));

@@ -202,12 +202,17 @@ Feibeitsblatt braucht keine Änderung. Die Adressen stehen in `wrangler.jsonc` (
   was verbessert werden sollte. Unterricks ergänzt jeden Auftrag um die **altersgemäße Erwartung** der Lerngruppe (z. B. „Jahrgangsstufe
   7: eine kurze, richtige Antwort in eigenen Worten genügt …“), weil das Feibeitsblatt den Jahrgang nicht kennt; im Editor sichtbar und
   änderbar.
+  **Links** zu anderen Internetseiten im Material und in der Aufgabenstellung schreiben Sie (und Claude) als `[Linktext](https://…)` oder als
+  vollständige Adresse `https://…` – im Feibeitsblatt werden sie anklickbar und öffnen sich für die Schüler:innen in einem neuen Tab; der
+  Editor zeigt unter dem Feld, welche Links erkannt wurden (**fett** geht in beiden Feldern mit `**…**`). Schon angelegte Feibeitsblätter
+  ändern sich dadurch nicht (Feibeitsblätter sind unveränderlich) – wer dort anklickbare Links möchte, legt das Blatt neu an.
 * **Notfall-Feibeitsblätter:** Zu jedem Feibeitsblatt der Sitzung legt Unterricks automatisch dessen analoges Arbeitsblatt
   (im Feibeitsblatt „Analoges Arbeitsblatt als PDF herunterladen“, dieselbe Datei) als PDF unter „Material – Für Schüler:innen
   zugänglich“ ab, sobald die Sitzung mit dem Feibeitsblatt verbunden ist. Nach dem Bestätigen der Checkliste wird es mit dem
   QR-Code zur Checkliste erneuert; entfernen Sie das Blatt aus der Sitzung, verschwindet auch sein Notfall-Feibeitsblatt. Zum
-  Finale eines Escape-Rooms gibt es keines. Die Schüler:innen sehen die Notfall-Feibeitsblätter in einem eigenen Kästchen unter dem
-  Material mit dem roten Hinweis, dass sie nur bei technischen Problemen gedacht sind. In den Jahrgängen 5 und 6 (nur analoges
+  Finale eines Escape-Rooms gibt es keines. Die Schüler:innen sehen die Notfall-Feibeitsblätter in einem eigenen, **zugeklappten**
+  Kästchen „Notfall-Feibeitsblätter (nur bei technischen Problemen)“ unter dem Material; erst wenn sie es aufklappen, erscheinen der rote
+  Hinweis, dass sie nur bei technischen Problemen gedacht sind, und die PDF-Dateien – so öffnen sie zuerst das Material. In den Jahrgängen 5 und 6 (nur analoges
   Material) gibt es keine. **Bestehende Sitzungen**, deren Feibeitsblätter schon vorher verknüpft waren, bekommen ihr
   Notfall-Feibeitsblatt automatisch nachgeholt: Sobald Sie als Lehrkraft angemeldet und mit Feibeitsblatt verbunden sind (gespeicherte
   Verbindung), ergänzt Unterricks die fehlenden im Hintergrund – erzeugt werden sie in Ihrem Browser, lassen Sie Unterricks also

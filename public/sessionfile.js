@@ -15,13 +15,19 @@ export function sessionFileName({ subject, klass, unitTitle, sessionNo }) {
 }
 
 /* ---------- Feibeitsblatt (Lehrkraft-Schnittstelle) → Entwurf der Plattform ----------
- * Material: Läufe → Text mit **fett** und „Text (Adresse)“ bei Links; Antwortarten Text, Tabelle, Foto (Weltkarte wird Textaufgabe). */
+ * Material und formatierte Aufgabenstellung (textFmt): Läufe → Text mit **fett** und Links als [Linktext](Adresse) bzw. nur der Adresse,
+ * wenn sie selbst der Linktext ist – so werden sie beim erneuten Anlegen wieder anklickbar (materialRuns); Antwortarten Text, Tabelle, Foto
+ * (Weltkarte wird Textaufgabe). */
+const MD_HREF_RE = /^https?:\/\/[^\s()<>]*(?:\([^\s()<>]*\)[^\s()<>]*)*$/i;   // so liest materialRuns die Adresse eines [Linktext](Adresse)
 export function sheetToDraft(sheet) {
   const notes = [];
   const runsText = (paras) => (Array.isArray(paras) ? paras : []).map((p) => (Array.isArray(p) ? p : []).map((r) => {
     const t = String((r && r.t) || ""); if (!t) return "";
     const b = /b/.test(String((r && r.f) || "")) ? "**" + t + "**" : t;
-    return r && r.h ? b + " (" + r.h + ")" : b;
+    const href = r && typeof r.h === "string" ? r.h : "";
+    if (!href) return b;
+    if (t === href) return b;
+    return /[\[\]\n]/.test(t) || !MD_HREF_RE.test(href) ? b + " (" + href + ")" : "[" + b + "](" + href + ")";
   }).join("")).join("\n");
   const tasks = (Array.isArray(sheet && sheet.tasks) ? sheet.tasks : []).slice(0, 20).map((t, i) => {
     const a = (t && t.answer) || {};
@@ -30,7 +36,8 @@ export function sheetToDraft(sheet) {
     else if (a.type === "photo") antwort = "foto";
     else if (a.type === "map") notes.push("Aufgabe " + (i + 1) + " (Weltkarte) kommt als Textaufgabe – die Karte bitte im Feibeitsblatt selbst neu anlegen.");
     if (Array.isArray(t && t.images) && t.images.length) notes.push("Aufgabe " + (i + 1) + ": Bilder werden nicht übernommen.");
-    return { text: String((t && t.text) || ""), material: runsText(t && t.material), ki_auftrag: String((t && t.solution) || ""), antwort };
+    const fmt = runsText(t && t.textFmt);   // formatierte Aufgabenstellung: mit fett und Links (t.text hat keine Adressen)
+    return { text: fmt.trim() ? fmt : String((t && t.text) || ""), material: runsText(t && t.material), ki_auftrag: String((t && t.solution) || ""), antwort };
   }).filter((t) => t.text.trim());
   return { draft: tasks.length ? normalizeFbDraft({ title: (sheet && sheet.title) || "Feibeitsblatt", tasks }) : null, notes };
 }

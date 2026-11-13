@@ -46,12 +46,17 @@ test("slotsAfterEnd: die nächsten Termine laut Stundenplan nach dem Ende – Fe
 // SHA-256 der Prompts ohne Zwischenstopp mit dem Code vor S11 (Commit 6ba46f7) – sie dürfen sich nicht ändern
 const BEFORE = { sek: "f2c21230cad34f85d878845ceaaf4452ed56590e00fa034835b44d706f6c958a", sek6: "a66cd53454419b2ce70b5ec285786cbef72efafa73b769208e24bba66bfe50e3",
   gs: "1df9dc0a92044b6170c2e8c034439accb0e77474611ae40b944986ef19e058ec", gs0: "c0423aaee510abe36cb8a218d19ff2f6bc78b4e8b62015555339557d620acfe0" };
-test("ohne Zwischenstopp: beide Prompts byte-gleich zum Stand vor S11", () => {
+// Nr. 17 (13.11.2026): der Gymnasium-Prompt bekommt genau einen Satz zu Links in Feibeitsblättern (FB_LINK_RULE in FEIBEITSBLATT_INFO) – ohne ihn
+// bleibt er byte-gleich; Jg. 5/6 (keine Feibeitsblätter) und die Grundschule bleiben ganz unverändert
+const withoutLinkRule = (p) => { assert.equal(p.split(" " + S.FB_LINK_RULE).length - 1, 1, "der Satz zu Links steht genau einmal im Prompt"); return p.replace(" " + S.FB_LINK_RULE, ""); };
+test("ohne Zwischenstopp: beide Prompts byte-gleich zum Stand vor S11 (Gymnasium: bis auf den Satz zu Links in Feibeitsblättern)", () => {
   const s = F.sekCtx(P.unitContext), g = F.gsCtx(P.unitContext);
-  assert.equal(sha(P.claudeLessonPrompt(s)), BEFORE.sek);
-  assert.equal(sha(P.claudeLessonPrompt({ ...s, klass: "6B", unit: null, row: null, unitText: "", messages: [] })), BEFORE.sek6);
-  assert.equal(sha(G.claudeGsLessonPrompt(g)), BEFORE.gs);
-  assert.equal(sha(G.claudeGsLessonPrompt({ ...g, unit: null, row: null, unitText: "" })), BEFORE.gs0);
+  assert.equal(sha(withoutLinkRule(P.claudeLessonPrompt(s))), BEFORE.sek);
+  const sek6 = P.claudeLessonPrompt({ ...s, klass: "6B", unit: null, row: null, unitText: "", messages: [] }), gs = G.claudeGsLessonPrompt(g), gs0 = G.claudeGsLessonPrompt({ ...g, unit: null, row: null, unitText: "" });
+  for (const p of [sek6, gs, gs0]) assert.ok(!p.includes(S.FB_LINK_RULE) && !p.includes("[Linktext](https://…)"));
+  assert.equal(sha(sek6), BEFORE.sek6);
+  assert.equal(sha(gs), BEFORE.gs);
+  assert.equal(sha(gs0), BEFORE.gs0);
 });
 
 const PREV = { id: "abcdefabcdefabcd", title: "Was ist Macht?", date: "2026-11-10", portal: "**1) Einstieg**\n- Karikatur\n" + STOP + "\n**2) Partnerarbeit**\n- ~~M1~~ lesen", portalVersion: 4,

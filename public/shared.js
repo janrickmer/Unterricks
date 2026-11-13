@@ -1029,6 +1029,10 @@ export function greetingText(ctx) {
    Passwort; das Gerät bleibt dasselbe (freigeschaltete Sitzungen, Fach und Klasse und im Browser Gespeichertes bleiben). */
 export const STUDENT_LOGIN_MIN = 90;
 
+/* Links in Feibeitsblättern (Wunsch der Lehrkraft vom 13.11.2026): Unterricks macht beim Anlegen aus [Linktext](https://…) und vollständigen
+   Adressen Links des Feibeitsblatts (materialRuns in fbclient.js) – in Prompts und Werkzeugbeschreibungen für Claude dieser eine Satz */
+export const FB_LINK_HINT = "Links zu anderen Internetseiten immer als [Linktext](https://…) oder als vollständige Adresse (https://…) – sie werden im Feibeitsblatt anklickbar und öffnen sich in einem neuen Tab";
+export const FB_LINK_RULE = "Schreibe Links zu anderen Internetseiten in Aufgabenstellung und Material immer als [Linktext](https://…) oder als vollständige Adresse (https://…) – sie werden im Feibeitsblatt anklickbar und öffnen sich in einem neuen Tab.";
 export const FEIBEITSBLATT_INFO = "Feibeitsblatt ist das digitale Arbeitsblatt-Werkzeug der Lehrkraft: Die Lehrkraft legt Aufgaben (Aufgabenstellung, optional Material) " +
   "und je Aufgabe einen „Auftrag an die KI“ an. Der Auftrag ist KEINE Musterlösung, sondern die Anweisung an die korrigierende KI, worauf sie beim Lesen der Schülerantwort " +
   "achten soll (z. B. erwartete Inhalte, Kriterien, typische Fehler, worauf es nicht ankommt) – damit ihre Rückmeldung den Schüler:innen zeigt, was an ihrer Antwort schon gut ist " +
@@ -1036,7 +1040,7 @@ export const FEIBEITSBLATT_INFO = "Feibeitsblatt ist das digitale Arbeitsblatt-W
   "(z. B. genügen in Jahrgang 7 und 8 einfache, richtige Aussagen in eigenen Worten – keine perfekt differenzierte Lösung); Unterricks ergänzt jeden Auftrag um einen Absatz " +
   "zur altersgemäßen Erwartung der Lerngruppe. Die Schüler:innen öffnen das Blatt mit einem Code, " +
   "schreiben ihre Antworten (Textfeld oder Tabelle), können einmal freiwillig KI-Feedback zu ihren Antworten erhalten, überarbeiten und geben verschlüsselt ab; " +
-  "die Lehrkraft sieht alle Abgaben. Ein Feibeitsblatt ersetzt ein klassisches Arbeitsblatt, besonders bei Schreib-, Analyse- und Urteilsaufgaben.";
+  "die Lehrkraft sieht alle Abgaben. Ein Feibeitsblatt ersetzt ein klassisches Arbeitsblatt, besonders bei Schreib-, Analyse- und Urteilsaufgaben. " + FB_LINK_RULE;
 
 /* Gestaltungsregeln für Material, das Claude selbst gestaltet (HTML, Unterricks druckt es als PDF – Wunsch der Lehrkraft vom 11.11.2026):
    im Connector-Werkzeug add_material_pdf und in den Prompts „Stunde mit Claude planen“ und Krankheitsvertretung */

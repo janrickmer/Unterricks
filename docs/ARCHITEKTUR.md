@@ -33,7 +33,7 @@ implementiert und im End-to-End-Test geprüft (Ausnahmen unten ausdrücklich gen
 | Präsentation für Schüler:innen (Ergänzung) | Selbst öffnen erst **5 Minuten nach dem Ende der Sitzung** (Beginn + Dauer, statt 90 Minuten nach dem ersten Betreten); ohne Beginn **gesperrt**; die Lehrkraft markiert die **letzte gezeigte Folie** (Vollbild „Bis hier gezeigt“ oder in der Sitzung, auch per Rechtsklick) – Schüler:innen bekommen dann eine **gekürzte PDF** nur bis dorthin, siehe 4h. (Diese vier Einzelfragen blieben unbeantwortet; umgesetzt sind die empfohlenen Antworten.) |
 | Hausaufgabe für Schüler:innen (Ergänzung) | erst **15 Minuten vor dem Ende der Sitzung** sichtbar (auch serverseitig), ohne Beginn verborgen, siehe 4h |
 | Beginn der Sitzung (Ergänzung) | Uhrzeit **im Stundenplan der Einheit** je Wochentag (neue Sitzungen bekommen sie) und **in jeder Sitzung änderbar** |
-| Notfall-Feibeitsblätter bei Schüler:innen (Ergänzung) | **eigenes Kästchen unter dem Material**, kleinere Schrift, beginnt mit dem roten Hinweis „Achtung! Eigentlich sollst du …“ (Wortlaut der Lehrkraft; nur das Komma vor „soll“ entfernt) |
+| Notfall-Feibeitsblätter bei Schüler:innen (Ergänzung) | **eigenes Kästchen unter dem Material**, kleinere Schrift, beginnt mit dem roten Hinweis „Achtung! Eigentlich sollst du …“ (Wortlaut der Lehrkraft; nur das Komma vor „soll“ entfernt). Seit dem 13.11.2026 (Anforderung 18) **zugeklappt**: natives `details`/`summary` mit der Überschrift „Notfall-Feibeitsblätter (nur bei technischen Problemen)“, beim Laden immer zu, nichts gemerkt; erst aufgeklappt erscheinen der rote Hinweis und die PDF-Dateien |
 | Beamer-Folie (Ergänzung) | Sitzungscode **mit QR-Code** zu https://unterricks.janrickmer.de |
 | Wochenkalender (Ergänzung vom 11.11.2026) | Ganz oben auf der **Startseite der Lehrkraft**: der Unterricht der Woche (Mo–Fr) aus den **Stundenplänen der Unterrichtseinheiten**; laufende Woche, am Wochenende die kommende, blätterbar (‹ › „Heute“); mit Uhrzeit im Zeitraster, ohne Uhrzeit in einer eigenen Zeile; ein Klick öffnet die **Klasse bzw. den Kurs** |
 | Codefolie (Ergänzung vom 11.11.2026) | Die Präsentation enthält **keinen Sitzungscode und keinen QR-Code**: Folie 1 ist eine gestaltete Titelfolie; beim Start zeigt Unterricks **vor Folie 1 die Codefolie** (wie „Für den Beamer zeigen“, immer mit dem Code der **aktuellen** Sitzung) am Beamer und live auf den iPads; Folien mit der Zeile **„Unterricks-Codefolie: …“** (auch jede Materialfolie mit Material aus Unterricks) zeigt Unterricks live als Codefolie mit ihrem übrigen Text als Überschrift; Knopf **„Sitzungscode zeigen“** im Präsentationsmodus; das Ersetzen alter Codes auf den Folien bleibt als stiller Rückfall für ältere Präsentationen |
@@ -690,6 +690,11 @@ implementiert und im End-to-End-Test geprüft (Ausnahmen unten ausdrücklich gen
   der Checkliste). Entfernen des Blattes aus der Sitzung löscht sie mit; bei der Krankheitsvertretung wandert sie wie das übrige
   Material ins Archiv. Beim Übertragen der archivierten Planung in eine andere Sitzung wird sie nicht mitkopiert – sie entsteht dort,
   sobald das Feibeitsblatt mit der Zielsitzung verknüpft ist.
+* **Bei den Schüler:innen (Anforderung 18 vom 13.11.2026):** eigenes Kästchen `section.notfallbox` unter dem Material, **zugeklappt**
+  (`details.nfdetails`, beim Laden immer zu, nichts gemerkt): sichtbar nur die Titelzeile `summary > h2#nf-h` „Notfall-Feibeitsblätter (nur bei
+  technischen Problemen)“ mit Winkel (≥ 44 px, per Tastatur bedienbar, ruhiger als „Material“). Erst aufgeklappt erscheinen der rote Hinweis
+  (`NOTFALL_NOTE`, unverändert) und die PDF-Dateien – so öffnen die Schüler:innen zuerst das Material und nicht versehentlich ein
+  Notfall-Feibeitsblatt.
 * **Inhalt:** nur, was auch auf dem gedruckten Arbeitsblatt des Feibeitsblatts steht – nie Aufträge an die KI, Länder der
   Weltkarte, Checklistenpunkte oder Abgaben.
 * **Nachholen für bestehende Sitzungen (Wunsch der Lehrkraft vom 10.11.2026):** Blätter, die verknüpft wurden, bevor es
@@ -1020,6 +1025,25 @@ stattdessen der von Anthropic vorgesehene Weg in umgekehrter Richtung (Connector
   Leistungskurs nach dem Niveau der Abiturprüfung. Sichtbar und änderbar im Editor, beim Anlegen ergänzt, falls er fehlt (auch für Blätter
   der Vertretung); ein automatisch erzeugter Absatz einer anderen Lerngruppe (z. B. aus einer Sitzungsdatei) wird ersetzt, ein von der
   Lehrkraft geänderter bleibt; ein Auftrag, der nur noch aus dem Absatz besteht, gilt als leer (kein KI-Feedback).
+* **Links im Material und in der Aufgabenstellung (Nachtrag der Lehrkraft vom 13.11.2026, Anforderung 17).** Unterricks schickt das
+  Material als Absätze aus Läufen `{t, f?, h?}` (Format des Feibeitsblatts, `validateMaterial`): `materialRuns` in `public/fbclient.js`
+  macht aus **fett** fett und aus Links zu anderen Internetseiten Link-Läufe – Markdown `[Linktext](https://…)` (sichtbar der Linktext;
+  ein Titel `"…"` dahinter fällt weg) und nackte Adressen `https://…`/`http://…` (sichtbar die Adresse; Satzzeichen und Anführungszeichen am
+  Ende sowie eine schließende Klammer ohne öffnende gehören nicht dazu, Klammerpaare in Wikipedia-Adressen schon). Nur http(s), geprüft wie
+  `cleanHref` des Feibeitsblatts (`fbHref`, Länge nach der URL-Normalisierung ≤ 1000); alles andere bleibt Text. Die Grenzen des
+  Feibeitsblatts (`FB_LIMITS`: 8000 Zeichen, 200 Absätze, 600 Abschnitte, 60 Links) werden nie überschritten: weitere Links bleiben Text
+  („Linktext (Adresse)“), ein zu kleinteiliger Absatz wird ein einziger Textlauf – ein Blatt scheitert nie an den Links. Enthält die
+  Aufgabenstellung einen Link oder **fett**, geht sie zusätzlich als `textFmt` (dieselben Läufe; das Feibeitsblatt leitet daraus den reinen
+  Text ohne Link-Adressen ab, den die KI bekommt) – nur, wenn sie samt Zeilenumbrüchen in 4000 Zeichen passt (`taskTextFmt`); `text` bleibt
+  daneben unverändert. Das Feibeitsblatt zeigt Links den Schüler:innen anklickbar in neuem Tab (`target="_blank"`,
+  `rel="noopener noreferrer"`, „(öffnet in neuem Tab)“ für Screenreader). Der Editor des Entwurfs nennt die Schreibweise und zeigt unter
+  Aufgabenstellung und Material die erkannten Links als Vorschau (anklickbar in neuem Tab, `noopener noreferrer`); das Notfall-Feibeitsblatt
+  druckt sie wie das analoge Arbeitsblatt als Adresse mit Link (`fbanalog.js`, unverändert). Claude erfährt die Schreibweise aus einem Satz
+  in `FEIBEITSBLATT_INFO` (`FB_LINK_RULE`: Prompts „Stunde mit Claude planen“, Vertretung, Backup-Chat, Entwurf aus dem Chat, Beschreibung von
+  `propose_feibeitsblatt`) und aus den Feldbeschreibungen `text`/`material` von `propose_feibeitsblatt` und `save_substitute_plan`
+  (`FB_LINK_HINT`) – sonst bleiben die Gymnasium-Prompts byte-gleich. Die Sitzungsdatei schreibt Links eines vorhandenen Blattes als
+  `[Linktext](Adresse)` in den Entwurf (`sheetToDraft`, auch aus `textFmt`), damit sie beim erneuten Anlegen wieder dieselben Links werden.
+  Schon angelegte Blätter bleiben unverändert (Feibeitsblätter sind unveränderlich) – für anklickbare Links ein Blatt neu anlegen.
 * **Schüleransicht.** Kein PDF, sondern Titel, Code und „Code kopieren und Feibeitsblatt öffnen“ (kopiert den Code und öffnet
   feibeitsblatt.janrickmer.de; Feibeitsblatt kennt keinen Direktlink mit vorausgefülltem Code).
 * **Einsicht in Abgaben.** „Abgaben ansehen“ lädt die Abgaben, entschlüsselt sie im Browser und zeigt je Schüler:in die

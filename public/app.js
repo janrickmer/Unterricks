@@ -421,11 +421,17 @@ async function studentRoom(lessonId) {
   if (!d.sheets.length && !matFiles.length) mats.append(h("p", { class: "muted", text: "Deine Lehrkraft hat für diese Sitzung noch kein Material freigegeben." }));
   main.append(h("section", { class: "card" }, h("h2", { text: "Material" }), mats,
     matFiles.some((f) => f.kind !== "link") ? h("p", { class: "hint", text: "Tipp fürs iPad: Nach dem Herunterladen über „Teilen“ → „GoodNotes“ öffnen und dort bearbeiten." }) : null));
-  // 3) Notfall-Feibeitsblätter (das analoge Arbeitsblatt zu jedem Feibeitsblatt): eigenes Kästchen weiter unten, nur für technische Probleme
+  // 3) Notfall-Feibeitsblätter (das analoge Arbeitsblatt zu jedem Feibeitsblatt): eigenes Kästchen weiter unten, nur für technische Probleme.
+  // Zugeklappt (Wunsch der Lehrkraft vom 13.11.2026): beim Laden immer zu, nichts gemerkt – erst aufgeklappt erscheinen der rote Hinweis
+  // und die PDF-Dateien, damit die Schüler:innen zuerst das Material öffnen und nicht versehentlich ein Notfall-Feibeitsblatt
   if (notfallFiles.length) main.append(h("section", { class: "card notfallbox", "aria-labelledby": "nf-h" },
-    h("p", { class: "alarm", role: "note" }, icon("alert"), h("span", null, h("strong", { text: "Achtung! " }), NOTFALL_NOTE)),
-    h("h2", { id: "nf-h", text: "Notfall-Feibeitsblätter" }), h("div", { class: "list" }, notfallFiles.map(fileRow))));
+    h("details", { class: "nfdetails" },
+      h("summary", null, h("h2", { id: "nf-h", text: NOTFALL_TITLE })),
+      h("div", { class: "nfbody" },
+        h("p", { class: "alarm", role: "note" }, icon("alert"), h("span", null, h("strong", { text: "Achtung! " }), NOTFALL_NOTE)),
+        h("div", { class: "list" }, notfallFiles.map(fileRow))))));
 }
+export const NOTFALL_TITLE = "Notfall-Feibeitsblätter (nur bei technischen Problemen)";
 // Wortlaut der Lehrkraft (Komma vor „soll“ entfernt)
 export const NOTFALL_NOTE = "Eigentlich sollst du mit den digitalen Feibeitsblättern arbeiten, die du in dieser Sitzung aufrufen kannst. Die hier verfügbaren PDF-Dateien sind nur für diejenigen Schülerinnen und Schüler gedacht, " +
   "die technische Probleme beim Aufrufen von Feibeitsblättern haben. Nur in diesen Ausnahmefällen soll mit einem Notfall-Feibeitsblatt gearbeitet werden.";

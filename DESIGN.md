@@ -662,7 +662,7 @@ Der Kopf jeder Seite: Fach, Kurs und Stand auf einen Blick.
 - **Aufklapper (`details.box`):** Haarlinie oben, Titel in 700 mit gezeichnetem Winkel, der sich beim Öffnen um 90° dreht (.2s).
 
 ### Roter Hinweis (`.alarm`) – nur für die Notfall-Feibeitsblätter
-- Volle Fläche `--rot` mit weißer Schrift in 600/.95rem (Kontrast 5,6 : 1), Radius 10px, Innenabstand .8rem 1rem, Ring `0 0 0 3px color-mix(in srgb, var(--rot) 30%, transparent)`, Warnsymbol in Weiß; „Achtung!“ in 800. Er eröffnet das eigene Kästchen `.notfallbox` unter dem Material (Schrift .9rem, also kleiner als das Material). Kein weiterer Einsatz: Rot als Fläche bleibt dieser einen Warnung (und dem Live-Knopf) vorbehalten.
+- Volle Fläche `--rot` mit weißer Schrift in 600/.95rem (Kontrast 5,6 : 1), Radius 10px, Innenabstand .8rem 1rem, Ring `0 0 0 3px color-mix(in srgb, var(--rot) 30%, transparent)`, Warnsymbol in Weiß; „Achtung!“ in 800. Er steht im eigenen Kästchen `.notfallbox` unter dem Material (Schrift .9rem, also kleiner als das Material), das zugeklappt ist: sichtbar nur die Titelzeile (`details.nfdetails > summary` mit `h2` in 1.05rem/800, Winkel wie beim Aufklapper, mindestens 44px hoch, Hover `--surface-2` nur mit Maus); aufgeklappt folgen der rote Hinweis und die Dateien (Abstand .9rem). Kein weiterer Einsatz: Rot als Fläche bleibt dieser einen Warnung (und dem Live-Knopf) vorbehalten.
 
 ### KI-Begriffshilfe (`.kihelp`)
 - Eine normale Karte unter der Live-Präsentation (h2 1.1rem); Fragen in 700, Antworten auf `--paper` mit 1px `--line`, Radius 10px; der Verlauf scrollt ab 22rem. Die Einwilligung ist ein Dialog mit Liste (`.kiconsent`) und Kästchen (`.checkrow`); „Einwilligung zurücknehmen“ als Textknopf (`.linkbtn`, unterstrichen in `--fach-text`).

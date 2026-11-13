@@ -14,7 +14,7 @@ import { paramsText, lessonSlots, WEEKDAYS, freeSlots, stopLessonLines, STOP_CHO
 import { insertTextMaterial, insertPrintText, saveDesign, renderDesign, getFile } from "./files.js";
 import { shortImages } from "./render.js";
 import { ESCAPE_FORMAT_HINT, PART_TYPES } from "../public/escape-data.js";
-import { SUBJECTS, ALL_CLASSES, subjectName, gradeInfo, formatCode, lessonContext, chatTranscript, PORTAL_RULES, PORTAL_EXAMPLE, PORTAL_TEACHER_RULE, SYSTEM_PROMPT_ROLE, FEIBEITSBLATT_INFO, classShort, fmtDay, materialDesignText, printFileName, GS_SUBJECT,
+import { SUBJECTS, ALL_CLASSES, subjectName, gradeInfo, formatCode, lessonContext, chatTranscript, PORTAL_RULES, PORTAL_EXAMPLE, PORTAL_TEACHER_RULE, SYSTEM_PROMPT_ROLE, FEIBEITSBLATT_INFO, FB_LINK_HINT, classShort, fmtDay, materialDesignText, printFileName, GS_SUBJECT,
   STOP_LINE, hasStop, planRefs, pdfRef, PLAN_REF_RE } from "../public/shared.js";
 import { gsLessonContext, GS_MATERIAL_RULES, CARD_DESIGN_RULES, VERLAUFSPLAN_EXAMPLE, VERLAUFSPLAN_RULES } from "../public/gsplanning.js";
 import { saveCardSet, setCardTexts } from "./cards.js";
@@ -162,7 +162,7 @@ const TOOLS = [
     description: "Legt einen Feibeitsblatt-ENTWURF in der Sitzung ab. " + FEIBEITSBLATT_INFO + " Die Lehrkraft prüft und ändert den Entwurf in der Plattform und legt das Blatt dort selbst an (das Anlegen braucht ihr Feibeitsblatt-Passwort im Browser).",
     inputSchema: { type: "object", properties: { lesson_id: ID_ARG, titel: { type: "string", maxLength: 120 },
       aufgaben: { type: "array", minItems: 1, maxItems: 20, items: { type: "object", properties: {
-        text: { type: "string", description: "Aufgabenstellung", maxLength: 4000 }, material: { type: "string", description: "optionaler Materialtext", maxLength: 8000 },
+        text: { type: "string", description: "Aufgabenstellung. " + FB_LINK_HINT + ".", maxLength: 4000 }, material: { type: "string", description: "optionaler Materialtext (**fett** möglich). " + FB_LINK_HINT + ".", maxLength: 8000 },
         ki_auftrag: { type: "string", description: "Auftrag an die korrigierende KI – KEINE Musterlösung: worauf sie beim Lesen der Schülerantwort achten soll (erwartete Inhalte, Kriterien, typische Fehler; als Anweisung, z. B. „Achte darauf, ob …“), damit ihre Rückmeldung zeigt, was schon gut ist und was verbessert werden sollte. Erwartungen passend zur Jahrgangsstufe (Unterricks ergänzt beim Anlegen einen Satz zur altersgemäßen Erwartung). Pflicht bei Text- und Tabellenaufgaben (ohne Auftrag kein KI-Feedback); bei Foto-Aufgaben weglassen.", maxLength: 8000 },
         antwort: { description: "\"text\" (Normalfall), \"foto\" (Foto z. B. eines Lernprodukts; nie an die KI, ohne ki_auftrag; höchstens 3 je Blatt) oder Tabelle", oneOf: [{ type: "string", enum: ["text", "foto"] }, { type: "object", properties: { tabelle: { type: "array", items: { type: "string", maxLength: 60 }, minItems: 1, maxItems: 8 }, zeilen: { type: "integer", minimum: 1, maximum: 30 } }, required: ["tabelle"] }] } },
         required: ["text"] } } }, required: ["lesson_id", "titel", "aufgaben"], additionalProperties: false } },
@@ -221,7 +221,8 @@ const TOOLS = [
         items: { type: "object", properties: { titel: { type: "string" }, bereich: { type: "string", enum: ["schueler", "lehrkraft", "druck"], description: "druck = Liste „Von der Lehrkraft auszudrucken“ (nur mit html)" },
           html: { type: "string", description: "vollständige HTML-Seite mit <style>" }, markdown: { type: "string", description: "Rückfall ohne eigene Gestaltung" },
           anzahl: { type: "integer", minimum: 1, maximum: 500 }, beidseitig: { type: "boolean" }, farbe: { type: "boolean" } }, required: ["titel", "bereich"] } },
-      feibeitsblatt: { type: "object", properties: { titel: { type: "string" }, aufgaben: { type: "array", items: { type: "object", properties: { text: { type: "string" }, material: { type: "string" }, ki_auftrag: { type: "string" },
+      feibeitsblatt: { type: "object", properties: { titel: { type: "string" }, aufgaben: { type: "array", items: { type: "object", properties: { text: { type: "string", description: "Aufgabenstellung. " + FB_LINK_HINT + "." },
+        material: { type: "string", description: "optionaler Materialtext (**fett** möglich). " + FB_LINK_HINT + "." }, ki_auftrag: { type: "string" },
         antwort: { description: "\"text\", \"foto\" (Foto z. B. eines Lernprodukts; nie an die KI, ohne ki_auftrag; höchstens 3 je Blatt) oder Tabelle {tabelle: [...], zeilen}" } }, required: ["text"] } } }, required: ["titel", "aufgaben"] },
       escape_room: ESCAPE_ROOM,
       hinweise_vertretung: { type: "string", description: "kurze Hinweise für die Vertretungslehrkraft" } },

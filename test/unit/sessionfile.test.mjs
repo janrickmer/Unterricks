@@ -28,7 +28,7 @@ test("Feibeitsblatt → Entwurf: Text, Material (fett, Links), Auftrag an die KI
     { text: "Fotografiere dein Plakat.", solution: "nie an die KI", answer: { type: "photo" } },
     { text: "Wo liegt Karlsruhe?", answer: { type: "map", items: [] }, images: [{ id: "x" }] }] });
   assert.equal(draft.title, "Gewaltenteilung");
-  assert.equal(draft.tasks[0].material, "Das **Grundgesetz** regelt das.\nQuelle (https://www.bpb.de/x)");
+  assert.equal(draft.tasks[0].material, "Das **Grundgesetz** regelt das.\n[Quelle](https://www.bpb.de/x)", "Links als [Linktext](Adresse) – beim erneuten Anlegen wieder anklickbar (Nr. 17)");
   assert.equal(draft.tasks[0].solution, "Legislative, Exekutive, Judikative");
   assert.deepEqual(draft.tasks[1].answer, { type: "table", columns: ["Gewalt", "Organ"], rows: 3 });
   assert.deepEqual(draft.tasks[2].answer, { type: "photo" }); assert.equal(draft.tasks[2].solution, "", "Fotos nie an die KI");

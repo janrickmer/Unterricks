@@ -105,6 +105,8 @@ export class FbClient {
     const tasks = draft.tasks.map((t) => {
       const photo = t.answer && t.answer.type === "photo";
       const task = { text: String(t.text || "").trim(), solution: photo ? "" : withAgeExpectation(t.solution, opt.klass) };
+      const fmt = taskTextFmt(task.text);   // Aufgabenstellung mit Link oder fett: als textFmt (das Feibeitsblatt leitet den reinen Text daraus ab)
+      if (fmt) task.textFmt = fmt;
       const mat = materialRuns(t.material || "");
       if (mat.length) task.material = mat;
       if (photo) task.answer = { type: "photo" };
@@ -155,19 +157,135 @@ async function answersDigest(finals) {
   return hex(await subtle.digest("SHA-256", te.encode(JSON.stringify(clean))));
 }
 
-/* Klartext → Absätze aus Läufen (**fett** wird fett, Links bleiben Text) */
-export function materialRuns(text) {
-  const paras = String(text || "").replace(/\r\n?/g, "\n").split("\n").map((line) => {
-    const runs = [];
-    const re = /\*\*(.+?)\*\*/g; let last = 0, m;
-    while ((m = re.exec(line))) { if (m.index > last) runs.push({ t: line.slice(last, m.index) }); runs.push({ t: m[1], f: "b" }); last = m.index + m[0].length; }
-    if (last < line.length) runs.push({ t: line.slice(last) });
-    return runs.filter((r) => r.t);
+/* ---------- Klartext → Feibeitsblatt-Läufe (Material und Aufgabenstellung, Wunsch der Lehrkraft vom 13.11.2026, Nr. 17) ----------
+ * Absätze aus Läufen {t, f?, h?} wie im Feibeitsblatt (validateMaterial): **fett** wird fett (f "b"), Links zu anderen Internetseiten werden
+ * Link-Läufe (h) – Markdown [Linktext](https://…) mit sichtbarem Linktext und nackte Adressen https://… bzw. http://… (sichtbar die Adresse;
+ * Satzzeichen am Ende und eine schließende Klammer ohne öffnende gehören nicht dazu, Klammern in Wikipedia-Adressen schon). Das Feibeitsblatt
+ * zeigt sie den Schüler:innen anklickbar in neuem Tab (target _blank, rel noopener noreferrer). Nur http(s), geprüft wie cleanHref im
+ * Feibeitsblatt (Länge nach der Normalisierung); alles andere bleibt Text. Die Grenzen des Feibeitsblatts (FB_LIMITS) werden nie
+ * überschritten: über 60 Links bleiben weitere Links Text („Linktext (Adresse)“), reicht die Zahl der Abschnitte (600) nicht, wird ein Absatz
+ * zu einem einzigen Textlauf – ein Blatt scheitert nie an den Links. */
+export const FB_LIMITS = { material: 8000, taskText: 4000, paragraphs: 200, runs: 600, links: 60, href: 1000 };   // wie LIMITS im Feibeitsblatt
+export function fbHref(raw) {   // = cleanHref des Feibeitsblatts: normalisierte http(s)-Adresse oder ""
+  const s = String(raw == null ? "" : raw).trim();
+  if (!s || s.length > FB_LIMITS.href || /[\u0000-\u0020\u007f]/.test(s)) return "";
+  let u; try { u = new URL(s); } catch { return ""; }
+  return (u.protocol === "http:" || u.protocol === "https:") && u.href.length <= FB_LIMITS.href ? u.href : "";
+}
+// [Linktext](Adresse) bzw. [Linktext](Adresse "Titel"); die Adresse darf Klammerpaare enthalten (Wikipedia: …/Begriff_(Staatsrecht))
+const MD_LINK_RE = /\[([^\[\]\n]+)\]\(\s*(https?:\/\/[^\s()<>]*(?:\([^\s()<>]*\)[^\s()<>]*)*)(?:\s+"[^"\n]*")?\s*\)/gi;
+const BARE_URL_RE = /https?:\/\/[^\s<>"\[\]\uE000\uE001]+/gi;
+const SLOT_RE = /\uE000(\d+)\uE001/g;
+const URL_TAIL = /[.,;:!?…'"“”„‘’‚»«*]$/;   // Satzzeichen und Anführungszeichen am Ende gehören nicht zur Adresse
+const count = (s, c) => s.split(c).length - 1;
+function trimUrl(u) {
+  for (;;) {
+    if (URL_TAIL.test(u)) u = u.slice(0, -1);
+    else if (u.endsWith(")") && count(u, ")") > count(u, "(")) u = u.slice(0, -1);
+    else return u;
+  }
+}
+const bolds = (s) => {   // **…** → [{t, b}]
+  const out = [], re = /\*\*(.+?)\*\*/g; let last = 0, m;
+  while ((m = re.exec(s))) { if (m.index > last) out.push({ t: s.slice(last, m.index), b: false }); out.push({ t: m[1], b: true }); last = m.index + m[0].length; }
+  if (last < s.length) out.push({ t: s.slice(last), b: false });
+  return out;
+};
+// eine Zeile → Läufe {t, b, k?}: k = Nummer des Links in links (je Link {h, addr, md}); Links werden erst beim Zählen der Grenzen festgelegt
+function lineRuns(line, links) {
+  const md = [];
+  const s = line.replace(/[\uE000\uE001]/g, "").replace(MD_LINK_RE, (all, text, url) => {
+    const h = fbHref(url);
+    if (!h) return all;
+    md.push({ text, h, addr: url });
+    return "\uE000" + (md.length - 1) + "\uE001";
   });
-  while (paras.length && !paras[0].length) paras.shift();
-  while (paras.length && !paras[paras.length - 1].length) paras.pop();
+  const out = [];
+  const link = (parts, l, b) => { const k = links.push({ h: l.h, addr: l.addr, md: l.md }) - 1; for (const p of parts) out.push({ t: p.t, b: b || p.b, k }); };
+  const plain = (t, b) => {   // nackte Adressen in einem Textstück
+    let last = 0, m;
+    BARE_URL_RE.lastIndex = 0;
+    while ((m = BARE_URL_RE.exec(t))) {
+      const u = trimUrl(m[0]), h = fbHref(u);
+      if (!h) continue;
+      if (m.index > last) out.push({ t: t.slice(last, m.index), b });
+      link([{ t: u, b: false }], { h, addr: u, md: false }, b);
+      last = m.index + u.length; BARE_URL_RE.lastIndex = last;
+    }
+    if (last < t.length) out.push({ t: t.slice(last), b });
+  };
+  for (const seg of bolds(s)) {
+    let last = 0, m;
+    SLOT_RE.lastIndex = 0;
+    while ((m = SLOT_RE.exec(seg.t))) {
+      if (m.index > last) plain(seg.t.slice(last, m.index), seg.b);
+      const l = md[Number(m[1])];
+      link(l.text.trim() ? bolds(l.text) : [{ t: l.addr, b: false }], { h: l.h, addr: l.addr, md: !!l.text.trim() }, seg.b);
+      last = m.index + m[0].length;
+    }
+    if (last < seg.t.length) plain(seg.t.slice(last), seg.b);
+  }
+  return out.filter((r) => r.t);
+}
+// Läufe eines Absatzes festlegen: keep(k) = Link bleibt; ein Link, der Text wird, zeigt seine Adresse in Klammern dahinter
+function fixRuns(runs, links, keep) {
+  const out = [];
+  runs.forEach((r, i) => {
+    const l = r.k == null ? null : links[r.k], on = l && keep(r.k);
+    const run = { t: r.t }; if (r.b) run.f = "b"; if (on) run.h = l.h;
+    const prev = out[out.length - 1];
+    if (prev && prev.f === run.f && prev.h === run.h) prev.t += run.t; else out.push(run);
+    if (l && !on && l.md && (i + 1 >= runs.length || runs[i + 1].k !== r.k)) {   // nach dem letzten Lauf des Links
+      const tail = { t: " (" + l.addr + ")" }, p2 = out[out.length - 1];
+      if (!p2.f && !p2.h) p2.t += tail.t; else out.push(tail);
+    }
+  });
+  return out;
+}
+// opt.chars: Zeichengrenze (Material 8000, Aufgabenstellung 4000); opt.breaks: Zeilenumbrüche zählen mit (Aufgabenstellung: das Feibeitsblatt
+// leitet daraus den reinen Text mit „\n“ zwischen den Absätzen ab). → {paras, cut} (cut = Absätze wegen der Zeichengrenze weggelassen)
+function fbParagraphs(text, opt = {}) {
+  const max = opt.chars || FB_LIMITS.material, links = [];
+  let raw = String(text || "").replace(/\r\n?/g, "\n").split("\n").map((line) => lineRuns(line, links));
+  while (raw.length && !raw[0].length) raw.shift();
+  while (raw.length && !raw[raw.length - 1].length) raw.pop();
+  let cut = raw.length > FB_LIMITS.paragraphs;
+  raw = raw.slice(0, FB_LIMITS.paragraphs);
+  // Abschnitte und Links in der Reihenfolge des Textes: jeder spätere nicht leere Absatz braucht mindestens einen Abschnitt
+  let usedRuns = 0, usedLinks = 0, rest = raw.filter((p) => p.length).length;
+  const paras = raw.map((p) => {
+    if (!p.length) return [];
+    rest--;
+    const per = new Map(), kept = new Set();   // Läufe je Link (fett und nicht fett zählen getrennt)
+    for (const r of p) if (r.k != null) per.set(r.k, (per.get(r.k) || 0) + 1);
+    for (const [k, n] of per) if (usedLinks + n <= FB_LIMITS.links) { kept.add(k); usedLinks += n; }
+    let runs = fixRuns(p, links, (k) => kept.has(k));
+    if (usedRuns + runs.length + rest > FB_LIMITS.runs) {   // zu kleinteilig: der Absatz wird ein einziger Textlauf (ohne Links)
+      for (const k of kept) usedLinks -= per.get(k);
+      runs = [{ t: fixRuns(p, links, () => false).map((r) => r.t).join("") }];
+    }
+    usedRuns += runs.length;
+    return runs;
+  });
   let total = 0;
-  return paras.slice(0, 200).filter((p) => { total += p.reduce((n, r) => n + r.t.length, 0); return total <= 8000; });
+  const out = paras.filter((p, i) => { total += p.reduce((n, r) => n + r.t.length, 0) + (opt.breaks && i ? 1 : 0); return total <= max; });
+  if (out.length < paras.length) cut = true;
+  while (out.length && !out[out.length - 1].length) out.pop();
+  return { paras: out, cut };
+}
+/* Materialtext → Absätze aus Läufen (fett und Links) */
+export const materialRuns = (text) => fbParagraphs(text).paras;
+const isFormatted = (paras) => paras.some((p) => p.some((r) => r.f || r.h));
+/* Aufgabenstellung → textFmt (nur mit fett oder Link; passt sie samt Zeilenumbrüchen nicht in 4000 Zeichen, bleibt es beim reinen Text) */
+export function taskTextFmt(text) {
+  const { paras, cut } = fbParagraphs(text, { chars: FB_LIMITS.taskText, breaks: true });
+  return !cut && isFormatted(paras) ? paras : null;
+}
+/* Vorschau im Entwurf: die Links, die im Feibeitsblatt anklickbar werden ({t, h}; mehrere Läufe desselben Links zusammen) */
+export function fbLinksOf(paras) {
+  const out = [];
+  for (const p of paras || []) p.forEach((r, i) => { if (!r.h) return; if (i && p[i - 1].h === r.h) out[out.length - 1].t += r.t; else out.push({ t: r.t, h: r.h }); });
+  return out;
 }
 
 /* Anzeige der Person wie im Feibeitsblatt (Kürzel) */
