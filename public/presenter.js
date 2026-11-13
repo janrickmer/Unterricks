@@ -179,6 +179,8 @@ export class TeacherLive {
     const s = JSON.stringify(m);
     if (this.ws && this.ws.readyState === 1) this.ws.send(s); else this.queue.push(s);
   }
+  // Stand neu anfordern (Timer nach Bildschirmsperre bzw. Ruhezustand): nur bei offener Verbindung – sonst kommt er mit der Wiederverbindung
+  hello() { if (this.ws && this.ws.readyState === 1) try { this.ws.send(JSON.stringify({ t: "hello" })); } catch {} }
   close() { this.closed = true; clearTimeout(this.reT); clearInterval(this.pingT); try { this.ws && this.ws.close(); } catch {} }
 }
 
@@ -217,7 +219,7 @@ export async function startPresenter({ lessonId, file, token, startSlide = 0, on
   const stage = h("div", { class: "stage" }, img);
   // Timer (Nachtrag 16): dieselbe Anzeige wie bei den Schüler:innen oben auf der großen aktuellen Folie (die Vorschau bekommt keine) – so stimmt
   // es auch, wenn dieses Gerät ohne zweites Gerät gespiegelt wird. Der Stand kommt vom Server (Durable Object).
-  const tb = timerBand({ host: stage, onPaint: (v) => paintTimer(v) });
+  const tb = timerBand({ host: stage, onPaint: (v) => paintTimer(v), onStale: () => live.hello() });
   stage.append(tb.el);
   const stageCell = h("div", { class: "stagecell" }, stage);
   const npImg = h("img", { alt: "", draggable: "false" });
@@ -538,6 +540,9 @@ export async function startPresenter({ lessonId, file, token, startSlide = 0, on
   };
   const onHide = () => { if (bc) try { bc.postMessage({ t: "end", id: pid, why: "close" }); } catch {} };
   const onShow = (e) => { if (e.persisted && bc) { claimAt = Date.now(); claim(); } };   // aus dem Verlauf zurück: Beamerfenster wieder übernehmen
+  // wieder sichtbar (z. B. nach der Bildschirmsperre des iPads): den Stand neu holen – sonst zeigte der Timer hier und im Beamerfenster bis zur
+  // nächsten Nachricht die Restzeit von vor der Sperre (performance.now() zählt auf manchen Geräten im Ruhezustand nicht weiter)
+  const onVis = () => { if (document.visibilityState === "visible") live.hello(); };
   const isFs = () => !!(document.fullscreenElement || document.webkitFullscreenElement);
   function toggleFs() {
     if (isFs()) (document.exitFullscreen || document.webkitExitFullscreen).call(document);
@@ -577,9 +582,10 @@ export async function startPresenter({ lessonId, file, token, startSlide = 0, on
   document.addEventListener("keydown", onKey);
   window.addEventListener("pagehide", onHide);
   window.addEventListener("pageshow", onShow);
+  document.addEventListener("visibilitychange", onVis);
   function end(stopForAll) {
     document.removeEventListener("keydown", onKey); clearTimeout(idleT); clearTimeout(devWaitT); tb.stop();
-    window.removeEventListener("pagehide", onHide); window.removeEventListener("pageshow", onShow);
+    window.removeEventListener("pagehide", onHide); window.removeEventListener("pageshow", onShow); document.removeEventListener("visibilitychange", onVis);
     if (bc) { try { bc.postMessage({ t: "end", id: pid, why: stopForAll ? "stop" : "close" }); } catch {} bc.close(); }
     if (stopForAll) live.send({ t: "stop" });
     setTimeout(() => live.close(), stopForAll ? 400 : 0);

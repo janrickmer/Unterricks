@@ -62,6 +62,7 @@ class FNode {
   before(...ns) { if (this.parentNode) this.parentNode._insertBefore(ns, this); }
   after(...ns) { if (this.parentNode) this.parentNode._insertBefore(ns, this.nextSibling); }
   replaceWith(...ns) { const p = this.parentNode; if (!p) return; const next = this.nextSibling; p._drop(this); p._insertBefore(ns, next); }
+  replaceChildren(...ns) { for (const c of [...this.childNodes]) this._drop(c); this._insertBefore(ns, null); }
   addEventListener(type, fn, opt) {
     if (!fn) return;
     const capture = opt === true || !!(opt && opt.capture);

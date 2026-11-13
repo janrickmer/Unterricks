@@ -5,20 +5,35 @@
 // performance.now() weiter und gleicht bei jeder Nachricht neu ab – die Uhr des Geräts zählt nicht.
 // Barrierefreiheit: das Band hat role="timer" (nicht live); eine getrennte, ruhige Live-Region sagt nur Start, „Noch 1 Minute“, den Ablauf
 // sowie Pause und Weiter an (timerNote) – nie jede Sekunde.
+// Ruhezustand: performance.now() zählt auf manchen Geräten (z. B. iPad, Mac) im Ruhezustand nicht weiter – danach stünde die Restzeit zu hoch.
+// Vergeht nach der Uhr des Geräts deutlich mehr Zeit, als die Seite gezählt hat, ruft das Band onStale() (die Seite holt den Stand dann neu vom
+// Server). Es vergleicht dafür nur Zeitabstände der Geräteuhr, nie ihre Uhrzeit – eine falsch gehende Uhr zählt weiter nicht.
 import { h } from "./ui.js";
 import { cleanTimer, timerAt, timerNote } from "./shared.js";
 
 const realNow = () => (typeof performance !== "undefined" && performance.now ? performance.now() : Date.now());
+const realWall = () => Date.now();
+export const TIMER_STALE_MS = 2000;   // so viel mehr Zeit nach der Geräteuhr als gezählt = Ruhezustand: Stand neu holen
 
 /* host = Element, das während des Timers die Klasse has-timer bekommt (Raster: Band oben, Folie darunter eingepasst);
-   onPaint(view) nach jedem Zeichnen (view aus timerAt oder null) – z. B. für die Knöpfe der Lehrkraft */
-export function timerBand({ host = null, onPaint = null, now = realNow } = {}) {
+   onPaint(view) nach jedem Zeichnen (view aus timerAt oder null) – z. B. für die Knöpfe der Lehrkraft; onStale() nach einem Ruhezustand des
+   Geräts, solange der Timer läuft (höchstens alle 10 s) – die Seite fragt dann den Stand beim Server ab */
+export function timerBand({ host = null, onPaint = null, onStale = null, now = realNow, wall = realWall } = {}) {
   const text = h("span", { class: "tb-text" }), fill = h("span", { class: "tb-fill" });
   const el = h("div", { class: "tband", role: "timer", hidden: true }, text, h("span", { class: "tb-bar", "aria-hidden": "true" }, fill));
   const say = h("p", { class: "sr-only tb-say", role: "status", "aria-live": "polite" });
-  let t = null, at = 0, shown = null, tick = null, sayT = null, alive = true;
+  let t = null, at = 0, shown = null, tick = null, sayT = null, alive = true, mark = null, staleAt = -Infinity;
   const view = (x = now()) => (t ? timerAt(t, x - at) : null);
+  // seit dem letzten Zeichnen: mehr Zeit nach der Geräteuhr als nach performance.now() → Ruhezustand (Zeitgeber im Hintergrund zählen beide gleich)
+  function checkStale() {
+    const p = now(), w = wall(), m = mark;
+    mark = { p, w };
+    if (!m || !onStale || !t || t.paused || !(w - m.w - (p - m.p) > TIMER_STALE_MS) || p - staleAt < 10e3) return;
+    staleAt = p;
+    try { onStale(); } catch {}
+  }
   function paint() {
+    checkStale();
     const v = view();
     if (!v) {
       el.hidden = true; el.className = "tband"; text.textContent = "";
@@ -49,7 +64,7 @@ export function timerBand({ host = null, onPaint = null, now = realNow } = {}) {
   return {
     el, say,
     /* Timer aus einer Nachricht (null bzw. fehlend = kein Timer); x = Empfangszeitpunkt */
-    set(raw, x = now()) { if (!alive) return; t = cleanTimer(raw); at = x; paint(); },
+    set(raw, x = now()) { if (!alive) return; t = cleanTimer(raw); at = x; mark = null; paint(); },
     view: () => view(),
     /* Stand jetzt – zum Weitergeben an das Beamerfenster: {left, total, paused} oder null */
     snapshot() { const v = view(); return v ? { left: Math.round(v.left), total: v.total, paused: v.paused } : null; },

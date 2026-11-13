@@ -968,6 +968,12 @@ async function main() {
       await tmB.click(); await tdlg.waitFor();
       await tdlg.getByRole("button", { name: "10 Min", exact: true }).click(); await tdlg.getByRole("button", { name: "Timer starten" }).click();
       await qp.locator(".live .tband:not([hidden])").waitFor({ timeout: 10000 });
+      // Schüler:in am Laptop (Fenster 1440 px breit): das Band richtet sich nach dem Live-Kästchen, nicht nach dem Fenster (die Folie bleibt groß)
+      await sp.setViewportSize({ width: 1440, height: 900 });
+      await sp.locator(".live .tband:not([hidden])").waitFor({ timeout: 10000 }); await sleep(300);
+      const pcB = await sp.evaluate(() => { const b = document.querySelector(".live .tband"), l = document.querySelector(".live").getBoundingClientRect(); return { h: b.getBoundingClientRect().height, fs: parseFloat(getComputedStyle(b).fontSize), lh: l.height, lw: l.width }; });
+      ok(pcB.h <= pcB.lh * 0.12 && Math.abs(pcB.fs - Math.max(16, pcB.lw * 0.032)) < 1, "Schüler:in am Laptop: Band " + Math.round(pcB.h) + " px im " + Math.round(pcB.lh) + " px hohen Kästchen (Schrift nach der Breite des Kästchens)");
+      await sp.setViewportSize(devices["iPad (gen 7)"].viewport);
       await jpr.getByRole("button", { name: "Präsentation für alle beenden" }).click();
       await qp.locator(".live .placeholder").waitFor({ timeout: 10000 });
       await gp.locator(".beamer .bm-msg", { hasText: "Die Präsentation ist beendet." }).waitFor({ timeout: 10000 });

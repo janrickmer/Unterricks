@@ -320,3 +320,75 @@ test("Band: zählt von selbst weiter (Zeitgeber zum nächsten Sekundenwechsel), 
   assert.equal(b.el.textContent, "Pausiert – noch 0:03");
   b.stop();
 });
+
+/* ---------- Ruhezustand (Prüfung vom 13.11.2026): performance.now() zählt auf manchen Geräten (iPad, Mac) im Ruhezustand nicht weiter ---------- */
+test("Band: nach einem Ruhezustand (Geräteuhr weiter als performance.now) ruft es onStale – höchstens alle 10 s, nicht pausiert, nicht bei set()", async () => {
+  let p = 0, w = 1.7e12;
+  const stale = [];
+  const b = timerBand({ now: () => p, wall: () => w, onStale: () => stale.push(p) });
+  // Restzeit immer kurz nach einem Sekundenwechsel: das Band zeichnet nach wenigen Millisekunden wieder (echte Zeitgeber)
+  b.set({ left: 20_005, total: MIN, paused: false });
+  p += 4; w += 4; await D.sleep(40);
+  assert.deepEqual(stale, [], "beide Uhren gleich weiter: nichts");
+  w -= 3600e3; await D.sleep(20);
+  assert.deepEqual(stale, [], "Geräteuhr zurückgestellt: nichts");
+  w += 3600e3 + 30_000; p += 1000; await D.sleep(40);
+  assert.deepEqual(stale, [1004], "31 s nach der Geräteuhr, 1 s gezählt: Stand neu holen");
+  w += 30_000; p += 1000; await D.sleep(40);
+  assert.equal(stale.length, 1, "höchstens alle 10 s");
+  p += 10_000; w += 10_000 + 30_000; await D.sleep(40);
+  assert.equal(stale.length, 2);
+  assert.equal(b.el.textContent, "Noch 0:09", "läuft weiter");
+  w += 60_000; b.set({ left: 60_000, total: MIN, paused: false });
+  assert.equal(stale.length, 2, "eine neue Nachricht gleicht ohnehin ab");
+  b.set({ left: 30_000, total: MIN, paused: true }); w += 60_000; await D.sleep(40);
+  assert.equal(stale.length, 2, "pausiert: nichts");
+  b.stop();
+  const c = timerBand({ now: () => p, wall: () => w });   // ohne onStale: kein Fehler
+  c.set({ left: 2005, total: MIN, paused: false }); w += 99_000; p += 10; await D.sleep(40);
+  assert.equal(c.el.hidden, false);
+  c.stop();
+});
+
+test("Präsentationsfenster: wieder sichtbar bzw. nach einem Ruhezustand fragt es den Stand neu ab (hello) – der Timer stimmt danach wieder", async (t) => {
+  const socks = [], saved = { WebSocket: globalThis.WebSocket, Image: globalThis.Image, fetch: globalThis.fetch };
+  globalThis.WebSocket = class { constructor(u) { this.url = u; this.readyState = 0; this.sent = []; socks.push(this); } send(m) { this.sent.push(m); } close() { this.readyState = 3; } };
+  globalThis.Image = class { set src(v) { this._s = v; } get src() { return this._s || ""; } };
+  globalThis.fetch = async () => new NativeResponse(JSON.stringify({ ok: true, url: "/api/live/l1?r=teacher&u=t&e=1&s=x" }), { headers: { "Content-Type": "application/json" } });
+  let pres = null;
+  try {
+    const { startPresenter } = await import("../../public/presenter.js");
+    pres = await startPresenter({ lessonId: "l1", file: { id: FILE }, token: "t", slides: { urls: ["/f/1", "/f/2", "/f/3"], pages: 3 } });
+    for (let i = 0; i < 50 && !socks.length; i++) await D.sleep(5);
+    const ws = socks[socks.length - 1];
+    ws.readyState = 1; ws.onopen();
+    const sent = () => ws.sent.filter((m) => m !== "ping").map((m) => JSON.parse(m));
+    const state = (left) => ws.onmessage({ data: JSON.stringify({ t: "state", active: true, slide: 1, pages: 3, v: 1, fileId: FILE, students: 0, beamers: 0, timer: { left, total: 5 * MIN, paused: false } }) });
+    state(4 * MIN);
+    const band = document.querySelector(".presenter .stage .tband");
+    assert.equal(band.textContent, "Noch 4:00");
+    const n = sent().length;
+    document.visibilityState = "hidden"; D.fire(document, "visibilitychange");
+    assert.equal(sent().length, n, "verdeckt: nichts");
+    document.visibilityState = "visible"; D.fire(document, "visibilitychange");
+    assert.deepEqual(sent().slice(n), [{ t: "hello" }], "wieder sichtbar: Stand neu anfordern");
+    state(2 * MIN);
+    assert.equal(band.textContent, "Noch 2:00", "die Antwort gleicht die Restzeit ab");
+    // Ruhezustand ohne Sichtbarkeitswechsel: die Geräteuhr springt, performance.now() nicht
+    const real = Date.now.bind(Date);
+    t.mock.method(Date, "now", () => real() + 30_000);
+    for (let i = 0; i < 30 && sent().length < n + 2; i++) await D.sleep(50);
+    assert.deepEqual(sent().slice(n + 1), [{ t: "hello" }], "nach dem Ruhezustand: Stand neu anfordern");
+    t.mock.restoreAll();
+    ws.readyState = 3;
+    D.fire(document, "visibilitychange");
+    assert.equal(sent().length, n + 2, "Verbindung zu: kein hello (der Stand kommt mit der Wiederverbindung)");
+    ws.readyState = 1;
+    pres.end(false); pres = null;
+    D.fire(document, "visibilitychange");
+    assert.equal(sent().length, n + 2, "Präsentationsfenster geschlossen: nichts mehr");
+  } finally {
+    if (pres) pres.end(false);
+    Object.assign(globalThis, saved);
+  }
+});

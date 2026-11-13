@@ -305,7 +305,12 @@ implementiert und im End-to-End-Test geprüft (Ausnahmen unten ausdrücklich gen
    falsch gehende Geräteuhren zählen nicht (`public/timerband.js` mit `cleanTimer`, `timerAt`, `timerNote`, `timerText` aus `public/shared.js`).
    Das Band hat `role="timer"`; eine getrennte, ruhige Live-Region sagt nur Start, „Noch 1 Minute“, „Die Zeit ist um!“ und Pause/Weiter an. Das
    lokale Beamerfenster bekommt den Stand vom Präsentationsfenster (`show` bzw. `timer` über den BroadcastChannel, `left` zum Sendezeitpunkt);
-   die Taste T leitet es nicht weiter. Keine zusätzliche D1-Abfrage und kein zusätzlicher Speicherzugriff je Sekunde.
+   die Taste T leitet es nicht weiter. Keine zusätzliche D1-Abfrage und kein zusätzlicher Speicherzugriff je Sekunde. Nach der Bildschirmsperre
+   bzw. einem Ruhezustand (`performance.now()` steht auf manchen Geräten, z. B. iPad und Mac, so lange still) holen die Seiten den Stand neu:
+   beim Wiedersichtbarwerden und – merkt das Band, dass die Uhr des Geräts deutlich weiter ist als die Seite gezählt hat (`onStale`, nur
+   Zeitabstände, nie die Uhrzeit) – höchstens alle 10 s; die Lehrkraft mit `{t: "hello"}` über ihren WebSocket, Schüler:innen und Beamergerät
+   mit einer Abfrage. Brachte der WebSocket während einer Abfrage eine Nachricht, gilt ihre Antwort als überholt und wird verworfen (sonst höbe sie
+   z. B. eine eben gesetzte Pause wieder auf).
 7. **Material.** Zwei Bereiche (Schüler:innen / nur Lehrkraft). Jede Schüler-Abfrage filtert serverseitig auf den
    Schülerbereich; Downloads laufen über kurzlebige signierte Links. KI-Material wird mit „Als Material übernehmen“ als
    Textmaterial gespeichert; Schüler:innen laden es als PDF (mit Namens-/Datumszeile) herunter, z. B. für GoodNotes.

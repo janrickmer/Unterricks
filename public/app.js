@@ -230,7 +230,7 @@ async function studentRoom(lessonId) {
   const fsBtn = h("button", { class: "btn small fs", type: "button", "aria-label": "Live-Fenster vergrößern" }, icon("expand"), "Groß");
   const live = h("section", { class: "live idle", "aria-label": "Live-Präsentation" }, ph, status, fsBtn);
   // Timer der Lehrkraft (Nachtrag 16): oben über der Folie, die Folie darunter eingepasst
-  const tband = timerBand({ host: live });
+  const tband = timerBand({ host: live, onStale: () => poll() });   // nach einem Ruhezustand den Stand neu holen
   live.append(tband.el, tband.say);
   live.addEventListener("contextmenu", (e) => e.preventDefault());
   fsBtn.addEventListener("click", () => {
@@ -331,15 +331,16 @@ async function studentRoom(lessonId) {
     }
   }
   // WebSocket mit Wiederverbindung; ersatzweise alle 2 s abfragen
-  let ws = null, closed = false, fails = 0, pollT = null, pingT = null, reT = null;
-  const poll = async () => { try { const r = await sapi("GET", "/api/student/lessons/" + lessonId + "/live"); showState(r.live); } catch {} };
+  let ws = null, closed = false, fails = 0, pollT = null, pingT = null, reT = null, got = 0;
+  // brachte der WebSocket während der Abfrage eine Nachricht, ist ihre Antwort überholt (sonst höbe sie z. B. eine eben gesetzte Pause des Timers wieder auf)
+  const poll = async () => { const n = got; try { const r = await sapi("GET", "/api/student/lessons/" + lessonId + "/live"); if (n === got) showState(r.live); } catch {} };
   async function connect() {
     if (closed) return;
     try {
       const t = await sapi("POST", "/api/student/lessons/" + lessonId + "/live-ticket");
       ws = new WebSocket(wsUrl(t.url));
       ws.onopen = () => { fails = 0; clearInterval(pollT); pollT = null; clearInterval(pingT); pingT = setInterval(() => { try { ws.send("ping"); } catch {} }, 25000); };
-      ws.onmessage = (ev) => { if (ev.data === "pong") return; try { showState(JSON.parse(ev.data)); } catch {} };
+      ws.onmessage = (ev) => { if (ev.data === "pong") return; got++; try { showState(JSON.parse(ev.data)); } catch {} };
       ws.onclose = () => { clearInterval(pingT); if (closed) return; fails++; if (fails >= 2 && !pollT) { poll(); pollT = setInterval(poll, 2000); } reT = setTimeout(connect, Math.min(15000, 1000 * 2 ** Math.min(fails, 4))); };
     } catch { fails++; if (!pollT) { poll(); pollT = setInterval(poll, 2000); } reT = setTimeout(connect, 5000); }
   }

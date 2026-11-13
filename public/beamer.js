@@ -58,7 +58,8 @@ export function beamerPage() {
     : "Ziehen Sie dieses Fenster auf den Beamer (als erweiterten Bildschirm eingerichtet) und klicken Sie dort auf „Vollbild“.") +
     " Gesteuert wird im Präsentationsfenster – Pfeiltasten und Presenter funktionieren auch hier." });
   const closeBtn = h("button", { class: "btn small", type: "button", onclick: () => window.close() }, "Fenster schließen");
-  const tband = timerBand({ onPaint: (v) => root.classList.toggle("has-timer", !!v) });   // Raster: Band oben, Folie darunter eingepasst
+  // Raster: Band oben, Folie darunter eingepasst; nach einem Ruhezustand holt das Beamergerät den Stand neu (lokal tut es das Präsentationsfenster)
+  const tband = timerBand({ onPaint: (v) => root.classList.toggle("has-timer", !!v), onStale: () => { if (dev && link && !localOn()) livePoll(); } });
   const root = h("main", { class: "beamer", "aria-label": "Beamerfenster von Unterricks" }, tband.el, stage, h("div", { class: "bm-bar" }, hint, note, fsBtn, closeBtn), tband.say);
   // Timer: je Quelle der zuletzt empfangene Stand mit seinem Empfangszeitpunkt; angezeigt nur über einer Folie
   let localTimer = null, srvTimer = null, tbSrc = null;
@@ -265,7 +266,7 @@ export function beamerPage() {
   }
 
   // Live-Verbindung wie die Schüler:innen-Seite: WebSocket mit Ping und Wiederverbindung, ersatzweise alle 2 s abfragen
-  let ws = null, wsFails = 0, pingT = null, reT = null, pollT = null, run = 0;
+  let ws = null, wsFails = 0, pingT = null, reT = null, pollT = null, run = 0, got = 0;
   function closeLive() {
     run++; clearInterval(pingT); clearTimeout(reT); clearInterval(pollT); pollT = null; wsFails = 0;
     const w = ws; ws = null; if (w) try { w.close(); } catch {}
@@ -281,9 +282,10 @@ export function beamerPage() {
   }
   const gone = (e) => !!e && (e.status === 403 || e.status === 404);
   function lost() { if (!link) return; dropLink(link.exp <= Date.now() ? "" : BEAMER_CUT); }
+  // brachte der WebSocket während der Abfrage eine Nachricht, ist ihre Antwort überholt (sonst höbe sie z. B. eine eben gesetzte Pause des Timers wieder auf)
   async function livePoll() {
-    const l = link; if (!l) return;
-    try { const r = await api("POST", "/api/beamer/live", { body: { lessonId: l.lessonId, key: l.key } }); if (alive && link === l) onLive(r.live); }
+    const l = link, n = got; if (!l) return;
+    try { const r = await api("POST", "/api/beamer/live", { body: { lessonId: l.lessonId, key: l.key } }); if (alive && link === l && n === got) onLive(r.live); }
     catch (e) { if (alive && link === l && gone(e)) lost(); }
   }
   const startPoll = () => { if (!pollT) { livePoll(); pollT = setInterval(livePoll, 2000); } };
@@ -298,7 +300,7 @@ export function beamerPage() {
       const sock = new WebSocket(wsUrl(t.url));
       ws = sock;
       sock.onopen = () => { if (my !== run) return; wsFails = 0; clearInterval(pollT); pollT = null; clearInterval(pingT); pingT = setInterval(() => { try { sock.send("ping"); } catch {} }, 25000); };
-      sock.onmessage = (ev) => { if (my !== run || ev.data === "pong") return; try { onLive(JSON.parse(ev.data)); } catch {} };
+      sock.onmessage = (ev) => { if (my !== run || ev.data === "pong") return; got++; try { onLive(JSON.parse(ev.data)); } catch {} };
       sock.onclose = (ev) => {
         clearInterval(pingT);
         if (my !== run || !alive) return;
