@@ -172,17 +172,20 @@ export function fbHref(raw) {   // = cleanHref des Feibeitsblatts: normalisierte
   let u; try { u = new URL(s); } catch { return ""; }
   return (u.protocol === "http:" || u.protocol === "https:") && u.href.length <= FB_LIMITS.href ? u.href : "";
 }
-// [Linktext](Adresse) bzw. [Linktext](Adresse "Titel"); die Adresse darf Klammerpaare enthalten (Wikipedia: …/Begriff_(Staatsrecht))
-const MD_LINK_RE = /\[([^\[\]\n]+)\]\(\s*(https?:\/\/[^\s()<>]*(?:\([^\s()<>]*\)[^\s()<>]*)*)(?:\s+"[^"\n]*")?\s*\)/gi;
+// [Linktext](Adresse), auch mit Titel ("…" oder '…', fällt weg) und als <Adresse>; der Linktext darf eckige Klammerpaare enthalten
+// („[M1 [Karikatur]](…)“), die Adresse runde (Wikipedia: …/Begriff_(Staatsrecht)); ein leerer Linktext zeigt die Adresse
+const MD_LINK_RE = /\[((?:[^\[\]\n]|\[[^\[\]\n]*\])*)\]\(\s*<?(https?:\/\/[^\s()<>]*(?:\([^\s()<>]*\)[^\s()<>]*)*)>?(?:\s+(?:"[^"\n]*"|'[^'\n]*'))?\s*\)/gi;
 const BARE_URL_RE = /https?:\/\/[^\s<>"\[\]\uE000\uE001]+/gi;
 const SLOT_RE = /\uE000(\d+)\uE001/g;
 const URL_TAIL = /[.,;:!?…'"“”„‘’‚»«*]$/;   // Satzzeichen und Anführungszeichen am Ende gehören nicht zur Adresse
 const count = (s, c) => s.split(c).length - 1;
-function trimUrl(u) {
+function trimUrl(u) {   // in einem Durchgang (die Vorschau im Editor rechnet bei jedem Tastendruck)
+  let end = u.length, open = count(u, "("), close = count(u, ")");
   for (;;) {
-    if (URL_TAIL.test(u)) u = u.slice(0, -1);
-    else if (u.endsWith(")") && count(u, ")") > count(u, "(")) u = u.slice(0, -1);
-    else return u;
+    const c = u[end - 1];
+    if (end && URL_TAIL.test(c)) end--;
+    else if (c === ")" && close > open) { end--; close--; }
+    else return u.slice(0, end);
   }
 }
 const bolds = (s) => {   // **…** → [{t, b}]
@@ -277,9 +280,11 @@ function fbParagraphs(text, opt = {}) {
 export const materialRuns = (text) => fbParagraphs(text).paras;
 const isFormatted = (paras) => paras.some((p) => p.some((r) => r.f || r.h));
 /* Aufgabenstellung → textFmt (nur mit fett oder Link; passt sie samt Zeilenumbrüchen nicht in 4000 Zeichen, bleibt es beim reinen Text) */
+// Leer nach dem Bereinigen (z. B. „** **“): das Feibeitsblatt leitete daraus eine leere Aufgabenstellung ab und lehnte das Blatt ab – dann reiner Text
+const HAS_TEXT_RE = /[^\s\u0000-\u0008\u000E-\u001F\u007F]/;
 export function taskTextFmt(text) {
   const { paras, cut } = fbParagraphs(text, { chars: FB_LIMITS.taskText, breaks: true });
-  return !cut && isFormatted(paras) ? paras : null;
+  return !cut && isFormatted(paras) && paras.some((p) => p.some((r) => HAS_TEXT_RE.test(r.t))) ? paras : null;
 }
 /* Vorschau im Entwurf: die Links, die im Feibeitsblatt anklickbar werden ({t, h}; mehrere Läufe desselben Links zusammen) */
 export function fbLinksOf(paras) {

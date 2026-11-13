@@ -1027,13 +1027,14 @@ stattdessen der von Anthropic vorgesehene Weg in umgekehrter Richtung (Connector
   Lehrkraft geänderter bleibt; ein Auftrag, der nur noch aus dem Absatz besteht, gilt als leer (kein KI-Feedback).
 * **Links im Material und in der Aufgabenstellung (Nachtrag der Lehrkraft vom 13.11.2026, Anforderung 17).** Unterricks schickt das
   Material als Absätze aus Läufen `{t, f?, h?}` (Format des Feibeitsblatts, `validateMaterial`): `materialRuns` in `public/fbclient.js`
-  macht aus **fett** fett und aus Links zu anderen Internetseiten Link-Läufe – Markdown `[Linktext](https://…)` (sichtbar der Linktext;
-  ein Titel `"…"` dahinter fällt weg) und nackte Adressen `https://…`/`http://…` (sichtbar die Adresse; Satzzeichen und Anführungszeichen am
+  macht aus **fett** fett und aus Links zu anderen Internetseiten Link-Läufe – Markdown `[Linktext](https://…)` (sichtbar der Linktext,
+  auch mit eckigen Klammerpaaren wie `[M1 [Karikatur]](…)`, leer = die Adresse; ein Titel `"…"`/`'…'` dahinter fällt weg, `<Adresse>` geht auch) und nackte Adressen `https://…`/`http://…` (sichtbar die Adresse; Satzzeichen und Anführungszeichen am
   Ende sowie eine schließende Klammer ohne öffnende gehören nicht dazu, Klammerpaare in Wikipedia-Adressen schon). Nur http(s), geprüft wie
   `cleanHref` des Feibeitsblatts (`fbHref`, Länge nach der URL-Normalisierung ≤ 1000); alles andere bleibt Text. Die Grenzen des
   Feibeitsblatts (`FB_LIMITS`: 8000 Zeichen, 200 Absätze, 600 Abschnitte, 60 Links) werden nie überschritten: weitere Links bleiben Text
   („Linktext (Adresse)“), ein zu kleinteiliger Absatz wird ein einziger Textlauf – ein Blatt scheitert nie an den Links. Enthält die
-  Aufgabenstellung einen Link oder **fett**, geht sie zusätzlich als `textFmt` (dieselben Läufe; das Feibeitsblatt leitet daraus den reinen
+  Aufgabenstellung einen Link oder **fett** (und nach dem Bereinigen überhaupt Text – „** **“ allein ergäbe im Feibeitsblatt eine leere
+  Aufgabenstellung), geht sie zusätzlich als `textFmt` (dieselben Läufe; das Feibeitsblatt leitet daraus den reinen
   Text ohne Link-Adressen ab, den die KI bekommt) – nur, wenn sie samt Zeilenumbrüchen in 4000 Zeichen passt (`taskTextFmt`); `text` bleibt
   daneben unverändert. Das Feibeitsblatt zeigt Links den Schüler:innen anklickbar in neuem Tab (`target="_blank"`,
   `rel="noopener noreferrer"`, „(öffnet in neuem Tab)“ für Screenreader). Der Editor des Entwurfs nennt die Schreibweise und zeigt unter

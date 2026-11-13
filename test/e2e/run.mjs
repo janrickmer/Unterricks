@@ -935,7 +935,12 @@ async function main() {
       await tmB.click(); await tdlg.waitFor();
       await tdlg.getByRole("button", { name: "Timer beenden" }).click();
       await qp.waitForFunction(() => document.querySelector(".live .tband").hidden, null, { timeout: 10000 });
-      ok(await gp.locator(".beamer .tband").isHidden() && await jpr.locator(".stage .tband").isHidden() && (await tmB.evaluate((b) => b.textContent)) === "Timer", "„Timer beenden“: überall weg");
+      // Beamergerät und Präsentationsfenster bekommen die Nachricht nicht im selben Augenblick wie die Schülerin: auf beide warten (sonst Wettlauf im Test)
+      const tbGone = (pg, sel) => pg.waitForFunction((q) => { const b = document.querySelector(q); return !b || b.hidden; }, sel, { timeout: 10000 }).catch(() => {});
+      await Promise.all([tbGone(gp, ".beamer .tband"), tbGone(jp, ".presenter .stage .tband"), jp.waitForFunction(() => (document.querySelector(".presenter .tmbtn") || {}).textContent === "Timer", null, { timeout: 10000 }).catch(() => {})]);
+      const tbEnd = [await gp.locator(".beamer .tband").isHidden(), await jpr.locator(".stage .tband").isHidden(), await tmB.evaluate((b) => b.textContent)];
+      if (!(tbEnd[0] && tbEnd[1] && tbEnd[2] === "Timer")) console.log("    Timer beenden (Beamergerät weg, Präsentationsfenster weg, Knopf):", JSON.stringify(tbEnd));
+      ok(tbEnd[0] && tbEnd[1] && tbEnd[2] === "Timer", "„Timer beenden“: überall weg");
       await tmB.click(); await tdlg.waitFor();
       await jp.locator("#tmc-min").fill("1"); await jp.keyboard.press("Enter");
       await qp.locator(".live .tband.tb-last").waitFor({ timeout: 10000 });

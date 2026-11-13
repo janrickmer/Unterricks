@@ -34,6 +34,7 @@ function validateMaterial(raw, chars = LIMITS.material) {
     const line = [];
     for (const r of para) {
       if (!r || typeof r.t !== "string" || (r.f != null && typeof r.f !== "string") || (r.h != null && typeof r.h !== "string")) throw new Error("Format");
+      if (r.t.length > chars) throw new Error("zu lang");
       const t = r.t.replace(/\r\n?/g, "\n").replace(CTRL_RE, "").replace(/[\t\n\r\u00a0]+/g, " ");
       if (!t) continue;
       n += t.length; if (n > chars) throw new Error("zu lang");
@@ -52,6 +53,15 @@ function validateMaterial(raw, chars = LIMITS.material) {
   return out;
 }
 const materialText = (m) => m.map((p) => p.map((r) => r.t).join("")).join("\n").trim();
+// … und aus validateSheetInput: mit textFmt leitet das Feibeitsblatt die Aufgabenstellung daraus ab – leer oder über 4000 Zeichen → abgelehnt
+function validateTask(t) {
+  const fmt = validateMaterial(t.textFmt == null ? [] : t.textFmt, LIMITS.taskText);
+  const text = (fmt.length ? materialText(fmt) : String(t.text).replace(/\r\n?/g, "\n").replace(CTRL_RE, "")).trim();
+  if (!text) throw new Error("Bitte eine Aufgabenstellung eintragen.");
+  if (text.length > LIMITS.taskText) throw new Error("Die Aufgabenstellung ist zu lang");
+  if (t.material != null) validateMaterial(t.material);
+  return text;
+}
 const linksIn = (paras) => paras.flat().filter((r) => r.h);
 
 test("Material: Markdown-Links und nackte Adressen werden Link-Läufe (Satzzeichen und Klammern am Ende nicht, Klammern in Wikipedia-Adressen schon)", () => {
@@ -100,6 +110,7 @@ test("Material: Grenzen des Feibeitsblatts – über 60 Links bleiben weitere Te
     assert.doesNotThrow(() => validateMaterial(m), text.slice(0, 80));
     const fmt = taskTextFmt(text);
     if (fmt) { assert.doesNotThrow(() => validateMaterial(fmt, LIMITS.taskText)); assert.ok(materialText(fmt).length <= LIMITS.taskText); }
+    if (text.trim() && text.trim().length <= LIMITS.taskText) assert.doesNotThrow(() => validateTask({ text: text.trim(), ...(fmt ? { textFmt: fmt } : {}) }), text.slice(0, 80));
   }
   for (const m of [bare, md, busy, long]) assert.doesNotThrow(() => validateMaterial(m));
 });
@@ -130,7 +141,30 @@ test("createSheet: Material mit Link-Läufen, Aufgabenstellung mit Link als text
   assert.deepEqual(a.material, [[{ t: "Mehr: " }, { t: "https://www.bpb.de/themen/", h: "https://www.bpb.de/themen/" }, { t: "." }]]);
   assert.ok(!("textFmt" in b) && b.text === "Erkläre die Gewaltenteilung.", "ohne Link und fett: kein textFmt");
   assert.deepEqual(b.material, [[{ t: "Das " }, { t: "Grundgesetz", f: "b" }, { t: " regelt das." }]]);
-  for (const t of sent[0].tasks) { validateMaterial(t.material); if (t.textFmt) validateMaterial(t.textFmt, LIMITS.taskText); }
+  for (const t of sent[0].tasks) validateTask(t);
+});
+
+test("Prüfungsbefunde: Linktext mit eckigen Klammern, Titel in einfachen Anführungszeichen, <Adresse>, leerer Linktext", () => {
+  assert.deepEqual(materialRuns("Lies [M1 [Karikatur]](https://x.de/m1) und [[M2] Text](https://x.de/m2)."), [[{ t: "Lies " }, { t: "M1 [Karikatur]", h: "https://x.de/m1" },
+    { t: " und " }, { t: "[M2] Text", h: "https://x.de/m2" }, { t: "." }]], "Klammerpaare im Linktext: kein „[M1 [Karikatur]](“ mehr im Blatt");
+  assert.deepEqual(materialRuns("[T](https://x.de 'Titel') [U](<https://y.de/a>) [](https://z.de)"), [[{ t: "T", h: "https://x.de/" }, { t: " " }, { t: "U", h: "https://y.de/a" },
+    { t: " " }, { t: "https://z.de", h: "https://z.de/" }]]);
+  assert.deepEqual(materialRuns("[a] und [b"), [[{ t: "[a] und [b" }]], "eckige Klammern ohne Link bleiben Text");
+});
+
+test("Prüfungsbefund: eine Aufgabenstellung nur aus **  ** wird nicht zu einem textFmt ohne Text (das Feibeitsblatt lehnte das Blatt ab)", async () => {
+  for (const text of ["** **", "**  **\n**\t**", "**\u00a0**", "**\u0007**"]) {
+    assert.equal(taskTextFmt(text), null, JSON.stringify(text));
+    assert.doesNotThrow(() => validateTask({ text }), JSON.stringify(text));
+  }
+  assert.deepEqual(taskTextFmt("** ** Lies https://x.de"), [[{ t: " ", f: "b" }, { t: " Lies " }, { t: "https://x.de", h: "https://x.de/" }]], "mit Text daneben bleibt textFmt");
+});
+
+test("Prüfungsbefund: die Vorschau rechnet auch bei einer Adresse mit sehr vielen Klammern am Ende schnell (vorher quadratisch, über 2 s)", () => {
+  const t0 = performance.now();
+  materialRuns("https://x.de/a" + ")".repeat(20000));
+  assert.ok(performance.now() - t0 < 400, "dauerte " + Math.round(performance.now() - t0) + " ms");
+  assert.deepEqual(materialRuns("(https://x.de/a_(b)))."), [[{ t: "(" }, { t: "https://x.de/a_(b)", h: "https://x.de/a_(b)" }, { t: "))." }]], "Klammern am Ende wie vorher");
 });
 
 test("Notfall-Feibeitsblatt: Links aus Material und Aufgabenstellung stehen als Adresse mit Link-Annotation in der PDF", async () => {
@@ -146,9 +180,10 @@ test("Sitzungsdatei: Links eines Feibeitsblatts kommen als [Linktext](Adresse) i
   assert.equal(draft.tasks[0].text, "Lies den [Artikel](https://www.bpb.de/artikel).", "die Aufgabenstellung kommt aus textFmt – mit Link");
   assert.deepEqual(materialRuns(draft.tasks[0].material), material);
   assert.deepEqual(taskTextFmt(draft.tasks[0].text), textFmt);
-  // Linktext mit eckigen Klammern: Adresse in Klammern dahinter (bleibt als nackte Adresse anklickbar)
-  const odd = sheetToDraft({ title: "T", tasks: [{ text: "x", material: [[{ t: "[M1]", h: "https://m.de/1" }]], solution: "" }] }).draft;
-  assert.equal(odd.tasks[0].material, "[M1] (https://m.de/1)");
+  // Linktext mit eckigen Klammerpaaren bleibt ein Markdown-Link; unpaarige Klammern: Adresse in Klammern dahinter (bleibt als nackte Adresse anklickbar)
+  const odd = sheetToDraft({ title: "T", tasks: [{ text: "x", material: [[{ t: "[M1]", h: "https://m.de/1" }], [{ t: "M2 [", h: "https://m.de/2" }]], solution: "" }] }).draft;
+  assert.equal(odd.tasks[0].material, "[[M1]](https://m.de/1)\nM2 [ (https://m.de/2)");
+  assert.deepEqual(materialRuns(odd.tasks[0].material), [[{ t: "[M1]", h: "https://m.de/1" }], [{ t: "M2 [ (" }, { t: "https://m.de/2", h: "https://m.de/2" }, { t: ")" }]]);
 });
 
 test("Claude: Prompts und Werkzeugbeschreibungen nennen die Schreibweise der Links (ein Satz)", async () => {
@@ -167,4 +202,36 @@ test("Claude: Prompts und Werkzeugbeschreibungen nennen die Schreibweise der Lin
   assert.ok(pf.description.includes(S.FB_LINK_RULE) && task.text.description.includes(S.FB_LINK_HINT) && task.material.description.includes(S.FB_LINK_HINT));
   const sub = t("save_substitute_plan").inputSchema.properties.feibeitsblatt.properties.aufgaben.items.properties;
   assert.ok(sub.text.description.includes(S.FB_LINK_HINT) && sub.material.description.includes(S.FB_LINK_HINT));
+});
+
+// Gegen den echten Validator des Feibeitsblatts – nur, wenn sein Quelltext daneben liegt (../feibeitsblatt oder FEIBEITSBLATT_DIR); nur gelesen
+const { existsSync } = await import("node:fs");
+const { pathToFileURL, fileURLToPath } = await import("node:url");
+const REAL_LIB = process.env.FEIBEITSBLATT_DIR ? process.env.FEIBEITSBLATT_DIR.replace(/\/$/, "") + "/worker/lib.js" : fileURLToPath(new URL("../../../feibeitsblatt/worker/lib.js", import.meta.url));
+test("echter Validator des Feibeitsblatts (falls vorhanden): realistische Entwürfe aus Claude, Vertretung und Sitzungsdatei werden angenommen, die Links bleiben", { skip: !existsSync(REAL_LIB) && "Quelltext des Feibeitsblatts nicht vorhanden" }, async () => {
+  const real = await import(pathToFileURL(REAL_LIB).href);
+  const drafts = [
+    { titel: "Gewaltenteilung", aufgaben: [
+      { text: "Lies den Artikel [Gewaltenteilung – bpb](https://www.bpb.de/kurz-knapp/lexika/politiklexikon/17567/gewaltenteilung/) und beantworte die Fragen.", material: "**M1:** Bundeszentrale, https://www.bpb.de/themen/politisches-system/.\n\n**M2:** [Gewaltenteilung](https://de.wikipedia.org/wiki/Gewaltenteilung_(Staatsrecht)) (abgerufen am 13.11.2026).\n(Quelle: https://de.wikipedia.org/wiki/Gewaltenteilung_(Staatsrecht))", ki_auftrag: "Achte darauf, ob …", antwort: "text" },
+      { text: "**Wichtig:** Vergleiche [M1 [Karikatur]](https://x.de/m1) mit „https://www.tagesschau.de/“.", material: "[x](javascript:alert(1)) data:text/html,hi http://alt.example.org/seite.html", ki_auftrag: "", antwort: { tabelle: ["A", "B"], zeilen: 2 } },
+      { text: "** **", material: Array.from({ length: 80 }, (_, i) => "[Link " + i + "](https://x.de/" + i + ")").join("\n"), antwort: "foto" }] },
+  ];
+  const bodyOf = async (draft) => {
+    const sent = [], orig = globalThis.fetch;
+    globalThis.fetch = async (url, init) => { sent.push(JSON.parse(init.body)); return new Response(JSON.stringify({ ok: true, code: "ABC234", title: "T" })); };
+    try { const fb = new FbClient("https://fb.test"); fb.authKey = "x"; await fb.createSheet(draft, { klass: "8A" }); } finally { globalThis.fetch = orig; }
+    return sent[0];
+  };
+  const linkRuns = (o) => o.tasks.map((t) => linksIn([...(t.textFmt || []), ...(t.material || [])]));
+  for (const d of drafts) {
+    const out = real.validateSheetInput(await bodyOf(S.normalizeFbDraft(d, { fromAi: true })));   // wirft bei jedem Verstoß
+    const links = linkRuns(out).map((l) => l.map((r) => r.t));
+    assert.deepEqual(links[0], ["Gewaltenteilung – bpb", "https://www.bpb.de/themen/politisches-system/", "Gewaltenteilung", "https://de.wikipedia.org/wiki/Gewaltenteilung_(Staatsrecht)"]);
+    assert.deepEqual(links[1], ["M1 [Karikatur]", "https://www.tagesschau.de/", "http://alt.example.org/seite.html"]);
+    assert.equal(links[2].length, 60, "über 60 Links: Text, nie ein abgelehntes Blatt");
+    assert.equal(out.tasks[2].text, "** **");
+    // Sitzungsdatei: dieselben Links nach der Rundreise
+    const out2 = real.validateSheetInput(await bodyOf(sheetToDraft({ title: out.title, tasks: out.tasks }).draft));
+    assert.deepEqual(linkRuns(out2).slice(0, 2), linkRuns(out).slice(0, 2));
+  }
 });

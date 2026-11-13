@@ -19,6 +19,7 @@ export function sessionFileName({ subject, klass, unitTitle, sessionNo }) {
  * wenn sie selbst der Linktext ist – so werden sie beim erneuten Anlegen wieder anklickbar (materialRuns); Antwortarten Text, Tabelle, Foto
  * (Weltkarte wird Textaufgabe). */
 const MD_HREF_RE = /^https?:\/\/[^\s()<>]*(?:\([^\s()<>]*\)[^\s()<>]*)*$/i;   // so liest materialRuns die Adresse eines [Linktext](Adresse)
+const MD_TEXT_RE = /^(?:[^\[\]\n]|\[[^\[\]\n]*\])*$/;   // … und den Linktext (eckige Klammern nur als Paare, eine Ebene)
 export function sheetToDraft(sheet) {
   const notes = [];
   const runsText = (paras) => (Array.isArray(paras) ? paras : []).map((p) => (Array.isArray(p) ? p : []).map((r) => {
@@ -27,7 +28,7 @@ export function sheetToDraft(sheet) {
     const href = r && typeof r.h === "string" ? r.h : "";
     if (!href) return b;
     if (t === href) return b;
-    return /[\[\]\n]/.test(t) || !MD_HREF_RE.test(href) ? b + " (" + href + ")" : "[" + b + "](" + href + ")";
+    return !MD_TEXT_RE.test(t) || !MD_HREF_RE.test(href) ? b + " (" + href + ")" : "[" + b + "](" + href + ")";
   }).join("")).join("\n");
   const tasks = (Array.isArray(sheet && sheet.tasks) ? sheet.tasks : []).slice(0, 20).map((t, i) => {
     const a = (t && t.answer) || {};
