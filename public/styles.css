@@ -844,6 +844,8 @@ img.sub-photo { max-width: 100%; max-height: 60vh; border-radius: 12px; border: 
 .gs-recent { margin-top: 1.2rem; }
 .gs-side .gs-bases .row { gap: .45rem; }
 .gs-side .gs-bases select { width: auto; max-width: 100%; }
+/* eigene Planungsgrundlagen des Kurses: „Original-PDF hinzufügen“, „Bearbeiten“, Löschen in eigener Zeile unter dem Namen (schmale Spalte), Ziele ≥ 44 px */
+.gs-side .gs-bases .item { flex-wrap: wrap; } .gs-side .gs-bases .item .acts { width: 100%; justify-content: flex-start; } .gs-bases .item .acts .btn { min-height: 44px; }
 /* Klassenseite: mit der Karte „Kurseinstellungen“ ist die rechte Spalte oft höher als der Bildschirm – dann nicht kleben (sonst bliebe
    das Formular „Neue Unterrichtseinheit planen“ unter dem unteren Rand, bis man ans Seitenende scrollt) */
 .side:has(> .cs-card) { position: static; }
@@ -855,7 +857,9 @@ img.sub-photo { max-width: 100%; max-height: 60vh; border-radius: 12px; border: 
 .pdfref { background: var(--gelb); color: #13213b; text-decoration: underline; text-underline-offset: .15em; border-radius: 3px; padding: 0 .2em;
   box-decoration-break: clone; -webkit-box-decoration-break: clone; font-weight: 700; }
 .pdfref:hover { background: var(--gelb-kante); color: #13213b; }
-.pdfref:focus-visible { outline: 2px solid #13213b; outline-offset: 2px; }
+/* Fokusrahmen außerhalb des gelben Kastens, also auf dem Hintergrund des Plans: Farbe der Schrift (hell: #13213b, dunkel: #e8edf6) – im dunklen
+   Schema wäre das feste Dunkelblau unsichtbar (Abschlussprüfung F15/F29) */
+.pdfref:focus-visible { outline: 2px solid var(--text); outline-offset: 2px; }
 .pdfref.missing { background: var(--rot-t); color: var(--text); text-decoration: line-through; font-weight: 400; }
 .covered .pdfref { color: #13213b; }
 .stoplist { border: 0; padding: 0; margin: .4rem 0 0; min-width: 0; max-height: 55vh; overflow: auto; }

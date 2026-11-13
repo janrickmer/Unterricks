@@ -41,7 +41,8 @@ export async function unitPage(id) {
   let pend = null, filling = false;
   const pendFor = (uid) => !!(pend && pend.rows && pend.rows[uid]);
   const pendOpen = () => (pend ? u.lessons.filter((l) => pendFor(l.row)) : []);
-  import("./backup.js").then((B) => B.loadPending(id)).then((p) => { if (p && Object.keys(p.rows || {}).length) { pend = p; paint(); } }).catch(() => {});
+  // Grundschule: „Einheit als Datei“ gibt es dort (noch) nicht – also auch keine gesicherten Sitzungen, die auf ihre Übernahme warten (R14, F13/F27)
+  if (!gs) import("./backup.js").then((B) => B.loadPending(id)).then((p) => { if (p && Object.keys(p.rows || {}).length) { pend = p; paint(); } }).catch(() => {});
   const unitInput = h("input", { type: "file", class: "hidden", accept: ".zip,.json,application/zip,application/json", "aria-label": "Gesicherte Unterrichtseinheit (ZIP- oder JSON-Datei) auswählen" });
   unitInput.addEventListener("change", () => { const f = unitInput.files[0]; unitInput.value = ""; if (f) importUnit(f); });
   const markDirty = () => { dirty = true; saveState.textContent = "Ungespeicherte Änderungen"; };
@@ -156,7 +157,8 @@ export async function unitPage(id) {
     return h("section", { class: "card claudeplan" }, h("div", { class: "section-title" }, h("h2", { text: "3. Planung mit Claude" }), h("span", { class: "badge", text: "Hauptweg" })),
       h("p", { class: "small", text: "Die Planung der Einheit übernimmt Claude mit Ihrem Pro-Abo in claude.ai. Claude liest die Planungsgrundlagen über den Connector, stimmt Planungsgrundlage und Lernaufgabe mit Ihnen ab und speichert Leupold-Schema und Ablauf direkt hier." }),
       ls.length ? null : h("p", { class: "warnc small", text: "Bitte zuerst die Rahmendaten eintragen und Termine berechnen." }), btn,
-      u.lessons.length ? null : h("p", { class: "small" }, "Schon einmal geplant? ", h("button", { class: "btn small", type: "button", onclick: () => unitInput.click() }, icon("up"), "Gesicherte Einheit laden"),
+      // Grundschule: Laden einer gesicherten Einheit ist dort (noch) nicht vorgesehen – wie die Karte „Einheit als Datei“ (R14, F13/F27)
+      u.lessons.length || gs ? null : h("p", { class: "small" }, "Schon einmal geplant? ", h("button", { class: "btn small", type: "button", onclick: () => unitInput.click() }, icon("up"), "Gesicherte Einheit laden"),
         " – Leupold-Schema, Ablauf und Sitzungen aus einer Datei übernehmen (siehe „Einheit als Datei“ unten)."),
       u.source === "claude" ? h("p", { class: "ok small", text: "Zuletzt von Claude gespeichert: " + fmtTime(u.updatedAt) }) : null);
   }
@@ -262,8 +264,10 @@ export async function unitPage(id) {
           if (pendOpen().length) await fillSessions();
         }) }, "Einheit festlegen und Sitzungen anlegen"),
         waiting && !open ? h("button", { class: "btn", type: "button", disabled: filling ? true : null, onclick: () => fillSessions() }, "Gesicherte Inhalte in " + waiting + " Sitzung" + (waiting === 1 ? "" : "en") + " übernehmen") : null,
-        u.lessons.length ? null : h("button", { class: "btn danger", type: "button", onclick: async () => {
-          if (!(await confirmDialog("Einheit löschen", "Diese Einheit mit Plan und Tabelle löschen?", "Löschen", true))) return;
+        // Ausfall-Einträge (Grundschule) hindern das Löschen nicht – sie gehen mit der Einheit (wie auf dem Server, Abschlussprüfung F16)
+        u.lessons.some((l) => !l.cancelled) ? null : h("button", { class: "btn danger", type: "button", onclick: async () => {
+          const gone = u.lessons.length;
+          if (!(await confirmDialog("Einheit löschen", "Diese Einheit mit Plan und Tabelle löschen?" + (gone === 1 ? " Ihr Ausfall-Eintrag wird ebenfalls gelöscht." : gone ? " Ihre " + gone + " Ausfall-Einträge werden ebenfalls gelöscht." : ""), "Löschen", true))) return;
           try { await tapi("DELETE", "/api/teacher/units/" + id); go(gs ? coursePage : "#/lk/f/" + u.subject + "/" + u.klass); } catch (e) { errToast(e); }
         } }, "Einheit löschen")));
   }
@@ -295,6 +299,7 @@ export async function unitPage(id) {
     } catch (e) { stateLine(state, ""); errToast(e); }
   }
   async function importUnit(file) {
+    if (gs) return;
     if (u.lessons.length) { toast("Zu dieser Einheit gibt es schon Sitzungen – bitte eine neue Einheit anlegen und die Datei dort laden.", "err"); return; }
     let B, r;
     try { B = await import("./backup.js"); r = await B.readUnitFile(file); } catch (e) { errToast(e); return; }

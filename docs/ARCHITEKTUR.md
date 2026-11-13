@@ -314,6 +314,16 @@ implementiert und im End-to-End-Test geprüft (Ausnahmen unten ausdrücklich gen
   beider Schulformen (Grundschule gekennzeichnet, Klick öffnet den Kurs). Claude: `list_gs_courses`, Filter `fach: "gs"` bzw. `kurs`,
   `get_unit` mit Kurs und uid je Stunde, `get_planning_basis` mit dem Ziel des Kurses. In der Sicherung liegen die Einheiten unter
   „Grundschule/<Kurs> - <Titel>/…“.
+  Ergänzungen der Abschlussprüfung (Oberfläche): Auf der Kursseite lässt sich die Original-PDF einer eigenen Planungsgrundlage nachreichen bzw.
+  ersetzen („Original-PDF hinzufügen“, derselbe Baustein `basePdfButton` wie unter *Planungsgrundlagen*; die Textseite einer solchen Grundlage
+  verweist auf die Seite des Kurses). Danach – wie nach Bearbeiten und Löschen – baut die Kursseite nur die Karte „Planungsgrundlagen“ neu auf,
+  nach „Fach, Klassen und Beschreibung“ zusätzlich den Kopf (und die Planungsgrundlagen nur, wenn sich Fach oder Jahrgang geändert haben):
+  ungespeicherte Eingaben in „Kurseinstellungen“ und „Thema der neuen Einheit“ bleiben stehen. Der Fokus geht nur dann an den Knopf zurück, wenn er
+  mit dem alten Aufbau verloren ging (auch unter *Planungsgrundlagen* eines Fachs). „Kurs anlegen“ wechselt nach dem Hochladen der Planungsgrundlage
+  nur dann zur Kursseite, wenn das Formular noch zu sehen ist (sonst nur die Meldung). Einheiten der Grundschule bieten kein „Gesicherte Einheit
+  laden“ (die Karte „Einheit als Datei“ fehlt dort ohnehin), und `POST /api/teacher/lessons/<id>/import` lehnt Grundschul-Sitzungen ab (kein
+  Planungschat, keine Feibeitsblatt-Entwürfe). „Einheit löschen“ gibt es auch, wenn an der Einheit nur noch Ausfall-Einträge hängen – sie gehen
+  mit (die Rückfrage nennt sie).
 
 * **Grundschule: Sitzung und Verlaufsplan (Ergänzung vom 12.11.2026).** Eine Grundschul-Sitzung öffnet ihre eigene Seite (`gssession.js`;
   `session.js` verzweigt nach dem Laden). Der Verlaufsplan steht in `lessons.portal` (dieselbe Spalte und derselbe Versionsschutz wie der
@@ -352,6 +362,9 @@ implementiert und im End-to-End-Test geprüft (Ausnahmen unten ausdrücklich gen
   dem ersten zurück auf den Auslöser. Solange der Konflikt-Dialog offen ist, gilt der Verlaufsplan ebenfalls als ungespeichert; „Meine Fassung
   speichern“ übernimmt die gesehene Version (ein schon wartendes Speichern fragt nicht noch einmal). Die Felder der Sitzungsdaten sind beschriftet
   (`label for`). Tests der Oberfläche ohne Browser: `test/unit/gsui.test.mjs` mit der DOM-Nachbildung `test/unit/fake-dom.mjs` (Attrappen für `app.js` und `teacher.js`).
+  Der Fokusrahmen der gelben PDF-Verweise liegt außerhalb des Kastens und hat die Farbe der Schrift (`var(--text)`), im dunklen Schema also hell.
+  Weitere Tests der Seiten (Kursseite, Einheit, Planungsgrundlagen, Elternansicht, roter Kasten): `test/unit/gspages.test.mjs` (zusätzlich mit
+  Attrappen für PDF.js und `XMLHttpRequest`).
 
 * **Grundschule: Bildkarten (Ergänzung vom 12.11.2026).** Wird eine Geschichte mit Bildkarten erzählt, gehört zur Sitzung eine PDF mit einer
   Karte je Seite und einem gekürzten Erzähltext je Karte (`files.cards` = `{v:1, texts, share, rev}`, Bereich „nur Lehrkraft“ – Schüler:innen
@@ -382,7 +395,8 @@ implementiert und im End-to-End-Test geprüft (Ausnahmen unten ausdrücklich gen
   (nur freigegeben, mit aktuellen Bildern, nur bis zum Zwischenstopp), „Inhalt der Unterrichtsstunde“, „Hausaufgabe“ (nur, wenn eingetragen),
   die PDFs der Kinder (`parentMaterial`, dieselbe Regel wie im Browser der Lehrkraft; Verweise nur auf PDFs früherer Sitzungen des Kurses).
   Die Sitzungsseite holt den Link beim Zurückkehren in den Tab neu (in einem anderen Fenster erneuert oder per Krankmeldung dem Ausfall-Eintrag
-  übergeben) – „Sitzungslink für Eltern kopieren“ kopiert nie einen veralteten Link.
+  übergeben) – „Sitzungslink für Eltern kopieren“ kopiert nie einen veralteten Link. Lag der Fokus beim Neuladen in der Ansicht (z. B. auf
+  „Erneut versuchen“), geht er danach auf die Überschrift bzw. – scheitert es wieder – auf den neuen Knopf.
   Nie Ideen, Verlaufsplan, Chat, Code, Beschreibung des Kurses oder Material der Lehrkraft. Ungültige Links zählen je IP (30 in 10 Minuten →
   10 Minuten gesperrt, geprüft vor dem Nachschlagen); alle Antworten `no-store` und `X-Robots-Tag: noindex, nofollow`; die Seite lädt nur
   vom eigenen Server und speichert nichts im Browser. „Elternansicht ausprobieren“ zeigt der Lehrkraft dieselbe Ansicht ohne Zeitsperre
@@ -412,6 +426,9 @@ implementiert und im End-to-End-Test geprüft (Ausnahmen unten ausdrücklich gen
   wählt nur die echte uid einer gespeicherten Zeile den Weg über die uid – sonst wie bisher nach Position, ohne dass Sitzungen gelöscht werden.
   Der Prompt zum Überarbeiten und `get_unit` nennen eine Sitzung nur dann „noch nicht geplant“ bzw. „noch leer“, wenn `save_unit_plan` ihre
   Stunde auch wegfallen ließe (`linkedLessons` liefert in der Grundschule `hasContent` nach derselben Regel `EMPTY_LESSON`).
+  Auf Sitzungsseiten kennt der rote Kasten zunächst nur die Einheit ohne Sitzungen und Kurs; „Einheit mit Claude überarbeiten“ öffnet den Dialog
+  erst, wenn die ganze Einheit geladen ist (scheitert das, eine Meldung und kein Dialog – nie ein Prompt mit falschem Fach oder „noch keine
+  Sitzung“ für geplante Stunden).
 
 * **Fächer und Jahrgänge.** Unter *Planungsgrundlagen → Fach → Fach-Einstellungen* steht, in welchen Jahrgängen ein Fach
   unterrichtet wird. Vorgabe für Politik und Wirtschaft: Jahrgänge 6, 8, 9, 10 (Hinweis: nur 1. Halbjahr), E-Phase und Q-Phase;
@@ -692,7 +709,8 @@ implementiert und im End-to-End-Test geprüft (Ausnahmen unten ausdrücklich gen
     „Grundschule/<Kurs> - <Einheit>/“; die Sitzungsdatei trägt zusätzlich `lesson.parentSummary`/`parentNote`, je Bildkarten-Datei
     `cards: {texts, share}` und bei einem Ausfall-Eintrag `source.cancelled` (eigener Ordner „… - Unterricht ausgefallen“); den Elternlink
     nie. „Lies mich.txt“ erklärt das nur, wenn die Sicherung Grundschul-Inhalte enthält. Laden lassen sich Grundschul-Einheiten und
-    -Sitzungen bisher nicht (die Knöpfe „Einheit als Datei“ und „Sitzung als Datei“ fehlen in der Grundschule).
+    -Sitzungen bisher nicht (die Knöpfe „Einheit als Datei“, „Gesicherte Einheit laden“ und „Sitzung als Datei“ fehlen in der Grundschule;
+    `POST /api/teacher/lessons/<id>/import` lehnt Grundschul-Sitzungen ab).
 
 ## 4m. Material von Claude gestaltet, vom Server gedruckt (Ergänzung vom 11.11.2026)
 

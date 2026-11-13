@@ -297,3 +297,15 @@ test("F20 (Kontrolle): nicht geschlossene Verweise und Verweise, die erst durch 
   r = await mcp("save_verlaufsplan", { lesson_id: l2.id, text: "- [[pdf:" + ab + "|siehe [[Bild]]", base_version: 2 });
   assert.deepEqual([r.structuredContent.invalid_refs, r.content[0].text], [[], "Verlaufsplan gespeichert (Version 3). Eltern sehen nach der Stunde: „AB.pdf“."]);
 });
+
+test("F13: Sitzungen der Grundschule lassen sich nicht aus einer Datei laden (kein Planungschat, keine Feibeitsblatt-Entwürfe); Gymnasium unverändert", async () => {
+  const { c, l2, sek } = await setup();
+  const body = { lesson: { title: "Gewaltenteilung (geladen)" }, chat: [], drafts: [{ title: "Entwurf", tasks: [] }], texts: [{ area: "student", title: "Text", text: "Inhalt" }] };
+  let r = await call(c, L.routeLessonImport, "POST", "/api/teacher/lessons/" + l2.id + "/import", body, l2.id);
+  assert.deepEqual([r.status, r.data.error], [400, "In der Grundschule lassen sich Sitzungen (noch) nicht aus einer Datei laden."]);
+  const n = async (table, id) => (await c.db.prepare("SELECT COUNT(*) AS n FROM " + table + " WHERE lesson_id=?1").bind(id).first()).n;
+  assert.deepEqual([await n("chat", l2.id), await n("files", l2.id), (await L.getLesson(c.db, l2.id)).title], [0, 0, "Josef in Ägypten"], "nichts geschrieben");
+  r = await call(c, L.routeLessonImport, "POST", "/api/teacher/lessons/" + sek.id + "/import", body, sek.id);
+  assert.equal(r.status, 200);
+  assert.deepEqual([await n("chat", sek.id) > 0, await n("files", sek.id), (await L.getLesson(c.db, sek.id)).title], [true, 1, "Gewaltenteilung (geladen)"], "Gymnasium lädt wie bisher");
+});

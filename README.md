@@ -191,7 +191,8 @@ Menü **„Grundschule“** (zwischen „Gymnasium“ und „Planungsgrundlagen�
   Planungsgrundlage als PDF hochladen. Planungsgrundlage eines Religionskurses ist das Schulcurriculum Ev. Religion (Grundschule) unter
   *Planungsgrundlagen → Evangelische Religion* („Schulcurriculum Grundschule (Jahrgänge 1–4)“).
 * **Kursseite:** Unterrichtseinheiten mit ihren Sitzungen, Kurseinstellungen, „Fach, Klassen und Beschreibung“, die Planungsgrundlagen
-  des Kurses und **„Neue Unterrichtseinheit planen“**. Einheiten planen Sie wie am Gymnasium (Rahmendaten → „Einheit mit Claude
+  des Kurses (ließ sich die Original-PDF nicht speichern, reichen Sie sie dort mit „Original-PDF hinzufügen“ nach) und **„Neue
+  Unterrichtseinheit planen“**. Einheiten planen Sie wie am Gymnasium (Rahmendaten → „Einheit mit Claude
   planen“ → Leupold-Schema und Tabelle → „Einheit festlegen und Sitzungen anlegen“) – ohne Klausurtermin, nur mit analogem Material.
 * **Sitzung (Lehreransicht):** Ganz oben der **Verlaufsplan** (Phasen mit Minuten und Sozialform). Claude schreibt ihn beim Planen
   („Stunde mit Claude planen“ → `save_verlaufsplan`); mit **„Bearbeiten“** ändern Sie ihn selbst (wird automatisch gespeichert,

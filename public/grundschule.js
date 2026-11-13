@@ -8,7 +8,7 @@ import { fmtClockBerlin, berlinToday, schoolYearOf, gsCourseShort, normalizeGsCo
 import { WEEKDAYS, normalizeCourseSettings } from "./planning.js";
 import { weekCard } from "./weekcal.js";
 import { weekdayRows, courseSettingsCard } from "./coursecard.js";
-import { baseLink, uploadBaseFile, editBase } from "./bases.js";
+import { baseLink, uploadBaseFile, editBase, basePdfButton } from "./bases.js";
 import { parentViewDom } from "./parents.js";
 import { claudeHandoff } from "./claude.js";
 import { claudeUnitRevisionPrompt } from "./gsplanning.js";
@@ -163,6 +163,8 @@ function newCourseCard() {
           if (r.pdfError) toast("Der Kurs ist angelegt; die Original-PDF der Planungsgrundlage ließ sich nicht speichern (" + String(r.pdfError).replace(/\.$/, "") + "). Sie können sie auf der Kursseite ergänzen.", "err", 9000);
         } catch (x) { toast("Der Kurs ist angelegt; die Planungsgrundlage ließ sich nicht speichern (" + String(x.message || x).replace(/\.$/, "") + "). Sie können sie auf der Kursseite hinzufügen.", "err", 9000); }
       }
+      // inzwischen woanders hin gewechselt (das Lesen und Hochladen einer großen PDF dauert): dort bleiben, nur melden (Abschlussprüfung F40)
+      if (!form.isConnected) { toast("Kurs „" + course.short + "“ angelegt – Sie finden ihn unter „Grundschule“.", "ok", 7000); return; }
       toast("Kurs „" + course.short + "“ angelegt.", "ok");
       go("#/lk/grundschule/k/" + course.id);
     }, "Lege an …");
@@ -197,11 +199,21 @@ export async function gsCoursePage(id) {
       h("div", { class: "card" }, h("p", { class: e.status === 404 ? "muted" : "err", text: e.status === 404 ? GS_GONE : e.message }), h("a", { class: "btn", href: "#/lk/grundschule" }, "Zur Übersicht Grundschule")));
     return;
   }
-  // neu aufbauen; focus = Selektor für das Element, das danach den Fokus bekommt – nur, wenn der Fokus mit dem alten Aufbau verloren ging
-  // (also nicht, wenn Nutzer:in oder Test ihn inzwischen woanders hingesetzt haben)
-  const reload = async (focus = null) => {
+  // neu aufbauen – nur die Karten, die sich geändert haben (part „course“: Kopf, „Fach, Klassen und Beschreibung“ und – hängt am Fach und am
+  // Jahrgang – „Planungsgrundlagen“; part „bases“: nur „Planungsgrundlagen“): ungespeicherte Eingaben in den übrigen Karten (Kurseinstellungen,
+  // Thema der neuen Einheit) bleiben stehen (Abschlussprüfung F30). focus = Selektor für das Element, das danach den Fokus bekommt – nur, wenn
+  // der Fokus mit dem alten Aufbau verloren ging (also nicht, wenn Nutzer:in oder Test ihn inzwischen woanders hingesetzt haben)
+  let headEl = null, courseEl = null, basesEl = null;
+  const swap = (old, nu) => { if (old && old.isConnected) old.replaceWith(nu); return nu; };
+  const basesKey = () => course.religion + "|" + course.grade;
+  const reload = async (focus = null, part = null) => {
     try {
-      await load(); paint();
+      await load();
+      if (!main.isConnected) return;
+      if (part === "bases" || part === "course") {
+        if (part === "course") { headEl = swap(headEl, head()); courseEl = swap(courseEl, courseCard()); }
+        if (part === "bases" || basesEl._key !== basesKey()) basesEl = swap(basesEl, basesCard());
+      } else paint();
       const a = document.activeElement;
       if (focus && (!a || a === document.body || !a.isConnected)) { const t = main.querySelector(focus); if (t) t.focus(); }
     } catch (e) { errToast(e); }
@@ -223,11 +235,12 @@ export async function gsCoursePage(id) {
     }
     const loose = lessons.filter((l) => !l.unitId || !units.some((u) => u.id === l.unitId)).sort(byDateAsc);
     if (loose.length) unitBox.append(h("section", { class: "card" }, h("h2", { text: "Sitzungen ohne Einheit" }), gsLessonList(loose)));
-    clear(main).append(pageHead({ fach: "gs", crumbs: [["#/lk/grundschule", "Grundschule"], course.short], title: course.label, sub: subText() }),
+    clear(main).append(headEl = head(),
       h("div", { class: "session-grid" }, unitBox, h("div", { class: "side gs-side" },
         courseSettingsCard({ subject: "gs", klass: id, settings, gs: true, onSaved: (s) => { settings = s; const sub = main.querySelector(".pagehead .pagesub"); if (sub) sub.textContent = subText(); } }),
-        courseCard(), basesCard(), newUnitCard())));
+        courseEl = courseCard(), basesEl = basesCard(), newUnitCard())));
   }
+  function head() { return pageHead({ fach: "gs", crumbs: [["#/lk/grundschule", "Grundschule"], course.short], title: course.label, sub: subText() }); }
   /* Fach, Klassen und Beschreibung ändern; löschen nur ohne Einheiten und Sitzungen */
   function courseCard() {
     const f = courseFields(course, "gse");
@@ -237,7 +250,7 @@ export async function gsCoursePage(id) {
       clear(err);
       const raw = f.read();
       try { normalizeGsCourse(raw, { partial: true, current: course }); } catch (x) { stateLine(err, x.message, "err"); f.focusFor(x.message); return; }
-      try { course = (await tapi("PATCH", "/api/teacher/gs/courses/" + id, { body: raw })).course; toast("Kurs gespeichert.", "ok"); await reload("section.gs-edit button.gse-save"); }
+      try { course = (await tapi("PATCH", "/api/teacher/gs/courses/" + id, { body: raw })).course; toast("Kurs gespeichert.", "ok"); await reload("section.gs-edit button.gse-save", "course"); }
       catch (x) { stateLine(err, x.message, "err"); }
     }, "Speichere …"));
     const empty = !units.length && !lessons.length;
@@ -265,24 +278,28 @@ export async function gsCoursePage(id) {
         if (!/\.pdf$/i.test(file.name) && file.type !== "application/pdf") { stateLine(st, "Bitte eine PDF-Datei wählen.", "err"); return; }
         try {
           const r = await uploadBaseFile({ subject: id, kind: kind.value, title: file.name.replace(/\.pdf$/i, "").replace(/[_]+/g, " ").slice(0, 200), file, onStatus: (t) => stateLine(st, t) });
-          if (r.pdfError) toast("Der Text ist gespeichert, die Original-PDF nicht (" + String(r.pdfError).replace(/\.$/, "") + ").", "err", 9000);
+          if (r.pdfError) toast("Der Text ist gespeichert, die Original-PDF nicht (" + String(r.pdfError).replace(/\.$/, "") + "). Sie können sie mit „Original-PDF hinzufügen“ ergänzen.", "err", 9000);
           else toast("„" + r.base.title + "“ gespeichert (" + r.pages + " Seiten).", "ok");
-          await reload("section.gs-bases button.gsb-pick");
+          await reload("section.gs-bases button.gsb-pick", "bases");
         } catch (x) { stateLine(st, ""); errToast(x); }
       }, "Speichere …");
     });
     const own = h("div", { class: "list" }, bases.length ? bases.map((b) => h("div", { class: "item", dataset: { base: b.id } },
       h("div", { class: "main" }, h("div", { class: "name" }, baseLink({ id: b.id, title: b.title })), h("div", { class: "meta", text: [b.kindLabel, b.pages + " Seiten", b.pdf ? "Original-PDF gespeichert" : "nur Text gespeichert"].join(" · ") })),
       h("div", { class: "acts" },
-        h("button", { class: "btn small gsb-edit", type: "button", "aria-label": "„" + b.title + "“ bearbeiten", onclick: () => editBase(b, { onSaved: () => reload('[data-base="' + b.id + '"] button.gsb-edit') }) }, "Bearbeiten"),
+        // fehlt die Original-PDF (Hochladen gescheitert), lässt sie sich hier nachreichen – wie unter „Planungsgrundlagen“ am Gymnasium (F12)
+        basePdfButton(b, { onSaved: () => reload('[data-base="' + b.id + '"] button.bpdf', "bases") }),
+        h("button", { class: "btn small gsb-edit", type: "button", "aria-label": "„" + b.title + "“ bearbeiten", onclick: () => editBase(b, { onSaved: () => reload('[data-base="' + b.id + '"] button.gsb-edit', "bases") }) }, "Bearbeiten"),
         h("button", { class: "btn small ghost danger", type: "button", "aria-label": "„" + b.title + "“ löschen", onclick: async () => {
           if (!(await confirmDialog("Planungsgrundlage löschen", "„" + b.title + "“ mit allen Seitentexten löschen? Bereits geplante Einheiten bleiben erhalten.", "Löschen", true))) return;
-          try { await tapi("DELETE", "/api/teacher/bases/" + b.id); toast("Gelöscht.", "ok"); await reload("section.gs-bases button.gsb-pick"); } catch (x) { errToast(x); }
+          try { await tapi("DELETE", "/api/teacher/bases/" + b.id); toast("Gelöscht.", "ok"); await reload("section.gs-bases button.gsb-pick", "bases"); } catch (x) { errToast(x); }
         } }, icon("trash"))))) : [h("p", { class: "small muted", text: "Noch keine eigenen Planungsgrundlagen." })]);
-    return h("section", { class: "card gs-bases", "aria-labelledby": "gsb-h" }, h("h2", { id: "gsb-h", text: "Planungsgrundlagen" }),
+    const card = h("section", { class: "card gs-bases", "aria-labelledby": "gsb-h" }, h("h2", { id: "gsb-h", text: "Planungsgrundlagen" }),
       ...nn(status, course.religion ? h("p", { class: "small" }, "Das Schulcurriculum der Grundschule liegt bei ", h("a", { href: "#/lk/grundlagen/evrel" }, "Planungsgrundlagen Ev. Religion"), ".") : null),
       h("h3", { text: "Eigene Planungsgrundlagen des Kurses" }), own,
       h("div", { class: "row" }, kind, pick, inp), st);
+    card._key = basesKey();
+    return card;
   }
   function newUnitCard() {
     const title = h("input", { id: "gs-ut", maxlength: "200", placeholder: "z. B. Josef und seine Brüder" });
@@ -344,8 +361,13 @@ const listAnd = (xs) => (xs.length <= 1 ? xs.join("") : xs.slice(0, -1).join(", 
 export function reviseBox(unit, opt = {}) {
   const rv = unit && unit.revise;
   if (!rv || !rv.open) return null;
-  let full = Array.isArray(unit.lessons) ? unit : null;
-  if (!full) tapi("GET", "/api/teacher/units/" + unit.id).then((r) => { full = r.unit; }).catch(() => {});
+  // der Prompt braucht die ganze Einheit (Sitzungen, Kurs): auf Sitzungsseiten im Hintergrund nachladen; ist sie beim Klick noch nicht da (oder
+  // scheiterte das Laden), lädt der Knopf sie, bevor sich der Dialog öffnet – nie ein Prompt aus der unvollständigen Einheit (Abschlussprüfung F14)
+  let full = Array.isArray(unit.lessons) ? unit : null, fullP = null;
+  const loadFull = () => (full ? Promise.resolve(full) : fullP || (fullP = tapi("GET", "/api/teacher/units/" + unit.id)
+    .then((r) => { if (!r.unit || !Array.isArray(r.unit.lessons)) throw new Error("Die Einheit ist unvollständig."); return (full = r.unit); })
+    .finally(() => { fullP = null; })));
+  if (!full) loadFull().catch(() => {});
   const items = rv.items || [], rows = unit.rows || [], end = (unit.params || {}).end || null;
   const days = items.map((x) => fmtDay(x.date));
   const undated = rows.filter((r) => !r.date).map((r) => "„" + (r.stundenfrage || "Stunde ohne Titel") + "“");
@@ -357,10 +379,26 @@ export function reviseBox(unit, opt = {}) {
     undated.length ? "Ohne Termin: " + undated.join(", ") + (end ? " (Ende der Einheit: " + fmtDay(end) + ")" : "") + "." : null,
     ...lengths.map((g) => "Achtung: Stunde " + g.n + " dauert am neuen Termin " + g.to + " statt " + g.from + " Minuten."),
   ].filter(Boolean);
-  const claudeBtn = h("button", { class: "btn primary", type: "button", onclick: () => claudeHandoff({ title: "Einheit nach Ausfällen überarbeiten",
-    intro: "Claude schlägt Ihnen vor, wie die Einheit trotz der Ausfälle ihre Lernaufgabe erreicht, und speichert erst nach Ihrer Zustimmung.",
-    after: "Wenn Claude die Einheit gespeichert hat, kommen Sie hierher zurück: Die Seite lädt die neuen Termine beim Zurückkehren – der rote Hinweis verschwindet dann.",
-    prompt: () => claudeUnitRevisionPrompt({ unit: full || unit, now: Date.now() }) }) }, "Einheit mit Claude überarbeiten");
+  const claudeBtn = h("button", { class: "btn primary", type: "button", onclick: async (e) => {
+    const b = e.currentTarget;
+    let u = full;
+    if (!u) {
+      await busy(b, async () => {
+        try { u = await loadFull(); }
+        catch (x) { toast("Der Prompt braucht die ganze Einheit; sie ließ sich gerade nicht laden (" + String(x.message || x).replace(/\.$/, "") + "). Bitte versuchen Sie es noch einmal.", "err", 9000); }
+      }, "Lade die Einheit …");
+      if (!u || !box.isConnected) return;
+      // inzwischen woanders weitergearbeitet: den Dialog nicht dazwischenschieben (der nächste Klick öffnet ihn sofort)
+      const a = document.activeElement;
+      if (a && a !== document.body && !box.contains(a)) { toast("Die Einheit ist geladen – wählen Sie „Einheit mit Claude überarbeiten“ noch einmal.", "", 6000); return; }
+      // der Dialog gibt den Fokus beim Schließen an das zurück, was ihn beim Öffnen hatte – also wieder an diesen Knopf (nur, wenn er auf body fiel)
+      if ((!a || a === document.body) && b.isConnected) b.focus();
+    }
+    claudeHandoff({ title: "Einheit nach Ausfällen überarbeiten",
+      intro: "Claude schlägt Ihnen vor, wie die Einheit trotz der Ausfälle ihre Lernaufgabe erreicht, und speichert erst nach Ihrer Zustimmung.",
+      after: "Wenn Claude die Einheit gespeichert hat, kommen Sie hierher zurück: Die Seite lädt die neuen Termine beim Zurückkehren – der rote Hinweis verschwindet dann.",
+      prompt: () => claudeUnitRevisionPrompt({ unit: u, now: Date.now() }) });
+  } }, "Einheit mit Claude überarbeiten");
   const doneBtn = h("button", { class: "btn", type: "button", onclick: (e) => busy(e.currentTarget, async () => {
     // mit den Ausfällen, die dieser Kasten zeigt: eine inzwischen dazugekommene Krankmeldung schließt er nicht mit (der Server antwortet dann 409)
     try { const r = await tapi("PATCH", "/api/teacher/units/" + unit.id, { body: { reviseDone: true, reviseSeen: items.map((x) => x.id) } }); toast("Hinweis entfernt.", "ok"); if (opt.onChange) opt.onChange(r.unit); refocus(); }

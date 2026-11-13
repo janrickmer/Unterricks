@@ -161,6 +161,31 @@ export async function basesOverview() {
     })));
 }
 
+/* „Original-PDF hinzufügen“ (ältere Planungsgrundlagen: nur Text) bzw. „… ersetzen“ – dieselbe Datei (gleiche Seitenzahl). Auch für die eigenen
+   Planungsgrundlagen eines Grundschulkurses (Kursseite – Abschlussprüfung F12). onSaved: danach (die Seite baut sich neu auf; der Knopf hat die
+   Klasse „bpdf“, damit sie ihm den Fokus zurückgeben kann – F39) */
+export function basePdfButton(b, { onSaved = () => {} } = {}) {
+  const label = b.pdf ? "Original-PDF ersetzen" : "Original-PDF hinzufügen";
+  const inp = h("input", { type: "file", accept: "application/pdf,.pdf", class: "sr-only", tabindex: "-1", "aria-hidden": "true" });
+  const btn = h("button", { class: "btn small bpdf", type: "button", "aria-label": label + " – „" + b.title + "“", onclick: () => inp.click() }, label);
+  inp.addEventListener("change", () => {
+    const file = inp.files[0]; inp.value = "";
+    if (!file) return;
+    busy(btn, async () => {
+      try {
+        if (!/\.pdf$/i.test(file.name) && file.type !== "application/pdf") throw new Error("Bitte eine PDF-Datei wählen.");
+        let n;
+        try { n = await pdfPages(file); } catch { throw new Error("Diese Datei lässt sich nicht als PDF lesen."); }
+        if (n !== b.pages) throw new Error("Diese PDF hat " + n + " Seiten, gespeichert sind " + b.pages + ". Bitte dieselbe Datei wählen.");
+        await upload("/api/teacher/bases/" + b.id + "/pdf?name=" + encodeURIComponent(file.name), file, T.token, null, "application/pdf");
+        toast("Original-PDF zu „" + b.title + "“ gespeichert.", "ok");
+        await onSaved();
+      } catch (e) { errToast(e); }
+    }, "Speichere …");
+  });
+  return h("span", { class: "pdfpick" }, btn, inp);
+}
+
 /* ---------- Seite eines Fachs ---------- */
 export async function basesPage(subject) {
   if (!isValidSubject(subject)) return go("#/lk/grundlagen");
@@ -178,7 +203,14 @@ export async function basesPage(subject) {
     clear(main).append(pageHead({ fach: subject, crumbs: [["#/lk/grundlagen", "Planungsgrundlagen"], name], title: "Planungsgrundlagen · " + name }),
       statusCard(), docsCard(), uploadCard(), settingsCard());
   };
-  const reload = async () => { try { await load(); paint(); } catch (e) { errToast(e); } };
+  // neu aufbauen; focus = Selektor für das Element, das danach den Fokus bekommt – nur, wenn er mit dem alten Aufbau verloren ging (F39)
+  const reload = async (focus = null) => {
+    try {
+      await load(); paint();
+      const a = document.activeElement;
+      if (focus && (!a || a === document.body || !a.isConnected)) { const t = main.querySelector(focus); if (t) t.focus(); }
+    } catch (e) { errToast(e); }
+  };
 
   function statusCard() {
     const rows = statusRows(cfg.grades);
@@ -218,14 +250,14 @@ export async function basesPage(subject) {
     for (const b of bases) {
       const secs = Object.entries(b.sections || {}).map(([k, v]) => sectionLabel(k) + ": S. " + formatRanges(v)).join(" · ");
       const scopeText = b.scope.length ? "für " + b.scope.map((x) => (b.kind === "gs-curriculum" ? "Jg. " + x : classShort(x))).join(", ") : null;
-      list.append(h("div", { class: "item" }, h("div", { class: "ficon pdf", "aria-hidden": "true", text: "PDF" }),
+      list.append(h("div", { class: "item", dataset: { base: b.id } }, h("div", { class: "ficon pdf", "aria-hidden": "true", text: "PDF" }),
         h("div", { class: "main" }, h("div", { class: "name" }, baseLink({ id: b.id, title: b.title })),
           h("div", { class: "meta", text: [b.kindLabel, b.pages + " Seiten", scopeText, b.fileName, "hochgeladen " + fmtTime(b.createdAt), b.pdf ? "Original-PDF gespeichert" : "nur Text gespeichert"].filter(Boolean).join(" · ") }),
           secs ? h("div", { class: "meta", text: "Abschnitte: " + secs }) : null, b.note ? h("div", { class: "meta", text: "Hinweis: " + b.note }) : null),
         h("div", { class: "acts" },
           h("a", { class: "btn small", href: "#/lk/grundlage/" + b.id, target: "_blank", rel: "noopener", "aria-label": "„" + b.title + "“ öffnen (öffnet in neuem Tab)" }, "Öffnen"),
-          pdfButton(b),
-          h("button", { class: "btn small", type: "button", onclick: () => editBase(b, { grades: cfg.grades, onSaved: reload }) }, "Bearbeiten"),
+          basePdfButton(b, { onSaved: () => reload('[data-base="' + b.id + '"] button.bpdf') }),
+          h("button", { class: "btn small", type: "button", onclick: () => editBase(b, { grades: cfg.grades, onSaved: () => reload() }) }, "Bearbeiten"),
           h("button", { class: "btn small", type: "button", onclick: () => viewText(b) }, "Text ansehen"),
           h("button", { class: "btn small ghost danger", type: "button", "aria-label": "Löschen", onclick: async () => {
             if (!(await confirmDialog("Planungsgrundlage löschen", "„" + b.title + "“ mit allen Seitentexten löschen? Bereits geplante Einheiten bleiben erhalten.", "Löschen", true))) return;
@@ -234,29 +266,6 @@ export async function basesPage(subject) {
     }
     return h("section", { class: "card" }, h("h2", { text: "Dokumente" }), list);
   }
-  /* „Original-PDF hinzufügen“ (ältere Planungsgrundlagen: nur Text) bzw. „… ersetzen“ – dieselbe Datei (gleiche Seitenzahl) */
-  function pdfButton(b) {
-    const label = b.pdf ? "Original-PDF ersetzen" : "Original-PDF hinzufügen";
-    const inp = h("input", { type: "file", accept: "application/pdf,.pdf", class: "sr-only", tabindex: "-1", "aria-hidden": "true" });
-    const btn = h("button", { class: "btn small", type: "button", "aria-label": label + " – „" + b.title + "“", onclick: () => inp.click() }, label);
-    inp.addEventListener("change", () => {
-      const file = inp.files[0]; inp.value = "";
-      if (!file) return;
-      busy(btn, async () => {
-        try {
-          if (!/\.pdf$/i.test(file.name) && file.type !== "application/pdf") throw new Error("Bitte eine PDF-Datei wählen.");
-          let n;
-          try { n = await pdfPages(file); } catch { throw new Error("Diese Datei lässt sich nicht als PDF lesen."); }
-          if (n !== b.pages) throw new Error("Diese PDF hat " + n + " Seiten, gespeichert sind " + b.pages + ". Bitte dieselbe Datei wählen.");
-          await upload("/api/teacher/bases/" + b.id + "/pdf?name=" + encodeURIComponent(file.name), file, T.token, null, "application/pdf");
-          toast("Original-PDF zu „" + b.title + "“ gespeichert.", "ok");
-          reload();
-        } catch (e) { errToast(e); }
-      }, "Speichere …");
-    });
-    return h("span", { class: "pdfpick" }, btn, inp);
-  }
-
   const scopePicker = (kind, current) => scopePickerFor(kind, current, cfg.grades);
   const sectionsEditor = sectionsEditorFor;
 
@@ -403,7 +412,11 @@ function textView(main, b, head, onlyText) {
   };
   jump.addEventListener("keydown", (e) => { if (e.key === "Enter") { e.preventDefault(); go2(); } });
   clear(main).append(head(),
-    onlyText ? h("div", { class: "notice" }, "Für diese Planungsgrundlage ist nur der Text gespeichert (so liest ihn auch die KI). Laden Sie unter „Planungsgrundlagen“ mit „Original-PDF hinzufügen“ dieselbe PDF hoch – dann öffnet sich hier das Original.") : null,
+    // eigene Planungsgrundlage eines Grundschulkurses: „Original-PDF hinzufügen“ steht auf der Kursseite (F12)
+    onlyText ? (/^gs[a-f0-9]{8}$/.test(b.subject)
+      ? h("div", { class: "notice" }, "Für diese Planungsgrundlage ist nur der Text gespeichert (so liest ihn auch die KI). Laden Sie auf der ", h("a", { href: "#/lk/grundschule/k/" + b.subject }, "Seite des Kurses"),
+        " unter „Planungsgrundlagen“ mit „Original-PDF hinzufügen“ dieselbe PDF hoch – dann öffnet sich hier das Original.")
+      : h("div", { class: "notice" }, "Für diese Planungsgrundlage ist nur der Text gespeichert (so liest ihn auch die KI). Laden Sie unter „Planungsgrundlagen“ mit „Original-PDF hinzufügen“ dieselbe PDF hoch – dann öffnet sich hier das Original.")) : null,
     h("div", { class: "field row", style: { alignItems: "end", marginTop: ".8rem" } }, h("div", null, h("label", { for: "bt-jump" }, "Zu Seite springen"), jump),
       h("button", { class: "btn", type: "button", onclick: go2 }, "Springen")),
     status, pages);

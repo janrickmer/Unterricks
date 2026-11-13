@@ -114,6 +114,10 @@ export async function parentsPage(token, kind, lessonId, fileId) {
   async function show() {
     clearTimeout(timer);
     if (visFn) { document.removeEventListener("visibilitychange", visFn); visFn = null; }
+    // lag der Fokus in der Ansicht (z. B. auf „Erneut versuchen“), geht er mit dem Neuaufbau verloren: danach auf die Überschrift bzw. den neuen
+    // Knopf – nur, wenn er dann noch auf body liegt (Abschlussprüfung F38)
+    const hadFocus = main.contains(document.activeElement);
+    const lost = () => !document.activeElement || document.activeElement === document.body;
     loading();
     let d;
     try { d = await load(); }
@@ -121,10 +125,13 @@ export async function parentsPage(token, kind, lessonId, fileId) {
       if (!main.isConnected) return;
       clear(main);
       if (e.status === 404 || e.status === 403 || e.status === 429) {
-        main.append(h("section", { class: "card" }, h("h1", { text: "Elternansicht" }), h("p", { class: "notice err", role: "alert", text: e.message })));
+        const h1 = h("h1", { text: "Elternansicht" });
+        main.append(h("section", { class: "card" }, h1, h("p", { class: "notice err", role: "alert", text: e.message })));
+        if (hadFocus && lost()) { h1.setAttribute("tabindex", "-1"); h1.focus(); }
       } else {
         const retry = h("button", { class: "btn", type: "button", onclick: () => show() }, "Erneut versuchen");
         main.append(h("section", { class: "card" }, h("h1", { text: "Elternansicht" }), h("p", { class: "notice err", role: "alert", text: e.message || String(e) }), h("div", { class: "row" }, retry)));
+        if (hadFocus && lost()) retry.focus();
       }
       return;
     }
@@ -138,7 +145,7 @@ export async function parentsPage(token, kind, lessonId, fileId) {
       reload: load,
     });
     clear(main).append(view);
-    if (showFocus && (!document.activeElement || document.activeElement === document.body)) view.focusHeading();
+    if ((showFocus || hadFocus) && lost()) view.focusHeading();
     // noch nicht stattgefunden: zum Ende der Sitzung neu laden (Zeitgeber und beim Zurückkehren in den Tab)
     if (d.state === "pending" && d.opensAt) {
       const due = Date.now() + Math.max(0, d.opensAt - d.now);

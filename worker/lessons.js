@@ -346,6 +346,9 @@ export async function routeLessonDelete(c, id) {
 export async function routeLessonImport(c, id) {
   await requireTeacher(c);
   const l = await getLesson(c.db, id);
+  // Grundschule: Sitzungen und Einheiten lassen sich dort (noch) nicht aus einer Datei laden – Planungschat, Feibeitsblatt-Entwürfe und Schulportal
+  // gibt es in der Grundschule nicht (R14, Abschlussprüfung F13)
+  if (l.subject === GS_SUBJECT) throw bad("In der Grundschule lassen sich Sitzungen (noch) nicht aus einer Datei laden.");
   const body = await readJson(c.request, 4_000_000);
   const les = isObj(body.lesson) ? body.lesson : {}, f = {};
   if (cleanLine(les.title, LIMITS.title)) f.title = cleanLine(les.title, LIMITS.title);
