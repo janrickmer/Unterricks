@@ -84,7 +84,15 @@ Feibeitsblatt braucht keine Änderung. Die Adressen stehen in `wrangler.jsonc` (
   Presenter wirken auch im Beamerfenster. Ein offenes Beamerfenster übernimmt jede neu gestartete Präsentation von selbst. Ältere Präsentationen
   mit einem Code auf den Folien: Unterricks ersetzt ihn beim Hochladen durch den Code dieser Sitzung (wo das nicht sicher geht, z. B.
   bei einem unruhigen Foto hinter dem Code, bleibt die Folie unverändert und die Meldung nennt sie). Am Stundenende: Hausaufgabe eintragen und per
-  Rechtsklick im Verlaufsplan „Zwischenstopp einfügen“, falls nicht alles geschafft wurde. „Für das Schulportal kopieren“ bei der
+  Rechtsklick im Verlaufsplan „Zwischenstopp einfügen“, falls nicht alles geschafft wurde. In der nächsten Sitzung zeigt dann die Karte
+  „Die letzte Stunde wurde nicht vollständig beendet“, was nicht geschafft wurde. Beim Planen mit Claude („Stunde mit Claude planen“)
+  erklärt Claude zuerst den offenen Teil und fragt, ob er in diese Stunde übernommen oder darauf verzichtet wird (die Karte zeigt danach
+  „Entschieden am …“). Übernehmen: Was keinen Platz mehr hat, rückt in die nächste Stunde der Einheit usw. – die Termine bleiben; bleibt am
+  Ende etwas übrig, fragt Claude, ob die Einheit um eine Stunde verlängert werden kann (das trägt Claude nach Ihrer Zustimmung selbst ein:
+  bis zum nächsten Termin laut Stundenplan, mit Sitzung) oder ob gekürzt wird (drei Vorschläge, einer als Favorit). Verzichten: In der Zeile
+  der vorigen Stunde steht danach, was tatsächlich behandelt wurde und worauf verzichtet wurde. Angepasst wird die Einheit erst, wenn Sie
+  die Planung der neuen Stunde bestätigt haben. Setzen Sie den Zwischenstopp, nachdem die nächste Sitzung schon geplant ist, öffnen Sie
+  dort erneut „Stunde mit Claude planen“. „Für das Schulportal kopieren“ bei der
   Hausaufgabe liefert sie im Format der Lehrkraft: **Hausaufgabe zum 25. November 2026:** (Datum der nächsten Sitzung), eine
   Leerzeile, je Zeile ein Stichpunkt und zuletzt „Unter https://unterricks.janrickmer.de kannst du diese Sitzung mit dem Code …
   aufrufen …“ (dieser Hinweis erscheint nur im Schulportal). Der Prompt „Stunde mit Claude planen“ beginnt mit dem Chat-Namen,
@@ -198,7 +206,9 @@ Menü **„Grundschule“** (zwischen „Gymnasium“ und „Planungsgrundlagen�
   („Stunde mit Claude planen“ → `save_verlaufsplan`); mit **„Bearbeiten“** ändern Sie ihn selbst (wird automatisch gespeichert,
   daneben die Vorschau). Die PDF-Dateien stehen dort, wo sie benutzt werden, **gelb markiert und unterstrichen** – ein Klick öffnet die
   PDF in einem neuen Tab („PDF-Verweis einfügen …“ beim Bearbeiten). Wurden Sie nicht fertig: **„Zwischenstopp eintragen …“**, Rechtsklick
-  auf eine Zeile oder am iPad eine Zeile antippen. Darunter der Stundenentwurf, die Einordnung in die Einheit, „Stunde mit Claude
+  auf eine Zeile oder am iPad eine Zeile antippen. In der nächsten Sitzung steht direkt unter dem Verlaufsplan, was nicht geschafft wurde;
+  beim Planen mit Claude geht es wie am Gymnasium weiter (übernehmen oder verzichten, danach passt Claude die Einheit an – das Material
+  aus dem offenen Teil verweist Claude weiter). Darunter der Stundenentwurf, die Einordnung in die Einheit, „Stunde mit Claude
   planen“, die **Bildkarten**, der **Materialkasten** (PDFs für die Kinder – mit „Auch ausdrucken (22×)“ zusätzlich auf der Druckliste
   – und Material nur für Sie; jede Datei sagt, ob Eltern sie sehen), die Druckliste, **„Inhalt und Hausaufgabe (für die Eltern)“**
   (Claude formuliert den Inhalt in 2–3 Sätzen, Sie können ihn ändern) und ganz unten die Karte **„Elternansicht“**. Kein

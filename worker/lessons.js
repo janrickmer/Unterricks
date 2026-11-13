@@ -11,9 +11,9 @@ import { gsCourseStmt, gsCourseOut } from "./gs.js";
 import {
   isValidClass, isValidSubject, isValidCode, normalizeCode, greetingText, planningSystemPrompt, portalMessages, feibeitsblattMessages,
   chatTranscript, extractJsonObject, validatePortalData, renderPortalEntry, normalizeFbDraft, isIsoDate, hasStop, gradeKey, isClockTime, printFileName, GS_SUBJECT,
-  planRefs, parentOpensAt,
+  planRefs, parentOpensAt, stopParts,
 } from "../public/shared.js";
-import { unitContext } from "../public/planning.js";
+import { unitContext, STOP_CHOICE_TEXT, stopChatSection } from "../public/planning.js";
 
 export const LIMITS = { title: 200, topic: 500, ideas: 20000, homework: 10000, portal: 30000, message: 30000, answer: 100000, textMaterial: 200000, parentSummary: 800, parentNote: 2000 };
 
@@ -241,18 +241,22 @@ export async function routeLessonGet(c, id) {
     c.db.prepare("SELECT COUNT(*) AS n FROM student_access WHERE lesson_id=?1").bind(id),
   ]);
   const messages = await chatMessages(c.db, id, full ? 5000 : 200);
-  const [prev, nextDate, course] = await Promise.all([previousLesson(c.db, l), nextLessonDate(c.db, l), courseInfo(c.db, l.subject, l.klass)]);
-  const previousStop = prev && hasStop(prev.portal) ? { id: prev.id, title: prev.title, date: prev.lesson_date, portal: prev.portal } : null;
-  // Grundschule: PDFs anderer Sitzungen des Kurses, auf die der Verlaufsplan (oder der der vorigen Sitzung) verweist, und die der vorigen Sitzung
-  const gs = l.subject === GS_SUBJECT ? { refFiles: await gsRefFiles(c.db, l, prev), opensAt: parentOpensAt({ date: l.lesson_date, startTime: l.start_time, durationMin: l.duration_min }) } : {};
+  // nextDate = Fälligkeit der Hausaufgabe (erstes späteres Datum); next = die folgende Sitzung (gleiches Datum zählt mit) für den Hinweis nach einem Zwischenstopp
+  const [prev, nextDate, next, course] = await Promise.all([previousLesson(c.db, l), nextLessonDate(c.db, l), followingLesson(c.db, l), courseInfo(c.db, l.subject, l.klass)]);
   let unit = null;
   if (l.unit_id) { try { unit = unitOut(await getUnit(c.db, l.unit_id)); } catch {} }
+  const previousStop = await prevStopInfo(c.db, l, prev, unit);
+  // Grundschule: PDFs anderer Sitzungen des Kurses, auf die der Verlaufsplan (oder der der vorigen Sitzung) verweist, und die der vorigen Sitzung
+  const gs = l.subject === GS_SUBJECT ? { refFiles: await gsRefFiles(c.db, l, prev), opensAt: parentOpensAt({ date: l.lesson_date, startTime: l.start_time, durationMin: l.duration_min }) } : {};
+  // Material nach dem Zwischenstopp der vorigen Sitzung (Grundschule): die Verweise ihres offenen Teils
+  if (previousStop && gs.refFiles) previousStop.openFiles = openFilesOf(previousStop, gs.refFiles);
   const sub = await c.db.prepare("SELECT status, proposal, archive, created_at, updated_at, confirmed_at FROM substitutes WHERE lesson_id=?1").bind(id).first();
   let proposal = null, archive = null;
   if (sub) { try { proposal = JSON.parse(sub.proposal); } catch {} try { archive = sub.archive ? JSON.parse(sub.archive) : null; } catch {} }
   const substitute = sub ? { status: sub.status, proposal, createdAt: sub.created_at, updatedAt: sub.updated_at, confirmedAt: sub.confirmed_at ?? null,
     archive: archive ? { portal: archive.portal || "", homework: archive.homework || "", sheets: archive.sheets || [], files: (archive.files || []).map((f) => f.id), at: archive.at || null } : null } : null;
   return json({ ok: true, lesson: lessonOut(l, { studentCount: (students.results[0] || {}).n || 0, nextDate }), previousStop, unit, course, substitute, ...gs, messages: messages.map(msgOut),
+    nextLesson: next ? { id: next.id, title: next.title, date: next.lesson_date, planned: !!next.planned } : null,
     files: (files.results || []).map((f) => fileOut(f)), sheets: (sheets.results || []).map((s) => ({ code: s.code, title: s.title, kind: s.kind || "", createdAt: s.created_at })),
     drafts: (drafts.results || []).map(draftOut) });
 }
@@ -273,9 +277,45 @@ export async function gsRefFiles(db, l, prev) {
 /* Nachbarsitzungen derselben Klasse im selben Fach (nach Datum, bei gleichem Datum nach Anlegezeit) */
 export function previousLesson(db, l) {
   if (!l.lesson_date) return null;
-  return db.prepare("SELECT id, title, lesson_date, portal FROM lessons WHERE subject=?1 AND klass=?2 AND id<>?3 AND lesson_date IS NOT NULL AND cancelled=0 " +
+  return db.prepare("SELECT id, title, lesson_date, portal, portal_version, unit_id, unit_row FROM lessons WHERE subject=?1 AND klass=?2 AND id<>?3 AND lesson_date IS NOT NULL AND cancelled=0 " +
     "AND (lesson_date < ?4 OR (lesson_date = ?4 AND created_at < ?5)) ORDER BY lesson_date DESC, created_at DESC LIMIT 1").bind(l.subject, l.klass, l.id, l.lesson_date, l.created_at).first();
 }
+// … und die folgende (Gegenstück zu previousLesson) – ob sie schon geplant ist (Eintrag bzw. Verlaufsplan oder ein Stundenentwurf von Claude)
+export function followingLesson(db, l) {
+  if (!l.lesson_date) return null;
+  return db.prepare("SELECT id, title, lesson_date, (length(portal) > 0 OR EXISTS(SELECT 1 FROM chat c WHERE c.lesson_id=lessons.id AND c.mode='claude')) AS planned FROM lessons " +
+    "WHERE subject=?1 AND klass=?2 AND id<>?3 AND lesson_date IS NOT NULL AND cancelled=0 AND (lesson_date > ?4 OR (lesson_date = ?4 AND created_at > ?5)) ORDER BY lesson_date, created_at LIMIT 1")
+    .bind(l.subject, l.klass, l.id, l.lesson_date, l.created_at).first();
+}
+
+/* ---------- Offener Teil nach einem Zwischenstopp der vorigen Sitzung (Anforderung 13) ----------
+ * Entscheidung der Lehrkraft (mit Claude, update_lesson zwischenstopp) in lessons.stop_decision: gilt nur, solange die vorige Sitzung dieselbe ist und
+ * ihr Eintrag dieselbe Version hat – wurde der Zwischenstopp inzwischen verschoben oder der Eintrag geändert, ist wieder „noch nicht entschieden“. */
+export function stopDecision(l, prev) {
+  if (!l || !l.stop_decision || !prev) return null;
+  let o = null;
+  try { o = JSON.parse(l.stop_decision); } catch {}
+  if (!o || typeof o !== "object" || o.v !== 1 || !STOP_CHOICE_TEXT[o.choice] || o.prevId !== prev.id || o.prevVersion !== prev.portal_version) return null;
+  return { choice: o.choice, at: Number.isFinite(o.at) ? o.at : null };
+}
+export const stopDecisionJson = (choice, prev, now) => JSON.stringify({ v: 1, choice, prevId: prev.id, prevVersion: prev.portal_version, at: now });
+/* previousStop (GET lesson, get_lesson, Backup-Chat): null, wenn die vorige Sitzung keinen Zwischenstopp hat. unit = unitOut der Einheit DIESER
+   Sitzung (oder null) – liegt die vorige Stunde in einer anderen Einheit, wird diese gelesen (eine Abfrage) und genannt. */
+export async function prevStopInfo(db, l, prev, unit) {
+  if (!prev || !hasStop(prev.portal)) return null;
+  const { done, open } = stopParts(prev.portal);
+  const same = !!prev.unit_id && !!unit && unit.id === prev.unit_id;
+  let u = same ? unit : null, row = null;
+  if (prev.unit_id && prev.unit_row && !u) { try { u = unitOut(await getUnit(db, prev.unit_id)); } catch {} }
+  if (u && prev.unit_row) {
+    const rows = u.rows || [], i = rows.findIndex((r) => r && r.uid === prev.unit_row);
+    if (i >= 0) row = { uid: rows[i].uid, n: i + 1, total: rows.length, stundenfrage: rows[i].stundenfrage || "", ablauf: Array.isArray(rows[i].ablauf) ? rows[i].ablauf : [] };
+  }
+  return { id: prev.id, title: prev.title, date: prev.lesson_date, portal: prev.portal, portalVersion: prev.portal_version, done, open,
+    unitId: prev.unit_id || null, unitRow: same ? prev.unit_row || null : null, sameUnit: same, unitTitle: !same && u ? u.title || (u.plan && u.plan.titel) || "" : null, row, decision: stopDecision(l, prev) };
+}
+// Grundschule: PDFs, auf die der offene Teil verweist (aus einer Liste mit {id, name}) – in der Reihenfolge des Verlaufsplans
+export const openFilesOf = (ps, files) => { const by = new Map((files || []).map((f) => [f.id, f])); return planRefs(ps.open).all.filter((id) => by.has(id)).map((id) => ({ id, name: by.get(id).name })); };
 // Fälligkeit der Hausaufgabe: Datum der nächsten Sitzung (ändert sich mit, wenn Sitzungen verschoben werden)
 export async function nextLessonDate(db, l) {
   if (!l.lesson_date) return null;
@@ -446,7 +486,10 @@ export async function routeChatPost(c, id) {
   const ctx = await lessonCtx(c.db, l);
   const um = await c.db.prepare("INSERT INTO chat(lesson_id, role, content, mode, created_at) VALUES(?1, 'user', ?2, ?3, ?4) RETURNING id").bind(id, text, mode, c.now).first();
   const history = (await chatMessages(c.db, id, 60)).filter((m) => m.role === "user" || m.role === "assistant");
-  const messages = [{ role: "system", content: planningSystemPrompt(ctx) + MODE_HINT[mode] }, ...history.map((m) => ({ role: m.role, content: m.content }))];
+  // Zwischenstopp der vorigen Sitzung: derselbe Abschnitt wie im Prompt für Claude – die kostenlose KI kann nichts speichern und nennt die Änderungen
+  const ps = await prevStopInfo(c.db, l, await previousLesson(c.db, l), ctx.unit);
+  const stop = ps ? stopChatSection(ps, { gs: l.subject === GS_SUBJECT, unitId: ctx.unit ? ctx.unit.id : null, unit: ctx.unit, now: c.now }) : "";
+  const messages = [{ role: "system", content: planningSystemPrompt(ctx) + stop + MODE_HINT[mode] }, ...history.map((m) => ({ role: m.role, content: m.content }))];
   let r;
   try { r = await callTask(c.env, c.db, mode, messages, { stream: true }); }
   catch (e) { await c.db.prepare("DELETE FROM chat WHERE id=?1").bind(um.id).run(); throw e; }

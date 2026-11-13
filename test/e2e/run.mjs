@@ -1014,6 +1014,8 @@ async function main() {
     await tp.locator(".ctxmenu").getByRole("menuitem", { name: "Zwischenstopp einfügen" }).click();
     ok((await tp.inputValue("#portal")).includes("⏸ Zwischenstopp\n**3) Partnerarbeit**"), "Rechtsklick in der Vorschau → Zwischenstopp vor der Zeile");
     ok(await tp.locator(".portal-preview .stopfield").count() === 1, "als kleines Feld in der Vorschau");
+    ok(await tp.locator("#stop-next").isVisible() && (await tp.locator("#stop-next").textContent()).startsWith("Zwischenstopp gesetzt.")
+      && (await tp.locator("#stop-next").textContent()).includes("ob der offene Teil übernommen oder darauf verzichtet wird."), "Hinweis: beim Planen der nächsten Sitzung fragt Claude nach dem offenen Teil (Anforderung 13)");
     await tp.locator("#portal").click({ button: "right" });
     ok(await tp.locator(".ctxmenu").getByRole("menuitem", { name: /Zwischenstopp/ }).first().isVisible(), "Rechtsklick im Textfeld bietet den Zwischenstopp an");
     await tp.keyboard.press("Escape");
@@ -1040,6 +1042,44 @@ async function main() {
     await tp.locator(".prevstop").waitFor({ timeout: 10000 });
     ok(await tp.locator(".prevstop .stopfield").count() === 1 && (await tp.locator(".prevstop").textContent()).includes("Das Bundesverfassungsgericht"), "nächste Sitzung: Hinweis + Schulportal-Eintrag der letzten Stunde mit Zwischenstopp");
     await tp.locator(".prevstop").screenshot({ ...SHOT, path: join(OUT, "lehrkraft-hinweis-folgestunde.png") });
+    {
+      // Anforderung 13 (S11): „Nicht geschafft“ und Stand; der Prompt erklärt den offenen Teil und fragt; Entscheidung per Connector; Einheit verlängern
+      const open = await tp.locator("#prevstop-open").textContent(), state = await tp.locator("#prevstop-state").textContent();
+      ok(open.startsWith("Nicht geschafft: 3) Partnerarbeit") && state === "Beim Planen mit Claude („Stunde mit Claude planen“) erklärt Claude, was offen geblieben ist, und fragt Sie, ob es in diese Stunde übernommen oder darauf verzichtet wird. Danach passt Claude die Unterrichtseinheit an.",
+        "Karte: „" + open + "“ und was beim Planen mit Claude passiert");
+      await tp.getByRole("button", { name: "Stunde mit Claude planen" }).click();
+      const sm = tp.locator(".modal", { hasText: "Welches Sprachmodell?" });
+      await sm.waitFor();
+      await sm.getByRole("button", { name: "Prompt kopieren" }).click();
+      const sp2 = await tp.evaluate(() => navigator.clipboard.readText());
+      ok(sp2.includes("## Vorige Stunde nicht vollständig beendet") && sp2.includes("Nicht geschafft (nach dem Zwischenstopp):\n<<<\n**3) Partnerarbeit**") && sp2.includes("Geschafft (bis zum Zwischenstopp):\n<<<\n**1) ")
+        && sp2.includes("Frage mich, ob du es in diese Stunde einbauen sollst oder ob wir darauf verzichten.") && sp2.includes("\n2. Zur vorigen Stunde (Zwischenstopp, siehe oben)") && sp2.includes("\n3. Frage mich dann nach der Dauer")
+        && sp2.includes("genau drei Vorschläge") && sp2.includes("`extend_unit`"), "Prompt der nächsten Sitzung: Geschafft/Nicht geschafft, Frage übernehmen oder verzichten, Einheit danach anpassen");
+      await sm.getByRole("button", { name: "Schließen", exact: true }).getByText("Schließen").click();
+      const gl2 = await tool("get_lesson", { lesson_id: l2.id });
+      ok(gl2.content[0].text.includes("## Vorige Stunde nicht vollständig beendet") && gl2.content[0].text.includes("Entscheidung der Lehrkraft: noch nicht entschieden"), "get_lesson: Abschnitt zum offenen Teil (auch für einen Prompt von vorher)");
+      ok(!(await tool("update_lesson", { lesson_id: l2.id, zwischenstopp: "uebernehmen" })).isError, "Claude hält die Entscheidung fest (update_lesson zwischenstopp)");
+      await tp.evaluate(() => document.dispatchEvent(new Event("visibilitychange")));
+      await tp.locator("#prevstop-state", { hasText: "Der offene Teil wird in dieser Stunde übernommen." }).waitFor({ timeout: 10000 });
+      ok((await tp.locator("#prevstop-state").textContent()).startsWith("Entschieden am "), "beim Zurückkehren: Karte zeigt „Entschieden am …: Der offene Teil wird in dieser Stunde übernommen.“");
+      // extend_unit in einer eigenen kleinen Einheit (8A, wird danach gelöscht): eine Zeile mehr mit Termin und Sitzung, sofort in der Einheit sichtbar
+      const xEnd = addDays(today, 13);
+      const xu = (await T("POST", "/api/teacher/units", { subject: "powi", klass: "8A", title: "Verlängern", params: { start: today, end: xEnd, weekdays: [1, 2, 3, 4, 5].map((day) => ({ day, minutes: 45, time: "08:00" })) } })).data.unit;
+      await T("PATCH", "/api/teacher/units/" + xu.id, { plan: { lernaufgabe: "Plakat", schritte: [] }, rows: [{ stundenfrage: "Erste", ablauf: ["a"] }, { stundenfrage: "Zweite", ablauf: ["b"] }], assignDates: true });
+      await T("POST", "/api/teacher/units/" + xu.id + "/sessions", {});
+      let xv = (await T("GET", "/api/teacher/units/" + xu.id)).data.unit;
+      r = await tool("extend_unit", { unit_id: xu.id, base_version: xv.version, termine: 1, stunden: [{ stundenfrage: "Puffer: Rest der Partnerarbeit", ablauf: ["Partnerarbeit beenden", "Sicherung"] }] });
+      xv = (await T("GET", "/api/teacher/units/" + xu.id)).data.unit;
+      const xl = xv.lessons.find((l) => xv.rows[2] && l.row === xv.rows[2].uid);
+      ok(!r.isError && xv.rows.length === 3 && xv.rows[2].date > xEnd && xv.params.end === xv.rows[2].date && xl && xl.date === xv.rows[2].date && r.content[0].text.includes("Sitzung " + xl.id + " angelegt."),
+        "extend_unit: Ende auf den nächsten Termin nach dem bisherigen Ende, Zeile mit Termin und Sitzung (" + (r.content[0].text || "").slice(0, 120) + ")");
+      await tp.goto(BASE + "/#/lk/u/" + xu.id);
+      await tp.locator(".unit-table tbody tr").nth(2).waitFor({ timeout: 15000 });
+      ok(await tp.locator(".unit-table tbody tr").count() === 3 && await tp.locator('textarea[aria-label="Stundenfrage 3"]').inputValue() === "Puffer: Rest der Partnerarbeit", "… sofort in der Einheit sichtbar");
+      for (const l of xv.lessons) await T("DELETE", "/api/teacher/lessons/" + l.id);
+      ok((await T("DELETE", "/api/teacher/units/" + xu.id)).status === 200, "Test-Einheit wieder gelöscht");
+      await tp.goto(BASE + "/#/lk/s/" + l2.id); await tp.locator(".prevstop").waitFor({ timeout: 10000 });
+    }
     await tp.goto(BASE + "/#/lk/s/" + l3.id);
     await tp.locator("#chatin").waitFor();
     ok(await tp.locator(".prevstop").count() === 0, "übernächste Sitzung: kein Hinweis (die direkt vorige Stunde endete normal)");
@@ -1677,6 +1717,25 @@ async function main() {
       ok(JSON.stringify(await mat.locator(".gs-parents-badge").allTextContents()) === JSON.stringify(["Eltern sehen sie", "nach dem Zwischenstopp – Eltern sehen sie nicht"]) && await plan.locator(".stopfield").count() === 1
         && (await tp.locator("#gs-parents").textContent()).includes("Eltern sehen von dieser Sitzung: „Arbeitsblatt Josef in Ägypten.pdf““".slice(0, -1)) && !(await tp.locator("#gs-parents").textContent()).includes("Rätsel Pyramide")
         && await tp.locator("#gs-summary-stop").isVisible(), "nach dem Zwischenstopp: Rätsel „Eltern sehen sie nicht“, Hinweis beim Inhalt der Unterrichtsstunde");
+      ok(await tp.locator("#gs-stop-next").isVisible() && (await tp.locator("#gs-stop-next").textContent()).startsWith("Zwischenstopp gesetzt."), "Hinweis nach dem Eintragen: Claude fragt beim Planen der nächsten Sitzung (Anforderung 13)");
+      {
+        // Anforderung 13 (S11): die nächste Sitzung zeigt den offenen Teil direkt unter dem Verlaufsplan, der Prompt fragt nach (mit der file_id des Rätsels)
+        const les3 = gl[2];
+        await tp.goto(BASE + "/#/lk/s/" + les3.id);
+        await tp.locator("#gs-prevstop").waitFor({ timeout: 15000 });
+        ok(await tp.evaluate(() => { const s = document.querySelector(".gs-session > .stack"); return !!s && s.firstElementChild.id === "gsplan" && s.firstElementChild.nextElementSibling.id === "gs-prevstop"; })
+          && (await tp.locator("#gs-prevstop-open").textContent()) === "Nicht geschafft: 4) Rätsel (10 Min., Partnerarbeit)", "nächste Grundschul-Sitzung: Karte direkt unter dem Verlaufsplan, „Nicht geschafft: 4) Rätsel …“");
+        await tp.getByRole("button", { name: "Stunde mit Claude planen" }).click();
+        const gm = tp.locator(".modal", { hasText: "Welches Sprachmodell?" });
+        await gm.waitFor();
+        await gm.getByRole("button", { name: "Prompt kopieren" }).click();
+        const gp = await tp.evaluate(() => navigator.clipboard.readText());
+        ok(gp.includes("Nicht geschafft (nach dem Zwischenstopp):\n<<<\n**4) Rätsel (10 Min., Partnerarbeit)**") && gp.includes("„Rätsel Pyramide.pdf“ (file_id " + raeId + ")")
+          && gp.includes("Frage mich, ob du es in diese Stunde einbauen sollst oder ob wir darauf verzichten."), "Prompt (Grundschule): offener Teil mit dem Rätsel und seiner file_id, Frage übernehmen oder verzichten");
+        await gm.getByRole("button", { name: "Schließen", exact: true }).getByText("Schließen").click();
+        await tp.goto(BASE + "/#/lk/s/" + les2.id);
+        await plan.locator(".stopfield").waitFor({ timeout: 15000 });
+      }
       // Kontextmenü auf einer Zeile der Vorschau
       await plan.locator('.portal-preview [data-line="1"]').click({ button: "right" });
       ok(await tp.locator(".ctxmenu").getByRole("menuitem", { name: "Zwischenstopp einfügen" }).count() === 1 && await tp.locator(".ctxmenu").getByRole("menuitem", { name: "Zwischenstopp entfernen" }).count() === 1,
@@ -1964,6 +2023,8 @@ async function main() {
       // roter Kasten auch in der Einheit und in jeder anderen Sitzung der Einheit
       await tp.goto(BASE + "/#/lk/u/" + nu.id);
       await tp.locator(".revisebox").waitFor({ timeout: 15000 });
+      // erst prüfen, wenn die Einheit aufgebaut ist – der rote Kasten der Sitzung davor erfüllt das Warten sonst schon (selten: Zählung zu früh)
+      await tp.locator(".unit-table .badge", { hasText: "ohne Termin" }).first().waitFor({ timeout: 15000 }).catch(() => {});
       ok(await tp.locator("main > .revisebox, main .revisebox").count() === 1 && (await tp.locator(".unit-cancelled").textContent()).includes("Ausgefallen: " + fmtDay(old[1]) + " – Inhalt verschoben auf die nächste Stunde")
         && await tp.locator(".unit-table .badge", { hasText: "ohne Termin" }).count() === 1 && (await tp.locator(".card", { hasText: "1. Rahmendaten der Einheit" }).textContent()).includes("Ausgefallen (Krankmeldung): " + fmtDay(old[1]) + ", 08:00 – die Stunden wurden verschoben."),
         "Einheit: roter Kasten, Ausfall unter der Tabelle, „ohne Termin“, Ausfall in den Rahmendaten");

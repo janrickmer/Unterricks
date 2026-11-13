@@ -11,7 +11,7 @@ import { unitContext } from "./planning.js";
 import { claudeGsLessonPrompt, gsChatName } from "./gsplanning.js";
 import { claudeHandoff } from "./claude.js";
 import { leupoldView } from "./units.js";
-import { paintPlanPreview, contextMenu } from "./portalview.js";
+import { paintPlanPreview, contextMenu, prevStopCard, stopNextHint } from "./portalview.js";
 import { renderMarkdown } from "./markdown.js";
 import { materialBox } from "./materialbox.js";
 import { cardsCard } from "./cards.js";
@@ -138,7 +138,7 @@ export async function gsSessionPage(id, d) {
     empty.classList.toggle("hidden", !!ta.value.trim() || plan.editing);
     pv.classList.toggle("hidden", !ta.value.trim() && !plan.editing);
     unstopBtn.classList.toggle("hidden", !hasStop(ta.value));
-    paintParents(); paintSummaryHint();
+    paintStopNext(); paintParents(); paintSummaryHint();
   }
   // von außen (eine PDF ist gedruckt, Bildkarten fertig, eine Datei gelöscht oder umbenannt): neu zeichnen, ohne den Fokus eines Verweises
   // in der Vorschau zu verlieren – „(wird gedruckt …)“ verschwindet, sobald die PDF da ist
@@ -191,7 +191,14 @@ export async function gsSessionPage(id, d) {
     });
   }
   // Zwischenstopp: im Dialog (Tastatur, iPad), per Rechtsklick auf eine Zeile der Vorschau oder – am iPad – durch Antippen einer Zeile
-  const stopAt = (line) => { setPlanText(insertStop(ta.value, line).text); flushPlan(); toast("Zwischenstopp eingetragen – Eltern sehen nur das Material bis dorthin.", "ok"); };
+  // nach dem Eintragen: Hinweis, dass Claude beim Planen der nächsten Sitzung nach dem offenen Teil fragt (Anforderung 13) – bis der Zwischenstopp wieder weg ist
+  const stopNext = h("p", { class: "hint stopnext hidden", id: "gs-stop-next" });
+  let stopJustSet = false;
+  const paintStopNext = () => { if (!hasStop(ta.value)) stopJustSet = false; stopNext.classList.toggle("hidden", !stopJustSet); };
+  const stopAt = (line) => {
+    stopJustSet = true; clear(stopNext).append(...stopNextHint(d.nextLesson));
+    setPlanText(insertStop(ta.value, line).text); flushPlan(); toast("Zwischenstopp eingetragen – Eltern sehen nur das Material bis dorthin.", "ok");
+  };
   const dropStop = () => { setPlanText(removeStops(ta.value)); flushPlan(); toast("Zwischenstopp entfernt.", "ok"); };
   const linePlain = (ln) => ln.runs.map((r) => (r.file !== undefined ? (fileOf(r.file) || { name: "PDF" }).name : r.text)).join("").trim();
   function stopDialog() {
@@ -270,6 +277,7 @@ export async function gsSessionPage(id, d) {
     h("div", { class: "section-title" }, h("h2", { id: "gsplan-h", text: "Verlaufsplan" }), planState),
     h("div", { id: "gsplan-body" }, planBody),
     h("div", { class: "row gsplan-acts" }, editBtn, stopBtn, unstopBtn, refBtn),
+    stopNext,
     h("p", { class: "hint", text: "Gelb markiert: die PDF-Dateien an der Stelle, an der sie benutzt werden – ein Klick öffnet die PDF in einem neuen Tab. Was nach dem Zwischenstopp steht, gilt als nicht geschafft: Eltern sehen nur das Material bis dorthin." }),
     h("details", { class: "box small" }, h("summary", null, "So schreiben Sie den Verlaufsplan"), h("ul", null,
       h("li", { text: "**Text** = fett (z. B. die Phasen: **1) Ankommen im Sitzkreis (5 Min.)**); ~~Text~~ = kursiv, __Text__ = unterstrichen." }),
@@ -449,8 +457,26 @@ export async function gsSessionPage(id, d) {
       try { await tapi("DELETE", "/api/teacher/lessons/" + id); plan.dirty = false; toast("Sitzung gelöscht.", "ok"); go(coursePage); } catch (e) { errToast(e); }
     } }, "Sitzung löschen"));
 
+  /* ======================= Offener Teil der vorigen Sitzung (Zwischenstopp; unter dem Verlaufsplan) ======================= */
+  let prevEl = null, prevHidden = false;
+  const prevCardOf = () => {
+    const ps = d.previousStop;
+    if (!ps || prevHidden) return null;
+    const nameOf = (fid) => (fileOf(fid) || {}).name || null;
+    return prevStopCard(ps, { gs: true, id: "gs-prevstop", nameOf, unit: !!st.unit, onHide: () => { prevHidden = true; prevEl = null; }, focusAfter: () => planCard.querySelector("#gsplan-h"),
+      preview: paintPlanPreview(h("div", { class: "portal-preview gsplan-view", "aria-label": "Verlaufsplan der vorigen Sitzung" }), ps.portal, { fileOf, onPending }) });
+  };
+  const paintPrev = () => {
+    if (prevEl && prevEl.contains(document.activeElement)) return;   // nie unter dem Fokus neu aufbauen
+    const next = prevCardOf();
+    if (prevEl) prevEl.remove();
+    prevEl = next;
+    if (next && planCard.parentNode) planCard.after(next);
+  };
+  prevEl = prevCardOf();
+
   main.append(h("div", { class: "session-grid gs-session" },
-    h("div", { class: "stack gs-stack" }, planCard, draftCard, unitCard, claudeCard, cardsBox.el, box.filesCard, box.printCard, contentCard, parentsCard),
+    h("div", { class: "stack gs-stack" }, planCard, prevEl, draftCard, unitCard, claudeCard, cardsBox.el, box.filesCard, box.printCard, contentCard, parentsCard),
     h("aside", { class: "side" }, metaCard, sickCard)));
   setEditing(false);
   paintRevise();
@@ -472,6 +498,9 @@ export async function gsSessionPage(id, d) {
     }
     if ((r.messages || []).length !== st.messages.length) { st.messages = r.messages; paintDraft(); }
     if (r.unit && (!st.unit || r.unit.version !== st.unit.version)) { st.unit = r.unit; paintUnit(); paintSubline(); if (!reviseEl || !reviseEl.contains(document.activeElement)) paintRevise(); }
+    // Zwischenstopp der vorigen Sitzung: inzwischen gesetzt, verschoben oder (mit Claude) entschieden – auch der Prompt nimmt dann den neuen Stand
+    if (JSON.stringify(r.previousStop || null) !== JSON.stringify(d.previousStop || null) || filesChanged) { d.previousStop = r.previousStop; paintPrev(); }
+    d.nextLesson = r.nextLesson;
     if (r.lesson.portalVersion !== plan.version && !plan.dirty && !busyField(ta)) {
       plan.version = r.lesson.portalVersion; ta.value = r.lesson.portal || "";
       Object.assign(L(), { portal: r.lesson.portal, portalVersion: r.lesson.portalVersion, portalUpdatedAt: r.lesson.portalUpdatedAt, portalSource: r.lesson.portalSource });

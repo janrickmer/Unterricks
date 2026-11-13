@@ -374,6 +374,9 @@ main.narrow .homework { background: var(--gelb-t); border-color: color-mix(in sr
 .hwtext .pl { margin: 0; min-height: 1.25em; } .hwtext ul { margin: 0; padding-left: 1.2rem; } .hwtext { font-size: 1.08rem; }
 .prevstop { background: var(--surface); border-color: color-mix(in srgb, var(--rot) 35%, var(--line)); }
 .prevstop h2 { color: var(--err); }
+/* offener Teil und Stand der Entscheidung (mit Claude); der Hinweis nach dem Setzen eines Zwischenstopps (Anforderung 13) */
+.prevstop .stopopen { margin: .7rem 0 0; } .prevstop .stopstate { margin: .45rem 0 0; } .prevstop .stopstate.decided { font-weight: 700; }
+.stopnext { margin: .5rem 0 0; } .stopnext a { font-weight: 700; }
 
 /* ---------- Uploads ---------- */
 .zones { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 24rem), 1fr)); gap: 1rem; }

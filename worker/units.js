@@ -1,14 +1,14 @@
 // units.js – Unterrichtseinheiten: Rahmendaten (Stundenplan, Zeitraum, Klausur, Ferien) → Termine, Plan (Leupold-Schema) und Ablauf
 // (Zeilen: Stundenfrage, grober Ablauf, Lernschritt, Datum). Die Planung macht Claude in claude.ai über den Connector; die Lehrkraft prüft
 // und bearbeitet hier. Erst eine festgelegte Einheit erzeugt die Sitzungen (je Zeile eine Sitzung mit Datum).
-import { HttpError, bad, json, readJson, randomId, cleanLine, isId, isObj } from "./lib.js";
+import { HttpError, bad, json, readJson, randomId, generateCode, cleanLine, isId, isObj } from "./lib.js";
 import { requireTeacher } from "./auth.js";
 import { createLessonsBulk, lessonOut } from "./lessons.js";
 import { loadSubjectConfigs } from "./bases.js";
 import { courseInfo, getCourseSettings, courseRef } from "./courses.js";
 import { gsCourseOut } from "./gs.js";
-import { isValidSubject, isValidClass, classAllowed, subjectName, classShort, GS_SUBJECT } from "../public/shared.js";
-import { normalizeParams, computeSlots, normalizePlan, normalizeRows, assignDates, lessonSlots, repackFuture } from "../public/planning.js";
+import { isValidSubject, isValidClass, classAllowed, subjectName, classShort, GS_SUBJECT, greetingText, fmtDay } from "../public/shared.js";
+import { normalizeParams, computeSlots, normalizePlan, normalizeRows, assignDates, lessonSlots, repackFuture, slotsAfterEnd, occupy } from "../public/planning.js";
 
 const newUid = () => randomId(4);
 const parseJ = (s, d) => { try { const v = JSON.parse(s); return v ?? d; } catch { return d; } };
@@ -299,16 +299,127 @@ export async function routeUnitSessions(c, id) {
   return json({ ok: true, created, ...(skipped ? { skipped } : {}), unit: await unitFull(c.db, await getUnit(c.db, id)) });
 }
 /* Zeile einer Stunde ändern (Abweichung im Stunden-Chat übernommen; auch per Connector) */
+function rowChange(row, change) {
+  const next = { ...row };
+  if (typeof change.stundenfrage === "string" && change.stundenfrage.trim()) next.stundenfrage = change.stundenfrage.trim().slice(0, 400);
+  if (Array.isArray(change.ablauf) && change.ablauf.length) next.ablauf = change.ablauf.map((x) => String(x).trim().slice(0, 400)).filter(Boolean).slice(0, 15);
+  return next;
+}
 export async function updateRow(db, unitId, rowUid, change, source, now) {
   const u = await getUnit(db, unitId), rows = parseJ(u.rows, []);
   const i = rows.findIndex((r) => r.uid === rowUid);
   if (i < 0) throw new HttpError(404, "not_found", "Diese Stunde steht nicht (mehr) in der Einheit.");
-  const next = { ...rows[i] };
-  if (typeof change.stundenfrage === "string" && change.stundenfrage.trim()) next.stundenfrage = change.stundenfrage.trim().slice(0, 400);
-  if (Array.isArray(change.ablauf) && change.ablauf.length) next.ablauf = change.ablauf.map((x) => String(x).trim().slice(0, 400)).filter(Boolean).slice(0, 15);
+  const next = rowChange(rows[i], change);
   rows[i] = next;
   await saveUnit(db, unitId, { rows: JSON.stringify(rows) }, null, source, now);
   return next;
+}
+/* Mehrere Stunden in EINER versionsgeprüften Speicherung (Inhalte rücken nach einem Zwischenstopp nach; update_unit_row mit stunden). changes =
+   [{uid | nr (Nummer der Stunde, 1-basiert), stundenfrage?, ablauf?}] (1–30). Ohne baseVersion gilt die gerade gelesene Version; wer Nummern nennt,
+   muss die Version angeben, zu der sie gehören. → {version, rows: [{n, uid, stundenfrage, ablauf, date}]} */
+export const ROWS_MAX = 30;
+export async function updateRows(db, unitId, changes, baseVersion, source, now) {
+  const u = await getUnit(db, unitId), rows = parseJ(u.rows, []), list = Array.isArray(changes) ? changes : [];
+  if (!list.length || list.length > ROWS_MAX) throw bad("Bitte 1 bis " + ROWS_MAX + " Stunden angeben.");
+  if (baseVersion == null && list.some((c) => c && c.uid === undefined && c.nr !== undefined))
+    throw bad("Wer Stunden mit ihrer Nummer (nr) angibt, übergibt base_version aus get_unit – die Nummern gelten für diese Version.");
+  const ver = baseVersion == null ? u.version : Number(baseVersion);
+  if (ver !== u.version) throw new HttpError(409, "unit_conflict", "Die Einheit wurde inzwischen an anderer Stelle geändert. Bitte neu laden.", { version: u.version });
+  const seen = new Set(), out = [];
+  list.forEach((c, k) => {
+    const x = c && typeof c === "object" ? c : {}, tag = "Eintrag " + (k + 1) + " von stunden";
+    let i = -1;
+    if (typeof x.uid === "string" && /^[a-f0-9]{8}$/.test(x.uid)) i = rows.findIndex((r) => r.uid === x.uid);
+    else if (x.uid === undefined && Number.isInteger(x.nr) && x.nr >= 1 && x.nr <= rows.length) i = x.nr - 1;
+    else if (x.uid === undefined && x.nr === undefined) throw bad(tag + ": Bitte uid oder nr der Stunde (aus get_unit) angeben.");
+    if (i < 0) throw new HttpError(404, "not_found", tag + ": Diese Stunde steht nicht (mehr) in der Einheit (" + (x.uid !== undefined ? "uid " + String(x.uid).slice(0, 20) : "nr " + String(x.nr).slice(0, 10)) + ").");
+    if (seen.has(i)) throw bad(tag + ": Stunde " + (i + 1) + " steht doppelt in der Liste.");
+    seen.add(i);
+    const hasQ = typeof x.stundenfrage === "string" && x.stundenfrage.trim(), hasA = Array.isArray(x.ablauf) && x.ablauf.some((y) => String(y).trim());
+    if (!hasQ && !hasA) throw bad(tag + " (Stunde " + (i + 1) + "): Bitte stundenfrage und/oder ablauf angeben.");
+    rows[i] = rowChange(rows[i], x);
+    out.push({ n: i + 1, uid: rows[i].uid, stundenfrage: rows[i].stundenfrage, ablauf: rows[i].ablauf, date: rows[i].date || null });
+  });
+  const version = await saveUnit(db, unitId, { rows: JSON.stringify(rows) }, ver, source, now);
+  return { version, rows: out.sort((a, b) => a.n - b.n) };
+}
+
+/* ---------- Einheit verlängern (Anforderung 13 c; extend_unit, nur nach Zustimmung der Lehrkraft) ----------
+ * Die nächsten `termine` (1–3) Termine laut Stundenplan nach dem bisherigen Ende (Ferien, Ausfälle, Klausurtag wie computeSlots; nur Termine, die noch
+ * nicht vorbei sind): das Ende rückt auf den letzten davon; zuerst bekommen Zeilen ohne Termin (Grundschule nach einer Krankmeldung; am Gymnasium nur
+ * Zeilen ohne Sitzung) diese Termine, dann die neuen Stunden. Übrige Termine bleiben frei; bestehende Sitzungen behalten ihre Termine. Hat die Einheit
+ * schon Sitzungen (Status „geplant“), entstehen sie für die neuen bzw. jetzt datierten Zeilen gleich mit (Grundschule: Sitzungen ohne Termin bekommen
+ * Datum, Beginn und Dauer). Ein Batch, an die Version gebunden. → {version, oldEnd, end, rows: [{n, uid, stundenfrage, date, time, minutes, lessonId,
+ * created, fresh}], free: [Termin], pending (Sitzungen, die noch fehlen)} */
+export const EXTEND_MAX = 3;
+export async function extendUnit(db, u, opts, source, now) {
+  const gs = u.subject === GS_SUBJECT, ver = Number(opts.baseVersion), n = Number(opts.termine);
+  if (!Number.isInteger(ver)) throw bad("Bitte base_version aus get_unit angeben.");
+  if (ver !== u.version) throw new HttpError(409, "unit_conflict", "Die Einheit wurde inzwischen an anderer Stelle geändert. Bitte neu laden.", { version: u.version });
+  if (!Number.isInteger(n) || n < 1 || n > EXTEND_MAX) throw bad("termine muss 1, 2 oder 3 sein (so viele Termine laut Stundenplan kommen nach dem bisherigen Ende dazu).");
+  const params = normalizeParams(parseJ(u.params, {}));
+  if (!params.end || !params.weekdays.length) throw bad("Die Einheit hat in den Rahmendaten noch kein Ende oder keinen Stundenplan – das trägt die Lehrkraft in der Plattform ein.");
+  const raw = Array.isArray(opts.stunden) ? opts.stunden : [];
+  if (raw.length > n) throw bad("Mehr neue Stunden (" + raw.length + ") als Termine (" + n + "): Jede neue Stunde braucht einen Termin – erhöhe termine (höchstens " + EXTEND_MAX + ") oder schicke weniger Stunden.");
+  const fresh = raw.map((r, k) => {
+    const x = normalizeRows([r && typeof r === "object" ? { stundenfrage: r.stundenfrage, ablauf: r.ablauf, schritt: r.schritt } : {}], newUid)[0];
+    if (!x || !x.stundenfrage) throw bad("Neue Stunde " + (k + 1) + ": Bitte stundenfrage und ablauf angeben.");
+    return x;
+  });
+  const rows = parseJ(u.rows, []), lessons = await linkedLessons(db, u.id, gs);
+  // Termine nach dem Ende, die keine Zeile schon belegt (z. B. von Hand dahinter eingetragen)
+  const after = slotsAfterEnd(params, n + rows.length, now), used = occupy(after, rows), slots = after.filter((s, i) => !used.has(i)).slice(0, n);
+  if (slots.length < n) throw bad("Nach dem Ende der Einheit (" + fmtDay(params.end) + ") gibt es laut Stundenplan " + (slots.length ? "nur " + slots.length + (slots.length === 1 ? " weiteren Termin" : " weitere Termine") : "keinen weiteren Termin") + ".");
+  const byRow = new Map(lessons.filter((l) => l.row && !l.cancelled).map((l) => [l.row, l]));
+  // Zeilen ohne Termin: Grundschule alle (ihre Sitzungen stehen dann „ohne Termin“), Gymnasium nur ohne Sitzung (Sitzungen behalten ihre Termine)
+  const undated = rows.map((r, i) => ({ r, i })).filter((x) => !x.r.date && (gs || !byRow.has(x.r.uid)));
+  const room = n - Math.min(undated.length, n);
+  if (fresh.length > room) throw bad("Für " + fresh.length + (fresh.length === 1 ? " neue Stunde" : " neue Stunden") + " reichen die Termine nicht: " + Math.min(undated.length, n) + " von " + n +
+    (n === 1 ? " Termin geht" : " Terminen gehen") + " zuerst an Stunden ohne Termin (" + undated.slice(0, n).map((x) => "Stunde " + (x.i + 1) + " „" + x.r.stundenfrage + "“").join(", ") + "). Erhöhe termine (höchstens " + EXTEND_MAX + ") oder schicke weniger Stunden.");
+  let k = 0;
+  const changed = [];
+  for (const x of undated) {
+    if (k >= n) break;
+    const s = slots[k++];
+    rows[x.i] = { ...x.r, date: s.date, time: s.time || null, minutes: s.minutes };
+    changed.push({ i: x.i, fresh: false });
+  }
+  for (const r of fresh) { const s = slots[k++]; rows.push({ ...r, date: s.date, time: s.time || null, minutes: s.minutes }); changed.push({ i: rows.length - 1, fresh: true }); }
+  const free = slots.slice(k), end = slots[n - 1].date, uids = new Set(changed.map((c) => rows[c.i].uid));
+  const fields = { params: JSON.stringify({ ...params, end }), rows: JSON.stringify(rows) };
+  const rev = reviseData(u.revise);
+  if (gs && rev) fields.revise = JSON.stringify({ ...rev, undated: rows.filter((r) => !r.date).map((r) => r.uid), undo: null });
+  // Sitzungen: nur, wenn die Einheit schon festgelegt ist
+  const planned = u.status === "geplant";
+  const toCreate = planned ? changed.map((c) => rows[c.i]).filter((r) => !byRow.has(r.uid)) : [];
+  const newLessons = toCreate.map((r) => ({ id: randomId(8), code: generateCode(), title: cleanLine(r.stundenfrage, 200) || u.title || "Sitzung", date: r.date, min: r.minutes ?? null, row: r.uid, time: r.time || null }));
+  const G = "EXISTS(SELECT 1 FROM units WHERE id=?3 AND version=?4)", stmts = [];
+  if (gs) { const dated = lessons.filter((l) => !l.cancelled && l.row && uids.has(l.row)); if (dated.length) stmts.push(mirrorStmt(db, rows, dated, now, G, u.id, ver)); }
+  if (newLessons.length) {
+    stmts.push(db.prepare("INSERT INTO lessons(id, subject, klass, title, topic, duration_min, lesson_date, ideas, homework, code, unit_id, unit_row, created_at, updated_at, start_time) " +
+      "SELECT json_extract(value,'$.id'), ?1, ?2, json_extract(value,'$.title'), ?5, json_extract(value,'$.min'), json_extract(value,'$.date'), '', '', json_extract(value,'$.code'), ?3, json_extract(value,'$.row'), ?6, ?6, json_extract(value,'$.time') " +
+      "FROM json_each(?7) WHERE EXISTS(SELECT 1 FROM units WHERE id=?3 AND version=?4) ON CONFLICT DO NOTHING")
+      .bind(u.subject, u.klass, u.id, ver, cleanLine(u.title || parseJ(u.plan, {}).titel || "", 500), now, JSON.stringify(newLessons)));
+    // Begrüßung des Planungschats wie createLessonsBulk – in der Grundschule gibt es keinen Planungschat
+    if (!gs) stmts.push(db.prepare("INSERT INTO chat(lesson_id, role, content, model, created_at) SELECT json_extract(value,'$.id'), 'assistant', json_extract(value,'$.g'), 'begruessung', ?2 FROM json_each(?1) " +
+      "WHERE EXISTS(SELECT 1 FROM lessons l WHERE l.id=json_extract(value,'$.id'))")
+      .bind(JSON.stringify(newLessons.map((x) => ({ id: x.id, g: greetingText({ subject: u.subject, klass: u.klass, durationMin: x.min }) }))), now));
+  }
+  const sets = Object.keys(fields).map((f, i) => f + "=?" + (i + 4));
+  stmts.push(db.prepare("UPDATE units SET " + sets.join(", ") + ", updated_at=?2, source=?3, version=version+1 WHERE id=?1 AND version=?" + (Object.keys(fields).length + 4) + " RETURNING version")
+    .bind(u.id, now, source, ...Object.values(fields), ver));
+  stmts.push(db.prepare("SELECT id, unit_row FROM lessons WHERE unit_id=?1 AND cancelled=0").bind(u.id));
+  const res = await db.batch(stmts);
+  const last = (res[res.length - 2].results || [])[0];
+  if (!last) {
+    const cur = await db.prepare("SELECT version FROM units WHERE id=?1").bind(u.id).first();
+    throw new HttpError(409, "unit_conflict", "Die Einheit wurde inzwischen an anderer Stelle geändert. Bitte neu laden.", { version: cur ? cur.version : null });
+  }
+  const lessonOf = new Map((res[res.length - 1].results || []).map((x) => [x.unit_row, x.id]));
+  const made = new Set(newLessons.filter((x) => lessonOf.get(x.row) === x.id).map((x) => x.row));
+  const out = changed.map((c) => { const r = rows[c.i]; return { n: c.i + 1, uid: r.uid, stundenfrage: r.stundenfrage, date: r.date, time: r.time || null, minutes: r.minutes ?? null,
+    lessonId: lessonOf.get(r.uid) || null, created: made.has(r.uid), fresh: c.fresh }; });
+  return { version: last.version, oldEnd: params.end, end, rows: out, free, pending: planned ? out.filter((r) => !r.lessonId).length : 0 };
 }
 export async function routeUnitRowPut(c, id, uid) {
   await requireTeacher(c);

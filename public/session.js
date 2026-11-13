@@ -10,7 +10,7 @@ import { extractUnitChange, stripUnitBlock, unitContext, claudeLessonPrompt, les
 import { claudeHandoff } from "./claude.js";
 import { leupoldView } from "./units.js";
 import { substituteCards } from "./substitute.js";
-import { paintPortalPreview, portalPreview, contextMenu } from "./portalview.js";
+import { paintPortalPreview, portalPreview, contextMenu, prevStopCard, stopNextHint } from "./portalview.js";
 import { renderMarkdown } from "./markdown.js";
 import { materialBox, dropZone } from "./materialbox.js";
 import { personLabel, personKey, cleanPhoto, PHOTO_TASKS_MAX } from "./fbclient.js";
@@ -213,10 +213,20 @@ export async function sessionPage(id) {
   /* ---- Zwischenstopp: Rechtsklick auf eine Zeile (Textfeld oder Vorschau) → „Zwischenstopp einfügen“ (vor dieser Zeile) ---- */
   const stopBtn = h("button", { class: "btn", type: "button", title: "Vor der Zeile mit der Schreibmarke einfügen" }, icon("pause"), "Zwischenstopp einfügen");
   const unstopBtn = h("button", { class: "btn ghost hidden", type: "button" }, "Zwischenstopp entfernen");
-  function updateStopBtns() { if (portalTA) unstopBtn.classList.toggle("hidden", !hasStop(portalTA.value)); }
+  // nach dem Setzen: Hinweis, dass Claude beim Planen der nächsten Sitzung nach dem offenen Teil fragt (Anforderung 13) – bis der Zwischenstopp wieder weg ist
+  const stopNext = h("p", { class: "hint stopnext hidden", id: "stop-next" });
+  let stopJustSet = false;
+  function updateStopBtns() {
+    if (!portalTA) return;
+    const has = hasStop(portalTA.value);
+    unstopBtn.classList.toggle("hidden", !has);
+    if (!has) stopJustSet = false;
+    stopNext.classList.toggle("hidden", !stopJustSet);
+  }
   const lineAt = (offset) => portalTA.value.slice(0, Math.max(0, offset)).split("\n").length - 1;
   function applyPortalText(t) { portalTA.value = t; paintPreview(); setPresBtn(); schedulePortal(); }
   function insertStopAt(line) {
+    stopJustSet = true; clear(stopNext).append(...stopNextHint(d.nextLesson));
     applyPortalText(insertStop(portalTA.value, line).text);
     toast("Zwischenstopp eingefügt – er bleibt intern und wird nicht ins Schulportal kopiert.", "ok");
   }
@@ -289,6 +299,7 @@ export async function sessionPage(id) {
           toast(ok ? "Eintrag kopiert" + (hasStop(portalTA.value) ? " (ohne Zwischenstopp)" : "") + " – im Schulportal einfügen." : "Bitte manuell kopieren.", ok ? "ok" : "err");
         } }, "Eintrag kopieren"),
         h("button", { class: "btn", type: "button", onclick: (e) => generatePortal(e.currentTarget) }, "Mit KI neu erstellen"))),
+      stopNext,
       h("details", { class: "box small" }, h("summary", null, "Schulportal-Zeichen"), h("ul", null, PORTAL_RULES.map((r) => h("li", { text: r })))));
     paintPreview(); setPresBtn();
     setSaved(L().portalUpdatedAt ? "Gespeichert (Version " + portal.version + ", " + fmtTime(L().portalUpdatedAt) + (L().portalSource === "claude" ? ", von Claude" : "") + ")" : "");
@@ -940,13 +951,19 @@ export async function sessionPage(id) {
       h("p", null, "Claude findet die Sitzung auch selbst (list_lessons). Falls Sie die ID in einem bestehenden Chat nennen möchten:"),
       h("div", { class: "row" }, h("code", { class: "mono", text: id }), h("button", { class: "btn small", type: "button", onclick: async () => toast((await copyText(id)) ? "ID kopiert." : "Kopieren nicht möglich.", "ok") }, "Kopieren"))));
 
-  const ps = d.previousStop;
-  const prevCard = ps ? h("section", { class: "card prevstop", role: "note" },
-    h("h2", { text: "Hinweis: Die letzte Stunde wurde nicht vollständig beendet" }),
-    h("p", { class: "small" }, "In der vorigen Sitzung „", h("strong", { text: ps.title }), "“ (" + fmtDay(ps.date) + ") ist ein Zwischenstopp markiert. Ihr Schulportal-Eintrag:"),
-    portalPreview(ps.portal),
-    h("div", { class: "row", style: { marginTop: ".6rem" } }, h("a", { class: "btn small", href: "#/lk/s/" + ps.id }, "Vorige Sitzung öffnen"),
-      h("button", { class: "btn small ghost", type: "button", onclick: (e) => e.currentTarget.closest(".prevstop").remove() }, "Ausblenden"))) : null;
+  // Hinweis auf den offenen Teil der vorigen Sitzung (Zwischenstopp) samt Stand der Entscheidung mit Claude – beim Zurückkehren neu (onVis)
+  // (direkt vor „Stunde mit Claude planen“; ohne Zwischenstopp gibt es die Karte nicht)
+  let prevEl = null, prevHidden = false;
+  const prevCardOf = () => { const ps = d.previousStop; return ps && !prevHidden ? prevStopCard(ps, { gs: false, preview: portalPreview(ps.portal), unit: !!st.unit, onHide: () => { prevHidden = true; prevEl = null; },
+    focusAfter: () => planCard.querySelector("h2") }) : null; };
+  const paintPrev = () => {
+    if (prevEl && prevEl.contains(document.activeElement)) return;   // nie unter dem Fokus neu aufbauen
+    const next = prevCardOf();
+    if (prevEl) prevEl.remove();
+    prevEl = next;
+    if (next && planCard.parentNode) planCard.before(next);
+  };
+  prevEl = prevCardOf();
   const sub = substituteCards({ id, st, L, ctx, fb, analog, reload: () => sessionPage(id), openDraft: (dr, o) => editDraft(dr, { substitute: true, ...o }), flushPortal });
 
   /* ======================= Sitzung als Datei (ganz unten): herunterladen und – in einer anderen Sitzung – wieder laden ======================= */
@@ -1014,7 +1031,7 @@ export async function sessionPage(id) {
     h("p", { class: "hint", text: "Beim Laden einer Datei bleiben Datum, Beginn und Dauer dieser Sitzung; Datumsangaben in den Texten passt Unterricks an diese Sitzung an. Notfall-Feibeitsblätter entstehen neu, sobald die Feibeitsblätter angelegt sind." }));
 
   main.append(h("div", { class: "session-grid" },
-    h("div", { class: "stack" }, sub.main, prevCard, planCard, unitCard, chatCard, portalCard, hwCard, presPromptCard, filesCard, presCard, fbCard, printCard),
+    h("div", { class: "stack" }, sub.main, prevEl, planCard, unitCard, chatCard, portalCard, hwCard, presPromptCard, filesCard, presCard, fbCard, printCard),
     h("aside", { class: "side" }, codeCard, metaCard, sub.side)), ioCard);
 
   // Änderungen von außen (z. B. Claude über den Connector) beim Zurückkehren übernehmen
@@ -1029,6 +1046,9 @@ export async function sessionPage(id) {
       const subKey = (x) => (x ? x.status + ":" + x.updatedAt : "");
       if (subKey(r.substitute) !== subKey(st.sub)) { st.drafts = r.drafts; st.sub = r.substitute; sub.paint(); if (r.substitute && r.substitute.status === "vorschlag") toast("Claude hat einen Vertretungsvorschlag gespeichert – bitte prüfen.", "ok", 6000); }
       if (r.unit && st.unit && r.unit.version !== st.unit.version) { st.unit = r.unit; paintUnit(); }
+      // Zwischenstopp der vorigen Sitzung: inzwischen gesetzt, verschoben oder (mit Claude) entschieden – auch der Prompt nimmt dann den neuen Stand
+      if (JSON.stringify(r.previousStop || null) !== JSON.stringify(d.previousStop || null)) { d.previousStop = r.previousStop; paintPrev(); }
+      d.nextLesson = r.nextLesson;
       // Hausaufgabe und Sitzungsdaten (z. B. von Claude mit update_lesson) – nie in ein Feld schreiben, das gerade bearbeitet wird
       const busyField = (el) => document.activeElement === el;
       if ((r.lesson.homework || "") !== (L().homework || "") && !busyField(hwTA) && !hwT && hwTA.value === (L().homework || "")) {

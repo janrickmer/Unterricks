@@ -18,7 +18,7 @@ implementiert und im End-to-End-Test geprüft (Ausnahmen unten ausdrücklich gen
 | Schülerzugang | **Gerätegebunden**, ohne Konten und ohne Personendaten |
 | Datum (Ergänzung) | **Pflicht**, jederzeit änderbar – es wird **nur diese Sitzung** geändert (das Mitverschieben folgender Sitzungen entfällt seit der Ergänzung vom 10.11.2026; bei Krankheit gibt es stattdessen die Vertretungsalternative) |
 | Hausaufgabe (Ergänzung) | eigenes Feld je Sitzung; Schüler:innen sehen sie „bis zur nächsten Sitzung“ (Datum automatisch) |
-| Zwischenstopp (Ergänzung) | per Rechtsklick **vor** der angeklickten Zeile, **nur intern** (nicht im Schulportal); **nur Markierung** – beim Planen der nächsten Stunde ein Hinweis mit dem Eintrag der letzten Stunde |
+| Zwischenstopp (Ergänzung) | per Rechtsklick **vor** der angeklickten Zeile, **nur intern** (nicht im Schulportal); beim Planen der nächsten Stunde erklärt Claude den offenen Teil und fragt „übernehmen oder verzichten“, danach passt Claude die Einheit an (Anforderung 13, Abschnitt 4a) |
 | KI für Einheitenplanung und Vertretung | **Claude mit dem Pro-Abo über den Connector**; vorher fragt die Plattform Sprachmodell und Aufwand ab (Einstellung erfolgt in claude.ai) |
 | Sitzungen aus der Einheit | **Automatisch mit Datum**: die festgelegte Einheit erzeugt je Zeile eine Sitzung (Termine aus Stundenplan, Zeitraum, Ferien, Klausur) |
 | Oberstufe | **Grund- und Leistungskurs parallel** je Kurshalbjahr (Q1 GK … Q4 LK) |
@@ -278,6 +278,52 @@ implementiert und im End-to-End-Test geprüft (Ausnahmen unten ausdrücklich gen
   eine neue an, erscheint der Hinweis „Die letzte Stunde wurde nicht vollständig beendet“ mit dem Schulportal-Eintrag der letzten
   Sitzung samt markiertem Zwischenstopp. Inhalte werden nicht automatisch übernommen (Entscheidung der Lehrkraft). Maßgeblich für
   den Hinweis beim Anlegen ist die zuletzt gehaltene Sitzung (Datum bis heute).
+* **Offener Teil → nächste Sitzung → Einheit (Anforderung 13 vom 13.11.2026, beide Schulformen).** Der Zwischenstopp ist dieselbe Zeile
+  im Schulportal-Eintrag (Gymnasium) bzw. im Verlaufsplan (Grundschule). `stopParts` (public/shared.js) teilt den Eintrag in „Geschafft“
+  (davor) und „Nicht geschafft“ (danach). `GET /api/teacher/lessons/<id>` liefert `previousStop` = die vorige Sitzung (`previousLesson`: Fach
+  und Klasse bzw. Kurs, nicht ausgefallen) mit Zwischenstopp: `{id, title, date, portal, portalVersion, done, open, unitId, unitRow (nur
+  dieselbe Einheit), sameUnit, unitTitle (andere Einheit), row: {uid, n, total, stundenfrage, ablauf} (geplante Zeile der vorigen Stunde),
+  decision, openFiles (Grundschule: PDFs, auf die der offene Teil verweist)}` (`prevStopInfo` in worker/lessons.js) und `nextLesson` (die
+  folgende Sitzung, `planned` = Eintrag bzw. Verlaufsplan oder ein Stundenentwurf von Claude).
+  * **Entscheidung.** Neue Spalte `lessons.stop_decision` (JSON `{v:1, choice: "uebernehmen"|"verzichten", prevId, prevVersion, at}`) – Claude
+    hält die Antwort der Lehrkraft mit `update_lesson` (`zwischenstopp`) fest (ohne Zwischenstopp der vorigen Sitzung: Fehler „Die vorige
+    Sitzung hat keinen Zwischenstopp.“; Ausfall-Einträge nehmen nichts an). Sie gilt nur, solange die vorige Sitzung dieselbe ist und ihr
+    Eintrag dieselbe Version hat (`stopDecision`) – ist der Zwischenstopp verschoben oder der Eintrag geändert, gilt wieder „noch nicht
+    entschieden“.
+  * **Prompt „Stunde mit Claude planen“** (beide Schulformen, Bausteine `stopCarrySection`/`stopCarryStep`/`stopFallbackText` in
+    public/planning.js): Abschnitt „## Vorige Stunde nicht vollständig beendet“ (vorige Sitzung mit ID, geplante Zeile, Geschafft und Nicht
+    geschafft im Wortlaut, in der Grundschule das Material danach mit file_id, Stand) und ein eigener Schritt direkt nach `get_lesson`: erklären
+    und fragen (übernehmen oder verzichten, mit `update_lesson` festhalten); **übernehmen** = in diese Stunde einplanen, was keinen Platz mehr
+    hat, rückt in die nächste Stunde usw., die Termine bleiben; bleibt am Ende etwas übrig: um eine Stunde verlängern oder kürzen (genau drei
+    Vorschläge, einer als Favorit mit Begründung); **verzichten** = ohne den offenen Teil planen. Erst nach der bestätigten und gespeicherten
+    Stunde passt Claude die Einheit an: übernehmen → `extend_unit` (bei Verlängerung) und `update_unit_row` mit `stunden` (Zeile der vorigen
+    Stunde = was tatsächlich behandelt wurde, diese und jede weitere geänderte Stunde, die Kürzung); verzichten → `update_unit_row` mit der
+    `lesson_id` der vorigen Sitzung (Ablauf = was behandelt wurde + „Verzichtet: …“), die folgenden Stunden bleiben. Ist schon entschieden,
+    fragt Claude nicht erneut. Ohne Connector gibt Claude die geänderten Zeilen als Tabelle aus, samt dem neuen Ende (nächster Termin laut
+    Stundenplan). Ohne Zwischenstopp sind beide Prompts byte-gleich zum Stand davor (Unit-Test mit SHA-256).
+  * **Connector.** `get_lesson` (beide Schulformen) enthält denselben Abschnitt mit den Regeln (`stopLessonLines`) – so wirkt ein
+    Zwischenstopp auch, wenn der Prompt vorher kopiert wurde. `update_unit_row` nimmt zusätzlich `stunden: [{uid | nr, stundenfrage?,
+    ablauf?}]` (1–30, nur mit `unit_id`, `base_version`; mit `nr` = Nummer der Stunde in `get_unit` – am Gymnasium nennt `get_unit` keine
+    uid – ist `base_version` Pflicht) und speichert alle Zeilen in **einer** versionsgeprüften Speicherung (`updateRows`, worker/units.js);
+    ein Fehler ändert nichts. Neues Werkzeug **`extend_unit`** (`extendUnit`): `{unit_id, base_version, termine 1–3, stunden 0–termine,
+    begruendung?}` – nur nach Zustimmung der Lehrkraft; die nächsten Termine laut Stundenplan nach dem bisherigen Ende (`slotsAfterEnd`:
+    Ferien, Ausfälle und Klausurtag wie `computeSlots`, nur kommende, keine schon belegten), das Ende rückt auf den letzten, zuerst bekommen
+    Zeilen ohne Termin (Grundschule nach einer Krankmeldung; am Gymnasium nur Zeilen ohne Sitzung) diese Termine, dann die neuen Stunden;
+    übrige bleiben frei; mehr Stunden als Platz → Fehler. Ist die Einheit festgelegt, entstehen die Sitzungen gleich mit (Gymnasium mit
+    Begrüßung des Planungschats; Grundschule: Sitzungen ohne Termin bekommen Datum, Beginn und Dauer per `mirrorStmt`). Ein Batch, an die
+    Version gebunden (Sitzungen, ggf. Termine, Einheit mit `RETURNING`, Liste der Sitzungen); bestehende Sitzungen und Klausurtermine bleiben.
+    `save_schulportal_entry` und `save_verlaufsplan`: „Eine vorhandene Zeile „⏸ Zwischenstopp“ lässt du unverändert an ihrer Stelle; setze
+    selbst keine.“ Der Prompt „Einheit nach Ausfällen überarbeiten“ bietet das Verlängern jetzt über `extend_unit` an (statt „das trage ich in
+    den Rahmendaten ein“).
+  * **Backup-Chat (kostenlose KI).** Der System-Prompt bekommt bei einem Zwischenstopp der vorigen Sitzung denselben Abschnitt
+    (`stopChatSection`, über die Lehrkraft gesprochen); da diese KI nichts speichern kann, nennt sie die Änderungen der Einheit zum Übertragen.
+  * **Oberfläche.** Die Karte „Hinweis: Die letzte Stunde wurde nicht vollständig beendet“ (`prevStopCard` in public/portalview.js) zeigt den
+    Eintrag der vorigen Sitzung wie bisher, „Nicht geschafft:“ (die Phasen des offenen Teils) und den Stand (ohne Entscheidung: was beim
+    Planen mit Claude passiert; sonst „Entschieden am …: …“) – Gymnasium vor „Stunde mit Claude planen“, Grundschule direkt unter dem
+    Verlaufsplan (der bleibt erste Karte). Beim Zurückkehren in den Tab aktualisiert sie sich (auch der Prompt nimmt den neuen Stand). Nach
+    dem Setzen eines Zwischenstopps steht am Editor bzw. unter dem Verlaufsplan „Zwischenstopp gesetzt. …“ – ist die nächste Sitzung schon
+    geplant, mit dem Hinweis, dass „Stunde mit Claude planen“ dort erneut fragt (mit Link). Einen Knopf zum Entscheiden gibt es in der
+    Plattform nicht – die Entscheidung fällt im Dialog mit Claude.
 
 ## 4b. Unterrichtseinheiten, Planungsgrundlagen, Krankheitsvertretung (Ergänzung vom 10.11.2026)
 
@@ -846,7 +892,7 @@ stattdessen der von Anthropic vorgesehene Weg in umgekehrter Richtung (Connector
   Die Claude-Prompts (Stunde, Einheit, Vertretung, Präsentation) sind feste Vorlagen ohne KI-Aufruf und deshalb immer
   reproduzierbar. Der Prompt „Stunde mit Claude planen“ (`claudeLessonPrompt` in `planning.js`) beginnt mit der festen Rolle,
   enthält Sitzung, Einheit (Regel: Ablauf nur Inspiration, Abweichungen mit `update_unit_row` festhalten), eine nicht beendete
-  vorige Stunde und den bisherigen Chat-Verlauf und nennt die Werkzeuge zum Speichern (`save_schulportal_entry` mit
+  vorige Stunde (Geschafft/Nicht geschafft, Frage „übernehmen oder verzichten“, Abschnitt 4a) und den bisherigen Chat-Verlauf und nennt die Werkzeuge zum Speichern (`save_schulportal_entry` mit
   `base_version`, `save_planning_result`, `add_text_material`, `propose_feibeitsblatt` – auch mit Foto-Aufgabe –, `update_lesson`
   für Hausaufgabe und Sitzungsdaten). Beim Zurückkehren übernimmt die Sitzungsseite Hausaufgabe, Sitzungsdaten, Material,
   Entwürfe, Verlauf und Schulportal-Eintrag – nie in ein Feld, das gerade bearbeitet wird.

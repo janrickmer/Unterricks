@@ -1,6 +1,6 @@
 // portalview.js – Vorschau eines Schulportal-Eintrags (Schulportal-Zeichen) samt internem Zwischenstopp-Feld.
 import { h, icon } from "./ui.js";
-import { parsePortalMarkup, parsePlanMarkup } from "./shared.js";
+import { parsePortalMarkup, parsePlanMarkup, fmtDay, STOP_CHOICE_TEXT, stopDecidedOn } from "./shared.js";
 
 export function runsNodes(runs) {
   return runs.map((r) => {
@@ -125,4 +125,51 @@ export function contextMenu(x, y, items) {
   setTimeout(() => { document.addEventListener("mousedown", outside, true); document.addEventListener("keydown", esc, true); window.addEventListener("scroll", close, true); }, 0);
   const first = menu.querySelector("button"); if (first) first.focus();
   return close;
+}
+
+/* ---------- Offener Teil nach einem Zwischenstopp (Anforderung 13) ----------
+ * Kurzfassung des offenen Teils: die Phasen (Zeilen ohne „- “), sonst die ersten Stichpunkte – Verweise mit dem Namen der PDF (nameOf) */
+export function stopOpenSummary(open, { gs = false, nameOf = () => null } = {}) {
+  const plain = (ln) => ln.runs.map((r) => (r.file !== undefined ? nameOf(r.file) || "PDF" : r.text)).join("").replace(/\s+/g, " ").trim();
+  // „--> Nächste Stunde“ (Schulportal) ist nur eine Markierung, kein Inhalt
+  const lines = (gs ? parsePlanMarkup(open) : parsePortalMarkup(open)).filter((ln) => (ln.type === "p" || ln.type === "li") && !/^\s*-->/.test(plain(ln)));
+  const heads = lines.filter((ln) => ln.type === "p").map(plain).filter(Boolean);
+  const list = (heads.length ? heads : lines.map(plain).filter(Boolean)).slice(0, 8);
+  const s = list.join("; ");
+  return s.length > 400 ? s.slice(0, 397) + "…" : s;
+}
+/* Karte „Hinweis: Die letzte Stunde wurde nicht vollständig beendet“ (Gymnasium über „Stunde mit Claude planen“, Grundschule unter dem Verlaufsplan):
+   der Eintrag der vorigen Sitzung (preview), „Nicht geschafft:“ und der Stand der Entscheidung. ps = previousStop (GET lesson); opt = {gs, preview, nameOf,
+   unit (diese Sitzung gehört zu einer Einheit), id, onHide, focusAfter (→ Element für den Fokus nach „Ausblenden“)} */
+export function prevStopCard(ps, opt) {
+  const gs = !!opt.gs, d = ps.decision && STOP_CHOICE_TEXT[ps.decision.choice] ? ps.decision : null, id = opt.id || "prevstop";
+  const sum = stopOpenSummary(ps.open != null ? ps.open : "", { gs, nameOf: opt.nameOf });
+  const adjusts = !!(opt.unit || ps.row);
+  const state = d ? "Entschieden am " + stopDecidedOn(d) + ": " + STOP_CHOICE_TEXT[d.choice]
+    : "Beim Planen mit Claude („Stunde mit Claude planen“) erklärt Claude, was offen geblieben ist, und fragt Sie, ob es in diese Stunde übernommen oder darauf verzichtet wird." +
+      (adjusts ? " Danach passt Claude die Unterrichtseinheit an." : "");
+  return h("section", { class: "card prevstop", id, role: "note", "aria-labelledby": id + "-h" },
+    h("h2", { id: id + "-h", text: "Hinweis: Die letzte Stunde wurde nicht vollständig beendet" }),
+    h("p", { class: "small" }, "In der vorigen Sitzung „", h("strong", { text: ps.title }), "“ (" + fmtDay(ps.date) + ") ist ein Zwischenstopp markiert. " + (gs ? "Ihr Verlaufsplan:" : "Ihr Schulportal-Eintrag:")),
+    opt.preview,
+    h("p", { class: "small stopopen", id: id + "-open" }, h("strong", { text: "Nicht geschafft: " }), sum || "(nach dem Zwischenstopp steht nichts mehr)"),
+    h("p", { class: "small stopstate" + (d ? " decided" : ""), id: id + "-state", text: state }),
+    h("div", { class: "row", style: { marginTop: ".6rem" } }, h("a", { class: "btn small", href: "#/lk/s/" + ps.id }, "Vorige Sitzung öffnen"),
+      h("button", { class: "btn small ghost", type: "button", onclick: (e) => {
+        const card = e.currentTarget.closest(".prevstop"); if (opt.onHide) opt.onHide(); card.remove();
+        // der Knopf ist weg: den Fokus nicht auf der Seite verlieren (nur, wenn er nicht schon woanders ist) – opt.focusAfter liefert das Ziel
+        const a = document.activeElement, x = opt.focusAfter ? opt.focusAfter() : null;
+        if ((!a || a === document.body || !a.isConnected) && x && x.isConnected) {
+          if (!/^(A|BUTTON|INPUT|TEXTAREA|SELECT)$/.test(x.tagName) && !x.hasAttribute("tabindex")) x.setAttribute("tabindex", "-1");
+          x.focus({ preventScroll: true });
+        }
+      } }, "Ausblenden")));
+}
+/* Hinweis direkt nach dem Setzen eines Zwischenstopps: Beim Planen der nächsten Sitzung fragt Claude nach – ist sie schon geplant, dort erneut.
+   next = nextLesson (GET lesson: {id, title, date, planned} | null) */
+export function stopNextHint(next) {
+  const ask = "ob der offene Teil übernommen oder darauf verzichtet wird.";
+  if (next && next.planned) return [h("strong", { text: "Zwischenstopp gesetzt." }), " Die nächste Sitzung „" + next.title + "“" + (next.date ? " (" + fmtDay(next.date) + ")" : "") +
+    " ist schon geplant – „Stunde mit Claude planen“ fragt dort erneut, " + ask + " ", h("a", { href: "#/lk/s/" + next.id, text: "Nächste Sitzung öffnen" })];
+  return [h("strong", { text: "Zwischenstopp gesetzt." }), " Beim Planen der nächsten Sitzung mit Claude wird gefragt, " + ask];
 }

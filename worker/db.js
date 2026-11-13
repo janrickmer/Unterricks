@@ -94,6 +94,9 @@ export const COLUMNS = [
   // Planungsgrundlagen: Original-PDF in R2 unter b/<id>.pdf (NULL = nur Text) und wann sie gespeichert wurde
   ["bases", "pdf_size", "INTEGER"],
   ["bases", "pdf_at", "INTEGER"],
+  // Entscheidung der Lehrkraft (mit Claude) zum offenen Teil der vorigen Sitzung nach einem Zwischenstopp: {v:1, choice "uebernehmen"|"verzichten",
+  // prevId, prevVersion, at} als JSON; gilt nur, solange die vorige Sitzung dieselbe ist und ihr Eintrag dieselbe Version hat (stopDecision)
+  ["lessons", "stop_decision", "TEXT"],
 ];
 
 // Indizes über nachträglich ergänzte Spalten (nach den Spalten angelegt; ein Fehler – z. B. alte Doppelungen – hält den Betrieb nicht auf)

@@ -5,12 +5,12 @@
 import { HttpError, json, readJson, sha256Hex, timingSafeEqual, randomToken, LOCKS, lockedFor, registerFail, cleanText, cleanLine } from "./lib.js";
 import { getSetting, setSetting } from "./db.js";
 import { requireTeacher } from "./auth.js";
-import { getLesson, lessonCtx, chatMessages, updateLesson, savePortal, insertDraft, lessonOut, fileOut, LIMITS, previousLesson, cardData, cardVersion } from "./lessons.js";
-import { getUnit, unitFull, applyPlan, updateRow } from "./units.js";
+import { getLesson, lessonCtx, chatMessages, updateLesson, savePortal, insertDraft, lessonOut, fileOut, LIMITS, previousLesson, cardData, cardVersion, prevStopInfo, openFilesOf, stopDecisionJson } from "./lessons.js";
+import { getUnit, unitFull, applyPlan, updateRow, updateRows, extendUnit, ROWS_MAX, EXTEND_MAX } from "./units.js";
 import { planningBasis } from "./bases.js";
 import { gsCourseMap, gsCourseOut, getGsCourse, planningBasisGs } from "./gs.js";
 import { saveProposal, getSubstitute } from "./substitute.js";
-import { paramsText, lessonSlots, WEEKDAYS, freeSlots } from "../public/planning.js";
+import { paramsText, lessonSlots, WEEKDAYS, freeSlots, stopLessonLines, STOP_CHOICES, STOP_CHOICE_TEXT } from "../public/planning.js";
 import { insertTextMaterial, insertPrintText, saveDesign, renderDesign, getFile } from "./files.js";
 import { shortImages } from "./render.js";
 import { ESCAPE_FORMAT_HINT, PART_TYPES } from "../public/escape-data.js";
@@ -83,23 +83,27 @@ const TOOLS = [
     description: "Liefert alle aktuellen Daten einer Sitzung: Fach, Klasse/Jahrgang, Thema, Dauer, Ideen, Planungsverlauf, Schulportal-Eintrag (mit Version), Materialien (Textmaterial im Wortlaut), Feibeitsblätter und Entwürfe.",
     inputSchema: { type: "object", properties: { lesson_id: ID_ARG }, required: ["lesson_id"], additionalProperties: false } },
   { name: "update_lesson", title: "Sitzungsdaten ändern", annotations: wr,
-    description: "Ändert Titel, Thema, Dauer, Datum, Beginn (Uhrzeit), das Notizfeld „Ideen und Wünsche“ oder die Hausaufgabe (bis zur nächsten Sitzung; Schüler:innen sehen sie ab 15 Minuten vor dem Ende der Sitzung) einer Sitzung (nur übergebene Felder).",
+    description: "Ändert Titel, Thema, Dauer, Datum, Beginn (Uhrzeit), das Notizfeld „Ideen und Wünsche“ oder die Hausaufgabe (bis zur nächsten Sitzung; Schüler:innen sehen sie ab 15 Minuten vor dem Ende der Sitzung) einer Sitzung (nur übergebene Felder). " +
+      "Mit zwischenstopp hältst du die Entscheidung der Lehrkraft zum offenen Teil der vorigen Sitzung fest (get_lesson, Abschnitt „Vorige Stunde nicht vollständig beendet“).",
     inputSchema: { type: "object", properties: { lesson_id: ID_ARG, titel: { type: "string", maxLength: 200 }, thema: { type: "string", maxLength: 500 },
       dauer_minuten: { type: "integer", minimum: 5, maximum: 600 }, datum: { type: "string", pattern: "^\\d{4}-\\d{2}-\\d{2}$" },
       beginn: { type: "string", pattern: "^([01]\\d|2[0-3]):[0-5]\\d$", description: "Uhrzeit des Unterrichtsbeginns, z. B. 07:45" }, ideen: { type: "string", maxLength: 20000 },
       hausaufgabe: { type: "string", maxLength: 10000, description: "Schulportal-Zeichen erlaubt; leer = keine Hausaufgabe (Grundschule: schlichter Text für Eltern und Kinder, ohne Schulportal-Zeichen; Eltern sehen sie nach der Stunde)" },
-      inhalt_eltern: { type: "string", maxLength: 800, description: "nur Grundschule: Inhalt der Unterrichtsstunde für die Eltern – 2–3 Sätze, elternverständlich: worum es ging und was die Kinder lernen sollten; nie Namen von Kindern" } }, required: ["lesson_id"], additionalProperties: false } },
+      inhalt_eltern: { type: "string", maxLength: 800, description: "nur Grundschule: Inhalt der Unterrichtsstunde für die Eltern – 2–3 Sätze, elternverständlich: worum es ging und was die Kinder lernen sollten; nie Namen von Kindern" },
+      zwischenstopp: { type: "string", enum: STOP_CHOICES, description: "Entscheidung der Lehrkraft zum offenen Teil der vorigen Sitzung nach ihrem Zwischenstopp: \"uebernehmen\" (in diese Stunde einbauen) oder \"verzichten\" – nur, was die Lehrkraft entschieden hat" } },
+      required: ["lesson_id"], additionalProperties: false } },
   { name: "save_planning_result", title: "Planungsergebnis in der Sitzung speichern", annotations: wr,
     description: "Speichert ein Planungsergebnis (z. B. den ausgearbeiteten Stundenentwurf) als Nachricht „Claude“ im Planungsverlauf der Sitzung, damit Schulportal-Eintrag und Präsentations-Prompt der Plattform darauf aufbauen.",
     inputSchema: { type: "object", properties: { lesson_id: ID_ARG, text: { type: "string", description: "Markdown", maxLength: 100000 } }, required: ["lesson_id", "text"], additionalProperties: false } },
   { name: "save_schulportal_entry", title: "Schulportal-Eintrag speichern", annotations: { ...wr, destructiveHint: true },
     description: "Ersetzt den Schulportal-Eintrag der Sitzung. Format: Schulportal-Zeichen (**fett**, ~~kursiv~~, __unterstrichen__, --durchgestrichen--, Zeilen mit \"- \"), Struktur wie in der Vorlage (nummerierte fette Phasen, Stichpunkte, „--> Nächste Stunde“). " + PORTAL_TEACHER_RULE + " " +
+      "Eine vorhandene Zeile „" + STOP_LINE + "“ lässt du unverändert an ihrer Stelle; setze selbst keine. " +
       "Übergib base_version aus get_lesson, damit keine neuere Änderung der Lehrkraft überschrieben wird.",
     inputSchema: { type: "object", properties: { lesson_id: ID_ARG, text: { type: "string", maxLength: 30000 }, base_version: { type: "integer", minimum: 0 } }, required: ["lesson_id", "text"], additionalProperties: false } },
   { name: "save_verlaufsplan", title: "Verlaufsplan speichern (Grundschule)", annotations: { ...wr, destructiveHint: true },
     description: "Nur für Sitzungen der Grundschule (statt des Schulportal-Eintrags): ersetzt den Verlaufsplan der Sitzung. Format: " + VERLAUFSPLAN_RULES + " " +
       "Lege das Material vorher an (add_material_pdf, Bildkarten mit add_picture_cards) und nimm seine file_id aus der Antwort oder aus get_lesson. " +
-      "Eine Zeile „" + STOP_LINE + "“ setzt nur die Lehrkraft (bis dorthin wurde die Stunde geschafft): Eltern sehen nur das Material bis zum Zwischenstopp – setze selbst keinen. " +
+      "Eine Zeile „" + STOP_LINE + "“ setzt nur die Lehrkraft (bis dorthin wurde die Stunde geschafft): Eltern sehen nur das Material bis zum Zwischenstopp. Eine vorhandene Zeile „" + STOP_LINE + "“ lässt du unverändert an ihrer Stelle; setze selbst keine. " +
       "Übergib base_version aus get_lesson, damit keine neuere Änderung der Lehrkraft überschrieben wird. Beispiel:\n" + VERLAUFSPLAN_EXAMPLE,
     inputSchema: { type: "object", properties: { lesson_id: ID_ARG, text: { type: "string", maxLength: 30000 }, base_version: { type: "integer", minimum: 0 } }, required: ["lesson_id", "text"], additionalProperties: false } },
   { name: "add_material_pdf", title: "Material gestalten (PDF)", annotations: wr,
@@ -185,9 +189,25 @@ const TOOLS = [
         stundenfrage: { type: "string", maxLength: 400 }, ablauf: { type: "array", items: { type: "string", maxLength: 400 }, maxItems: 15 }, schritt: { type: "integer", minimum: 0, maximum: 14 } }, required: ["stundenfrage", "ablauf"] } } },
       required: ["unit_id", "plan", "stunden"], additionalProperties: false } },
   { name: "update_unit_row", title: "Stunde in der Einheit anpassen", annotations: wr,
-    description: "Hält eine mit der Lehrkraft abgestimmte Abweichung in der Tabelle der Einheit fest: neue Stundenfrage und/oder neuer grober Ablauf für die Stunde, zu der die Sitzung gehört. Nur nach Zustimmung der Lehrkraft aufrufen. Statt lesson_id geht auch unit_id mit der uid der Stunde aus get_unit.",
+    description: "Hält eine mit der Lehrkraft abgestimmte Abweichung in der Tabelle der Einheit fest: neue Stundenfrage und/oder neuer grober Ablauf für die Stunde, zu der die Sitzung gehört. Nur nach Zustimmung der Lehrkraft aufrufen. Statt lesson_id geht auch unit_id mit der uid der Stunde aus get_unit. " +
+      "Mehrere Stunden auf einmal (z. B. wenn nach einem Zwischenstopp Inhalte in die folgenden Stunden nachrücken): unit_id mit stunden [{uid bzw. nr, stundenfrage, ablauf}] (1–" + ROWS_MAX + ") und base_version aus get_unit – alles in einer Speicherung. " +
+      "Die Grundschule nennt in get_unit die uid jeder Stunde; am Gymnasium nimmst du die Nummer nr der Stunde aus get_unit (dann ist base_version Pflicht).",
     inputSchema: { type: "object", properties: { lesson_id: ID_ARG, unit_id: UNIT_ID, uid: { type: "string", pattern: "^[a-f0-9]{8}$", description: "uid der Stunde aus get_unit (mit unit_id, statt lesson_id – z. B. für eine Stunde ohne Sitzung)" },
-      stundenfrage: { type: "string", maxLength: 400 }, ablauf: { type: "array", items: { type: "string", maxLength: 400 }, maxItems: 15 }, begruendung: { type: "string", maxLength: 1000 } }, required: [], additionalProperties: false } },
+      stundenfrage: { type: "string", maxLength: 400 }, ablauf: { type: "array", items: { type: "string", maxLength: 400 }, maxItems: 15 }, begruendung: { type: "string", maxLength: 1000 },
+      stunden: { type: "array", minItems: 1, maxItems: ROWS_MAX, description: "nur mit unit_id: mehrere Stunden in einer Speicherung (statt uid/stundenfrage/ablauf)", items: { type: "object", properties: {
+        uid: { type: "string", pattern: "^[a-f0-9]{8}$", description: "uid der Stunde aus get_unit (Grundschule)" }, nr: { type: "integer", minimum: 1, maximum: 150, description: "Nummer der Stunde in get_unit (statt uid; mit base_version)" },
+        stundenfrage: { type: "string", maxLength: 400 }, ablauf: { type: "array", items: { type: "string", maxLength: 400 }, maxItems: 15 } }, additionalProperties: false } },
+      base_version: { type: "integer", minimum: 0, description: "Version aus get_unit (bei stunden; Pflicht mit nr)" } }, required: [], additionalProperties: false } },
+  { name: "extend_unit", title: "Unterrichtseinheit verlängern", annotations: wr,
+    description: "Verlängert eine Unterrichtseinheit um 1–" + EXTEND_MAX + " Termine laut ihrem Stundenplan – NUR nach ausdrücklicher Zustimmung der Lehrkraft (z. B. wenn nach einem Zwischenstopp Inhalte nachrücken und am Ende etwas übrig bleibt, oder nach Ausfällen). " +
+      "Die Plattform nimmt die nächsten termine Termine nach dem bisherigen Ende (Ferien und Ausfälle wie in den Rahmendaten), setzt das Ende der Einheit auf den letzten davon, gibt zuerst Stunden ohne Termin einen Termin und hängt dann die neuen stunden an (Datum, Beginn und Dauer aus dem Termin); übrige Termine bleiben frei. " +
+      "Ist die Einheit schon festgelegt (Sitzungen angelegt), legt die Plattform die Sitzungen dieser Stunden gleich an. Bestehende Sitzungen behalten ihre Termine, Klausurtermine bleiben unverändert. " +
+      "Übergib base_version aus get_unit; die Antwort nennt das neue Ende, die Stunden mit Datum und Sitzungs-ID und die neue Version (für update_unit_row).",
+    inputSchema: { type: "object", properties: { unit_id: UNIT_ID, base_version: { type: "integer", minimum: 0 }, termine: { type: "integer", minimum: 1, maximum: EXTEND_MAX, description: "so viele Termine nach dem bisherigen Ende kommen dazu (meist 1)" },
+      stunden: { type: "array", maxItems: EXTEND_MAX, description: "neue Stunden am Ende der Einheit (höchstens so viele, wie Termine übrig bleiben, nachdem Stunden ohne Termin einen bekommen haben)", items: { type: "object", properties: {
+        stundenfrage: { type: "string", maxLength: 400 }, ablauf: { type: "array", items: { type: "string", maxLength: 400 }, maxItems: 15 }, schritt: { type: "integer", minimum: 0, maximum: 14, description: "Nummer des Lernschritts ab 0" } },
+        required: ["stundenfrage", "ablauf"], additionalProperties: false } },
+      begruendung: { type: "string", maxLength: 1000 } }, required: ["unit_id", "base_version", "termine"], additionalProperties: false } },
   { name: "save_substitute_plan", title: "Vertretungsstunde (Lehrkraft krank) vorschlagen", annotations: wr,
     description: "Legt für eine Sitzung, die wegen Krankheit der Lehrkraft ohne sie stattfindet, einen Vertretungsvorschlag ab. Die Lehrkraft prüft ihn in der Plattform; erst nach ihrer Bestätigung wird das Material ausgetauscht und den Schüler:innen der Vertretungshinweis gezeigt. " +
       "Pflicht: Analyse (Kompetenz, Stundenfrage, Inhalte), chronologische Schritte für die Schüler:innen, Abgabe. Ab Jahrgang 7 ist eine Abgabe in der Plattform Pflicht: ein Feibeitsblatt (bei Lernprodukten mit einer Aufgabe der Antwortart \"foto\" für das Foto des Produkts) oder ein Escape-Room (escape_room) mit Feibeitsblatt-Finale; in den Jahrgängen 5/6 nur analoge Materialien. Die Plattform prüft einen Escape-Room streng und meldet fehlende oder widersprüchliche Angaben mit genauer Stelle zurück.",
@@ -213,11 +233,15 @@ const toolError = (text) => ({ content: [{ type: "text", text }], isError: true 
 
 async function lessonDump(db, l) {
   const ctx = await lessonCtx(db, l);
-  const [msgs, drafts] = await Promise.all([chatMessages(db, l.id, 80), db.prepare("SELECT id, data, status, sheet_code FROM fb_drafts WHERE lesson_id=?1 ORDER BY created_at DESC LIMIT 10").bind(l.id).all()]);
+  const [msgs, drafts, prev] = await Promise.all([chatMessages(db, l.id, 80), db.prepare("SELECT id, data, status, sheet_code FROM fb_drafts WHERE lesson_id=?1 ORDER BY created_at DESC LIMIT 10").bind(l.id).all(),
+    previousLesson(db, l)]);
+  // Zwischenstopp der vorigen Sitzung: Geschafft / Nicht geschafft, Stand der Entscheidung und die Regeln (Anforderung 13)
+  const ps = await prevStopInfo(db, l, prev, ctx.unit);
   const parts = [
     "# Sitzung " + l.id, lessonContext(ctx, { portal: false, materialText: true, materialMax: 20000 }),
     "Sitzungscode für Schüler:innen: " + formatCode(l.code),
     "", "## Schulportal-Eintrag (Version " + l.portal_version + (l.portal_source ? ", zuletzt von " + l.portal_source : "") + ")", l.portal || "(noch leer)",
+    ...(ps ? stopLessonLines(ps, { gs: false, unitId: ctx.unit ? ctx.unit.id : null, unit: ctx.unit, now: Date.now() }) : []),
     "", "## Planungsverlauf", chatTranscript(msgs, 60000) || "(leer)",
   ];
   const ds = (drafts.results || []);
@@ -267,9 +291,13 @@ async function gsLessonDump(c, l) {
   const ctx = await lessonCtx(db, l);
   const prev = await previousLesson(db, l);
   const refs = planRefs(l.portal).all.slice(0, 200);
+  // Zwischenstopp der vorigen Sitzung (Anforderung 13): ihr Material nach dem Zwischenstopp steht in der Liste der vorigen Sitzung – oder, aus noch früheren
+  // Sitzungen übernommen, über ihre Verweise in derselben Abfrage
+  const ps = l.cancelled ? null : await prevStopInfo(db, l, prev, ctx.unit);
+  const openRefs = ps ? planRefs(ps.open).all.slice(0, 100) : [];
   // was Eltern sehen: genau die Prüfung der Elternansicht (parentFiles) – ein Ausfall-Eintrag zeigt nie Material
   const [msgs, otherRes, pf] = await Promise.all([chatMessages(db, l.id, 40),
-    prev || refs.length ? db.prepare(GS_OTHER_FILES).bind(l.klass, l.id, prev ? prev.id : "", JSON.stringify(refs)).all() : null,
+    prev || refs.length ? db.prepare(GS_OTHER_FILES).bind(l.klass, l.id, prev ? prev.id : "", JSON.stringify([...refs, ...openRefs])).all() : null,
     l.cancelled ? null : parentFiles(c, l)]);
   const own = ctx.files.filter((f) => f.kind === "file" && f.mime === "application/pdf");
   const others = (otherRes && otherRes.results) || [];
@@ -285,6 +313,7 @@ async function gsLessonDump(c, l) {
     l.portal || (l.cancelled ? "(Ausfall-Eintrag – hier wird nichts geplant)" : "(noch leer – speichere ihn mit save_verlaufsplan)"),
     ...(hasStop(l.portal) ? ["(„" + STOP_LINE + "“ hat die Lehrkraft gesetzt: bis dorthin wurde die Stunde geschafft, alles danach ist noch offen.)"] : []),
     parentsLine,
+    ...(ps ? stopLessonLines({ ...ps, openFiles: openFilesOf(ps, [...ctx.files, ...others]) }, { gs: true, unitId: ctx.unit ? ctx.unit.id : null, unit: ctx.unit, now: c.now }) : []),
     "", "## Inhalt der Unterrichtsstunde (für die Eltern)", l.parent_summary || (l.cancelled ? "(Ausfall-Eintrag – keiner)" : "(noch leer – formuliere ihn mit update_lesson und inhalt_eltern)"),
     "", "## Hinweis der Lehrkraft für die Eltern (nur lesen)", l.parent_note || "(keiner)",
   ];
@@ -485,6 +514,21 @@ async function callTool(c, name, a) {
       }
     }
     case "update_unit_row": {
+      // mehrere Stunden in einer versionsgeprüften Speicherung (Inhalte rücken nach einem Zwischenstopp nach)
+      if (a.stunden !== undefined) {
+        if (!a.unit_id) return toolError("stunden geht nur mit unit_id (aus get_unit).");
+        if (a.lesson_id || a.uid || a.stundenfrage !== undefined || a.ablauf !== undefined) return toolError("Mit stunden bitte weder lesson_id noch uid, stundenfrage oder ablauf angeben – jede Stunde steht mit ihren Angaben in stunden.");
+        const u0 = await getUnit(c.db, a.unit_id), gsU = u0.subject === GS_SUBJECT;
+        try {
+          const r = await updateRows(c.db, u0.id, a.stunden, Number.isInteger(a.base_version) ? a.base_version : null, "claude", c.now);
+          return toolText("In der Einheit festgehalten (Version " + r.version + ", " + r.rows.length + (r.rows.length === 1 ? " Stunde" : " Stunden") + "): " +
+            r.rows.map((x) => "Stunde " + x.n + (gsU ? " [uid " + x.uid + "]" : "") + " „" + x.stundenfrage + "“").join("; ") + ".", { version: r.version, rows: r.rows.map((x) => ({ n: x.n, uid: x.uid })) });
+        } catch (e) {
+          if (e instanceof HttpError && e.code === "unit_conflict") return toolError("Die Einheit wurde inzwischen geändert (Version " + e.extra.version + "). Bitte get_unit erneut aufrufen – es wurde nichts gespeichert.");
+          if (e instanceof HttpError) return toolError(e.message + " Es wurde nichts gespeichert.");
+          throw e;
+        }
+      }
       let unitId, uid;
       if (a.lesson_id) {
         const l = await getLesson(c.db, a.lesson_id);
@@ -497,6 +541,25 @@ async function callTool(c, name, a) {
       const row = await updateRow(c.db, unitId, uid, { stundenfrage: a.stundenfrage, ablauf: a.ablauf }, "claude", c.now);
       return toolText("In der Einheit festgehalten: " + row.stundenfrage);
     }
+    case "extend_unit": {
+      const u = await getUnit(c.db, a.unit_id), gsU = u.subject === GS_SUBJECT;
+      let r;
+      try { r = await extendUnit(c.db, u, { baseVersion: a.base_version, termine: a.termine, stunden: a.stunden }, "claude", c.now); }
+      catch (e) {
+        if (e instanceof HttpError && e.code === "unit_conflict") return toolError("Die Einheit wurde inzwischen geändert (Version " + e.extra.version + "). Bitte get_unit erneut aufrufen – es wurde nichts verlängert.");
+        if (e instanceof HttpError) return toolError(e.message + " Es wurde nichts verlängert.");
+        throw e;
+      }
+      const when = (x) => fmtDay(x.date) + (x.time ? " " + x.time : "") + (x.minutes ? " (" + x.minutes + " Min.)" : "");
+      const t = ["Einheit verlängert (Version " + r.version + "): Ende bisher " + fmtDay(r.oldEnd) + ", jetzt " + fmtDay(r.end) + "."];
+      for (const x of r.rows) t.push("Stunde " + x.n + (gsU ? " [uid " + x.uid + "]" : "") + " „" + x.stundenfrage + "“" + (x.fresh ? " (neu)" : " (bisher ohne Termin)") + ": " + when(x) +
+        (x.lessonId ? (x.created ? " – Sitzung " + x.lessonId + " angelegt." : " – Sitzung " + x.lessonId + (gsU ? " hat jetzt diesen Termin." : ".")) : u.status === "geplant" ? " – die Sitzung legt die Lehrkraft in der Einheit an." : "."));
+      if (!r.rows.length) t.push("Es gab keine Stunde ohne Termin und keine neue Stunde – die Termine sind frei.");
+      if (r.free.length) t.push("Frei geblieben: " + r.free.map(when).join("; ") + ".");
+      if (u.status !== "geplant" && r.rows.length) t.push("Die Einheit ist noch nicht festgelegt – die Sitzungen entstehen, wenn die Lehrkraft sie festlegt.");
+      t.push("Die Lehrkraft sieht die Änderung sofort in der Einheit. Für update_unit_row gilt jetzt base_version " + r.version + ".");
+      return toolText(t.join(" "), { version: r.version, end: r.end, rows: r.rows, free: r.free });
+    }
     case "save_substitute_plan": {
       if ((await getLesson(c.db, a.lesson_id)).subject === GS_SUBJECT) return toolError("In der Grundschule gibt es keine Vertretungsstunde – bei Krankheit verschiebt Unterricks die Stunden; danach überarbeitest du die Einheit.");
       const p = await saveProposal(c.db, a.lesson_id, a, c.now);
@@ -505,7 +568,15 @@ async function callTool(c, name, a) {
     }
     case "update_lesson": {
       // Ausfall-Eintrag (Grundschule): dort ändert nur die Lehrkraft ihren Hinweis für die Eltern – den kann der Connector nicht setzen (F22)
-      if ((await getLesson(c.db, a.lesson_id)).cancelled) return toolError(NO_UPDATE);
+      const l0 = await getLesson(c.db, a.lesson_id);
+      if (l0.cancelled) return toolError(NO_UPDATE);
+      // Entscheidung zum offenen Teil der vorigen Sitzung (Zwischenstopp): erst prüfen, dann alles speichern – nie halb
+      let stopNote = "", stopPrev = null;
+      if (a.zwischenstopp !== undefined) {
+        if (!STOP_CHOICES.includes(a.zwischenstopp)) return toolError("zwischenstopp ist \"uebernehmen\" oder \"verzichten\".");
+        stopPrev = await previousLesson(c.db, l0);
+        if (!stopPrev || !hasStop(stopPrev.portal)) return toolError("Die vorige Sitzung hat keinen Zwischenstopp.");
+      }
       const b = {};
       if (a.titel !== undefined) b.title = a.titel;
       if (a.thema !== undefined) b.topic = a.thema;
@@ -515,8 +586,14 @@ async function callTool(c, name, a) {
       if (a.ideen !== undefined) b.ideas = a.ideen;
       if (a.hausaufgabe !== undefined) b.homework = a.hausaufgabe;
       if (a.inhalt_eltern !== undefined) b.parentSummary = a.inhalt_eltern;
-      const { lesson: l } = await updateLesson(c.db, a.lesson_id, b, c.now);
-      return toolText("Gespeichert.", { lesson: lessonOut(l) });
+      let { lesson: l } = await updateLesson(c.db, a.lesson_id, b, c.now);
+      if (stopPrev) {
+        await c.db.prepare("UPDATE lessons SET stop_decision=?2, updated_at=?3 WHERE id=?1").bind(l.id, stopDecisionJson(a.zwischenstopp, stopPrev, c.now), c.now).run();
+        l = await getLesson(c.db, l.id);
+        stopNote = " Entscheidung zum offenen Teil der vorigen Sitzung „" + stopPrev.title + "“ festgehalten: " + STOP_CHOICE_TEXT[a.zwischenstopp] +
+          (l.unit_id || stopPrev.unit_row ? " Passe die Einheit an, sobald die Lehrkraft die Planung dieser Stunde bestätigt hat (siehe get_lesson)." : "");
+      }
+      return toolText("Gespeichert." + stopNote, { lesson: lessonOut(l), ...(stopPrev ? { zwischenstopp: a.zwischenstopp } : {}) });
     }
     case "save_planning_result": {
       if ((await getLesson(c.db, a.lesson_id)).cancelled) return toolError(NO_PLANNING);

@@ -2,7 +2,7 @@
 // Gemeinsam für Browser und Worker (keine DOM-Zugriffe).
 import { subjectName, gradeInfo, classShort, isAnalogClass, ANALOG_RULE, fmtDay, addDays, isIsoDate, isClockTime, PORTAL_RULES, PORTAL_EXAMPLE, PORTAL_TEACHER_RULE, FEIBEITSBLATT_INFO, materialDesignText,
   SYSTEM_PROMPT_ROLE, UNIT_RULE_BASE, STOP_LINE, lessonContext, teacherWishes, groupShort, subjectShort, isValidSubject, isValidClass, clockMinutes, minutesClock, mondayOf, isWeekend,
-  GS_SUBJECT, isGsCourseId, parentOpensAt, berlinToday } from "./shared.js";
+  GS_SUBJECT, isGsCourseId, parentOpensAt, berlinToday, stopParts, STOP_CHOICE_TEXT, STOP_CHOICES, stopDecidedOn } from "./shared.js";
 import { ESCAPE_FORMAT_HINT } from "./escape-data.js";
 export { UNIT_RULE } from "./shared.js";
 
@@ -296,6 +296,13 @@ export function freeSlots(params, rows, now = Date.now()) {
   const slots = sortSlots(lessonSlots(computeSlots(params))), used = occupy(slots, rows || []);
   return upcoming(slots.filter((s, i) => !used.has(i)), now);
 }
+/* die nächsten n Termine laut Stundenplan NACH dem Ende der Einheit (Ferien, Ausfälle und der Klausurtag wie computeSlots; nur Termine, die noch
+   nicht vorbei sind) – für extend_unit und den Hinweis „neues Ende“ in den Prompts. Ohne Ende oder Stundenplan: [] */
+export function slotsAfterEnd(params, n, now = Date.now()) {
+  const p = normalizeParams(params);
+  if (!p.end || !p.weekdays.length || !(n > 0)) return [];
+  return upcoming(sortSlots(lessonSlots(computeSlots({ ...p, start: addDays(p.end, 1), end: addDays(p.end, 380) }))), now).slice(0, n);
+}
 
 /* ```einheit {…}``` in einer Antwort des Planungsassistenten: vorgeschlagene Änderung der Zeile dieser Stunde */
 export function extractUnitChange(text) {
@@ -333,6 +340,102 @@ export function unitContext(unit, rowUid) {
   }
   return L.join("\n");
 }
+/* ---------- Offener Teil nach einem Zwischenstopp (Anforderung 13, beide Schulformen) ----------
+ * ps = previousStop vom Server (GET lesson, prevStopInfo in worker/lessons.js): {id, title, date, portal, portalVersion, done, open, unitId, unitRow,
+ *   sameUnit, unitTitle, row: {uid, n, total, stundenfrage, ablauf} | null, decision: {choice, at} | null, openFiles: [{id, name}] (Grundschule)}.
+ * Knappe Objekte ({title, date, portal}) gehen auch (done/open aus dem Eintrag). opt = {gs, unitId (Einheit DIESER Sitzung), unit (mit params),
+ * now}. Dieselben Regeln stehen im Prompt „Stunde mit Claude planen“ (Ich-Form der Lehrkraft), in get_lesson und im Backup-Chat. */
+export { STOP_CHOICE_TEXT, STOP_CHOICES, stopDecidedOn };
+export const stopDecisionOf = (ps) => (ps && ps.decision && STOP_CHOICE_TEXT[ps.decision.choice] ? ps.decision : null);
+function stopPartsOf(ps) {
+  if (typeof ps.done === "string" || typeof ps.open === "string") return { done: str(ps.done).trim(), open: str(ps.open).trim() };
+  return stopParts(ps.portal);
+}
+// neues Ende bei einer Verlängerung um eine Stunde: der nächste Termin laut Stundenplan nach dem bisherigen Ende (oder null)
+const nextEndOf = (opt) => { const s = opt.unit && opt.unit.params ? slotsAfterEnd(opt.unit.params, 1, opt.now || Date.now())[0] : null; return s ? s.date : null; };
+const rowWhich = (r, gs) => "Stunde " + r.n + (gs ? " [uid " + r.uid + "]" : "");
+// Was bekannt ist, in der Ich-Form der Lehrkraft (Prompt „Stunde mit Claude planen“)
+function stopFacts(ps, opt) {
+  const gs = !!opt.gs, p = stopPartsOf(ps), d = stopDecisionOf(ps), r = ps.row, out = [];
+  out.push("In der vorigen Sitzung „" + str(ps.title) + "“" + (ps.date || ps.id ? " (" + [ps.date ? fmtDay(ps.date) : null, ps.id ? "Sitzungs-ID " + ps.id : null].filter(Boolean).join("; ") + ")" : "") +
+    " habe ich einen Zwischenstopp markiert: Bis zur Zeile „" + STOP_LINE + "“ in " + (gs ? "ihrem Verlaufsplan" : "ihrem Schulportal-Eintrag") + " wurde die Stunde geschafft, alles danach ist noch offen.");
+  if (r) out.push((ps.sameUnit === false ? "Sie gehört zu einer anderen Unterrichtseinheit („" + str(ps.unitTitle) + "“, ID " + str(ps.unitId) + "), dort ist sie " : "In der Einheit ist sie ") +
+    rowWhich(r, gs) + ": geplante Stundenfrage „" + str(r.stundenfrage) + "“" + ((r.ablauf || []).length ? "; geplanter grober Ablauf: " + r.ablauf.join("; ") : "") + ".");
+  out.push("Geschafft (bis zum Zwischenstopp):\n<<<\n" + (p.done ? clip(p.done, 3000) : "(nichts – der Zwischenstopp steht am Anfang)") + "\n>>>");
+  out.push("Nicht geschafft (nach dem Zwischenstopp):\n<<<\n" + (p.open ? clip(p.open, 4000) : "(nichts – der Zwischenstopp steht am Ende)") + "\n>>>");
+  if (gs) out.push((ps.openFiles || []).length ? "Material nach dem Zwischenstopp (schon angelegt – verweise es mit seiner file_id weiter): " + ps.openFiles.map((f) => "„" + str(f.name) + "“ (file_id " + f.id + ")").join(", ") + "."
+    : "Material aus dem offenen Teil verweist du weiter mit seiner file_id.");
+  out.push(d ? "Stand: Ich habe am " + stopDecidedOn(d) + " entschieden: " + STOP_CHOICE_TEXT[d.choice] : "Stand: Ich habe noch nicht entschieden, ob der offene Teil in diese Stunde übernommen wird oder ob wir darauf verzichten.");
+  return out;
+}
+// Was bekannt ist, sachlich (get_lesson und Backup-Chat) → Zeilen
+function stopFactLines(ps, opt) {
+  const gs = !!opt.gs, p = stopPartsOf(ps), d = stopDecisionOf(ps), r = ps.row;
+  const out = ["Vorige Sitzung: „" + str(ps.title) + "“" + (ps.date ? " (" + fmtDay(ps.date) + ")" : "") + (ps.id ? ", Sitzungs-ID " + ps.id : "") + " – die Lehrkraft hat dort einen Zwischenstopp gesetzt (" +
+    (gs ? "Verlaufsplan" : "Schulportal-Eintrag") + (Number.isInteger(ps.portalVersion) ? ", Version " + ps.portalVersion : "") + ")."];
+  if (r) out.push((ps.sameUnit === false ? "Zeile der Einheit (andere Einheit „" + str(ps.unitTitle) + "“, unit_id " + str(ps.unitId) + "): " : "Zeile der Einheit: ") + rowWhich(r, gs) +
+    " – geplante Stundenfrage: „" + str(r.stundenfrage) + "“", ...((r.ablauf || []).length ? ["Geplanter grober Ablauf:", ...r.ablauf.map((a) => "- " + a)] : []));
+  else out.push("Die vorige Sitzung gehört zu keiner Zeile einer Unterrichtseinheit.");
+  out.push("Geschafft (bis zum Zwischenstopp):", "<<<", p.done ? clip(p.done, 6000) : "(nichts – der Zwischenstopp steht am Anfang)", ">>>",
+    "Nicht geschafft (nach dem Zwischenstopp):", "<<<", p.open ? clip(p.open, 6000) : "(nichts – der Zwischenstopp steht am Ende)", ">>>");
+  if (gs) out.push("Material nach dem Zwischenstopp:", ...((ps.openFiles || []).length ? ps.openFiles.map((f) => "- file_id " + f.id + ": „" + str(f.name) + "“ → [[pdf:" + f.id + "]]") : ["(keines)"]));
+  out.push("Entscheidung der Lehrkraft: " + (d ? "entschieden am " + stopDecidedOn(d) + ": " + (d.choice === "uebernehmen" ? "übernehmen" : "verzichten") + " – " + STOP_CHOICE_TEXT[d.choice] : "noch nicht entschieden"));
+  return out;
+}
+/* Regeln (je ein Stichpunkt): erklären und fragen bzw. „schon entschieden“, Übernehmen (Inhalte rücken nach; verlängern oder kürzen mit drei
+   Vorschlägen), Verzichten, die Einheit erst nach der bestätigten Stunde anpassen. opt.who = "ich" (Prompt in der Ich-Form der Lehrkraft) bzw. "lk"
+   (get_lesson, Backup-Chat: über die Lehrkraft gesprochen); opt.save = false (Backup-Chat, ohne Connector): nichts speichern, Änderungen zum Übertragen nennen */
+export function stopRules(ps, opt = {}) {
+  const gs = !!opt.gs, d = stopDecisionOf(ps), unitId = opt.unitId || null, save = opt.save !== false, lk = opt.who === "lk", r = ps.row;
+  const w = (ich, sie) => (lk ? sie : ich), want = (c) => !d || d.choice === c, sameRow = !!(r && unitId && ps.sameUnit !== false), out = [];
+  out.push(d ? w("Ich habe schon entschieden: ", "Die Lehrkraft hat schon entschieden: ") + STOP_CHOICE_TEXT[d.choice] + " (am " + stopDecidedOn(d) + "). Frage nicht erneut, außer " + w("ich möchte", "sie möchte") + " es ändern" +
+      (save ? " (dann halte die neue Entscheidung mit `update_lesson` und `zwischenstopp` fest); passe die Einheit an, falls das noch nicht geschehen ist." : ".")
+    : "Erkläre " + w("mir", "der Lehrkraft") + " zuerst in wenigen Stichpunkten, was in der vorigen Stunde nicht geschafft wurde (Inhalte, Aufgaben, Material nach dem Zwischenstopp). Frage " + w("mich", "sie") +
+      ", ob du es in diese Stunde einbauen sollst oder ob " + w("wir darauf verzichten", "darauf verzichtet wird") + ". Warte auf " + w("meine", "ihre") + " Antwort" +
+      (save ? " und halte sie mit `update_lesson` fest (`zwischenstopp`: \"uebernehmen\" oder \"verzichten\")." : "."));
+  if (want("uebernehmen")) out.push(unitId ? "Übernehmen: Plane den offenen Teil in diese Stunde ein. Was dadurch in dieser Stunde keinen Platz mehr hat, rückt in die nächste Stunde der Einheit, deren Überhang in die übernächste usw. – " +
+      "die Termine bleiben (keine Stunde einschieben, keine Sitzung verschieben). Zeige " + w("mir", "ihr") + ", welche Stunden der Einheit sich wie ändern. Bleibt am Ende etwas übrig, frage " + w("mich", "sie") +
+      ", ob die Einheit um eine Stunde verlängert werden kann oder ob an einer Stelle gekürzt werden soll. Soll gekürzt werden: Mache " + w("mir", "ihr") + " genau drei Vorschläge, an welcher Stelle der Einheit gekürzt werden kann " +
+      "(je mit den Folgen für die zentrale Lernaufgabe), nenne einen davon als Favoriten mit Begründung und warte auf " + w("meine", "ihre") + " Wahl."
+    : "Übernehmen: Plane den offenen Teil in diese Stunde ein (diese Sitzung gehört zu keiner Unterrichtseinheit – es rückt nichts nach).");
+  if (want("verzichten")) out.push("Verzichten: Plane die Stunde ohne den offenen Teil.");
+  const adj = [];
+  if (want("uebernehmen") && unitId) adj.push(!save
+    ? "Übernehmen → die geänderten Stunden der Einheit" + (sameRow ? " (auch die Zeile der vorigen Stunde: was tatsächlich behandelt wurde)" : "") + "."
+    : "Übernehmen → bei einer Verlängerung zuerst `extend_unit` (Einheit " + unitId + ", `base_version` aus `get_unit`, mit der zusätzlichen Stunde samt Stundenfrage und Ablauf), dann `update_unit_row` mit `unit_id` " + unitId +
+      ", `base_version` (aus `get_unit` bzw. der Antwort von `extend_unit`) und `stunden` – in einer Speicherung " + (sameRow ? "die Zeile der vorigen Stunde (Ablauf = was tatsächlich behandelt wurde), " : "") +
+      "diese Stunde und jede weitere geänderte Stunde, auch die gewählte Kürzung; je Stunde " + (gs ? "ihre `uid`" : "ihre Nummer `nr`") + " aus `get_unit`." +
+      (r && !sameRow ? " Die Zeile der vorigen Stunde (andere Einheit) passt du mit `update_unit_row` und `lesson_id` " + ps.id + " an: Ablauf = was tatsächlich behandelt wurde." : ""));
+  if (want("verzichten") && r) adj.push((save ? "Verzichten → `update_unit_row` mit `lesson_id` " + ps.id + " (Zeile der vorigen Stunde)" : "Verzichten → die Zeile der vorigen Stunde") +
+    ": Ablauf = was tatsächlich behandelt wurde, dazu ein Stichpunkt „Verzichtet: …“; die folgenden Stunden bleiben unverändert.");
+  const end = want("uebernehmen") && unitId ? nextEndOf(opt) : null;
+  if (adj.length) out.push(!save
+    ? "Du kannst in der Plattform nichts speichern: Nenne " + w("mir", "der Lehrkraft") + " am Ende, was " + w("ich", "sie") + " in der Einheit ändern muss, als Tabelle zum Übertragen (Stunde, Stundenfrage, grober Ablauf): " + adj.join(" ") +
+      (want("uebernehmen") && unitId ? " Bei einer Verlängerung nenne " + w("mir", "ihr") + " auch das neue Ende für die Rahmendaten" + (end ? " (laut Stundenplan der nächste Termin nach dem bisherigen Ende: " + fmtDay(end) + ")" : "") + "." : "")
+    : "Erst wenn " + w("ich die Planung dieser Stunde bestätigt habe", "die Lehrkraft die Planung dieser Stunde bestätigt hat") + " und du sie gespeichert hast, passt du die Einheit an: " + adj.join(" ") +
+      " Sage " + w("mir", "ihr") + " danach, was sich in der Einheit geändert hat.");
+  return out;
+}
+// Abschnitt des Prompts „Stunde mit Claude planen“ (Gymnasium: Schulportal-Eintrag; Grundschule: Verlaufsplan)
+export const stopCarrySection = (ps, opt = {}) => "\n## Vorige Stunde nicht vollständig beendet\n" + stopFacts(ps, opt).join("\n");
+// Schritt im Vorgehen (direkt nach dem Lesen mit get_lesson, vor der Frage nach Dauer und Wünschen)
+export const stopCarryStep = (ps, n, opt = {}) => n + ". Zur vorigen Stunde (Zwischenstopp, siehe oben) – bevor du nach Dauer und Wünschen fragst:\n" + stopRules(ps, opt).map((x) => "   - " + x).join("\n");
+// Satz für den Rückfall ohne Connector (andere KI): Änderungen der Einheit als Tabelle zum Übertragen, bei einer Verlängerung das neue Ende
+export function stopFallbackText(ps, opt = {}) {
+  const d = stopDecisionOf(ps), want = (c) => !d || d.choice === c, ext = want("uebernehmen") && !!opt.unitId;
+  if (!ext && !(want("verzichten") && ps.row)) return "";
+  const end = ext ? nextEndOf(opt) : null;
+  return " Ändert sich wegen des offenen Teils der vorigen Stunde die Einheit, gib mir die geänderten Zeilen als Tabelle (Stunde, Stundenfrage, grober Ablauf) zum Übertragen aus" +
+    (ext ? " und sage mir bei einer Verlängerung, welches neue Ende ich in den Rahmendaten eintrage" + (end ? " (laut Stundenplan der nächste Termin nach dem bisherigen Ende: " + fmtDay(end) + ")" : "") : "") + ".";
+}
+/* Abschnitt von get_lesson (Connector, beide Schulformen): die Fakten im Wortlaut und kurz die Regeln – auch für einen Prompt, der kopiert
+   wurde, bevor die Lehrkraft den Zwischenstopp gesetzt hat. → Zeilen */
+export const stopLessonLines = (ps, opt = {}) => ["", "## Vorige Stunde nicht vollständig beendet", ...stopFactLines(ps, opt),
+  "So gehst du vor (auch wenn dein Prompt diesen Abschnitt nicht enthält):", ...stopRules(ps, { ...opt, who: "lk", save: true }).map((x) => "- " + x)];
+/* Backup-Chat (kostenlose KI, kann nichts speichern): Abschnitt für den System-Prompt */
+export const stopChatSection = (ps, opt = {}) => "\n\nVorige Stunde nicht vollständig beendet (automatisch übermittelt):\n" + stopFactLines(ps, opt).join("\n") +
+  "\nSo gehst du damit um, sobald die Lehrkraft diese Stunde plant:\n" + stopRules(ps, { ...opt, who: "lk", save: false }).map((x) => "- " + x).join("\n");
+
 /* ---------- Prompt für Claude: Unterrichtseinheit planen (claude.ai + Connector) ---------- */
 export function claudeUnitPrompt(ctx) {
   const g = gradeInfo(ctx.klass), slots = lessonSlots(ctx.slots || []), powi = ctx.subject === "powi";
@@ -389,7 +492,9 @@ export function claudeLessonPrompt(ctx) {
   const minutes = L.durationMin || (ctx.row && ctx.row.minutes) || null;
   const chat = (ctx.messages || []).filter((m) => (m.role === "user" || m.role === "assistant") && m.model !== "begruessung");
   const lastAnswers = chat.filter((m) => m.role === "assistant").slice(-2).map((m) => str(m.content).trim()).join("\n\n---\n\n");
-  const ps = ctx.previousStop;
+  const ps = ctx.previousStop, stopOpt = { gs: false, unitId: ctx.unit && ctx.unit.id ? ctx.unit.id : null, unit: ctx.unit, now: ctx.now };
+  // mit Zwischenstopp der vorigen Stunde: ein eigener Schritt direkt nach get_lesson – die folgenden rücken eine Nummer weiter (ohne bleibt alles gleich)
+  const k = (n) => (ps && n >= 2 ? n + 1 : n) + ". ";
   const saves = [
     "   - Stundenverlauf → `save_schulportal_entry` (Schulportal-Zeichen: " + PORTAL_RULES.join("; ") + "; Aufbau genau wie in der Vorlage unten; " + PORTAL_TEACHER_RULE + " übergib `base_version` aus `get_lesson` – meldet die Plattform eine neuere Fassung, rufe `get_lesson` erneut auf und berücksichtige meine Änderungen).",
     "   - Ausgearbeiteter Stundenentwurf (Verlauf mit Minuten, Begründung, Erwartungen) → `save_planning_result` (erscheint im Planungsverlauf der Sitzung; darauf bauen der Präsentations-Prompt und spätere Planungen auf).",
@@ -410,8 +515,7 @@ export function claudeLessonPrompt(ctx) {
     "## Die Sitzung (von der Plattform übermittelt)",
     "Sitzungs-ID: " + id,
     lessonContext(ctx, { materialText: false }),
-    ps ? "\n## Vorige Stunde nicht vollständig beendet\nIn der vorigen Sitzung „" + str(ps.title) + "“" + (ps.date ? " (" + fmtDay(ps.date) + ")" : "") + " habe ich einen Zwischenstopp markiert. " +
-      "Ihr Schulportal-Eintrag („" + STOP_LINE + "“ markiert, bis wohin die Stunde gekommen ist; alles danach ist noch offen):\n<<<\n" + clip(ps.portal, 4000) + "\n>>>\nFrage mich, ob und wie der offene Teil in diese Stunde übernommen werden soll." : null,
+    ps ? stopCarrySection(ps, stopOpt) : null,
     chat.length ? "\n## Bisheriger Planungsverlauf in der Plattform (Auszug; vollständig über `get_lesson`)" +
       (chat.some((m) => m.role === "user") ? "\nWünsche, die ich dort geäußert habe:\n" + teacherWishes(chat, 4000) : "") +
       (lastAnswers ? "\nLetzter Stand:\n<<<\n" + clip(lastAnswers, 12000) + "\n>>>" : "") : null,
@@ -434,16 +538,18 @@ export function claudeLessonPrompt(ctx) {
     "1. Rufe zuerst mit dem Connector „Unterricks“ `get_lesson` mit der Sitzungs-ID " + id + " auf: Dort stehen die aktuellen Daten, alle Materialien im Wortlaut, der bisherige Planungsverlauf und der Schulportal-Eintrag mit seiner Version." +
       (ctx.unit && ctx.unit.id ? " Die ganze Unterrichtseinheit (Leupold-Schema, alle Stunden) liefert `get_unit` mit der ID " + ctx.unit.id + "." : "") +
       " Brauchst du die Vorgaben im Wortlaut (Schulcurriculum, KCGO, Abiturerlass), liefert sie `get_planning_basis` mit der Sitzungs-ID.",
-    "2. Frage mich dann nach der Dauer (" + (minutes ? "laut Plattform " + minutes + " Minuten – stimmt das?" : "in der Plattform noch nicht eingetragen") + ") und nach Ideen, Themen, Materialien oder didaktischen Wünschen. Warte auf meine Antwort.",
-    "3. Plane mit mir dialogisch, bis ich zufrieden bin.",
-    "4. Speichere nur, was ich freigebe, direkt in der Plattform:",
+    ps ? stopCarryStep(ps, 2, stopOpt) : null,
+    k(2) + "Frage mich dann nach der Dauer (" + (minutes ? "laut Plattform " + minutes + " Minuten – stimmt das?" : "in der Plattform noch nicht eingetragen") + ") und nach Ideen, Themen, Materialien oder didaktischen Wünschen. Warte auf meine Antwort.",
+    k(3) + "Plane mit mir dialogisch, bis ich zufrieden bin.",
+    k(4) + "Speichere nur, was ich freigebe, direkt in der Plattform:",
     ...saves,
-    "5. Sage mir zum Schluss kurz, was du gespeichert hast. Die Präsentation erstelle ich danach in der Plattform mit „Präsentation mit Claude erstellen“ – deren Prompt baut auf dem gespeicherten Schulportal-Eintrag auf.",
+    k(5) + "Sage mir zum Schluss kurz, was du gespeichert hast. Die Präsentation erstelle ich danach in der Plattform mit „Präsentation mit Claude erstellen“ – deren Prompt baut auf dem gespeicherten Schulportal-Eintrag auf.",
     "",
     "Vorlage für den Schulportal-Eintrag (so sieht der fertige Eintrag aus):",
     PORTAL_EXAMPLE,
     "",
-    "Falls der Connector „Unterricks“ in diesem Chat nicht verfügbar ist, sage es mir sofort (beim ersten Mal muss er im Chat verbunden und sein Zugriff erlaubt werden). Plane dann mit den Angaben oben und gib mir den Schulportal-Eintrag am Ende zum Kopieren aus.",
+    "Falls der Connector „Unterricks“ in diesem Chat nicht verfügbar ist, sage es mir sofort (beim ersten Mal muss er im Chat verbunden und sein Zugriff erlaubt werden). Plane dann mit den Angaben oben und gib mir den Schulportal-Eintrag am Ende zum Kopieren aus." +
+      (ps ? stopFallbackText(ps, stopOpt) : ""),
   ].filter((l) => l !== null).join("\n").replace(/\n{3,}/g, "\n\n");
 }
 

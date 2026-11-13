@@ -1,7 +1,7 @@
 // gsplanning.js – Prompts für Claude in der Grundschule (Wunsch der Lehrkraft vom 12.11.2026): Einheit planen. Gemeinsam für Browser und
 // Worker (keine DOM-Zugriffe). Die Kinder arbeiten nicht digital: nur analoges, ausdruckbares Material.
-import { fmtDay, SYSTEM_PROMPT_ROLE, UNIT_RULE_BASE, STOP_LINE, materialDesignText, hasStop } from "./shared.js";
-import { lessonSlots, paramsText, freeSlots, normalizeParams } from "./planning.js";
+import { fmtDay, SYSTEM_PROMPT_ROLE, UNIT_RULE_BASE, materialDesignText } from "./shared.js";
+import { lessonSlots, paramsText, freeSlots, normalizeParams, stopCarrySection, stopCarryStep, stopFallbackText } from "./planning.js";
 
 export const GS_RULE = "In der Grundschule arbeiten die Kinder nicht digital: Plane ausschließlich analoges Material (ausdruckbare Arbeitsblätter, Bildkarten, Tafel- und Bodenbilder) – keine Feibeitsblätter, keine Escape-Rooms, keine Online-Aufgaben, keine Präsentation zum Mitverfolgen.";
 
@@ -118,6 +118,8 @@ export function gsChatName(ctx) {
 export function claudeGsLessonPrompt(ctx) {
   const L = ctx.lesson || {}, id = ctx.lessonId, chatName = gsChatName(ctx), unit = !!ctx.unitText, ps = ctx.previousStop;
   const minutes = L.durationMin || (ctx.row && ctx.row.minutes) || null, n = Number.isInteger(ctx.classSize) ? ctx.classSize : null;
+  const stopOpt = { gs: true, unitId: ctx.unit && ctx.unit.id ? ctx.unit.id : null, unit: ctx.unit, now: ctx.now };
+  const k = (x) => (ps && x >= 2 ? x + 1 : x) + ". ";   // mit Zwischenstopp der vorigen Stunde: eigener Schritt nach get_lesson
   return [
     "Chat-Name: " + chatName,
     "",
@@ -128,8 +130,7 @@ export function claudeGsLessonPrompt(ctx) {
     "## Die Sitzung (von der Plattform übermittelt)",
     "Sitzungs-ID: " + id,
     gsLessonContext(ctx),
-    ps ? "\n## Vorige Stunde nicht vollständig beendet\nIm Verlaufsplan der vorigen Stunde „" + gstr(ps.title) + "“" + (ps.date ? " (" + fmtDay(ps.date) + ")" : "") + " habe ich einen Zwischenstopp markiert („" + STOP_LINE +
-      "“: bis dorthin geschafft, alles danach ist noch offen):\n<<<\n" + gclip(ps.portal, 4000) + "\n>>>\nFrage mich, ob und wie der offene Teil in diese Stunde übernommen werden soll. Material daraus verweist du weiter mit seiner file_id." : null,
+    ps ? stopCarrySection(ps, stopOpt) : null,
     "",
     "## Feste Vorgaben",
     "- Plane mit Minutenangaben je Phase, die zusammen die Dauer der Sitzung ergeben, und nenne die Sozialform.",
@@ -153,9 +154,10 @@ export function claudeGsLessonPrompt(ctx) {
     "0. Dieser Chat soll „" + chatName + "“ heißen. Beginne deine erste Antwort mit der Zeile „Chat-Name: " + chatName + "“ (umbenennen kann ich den Chat in claude.ai nur selbst).",
     "1. Rufe zuerst mit dem Connector „Unterricks“ `get_lesson` mit der Sitzungs-ID " + id + " auf: Dort stehen die aktuellen Daten, der Verlaufsplan mit seiner Version, die PDF-Dateien des Kurses mit ihrer file_id und der Inhalt für die Eltern." +
       (ctx.unit && ctx.unit.id ? " Die ganze Unterrichtseinheit liefert `get_unit` mit der ID " + ctx.unit.id + "." : "") + " Die Vorgaben im Wortlaut (Curriculum) liefert `get_planning_basis` mit der Sitzungs-ID.",
-    "2. Frage mich dann nach der Dauer (" + (minutes ? "laut Plattform " + minutes + " Minuten – stimmt das?" : "in der Plattform noch nicht eingetragen") + ") und nach Ideen, Geschichten, Materialien oder Wünschen. Warte auf meine Antwort.",
-    "3. Plane mit mir dialogisch, bis ich zufrieden bin.",
-    "4. Speichere nur, was ich freigebe, direkt in der Plattform – in dieser Reihenfolge:",
+    ps ? stopCarryStep(ps, 2, stopOpt) : null,
+    k(2) + "Frage mich dann nach der Dauer (" + (minutes ? "laut Plattform " + minutes + " Minuten – stimmt das?" : "in der Plattform noch nicht eingetragen") + ") und nach Ideen, Geschichten, Materialien oder Wünschen. Warte auf meine Antwort.",
+    k(3) + "Plane mit mir dialogisch, bis ich zufrieden bin.",
+    k(4) + "Speichere nur, was ich freigebe, direkt in der Plattform – in dieser Reihenfolge:",
     "   - Arbeitsblätter und anderes Material gestaltest du als HTML-Seite und legst es mit `add_material_pdf` ab: `bereich` \"schueler\" für Material, mit dem die Kinder arbeiten (Eltern sehen es nach der Stunde)" +
       (n ? ", mit `anzahl` " + n + " (laut Kurseinstellungen) – dann steht es auch auf meiner Druckliste" : ", mit `anzahl` (frag mich nach der Zahl der Kinder) – dann steht es auch auf meiner Druckliste") +
       "; \"druck\" nur für Material, das Eltern nicht sehen sollen (Tafel- und Bodenbilder, Kärtchen); \"lehrkraft\" nur für mich. Merke dir die file_id jeder Datei.",
@@ -164,12 +166,13 @@ export function claudeGsLessonPrompt(ctx) {
     "   - Den „Inhalt der Unterrichtsstunde“ für die Eltern speicherst du mit `update_lesson` und `inhalt_eltern`: 2–3 elternverständliche Sätze, worum es ging und was die Kinder lernen sollten. Eine Hausaufgabe nur, wenn wir eine vereinbart haben (`hausaufgabe`, schlichter Text ohne Zeichen).",
     "   - Den ausgearbeiteten Stundenentwurf (Verlauf mit Minuten, Begründung, Erwartungen) speicherst du mit `save_planning_result`.",
     unit ? "   - Eine abgestimmte Abweichung von der Einheit (Stundenfrage, grober Ablauf) hältst du mit `update_unit_row` fest." : null,
-    "5. Sage mir zum Schluss kurz, was du gespeichert hast.",
+    k(5) + "Sage mir zum Schluss kurz, was du gespeichert hast.",
     "",
     "Vorlage für den Verlaufsplan (so sieht er aus; <file_id> durch die Kennungen deiner Dateien ersetzen):",
     VERLAUFSPLAN_EXAMPLE,
     "",
-    "Falls der Connector „Unterricks“ in diesem Chat nicht verfügbar ist, sage es mir sofort (beim ersten Mal muss er im Chat verbunden und sein Zugriff erlaubt werden). Plane dann mit den Angaben oben und gib mir den Verlaufsplan am Ende zum Kopieren aus.",
+    "Falls der Connector „Unterricks“ in diesem Chat nicht verfügbar ist, sage es mir sofort (beim ersten Mal muss er im Chat verbunden und sein Zugriff erlaubt werden). Plane dann mit den Angaben oben und gib mir den Verlaufsplan am Ende zum Kopieren aus." +
+      (ps ? stopFallbackText(ps, stopOpt) : ""),
   ].filter((l) => l !== null).join("\n").replace(/\n{3,}/g, "\n\n");
 }
 
@@ -208,9 +211,9 @@ export function claudeUnitRevisionPrompt(ctx) {
     "",
     "## Vorgehen",
     "1. Rufe mit dem Connector „Unterricks“ `get_unit` mit der ID " + u.id + " auf (Ausfälle, Stunden ohne Termin, freie Termine und die uid jeder Stunde). Für einzelne Sitzungen liefert `get_lesson` Verlaufsplan und Material.",
-    "2. Schlage mir zwei oder drei Möglichkeiten vor, wie die Einheit trotz der Ausfälle ihre zentrale Lernaufgabe erreicht – z. B. Stunden zusammenlegen oder kürzen, eine Stunde ohne Termin streichen oder mit einer anderen zusammenführen, oder das Ende der Einheit verlängern (das trage ich dann in den Rahmendaten ein). Nenne zu jeder Möglichkeit kurz Vor- und Nachteile.",
+    "2. Schlage mir zwei oder drei Möglichkeiten vor, wie die Einheit trotz der Ausfälle ihre zentrale Lernaufgabe erreicht – z. B. Stunden zusammenlegen oder kürzen, eine Stunde ohne Termin streichen oder mit einer anderen zusammenführen, oder die Einheit verlängern (stimme ich zu, trägst du das mit `extend_unit` ein: Die Plattform setzt das Ende auf den nächsten Termin laut Stundenplan, gibt zuerst den Stunden ohne Termin einen Termin und legt ihre Sitzungen an – sofort in der Einheit sichtbar). Nenne zu jeder Möglichkeit kurz Vor- und Nachteile.",
     "3. Warte auf meine Entscheidung.",
-    "4. Speichere die überarbeitete Einheit mit `save_unit_plan` (mit `base_version` aus `get_unit`) und gib bei jeder Stunde, die bleibt, ihre `uid` an. Stunden, deren Sitzung schon geplant ist oder schon Inhalte hat, lässt du nicht weg (Inhalt und Stundenfrage darfst du ändern); nur Stunden ohne Sitzung oder mit „noch nicht geplant“ dürfen wegfallen. Die Termine verteilt die Plattform neu.",
+    "4. Soll verlängert werden, rufe zuerst `extend_unit` auf (mit `base_version` aus `get_unit` und `termine` – so viele Termine, wie gebraucht werden, höchstens 3; neue Stunden nur, wenn wir welche vereinbart haben). Speichere dann die überarbeitete Einheit mit `save_unit_plan` (mit `base_version` aus `get_unit` bzw. aus der Antwort von `extend_unit`) und gib bei jeder Stunde, die bleibt, ihre `uid` an. Stunden, deren Sitzung schon geplant ist oder schon Inhalte hat, lässt du nicht weg (Inhalt und Stundenfrage darfst du ändern); nur Stunden ohne Sitzung oder mit „noch nicht geplant“ dürfen wegfallen. Die Termine verteilt die Plattform neu.",
     "5. Passe betroffene Sitzungen nur nach meiner Zustimmung an (`save_verlaufsplan`, `update_lesson` mit `inhalt_eltern`).",
     "",
     "Nenne nie Namen von Kindern.",

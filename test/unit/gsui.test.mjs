@@ -372,3 +372,55 @@ test("F37: „Bilder erneut erstellen“ und „Löschen“ lassen den Fokus nic
   none($("#cs-" + R));
   assert.ok(document.activeElement.id === "gs-cards-h", "nach dem Löschen: Überschrift „Bildkarten“ – ist " + desc(document.activeElement));
 });
+
+/* ---------- Anforderung 13 (S11): offener Teil der vorigen Sitzung, Hinweis nach dem Setzen eines Zwischenstopps ---------- */
+test("S11: Karte zum Zwischenstopp der vorigen Sitzung direkt unter dem Verlaufsplan – Nicht geschafft (mit PDF-Namen) und Stand der Entscheidung", async () => {
+  const prevFile = { ...pdf(A, "Arbeitsblatt Josef.pdf"), lessonId: L2, previous: true };
+  const ps = { id: L2, title: "Josef und seine Brüder", date: "2026-11-05", portal: "**1) Erzählung (10 Min.)**\n" + STOP_LINE + "\n**2) Arbeitsblatt (15 Min.)**\n- [[pdf:" + A + "]]",
+    portalVersion: 2, done: "**1) Erzählung (10 Min.)**", open: "**2) Arbeitsblatt (15 Min.)**\n- [[pdf:" + A + "]]", row: null, decision: null, openFiles: [{ id: A, name: "Arbeitsblatt Josef.pdf" }] };
+  await page({ lesson: lessonOf({ portal: "**1) Ankommen**" }), refFiles: [prevFile], previousStop: ps });
+  const card = $("#gs-prevstop");
+  assert.ok(card && $("#gsplan").nextElementSibling === card, "unter dem Verlaufsplan (der Verlaufsplan bleibt erste Karte)");
+  assert.equal($("#gs-prevstop-h").textContent, "Hinweis: Die letzte Stunde wurde nicht vollständig beendet");
+  assert.equal($("#gs-prevstop-open").textContent, "Nicht geschafft: 2) Arbeitsblatt (15 Min.)");
+  assert.equal($("#gs-prevstop-state").textContent, "Beim Planen mit Claude („Stunde mit Claude planen“) erklärt Claude, was offen geblieben ist, und fragt Sie, ob es in diese Stunde übernommen oder darauf verzichtet wird.");
+  assert.equal(card.querySelectorAll(".stopfield").length, 1, "Vorschau des Verlaufsplans wie bisher");
+  assert.equal(card.querySelector("a.pdfref").firstChild.textContent, "Arbeitsblatt Josef.pdf");
+  // entschieden (mit Claude), mit Einheit
+  await page({ lesson: lessonOf({ portal: "**1) Ankommen**", unitId: UNIT, unitRow: "r1" }), unit: unitOf(), refFiles: [prevFile], previousStop: { ...ps, decision: { choice: "verzichten", at: Date.parse("2026-11-09T09:00:00Z") } } });
+  assert.equal($("#gs-prevstop-state").textContent, "Entschieden am Mo, 09.11.2026: Auf den offenen Teil wird verzichtet.");
+  assert.ok($("#gs-prevstop-state").classList.contains("decided"));
+  D.userClick(button($("#gs-prevstop"), "Ausblenden"));
+  none($("#gs-prevstop"), "ausgeblendet");
+  assert.ok(document.activeElement.id === "gsplan-h", "nach „Ausblenden“: Überschrift „Verlaufsplan“ – ist " + desc(document.activeElement));
+  // ohne Zwischenstopp der vorigen Sitzung keine Karte
+  await page({ lesson: lessonOf() });
+  none($("#gs-prevstop"));
+});
+
+test("S11: Hinweis nach dem Eintragen eines Zwischenstopps – nächste Sitzung noch nicht bzw. schon geplant; verschwindet mit dem Zwischenstopp", async () => {
+  await page({ lesson: lessonOf({ portal: "**1) Ankommen**\n**2) Rätsel**" }), nextLesson: null });
+  const hint = $("#gs-stop-next");
+  assert.ok(hint && hint.classList.contains("hidden"), "vorher kein Hinweis");
+  D.userClick(button($("#gsplan"), "Zwischenstopp eintragen …"));
+  D.userClick(modalButton("Zwischenstopp eintragen"));
+  await D.sleep(5);
+  assert.ok(!hint.classList.contains("hidden"));
+  assert.equal(hint.textContent, "Zwischenstopp gesetzt. Beim Planen der nächsten Sitzung mit Claude wird gefragt, ob der offene Teil übernommen oder darauf verzichtet wird.");
+  D.userClick(button($("#gsplan"), "Zwischenstopp entfernen"));
+  assert.ok(hint.classList.contains("hidden"), "mit dem Zwischenstopp weg");
+  // die nächste Sitzung ist schon geplant: dort fragt „Stunde mit Claude planen“ erneut
+  await page({ lesson: lessonOf({ portal: "**1) Ankommen**\n**2) Rätsel**" }), nextLesson: { id: L2, title: "Josef in Ägypten (2)", date: "2026-11-12", planned: true } });
+  D.userClick(button($("#gsplan"), "Zwischenstopp eintragen …"));
+  D.userClick(modalButton("Zwischenstopp eintragen"));
+  await D.sleep(5);
+  assert.equal($("#gs-stop-next").textContent, "Zwischenstopp gesetzt. Die nächste Sitzung „Josef in Ägypten (2)“ (Do, 12.11.2026) ist schon geplant – „Stunde mit Claude planen“ fragt dort erneut, ob der offene Teil übernommen oder darauf verzichtet wird. Nächste Sitzung öffnen");
+  assert.equal($("#gs-stop-next a").getAttribute("href"), "#/lk/s/" + L2);
+});
+
+test("S11: „Nicht geschafft“ – Phasen des offenen Teils, ohne die Markierung „--> Nächste Stunde“; ohne Phasen die Stichpunkte; Verweise mit Namen", () => {
+  assert.equal(PV.stopOpenSummary("**3) Partnerarbeit**\n- M1\n\n--> Nächste Stunde\n\n**4) Diskussionsrunde**\n- Wippe"), "3) Partnerarbeit; 4) Diskussionsrunde");
+  assert.equal(PV.stopOpenSummary("- Aufgabe 4 besprechen\n- Video"), "Aufgabe 4 besprechen; Video");
+  assert.equal(PV.stopOpenSummary("- [[pdf:" + A + "]] ausmalen", { gs: true, nameOf: (id) => (id === A ? "Ausmalbild.pdf" : null) }), "Ausmalbild.pdf ausmalen");
+  assert.equal(PV.stopOpenSummary(""), "");
+});

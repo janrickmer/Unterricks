@@ -711,6 +711,17 @@ export function insertStop(text, lineIndex) {
   return { text: out.join("\n"), line: target };
 }
 export const removeStops = (text) => splitLines(text).filter((l) => !isStopLine(l)).join("\n").replace(/\n{3,}/g, "\n\n").replace(/\s+$/, "");
+/* Entscheidung der Lehrkraft (mit Claude) zum offenen Teil der vorigen Sitzung (lessons.stop_decision, Anforderung 13) */
+export const STOP_CHOICE_TEXT = { uebernehmen: "Der offene Teil wird in dieser Stunde übernommen.", verzichten: "Auf den offenen Teil wird verzichtet." };
+export const STOP_CHOICES = Object.keys(STOP_CHOICE_TEXT);
+export const stopDecidedOn = (d) => fmtDay(berlinToday(Number(d && d.at) || 0));
+/* Teile um den (ersten) Zwischenstopp: done = Text davor (geschafft), open = Text danach (nicht geschafft) – ohne die Stopp-Zeile, getrimmt.
+   Ohne Zwischenstopp: alles gilt als geschafft. Weitere Stopp-Zeilen (von Hand eingetippt) fallen weg. */
+export function stopParts(text) {
+  const lines = splitLines(text), k = lines.findIndex(isStopLine);
+  const join = (a) => a.filter((l) => !isStopLine(l)).join("\n").replace(/\n{3,}/g, "\n\n").trim();
+  return k < 0 ? { done: join(lines), open: "" } : { done: join(lines.slice(0, k)), open: join(lines.slice(k + 1)) };
+}
 /* Text für das Schulportal (ohne interne Markierungen) */
 export const portalForCopy = (text) => removeStops(text);
 

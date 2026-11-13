@@ -132,7 +132,7 @@ test("Connector (Grundschule): get_lesson, save_verlaufsplan, update_lesson inha
   const list = await mcp(null);
   const amp = list.tools.find((t) => t.name === "add_material_pdf"), sv = list.tools.find((t) => t.name === "save_verlaufsplan"), ul = list.tools.find((t) => t.name === "update_lesson");
   assert.ok(amp.description.includes(MATERIAL_DESIGN_RULES[0]) && amp.description.includes("Atkinson Hyperlegible Next") && amp.description.includes(P.GS_MATERIAL_RULES[0]));
-  assert.ok(sv && sv.description.includes(P.VERLAUFSPLAN_EXAMPLE) && sv.description.includes("setze selbst keinen") && ul.inputSchema.properties.inhalt_eltern.maxLength === 800);
+  assert.ok(sv && sv.description.includes(P.VERLAUFSPLAN_EXAMPLE) && sv.description.includes("Eine vorhandene Zeile „" + STOP_LINE + "“ lässt du unverändert an ihrer Stelle; setze selbst keine.") && ul.inputSchema.properties.inhalt_eltern.maxLength === 800);
   const prevAb = await file(l1.id, "student", "Bildkarten Josef.pdf");
   // get_lesson: Grundschul-Aufbau, ohne Sitzungscode
   let r = await mcp("get_lesson", { lesson_id: l2.id });
