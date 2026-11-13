@@ -844,7 +844,7 @@ img.sub-photo { max-width: 100%; max-height: 60vh; border-radius: 12px; border: 
 .pn-group { border-top: 1px solid color-mix(in srgb, var(--orange) 30%, var(--line)); margin-top: .75rem; padding-top: .6rem; }
 .pn-gh { display: flex; align-items: center; justify-content: space-between; gap: .3rem .8rem; flex-wrap: wrap; }
 .pn-gh h3 { margin: 0; font-size: 1.02rem; min-width: 0; flex: 1 1 16rem; }
-.pn-gh h3 a { color: var(--text); text-decoration: none; display: block; padding: .6rem 0; line-height: 1.45; }   /* ganze Zeile als Ziel (≥ 44 px), der Titel bricht im Fließtext um */
+.pn-gh h3 a { color: var(--text); text-decoration: none; display: block; padding: .6rem 0; line-height: 1.45; min-height: 44px; }   /* ganze Zeile als Ziel (≥ 44 px), der Titel bricht im Fließtext um */
 .pn-gh h3 a:hover .pn-t, .pn-gh h3 a:focus-visible .pn-t { text-decoration: underline; }
 .pn-time { font-variant-numeric: tabular-nums; color: var(--muted); font-weight: 700; }
 .pn-gh .ftag { display: inline-block; min-width: 0; padding: .12rem .45rem; font-size: .74rem; vertical-align: .08em; }

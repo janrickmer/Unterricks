@@ -101,6 +101,12 @@ test("Aufbau: Überschrift mit Drucker, Tag, je Sitzung eine Gruppe (Link zur Si
   D.userClick($$(".pn-row", card)[2].querySelector("button")); await until(() => rec.blobs.length === 1, "Text als PDF"); assert.equal(rec.blobs[0][1], "1x - einseitig - sw - Tafelbild.pdf");
   assert.equal(new TextDecoder().decode(new Uint8Array(await rec.blobs[0][0].arrayBuffer()).subarray(0, 5)), "%PDF-");
   assert.ok(rec.calls.includes("GET /api/teacher/lessons/" + id("b2")), "Text aus der Sitzung geholt");
+  // Arbeitsblatt der Kinder mit „Auch ausdrucken“: der Server nennt es wie im Material – auf GitHub Pages (andere Herkunft) zählt sein Name,
+  // nicht das download-Attribut. Deshalb als Blob unter dem Druck-Namen, nie über den Link direkt
+  D.userClick($$(".pn-row", card)[0].querySelector("button")); await until(() => rec.blobs.length === 2, "Arbeitsblatt der Kinder");
+  assert.equal(rec.blobs[1][1], "22x - beidseitig - sw - Arbeitsblatt Josef.pdf");
+  assert.equal(new TextDecoder().decode(new Uint8Array(await rec.blobs[1][0].arrayBuffer())), "%PDF-1.7 /api/dl/" + id(1) + "?d=a&e=1&s=x", "Inhalt über den signierten Link");
+  assert.equal(rec.urls.length, 1, "kein direkter Link-Download für das Arbeitsblatt der Kinder");
   // nach dem Druck: Zeile mit Download (nur diese Zeile neu)
   const keep = $$(".pn-row", card)[0];
   release(); await until(() => $$(".pn-row", card)[3] !== des, "Zeile nach dem Druck neu");
@@ -186,4 +192,35 @@ test("leer: keine Druckaufträge (auch nach übersprungenem Tag), kein Unterrich
   D.userClick(again); await D.sleep(10);
   assert.equal($$(".pn-group", card).length, 2);
   assert.equal(document.activeElement, $("#pn-h", card), "Fokus auf der Überschrift – " + desc(document.activeElement));
+});
+
+test("gestaltete Vorlage, deren PDF-Druck scheitert bzw. am Tageskontingent hängt: „Alle“ nennt sie als nicht gedruckt (nicht „wird gerade gedruckt“)", async () => {
+  const broken = [/^POST \/api\/teacher\/files\/(\w+)\/render$/, () => { throw new ApiError("Der PDF-Druck ist fehlgeschlagen.", 502, { code: "render_failed" }); }];
+  // Druck scheitert: Zeile „Druck fehlgeschlagen“, Abschlussmeldung mit „Erneut drucken“ in der Sitzung
+  let card = await page([[/^GET \/api\/teacher\/print-next$/, () => DATA()], link, lessonText, broken]);
+  await until(() => /Druck fehlgeschlagen/.test($(".meta", $$(".pn-row", card)[3]).textContent), "Zeile meldet den Fehler");
+  assert.ok($$(".pn-row", card)[3].classList.contains("design-err"));
+  D.userClick(button(card, "Alle Dateien herunterladen"));
+  const status = $("#pn-status", card);
+  await until(() => /^Fertig/.test(status.textContent), "Abschlussmeldung");
+  assert.equal(status.textContent, "Fertig: Alle 3 Dateien sind einzeln heruntergeladen. Nicht dabei, weil der PDF-Druck nicht geklappt hat (in der Sitzung „Erneut drucken“): „2x - beidseitig - Farbe - Gestaltet.pdf“.");
+  // nur diese Vorlage: kein „bitte gleich noch einmal“ (es druckt nichts von selbst)
+  const only = DATA();
+  only.sessions = [{ ...only.sessions[1], files: [only.sessions[1].files[2]] }];
+  card = await page([[/^GET \/api\/teacher\/print-next$/, () => only], broken]);
+  await until(() => /Druck fehlgeschlagen/.test($(".pn-row .meta", card).textContent), "Zeile meldet den Fehler");
+  D.userClick(button(card, "Alle Dateien herunterladen")); await D.sleep(5);
+  assert.equal($("#pn-status", card).textContent, "Keine Datei ist fertig: Der PDF-Druck der Vorlagen hat nicht geklappt – bitte in der Sitzung „Erneut drucken“.");
+  assert.equal(rec.blobs.length, 0);
+  // Tageskontingent: die Warteschlange hört auf – ALLE gestalteten Zeilen sagen „Noch nicht gedruckt“, nicht nur die gerade gedruckte
+  const two = DATA();
+  two.sessions[1].files.push(pfile(5, "Zweite.pdf", { status: "pending", source: "claude", design: { outdated: true, error: null, htmlAt: 7, pdfAt: null, text: "" }, printName: "1x - beidseitig - sw - Zweite.pdf" }));
+  card = await page([[/^GET \/api\/teacher\/print-next$/, () => two], link, lessonText,
+    [/^POST \/api\/teacher\/files\/(\w+)\/render$/, () => { throw new ApiError("Das Tageskontingent für den PDF-Druck ist aufgebraucht.", 429, { code: "render_quota" }); }]]);
+  await until(() => $$(".pn-row .meta", card).filter((m) => /^Noch nicht gedruckt: Das Tageskontingent/.test(m.textContent)).length === 2, "beide Zeilen: noch nicht gedruckt");
+  D.userClick(button(card, "Alle Dateien herunterladen"));
+  await until(() => /^Fertig/.test($("#pn-status", card).textContent), "Abschlussmeldung");
+  assert.match($("#pn-status", card).textContent, /Nicht dabei, weil der PDF-Druck nicht geklappt hat \(in der Sitzung „Erneut drucken“\): „2x - beidseitig - Farbe - Gestaltet\.pdf“, „1x - beidseitig - sw - Zweite\.pdf“\.$/);
+  assert.doesNotMatch($("#pn-status", card).textContent, /wird gerade als PDF gedruckt/);
+  assert.equal(globalThis.__domErrors.length, 0, globalThis.__domErrors.join("\n"));
 });

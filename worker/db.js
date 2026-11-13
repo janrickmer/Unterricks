@@ -105,6 +105,8 @@ export const INDEXES = [
   "CREATE UNIQUE INDEX IF NOT EXISTS lessons_parent_hash ON lessons(parent_hash) WHERE parent_hash IS NOT NULL",
   "CREATE INDEX IF NOT EXISTS lessons_date ON lessons(subject, klass, lesson_date)",
   "CREATE INDEX IF NOT EXISTS files_cards ON files(updated_at) WHERE cards IS NOT NULL",   // Bildkarten, deren Bilder noch fehlen (cards/pending)
+  // Druckaufträge für den nächsten Arbeitstag (printjobs.js, bei jedem Aufruf einer Startseite): Sitzungen eines Tages ohne Durchsuchen aller Sitzungen
+  "CREATE INDEX IF NOT EXISTS lessons_day ON lessons(lesson_date)",
 ];
 
 let ready = null;

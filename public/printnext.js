@@ -32,11 +32,13 @@ export function dayText(r) {
 export const printNameOf = (f) => f.printName || printFileName({ name: f.name, ...(f.print || {}) });
 /* „Alle Dateien herunterladen“: wie die ZIP-Datei der Sitzung ohne gestaltete Vorlagen, die noch nicht gedruckt sind (die werden genannt) */
 export const readyForAll = (f) => !(f.design && f.status !== "ready");
-/* Text der Abschlussmeldung von „Alle Dateien herunterladen“ */
-export function doneText(n, wait, failed, stopped = false) {
+/* Text der Abschlussmeldung von „Alle Dateien herunterladen“; wait = gestaltete Vorlagen, die gerade gedruckt werden, stuck = solche, deren
+   PDF-Druck gescheitert bzw. heute nicht mehr möglich ist (sie druckt nichts von selbst – in der Sitzung „Erneut drucken“) */
+export function doneText(n, wait, failed, stopped = false, stuck = []) {
   const q = (xs) => xs.map((f) => "„" + printNameOf(f) + "“").join(", ");
   return (stopped ? "Abgebrochen nach " + n + (n === 1 ? " Datei." : " Dateien.") : n === 0 ? "Keine Datei heruntergeladen." : n === 1 ? "Fertig: Eine Datei ist heruntergeladen." : "Fertig: Alle " + n + " Dateien sind einzeln heruntergeladen.") +
     (wait.length ? " Noch nicht dabei (wird gerade als PDF gedruckt): " + q(wait) + "." : "") +
+    (stuck.length ? " Nicht dabei, weil der PDF-Druck nicht geklappt hat (in der Sitzung „Erneut drucken“): " + q(stuck) + "." : "") +
     (failed.length ? " Nicht heruntergeladen: " + failed.map((x) => "„" + printNameOf(x.f) + "“ (" + x.msg + ")").join(", ") + "." : "");
 }
 
@@ -67,6 +69,8 @@ export function printNextCard(load = () => tapi("GET", "/api/teacher/print-next"
     status, body, allHint);
 
   const filesOf = () => (data ? data.sessions.flatMap((s) => s.files.map((f) => ({ f, s }))) : []);
+  // gestaltete Vorlage ohne fertige PDF, die nichts von selbst druckt: Druck gescheitert oder Tageskontingent aufgebraucht (wie designMeta)
+  const stuck = (f) => { const d = designState(f); return !!d && (!!d.error || (d.need && (!!rq.failed(f) || !!rq.quota))); };
   const designMeta = (f) => { const d = designState(f), failed = rq.failed(f); return rNotes.get(f.id) || (failed && d.need ? "Druck fehlgeschlagen: " + failed : rq.quota && d.need ? "Noch nicht gedruckt: " + rq.quota : d.text); };
   // Herkunft wie in der Druckliste der Sitzung (gestaltetes Material sagt „von Claude gestaltet“ schon selbst)
   const src = (f, design) => (!design && f.source === "claude" ? " · von Claude" : design && f.source === "vertretung" ? " · Vertretung" : f.source === "uebernommen" ? " · übernommen" : "");
@@ -84,9 +88,11 @@ export function printNextCard(load = () => tapi("GET", "/api/teacher/print-next"
     if (!res.ok) throw new Error("„" + f.name + "“ ließ sich nicht laden (Fehler " + res.status + ").");
     return new Uint8Array(await res.arrayBuffer());
   }
-  /* eine Datei herunterladen wie in der Druckliste der Sitzung */
+  /* eine Datei herunterladen wie in der Druckliste der Sitzung. Druckvorlagen über den signierten Link: der Server nennt sie selbst mit dem
+     Druck-Namen – das zählt auf GitHub Pages, wo der Browser das download-Attribut einer anderen Herkunft nicht beachtet. Textmaterial und
+     Arbeitsblätter der Kinder mit „Auch ausdrucken“ (Grundschule; beim Server heißen sie wie im Material) als Blob unter dem Druck-Namen. */
   async function downloadOne(f, s) {
-    if (f.kind === "text") io.blob(new Blob([await pdfBytes(f, s, new Map())], { type: "application/pdf" }), printNameOf(f));
+    if (f.kind === "text" || f.area !== "print") io.blob(new Blob([await pdfBytes(f, s, new Map())], { type: "application/pdf" }), printNameOf(f));
     else { const r = await tapi("POST", "/api/teacher/files/" + f.id + "/link", { body: {} }); io.url(r.url, printNameOf(f)); }
   }
   function fileRow(f, s) {
@@ -163,7 +169,11 @@ export function printNextCard(load = () => tapi("GET", "/api/teacher/print-next"
   async function downloadAll() {
     if (running || !data) return;
     const all = filesOf(), ready = all.filter((x) => readyForAll(x.f)), wait = all.filter((x) => !readyForAll(x.f)).map((x) => x.f);
-    if (!ready.length) { status.textContent = "Die Vorlagen werden gerade noch als PDF gedruckt – bitte gleich noch einmal."; return; }
+    if (!ready.length) {
+      status.textContent = wait.some((f) => !stuck(f)) ? "Die Vorlagen werden gerade noch als PDF gedruckt – bitte gleich noch einmal."
+        : "Keine Datei ist fertig: Der PDF-Druck der Vorlagen hat nicht geklappt – bitte in der Sitzung „Erneut drucken“.";
+      return;
+    }
     running = true;
     const texts = new Map(), failed = [];
     let n = 0;
@@ -183,14 +193,15 @@ export function printNextCard(load = () => tapi("GET", "/api/teacher/print-next"
     }, "Lade die Dateien …");
     running = false;
     if (stopped || !card.isConnected) return;
-    status.textContent = doneText(n, wait, failed, n + failed.length < ready.length);
+    status.textContent = doneText(n, wait.filter((f) => !stuck(f)), failed, n + failed.length < ready.length, wait.filter(stuck));
   }
 
   // gestaltete Vorlagen: Stand aus der gemeinsamen Druck-Warteschlange (gedruckt, Zwischenstand, Fehler)
   const off = rq.on({
     done: (nf) => { const hit = filesOf().find((x) => x.f.id === nf.id); if (!hit) return; Object.assign(hit.f, nf); if (!nf.design) delete hit.f.design; delete hit.f.text; repaintFile(nf.id); },
     note: (fid, t) => { if (t) rNotes.set(fid, t); else rNotes.delete(fid); const el = rowEls.get(fid), hit = filesOf().find((x) => x.f.id === fid); if (el && hit && el.meta.isConnected && el.meta.firstChild) el.meta.firstChild.textContent = designMeta(hit.f); },
-    fail: (f0) => repaintFile(f0.id),
+    // Tageskontingent aufgebraucht: die Warteschlange druckt nichts mehr – alle gestalteten Zeilen sagen jetzt „Noch nicht gedruckt: …“
+    fail: (f0, e, quota) => { if (!quota) { repaintFile(f0.id); return; } for (const { f } of filesOf()) if (f.design) repaintFile(f.id); },
   });
   // zurück im Tab an einem anderen Tag (z. B. am nächsten Morgen): neu laden; ohne Feld im Dokument meldet sich der Zuhörer ab
   const onVis = () => {

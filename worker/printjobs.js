@@ -21,6 +21,10 @@ const DAY_LESSONS = "SELECT id FROM lessons WHERE lesson_date=?1 AND cancelled=0
 export const PRINT_FILES_SQL = "SELECT " + PRINT_COLS + " FROM files WHERE lesson_id IN (" + DAY_LESSONS + ") AND (area='print' OR (area='student' AND print_copies IS NOT NULL " +
   "AND cards IS NULL AND lesson_id IN (" + DAY_LESSONS + " AND subject='" + GS_SUBJECT + "'))) ORDER BY created_at";
 
+// erster Tag mit einer (nicht ausgefallenen) Sitzung im Suchfenster und die Sitzungen des Zieltags – beide über den Index lessons_day
+export const FIRST_DAY_SQL = "SELECT MIN(lesson_date) AS d FROM lessons WHERE lesson_date >= ?1 AND lesson_date <= ?2 AND cancelled=0";
+export const DAY_SESSIONS_SQL = "SELECT id, subject, klass, title, lesson_date, start_time, duration_min FROM lessons WHERE lesson_date=?1 AND cancelled=0";
+
 /* Sitzungen nach Beginn (ohne Uhrzeit zuletzt), dann Kurs bzw. Klasse, dann Titel */
 const order = (a, b) => (a.startTime || "99:99").localeCompare(b.startTime || "99:99") || a.label.localeCompare(b.label, "de", { numeric: true }) || a.title.localeCompare(b.title, "de");
 
@@ -36,7 +40,7 @@ export async function routePrintNext(c) {
     c.db.prepare("SELECT id, subject, klass, title, params FROM units WHERE json_valid(params) AND json_extract(params, '$.end') >= ?1 AND json_extract(params, '$.start') <= ?2 " +
       "ORDER BY created_at DESC LIMIT 2000").bind(candidate, last),
     c.db.prepare("SELECT * FROM gs_courses"),
-    c.db.prepare("SELECT MIN(lesson_date) AS d FROM lessons WHERE lesson_date >= ?1 AND lesson_date <= ?2 AND cancelled=0").bind(candidate, last),
+    c.db.prepare(FIRST_DAY_SQL).bind(candidate, last),
   ]);
   const gs = new Map((gr.results || []).map((x) => [x.id, gsCourseOut(x)]));
   const units = (ur.results || []).map((x) => scheduleUnit(x, gs, cfgs)).filter(Boolean);
@@ -44,7 +48,7 @@ export async function routePrintNext(c) {
   const date = printTargetDay(candidate, units, first ? [first] : []);
   if (!date) return json({ ok: true, today, candidate, date: null, sessions: [] });
   const [ls, fs] = await c.db.batch([
-    c.db.prepare("SELECT id, subject, klass, title, lesson_date, start_time, duration_min FROM lessons WHERE lesson_date=?1 AND cancelled=0").bind(date),
+    c.db.prepare(DAY_SESSIONS_SQL).bind(date),
     c.db.prepare(PRINT_FILES_SQL).bind(date),
   ]);
   const byLesson = new Map();

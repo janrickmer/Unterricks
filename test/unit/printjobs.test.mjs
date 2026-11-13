@@ -5,7 +5,7 @@ import assert from "node:assert/strict";
 import { register } from "node:module";
 register("data:text/javascript," + encodeURIComponent('export async function resolve(s, c, n) { return s === "cloudflare:workers" ? { url: "data:text/javascript,export class DurableObject {}", shortCircuit: true } : n(s, c); }'));
 const { fakeCtx } = await import("./fake-d1.mjs");
-const { routePrintNext, PRINT_FILES_SQL } = await import("../../worker/printjobs.js");
+const { routePrintNext, PRINT_FILES_SQL, FIRST_DAY_SQL, DAY_SESSIONS_SQL } = await import("../../worker/printjobs.js");
 const { routeSchedule } = await import("../../worker/units.js");
 const { sha256Hex } = await import("../../worker/lib.js");
 const { nextWorkday, printTargetDay, PRINT_AHEAD_DAYS } = await import("../../public/planning.js");
@@ -131,6 +131,13 @@ test("print-next: Mitternacht in Berlin, Freitag → Montag, freier Tag überspr
   await unit(c, "ethik", "10C", { start: "2026-11-02", end: "2026-12-18", weekdays: MON });
   r = await call(c);
   assert.deepEqual([r.data.today, r.data.candidate, r.data.date], ["2026-11-20", "2026-11-23", "2026-11-23"]);
+  // Sommerzeit (MESZ = UTC+2): Freitag, 19.06.2026, 00:30 in Berlin ist in UTC noch Donnerstag 22:30 – zählt als Freitag → Montag, 22.06.
+  c = await ctx(Date.UTC(2026, 5, 18, 22, 30));
+  r = await call(c);
+  assert.deepEqual([r.data.today, r.data.candidate], ["2026-06-19", "2026-06-22"], "Mitternacht in der Sommerzeit");
+  c = await ctx(Date.UTC(2026, 5, 18, 21, 59));   // Donnerstag 23:59 MESZ → Freitag
+  r = await call(c);
+  assert.deepEqual([r.data.today, r.data.candidate], ["2026-06-18", "2026-06-19"]);
   // Samstag und Sonntag → Montag; Ferienwoche ab Montag → Montag danach
   c = await ctx(berlin(22, 12));
   await unit(c, "ethik", "10C", { start: "2026-11-02", end: "2026-12-18", weekdays: MON, breaks: [{ from: "2026-11-23", to: "2026-11-27", label: "Ferien" }] });
@@ -162,4 +169,14 @@ test("Auswahl der Druckliste: dieselbe Regel wie printFiles() in der Sitzung (Dr
   assert.match(PRINT_FILES_SQL, /area='print' OR \(area='student' AND print_copies IS NOT NULL AND cards IS NULL AND lesson_id IN \(SELECT id FROM lessons WHERE lesson_date=\?1 AND cancelled=0 AND subject='gs'\)\)/);
   const cols = PRINT_FILES_SQL.slice("SELECT ".length, PRINT_FILES_SQL.indexOf(" FROM files")).split(", ").map((x) => x.trim());
   assert.ok(!cols.includes("text") && !cols.includes("html") && !cols.some((x) => x.includes("substr(")), "weder Text noch Claudes Gestaltung: " + cols.join(", "));
+});
+
+test("print-next liest nur die Sitzungen des Tages (Index lessons_day) – nie alle Sitzungen bei jedem Aufruf einer Startseite", () => {
+  const c = fakeCtx();
+  const plan = (sql, ...args) => c.db.raw.prepare("EXPLAIN QUERY PLAN " + sql).all(...args).map((r) => r.detail).join(" | ");
+  for (const [sql, args] of [[PRINT_FILES_SQL, ["2026-11-18"]], [DAY_SESSIONS_SQL, ["2026-11-18"]], [FIRST_DAY_SQL, ["2026-11-18", "2027-01-27"]]]) {
+    const p = plan(sql, ...args);
+    assert.doesNotMatch(p, /SCAN lessons/, p);
+    assert.match(p, /lessons_day/, p);
+  }
 });

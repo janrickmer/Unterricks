@@ -704,19 +704,23 @@ implementiert und im End-to-End-Test geprüft (Ausnahmen unten ausdrücklich gen
   subtitle, course?, files}]}`, Sitzungen nach Beginn (ohne Uhrzeit zuletzt), dann Klasse bzw. Kurs, Dateien in der Reihenfolge der
   Sitzung (`fileOut` ohne den Text von Textmaterial und ohne Claudes Gestaltung); auch Sitzungen ohne Druckaufträge (für die Zeile
   „Ohne Druckaufträge: …“). 7 D1-Anweisungen (Anmeldung, Fach-Einstellungen, ein Batch mit Einheiten/Kursen/frühester Sitzung, ein
-  Batch mit den Sitzungen und Dateien des Tages), ohne Tag 5.
+  Batch mit den Sitzungen und Dateien des Tages), ohne Tag 5. Die Sitzungen eines Tages findet der Index `lessons_day` (`lessons(lesson_date)`,
+  in `INDEXES` von `worker/db.js`) – sonst durchsuchte jeder Aufruf einer Startseite mehrmals alle Sitzungen.
 * **Oberfläche** (`public/printnext.js`, `printNextCard()`): auf der Startseite „Gymnasium“ (`teacher.js`) und der Übersicht
   „Grundschule“ (`grundschule.js`) direkt unter dem Kopfband und vor dem Wochenkalender, lädt eigenständig (ein Fehler dort verhindert
   die Seite nicht; „Erneut versuchen“). Zeile zum Tag („für morgen, Mittwoch, 19.11.2026“ bzw. „Am Montag, 16.11.2026, ist laut
   Stundenplan kein Unterricht – deshalb …“), je Sitzung eine Gruppe (Überschrift = Link zur Sitzung; „In der Sitzung bearbeiten“ führt
   zu `#/lk/s/<id>/druckliste`: die Sitzung öffnet sich mit ihrer Druckliste im Blick, Fokus auf deren Überschrift – nur, wenn niemand den
-  Fokus schon gesetzt hat). Je Datei der Druck-Name (`printName`) und „Herunterladen“ wie in der Sitzung (PDF über den signierten Link,
-  Textmaterial als A4-PDF mit `markdownToPdf` – den Text holt der Browser dann über `GET /api/teacher/lessons/<id>`; gestaltete
+  Fokus schon gesetzt hat). Je Datei der Druck-Name (`printName`) und „Herunterladen“ wie in der Sitzung (Druckvorlagen über den
+  signierten Link – der Server nennt sie selbst mit dem Druck-Namen, das zählt auf GitHub Pages, wo der Browser das download-Attribut einer
+  anderen Herkunft nicht beachtet; Arbeitsblätter der Kinder mit „Auch ausdrucken“ heißen beim Server wie im Material und kommen deshalb als
+  Blob unter dem Druck-Namen; Textmaterial als A4-PDF mit `markdownToPdf` – den Text holt der Browser dann über `GET /api/teacher/lessons/<id>`; gestaltete
   Vorlagen erst, wenn ihre PDF gedruckt ist – ausstehende gibt das Feld wie die Sitzung in die gemeinsame Druck-Warteschlange des Tabs
   und baut ihre Zeile neu, sobald sie gedruckt sind). **„Alle Dateien herunterladen“** lädt die fertigen Dateien nacheinander (je Datei
   Abruf über den signierten Link bzw. Textmaterial als PDF, dann ein einzelner Download unter dem Druck-Namen, 1,2 s Pause dazwischen –
   Browser blockieren schnelle Mehrfach-Downloads), Fortschritt und Abschlussmeldung in einer Statuszeile (`role="status"`), noch nicht
-  gedruckte Vorlagen und Fehler werden genannt; gesperrt per `aria-disabled` (der Fokus bleibt), Abbruch beim Verlassen der Seite. Kehrt
+  gedruckte Vorlagen (getrennt: „wird gerade als PDF gedruckt“ bzw. Druck gescheitert oder Tageskontingent aufgebraucht – dann „Erneut
+  drucken“ in der Sitzung) und Fehler werden genannt; gesperrt per `aria-disabled` (der Fokus bleibt), Abbruch beim Verlassen der Seite. Kehrt
   die Lehrkraft an einem anderen Tag in den Tab zurück, lädt das Feld neu. Farbe: Orange (`--orange`, `--orange-t`) nur für dieses Feld
   (Wunsch der Lehrkraft), hell und dunkel mit Kontrast AA.
 

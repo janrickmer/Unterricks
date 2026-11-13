@@ -2230,6 +2230,19 @@ async function main() {
       ptp.on("console", (m) => { if (m.type() === "error" && /Content Security Policy|CORS|Access-Control/i.test(m.text())) cspErr.push(m.text()); });
       await ptp.goto(PAGES + "/#/lehrkraft"); await ptp.fill("#tu", "feindt"); await ptp.fill("#tp", T_PW);
       const tl = Date.now(); await ptp.getByRole("button", { name: "Anmelden" }).click(); await waitTeacherHome(ptp, tl, "Anmeldung auf Pages");
+      { // Druckaufträge auf Pages: bei anderer Herkunft beachtet der Browser das download-Attribut nicht – trotzdem heißt jede Datei wie in der
+        // Druckliste (Druckvorlage: Name vom Server; Arbeitsblatt der Kinder mit „Auch ausdrucken“: als Blob unter dem Druck-Namen)
+        const want = ["27x - einseitig - sw - Wahlplakat.pdf", "22x - beidseitig - sw - Schoepfung Arbeitsblatt.pdf"], got = [];
+        const pcard = ptp.locator(".printnext");
+        await pcard.locator(".pn-row").first().waitFor({ timeout: 20000 });
+        for (const n of want) {
+          const b = pcard.getByRole("button", { name: "Herunterladen – " + n });
+          if (!(await b.count())) { got.push("(fehlt)"); continue; }
+          const [d] = await Promise.all([ptp.waitForEvent("download", { timeout: 30000 }), b.click()]);
+          got.push(d.suggestedFilename() + (readFileSync(await d.path()).subarray(0, 5).toString() === "%PDF-" ? "" : " (keine PDF)"));
+        }
+        ok(JSON.stringify(got) === JSON.stringify(want), "Druckaufträge auf Pages: einzelne Downloads heißen wie in der Druckliste – " + got.join(" | "));
+      }
       await ptp.goto(PAGES + "/#/lk/s/" + lessonId); await ptp.locator(".code-big").waitFor({ timeout: 20000 });
       ok(true, "Lehrkraft auf Pages: Anmeldung (mit Vorabanfrage) und Sitzung laden");
       { // „PDF ansehen“ öffnet den signierten Link beim Worker, nicht auf der Pages-Herkunft (dort gäbe es 404)

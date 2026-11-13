@@ -303,8 +303,10 @@ async function subjectsPage() {
   resumeCleanup();
   printPending();
   cardsPendingRun();
-  let all; try { all = await loadLessons(); } catch (e) { clear(main).append(h("p", { class: "err", text: e.message })); return; }
-  clear(main).append(...nn(pageHead({ title: "Welches Fach unterrichten Sie?", sub: "Planung in Unterrichtseinheiten – jede Sitzung gehört zu einer Stunde ihrer Einheit." }),
+  const head = () => pageHead({ title: "Welches Fach unterrichten Sie?", sub: "Planung in Unterrichtseinheiten – jede Sitzung gehört zu einer Stunde ihrer Einheit." });
+  // auch wenn die Fächer nicht laden: die Druckaufträge (und der Wochenkalender) bleiben ganz oben – wie auf der Übersicht „Grundschule“
+  let all; try { all = await loadLessons(); } catch (e) { clear(main).append(head(), prints, week, h("p", { class: "err", text: e.message })); return; }
+  clear(main).append(...nn(head(),
     prints, week, h("h2", { class: "sr-only", text: "Fächer" }),
     h("div", { class: "tiles" }, SUBJECTS.map((s) => {
       const n = all.filter((l) => l.subject === s.id).length;
