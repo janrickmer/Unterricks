@@ -143,7 +143,7 @@ export async function unitPage(id) {
           intro: "Claude klärt mit Ihnen Thema und Schwerpunkt, schlägt drei zentrale Lernaufgaben vor und erstellt danach Leupold-Schema und Ablauftabelle für " + ls.length + " Sitzungen.",
           after: "Wenn Claude den Plan mit „save_unit_plan“ gespeichert hat, kommen Sie hierher zurück: Leupold-Schema und Tabelle erscheinen unten und lassen sich bearbeiten.",
           prompt: () => claudeGsUnitPrompt({ unitId: u.id, course: gsc, title: u.title, params: u.params, slots: computeSlots(u.params), bases: b.docs.map((d) => d.title), missing: b.missing,
-            classSize: u.course ? u.course.classSize : null }) });
+            classSize: u.course ? u.course.classSize : null, hasSessions: (u.lessons || []).some((l) => !l.cancelled) }) });
         return;
       }
       const cfg = (await tapi("GET", "/api/teacher/subjects")).subjects[u.subject];

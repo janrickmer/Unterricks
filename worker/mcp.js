@@ -169,14 +169,15 @@ const TOOLS = [
     inputSchema: { type: "object", properties: { unit_id: UNIT_ID, lesson_id: ID_ARG, max_zeichen: { type: "integer", minimum: 10000, maximum: 400000 } }, additionalProperties: false } },
   { name: "save_unit_plan", title: "Plan der Unterrichtseinheit speichern", annotations: { ...wr, destructiveHint: true },
     description: "Speichert den mit der Lehrkraft abgestimmten Plan einer Einheit: Planungsgrundlage (gewählt + Begründung, optional Alternative), zentrale Lernaufgabe, Ausgangslage, Lernschritte des Leupold-Schemas (je Titel + Tätigkeitsbeschreibung mit Operatoren) und die Stunden in zeitlicher Reihenfolge (Stundenfrage, grober Ablauf in Stichpunkten, Nummer des Lernschritts ab 0). Termine verteilt die Plattform automatisch. Erst aufrufen, wenn die Lehrkraft zugestimmt hat. " +
-      "Überarbeitung einer Einheit mit Sitzungen (z. B. nach Ausfällen in der Grundschule): gib bei jeder Stunde, die bleibt, ihre uid aus get_unit an – sie behält ihre Sitzung samt Material; Stunden ohne uid sind neu; eine weggelassene Stunde mit schon geplanter Sitzung lehnt die Plattform ab (leere Sitzungen löscht sie). In der Grundschule verteilt die Plattform die Termine danach neu.",
+      "Grundschule (get_unit nennt dort die uid jeder Stunde): Hat die Einheit schon Sitzungen (z. B. Überarbeitung nach Ausfällen), gib bei jeder Stunde, die bleibt, ihre uid an – sie behält ihre Sitzung samt Material; Stunden ohne uid sind dann neu; eine weggelassene Stunde mit schon geplanter Sitzung lehnt die Plattform ab (leere Sitzungen löscht sie), ebenso einen Plan ganz ohne uid. Danach verteilt die Plattform die Termine neu. " +
+      "Am Gymnasium nennt get_unit keine uid: Lass sie dort weg – die Plattform ordnet die Stunden wie bisher nach ihrer Position den bestehenden Sitzungen zu.",
     inputSchema: { type: "object", properties: { unit_id: UNIT_ID, base_version: { type: "integer", minimum: 0 },
       plan: { type: "object", properties: { titel: { type: "string", maxLength: 200 }, thema: { type: "string", maxLength: 500 },
         planungsgrundlage: { type: "object", properties: { name: { type: "string" }, begruendung: { type: "string" }, alternative: { type: "object", properties: { name: { type: "string" }, begruendung: { type: "string" } } } }, required: ["name"] },
         lernaufgabe: { type: "string", maxLength: 4000 }, ausgangslage: { type: "string", maxLength: 4000 },
         schritte: { type: "array", maxItems: 15, items: { type: "object", properties: { titel: { type: "string", maxLength: 160 }, beschreibung: { type: "string", maxLength: 600 } }, required: ["titel", "beschreibung"] } } },
         required: ["lernaufgabe", "schritte"] },
-      stunden: { type: "array", minItems: 1, maxItems: 150, items: { type: "object", properties: { uid: { type: "string", pattern: "^[a-f0-9]{8}$", description: "aus get_unit – behält die Stunde samt Sitzung" },
+      stunden: { type: "array", minItems: 1, maxItems: 150, items: { type: "object", properties: { uid: { type: "string", pattern: "^[a-f0-9]{8}$", description: "nur Grundschule: aus get_unit – behält die Stunde samt Sitzung" },
         stundenfrage: { type: "string", maxLength: 400 }, ablauf: { type: "array", items: { type: "string", maxLength: 400 }, maxItems: 15 }, schritt: { type: "integer", minimum: 0, maximum: 14 } }, required: ["stundenfrage", "ablauf"] } } },
       required: ["unit_id", "plan", "stunden"], additionalProperties: false } },
   { name: "update_unit_row", title: "Stunde in der Einheit anpassen", annotations: wr,
@@ -421,7 +422,7 @@ async function callTool(c, name, a) {
         return toolText(t.join(" "), { version: r.version, moves: r.moves, undated: r.undated.map((x) => x.uid), deleted: r.deleted });
       } catch (e) {
         if (e instanceof HttpError && e.code === "unit_conflict") return toolError("Die Einheit wurde inzwischen geändert (Version " + e.extra.version + "). Bitte get_unit erneut aufrufen.");
-        if (e instanceof HttpError && e.code === "rows_with_lessons") return toolError(e.message);
+        if (e instanceof HttpError && (e.code === "rows_with_lessons" || e.code === "uid_required")) return toolError(e.message);
         throw e;
       }
     }

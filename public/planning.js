@@ -52,13 +52,14 @@ export function computeSlots(raw) {
     const wd = new Date(d + "T12:00:00Z").getUTCDay();
     const hits = p.weekdays.filter((w) => w.day === wd);
     if (!hits.length || p.breaks.some((b) => d >= b.from && d <= b.to)) continue;
-    for (const w of hits) if (!isCancelled(p, d, w.time)) out.push({ date: d, minutes: w.minutes, time: w.time || null, kind: d === p.exam ? "klausur" : "stunde" });
+    for (const w of hits) if (!isCancelled(p, d, w.time, hits.length === 1)) out.push({ date: d, minutes: w.minutes, time: w.time || null, kind: d === p.exam ? "klausur" : "stunde" });
   }
   return out;
 }
 export const lessonSlots = (slots) => slots.filter((s) => s.kind === "stunde");
-// ausgefallen (Krankmeldung): derselbe Tag und – wenn beim Ausfall eine Uhrzeit stand – dieselbe Uhrzeit
-const isCancelled = (p, date, time) => (p.cancelled || []).some((c) => c.date === date && (c.time == null || c.time === (time || null)));
+// ausgefallen (Krankmeldung): derselbe Tag und – wenn beim Ausfall eine Uhrzeit stand – dieselbe Uhrzeit. Hat der Wochentag nur einen Termin
+// (single), genügt der Tag: Eine später geänderte Uhrzeit im Stundenplan holt den ausgefallenen Termin nicht zurück (Abschlussprüfung F04).
+const isCancelled = (p, date, time, single = false) => (p.cancelled || []).some((c) => c.date === date && (c.time == null || single || c.time === (time || null)));
 
 /* ---------- Wochenkalender der Lehrkraft (Startseite) ----------
  * units = [{id, subject, klass, title, params}] (GET /api/teacher/schedule), monday = Montag der Woche. Eine Einheit gilt an einem Tag, wenn er
@@ -105,7 +106,7 @@ export function weekSchedule(units, monday) {
       if (b && !day.off.some((o) => o.subject === u.subject && o.klass === u.klass))
         day.off.push({ subject: u.subject, subjectShort: who.subjectShort, klass: u.klass, label: who.label, reason: b.label || "" });
       // Krankmeldung (Grundschule): der ausgefallene Termin – nur, wenn er sonst nach Stundenplan stattgefunden hätte
-      else if (!b && p.weekdays.some((w) => w.day === day.day && isCancelled(p, day.date, w.time)) && !day.off.some((o) => o.subject === u.subject && o.klass === u.klass))
+      else if (!b && p.weekdays.some((w) => w.day === day.day && isCancelled(p, day.date, w.time, p.weekdays.filter((x) => x.day === day.day).length === 1)) && !day.off.some((o) => o.subject === u.subject && o.klass === u.klass))
         day.off.push({ subject: u.subject, subjectShort: who.subjectShort, klass: u.klass, label: who.label, reason: "Unterricht ausgefallen", cancelled: true });
     }
   }
@@ -225,9 +226,24 @@ export function packFrom(rows, slots, start, pivot) {
 const cancelErr = (status, code, message) => Object.assign(new Error(message), { status, code });
 // Termine, die noch nicht vorbei sind (Ende nach now; ohne Uhrzeit: heute oder später) – eine verschobene Stunde landet nie in der Vergangenheit
 const upcoming = (slots, now) => slots.filter((s) => parentOpensAt({ date: s.date, startTime: s.time, durationMin: s.minutes }) > now);
+/* Der Termin laut Stundenplan, den die Sitzung X (Zeile s) belegt – daySlots: die Termine ihres Tages (sortiert). Derselbe Beginn; sonst der
+   einzige Termin des Tages; sonst der nächstgelegene, den keine andere Zeile belegt. So trifft die Krankmeldung auch dann den Termin, wenn der
+   Beginn der Sitzung von Hand geändert wurde (z. B. 07:50 statt 08:00; Abschlussprüfung F04). null = an diesem Tag kein Termin. */
+function slotOfLesson(daySlots, rows, s, X) {
+  if (!daySlots.length) return null;
+  const exact = daySlots.find((d) => (d.time || null) === (X.time || null));
+  if (exact) return exact;
+  if (daySlots.length === 1) return daySlots[0];
+  const used = occupy(daySlots, rows.filter((r, i) => i !== s && r && r.date === X.date));
+  const free = daySlots.filter((_, i) => !used.has(i)), cand = free.length ? free : daySlots, m = clockMinutes(X.time);
+  if (m == null) return cand[0];
+  const dist = (d) => { const t = clockMinutes(d.time); return t == null ? Infinity : Math.abs(t - m); };
+  return cand.reduce((a, b) => (dist(b) < dist(a) ? b : a));
+}
 /* Krankmeldung für die Sitzung lessonId. lessons = Sitzungen der Einheit [{id, title, date, time, row, minutes, cancelled}], now = ms.
    → {params (mit dem neuen Ausfall), rows, s (Index der Zeile), moves: [{uid, n, title, lessonId|null, from:{date,time,minutes}, to|null}],
-      undated: [uid], undatedRows: [{uid, n, title}], lengthChanges: [{uid, n, title, from, to}], cancelled: {date, time, minutes}}
+      undated: [uid], undatedRows: [{uid, n, title}], lengthChanges: [{uid, n, title, from, to}], cancelled: {date, time, minutes} (die Sitzung),
+      slot: {date, time} (der ausgefallene Termin laut Stundenplan – so steht er in params.cancelled)}
    Wirft Fehler mit status/code: no_row, too_many, already_held (eine der folgenden Stunden hat schon stattgefunden). */
 export function planCancellation({ params, rows, lessons, lessonId, now = Date.now() }) {
   const p = normalizeParams(params), list = Array.isArray(lessons) ? lessons : [];
@@ -238,14 +254,16 @@ export function planCancellation({ params, rows, lessons, lessonId, now = Date.n
   const s = rows.findIndex((r) => r.uid === X.row);
   if (s < 0) throw cancelErr(400, "no_row", "Die Zeile dieser Sitzung steht nicht mehr in der Einheit – bitte das Datum von Hand ändern.");
   if ((p.cancelled || []).length >= CANCEL_MAX) throw cancelErr(400, "too_many", "Zu viele Ausfälle in dieser Einheit (höchstens 60).");
-  const p2 = { ...p, cancelled: [...(p.cancelled || []), { date: X.date, time: X.time || null }] };
+  const sl = slotOfLesson(sortSlots(lessonSlots(computeSlots({ ...p, start: X.date, end: X.date }))), rows, s, X);
+  const slot = { date: X.date, time: sl ? sl.time || null : X.time || null };
+  const p2 = { ...p, cancelled: [...(p.cancelled || []), slot] };
   const byRow = new Map(list.filter((l) => l.row && !l.cancelled).map((l) => [l.row, l]));
   // Die ausgefallene Stunde selbst darf schon vorbei sein (Krankmeldung im Nachhinein), die folgenden nicht
   for (const r of rows.slice(s + 1)) {
     const l = byRow.get(r.uid), open = l ? parentOpensAt({ date: l.date, startTime: l.time, durationMin: l.minutes }) : null;
     if (open != null && open <= now) throw cancelErr(409, "already_held", "Die Stunde „" + (l.title || r.stundenfrage || "") + "“ am " + fmtDay(l.date) + " hat schon stattgefunden – verschieben lässt sich nur, solange die folgenden Stunden noch ausstehen.");
   }
-  const next = packFrom(rows, upcoming(sortSlots(lessonSlots(computeSlots(p2))), now), s, { date: X.date, time: X.time || null });
+  const next = packFrom(rows, upcoming(sortSlots(lessonSlots(computeSlots(p2))), now), s, slot);
   const title = (r) => r.stundenfrage || (byRow.get(r.uid) || {}).title || "";
   const moves = [], lengthChanges = [];
   next.forEach((r, i) => {
@@ -258,7 +276,7 @@ export function planCancellation({ params, rows, lessons, lessonId, now = Date.n
   });
   const undatedRows = next.map((r, i) => ({ uid: r.uid, n: i + 1, title: title(r), date: r.date })).filter((r) => !r.date).map(({ uid, n, title }) => ({ uid, n, title }));
   return { params: p2, rows: next, s, moves, undated: undatedRows.map((r) => r.uid), undatedRows, lengthChanges,
-    cancelled: { date: X.date, time: X.time || null, minutes: X.minutes ?? null } };
+    cancelled: { date: X.date, time: X.time || null, minutes: X.minutes ?? null }, slot };
 }
 /* Nach einer Überarbeitung (save_unit_plan mit uid, Grundschule): alle Stunden nach der letzten, die schon stattgefunden hat (bzw. ohne
    Sitzung: deren Datum vor heute liegt), bekommen der Reihe nach die freien Termine, die noch nicht vorbei sind. lessons wie bei planCancellation. → rows */

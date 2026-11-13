@@ -6,7 +6,8 @@ import { lessonSlots, paramsText, freeSlots, normalizeParams } from "./planning.
 export const GS_RULE = "In der Grundschule arbeiten die Kinder nicht digital: Plane ausschließlich analoges Material (ausdruckbare Arbeitsblätter, Bildkarten, Tafel- und Bodenbilder) – keine Feibeitsblätter, keine Escape-Rooms, keine Online-Aufgaben, keine Präsentation zum Mitverfolgen.";
 
 /* ---------- Prompt für Claude: Unterrichtseinheit eines Grundschulkurses planen (claude.ai + Connector) ----------
- * ctx = {unitId, course (Kurs wie vom Server: subjectName, description, gradeText, …), title, params, slots, bases: [Titel], missing: [Text], classSize} */
+ * ctx = {unitId, course (Kurs wie vom Server: subjectName, description, gradeText, …), title, params, slots, bases: [Titel], missing: [Text], classSize,
+ * hasSessions (die Einheit hat schon Sitzungen → Claude speichert mit der uid jeder Stunde)} */
 export function claudeGsUnitPrompt(ctx) {
   const c = ctx.course || {}, slots = lessonSlots(ctx.slots || []), fach = c.subjectName || "Religion";
   const list = slots.map((s, i) => (i + 1) + ". " + fmtDay(s.date) + (s.time ? " " + s.time : "") + " (" + s.minutes + " min)").join("\n");
@@ -16,7 +17,9 @@ export function claudeGsUnitPrompt(ctx) {
     "3. Schlage mir **drei** zentrale Lernaufgaben vor (kompetenzorientiert, grundschulgerecht, mit einem Lernprodukt der Kinder, z. B. ein gestaltetes Bild, ein kleines Buch, ein Bodenbild oder ein Rollenspiel). Die zentrale Lernaufgabe ist das Ziel der Unterrichtseinheit. Warte, bis ich eine festlege – ohne festgelegte Lernaufgabe entwickelst du noch keinen Ablauf.",
     "4. Entwickle dann das **Leupold-Schema**: links die Ausgangslage der Lerngruppe (Lernvoraussetzungen und angestrebter Kompetenzschwerpunkt), in der Mitte die Lernschritte der Einheit als Abfolge von Paaren aus Tätigkeitsbeschreibung in kindgerechter Sprache und knappem Schritt-Titel, rechts die festgelegte Lernaufgabe. Die Lernschritte führen folgerichtig von der Ausgangslage zur Lernaufgabe.",
     "5. Stelle darauf aufbauend den Ablauf der Unterrichtseinheit **tabellarisch** dar: genau " + slots.length + " Zeilen, eine je verfügbarer Sitzung in zeitlicher Reihenfolge. Spalte 1: Stundenfrage, Spalte 2: grober Stundenablauf in Stichpunkten (kurze Phasen, Sitzkreis, Erzählung, Bewegung, Gestalten). Ordne jede Stunde einem Lernschritt zu; die letzten Stunden münden in die zentrale Lernaufgabe.",
-    "6. Wenn ich zufrieden bin, speichere das Ergebnis mit `save_unit_plan` in der Einheit " + ctx.unitId + " (Planungsgrundlage, Lernaufgabe, Ausgangslage, Lernschritte und die Stunden mit Stundenfrage, Ablauf und Nummer des Lernschritts). Ich prüfe und bearbeite den Plan danach in der Plattform; die Sitzungen legt die Plattform mit den Terminen an.",
+    "6. Wenn ich zufrieden bin, speichere das Ergebnis mit `save_unit_plan` in der Einheit " + ctx.unitId + " (Planungsgrundlage, Lernaufgabe, Ausgangslage, Lernschritte und die Stunden mit Stundenfrage, Ablauf und Nummer des Lernschritts). Ich prüfe und bearbeite den Plan danach in der Plattform; die Sitzungen legt die Plattform mit den Terminen an." +
+      // Einheit mit Sitzungen: ohne uid lehnt die Plattform den Plan ab (Abschlussprüfung F17)
+      (ctx.hasSessions ? " Diese Einheit hat schon Sitzungen: Rufe vorher `get_unit` für die Einheit " + ctx.unitId + " auf und gib beim Speichern bei jeder Stunde, die bleibt, ihre `uid` von dort an – sie behält ihre Sitzung samt Verlaufsplan und Material; Stunden ohne `uid` sind neu. Eine Stunde, deren Sitzung schon geplant ist, darf nicht wegfallen; ganz ohne `uid` speichert die Plattform nicht." : ""),
   ];
   return [
     "Du bist eine erfahrene Fachdidaktikerin bzw. ein erfahrener Fachdidaktiker für " + fach + " an einer Grundschule in Hessen und planst mit mir eine Unterrichtseinheit. Arbeite gründlich, fachlich korrekt, kindgerecht und dialogisch: Gehe Schritt für Schritt vor und warte an den markierten Stellen auf meine Entscheidung.",

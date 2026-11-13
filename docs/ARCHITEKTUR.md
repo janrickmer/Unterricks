@@ -370,6 +370,13 @@ implementiert und im End-to-End-Test geprüft (Ausnahmen unten ausdrücklich gen
   Stunde, „## Ausfälle“, Stunden ohne Termin und freie Termine; `save_unit_plan` mit uid behält Stunden samt Sitzung (leere Sitzungen
   weggefallener Stunden werden gelöscht, geplante nie) und verteilt in der Grundschule die Termine nach der letzten gehaltenen Stunde neu
   (`repackFuture`); der rote Kasten verschwindet dann. Der Wochenkalender zeigt den Termin als „Unterricht ausgefallen“.
+  Ergänzungen der Abschlussprüfung: `params.cancelled` hält den Termin laut Stundenplan fest, den die Sitzung belegt (auch wenn ihr Beginn von
+  Hand geändert wurde); hat der Wochentag nur einen Termin, fällt der ganze Tag aus, auch nach einer späteren Änderung der Uhrzeit. Der
+  Elternlink wandert innerhalb des Batches (in der Datenbank gelesen, nie vorab gebunden). „rückgängig“ führt die Termine aller Sitzungen der
+  Einheit mit und stellt den roten Kasten so her wie vor dieser Krankmeldung; „Erledigt“ schickt die gezeigten Ausfälle mit und schließt keine
+  neuere Krankmeldung. Das Speichern der Tabelle schreibt die Termine der Grundschul-Sitzungen im selben Batch wie die Einheit (an deren Version
+  gebunden). `save_unit_plan` ganz ohne uid lehnt die Plattform bei einer Grundschul-Einheit mit Sitzungen ab; am Gymnasium (get_unit ohne uid)
+  wählt nur die echte uid einer gespeicherten Zeile den Weg über die uid – sonst wie bisher nach Position, ohne dass Sitzungen gelöscht werden.
 
 * **Fächer und Jahrgänge.** Unter *Planungsgrundlagen → Fach → Fach-Einstellungen* steht, in welchen Jahrgängen ein Fach
   unterrichtet wird. Vorgabe für Politik und Wirtschaft: Jahrgänge 6, 8, 9, 10 (Hinweis: nur 1. Halbjahr), E-Phase und Q-Phase;

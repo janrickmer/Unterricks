@@ -9,7 +9,7 @@ import { courseSettingsOut } from "./courses.js";
 import { GS_SUBJECT, isGsCourseId, normalizeGsCourse, gsCourseShort, gsCourseLabel, gsGradeText, schoolYearOf, berlinToday } from "../public/shared.js";
 import { normalizeCourseSettings, planCancellation, normalizeParams } from "../public/planning.js";
 import { getLesson } from "./lessons.js";
-import { getUnit, linkedLessons, reviseData, unitFull } from "./units.js";
+import { getUnit, linkedLessons, reviseData, unitFull, mirrorStmt } from "./units.js";
 import { wantedGsSections, missingForGs } from "../public/bases-detect.js";
 
 const parseJ = (s, d) => { try { const v = JSON.parse(s); return v ?? d; } catch { return d; } };
@@ -163,17 +163,26 @@ export async function routeLessonCancel(c, id) {
   const rev = reviseData(u.revise) || { v: 1, open: false, items: [], undated: [], undo: null };
   const item = { id: cid, date: X.lesson_date, time: X.start_time || null, minutes: X.duration_min ?? null, lessonId: X.id, placeholderId: P,
     title: (oldRows[plan.s] || {}).stundenfrage || X.title, at: c.now, lengths: plan.lengthChanges.map(({ uid, n, from, to }) => ({ uid, n, from, to })) };
+  // slot: der ausgefallene Termin laut Stundenplan (wie in params.cancelled); prevOpen: war der rote Kasten vorher offen? (rückgängig stellt ihn so her)
   const undo = { id: cid, version: v + 1, rows: oldRows.slice(plan.s).map((r) => ({ uid: r.uid, date: r.date || null, time: r.time || null, minutes: r.minutes ?? null })),
     lessons: moved.map((m) => { const l = lessons.find((x) => x.id === m.id); return { id: l.id, d: l.date || null, t: l.time || null, m: l.minutes ?? null }; }),
-    lessonId: X.id, placeholderId: P, slot: { date: X.lesson_date, time: X.start_time || null } };
+    lessonId: X.id, placeholderId: P, slot: plan.slot, prevOpen: !!rev.open };
   const revise = { v: 1, open: true, items: [...rev.items, item].slice(-30), undated: plan.undated, undo };
-  const G = "EXISTS(SELECT 1 FROM units WHERE id=?8 AND version=?9)";
+  /* Elternlink: Hash und versiegelter Link wandern innerhalb des Batches von der Sitzung zum Ausfall-Eintrag – gelesen in der Datenbank, nie vorab
+     gebunden, damit ein gleichzeitiges „Link erneuern“ nicht verloren geht und ein widerrufener Link nicht wieder gilt (Abschlussprüfung F02).
+     Der eindeutige Index auf parent_hash lässt denselben Hash nie zweimal zu: erst „~“ davor (markX), dann in den Ausfall-Eintrag kopieren,
+     dann bei der Sitzung leeren – bzw. zurücksetzen, falls der Ausfall-Eintrag nicht angelegt wurde (settleX). */
+  const markX = (ver) => c.db.prepare("UPDATE lessons SET parent_hash='~'||parent_hash WHERE id=?1 AND parent_hash IS NOT NULL AND EXISTS(SELECT 1 FROM units WHERE id=?2 AND version=?3)").bind(X.id, u.id, ver);
+  const G = "EXISTS(SELECT 1 FROM units WHERE id=?8 AND version=?9)", FROM_X = " FROM lessons x WHERE x.id=?10 AND substr(x.parent_hash,1,1)='~')";
   const insertP = (code, guardVer) => c.db.prepare("INSERT INTO lessons(id, subject, klass, title, topic, duration_min, lesson_date, start_time, ideas, homework, code, unit_id, unit_row, cancelled, parent_hash, parent_sealed, created_at, updated_at) " +
-    "SELECT ?1, 'gs', ?2, 'Unterricht ausgefallen', ?3, ?4, ?5, ?6, '', '', ?7, ?8, NULL, 1, ?10, ?11, ?12, ?12 WHERE " + G + " ON CONFLICT(code) DO NOTHING RETURNING id")
-    .bind(P, X.klass, X.topic || "", X.duration_min ?? null, X.lesson_date, X.start_time || null, code, u.id, guardVer, X.parent_hash || null, X.parent_sealed || null, c.now);
+    "SELECT ?1, 'gs', ?2, 'Unterricht ausgefallen', ?3, ?4, ?5, ?6, '', '', ?7, ?8, NULL, 1, (SELECT substr(x.parent_hash,2)" + FROM_X + ", (SELECT x.parent_sealed" + FROM_X + ", ?11, ?11 WHERE " + G + " ON CONFLICT(code) DO NOTHING RETURNING id")
+    .bind(P, X.klass, X.topic || "", X.duration_min ?? null, X.lesson_date, X.start_time || null, code, u.id, guardVer, X.id, c.now);
+  const settleX = () => c.db.prepare("UPDATE lessons SET parent_hash=CASE WHEN EXISTS(SELECT 1 FROM lessons p WHERE p.id=?2) THEN NULL ELSE substr(parent_hash,2) END, " +
+    "parent_sealed=CASE WHEN EXISTS(SELECT 1 FROM lessons p WHERE p.id=?2) THEN NULL ELSE parent_sealed END WHERE id=?1 AND substr(parent_hash,1,1)='~'").bind(X.id, P);
   const res = await c.db.batch([
-    c.db.prepare("UPDATE lessons SET parent_hash=NULL, parent_sealed=NULL WHERE id=?1 AND EXISTS(SELECT 1 FROM units WHERE id=?2 AND version=?3)").bind(X.id, u.id, v),
+    markX(v),
     insertP(generateCode(), v),
+    settleX(),
     c.db.prepare("UPDATE lessons SET lesson_date=(SELECT json_extract(value,'$.d') FROM json_each(?1) WHERE json_extract(value,'$.id')=lessons.id), " +
       "start_time=(SELECT json_extract(value,'$.t') FROM json_each(?1) WHERE json_extract(value,'$.id')=lessons.id), " +
       "duration_min=COALESCE((SELECT json_extract(value,'$.m') FROM json_each(?1) WHERE json_extract(value,'$.id')=lessons.id), duration_min), updated_at=?2 " +
@@ -181,9 +190,9 @@ export async function routeLessonCancel(c, id) {
     c.db.prepare("UPDATE units SET params=?3, rows=?4, revise=?5, version=version+1, updated_at=?6, source='lehrkraft' WHERE id=?1 AND version=?2 RETURNING version")
       .bind(u.id, v, JSON.stringify(plan.params), JSON.stringify(plan.rows), JSON.stringify(revise), c.now),
   ]);
-  if (!(res[3].results || []).length) throw new HttpError(409, "unit_conflict", "Die Einheit wurde inzwischen geändert – die Vorschau wird neu geladen.");
+  if (!(res[4].results || []).length) throw new HttpError(409, "unit_conflict", "Die Einheit wurde inzwischen geändert – die Vorschau wird neu geladen.");
   // Sitzungscode zufällig schon vergeben (praktisch nie): Ausfall-Eintrag mit neuem Code nachtragen – an die neue Version gebunden
-  for (let i = 0; i < 6 && !(res[1].results || []).length; i++) res[1] = await insertP(generateCode(), v + 1).run();
+  for (let i = 0; i < 6 && !(res[1].results || []).length; i++) res[1] = (await c.db.batch([markX(v + 1), insertP(generateCode(), v + 1), settleX()]))[1];
   return json({ ok: true, placeholderId: P, moves: plan.moves, undated: plan.undated, unit: await unitFull(c.db, await getUnit(c.db, u.id)) });
 }
 // POST /api/teacher/units/<id>/cancel/undo – {undoId}: nur, solange die Einheit seit der Krankmeldung nicht geändert wurde
@@ -193,27 +202,31 @@ export async function routeCancelUndo(c, id) {
   const u = await getUnit(c.db, id), rev = reviseData(u.revise), undo = rev && rev.undo;
   const STALE = "Seit der Krankmeldung wurde die Einheit geändert – bitte die Termine von Hand anpassen.";
   if (!undo || undo.id !== body.undoId || undo.version !== u.version) throw new HttpError(409, "undo_stale", STALE);
-  const P = await c.db.prepare("SELECT id, parent_hash, parent_sealed FROM lessons WHERE id=?1 AND cancelled=1").bind(undo.placeholderId).first();
-  const params = normalizeParams(parseJ(u.params, {}));
-  const k = (params.cancelled || []).findIndex((x) => x.date === undo.slot.date && (x.time || null) === (undo.slot.time || null));
-  const cancelled = (params.cancelled || []).filter((_, i) => i !== k);
+  const lessons = await linkedLessons(c.db, u.id, true);
+  const params = normalizeParams(parseJ(u.params, {})), list = params.cancelled || [], slot = undo.slot || {};
+  // der ausgefallene Termin: genau dieser (Tag und Uhrzeit), sonst der letzte Ausfall desselben Tages
+  let k = list.findIndex((x) => x.date === slot.date && (x.time || null) === (slot.time || null));
+  if (k < 0) k = list.map((x) => x.date).lastIndexOf(slot.date);
+  const cancelled = list.filter((_, i) => i !== k);
   const p2 = { ...params }; delete p2.cancelled; if (cancelled.length) p2.cancelled = cancelled;
   const snap = new Map((undo.rows || []).map((r) => [r.uid, r]));
   const rows = parseJ(u.rows, []).map((r) => (snap.has(r.uid) ? { ...r, date: snap.get(r.uid).date, time: snap.get(r.uid).time, minutes: snap.get(r.uid).minutes } : r));
   const items = rev.items.filter((x) => x.id !== undo.id);
-  const revise = items.length ? { ...rev, open: true, items, undated: rows.filter((r) => !r.date).map((r) => r.uid), undo: null } : null;
+  // der rote Kasten wie vor dieser Krankmeldung (ältere Schnappschüsse ohne prevOpen: offen)
+  const revise = items.length ? { ...rev, open: typeof undo.prevOpen === "boolean" ? undo.prevOpen : true, items, undated: rows.filter((r) => !r.date).map((r) => r.uid), undo: null } : null;
   const G = "EXISTS(SELECT 1 FROM units WHERE id=?2 AND version=?3)";
+  // Elternlink zurück zur Sitzung wie bei der Krankmeldung: der jetzige Hash des Ausfall-Eintrags (auch nach „Link erneuern“), in der Datenbank gelesen
   const res = await c.db.batch([
+    c.db.prepare("UPDATE lessons SET parent_hash='~'||parent_hash WHERE id=?1 AND cancelled=1 AND parent_hash IS NOT NULL AND " + G).bind(undo.placeholderId, u.id, u.version),
+    c.db.prepare("UPDATE lessons SET parent_hash=(SELECT substr(p.parent_hash,2) FROM lessons p WHERE p.id=?4), parent_sealed=(SELECT p.parent_sealed FROM lessons p WHERE p.id=?4) " +
+      "WHERE id=?1 AND cancelled=0 AND EXISTS(SELECT 1 FROM lessons p WHERE p.id=?4 AND substr(p.parent_hash,1,1)='~') AND " + G).bind(undo.lessonId, u.id, u.version, undo.placeholderId),
     c.db.prepare("DELETE FROM lessons WHERE id=?1 AND cancelled=1 AND " + G).bind(undo.placeholderId, u.id, u.version),
-    c.db.prepare("UPDATE lessons SET parent_hash=?4, parent_sealed=?5 WHERE id=?1 AND cancelled=0 AND ?4 IS NOT NULL AND " + G).bind(undo.lessonId, u.id, u.version, P ? P.parent_hash : null, P ? P.parent_sealed : null),
-    c.db.prepare("UPDATE lessons SET lesson_date=(SELECT json_extract(value,'$.d') FROM json_each(?1) WHERE json_extract(value,'$.id')=lessons.id), " +
-      "start_time=(SELECT json_extract(value,'$.t') FROM json_each(?1) WHERE json_extract(value,'$.id')=lessons.id), " +
-      "duration_min=COALESCE((SELECT json_extract(value,'$.m') FROM json_each(?1) WHERE json_extract(value,'$.id')=lessons.id), duration_min), updated_at=?4 " +
-      "WHERE id IN (SELECT json_extract(value,'$.id') FROM json_each(?1)) AND cancelled=0 AND " + G).bind(JSON.stringify(undo.lessons || []), u.id, u.version, c.now),
+    // Termine aller Sitzungen der Einheit aus den Zeilen – auch Sitzungen, die erst nach der Krankmeldung angelegt wurden (Abschlussprüfung F05)
+    mirrorStmt(c.db, rows, lessons, c.now, "EXISTS(SELECT 1 FROM units WHERE id=?3 AND version=?4)", u.id, u.version),
     c.db.prepare("UPDATE units SET params=?3, rows=?4, revise=?5, version=version+1, updated_at=?6, source='lehrkraft' WHERE id=?1 AND version=?2 RETURNING version")
       .bind(u.id, u.version, JSON.stringify(p2), JSON.stringify(rows), revise ? JSON.stringify(revise) : null, c.now),
   ]);
-  if (!(res[3].results || []).length) throw new HttpError(409, "undo_stale", STALE);
+  if (!(res[4].results || []).length) throw new HttpError(409, "undo_stale", STALE);
   return json({ ok: true, unit: await unitFull(c.db, await getUnit(c.db, u.id)) });
 }
 export { GS_SUBJECT };

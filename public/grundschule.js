@@ -362,7 +362,8 @@ export function reviseBox(unit, opt = {}) {
     after: "Wenn Claude die Einheit gespeichert hat, kommen Sie hierher zurück: Die Seite lädt die neuen Termine beim Zurückkehren – der rote Hinweis verschwindet dann.",
     prompt: () => claudeUnitRevisionPrompt({ unit: full || unit, now: Date.now() }) }) }, "Einheit mit Claude überarbeiten");
   const doneBtn = h("button", { class: "btn", type: "button", onclick: (e) => busy(e.currentTarget, async () => {
-    try { const r = await tapi("PATCH", "/api/teacher/units/" + unit.id, { body: { reviseDone: true } }); toast("Hinweis entfernt.", "ok"); if (opt.onChange) opt.onChange(r.unit); refocus(); }
+    // mit den Ausfällen, die dieser Kasten zeigt: eine inzwischen dazugekommene Krankmeldung schließt er nicht mit (der Server antwortet dann 409)
+    try { const r = await tapi("PATCH", "/api/teacher/units/" + unit.id, { body: { reviseDone: true, reviseSeen: items.map((x) => x.id) } }); toast("Hinweis entfernt.", "ok"); if (opt.onChange) opt.onChange(r.unit); refocus(); }
     catch (x) { errToast(x); }
   }) }, icon("check"), "Erledigt – Hinweis entfernen");
   const undoBtn = rv.canUndo ? h("button", { class: "btn ghost danger", type: "button", onclick: async (e) => {

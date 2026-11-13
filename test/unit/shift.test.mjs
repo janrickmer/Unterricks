@@ -212,7 +212,7 @@ test("Route Krankmeldung: Vorschau, ausführen (ein Batch), Ausfall-Eintrag mit 
   c.db.counter.n = 0;
   const r = await call(c, GS.routeLessonCancel, "POST", "/x", { version: pre.data.version }, ids[2]);
   assert.equal(r.status, 200);
-  assert.ok(c.db.counter.n <= 12, "D1-Anweisungen der Krankmeldung: " + c.db.counter.n);
+  assert.ok(c.db.counter.n <= 13, "D1-Anweisungen der Krankmeldung: " + c.db.counter.n);   // Batch mit 5 Anweisungen (der Elternlink wandert in der Datenbank, F02)
   const P1 = r.data.placeholderId;
   // Sitzungen: Datum wandert mit, die letzte ohne Termin; Ausfall-Eintrag am alten Termin
   const got = await Promise.all(ids.map((id) => lessonRow(c, id)));
@@ -361,4 +361,193 @@ test("Krankmeldung: Guard already_held mit echter Uhr; Einheit festlegen übersp
   await call(c, U.routeUnitPatch, "PATCH", "/x", { rows: [...u.rows, { stundenfrage: "Zusatz", ablauf: [] }] }, unitId);
   const s = await call(c, U.routeUnitSessions, "POST", "/x", undefined, unitId);
   assert.deepEqual([s.status, s.data.created, s.data.skipped], [200, 0, 1]);
+});
+
+/* ---------- Abschlussprüfung Gruppe A (F02–F08, F17) ---------- */
+const NOW9 = at("2026-11-09T12:00:00Z");
+test("F04: die Krankmeldung trifft den Termin laut Stundenplan – auch bei von Hand geändertem Beginn oder später geänderter Uhrzeit", () => {
+  const withTime = (t) => mkRows().map((r, i) => (i === 2 ? { ...r, time: t } : r));
+  // Beginn 07:50 statt 08:00: der Termin 08:00 fällt aus, die Stunde rückt auf den nächsten Termin (nicht auf 08:00 desselben Tages)
+  let rows = withTime("07:50");
+  const c1 = P.planCancellation({ params: base(), rows, lessons: mkLessons(rows), lessonId: "L3", now: NOW9 });
+  assert.deepEqual(c1.params.cancelled, [{ date: "2026-11-10", time: "08:00" }]);
+  assert.deepEqual(c1.slot, { date: "2026-11-10", time: "08:00" });
+  assert.deepEqual(dates(c1.rows), ["2026-11-03", "2026-11-05", "2026-11-12", "2026-11-17", "2026-11-19", null]);
+  assert.deepEqual(c1.cancelled, { date: "2026-11-10", time: "07:50", minutes: 45 }, "die Vorschau nennt die Sitzung selbst");
+  // Beginn 08:15: der ausgefallene Termin taucht nicht als freier Termin auf, Claudes Überarbeitung belegt ihn nicht wieder
+  rows = withTime("08:15");
+  const c2 = P.planCancellation({ params: base(), rows, lessons: mkLessons(rows), lessonId: "L3", now: NOW9 });
+  assert.deepEqual(c2.params.cancelled, [{ date: "2026-11-10", time: "08:00" }]);
+  assert.ok(!P.freeSlots({ ...c2.params, end: "2026-11-24" }, c2.rows, NOW9).some((s) => s.date === "2026-11-10"));
+  const rp = P.repackFuture({ params: { ...c2.params, end: "2026-11-24" }, rows: c2.rows, lessons: mkLessons(c2.rows), now: NOW9 });
+  assert.ok(!rp.some((r) => r.date === "2026-11-10"), dates(rp).join());
+  // Uhrzeit des Wochentags nach der Krankmeldung geändert (08:15): der Tag bleibt ausgefallen – in den Terminen und im Kalender
+  rows = mkRows();
+  const c3 = P.planCancellation({ params: base(), rows, lessons: mkLessons(rows), lessonId: "L3", now: NOW9 });
+  const p3 = { ...c3.params, end: "2026-11-24", weekdays: [{ day: 2, minutes: 45, time: "08:15" }, { day: 4, minutes: 45, time: "08:00" }] };
+  assert.ok(!P.computeSlots(p3).some((s) => s.date === "2026-11-10"));
+  assert.ok(!P.repackFuture({ params: p3, rows: c3.rows, lessons: mkLessons(c3.rows), now: NOW9 }).some((r) => r.date === "2026-11-10"));
+  const course = { id: "gs1a2b3c4d", short: "Religion 2ab", label: "Religion 2ab" };
+  const tue = P.weekSchedule([{ id: "u1", subject: "gs", klass: course.id, title: "Josef", course, params: p3 }], "2026-11-09").days[1];
+  assert.deepEqual([tue.timed.length, tue.off.map((o) => o.reason)], [0, ["Unterricht ausgefallen"]]);
+  // zwei Termine am selben Wochentag: weiter nur der passende (Beginn 08:05 → der nächstgelegene Termin 08:00, nicht 10:00)
+  const two = { start: "2026-11-02", end: "2026-11-16", weekdays: [{ day: 1, minutes: 45, time: "08:00" }, { day: 1, minutes: 45, time: "10:00" }], breaks: [] };
+  const r4 = ["2026-11-02", "2026-11-02", "2026-11-09", "2026-11-09"].map((d, i) => ({ uid: UIDS[i], stundenfrage: "S" + (i + 1), ablauf: [], schritt: null, date: d, time: i % 2 ? "10:00" : i === 2 ? "08:05" : "08:00", minutes: 45 }));
+  const c4 = P.planCancellation({ params: two, rows: r4, lessons: mkLessons(r4), lessonId: "L3", now: at("2026-11-08T12:00:00Z") });
+  assert.deepEqual(c4.params.cancelled, [{ date: "2026-11-09", time: "08:00" }]);
+  assert.deepEqual(c4.rows.slice(2).map((x) => x.date + " " + x.time), ["2026-11-09 10:00", "2026-11-16 08:00"]);
+  assert.ok(P.computeSlots(c4.params).some((s) => s.date === "2026-11-09" && s.time === "10:00"), "der zweite Termin des Tages bleibt");
+});
+
+test("F02: Krankmeldung und „rückgängig“ übernehmen den Elternlink aus der Datenbank – ein gleichzeitiges „Link erneuern“ bleibt, der widerrufene Link gilt nicht wieder", async () => {
+  const { c, unitId, ids } = await setup();
+  const t1 = (await call(c, PA.routeTeacherParentLink, "POST", "/x", {}, ids[2])).data.token;
+  const v = (await call(c, GS.routeLessonCancel, "POST", "/x", { dryRun: true }, ids[2])).data.version;
+  // zwischen dem Lesen der Sitzung und dem Batch erneuert ein zweiter Tab den Link
+  const batch = c.db.batch;
+  let t2 = null;
+  c.db.batch = async (list) => { c.db.batch = batch; t2 = (await call(c, PA.routeTeacherParentLink, "POST", "/x", { renew: true }, ids[2])).data.token; return batch(list); };
+  const r = (await call(c, GS.routeLessonCancel, "POST", "/x", { version: v }, ids[2])).data;
+  assert.ok(t2 && t2 !== t1 && r.placeholderId);
+  assert.equal((await lessonRow(c, r.placeholderId)).parent_hash, await PA.parentHash(t2), "der erneuerte Link gehört zum Ausfall-Eintrag");
+  assert.equal((await lessonRow(c, ids[2])).parent_hash, null);
+  c.now = at("2026-11-10T09:00:00Z");
+  assert.equal((await pub(c, PA.routeParentLesson, { token: t2 })).data.state, "cancelled");
+  assert.equal((await pub(c, PA.routeParentLesson, { token: t1 })).status, 404, "der widerrufene Link bleibt ungültig");
+  c.now = NOW;
+  // rückgängig: zwischen Lesen und Batch wird der Link des Ausfall-Eintrags erneuert → genau dieser Link gehört danach wieder zur Sitzung
+  let t3 = null;
+  c.db.batch = async (list) => { c.db.batch = batch; t3 = (await call(c, PA.routeTeacherParentLink, "POST", "/x", { renew: true }, r.placeholderId)).data.token; return batch(list); };
+  assert.equal((await call(c, GS.routeCancelUndo, "POST", "/x", { undoId: r.unit.revise.undoId }, unitId)).status, 200);
+  assert.equal((await lessonRow(c, ids[2])).parent_hash, await PA.parentHash(t3));
+  assert.equal(await lessonRow(c, r.placeholderId), null);
+  assert.equal((await pub(c, PA.routeParentLesson, { token: t2 })).status, 404);
+  // Sitzungscode zufällig schon vergeben: der Ausfall-Eintrag kommt mit neuem Code nach – samt Elternlink, die Sitzung behält ihn bis dahin nicht doppelt
+  const taken = (await lessonRow(c, ids[0])).code, prep = c.db.prepare;
+  let forced = false;
+  c.db.prepare = (sql) => { const st = prep(sql); if (forced || !sql.startsWith("INSERT INTO lessons(id, subject, klass, title, topic")) return st;
+    forced = true; return { ...st, bind: (...a) => st.bind(...a.map((x, i) => (i === 6 ? taken : x))) }; };
+  const v2 = (await call(c, GS.routeLessonCancel, "POST", "/x", { dryRun: true }, ids[2])).data.version;
+  const r2 = (await call(c, GS.routeLessonCancel, "POST", "/x", { version: v2 }, ids[2])).data;
+  c.db.prepare = prep;
+  const ph = await lessonRow(c, r2.placeholderId);
+  assert.ok(forced && ph && ph.code !== taken);
+  assert.equal(ph.parent_hash, await PA.parentHash(t3));
+  assert.equal((await lessonRow(c, ids[2])).parent_hash, null);
+  assert.equal((await c.db.prepare("SELECT COUNT(*) AS n FROM lessons WHERE substr(parent_hash,1,1)='~'").first()).n, 0, "keine Zwischenmarke bleibt stehen");
+});
+
+test("F03: eine veraltete Tabelle speichern (Grundschule) → 409, die Termine der Sitzungen bleiben; mit aktueller Version laufen sie mit", async () => {
+  const { c, unitId, ids } = await setup();
+  const stale = await unitGet(c, unitId);
+  const v = (await call(c, GS.routeLessonCancel, "POST", "/x", { dryRun: true }, ids[2])).data.version;
+  await call(c, GS.routeLessonCancel, "POST", "/x", { version: v }, ids[2]);
+  const shifted = ["2026-11-03", "2026-11-05", "2026-11-12", "2026-11-17", "2026-11-19", null];
+  const r = await call(c, U.routeUnitPatch, "PATCH", "/x", { plan: stale.plan, rows: stale.rows, baseVersion: stale.version }, unitId);
+  assert.deepEqual([r.status, r.data.code], [409, "unit_conflict"]);
+  assert.deepEqual((await Promise.all(ids.map((id) => lessonRow(c, id)))).map((l) => l.lesson_date), shifted, "nichts in die Sitzungen geschrieben");
+  const cur = await unitGet(c, unitId);
+  const ok2 = await call(c, U.routeUnitPatch, "PATCH", "/x", { plan: cur.plan, rows: cur.rows.map((x, i) => (i === 5 ? { ...x, date: "2026-11-24", time: "08:00" } : x)), baseVersion: cur.version }, unitId);
+  assert.equal(ok2.status, 200);
+  assert.equal((await lessonRow(c, ids[5])).lesson_date, "2026-11-24");
+  // ohne baseVersion wie bisher (ungeprüft)
+  const cur2 = await unitGet(c, unitId);
+  assert.equal((await call(c, U.routeUnitPatch, "PATCH", "/x", { rows: cur2.rows.map((x, i) => (i === 5 ? { ...x, date: "2026-11-26" } : x)) }, unitId)).status, 200);
+  assert.equal((await lessonRow(c, ids[5])).lesson_date, "2026-11-26");
+});
+
+test("F05/F06: rückgängig führt auch später angelegte Sitzungen mit und stellt den roten Kasten wie vorher her", async () => {
+  const { c, unitId, ids } = await setup({ end: "2026-11-26" });
+  let u = await unitGet(c, unitId);
+  await call(c, U.routeUnitPatch, "PATCH", "/x", { rows: [...u.rows, { stundenfrage: "Stunde 7", ablauf: [], date: "2026-11-24", time: "08:00", minutes: 45 }], baseVersion: u.version }, unitId);
+  const v = (await call(c, GS.routeLessonCancel, "POST", "/x", { dryRun: true }, ids[2])).data.version;
+  const r = (await call(c, GS.routeLessonCancel, "POST", "/x", { version: v }, ids[2])).data;
+  assert.equal(r.unit.rows[6].date, "2026-11-26");
+  const made = await call(c, U.routeUnitSessions, "POST", "/x", undefined, unitId);
+  assert.equal(made.data.created, 1);
+  const l7 = made.data.unit.lessons.find((l) => l.row === r.unit.rows[6].uid);
+  assert.ok(l7 && l7.date === "2026-11-26" && made.data.unit.revise.canUndo);
+  const und = await call(c, GS.routeCancelUndo, "POST", "/x", { undoId: r.unit.revise.undoId }, unitId);
+  assert.equal(und.status, 200);
+  assert.equal(und.data.unit.rows[6].date, "2026-11-24");
+  assert.equal((await lessonRow(c, l7.id)).lesson_date, "2026-11-24", "die später angelegte Sitzung wandert mit ihrer Zeile zurück");
+  assert.deepEqual((await Promise.all(ids.map((id) => lessonRow(c, id)))).map((l) => l.lesson_date), DATES);
+  // F06: erste Krankmeldung erledigt, zweite rückgängig → der Kasten bleibt geschlossen
+  let pre = (await call(c, GS.routeLessonCancel, "POST", "/x", { dryRun: true }, ids[2])).data;
+  const a = (await call(c, GS.routeLessonCancel, "POST", "/x", { version: pre.version }, ids[2])).data;
+  assert.equal((await call(c, U.routeUnitPatch, "PATCH", "/x", { reviseDone: true, reviseSeen: a.unit.revise.items.map((x) => x.id) }, unitId)).data.unit.revise.open, false);
+  pre = (await call(c, GS.routeLessonCancel, "POST", "/x", { dryRun: true }, ids[3])).data;
+  const b = (await call(c, GS.routeLessonCancel, "POST", "/x", { version: pre.version }, ids[3])).data;
+  assert.equal(b.unit.revise.open, true);
+  u = (await call(c, GS.routeCancelUndo, "POST", "/x", { undoId: b.unit.revise.undoId }, unitId)).data.unit;
+  assert.deepEqual([u.revise.open, u.revise.items.length, u.params.cancelled.length], [false, 1, 1], "wie vor der zweiten Krankmeldung: geschlossen, der erste Ausfall bleibt");
+  // offen vor der zweiten Krankmeldung → nach rückgängig weiter offen (wie bisher)
+  pre = (await call(c, GS.routeLessonCancel, "POST", "/x", { dryRun: true }, ids[3])).data;
+  await call(c, GS.routeLessonCancel, "POST", "/x", { version: pre.version }, ids[3]);
+  pre = (await call(c, GS.routeLessonCancel, "POST", "/x", { dryRun: true }, ids[4])).data;
+  const d = (await call(c, GS.routeLessonCancel, "POST", "/x", { version: pre.version }, ids[4])).data;
+  u = (await call(c, GS.routeCancelUndo, "POST", "/x", { undoId: d.unit.revise.undoId }, unitId)).data.unit;
+  assert.equal(u.revise.open, true);
+});
+
+test("F07: „Erledigt – Hinweis entfernen“ aus einem veralteten Kasten schließt keine neuere Krankmeldung", async () => {
+  const { c, unitId, ids } = await setup();
+  let pre = (await call(c, GS.routeLessonCancel, "POST", "/x", { dryRun: true }, ids[2])).data;
+  const a = (await call(c, GS.routeLessonCancel, "POST", "/x", { version: pre.version }, ids[2])).data;
+  const seen = a.unit.revise.items.map((x) => x.id);
+  pre = (await call(c, GS.routeLessonCancel, "POST", "/x", { dryRun: true }, ids[3])).data;
+  await call(c, GS.routeLessonCancel, "POST", "/x", { version: pre.version }, ids[3]);
+  const r = await call(c, U.routeUnitPatch, "PATCH", "/x", { reviseDone: true, reviseSeen: seen }, unitId);
+  assert.deepEqual([r.status, r.data.code], [409, "revise_changed"]);
+  let u = await unitGet(c, unitId);
+  assert.deepEqual([u.revise.open, u.revise.items.length, u.revise.canUndo], [true, 2, true], "der Hinweis und „rückgängig“ der neueren Krankmeldung bleiben");
+  u = (await call(c, U.routeUnitPatch, "PATCH", "/x", { reviseDone: true, reviseSeen: u.revise.items.map((x) => x.id) }, unitId)).data.unit;
+  assert.equal(u.revise.open, false);
+});
+
+test("F08: save_unit_plan am Gymnasium mit leerer oder erfundener uid – nach Position wie vor der Grundschul-Erweiterung, keine Sitzung gelöscht", async () => {
+  const { c } = await setup();
+  const sek = (await call(c, U.routeUnitCreate, "POST", "/api/teacher/units", { subject: "powi", klass: "8B", title: "Wahlen", params: base("2026-11-12") })).data.unit;
+  await call(c, U.routeUnitPatch, "PATCH", "/x", { plan: { lernaufgabe: "Wahlplakat", schritte: [] }, rows: ["a", "b", "c"].map((q) => ({ stundenfrage: q, ablauf: ["x"] })), assignDates: true }, sek.id);
+  const made = (await call(c, U.routeUnitSessions, "POST", "/x", undefined, sek.id)).data;
+  assert.equal(made.created, 3);
+  const linked = async () => { const u = await unitGet(c, sek.id); return { n: u.lessons.length, rows: u.lessons.filter((l) => u.rows.some((r) => r.uid === l.row)).length, uids: u.rows.map((r) => r.uid) }; };
+  const before = await linked();
+  for (const uid of ["", "neu"]) {
+    const s = await mcp(c, "save_unit_plan", { unit_id: sek.id, plan: { lernaufgabe: "Wahlplakat", schritte: [] }, stunden: [1, 2, 3].map((i) => ({ uid, stundenfrage: "Neue Stunde " + i, ablauf: ["y"] })) });
+    assert.ok(!s.isError && /^Plan gespeichert \(Version \d+, 3 Stunden\)\. Die Lehrkraft prüft ihn in der Plattform und legt dort die Sitzungen an\.$/.test(s.text), s.text);
+    const now = await linked();
+    assert.equal(now.n, 3, "keine Sitzung gelöscht (uid „" + uid + "“)");
+    if (uid === "") assert.deepEqual([now.rows, now.uids], [3, before.uids], "leere uid: die Zeilen behalten ihre Kennung nach Position");
+  }
+  // eine erfundene uid im richtigen Format: ebenfalls nach Position (wie vor der Erweiterung: die Zeile bekommt diese Kennung, nichts wird gelöscht)
+  const s = await mcp(c, "save_unit_plan", { unit_id: sek.id, plan: { lernaufgabe: "Wahlplakat", schritte: [] }, stunden: [{ uid: "abcdef12", stundenfrage: "x", ablauf: ["y"] }] });
+  assert.ok(!s.isError && s.text.startsWith("Plan gespeichert (Version") && !s.text.includes("uid"), s.text);
+  assert.equal((await linked()).n, 3);
+  // mit echter uid aus den gespeicherten Zeilen: der Weg über die uid (Spezifikation §8.5)
+  const cur = await unitGet(c, sek.id);
+  const s2 = await mcp(c, "save_unit_plan", { unit_id: sek.id, base_version: cur.version, plan: cur.plan, stunden: cur.rows.map((r) => ({ uid: r.uid, stundenfrage: r.stundenfrage, ablauf: r.ablauf })) });
+  assert.ok(!s2.isError && s2.text.includes("Stunden mit uid behalten ihre Sitzung"), s2.text);
+});
+
+test("F17: save_unit_plan ohne uid bei einer Grundschul-Einheit mit Sitzungen wird abgelehnt; Prompt und Beschreibung nennen die uid", async () => {
+  const { c, unitId } = await setup();
+  const u = await unitGet(c, unitId);
+  const s = await mcp(c, "save_unit_plan", { unit_id: unitId, plan: u.plan, stunden: [1, 2, 3].map((i) => ({ stundenfrage: "Neu " + i, ablauf: ["x"] })) });
+  assert.ok(s.isError && s.text.startsWith("Diese Einheit hat schon Sitzungen: Gib bei jeder Stunde, die bleibt, ihre uid aus get_unit an"), s.text);
+  const after = await unitGet(c, unitId);
+  assert.deepEqual([after.version, after.rows.map((r) => r.stundenfrage)], [u.version, u.rows.map((r) => r.stundenfrage)], "nichts gespeichert");
+  // ohne Sitzungen weiter nach Position (erste Planung)
+  const fresh = (await call(c, U.routeUnitCreate, "POST", "/api/teacher/units", { subject: "gs", klass: u.klass, title: "Noah", params: base() })).data.unit;
+  assert.ok(!(await mcp(c, "save_unit_plan", { unit_id: fresh.id, plan: { lernaufgabe: "x", schritte: [] }, stunden: [{ stundenfrage: "a", ablauf: ["b"] }] })).isError);
+  // Prompt „Einheit mit Claude planen“: mit Sitzungen uid aus get_unit, ohne wie bisher
+  const { claudeGsUnitPrompt } = await import("../../public/gsplanning.js");
+  const ctx = { unitId, course: { subjectName: "Religion", gradeText: "Jahrgang 2" }, params: base(), slots: P.computeSlots(base()) };
+  assert.ok(claudeGsUnitPrompt({ ...ctx, hasSessions: true }).includes("Rufe vorher `get_unit` für die Einheit " + unitId + " auf und gib beim Speichern bei jeder Stunde, die bleibt, ihre `uid` von dort an"));
+  assert.ok(!claudeGsUnitPrompt(ctx).includes("uid"));
+  // Beschreibung des Werkzeugs: die uid-Regeln gelten, wo get_unit uids zeigt (Grundschule)
+  const req = new Request("https://unterricks.test/mcp/geheim", { method: "POST", body: JSON.stringify({ jsonrpc: "2.0", id: 1, method: "tools/list" }) });
+  const tools = (await (await routeMcp({ ...c, request: req, ip: "1.2.3.4", waitUntil: () => {} }, "geheim")).json()).result.tools;
+  const d = tools.find((t) => t.name === "save_unit_plan").description;
+  assert.ok(d.includes("Grundschule (get_unit nennt dort die uid jeder Stunde)") && d.includes("ebenso einen Plan ganz ohne uid") && d.includes("Am Gymnasium nennt get_unit keine uid"), d);
 });

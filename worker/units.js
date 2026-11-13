@@ -51,15 +51,17 @@ export async function unitFull(db, u) {
   return unitOut(u, { slots: computeSlots(params), lessons, course: await courseInfo(db, u.subject, u.klass) });
 }
 
-/* Speichern mit Versionsprüfung (Claude über den Connector und die Lehrkraft im Browser schreiben dieselbe Einheit) */
-export async function saveUnit(db, id, fields, baseVersion, source, now) {
+/* Speichern mit Versionsprüfung (Claude über den Connector und die Lehrkraft im Browser schreiben dieselbe Einheit). before: Anweisungen, die im
+   selben Batch davor laufen (sie prüfen die Version selbst – z. B. die Termine der Sitzungen in der Grundschule) */
+export async function saveUnit(db, id, fields, baseVersion, source, now, before = []) {
   const sets = [], args = [];
   for (const [k, v] of Object.entries(fields)) { args.push(v); sets.push(k + "=?" + (args.length + 1)); }
   args.push(now); sets.push("updated_at=?" + (args.length + 1));
   args.push(source); sets.push("source=?" + (args.length + 1));
   const cond = baseVersion == null ? "" : " AND version=?" + (args.length + 2);
-  const r = await db.prepare("UPDATE units SET " + sets.join(", ") + ", version=version+1 WHERE id=?1" + cond + " RETURNING version")
-    .bind(id, ...args, ...(baseVersion == null ? [] : [Number(baseVersion)])).first();
+  const st = db.prepare("UPDATE units SET " + sets.join(", ") + ", version=version+1 WHERE id=?1" + cond + " RETURNING version")
+    .bind(id, ...args, ...(baseVersion == null ? [] : [Number(baseVersion)]));
+  const r = before.length ? ((await db.batch([...before, st])).pop().results || [])[0] : await st.first();
   if (!r) {
     const cur = await db.prepare("SELECT version FROM units WHERE id=?1").bind(id).first();
     if (!cur) throw new HttpError(404, "not_found", "Diese Unterrichtseinheit gibt es nicht (mehr).");
@@ -68,9 +70,19 @@ export async function saveUnit(db, id, fields, baseVersion, source, now) {
   return r.version;
 }
 /* Plan (z. B. von Claude) übernehmen: Zeilen bekommen der Reihe nach die Termine der Einheit. Mit uid (aus get_unit) bleiben Stunden samt
-   Sitzung erhalten (Überarbeitung nach Ausfällen); ohne uid wie bisher nach Position. → {version, uid, moves, undated, deleted} */
+   Sitzung erhalten (Überarbeitung nach Ausfällen); ohne uid wie bisher nach Position. → {version, uid, moves, undated, deleted}
+   Grundschule: get_unit nennt die uid jeder Stunde – jede uid-Angabe wählt den Weg über die uid; hat die Einheit schon Sitzungen, lehnt die
+   Plattform einen Plan ganz ohne uid ab (nach Position kämen Sitzungen samt Verlaufsplan an fremde Stunden; Abschlussprüfung F17).
+   Gymnasium (get_unit ohne uid): nur die echte uid einer gespeicherten Zeile wählt diesen Weg; eine leere oder erfundene uid bleibt beim Weg nach
+   Position wie vor der Grundschul-Erweiterung – dort wird nie eine Sitzung gelöscht (Abschlussprüfung F08). */
 export async function applyPlan(db, u, planRaw, rowsRaw, baseVersion, source, now) {
-  if (Array.isArray(rowsRaw) && rowsRaw.some((r) => r && typeof r.uid === "string")) return applyPlanByUid(db, u, planRaw, rowsRaw, baseVersion, source, now);
+  const gs = u.subject === GS_SUBJECT, list = Array.isArray(rowsRaw) ? rowsRaw : [];
+  const known = new Set(parseJ(u.rows, []).map((r) => r && r.uid));
+  const byUid = gs ? list.some((r) => r && typeof r.uid === "string") : list.some((r) => r && typeof r.uid === "string" && /^[a-f0-9]{8}$/.test(r.uid) && known.has(r.uid));
+  if (byUid) return applyPlanByUid(db, u, planRaw, rowsRaw, baseVersion, source, now);
+  if (gs && (await db.prepare("SELECT 1 AS x FROM lessons WHERE unit_id=?1 AND cancelled=0 LIMIT 1").bind(u.id).first()))
+    throw new HttpError(409, "uid_required", "Diese Einheit hat schon Sitzungen: Gib bei jeder Stunde, die bleibt, ihre uid aus get_unit an (Stunden ohne uid sind dann neu). " +
+      "Ohne uid kämen Sitzungen samt Verlaufsplan und Material an andere Stunden – der Plan wurde nicht gespeichert.");
   return { version: await applyPlanByPosition(db, u, planRaw, rowsRaw, baseVersion, source, now), uid: false };
 }
 async function applyPlanByPosition(db, u, planRaw, rowsRaw, baseVersion, source, now) {
@@ -222,25 +234,39 @@ export async function routeUnitPatch(c, id) {
     fields.params = JSON.stringify(params);
   }
   if (body.plan !== undefined) fields.plan = JSON.stringify(normalizePlan(body.plan));
-  // Grundschule: „Erledigt – Hinweis entfernen“ (roter Kasten nach Ausfällen)
-  if (body.reviseDone === true && u.revise != null) { const r = reviseData(u.revise); if (r) fields.revise = JSON.stringify({ ...r, open: false, undo: null }); }
+  let ver = Number.isInteger(body.baseVersion) ? body.baseVersion : null;
+  // Grundschule: „Erledigt – Hinweis entfernen“ (roter Kasten nach Ausfällen). reviseSeen = Kennungen der Ausfälle, die der Kasten zeigte: ist
+  // inzwischen eine weitere Krankmeldung dazugekommen, bleibt der Hinweis (samt ihrem „rückgängig“); geprüft an der gelesenen Version (F07)
+  if (body.reviseDone === true && u.revise != null) {
+    const r = reviseData(u.revise);
+    if (r && Array.isArray(body.reviseSeen)) {
+      const seen = new Set(body.reviseSeen.filter((x) => typeof x === "string"));
+      if (r.items.some((x) => !seen.has(x.id))) throw new HttpError(409, "revise_changed", "Inzwischen ist eine weitere Krankmeldung dazugekommen – der Hinweis bleibt. Bitte neu laden.", { version: u.version });
+      if (ver == null) ver = u.version;
+    }
+    if (r) fields.revise = JSON.stringify({ ...r, open: false, undo: null });
+  }
+  const before = [];
   if (body.rows !== undefined) {
     let rows = normalizeRows(body.rows, newUid);
     if (body.assignDates) rows = assignDates(rows.map((r) => ({ ...r, date: null, time: null })), computeSlots(params || parseJ(u.params, {})));
     fields.rows = JSON.stringify(rows);
-    // Datum/Dauer verknüpfter Sitzungen mitführen (Grundschule: eine Anweisung, auch „ohne Termin“ und die Dauer)
+    // Datum/Dauer verknüpfter Sitzungen mitführen. Grundschule: eine Anweisung (auch „ohne Termin“ und die Dauer) im selben Batch wie die Einheit
+    // und an deren Version gebunden – eine veraltete Seite schreibt nie alte Termine in die Sitzungen (Abschlussprüfung F03)
     const lessons = await linkedLessons(c.db, id, gs);
-    const stmts = [];
-    if (gs) stmts.push(mirrorStmt(c.db, rows, lessons, c.now));
-    else for (const l of lessons) {
-      const r = rows.find((x) => x.uid === l.row);
-      if (r && r.date && r.date !== l.date) stmts.push(c.db.prepare("UPDATE lessons SET lesson_date=?2, updated_at=?3 WHERE id=?1").bind(l.id, r.date, c.now));
-      if (r && r.time && r.time !== l.time) stmts.push(c.db.prepare("UPDATE lessons SET start_time=?2, updated_at=?3 WHERE id=?1").bind(l.id, r.time, c.now));
+    if (gs) before.push(ver == null ? mirrorStmt(c.db, rows, lessons, c.now) : mirrorStmt(c.db, rows, lessons, c.now, "EXISTS(SELECT 1 FROM units WHERE id=?3 AND version=?4)", id, ver));
+    else {
+      const stmts = [];
+      for (const l of lessons) {
+        const r = rows.find((x) => x.uid === l.row);
+        if (r && r.date && r.date !== l.date) stmts.push(c.db.prepare("UPDATE lessons SET lesson_date=?2, updated_at=?3 WHERE id=?1").bind(l.id, r.date, c.now));
+        if (r && r.time && r.time !== l.time) stmts.push(c.db.prepare("UPDATE lessons SET start_time=?2, updated_at=?3 WHERE id=?1").bind(l.id, r.time, c.now));
+      }
+      if (stmts.length) await c.db.batch(stmts.slice(0, 40));
     }
-    if (stmts.length) await c.db.batch(stmts.slice(0, 40));
   }
   if (!Object.keys(fields).length) return json({ ok: true, unit: await unitFull(c.db, u) });
-  await saveUnit(c.db, id, fields, Number.isInteger(body.baseVersion) ? body.baseVersion : null, "lehrkraft", c.now);
+  await saveUnit(c.db, id, fields, ver, "lehrkraft", c.now, before);
   return json({ ok: true, unit: await unitFull(c.db, await getUnit(c.db, id)) });
 }
 export async function routeUnitDelete(c, id) {
