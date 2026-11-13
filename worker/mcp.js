@@ -274,6 +274,10 @@ async function gsLessonDump(db, l) {
   parts.push(...(await designedSection(db, l.id, (a) => (a === "student" ? "für die Kinder" : a === "teacher" ? "nur Lehrkraft" : "zum Ausdrucken"))));
   if (results.length) parts.push("", "## Gespeicherter Stundenentwurf (save_planning_result)", results[results.length - 1].content.slice(0, 20000));
   if (l.unit_id) parts.push("", "Unterrichtseinheit: " + l.unit_id + " (Details mit get_unit; Planungsgrundlagen mit get_planning_basis)");
+  // Krankmeldungen in der Einheit: ausgefallene Termine und ob sie überarbeitet werden muss (Einzelheiten und uid jeder Stunde in get_unit)
+  const rv = ctx.unit && ctx.unit.revise;
+  if (rv && rv.items.length) parts.push("Ausgefallen (Lehrkraft krank): " + rv.items.map((x) => fmtDay(x.date) + (x.time ? " " + x.time : "")).join("; ") +
+    " – die Stunden sind um je einen Termin nach hinten gerückt." + (rv.open ? " Die Einheit muss deshalb überarbeitet werden (roter Hinweis; nur nach Rücksprache mit der Lehrkraft, siehe get_unit)." : ""));
   return parts.join("\n");
 }
 

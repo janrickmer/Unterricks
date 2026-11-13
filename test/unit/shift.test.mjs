@@ -145,6 +145,22 @@ test("repackFuture und freeSlots: alles nach der letzten gehaltenen Stunde neu v
   assert.deepEqual(dates(noL).slice(0, 3), ["2026-11-03", "2026-11-05", "2026-11-12"]);
 });
 
+test("Verschieben nie in die Vergangenheit: freie Termine, die schon vorbei sind, bleiben leer (Prüfung S9)", () => {
+  // Überarbeitung: L1 gehalten, L2 von Hand vom 05.11. auf den 12.11. gelegt – der freie 05.11. und der 10.11. (schon vorbei) werden nicht vergeben
+  const params = base("2026-11-19");
+  const rows = mkRows(["2026-11-03", "2026-11-12", "2026-11-17", "2026-11-19"]);
+  const out = P.repackFuture({ params, rows, lessons: mkLessons(rows), now: at("2026-11-10T11:00:00Z") });
+  assert.deepEqual(dates(out), ["2026-11-03", "2026-11-12", "2026-11-17", "2026-11-19"]);
+  assert.deepEqual(P.freeSlots(params, out, at("2026-11-10T11:00:00Z")).map((x) => x.date), [], "der 10.11. 08:00 ist vorbei, der 05.11. auch");
+  assert.deepEqual(P.freeSlots(params, out, at("2026-11-10T06:00:00Z")).map((x) => x.date), ["2026-11-10"], "vor dem Ende des Termins noch frei");
+  // Krankmeldung im Nachhinein (Mo 08:00, gemeldet um 12:00): die zweite Stunde desselben Tages (10:00) ist schon vorbei
+  const two = { start: "2026-11-02", end: "2026-11-16", weekdays: [{ day: 1, minutes: 45, time: "08:00" }, { day: 1, minutes: 45, time: "10:00" }] };
+  const r4 = [["2026-11-02", "08:00"], ["2026-11-02", "10:00"], ["2026-11-09", "08:00"], ["2026-11-09", "10:00"]]
+    .map(([date, time], i) => ({ uid: UIDS[i], stundenfrage: "S" + (i + 1), ablauf: [], schritt: null, date, time, minutes: 45 }));
+  const r = P.planCancellation({ params: two, rows: r4, lessons: mkLessons(r4).slice(0, 3), lessonId: "L3", now: at("2026-11-09T11:00:00Z") });
+  assert.deepEqual(r.rows.slice(2).map((x) => x.date + " " + x.time), ["2026-11-16 08:00", "2026-11-16 10:00"]);
+});
+
 /* ---------- Worker: Routen, Ausfall-Eintrag, Elternlink, Rückgängig, Connector ---------- */
 const TOKEN = "lehrkraft-token-123";
 const NOW = at("2026-11-02T10:00:00Z");   // Montag vor der Einheit
@@ -292,6 +308,9 @@ test("Connector: get_unit mit Ausfällen, freien Terminen, „Muss überarbeitet
   assert.ok(g.text.includes("6. [uid " + uids[5] + "] [ohne Termin]") && g.text.includes("Stunden ohne Termin: Stunde 6 „Stunde 6“ [uid " + uids[5] + "]"));
   assert.ok(g.text.includes("Noch freie Termine bis zum Ende der Einheit: Di, 24.11.2026 08:00 (45 min)") && g.text.includes("Muss überarbeitet werden: ja"));
   assert.ok(g.text.includes("(ausgefallen – Ausfall-Eintrag für die Eltern)") && g.text.includes("Ausgefallene Termine (Krankmeldung): Di, 10.11.2026 08:00"));
+  // get_lesson einer Sitzung der Einheit nennt die Ausfälle und den roten Hinweis (Prüfung S9)
+  const gl = await mcp(c, "get_lesson", { lesson_id: ids[3] });
+  assert.ok(gl.text.includes("Ausgefallen (Lehrkraft krank): Di, 10.11.2026 08:00 – die Stunden sind um je einen Termin nach hinten gerückt. Die Einheit muss deshalb überarbeitet werden"), gl.text);
   // Überarbeitung: Stunde 5 (leer) gestrichen, Stunde 4 bekommt Material → darf nicht wegfallen
   await call(c, L.routeLessonPatch, "PATCH", "/x", { parentSummary: "Wir haben gemalt." }, ids[3]);
   const unit = await unitGet(c, unitId);

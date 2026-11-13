@@ -223,6 +223,8 @@ export function packFrom(rows, slots, start, pivot) {
   });
 }
 const cancelErr = (status, code, message) => Object.assign(new Error(message), { status, code });
+// Termine, die noch nicht vorbei sind (Ende nach now; ohne Uhrzeit: heute oder später) – eine verschobene Stunde landet nie in der Vergangenheit
+const upcoming = (slots, now) => slots.filter((s) => parentOpensAt({ date: s.date, startTime: s.time, durationMin: s.minutes }) > now);
 /* Krankmeldung für die Sitzung lessonId. lessons = Sitzungen der Einheit [{id, title, date, time, row, minutes, cancelled}], now = ms.
    → {params (mit dem neuen Ausfall), rows, s (Index der Zeile), moves: [{uid, n, title, lessonId|null, from:{date,time,minutes}, to|null}],
       undated: [uid], undatedRows: [{uid, n, title}], lengthChanges: [{uid, n, title, from, to}], cancelled: {date, time, minutes}}
@@ -243,7 +245,7 @@ export function planCancellation({ params, rows, lessons, lessonId, now = Date.n
     const l = byRow.get(r.uid), open = l ? parentOpensAt({ date: l.date, startTime: l.time, durationMin: l.minutes }) : null;
     if (open != null && open <= now) throw cancelErr(409, "already_held", "Die Stunde „" + (l.title || r.stundenfrage || "") + "“ am " + fmtDay(l.date) + " hat schon stattgefunden – verschieben lässt sich nur, solange die folgenden Stunden noch ausstehen.");
   }
-  const next = packFrom(rows, sortSlots(lessonSlots(computeSlots(p2))), s, { date: X.date, time: X.time || null });
+  const next = packFrom(rows, upcoming(sortSlots(lessonSlots(computeSlots(p2))), now), s, { date: X.date, time: X.time || null });
   const title = (r) => r.stundenfrage || (byRow.get(r.uid) || {}).title || "";
   const moves = [], lengthChanges = [];
   next.forEach((r, i) => {
@@ -259,7 +261,7 @@ export function planCancellation({ params, rows, lessons, lessonId, now = Date.n
     cancelled: { date: X.date, time: X.time || null, minutes: X.minutes ?? null } };
 }
 /* Nach einer Überarbeitung (save_unit_plan mit uid, Grundschule): alle Stunden nach der letzten, die schon stattgefunden hat (bzw. ohne
-   Sitzung: deren Datum vor heute liegt), bekommen der Reihe nach die freien Termine. lessons wie bei planCancellation. → rows */
+   Sitzung: deren Datum vor heute liegt), bekommen der Reihe nach die freien Termine, die noch nicht vorbei sind. lessons wie bei planCancellation. → rows */
 export function repackFuture({ params, rows, lessons, now = Date.now() }) {
   const byRow = new Map((Array.isArray(lessons) ? lessons : []).filter((l) => l.row && !l.cancelled).map((l) => [l.row, l]));
   const today = berlinToday(now);
@@ -269,12 +271,12 @@ export function repackFuture({ params, rows, lessons, now = Date.now() }) {
     const open = l ? parentOpensAt({ date: l.date, startTime: l.time, durationMin: l.minutes }) : null;
     if (l ? open != null && open <= now : !!r.date && r.date < today) h = i;
   });
-  return packFrom(rows, sortSlots(lessonSlots(computeSlots(params))), h + 1, h >= 0 && rows[h].date ? { date: rows[h].date, time: rows[h].time || null } : null);
+  return packFrom(rows, upcoming(sortSlots(lessonSlots(computeSlots(params))), now), h + 1, h >= 0 && rows[h].date ? { date: rows[h].date, time: rows[h].time || null } : null);
 }
-/* noch freie Termine bis zum Ende der Einheit (ab heute; keine Zeile belegt sie) – für get_unit und den Überarbeitungs-Prompt */
+/* noch freie Termine bis zum Ende der Einheit (noch nicht vorbei; keine Zeile belegt sie) – für get_unit und den Überarbeitungs-Prompt */
 export function freeSlots(params, rows, now = Date.now()) {
-  const slots = sortSlots(lessonSlots(computeSlots(params))), used = occupy(slots, rows || []), today = berlinToday(now);
-  return slots.filter((s, i) => !used.has(i) && s.date >= today);
+  const slots = sortSlots(lessonSlots(computeSlots(params))), used = occupy(slots, rows || []);
+  return upcoming(slots.filter((s, i) => !used.has(i)), now);
 }
 
 /* ```einheit {…}``` in einer Antwort des Planungsassistenten: vorgeschlagene Änderung der Zeile dieser Stunde */

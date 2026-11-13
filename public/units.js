@@ -55,7 +55,8 @@ export async function unitPage(id) {
       : pageHead({ fach: u.subject, crumbs: [["#/lk", "Fächer"], ["#/lk/f/" + u.subject, subjectName(u.subject)], ["#/lk/f/" + u.subject + "/" + u.klass, classShort(u.klass)], u.title || "Neue Einheit"],
         title: u.title || "Neue Unterrichtseinheit", aside: badge,
         sub: subjectName(u.subject) + " · " + classShort(u.klass) + " · " + gradeInfo(u.klass).text }),
-      gs ? reviseBox(u, { onChange: () => unitPage(id) }) : null,
+      // „Erledigt“ ändert die Zeilen nicht: ungespeicherte Änderungen der Tabelle bleiben; nach „rückgängig“ neu laden
+      gs ? reviseBox(u, { onChange: (nu) => { if (nu && JSON.stringify(nu.rows) === JSON.stringify(u.rows)) { u = nu; if (!dirty) { rows = u.rows.map((x) => ({ ...x })); plan = JSON.parse(JSON.stringify(u.plan || {})); } paint(); } else unitPage(id); } }) : null,
       paramsCard(), basisCard(), claudeCard(), schemaCard(), tableCard(), finishCard(), gs ? null : ioCard()));
   };
 
