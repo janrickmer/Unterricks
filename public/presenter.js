@@ -1,8 +1,10 @@
 // presenter.js – Präsentation (PDF) in Folienbilder umwandeln und im Vollbild live für alle zeigen.
 import { h, clear, api, apiUrl, wsUrl, toast, errToast, icon, store, rand, busy } from "./ui.js";
 import { isValidCode, formatCode, slideTextLines, slideCodeBoxes, slideSessionCode, codeCover, coverFill, codeFontStyle, codeSlideLines, cleanCodeSlides,
-  nextSlideOf, nextSlideLabel, presenterKey, BEAMER_CHANNEL, normBeamerCode, PUBLIC_URL, beamerWindowNote } from "./shared.js";
+  nextSlideOf, nextSlideLabel, presenterKey, BEAMER_CHANNEL, normBeamerCode, PUBLIC_URL, beamerWindowNote,
+  TIMER_PICKS, TIMER_MAX_MIN, TIMER_TOTAL_MAX_MIN, TIMER_ADDS, TIMER_OVER, normTimerMin } from "./shared.js";
 import { codeSlideDom } from "./codeslide.js";
+import { timerBand } from "./timerband.js";
 
 let pdfjsP = null;
 async function pdfjs() {
@@ -198,6 +200,12 @@ const beamersText = (n) => (n === 1 ? "Beamer verbunden" : n + " Beamer verbunde
 const BEAMER_CUT_NOTE = "Beamer getrennt";
 export const BEAMER_NOTE_MS = 6000;   // so lange steht „Beamer getrennt“ in der Leiste
 const hex = (b) => Array.from(b, (x) => x.toString(16).padStart(2, "0")).join("");
+// Timer (Nachtrag 16): Feld „Timer“ innerhalb der Präsentation (kein Toast – im Vollbild nicht zu sehen)
+const TIMER_KEY = "u.timermin";   // zuletzt gestartete Minuten (Vorauswahl)
+export const TIMER_HINT = "Der Timer steht oben über der Präsentation – bei den Schüler:innen, am Beamer und hier über der aktuellen Folie. " +
+  "Am Ende wird er rot („" + TIMER_OVER + "“), ohne Ton, bis Sie ihn schließen.";
+export const TIMER_MIN_BAD = "Bitte geben Sie eine ganze Zahl von 1 bis " + TIMER_MAX_MIN + " Minuten ein.";
+export const TIMER_MAX_NOTE = "Insgesamt höchstens " + TIMER_TOTAL_MAX_MIN + " Minuten.";
 export async function startPresenter({ lessonId, file, token, startSlide = 0, onEnd, slides, onMark, shownUntil = null, code = "", title = "" }) {
   const s = slides || (await fetchSlides(file.id, token));
   const urls = (s.urls || []).map(apiUrl), n = s.pages, pages = n;
@@ -207,6 +215,10 @@ export async function startPresenter({ lessonId, file, token, startSlide = 0, on
   let showNext = store.get(NEXT_KEY) !== "0";
   const img = h("img", { alt: "", draggable: "false" });
   const stage = h("div", { class: "stage" }, img);
+  // Timer (Nachtrag 16): dieselbe Anzeige wie bei den Schüler:innen oben auf der großen aktuellen Folie (die Vorschau bekommt keine) – so stimmt
+  // es auch, wenn dieses Gerät ohne zweites Gerät gespiegelt wird. Der Stand kommt vom Server (Durable Object).
+  const tb = timerBand({ host: stage, onPaint: (v) => paintTimer(v) });
+  stage.append(tb.el);
   const stageCell = h("div", { class: "stagecell" }, stage);
   const npImg = h("img", { alt: "", draggable: "false" });
   const npHead = h("p", { class: "np-head" }), npFrame = h("div", { class: "np-frame" }, npImg);
@@ -274,6 +286,37 @@ export async function startPresenter({ lessonId, file, token, startSlide = 0, on
     h("div", { class: "bmc-acts" }, h("button", { class: "btn", type: "button", onclick: (e) => closePair(e.detail === 0) }, "Abbrechen"), pairGo));
   // eigene Fläche über der ganzen Präsentation: Tippen und Wischen daneben blättern nicht (Klick daneben schließt)
   const pairWrap = h("div", { class: "bmc-back", hidden: true, onclick: (e) => { if (e.target === pairWrap) closePair(false); } }, pairBox);
+  // Timer (Nachtrag 16): ein Knopf in der Leiste – ohne Timer „Timer“, sonst die Restzeit (letzte Minute orange, abgelaufen „Zeit um“ rot); er öffnet
+  // ein Feld innerhalb der Präsentation (Vollbild bleibt): ohne Timer Dauer wählen und starten, sonst Pause/Weiter, +1 Min, +5 Min, beenden
+  // bzw. nach Ablauf schließen. Alles in einem Knopf, damit die Leiste am iPad hochkant nicht in eine dritte Zeile bricht.
+  const tmLbl = h("span", { class: "tm-lbl", text: "Timer" });
+  const tmSr = h("span", { class: "sr-only", text: "Timer " });
+  const tmBtn = h("button", { class: "btn small tmbtn", type: "button", "aria-haspopup": "dialog", "aria-expanded": "false", title: "Timer für einen Arbeitsauftrag (Taste T)",
+    onclick: () => openTimer() }, icon("timer"), tmSr, tmLbl);
+  let tmKeyed = false;   // zuletzt per Tastatur ausgelöst: der Fokus geht danach zurück auf „Timer“
+  const tmIn = h("input", { id: "tmc-min", class: "tmc-in", type: "text", inputmode: "numeric", autocomplete: "off", autocapitalize: "off", autocorrect: "off",
+    spellcheck: "false", enterkeyhint: "go", maxlength: "12", "aria-describedby": "tmc-hint tmc-err", oninput: () => { tmErr.textContent = ""; tmIn.removeAttribute("aria-invalid"); syncPicks(); } });
+  const tmErr = h("p", { class: "err", id: "tmc-err", role: "alert" });
+  const picks = TIMER_PICKS.map((n) => h("button", { class: "btn tmc-pick", type: "button", "aria-pressed": "false",
+    onclick: () => { tmIn.value = String(n); tmErr.textContent = ""; tmIn.removeAttribute("aria-invalid"); syncPicks(); } }, n + " Min"));
+  function syncPicks() { const v = normTimerMin(tmIn.value); picks.forEach((b, i) => b.setAttribute("aria-pressed", String(TIMER_PICKS[i] === v))); }
+  const tmGo = h("button", { class: "btn primary", type: "submit", onclick: (e) => { tmKeyed = e.detail === 0; } }, "Timer starten");
+  const tmStartBox = h("div", { class: "tmc-start" },
+    h("fieldset", { class: "tmc-picks" }, h("legend", { text: "Dauer" }), ...picks),
+    h("div", { class: "field" }, h("label", { for: "tmc-min" }, "Minuten (1 bis " + TIMER_MAX_MIN + ")"), tmIn),
+    h("p", { class: "hint", id: "tmc-hint", text: TIMER_HINT }), tmErr,
+    h("div", { class: "bmc-acts" }, h("button", { class: "btn", type: "button", onclick: (e) => closeTimer(e.detail === 0) }, "Abbrechen"), tmGo));
+  const tmNow = h("p", { class: "tmc-now" });
+  const tmPause = h("button", { class: "btn", type: "button", onclick: (e) => timerOp(tmView && tmView.paused ? "resume" : "pause", undefined, e) }, "Pause");
+  const tmAdds = TIMER_ADDS.map((n) => h("button", { class: "btn", type: "button", onclick: (e) => timerOp("add", n, e) }, "+" + n + " Min"));
+  const tmStop = h("button", { class: "btn", type: "button", onclick: (e) => timerOp("stop", undefined, e) }, "Timer beenden");
+  const tmMax = h("p", { class: "hint", text: TIMER_MAX_NOTE, hidden: true });
+  const tmCtlBox = h("div", { class: "tmc-ctlbox", hidden: true }, tmNow, h("div", { class: "tmc-ctl" }, tmPause, ...tmAdds, tmStop), tmMax,
+    h("div", { class: "bmc-acts" }, h("button", { class: "btn primary", type: "button", onclick: (e) => closeTimer(e.detail === 0) }, "Fertig")));
+  const tmBox = h("form", { class: "tmc", role: "dialog", "aria-modal": "true", "aria-labelledby": "tmc-h", novalidate: true, onsubmit: (e) => { e.preventDefault(); startTimer(); } },
+    h("h2", { id: "tmc-h" }, "Timer"), tmStartBox, tmCtlBox);
+  const tmWrap = h("div", { class: "tmc-back", hidden: true, onclick: (e) => { if (e.target === tmWrap) closeTimer(false); } }, tmBox);
+  const dlgOpen = () => !pairWrap.hidden || !tmWrap.hidden;
   const root = h("div", { class: "presenter" + (showNext ? " with-next" : ""), role: "dialog", "aria-label": "Präsentation läuft" },
     h("div", { class: "pview" }, stageCell, nextPane),
     h("div", { class: "bar" },
@@ -281,11 +324,11 @@ export async function startPresenter({ lessonId, file, token, startSlide = 0, on
       counter,
       h("button", { class: "btn small", type: "button", onclick: () => goto(cur + 1), "aria-label": "Nächste Folie" }, icon("right")),
       h("span", { class: "badge onair" }, h("span", { class: "dot" }), "LIVE für alle"), info,
-      h("span", { class: "grow" }), nextBtn, beamBtn, beamState, devBtn, devState, codeBtn, markBtn, markState,
+      h("span", { class: "grow" }), nextBtn, beamBtn, beamState, devBtn, devState, tmBtn, codeBtn, markBtn, markState,
       fsBtn,
       h("button", { class: "btn small onair", type: "button", onclick: () => end(true) }, "Präsentation für alle beenden"),
       h("button", { class: "btn small", type: "button", onclick: () => end(false), title: "Fenster schließen, Live-Anzeige läuft weiter" }, "Schließen")),
-    pairWrap);
+    pairWrap, tmWrap, tb.say);
   // Seitenverhältnis der Folien (für die Rahmen neben der Vorschau): aus dem ersten geladenen Folienbild, sonst 16:9
   const setAr = (im) => { if (im.naturalWidth > 0 && im.naturalHeight > 0) root.style.setProperty("--ar", String(Math.round((im.naturalWidth / im.naturalHeight) * 10000) / 10000)); };
   img.addEventListener("load", () => setAr(img));
@@ -301,6 +344,7 @@ export async function startPresenter({ lessonId, file, token, startSlide = 0, on
     if (m.t === "count") students = m.students;
     else if (m.t === "state") {
       if (typeof m.students === "number") students = m.students; connOk = true;
+      tb.set(m.active ? m.timer : null); sendTimer();   // Timer: jede Nachricht gleicht die Restzeit neu ab (Uhr des Servers)
       if (!adopted && !moved && m.active && m.fileId === file.id && Number.isInteger(m.slide)) {
         adopted = true;
         const k = Math.min(Math.max(first, m.slide), n), pk = withCode && k >= 1 && m.codeShown === true;
@@ -323,7 +367,7 @@ export async function startPresenter({ lessonId, file, token, startSlide = 0, on
     pairConnLine.textContent = beamersN ? beamersText(beamersN) + " – " + (beamersN === 1 ? "er zeigt" : "sie zeigen") + " nur die aktuelle Folie." : "";
   }
   function openPair() {
-    if (!pairWrap.hidden) return;
+    if (!pairWrap.hidden || !tmWrap.hidden) return;
     pairErr.textContent = ""; pairIn.value = ""; pairIn.removeAttribute("aria-invalid"); paintDev();
     pairWrap.hidden = false; devBtn.setAttribute("aria-expanded", "true");
     try { pairIn.focus({ preventScroll: true }); } catch {}
@@ -336,8 +380,8 @@ export async function startPresenter({ lessonId, file, token, startSlide = 0, on
     pairWrap.hidden = true; devBtn.setAttribute("aria-expanded", "false");
     if (mine && root.isConnected) { try { (byKey ? devBtn : root).focus({ preventScroll: true }); } catch {} }
   }
-  function trapTab(e) {
-    const f = [...pairWrap.querySelectorAll("button, input")].filter((x) => !x.disabled && x.getClientRects().length > 0);
+  function trapTab(e, wrap = pairWrap) {
+    const f = [...wrap.querySelectorAll("button, input")].filter((x) => !x.disabled && x.getClientRects().length > 0);
     if (!f.length) return;
     const i = f.indexOf(document.activeElement);
     if (e.shiftKey && i <= 0) { e.preventDefault(); f[f.length - 1].focus(); }
@@ -373,13 +417,73 @@ export async function startPresenter({ lessonId, file, token, startSlide = 0, on
       } catch (err) { if (!pairWrap.hidden) pairErr.textContent = err && err.message ? err.message : String(err); }
     }, "Trenne …");
   }
+  /* ---------- Timer (Nachtrag 16) ---------- */
+  let tmView = null;
+  // nach jedem Zeichnen des Bandes (jede Sekunde, solange er läuft): Knopf in der Leiste und – wenn offen – das Feld
+  function paintTimer(v) {
+    tmView = v;
+    for (const p of ["run", "last", "over", "paused"]) tmBtn.classList.toggle("tm-" + p, !!v && v.phase === p);
+    const sr = v ? "Timer " + (v.paused ? "pausiert " : "") : "", lbl = !v ? "Timer" : v.phase === "over" ? "Zeit um" : v.clock;
+    if (tmSr.textContent !== sr) tmSr.textContent = sr;   // Name „Timer 4:12“ – sichtbar steht nur die Restzeit
+    if (tmLbl.textContent !== lbl) tmLbl.textContent = lbl;
+    if (!tmWrap.hidden) paintTimerBox();
+  }
+  function paintTimerBox() {
+    const v = tmView, a = document.activeElement, had = !!a && a !== tmWrap && tmWrap.contains(a);
+    tmStartBox.hidden = !!v; tmCtlBox.hidden = !v;
+    if (v) {
+      tmNow.className = "tmc-now tb-" + v.phase;
+      if (tmNow.textContent !== v.text) tmNow.textContent = v.text;
+      tmPause.hidden = v.phase === "over"; tmPause.textContent = v.paused ? "Weiter" : "Pause";
+      const full = v.phase !== "over" && v.total >= TIMER_TOTAL_MAX_MIN * 60e3;
+      for (const b of tmAdds) b.disabled = full;
+      tmMax.hidden = !full;
+      tmStop.textContent = v.phase === "over" ? "Timer schließen" : "Timer beenden";
+    }
+    // lag der Fokus im Feld auf etwas, das jetzt verborgen bzw. gesperrt ist (z. B. „Pause“ nach dem Ablauf, auf einem anderen Gerät gestartet):
+    // zurück ins Feld – nie einen Fokus wegnehmen, den jemand woandershin gesetzt hat (auch nicht vom body, z. B. nach einem Mausklick)
+    if (had && (a.disabled || !a.getClientRects().length || document.activeElement !== a)) focusTimerBox();
+  }
+  function focusTimerBox() {
+    const f = !tmView ? picks.find((b) => b.getAttribute("aria-pressed") === "true") || picks[0] : tmView.phase === "over" ? tmStop : tmPause;
+    try { f.focus({ preventScroll: true }); } catch {}
+  }
+  function openTimer() {
+    if (!tmWrap.hidden || !pairWrap.hidden) return;
+    tmErr.textContent = ""; tmIn.removeAttribute("aria-invalid");
+    tmIn.value = String(normTimerMin(store.get(TIMER_KEY)) || 5); syncPicks();
+    tmWrap.hidden = false; tmBtn.setAttribute("aria-expanded", "true");
+    paintTimerBox(); focusTimerBox();
+  }
+  // Fokus zurück wie bei „Beamer verbinden“: per Tastatur auf „Timer“, sonst auf die Präsentation – nur, wenn er noch im Feld lag
+  function closeTimer(byKey) {
+    if (tmWrap.hidden) return;
+    const a = document.activeElement, mine = !a || a === document.body || a === root || tmWrap.contains(a);
+    tmWrap.hidden = true; tmBtn.setAttribute("aria-expanded", "false");
+    if (mine && root.isConnected) { try { (byKey ? tmBtn : root).focus({ preventScroll: true }); } catch {} }
+  }
+  function startTimer() {
+    const min = normTimerMin(tmIn.value), keyed = tmKeyed; tmKeyed = false;
+    if (!min) { tmErr.textContent = TIMER_MIN_BAD; tmIn.setAttribute("aria-invalid", "true"); try { tmIn.focus(); } catch {} return; }
+    store.set(TIMER_KEY, String(min));
+    live.send({ t: "timer", op: "start", min });
+    closeTimer(keyed);
+  }
+  // Steuerung über den Server: die Anzeige folgt der Antwort (Durable Object), bei allen gleich
+  function timerOp(op, min, e) {
+    live.send(min === undefined ? { t: "timer", op } : { t: "timer", op, min });
+    if (op === "stop") closeTimer(!!e && e.detail === 0);
+  }
+  // an das Beamerfenster: der Stand jetzt (es zählt selbst weiter)
+  function sendTimer() { if (bc && beamers.size) try { bc.postMessage({ t: "timer", id: pid, at: claimAt, timer: tb.snapshot() }); } catch {} }
   // Ansicht einer Folie: Folienbild oder Codefolie (Folie 0, Platzhalterfolie, „Sitzungscode zeigen“ = asCode)
   const viewOf = (k, asCode) => (withCode && (asCode || k === 0 || holders.has(k))
     ? { kind: "code", code, title, lines: asCode || k === 0 ? [] : holders.get(k) || [] } : { kind: "img", src: urls[k - 1] });
   function put(box, v, im) {
-    if (v.kind === "code") { box.replaceChildren(codeSlideDom(v)); return; }
+    const keep = box === stage ? [tb.el] : [];   // das Band des Timers bleibt über der aktuellen Folie
+    if (v.kind === "code") { box.replaceChildren(codeSlideDom(v), ...keep); return; }
     if (im.getAttribute("src") !== v.src) im.src = v.src;
-    if (box.firstChild !== im || box.childNodes.length > 1) box.replaceChildren(im);
+    if (box.firstChild !== im || box.childNodes.length !== 1 + keep.length) box.replaceChildren(im, ...keep);
   }
   function paint() {
     const cv = viewOf(cur, peek), nx = nextSlideOf({ cur, n, peek, holders, withCode }), nv = nx.end ? null : viewOf(nx.k, false);
@@ -403,7 +507,7 @@ export async function startPresenter({ lessonId, file, token, startSlide = 0, on
     if (!bc || !beamers.size) return;
     if (nv === undefined) { const nx = nextSlideOf({ cur, n, peek, holders, withCode }); nv = nx.end ? null : viewOf(nx.k, false); }
     const view = cv.kind === "img" ? { kind: "img", src: cv.src, next: nv && nv.kind === "img" ? nv.src : null } : { kind: "code", code: cv.code, title: cv.title, lines: cv.lines };
-    try { bc.postMessage({ t: "show", id: pid, at: claimAt, fach: document.documentElement.dataset.fach || null, view }); } catch {}
+    try { bc.postMessage({ t: "show", id: pid, at: claimAt, fach: document.documentElement.dataset.fach || null, view, timer: tb.snapshot() }); } catch {}
   }
   const claim = () => { try { bc.postMessage({ t: "claim", id: pid, at: claimAt }); } catch {} };
   function paintBeam() {
@@ -444,6 +548,7 @@ export async function startPresenter({ lessonId, file, token, startSlide = 0, on
     else if (a === "first") goto(first); else if (a === "last") goto(n);
     else if (a === "code") { if (codeBtn) setPeek(!peek); }
     else if (a === "fs") toggleFs(); else if (a === "preview") setNext(!showNext);
+    else if (a === "timer") openTimer();
   }
   // Enter/Leertaste auf einem Knopf der Leiste lösen den Knopf aus (Tastatur); nach einem Mausklick verliert der Knopf den Fokus wieder,
   // damit Leertaste und Presenter danach weiter blättern
@@ -453,6 +558,10 @@ export async function startPresenter({ lessonId, file, token, startSlide = 0, on
       if (e.key === "Escape") { e.preventDefault(); closePair(true); } else if (e.key === "Tab") trapTab(e);
       return;
     }
+    if (!tmWrap.hidden) {   // Feld „Timer“: Tasten gehören dem Feld (Ziffern, Enter startet) – Esc schließt, Tab bleibt darin
+      if (e.key === "Escape") { e.preventDefault(); closeTimer(true); } else if (e.key === "Tab") trapTab(e, tmWrap);
+      return;
+    }
     const a = presenterKey(e, onControl(e.target)); if (!a) return; if (a === "next" || a === "prev") e.preventDefault(); run(a);
   };
   let idleT = null;
@@ -460,8 +569,8 @@ export async function startPresenter({ lessonId, file, token, startSlide = 0, on
   let tx = null;
   stageCell.addEventListener("click", (e) => { const r = stageCell.getBoundingClientRect(); goto(e.clientX - r.left > r.width / 3 ? cur + 1 : cur - 1); });
   nextPane.addEventListener("click", () => goto(cur + 1));
-  root.addEventListener("touchstart", (e) => { tx = pairWrap.hidden ? e.touches[0].clientX : null; }, { passive: true });
-  root.addEventListener("touchend", (e) => { if (tx == null || !pairWrap.hidden) { tx = null; return; } const dx = e.changedTouches[0].clientX - tx; if (Math.abs(dx) > 50) goto(dx < 0 ? cur + 1 : cur - 1); tx = null; });
+  root.addEventListener("touchstart", (e) => { tx = dlgOpen() ? null : e.touches[0].clientX; }, { passive: true });
+  root.addEventListener("touchend", (e) => { if (tx == null || dlgOpen()) { tx = null; return; } const dx = e.changedTouches[0].clientX - tx; if (Math.abs(dx) > 50) goto(dx < 0 ? cur + 1 : cur - 1); tx = null; });
   root.addEventListener("mousemove", wake);
   root.addEventListener("focusin", wake);
   root.addEventListener("click", (e) => { const b = e.target.closest && e.target.closest("button"); if (b && e.detail > 0) b.blur(); });
@@ -469,7 +578,7 @@ export async function startPresenter({ lessonId, file, token, startSlide = 0, on
   window.addEventListener("pagehide", onHide);
   window.addEventListener("pageshow", onShow);
   function end(stopForAll) {
-    document.removeEventListener("keydown", onKey); clearTimeout(idleT); clearTimeout(devWaitT);
+    document.removeEventListener("keydown", onKey); clearTimeout(idleT); clearTimeout(devWaitT); tb.stop();
     window.removeEventListener("pagehide", onHide); window.removeEventListener("pageshow", onShow);
     if (bc) { try { bc.postMessage({ t: "end", id: pid, why: stopForAll ? "stop" : "close" }); } catch {} bc.close(); }
     if (stopForAll) live.send({ t: "stop" });

@@ -8,9 +8,11 @@
 // die Generation bgen; „Beamer trennen“ (/beamer-reset) erhöht sie und schließt alle Beamer-Verbindungen (Code 4001). Eine Beamer-Verbindung merkt
 // sich den Ablauf ihres Schlüssels (Anhang exp): ist er vorbei, schließt die nächste Nachricht an alle sie ebenfalls (4001) – die Kopplung gilt
 // so auch bei offenem WebSocket höchstens 6 Stunden.
+// Timer (Nachtrag 16): {t:"timer", op} der Lehrkraft (livestate.js) – alle bekommen timer {left, total, paused} mit der Restzeit zum Sendezeitpunkt;
+// gesendet wird nur bei Änderungen (Start, Pause, Weiter, Verlängern, Ende), nie im Sekundentakt – den Ablauf zeigen die Seiten selbst.
 import { DurableObject } from "cloudflare:workers";
 import { HttpError, json, requireSecret, signLink, checkLink, isId } from "./lib.js";
-import { LIVE_IDLE as IDLE, liveReduce, liveView, liveNext } from "./livestate.js";
+import { LIVE_IDLE as IDLE, liveReduce, liveView, liveNext, liveTimer } from "./livestate.js";
 import { requireTeacher } from "./auth.js";
 import { getLesson } from "./lessons.js";
 import { slideUrl } from "./files.js";
@@ -29,6 +31,9 @@ export class LiveRoom extends DurableObject {
     const view = liveView(st);   // Folienbild nur für echte Seiten; Codefolie vor Folie 1, an Platzhalterfolien und bei „Sitzungscode zeigen“
     if (view.slide) out.url = await slideUrl(requireSecret(this.env), st.fileId, view.slide, SLIDE_TTL);
     if (view.code) Object.assign(out, { view: "code", ...view.code });
+    // Timer (Nachtrag 16): Restzeit zum Sendezeitpunkt nach der Uhr des Servers – nur, wenn einer läuft (sonst bleibt die Nachricht wie bisher)
+    const timer = liveTimer(st, Date.now());
+    if (timer) out.timer = timer;
     if (role === "teacher") { out.fileId = st.fileId; out.students = this.ctx.getWebSockets("student").length; out.beamers = this.ctx.getWebSockets("beamer").filter((ws) => !gone.includes(ws)).length; }
     if (role === "beamer") { const k = liveNext(st); if (k) out.next = await slideUrl(requireSecret(this.env), st.fileId, k, SLIDE_TTL); }   // vorladen
     return out;

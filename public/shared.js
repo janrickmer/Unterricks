@@ -541,8 +541,8 @@ export function cleanBeamerView(v, slideBase) {
 }
 /* Tasten im Präsentationsfenster und im Beamerfenster (dort weitergeleitet): Pfeile, Bild auf/ab (Presenter), Leertaste, Enter, Pos1/Ende;
    Buchstaben nur ohne Strg/Cmd/Alt (Strg+P druckt, Strg+C kopiert): N/P blättern, F Vollbild, C Sitzungscode zeigen, V Vorschau der
-   nächsten Folie – C und V nicht beim Gedrückthalten. Enter und Leertaste auf einem Knopf oder Link (onControl) bleiben bei diesem.
-   → "next" | "prev" | "first" | "last" | "fs" | "code" | "preview" | null */
+   nächsten Folie, T Timer – C, V und T nicht beim Gedrückthalten. Enter und Leertaste auf einem Knopf oder Link (onControl) bleiben bei diesem.
+   → "next" | "prev" | "first" | "last" | "fs" | "code" | "preview" | "timer" | null */
 export function presenterKey(e, onControl = false) {
   const k = e && e.key;
   if (onControl && (k === "Enter" || k === " ")) return null;
@@ -556,6 +556,7 @@ export function presenterKey(e, onControl = false) {
   if (l === "p") return "prev";
   if (l === "f") return "fs";
   if (l === "c" || l === "v") return e.repeat ? null : l === "c" ? "code" : "preview";
+  if (l === "t") return e.repeat ? null : "timer";   // Timer (Nachtrag 16): nur im Präsentationsfenster, das Beamerfenster gibt T nicht weiter
   return null;
 }
 /* Bildschirm für „Vollbild auf dem Beamer“ (Window Management API: getScreenDetails() → {screens, currentScreen}): liegt das Beamerfenster
@@ -598,6 +599,65 @@ export function readBeamerPair(raw, now = Date.now()) {
    keines verbunden ist */
 export const BEAMER_ONE_SCREEN = "nur ein Bildschirm erkannt: Beamer als erweiterten Bildschirm einrichten – gespiegelt sieht die Klasse die Vorschau (Taste V blendet sie aus)";
 export const beamerWindowNote = (oneScreen, devices = 0) => (oneScreen ? BEAMER_ONE_SCREEN + (devices > 0 ? "" : " – oder verbinden Sie ein zweites Gerät am Beamer („Beamer verbinden“)") : "");
+
+/* ---------- Timer in der Live-Präsentation (Nachtrag 16 der Lehrkraft vom 13.11.2026) ----------
+   Die Lehrkraft stellt im Präsentationsmodus einen Timer für einen Arbeitsauftrag; er steht oben über der Präsentation bei allen, die sie sehen.
+   Der Server schickt {left, total, paused} (ms, left zum Sendezeitpunkt); die Seiten zählen ab dem Empfang selbst weiter. Ende nur sichtbar:
+   rot „Die Zeit ist um!“, bis die Lehrkraft ihn schließt – kein Ton. */
+export const TIMER_PICKS = [1, 2, 3, 5, 10, 15, 20];   // Schnellwahl (Minuten)
+export const TIMER_MAX_MIN = 120;                      // eigene Minuten: 1–120
+export const TIMER_TOTAL_MAX_MIN = 180;                // mit „+1 Min“/„+5 Min“ insgesamt höchstens
+export const TIMER_ADDS = [1, 5];
+export const TIMER_OVER = "Die Zeit ist um!";
+const pad2 = (n) => String(n).padStart(2, "0");
+const secsOf = (ms) => (Number.isFinite(ms) && ms > 0 ? Math.ceil(ms / 1000) : 0);   // angefangene Sekunden zählen (wie eine Eieruhr)
+/* Restzeit als Uhr: „4:12“, ab einer Stunde „1:04:12“ */
+export function timerText(ms) {
+  const s = secsOf(ms), hh = Math.floor(s / 3600), mm = Math.floor((s % 3600) / 60), ss = s % 60;
+  return hh ? hh + ":" + pad2(mm) + ":" + pad2(ss) : mm + ":" + pad2(ss);
+}
+/* zum Vorlesen (Ansagen, Beschriftungen): „4 Minuten 12 Sekunden“, „1 Minute“, „1 Stunde 5 Minuten“ */
+export function timerSpoken(ms) {
+  const s = secsOf(ms), hh = Math.floor(s / 3600), mm = Math.floor((s % 3600) / 60), ss = s % 60;
+  const part = (n, one, many) => (n ? n + " " + (n === 1 ? one : many) : "");
+  return [part(hh, "Stunde", "Stunden"), part(mm, "Minute", "Minuten"), part(ss, "Sekunde", "Sekunden")].filter(Boolean).join(" ") || "0 Sekunden";
+}
+/* Timer aus einer Nachricht (fremde Daten: nur bekannte Felder, Grenzen wie beim Server) → {left, total, paused} oder null */
+export function cleanTimer(t) {
+  if (!t || typeof t !== "object") return null;
+  const total = Number(t.total), left = Number(t.left);
+  if (!Number.isFinite(total) || total <= 0 || total > TIMER_TOTAL_MAX_MIN * 60e3 || !Number.isFinite(left) || left < 0) return null;
+  return { left: Math.min(Math.round(left), Math.round(total)), total: Math.round(total), paused: t.paused === true };
+}
+/* Anzeige elapsed ms nach dem Empfang: phase "run" | "last" (letzte Minute, orange) | "paused" | "over" (rot), text fürs Band, share = Anteil
+   der Restzeit (Fortschrittsbalken) */
+export function timerAt(t, elapsed = 0) {
+  const c = cleanTimer(t);
+  if (!c) return null;
+  const left = c.paused ? c.left : Math.max(0, c.left - Math.max(0, Number(elapsed) || 0)), s = secsOf(left);
+  const phase = s <= 0 ? "over" : c.paused ? "paused" : s <= 60 ? "last" : "run";
+  const text = phase === "over" ? TIMER_OVER : (c.paused ? "Pausiert – noch " : "Noch ") + timerText(left);
+  return { left, total: c.total, paused: c.paused, phase, text, clock: timerText(left), share: phase === "over" ? 0 : Math.min(1, left / c.total) };
+}
+/* Ansage für Screenreader beim Übergang prev → cur (Anzeigen aus timerAt oder null) – nur Start, „Noch 1 Minute“, Ablauf, Pause und Weiter,
+   nie jede Sekunde; "" = nichts ansagen */
+export function timerNote(prev, cur) {
+  if (!cur) return "";
+  if (cur.phase === "over") return prev && prev.phase === "over" ? "" : TIMER_OVER;
+  const unused = cur.total - cur.left < 2000;   // eben gestartet (bzw. nach Ablauf verlängert)
+  if (!prev || prev.phase === "over" || (unused && cur.total !== prev.total && prev.total - prev.left >= 2000))
+    return "Timer: " + (unused ? timerSpoken(cur.total) : "noch " + timerSpoken(cur.left)) + (cur.paused ? " – pausiert" : "");
+  if (cur.paused && !prev.paused) return "Timer pausiert";
+  if (!cur.paused && prev.paused) return "Timer läuft weiter";
+  if (cur.phase === "last" && prev.phase === "run") return "Noch 1 Minute";
+  return "";
+}
+/* eigene Minuten aus dem Feld: ganze Zahl 1–120 (Leerzeichen und „min“ dahinter erlaubt), sonst null */
+export function normTimerMin(v) {
+  const m = /^\s*(\d{1,3})\s*(?:min(?:\.|uten?)?)?\s*$/i.exec(String(v == null ? "" : v));
+  const n = m ? Number(m[1]) : NaN;
+  return Number.isInteger(n) && n >= 1 && n <= TIMER_MAX_MIN ? n : null;
+}
 
 /* Öffentliche Adresse der Oberfläche (GitHub Pages mit eigener Domain) – für Hinweise im Schulportal */
 export const PUBLIC_URL = "https://unterricks.janrickmer.de";

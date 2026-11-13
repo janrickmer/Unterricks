@@ -834,6 +834,147 @@ async function main() {
       await kctx.close();
     }
 
+    step("Timer in der Live-Präsentation (Nachtrag 16): Lehrkraft am iPad stellt ihn, oben über der Folie bei der Schülerin, am Beamergerät, im Beamerfenster und bei der Lehrkraft");
+    {
+      // eigene Kontexte mit Uhr der Seite (page.clock): Ablauf ohne minutenlanges Warten – der Server zählt mit seiner Uhr, die Seiten ab dem Empfang
+      const sStore = await sp.evaluate(() => JSON.stringify(localStorage)), tStore = await tp.evaluate(() => JSON.stringify(localStorage));
+      const copy = (s) => { if (!sessionStorage.getItem("x")) { for (const [k, v] of Object.entries(JSON.parse(s))) localStorage.setItem(k, v); sessionStorage.setItem("x", "1"); } };
+      const qctx = await browser.newContext({ ...devices["iPad (gen 7)"], reducedMotion: "reduce" }); await qctx.addInitScript(copy, sStore); await qctx.clock.install();
+      const qp = await qctx.newPage(); watch(qp, "Schüler:in (Timer)");
+      await qp.goto(BASE + "/#/schueler/s/" + lessonId);
+      await qp.locator(".live .placeholder").waitFor({ timeout: 15000 });
+      const gctx = await browser.newContext({ viewport: { width: 1280, height: 720 } }); await gctx.clock.install();
+      const gp = await gctx.newPage(); watch(gp, "Beamergerät (Timer)");
+      await gp.goto(BASE + "/#/beamer");
+      const gcode = gp.locator(".beamer .bm-code", { hasText: /^\d{3} \d{3}$/ });
+      await gcode.waitFor({ timeout: 10000 });
+      const jctx = await browser.newContext({ ...devices["iPad (gen 7)"] }); await jctx.addInitScript(copy, tStore); await jctx.clock.install();
+      const jp = await jctx.newPage(); watch(jp, "Lehrkraft (iPad, Timer)");
+      await jp.goto(BASE + "/#/lk/s/" + lessonId);
+      await jp.getByRole("button", { name: "Ich bin im Unterricht und starte die Präsentation für alle." }).click();
+      const jpr = jp.locator(".presenter");
+      await jpr.locator(".stage .codeslide").waitFor({ timeout: 15000 });
+      await jpr.getByRole("button", { name: "Beamer verbinden" }).click();
+      await jp.locator("#bmc-in").fill((await gcode.textContent()).replace(" ", "")); await jp.keyboard.press("Enter");
+      await gp.locator(".beamer .bm-stage .codeslide").waitFor({ timeout: 15000 });
+      await jpr.getByRole("button", { name: "Nächste Folie" }).click();
+      await qp.locator(".live .badge", { hasText: "Folie 1 / 3" }).waitFor({ timeout: 10000 });
+      await gp.waitForFunction(() => /\/1\?/.test((document.querySelector(".beamer .bm-stage > img") || {}).src || ""), null, { timeout: 10000 });
+      const barH = () => jp.evaluate(() => Math.round(document.querySelector(".presenter .bar").getBoundingClientRect().height));
+      const bar0 = await barH();
+      const band = (pg, sel) => pg.evaluate((q) => { const b = document.querySelector(q + " .tband"); return b && !b.hidden ? { text: b.textContent, phase: b.className.replace("tband ", ""), bg: getComputedStyle(b).backgroundColor, anim: getComputedStyle(b).animationName } : null; }, sel);
+      const secs = (t) => { const m = /(\d+):(\d\d)$/.exec(t || ""); return m ? Number(m[1]) * 60 + Number(m[2]) : NaN; };
+      const tmB = jpr.locator(".tmbtn"), tdlg = jpr.locator(".tmc");
+      ok(await tmB.getAttribute("aria-haspopup") === "dialog" && (await tmB.evaluate((b) => b.textContent)) === "Timer" && await qp.locator(".live .tband").isHidden(), "„Timer“ in der Leiste; noch kein Timer bei der Schülerin");
+      // Feld innerhalb der Präsentation: Dialog, Fokus hinein (Vorauswahl 5 Min), Ziele ≥ 44 px, Esc schließt, Fokus zurück
+      await tmB.click(); await tdlg.waitFor();
+      const tsz = await jp.evaluate(() => [...document.querySelectorAll(".tmc button, .tmc input")].filter((x) => x.getClientRects().length).map((x) => Math.round(x.getBoundingClientRect().height)));
+      ok(await tdlg.getAttribute("role") === "dialog" && (await jp.evaluate(() => document.activeElement.textContent)) === "5 Min" && tsz.length >= 10 && tsz.every((x) => x >= 44)
+        && (await tdlg.getByRole("button", { name: "5 Min", exact: true }).getAttribute("aria-pressed")) === "true", "Feld „Timer“ in der Präsentation: Schnellwahl, eigene Minuten, „Timer starten“ (Fokus im Feld, Ziele ≥ 44 px)");
+      await jp.keyboard.press("Escape");
+      ok(await tdlg.isHidden() && await jp.evaluate(() => document.activeElement.classList.contains("tmbtn")), "Esc schließt das Feld, der Fokus steht wieder auf „Timer“");
+      await tmB.click(); await tdlg.waitFor();
+      await jp.locator("#tmc-min").fill("0"); await tdlg.getByRole("button", { name: "Timer starten" }).click();
+      ok((await jp.locator("#tmc-err").textContent()) === "Bitte geben Sie eine ganze Zahl von 1 bis 120 Minuten ein." && await qp.locator(".live .tband").isHidden(), "0 Minuten: Meldung, nichts gestartet");
+      await tdlg.getByRole("button", { name: "3 Min", exact: true }).click();
+      await tdlg.getByRole("button", { name: "Timer starten" }).click();
+      await qp.locator(".live .tband:not([hidden])").waitFor({ timeout: 10000 });
+      await gp.locator(".beamer .tband:not([hidden])").waitFor({ timeout: 10000 });
+      const qb = await band(qp, ".live"), gb = await band(gp, ".beamer"), jb = await band(jp, ".presenter .stage");
+      const geoQ = await qp.evaluate(() => { const b = document.querySelector(".live .tband").getBoundingClientRect(), i = document.querySelector(".live > img").getBoundingClientRect(), l = document.querySelector(".live").getBoundingClientRect(); return { top: Math.abs(b.top - l.top) < 1, under: i.top >= b.bottom - 0.5 }; });
+      const geoG = await gp.evaluate(() => { const b = document.querySelector(".beamer .tband").getBoundingClientRect(), s = document.querySelector(".beamer .bm-stage").getBoundingClientRect(); return { top: Math.abs(b.top) < 1, under: s.top >= b.bottom - 0.5 }; });
+      ok(/^Noch [23]:\d\d$/.test(qb && qb.text) && qb.phase === "tb-run" && /^Noch [23]:\d\d$/.test(gb && gb.text) && /^Noch [23]:\d\d$/.test(jb && jb.text) && geoQ.top && geoQ.under && geoG.top && geoG.under
+        && await jpr.locator(".nextpane .tband").count() === 0 && await qp.locator(".live .tband").getAttribute("role") === "timer",
+        "gestartet: oben über der Folie bei der Schülerin (" + qb.text + "), am Beamergerät und über der großen Folie der Lehrkraft – die Folie darunter, nicht verdeckt; die Vorschau ohne Timer");
+      ok(await barH() === bar0 && /^Timer [23]:\d\d$/.test(await tmB.evaluate((b) => b.textContent)), "die Leiste am iPad bleibt so hoch wie vorher (" + bar0 + " px); der Knopf heißt „Timer m:ss“");
+      await qp.screenshot({ ...SHOT, path: join(OUT, "timer-schueler.png") });
+      await gp.screenshot({ ...SHOT, path: join(OUT, "timer-beamergeraet.png") });
+      await jp.screenshot({ ...SHOT, path: join(OUT, "timer-lehrkraft-ipad.png") });
+      // Folienwechsel behält ihn
+      await jpr.getByRole("button", { name: "Nächste Folie" }).click();
+      await qp.locator(".live .badge", { hasText: "Folie 2 / 3" }).waitFor({ timeout: 10000 });
+      ok(/^Noch [23]:\d\d$/.test((await band(qp, ".live") || {}).text), "Folienwechsel: der Timer bleibt");
+      // Pause und Weiter, +1 Min
+      await tmB.click(); await tdlg.waitFor();
+      await tdlg.getByRole("button", { name: "Pause" }).click();
+      await qp.locator(".live .tband.tb-paused").waitFor({ timeout: 10000 });
+      await gp.locator(".beamer .tband.tb-paused").waitFor({ timeout: 10000 });
+      const pq = await band(qp, ".live");
+      await qp.screenshot({ ...SHOT, path: join(OUT, "timer-schueler-pausiert.png") });
+      await sleep(1500);
+      ok(/^Pausiert – noch [23]:\d\d$/.test(pq.text) && (await band(qp, ".live")).text === pq.text && (await jp.locator(".tmc .tmc-now").textContent()) === pq.text, "Pause: „" + pq.text + "“ überall, die Zeit steht");
+      await tdlg.getByRole("button", { name: "Weiter" }).click();
+      await qp.locator(".live .tband.tb-run").waitFor({ timeout: 10000 });
+      const s0 = secs((await band(qp, ".live")).text);
+      await tdlg.getByRole("button", { name: "+1 Min" }).click();
+      await qp.waitForFunction((x) => { const m = /(\d+):(\d\d)$/.exec(document.querySelector(".live .tband").textContent); return m && Number(m[1]) * 60 + Number(m[2]) >= x + 55; }, s0, { timeout: 10000 });
+      ok(secs((await band(gp, ".beamer")).text) >= s0 + 55, "Weiter und „+1 Min“: eine Minute mehr – bei der Schülerin und am Beamergerät");
+      await tdlg.getByRole("button", { name: "Fertig" }).click();
+      // Lehrkraft am Laptop mit Beamerfenster: dieselbe Anzeige über der Folie und im Beamerfenster; Taste T öffnet das Feld
+      await tp.getByRole("button", { name: "Ich bin im Unterricht und starte die Präsentation für alle." }).click();
+      const tpr = tp.locator(".presenter");
+      await tpr.locator(".stage .tband:not([hidden])").waitFor({ timeout: 10000 });
+      const [bw2] = await Promise.all([tctx.waitForEvent("page"), tpr.getByRole("button", { name: "Beamerfenster öffnen" }).click()]);
+      watch(bw2, "Beamerfenster (Timer)");
+      await bw2.locator(".beamer .tband:not([hidden])").waitFor({ timeout: 10000 });
+      ok(/^Noch [34]:\d\d$/.test((await band(bw2, ".beamer")).text) && await bw2.locator(".beamer .bm-stage > img").count() === 1 && /^Noch [34]:\d\d$/.test((await band(tp, ".presenter .stage")).text)
+        && (await tpr.locator(".tmbtn .tm-lbl").isVisible()), "Beamerfenster: der Timer oben über der Folie (vom Präsentationsfenster); am Laptop steht die Restzeit auch im Knopf");
+      await bw2.mouse.move(400, 300);
+      await bw2.screenshot({ ...SHOT, path: join(OUT, "timer-beamerfenster.png") });
+      await tp.keyboard.press("t");
+      await tpr.locator(".tmc").waitFor();
+      ok(await tp.evaluate(() => document.activeElement.textContent) === "Pause", "Taste T öffnet das Feld (Fokus auf „Pause“)");
+      await tp.keyboard.press("Escape");
+      await bw2.keyboard.press("t"); await sleep(500);
+      ok(await tpr.locator(".tmc").isHidden(), "T im Beamerfenster öffnet nichts im Präsentationsfenster");
+      await tpr.getByRole("button", { name: "Schließen", exact: true }).click();
+      await bw2.locator(".beamer .bm-wait", { hasText: "Die Präsentation ist gerade nicht geöffnet." }).waitFor({ timeout: 10000 });
+      ok(await bw2.locator(".beamer .tband").isHidden() && !!(await band(qp, ".live")), "Präsentationsfenster geschlossen: das Beamerfenster ohne Timer, bei der Schülerin läuft er weiter");
+      await bw2.close();
+      // letzte Minute orange, Ablauf rot „Die Zeit ist um!“ (Uhr der Seiten vorgestellt), bleibt bis „Timer schließen“
+      await tmB.click(); await tdlg.waitFor();
+      await tdlg.getByRole("button", { name: "Timer beenden" }).click();
+      await qp.waitForFunction(() => document.querySelector(".live .tband").hidden, null, { timeout: 10000 });
+      ok(await gp.locator(".beamer .tband").isHidden() && await jpr.locator(".stage .tband").isHidden() && (await tmB.evaluate((b) => b.textContent)) === "Timer", "„Timer beenden“: überall weg");
+      await tmB.click(); await tdlg.waitFor();
+      await jp.locator("#tmc-min").fill("1"); await jp.keyboard.press("Enter");
+      await qp.locator(".live .tband.tb-last").waitFor({ timeout: 10000 });
+      await gp.locator(".beamer .tband.tb-last").waitFor({ timeout: 10000 });
+      const lq = await band(qp, ".live");
+      ok(lq.bg === "rgb(255, 154, 69)" && /^Noch (1:00|0:5\d)$/.test(lq.text) && (await jpr.locator(".stage .tband").getAttribute("class")) === "tband tb-last", "letzte Minute: orange bei allen (" + lq.text + ")");
+      await qp.screenshot({ ...SHOT, path: join(OUT, "timer-schueler-letzte-minute.png") });
+      await sleep(1200);   // die Nachrichten zum Start sind angekommen – danach zählt nur noch die Uhr der Seiten
+      for (const c of [qctx, gctx, jctx]) await c.clock.fastForward("01:05");
+      await qp.locator(".live .tband.tb-over").waitFor({ timeout: 10000 });
+      await gp.locator(".beamer .tband.tb-over").waitFor({ timeout: 10000 });
+      await jpr.locator(".stage .tband.tb-over").waitFor({ timeout: 10000 });
+      const oq = await band(qp, ".live"), og = await band(gp, ".beamer");
+      await qp.waitForFunction(() => document.querySelector(".live .tb-say").textContent === "Die Zeit ist um!", null, { timeout: 5000 }).catch(() => {});
+      ok(oq.text === "Die Zeit ist um!" && oq.bg === "rgb(200, 40, 30)" && og.text === "Die Zeit ist um!" && (await tmB.evaluate((b) => b.textContent)) === "Timer Zeit um"
+        && (await qp.locator(".live .tb-say").textContent()) === "Die Zeit ist um!" && await qp.locator("audio, video").count() === 0, "abgelaufen: rot „Die Zeit ist um!“ bei allen, ruhig angesagt (kein Ton)");
+      ok(oq.anim === "none" && og.anim === "tb-puls", "Pulsieren nur ohne „Bewegung reduzieren“ (Schülerin mit reduzierter Bewegung: ruhig rot)");
+      await qp.screenshot({ ...SHOT, path: join(OUT, "timer-schueler-abgelaufen.png") });
+      await gp.screenshot({ ...SHOT, path: join(OUT, "timer-beamergeraet-abgelaufen.png") });
+      await qctx.clock.fastForward("05:00"); await sleep(300);
+      ok((await band(qp, ".live")).text === "Die Zeit ist um!", "… und bleibt stehen, bis die Lehrkraft ihn schließt");
+      await tmB.click(); await tdlg.waitFor();
+      ok(await jp.evaluate(() => document.activeElement.textContent) === "Timer schließen" && await tdlg.getByRole("button", { name: "Pause" }).isHidden(), "nach Ablauf: „Timer schließen“ (Fokus), keine Pause");
+      await jp.screenshot({ ...SHOT, path: join(OUT, "timer-lehrkraft-ipad-abgelaufen.png") });
+      await tdlg.getByRole("button", { name: "Timer schließen" }).click();
+      await qp.waitForFunction(() => document.querySelector(".live .tband").hidden, null, { timeout: 10000 });
+      await gp.waitForFunction(() => document.querySelector(".beamer .tband").hidden, null, { timeout: 10000 });
+      ok(await tdlg.isHidden() && await jpr.locator(".stage .tband").isHidden(), "„Timer schließen“ entfernt ihn überall");
+      // „Präsentation für alle beenden“ entfernt einen laufenden Timer
+      await tmB.click(); await tdlg.waitFor();
+      await tdlg.getByRole("button", { name: "10 Min", exact: true }).click(); await tdlg.getByRole("button", { name: "Timer starten" }).click();
+      await qp.locator(".live .tband:not([hidden])").waitFor({ timeout: 10000 });
+      await jpr.getByRole("button", { name: "Präsentation für alle beenden" }).click();
+      await qp.locator(".live .placeholder").waitFor({ timeout: 10000 });
+      await gp.locator(".beamer .bm-msg", { hasText: "Die Präsentation ist beendet." }).waitFor({ timeout: 10000 });
+      ok(await qp.locator(".live .tband").isHidden() && await gp.locator(".beamer .tband").isHidden() && await sp.locator(".live .tband").isHidden(), "„Präsentation für alle beenden“: kein Timer mehr");
+      await qctx.close(); await gctx.close(); await jctx.close();
+    }
+
     /* ---------- Claude-Connector (MCP) ---------- */
     step("Claude-Connector (MCP)");
     r = await rpc({ jsonrpc: "2.0", id: 1, method: "initialize", params: { protocolVersion: "2025-06-18", capabilities: {}, clientInfo: { name: "test", version: "1" } } });
@@ -2720,6 +2861,9 @@ async function main() {
         await audit(dev, "Dialog „Beamer verbinden“", tStore, "#/lk/s/" + lessonId, async (p) => {
           await p.getByRole("button", { name: "Ich bin im Unterricht und starte die Präsentation für alle." }).click(); await p.locator(".presenter").waitFor();
           await p.locator(".presenter").getByRole("button", { name: /^Beamer verb/ }).click(); await p.locator(".presenter .bmc").waitFor(); });
+        await audit(dev, "Feld „Timer“ im Präsentationsmodus", tStore, "#/lk/s/" + lessonId, async (p) => {
+          await p.getByRole("button", { name: "Ich bin im Unterricht und starte die Präsentation für alle." }).click(); await p.locator(".presenter").waitFor();
+          await p.locator(".presenter .tmbtn").click(); await p.locator(".presenter .tmc").waitFor(); });
       }
       writeFileSync(join(OUT, "mobile-audit.json"), JSON.stringify(report, null, 1));
     }

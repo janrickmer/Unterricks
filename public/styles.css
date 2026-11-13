@@ -22,6 +22,10 @@
   --blau-t: #e5ebf8; --violett-t: #ede8f7; --kupfer-t: #f6e9e2; --marke-t: #e8edf7; --gelb-t: #fff5cf; --rot-t: #fbe9e7; --gruen-t: #e3f2ea;
   /* Orange: nur das Feld „Druckaufträge für den nächsten Arbeitstag“ (Wunsch der Lehrkraft, Anforderung 14) – keine Warnfarbe */
   --orange: #e05d00; --orange-t: #fff0dc; --orange-ink: #fff;
+  /* Timer der Live-Präsentation (Nachtrag 16): liegt auf der Projektionsfläche (immer dunkel) – hell wie dunkel gleich, deshalb ohne Umdefinition
+     im dunklen Modus. Letzte Minute orange (Wunsch der Lehrkraft), abgelaufen Signalrot; Schrift darauf 7,6 : 1 bzw. 5,6 : 1 */
+  --timer-bg: #13213b; --timer-ink: #fff; --timer-bar: #ffd43b; --timer-track: rgba(255, 255, 255, .22);
+  --timer-last: #ff9a45; --timer-last-ink: #13213b; --timer-over: #c8281e; --timer-over-ink: #fff; --timer-pause: #2b3550; --timer-pause-ink: #e8edf6;
   /* Fach der Seite (ohne Fach: Marke) */
   --fach: var(--marke); --fach-t: var(--marke-t); --fach-text: var(--marke);
   /* Zustände als Text */
@@ -520,18 +524,70 @@ main.narrow .homework { background: var(--gelb-t); border-color: color-mix(in sr
 .beamer .bm-again[hidden] { display: none; }
 /* Präsentationsmodus: „Beamer verbinden“ – Eingabefeld innerhalb der Präsentation (Vollbild bleibt), über allem (Tippen daneben blättert nicht) */
 .presenter .devstate { color: #e8edf6; }
-.presenter .bmc-back { position: absolute; inset: 0; z-index: 5; display: grid; grid-template-columns: minmax(0, 1fr); justify-items: center; align-items: start;
+.presenter :is(.bmc-back, .tmc-back) { position: absolute; inset: 0; z-index: 5; display: grid; grid-template-columns: minmax(0, 1fr); justify-items: center; align-items: start;
   padding: max(1rem, 7vh) 1rem 1rem; background: rgba(0, 0, 0, .6); cursor: auto; overflow-y: auto; }   /* oben: die Bildschirmtastatur des iPads verdeckt es nicht */
-.presenter .bmc-back[hidden] { display: none; }
-.presenter .bmc { width: min(31rem, 100%); display: grid; gap: .7rem; padding: 1.15rem 1.3rem 1.2rem; background: var(--surface); color: var(--text); border: 1px solid var(--line); border-radius: 18px; box-shadow: 0 24px 64px -12px rgba(0, 0, 0, .55); }
-.presenter .bmc h2 { margin: 0; font-size: 1.2rem; }
-.presenter .bmc .field { margin: 0; }
+.presenter :is(.bmc-back, .tmc-back)[hidden] { display: none; }
+.presenter :is(.bmc, .tmc) { width: min(31rem, 100%); display: grid; gap: .7rem; padding: 1.15rem 1.3rem 1.2rem; background: var(--surface); color: var(--text); border: 1px solid var(--line); border-radius: 18px; box-shadow: 0 24px 64px -12px rgba(0, 0, 0, .55); }
+.presenter :is(.bmc, .tmc) h2 { margin: 0; font-size: 1.2rem; }
+.presenter :is(.bmc, .tmc) .field { margin: 0; }
 .presenter .bmc input.codein { font-size: 1.7rem; letter-spacing: .14em; min-height: 3rem; }
-.presenter .bmc .hint, .presenter .bmc .err, .presenter .bmc-conn { margin: 0; }
-.presenter .bmc .err:empty { display: none; }
+.presenter :is(.bmc, .tmc) :is(.hint, .err), .presenter .bmc-conn { margin: 0; }
+.presenter :is(.bmc, .tmc) .err:empty { display: none; }
 .presenter .bmc-connbox { display: grid; gap: .5rem; justify-items: start; padding: .7rem .8rem; border-radius: 12px; background: var(--surface-2); }
 .presenter .bmc-connbox[hidden] { display: none; }
 .presenter .bmc-acts { display: flex; gap: .5rem; justify-content: flex-end; flex-wrap: wrap; }
+/* Timer der Live-Präsentation (Nachtrag 16, public/timerband.js): ein Band am oberen Rand der Präsentationsfläche – bei den Schüler:innen
+   (.live), im Beamerfenster und am Beamergerät (.beamer) und über der großen aktuellen Folie der Lehrkraft (.presenter .stage). Es verdeckt
+   nichts: die Fläche bekommt eine eigene Zeile dafür, die Folie wird darunter eingepasst. Schrift relativ zur Fläche (Container- bzw.
+   Bildschirmeinheiten), am Beamer aus mehreren Metern lesbar. */
+.tband { --tb-bg: var(--timer-bg); --tb-ink: var(--timer-ink); --tb-fill: var(--timer-bar); --tb-track: var(--timer-track); --tb-fs: clamp(1rem, min(3.2cqw, 5.6cqh), 4.5rem);
+  position: relative; display: flex; align-items: center; justify-content: center; width: 100%; min-width: 0; height: calc(var(--tb-fs) * 1.6); margin: 0; padding: 0 .7em .08em;
+  background: var(--tb-bg); color: var(--tb-ink); font: 800 var(--tb-fs)/1.12 var(--font); font-variant-numeric: tabular-nums;
+  letter-spacing: .01em; text-align: center; white-space: nowrap; overflow: hidden; user-select: none; }
+.tband[hidden] { display: none; }
+.tband .tb-text { overflow: hidden; text-overflow: ellipsis; }
+.tband .tb-bar { position: absolute; left: 0; right: 0; bottom: 0; height: max(4px, .13em); background: var(--tb-track); }
+.tband .tb-fill { display: block; width: 100%; height: 100%; background: var(--tb-fill); }
+.tband.tb-last { --tb-bg: var(--timer-last); --tb-ink: var(--timer-last-ink); --tb-fill: var(--timer-last-ink); --tb-track: rgba(19, 33, 59, .22); }
+.tband.tb-over { --tb-bg: var(--timer-over); --tb-ink: var(--timer-over-ink); }
+.tband.tb-over .tb-bar { display: none; }
+.tband.tb-paused { --tb-bg: var(--timer-pause); --tb-ink: var(--timer-pause-ink); --tb-fill: #9fb0cc; }
+@media (prefers-reduced-motion: no-preference) {   /* abgelaufen: dreimal kurz heller, dann ruhig rot – ohne Bewegung kein Pulsieren */
+  .tband.tb-over { animation: tb-puls 1.1s ease-in-out 3; }
+  @keyframes tb-puls { 50% { background: #e2463a; } }
+}
+.live.has-timer, .presenter .stage.has-timer, .beamer.has-timer { grid-template: auto minmax(0, 1fr) / minmax(0, 1fr); }
+.live.has-timer > *, .presenter .stage.has-timer > * { grid-area: 2 / 1; }
+.live.has-timer > .tband, .presenter .stage.has-timer > .tband, .beamer.has-timer > .tband { grid-area: 1 / 1; }
+.beamer.has-timer > .bm-stage { grid-area: 2 / 1; }
+/* Lehrkraft mit Vorschau: der Rahmen der aktuellen Folie wird um das Band höher statt die Folie schmaler (Höhe des Bandes wie oben: 1.6 × Schrift) */
+.presenter.with-next .stage.has-timer { --tbh: calc(clamp(1rem, min(3.2cqw, 5.6cqh), 4.5rem) * 1.6); aspect-ratio: auto;
+  width: min(100cqw, calc((100cqh - var(--tbh)) * var(--ar))); height: calc(min(100cqw, calc((100cqh - var(--tbh)) * var(--ar))) / var(--ar) + var(--tbh)); }
+/* Präsentationsmodus: Knopf „Timer“ zeigt die Restzeit (tabellarische Ziffern, Breite ruhig), Feld „Timer“ wie „Beamer verbinden“. Bis 1000px
+   Breite nur das Symbol (in der Farbe des Timers; Name „Timer“ bzw. „Timer 4:12“ für Screenreader) – sonst bräche die Leiste am iPad hochkant in
+   eine dritte Zeile; die Restzeit steht dort ohnehin im Band über der Folie. Leere Statuszeilen der Leiste nehmen keinen Abstand ein. */
+.presenter .bar :is(.beamstate, .devstate, .markstate):empty { margin-left: -.5rem; }
+.presenter .tmbtn .tm-lbl { font-variant-numeric: tabular-nums; }
+@media (max-width: 1000px) { .presenter .tmbtn .tm-lbl { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; } }
+.presenter .tmbtn:is(.tm-run, .tm-last, .tm-over, .tm-paused) .tm-lbl { min-width: 2.6em; text-align: left; }
+.presenter .bar .btn.tm-last { background: var(--timer-last); border-color: var(--timer-last); color: var(--timer-last-ink); --ring: #fff; }
+.presenter .bar .btn.tm-over { background: var(--timer-over); border-color: var(--timer-over); color: var(--timer-over-ink); }
+.presenter .bar .btn.tm-paused { background: var(--timer-pause); border-color: #6d7a96; }
+.presenter .tmc fieldset.tmc-picks { display: flex; flex-wrap: wrap; gap: .45rem; margin: 0; padding: 0; border: 0; min-width: 0; }
+.presenter .tmc .tmc-picks legend { width: 100%; margin: 0 0 .35rem; padding: 0; font-weight: 700; }
+.presenter .tmc .tmc-pick { min-width: 4.6rem; font-variant-numeric: tabular-nums; }
+.presenter .tmc .tmc-pick[aria-pressed="true"] { background: var(--ink); border-color: var(--ink); color: #fff; }
+@media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) .presenter .tmc .tmc-pick[aria-pressed="true"] { background: #e8edf6; border-color: #e8edf6; color: #13213b; } }
+.presenter .tmc input.tmc-in { width: 9rem; max-width: 100%; font-size: 1.3rem; font-variant-numeric: tabular-nums; }
+.presenter .tmc .tmc-start, .presenter .tmc .tmc-ctlbox { display: grid; gap: .7rem; }
+.presenter .tmc .tmc-start[hidden], .presenter .tmc .tmc-ctlbox[hidden] { display: none; }
+.presenter .tmc .tmc-now { margin: 0; padding: .45rem .8rem .55rem; border-radius: 12px; background: var(--timer-bg); color: var(--timer-ink); text-align: center;
+  font: 800 clamp(1.5rem, 5vw, 2.2rem)/1.15 var(--font); font-variant-numeric: tabular-nums; }
+.presenter .tmc .tmc-now.tb-last { background: var(--timer-last); color: var(--timer-last-ink); }
+.presenter .tmc .tmc-now.tb-over { background: var(--timer-over); color: var(--timer-over-ink); }
+.presenter .tmc .tmc-now.tb-paused { background: var(--timer-pause); color: var(--timer-pause-ink); }
+.presenter .tmc .tmc-ctl { display: flex; flex-wrap: wrap; gap: .5rem; }
+.presenter .tmc .tmc-ctl .btn[hidden], .presenter .tmc .hint[hidden] { display: none; }
 .codeshow { position: fixed; inset: 0; z-index: 90; display: grid; grid-template: minmax(0, 1fr) / minmax(0, 1fr); background: var(--fach); }
 .codeshow .cs-close { position: absolute; right: 1.25rem; bottom: 1.25rem; background: rgba(10, 16, 30, .25); border-color: rgba(255, 255, 255, .6); color: #fff; --ring: #fff; }
 

@@ -97,7 +97,17 @@ Feibeitsblatt braucht keine Änderung. Die Adressen stehen in `wrangler.jsonc` (
   erneut, zeigt er sie wieder, ein Code aus einer anderen Sitzung holt ihn dorthin. Grenzen: Ein spiegelndes iPad behält sein
   Seitenverhältnis (Ränder am Beamer). Am Beamer-iPad die **„Automatische Sperre“** (Einstellungen → Anzeige & Helligkeit) auf „Nie“
   stellen – Unterricks hält den Bildschirm wach, wo der Browser das erlaubt; sperrt sich das iPad trotzdem, bricht AirPlay ab. Das
-  Beamergerät braucht keine Anmeldung, zeigt nur, was auch die Schüler:innen live sehen (die nächste Folie lädt es nur unsichtbar vor), und zählt nicht als Schüler:in. Ältere Präsentationen
+  Beamergerät braucht keine Anmeldung, zeigt nur, was auch die Schüler:innen live sehen (die nächste Folie lädt es nur unsichtbar vor), und zählt nicht als Schüler:in.
+  **Timer für Arbeitsaufträge:** Im Präsentationsmodus öffnet **„Timer“** (Stoppuhr in der Leiste, am Laptop auch Taste T) ein Feld in der
+  Präsentation – das Vollbild bleibt: Dauer wählen (1, 2, 3, 5, 10, 15 oder 20 Minuten oder eigene Minuten von 1 bis 120) und „Timer starten“.
+  Der Timer steht dann **oben über der Präsentation**: live auf den iPads der Schüler:innen, im Beamerfenster, am Beamergerät und bei Ihnen über
+  der großen aktuellen Folie (nicht über der Vorschau) – die Folie rückt darunter, nichts wird verdeckt. Er zeigt „Noch 4:12“ mit einem schmalen
+  Balken, in der **letzten Minute orange**; ist die Zeit um, wird er **rot** und zeigt „Die Zeit ist um!“, bis Sie ihn schließen – ohne Ton,
+  ohne Beschriftung. Während er läuft, zeigt der Knopf die Restzeit (am iPad hochkant nur die Stoppuhr in der Farbe des Timers, damit die Leiste
+  nicht höher wird) und öffnet „Pause“/„Weiter“, „+1 Min“, „+5 Min“ (insgesamt höchstens 180 Minuten) und „Timer beenden“; nach Ablauf „+1 Min“,
+  „+5 Min“ (der Timer beginnt dann mit dieser Zeit neu) und „Timer schließen“. Folienwechsel, „Sitzungscode zeigen“ und „Schließen“ des
+  Präsentationsfensters lassen ihn weiterlaufen, „Präsentation für alle beenden“ beendet ihn. Die Restzeit rechnet der Server – falsch gehende
+  Uhren der iPads spielen keine Rolle. Ältere Präsentationen
   mit einem Code auf den Folien: Unterricks ersetzt ihn beim Hochladen durch den Code dieser Sitzung (wo das nicht sicher geht, z. B.
   bei einem unruhigen Foto hinter dem Code, bleibt die Folie unverändert und die Meldung nennt sie). Am Stundenende: Hausaufgabe eintragen und per
   Rechtsklick im Verlaufsplan „Zwischenstopp einfügen“, falls nicht alles geschafft wurde. In der nächsten Sitzung zeigt dann die Karte

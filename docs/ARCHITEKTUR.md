@@ -148,6 +148,7 @@ implementiert und im End-to-End-Test geprüft (Ausnahmen unten ausdrücklich gen
 | | `public/presenter.js` | PDF → Folienbilder (Codefolien erkennen), Präsentationsmodus mit Codefolie und Vorschau der nächsten Folie, Beamer-Code |
 | | `public/beamer.js` | Beamerfenster (`#/beamer`): nur die aktuelle Folie – verbunden mit dem Präsentationsfenster per `BroadcastChannel` oder, als Beamergerät, über den Server (Beamer-Code) |
 | | `public/codeslide.js` | die Codefolie (Sitzungscode + QR-Code) für Beamer, Präsentationsmodus und Live-Ansicht der Schüler:innen |
+| | `public/timerband.js` | Timer der Live-Präsentation (Nachtrag 16): Band oben über der Folie bei Schüler:innen, Beamerfenster, Beamergerät und Lehrkraft |
 | | `public/pdfmaker.js`, `public/markdown.js` | Textmaterial als PDF (Rückfall), sicheres Markdown |
 | | `worker/render.js`, `public/designrender.js` | Claudes Gestaltung (HTML) als PDF drucken (Browser Run), Stand und Nachdruck auf der Sitzungsseite (4m) |
 
@@ -292,6 +293,19 @@ implementiert und im End-to-End-Test geprüft (Ausnahmen unten ausdrücklich gen
    anderen Sitzung holt es dorthin). Das Gerät hält den Bildschirm wach (`navigator.wakeLock`, bei `visibilitychange` neu, ohne Unterstützung
    still). Keine zusätzliche D1-Abfrage im Durable Object; je Kopplungsanfrage höchstens 3 Anweisungen (lange Abfrage höchstens 8). Abgelaufene Codes räumt
    `cleanupStatements` mit auf.
+   **Timer** (Nachtrag 16 der Lehrkraft vom 13.11.2026): Die Lehrkraft schickt über ihren WebSocket `{t: "timer", op}` – `start` mit `min`
+   (ganze Minuten 1–120; ersetzt einen laufenden), `pause`, `resume`, `add` mit `min` 1 oder 5 (insgesamt höchstens 180 Minuten; nach Ablauf
+   beginnt er mit dieser Zeit neu), `stop`. `liveReduce`/`timerReduce` (`worker/livestate.js`) legen nur bei laufender Präsentation `timer` =
+   `{total, endsAt, paused: false}` bzw. `{total, left, paused: true}` (ms, `endsAt` nach der Uhr des Servers) im Zustand des Durable Objects ab;
+   „Präsentation für alle beenden“ (`stop`, auch `/reset`) löscht ihn, Folienwechsel, Codefolie, „Sitzungscode zeigen“ und Wiederöffnen lassen ihn
+   stehen; Schüler:innen und Beamer steuern ihn nicht. Timer-Änderungen erhöhen `v` nicht – die Seiten laden die Folie deshalb nicht neu. Jede
+   Nachricht `state` an alle Rollen (auch `/state` der Rückfall-Abfrage) trägt dann `timer: {left, total, paused}`, `left` beim Senden mit der Uhr
+   des Servers berechnet (`liveTimer`); ohne Timer fehlt das Feld (die Nachricht bleibt wie bisher, ältere Seiten ignorieren es). Gesendet wird nur
+   bei Änderungen, nie im Sekundentakt: Die Seiten zählen ab dem Empfang mit `performance.now()` weiter und gleichen bei jeder Nachricht neu ab –
+   falsch gehende Geräteuhren zählen nicht (`public/timerband.js` mit `cleanTimer`, `timerAt`, `timerNote`, `timerText` aus `public/shared.js`).
+   Das Band hat `role="timer"`; eine getrennte, ruhige Live-Region sagt nur Start, „Noch 1 Minute“, „Die Zeit ist um!“ und Pause/Weiter an. Das
+   lokale Beamerfenster bekommt den Stand vom Präsentationsfenster (`show` bzw. `timer` über den BroadcastChannel, `left` zum Sendezeitpunkt);
+   die Taste T leitet es nicht weiter. Keine zusätzliche D1-Abfrage und kein zusätzlicher Speicherzugriff je Sekunde.
 7. **Material.** Zwei Bereiche (Schüler:innen / nur Lehrkraft). Jede Schüler-Abfrage filtert serverseitig auf den
    Schülerbereich; Downloads laufen über kurzlebige signierte Links. KI-Material wird mit „Als Material übernehmen“ als
    Textmaterial gespeichert; Schüler:innen laden es als PDF (mit Namens-/Datumszeile) herunter, z. B. für GoodNotes.

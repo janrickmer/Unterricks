@@ -198,6 +198,7 @@ const ICONS = {
   link: "M10 14a4.5 4.5 0 0 0 6.4 0l3-3a4.5 4.5 0 0 0-6.4-6.4l-1 1M14 10a4.5 4.5 0 0 0-6.4 0l-3 3a4.5 4.5 0 0 0 6.4 6.4l1-1",
   download: "M12 4v11M7 10l5 5 5-5M5 20h14",
   printer: "M7 9V3.5h10V9M7 17.5H5a2 2 0 0 1-2-2V11a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2v4.5a2 2 0 0 1-2 2h-2M7 14h10v7H7z",
+  timer: "M12 21.5a8 8 0 1 0 0-16 8 8 0 0 0 0 16zM12 9.5v4l2.5 1.5M10 2.5h4M12 2.5v3",
 };
 const SVGNS = "http://www.w3.org/2000/svg";
 export function icon(name) {

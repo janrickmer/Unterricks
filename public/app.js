@@ -3,6 +3,7 @@ import { h, $, clear, nn, store, deviceId, api, apiUrl, wsUrl, ApiError, toast, 
 import { SUBJECTS, CLASS_GROUPS, STUDENT_LOGIN_MIN, subjectName, formatCode, normalizeCode, fmtDay, classShort, isAnalogClass, webUrlLabel, fmtClockBerlin, fmtDayBerlin, slidesUpTo } from "./shared.js";
 import { paintPortalPreview } from "./portalview.js";
 import { codeSlideDom } from "./codeslide.js";
+import { timerBand } from "./timerband.js";
 import { renderMarkdown } from "./markdown.js";
 
 // Nie in fremden Seiten eingebettet anzeigen: Auf GitHub Pages fehlen die Schutz-Header (frame-ancestors gilt nicht als <meta>)
@@ -228,6 +229,9 @@ async function studentRoom(lessonId) {
   const status = h("div", { class: "status" });
   const fsBtn = h("button", { class: "btn small fs", type: "button", "aria-label": "Live-Fenster vergrößern" }, icon("expand"), "Groß");
   const live = h("section", { class: "live idle", "aria-label": "Live-Präsentation" }, ph, status, fsBtn);
+  // Timer der Lehrkraft (Nachtrag 16): oben über der Folie, die Folie darunter eingepasst
+  const tband = timerBand({ host: live });
+  live.append(tband.el, tband.say);
   live.addEventListener("contextmenu", (e) => e.preventDefault());
   fsBtn.addEventListener("click", () => {
     const fs = live.requestFullscreen || live.webkitRequestFullscreen;
@@ -302,6 +306,7 @@ async function studentRoom(lessonId) {
   const dropCode = () => { if (codeEl) { codeEl.remove(); codeEl = null; } };
   function showState(st) {
     if (!st || typeof st !== "object") return;
+    tband.set(st.active ? st.timer : null);   // vor der Prüfung von v: der Timer ändert v nicht, jede Nachricht gleicht die Restzeit neu ab
     if (st.v !== undefined && st.v === lastV && st.active) return;
     lastV = st.v;
     const my = ++seq;   // ein spät geladenes Folienbild überschreibt nie einen neueren Stand
@@ -341,7 +346,7 @@ async function studentRoom(lessonId) {
   connect();
   const onVis = () => { if (document.visibilityState === "visible") { poll(); if (!ws || ws.readyState > 1) { clearTimeout(reT); connect(); } } };
   document.addEventListener("visibilitychange", onVis);
-  onLeave(() => { closed = true; clearInterval(pollT); clearInterval(pingT); clearTimeout(reT); document.removeEventListener("visibilitychange", onVis); try { ws && ws.close(); } catch {} });
+  onLeave(() => { closed = true; tband.stop(); clearInterval(pollT); clearInterval(pingT); clearTimeout(reT); document.removeEventListener("visibilitychange", onVis); try { ws && ws.close(); } catch {} });
 
   // Präsentation selbst öffnen: erst 5 Minuten nach dem Ende der Sitzung; ist die letzte gezeigte Folie markiert, nur bis dorthin
   let pres = d.presentation;
