@@ -198,12 +198,13 @@ export async function freeDaysE2E({ browser, BASE, T, storage, ok, OUT, tool = n
     "Prompt fürs Gymnasium: welche Tage frei wurden, Stunden ohne Termin, Möglichkeiten (Zusammenlegen, Kürzen, extend_unit nur nach Zustimmung)");
   await p.keyboard.press("Escape"); await cm.waitFor({ state: "detached", timeout: 5000 });
   // Sitzungen des Gymnasiums nach dem Verschieben: neues Datum, derselbe Hinweis zum Überarbeiten mit „Zur Einheit“; ohne Termin als Chip; Liste der Klasse mit ihnen am Ende
-  await p.goto(BASE + "/#/lk/s/" + byRow(g1, 2).id); await p.locator(".revisebox").waitFor({ timeout: 15000 });
+  // erst die Sitzungsseite abwarten (#chatin gibt es nur dort) – die Einheitsseite davor hat denselben Kasten .revisebox (sonst Wettlauf)
+  await p.goto(BASE + "/#/lk/s/" + byRow(g1, 2).id); await p.locator("#chatin").waitFor({ timeout: 15000 }); await p.locator(".revisebox").waitFor({ timeout: 15000 });
   ok((await p.locator(".pagehead .chip").allTextContents()).includes(fmtDay(D(14))) && (await p.locator(".revisebox h2").textContent()) === "Die Einheit muss wegen unterrichtsfreier Tage überarbeitet werden"
     && await p.locator(".revisebox").getByRole("link", { name: "Zur Einheit" }).getAttribute("href") === "#/lk/u/" + gym.id
     && await p.evaluate(() => document.querySelector(".revisebox").nextElementSibling.classList.contains("claudeplan")),
     "Sitzung (Gymnasium, verschoben): neues Datum " + fmtDay(D(14)) + ", Hinweis zum Überarbeiten vor „Stunde mit Claude planen“ mit „Zur Einheit“");
-  await p.goto(BASE + "/#/lk/s/" + byRow(g1, 4).id); await p.locator(".revisebox").waitFor({ timeout: 15000 });
+  await p.goto(BASE + "/#/lk/s/" + byRow(g1, 4).id); await p.locator(".pagehead .chip", { hasText: "ohne Termin" }).waitFor({ timeout: 15000 }); await p.locator(".revisebox").waitFor({ timeout: 15000 });
   ok((await p.locator(".pagehead .chip").allTextContents()).includes("ohne Termin") && await p.locator('input[aria-label="Datum der Sitzung"]').inputValue() === "", "Sitzung (Gymnasium) ohne Termin: Chip „ohne Termin“");
   await p.goto(BASE + "/#/lk/f/powi/8A"); await p.locator(".unit-card .item").first().waitFor({ timeout: 15000 });
   ok(JSON.stringify(await p.locator(".unit-card .item .name").allTextContents()) === JSON.stringify(gym.rows.map((r) => r.stundenfrage)) && await p.locator(".unit-card .badge", { hasText: "überarbeiten" }).count() === 1,

@@ -398,6 +398,59 @@ test("S11: Karte zum Zwischenstopp der vorigen Sitzung direkt unter dem Verlaufs
   none($("#gs-prevstop"));
 });
 
+/* Nachtrag 26: erledigt (mit Claude entschieden, danach den Verlaufsplan dieser Sitzung gespeichert) → die Karte verschwindet ganz; ändert sich die vorige
+   Sitzung (Entscheidung ungültig), ist sie wieder da. Beim Zurückkehren in den Tab ohne Neuladen, nach dem Speichern auf der Seite sofort. */
+test("Nachtrag 26: Karte verschwindet nach Entscheidung + Speichern – vom Server (Zurückkehren), nach dem Speichern auf der Seite, Fokus bleibt auf der Seite", async () => {
+  const at0 = Date.parse("2026-11-09T09:00:00Z");
+  const ps = { id: L2, title: "Josef und seine Brüder", date: "2026-11-05", portal: "**1) Erzählung**\n" + STOP_LINE + "\n**2) Arbeitsblatt**", portalVersion: 2,
+    done: "**1) Erzählung**", open: "**2) Arbeitsblatt**", row: null, decision: null, settled: false, openFiles: [] };
+  // vom Server schon erledigt: keine Karte, der Verlaufsplan bleibt erste Karte, nichts dazwischen
+  await page({ lesson: lessonOf({ portal: "**1) Ankommen**" }), previousStop: { ...ps, decision: { choice: "uebernehmen", at: at0 }, settled: true } });
+  none($("#gs-prevstop"), "erledigt: keine Karte");
+  assert.ok($("#gsplan").nextElementSibling && $("#gsplan").nextElementSibling.id !== "gs-prevstop");
+  // nur entschieden: Karte mit „Entschieden am …“; die Lehrkraft speichert den Verlaufsplan auf der Seite → Karte weg, ohne Neuladen
+  let server = { ...ps, decision: { choice: "verzichten", at: at0 } };
+  const get = [/^GET \/api\/teacher\/lessons\/\w+$/, () => ({ lesson: lessonOf({ portal: "**1) Ankommen**" }), files: [], refFiles: [], messages: [], unit: null, previousStop: server })];
+  const calls = await page({ lesson: lessonOf({ portal: "**1) Ankommen**" }), previousStop: server }, [get,
+    [/^PUT \/api\/teacher\/lessons\/\w+\/portal$/, (m, b) => ({ portal: { text: b.text, version: 2, updatedAt: at0 + 5000, source: "lehrkraft" } })]]);
+  assert.equal($("#gs-prevstop-state").textContent, "Entschieden am Mo, 09.11.2026: Auf den offenen Teil wird verzichtet.");
+  button($("#gsplan"), "Bearbeiten").click();
+  const ta = $("#gsplan-text");
+  ta.value = "**1) Ankommen**\n**2) Lied**";
+  D.fire(ta, "input");
+  button($("#gsplan"), "Fertig").click();
+  await D.sleep(10);
+  assert.ok(calls.some((x) => x.method === "PUT"), "gespeichert");
+  none($("#gs-prevstop"), "nach dem Speichern des Verlaufsplans: Karte weg");
+  // Zurückkehren: der Server sagt dasselbe (erledigt) – die Karte bleibt weg
+  server = { ...server, settled: true };
+  D.fire(document, "visibilitychange");
+  await D.sleep(10);
+  none($("#gs-prevstop"));
+  // die vorige Sitzung ändert sich (Zwischenstopp verschoben): Entscheidung ungültig → beim Zurückkehren wieder da
+  server = { ...ps, portalVersion: 3 };
+  D.fire(document, "visibilitychange");
+  await D.sleep(10);
+  assert.ok($("#gs-prevstop") && $("#gsplan").nextElementSibling === $("#gs-prevstop"), "wieder offen: Karte unter dem Verlaufsplan");
+  assert.ok($("#gs-prevstop-state").textContent.startsWith("Beim Planen mit Claude"));
+  // mit Claude entschieden und gespeichert (anderer Tab), der Fokus liegt noch in der Karte: sie verschwindet trotzdem, der Fokus geht auf „Verlaufsplan“
+  const link = [...$("#gs-prevstop").querySelectorAll("a")].find((a) => a.textContent === "Vorige Sitzung öffnen");
+  link.focus();
+  same(document.activeElement, link);
+  server = { ...ps, portalVersion: 3, decision: { choice: "uebernehmen", at: at0 + 9000 }, settled: true };
+  D.fire(document, "visibilitychange");
+  await D.sleep(10);
+  none($("#gs-prevstop"), "erledigt (Claude in einem anderen Tab): Karte weg");
+  assert.ok(document.activeElement.id === "gsplan-h", "Fokus auf der Überschrift „Verlaufsplan“ – ist " + desc(document.activeElement));
+  // ohne Entscheidung macht ein Speichern auf der Seite nichts
+  assert.equal(PV.prevStopAfterSave({ ...ps }, at0), null);
+  assert.equal(PV.prevStopAfterSave({ ...ps, decision: { choice: "verzichten", at: at0 } }, at0 - 1), null, "vor der Entscheidung gespeichert");
+  assert.deepEqual(PV.prevStopAfterSave({ ...ps, decision: { choice: "verzichten", at: at0 } }, at0), { ...ps, decision: { choice: "verzichten", at: at0 }, settled: true }, "gleicher Zeitpunkt zählt");
+  assert.equal(PV.prevStopShown(null), false);
+  assert.equal(PV.prevStopShown({ ...ps, settled: true }), false);
+  assert.equal(PV.prevStopShown(ps), true);
+});
+
 test("S11: Hinweis nach dem Eintragen eines Zwischenstopps – nächste Sitzung noch nicht bzw. schon geplant; verschwindet mit dem Zwischenstopp", async () => {
   await page({ lesson: lessonOf({ portal: "**1) Ankommen**\n**2) Rätsel**" }), nextLesson: null });
   const hint = $("#gs-stop-next");

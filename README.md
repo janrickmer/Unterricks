@@ -140,7 +140,10 @@ Feibeitsblatt braucht keine Änderung. Die Adressen stehen in `wrangler.jsonc` (
   Rechtsklick im Schulportal-Eintrag „Zwischenstopp einfügen“, falls nicht alles geschafft wurde. In der nächsten Sitzung zeigt dann die Karte
   „Die letzte Stunde wurde nicht vollständig beendet“, was nicht geschafft wurde. Beim Planen mit Claude („Stunde mit Claude planen“)
   erklärt Claude zuerst den offenen Teil und fragt, ob er in diese Stunde übernommen oder darauf verzichtet wird (die Karte zeigt danach
-  „Entschieden am …“). Übernehmen: Was keinen Platz mehr hat, rückt in die nächste Stunde der Einheit usw. – die Termine bleiben; für den
+  „Entschieden am …“). Ist danach auch der Schulportal-Eintrag dieser Sitzung gespeichert (von Claude oder von Ihnen auf der Seite), ist der
+  Hinweis erledigt und die Karte verschwindet ganz – beim Zurückkehren in den Tab, ohne Neuladen; die Zusammenfassung, das Datum oder eine
+  geladene Sitzungsdatei allein reichen dafür nicht. Wird der Zwischenstopp der vorigen Sitzung verschoben oder ihr Eintrag geändert, gilt die
+  Entscheidung nicht mehr und die Karte erscheint wieder (die Karte auf der Seite der Klasse bleibt wie bisher). Übernehmen: Was keinen Platz mehr hat, rückt in die nächste Stunde der Einheit usw. – die Termine bleiben; für den
   Überhang am Ende fragt Claude, ob die Einheit um eine Stunde verlängert werden kann (bis zum nächsten Termin laut Stundenplan – Claude nennt
   ihn; nach Ihrer Zustimmung trägt Claude das selbst ein, mit Sitzung) oder ob gekürzt wird (drei Vorschläge, einer als Favorit). Ist eine
   spätere Stunde, in die Inhalte nachrücken, schon geplant, sagt Claude es Ihnen: Deren Sitzung samt Material und Druckliste (und damit die
@@ -383,7 +386,7 @@ der **Podcast für den kommenden Unterricht** (derselbe wie auf der Startseite �
   PDF in einem neuen Tab („PDF-Verweis einfügen …“ beim Bearbeiten). Wurden Sie nicht fertig: **„Zwischenstopp eintragen …“**, Rechtsklick
   auf eine Zeile oder am iPad eine Zeile antippen. In der nächsten Sitzung steht direkt unter dem Verlaufsplan, was nicht geschafft wurde;
   beim Planen mit Claude geht es wie am Gymnasium weiter (übernehmen oder verzichten, danach passt Claude die Einheit an – das Material
-  aus dem offenen Teil verweist Claude weiter). Darunter der Stundenentwurf, die Einordnung in die Einheit, „Stunde mit Claude
+  aus dem offenen Teil verweist Claude weiter); ist entschieden und danach der Verlaufsplan dieser Sitzung gespeichert, verschwindet der Hinweis. Darunter der Stundenentwurf, die Einordnung in die Einheit, „Stunde mit Claude
   planen“, die **Bildkarten**, der **Materialkasten** (PDFs für die Kinder – mit „Auch ausdrucken (22×)“ zusätzlich auf der Druckliste
   – und Material nur für Sie; jede Datei sagt, ob Eltern sie sehen), die Druckliste, **„Inhalt und Hausaufgabe (für die Eltern)“**
   (Claude formuliert den Inhalt in 2–3 Sätzen, Sie können ihn ändern) und ganz unten die Karte **„Elternansicht“**. Kein

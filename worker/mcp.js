@@ -720,7 +720,7 @@ async function callTool(c, name, a) {
       if (lx.subject === GS_SUBJECT) return toolError("In der Grundschule gibt es keinen Schulportal-Eintrag – speichere den Verlaufsplan mit save_verlaufsplan.");
       if (typeof a.text !== "string" || !a.text.trim()) return toolError("Der Eintrag ist leer.");
       try {
-        const p = await savePortal(c.db, a.lesson_id, a.text, Number.isInteger(a.base_version) ? a.base_version : null, "claude", c.now);
+        const p = await savePortal(c.db, a.lesson_id, a.text, Number.isInteger(a.base_version) ? a.base_version : null, "claude", c.now, true);
         return toolText("Schulportal-Eintrag gespeichert (Version " + p.version + ")." + (await summaryReminder(c.db, lx, p.text)), { version: p.version });
       } catch (e) {
         if (e instanceof HttpError && e.code === "portal_conflict") return toolError("Der Eintrag wurde inzwischen geändert (aktuelle Version " + e.extra.current.version + "). Bitte get_lesson erneut aufrufen und die Änderungen der Lehrkraft berücksichtigen.");
@@ -804,7 +804,7 @@ async function callTool(c, name, a) {
       // für die Eltern zählen nur Verweise auf Dateien dieser oder einer früheren Sitzung (wie parentFiles – Abschlussprüfung F18)
       const counts = (f) => f.lesson_id === l.id || refCounts(lessonOfRow(f), l);
       let p;
-      try { p = await savePortal(c.db, l.id, a.text, Number.isInteger(a.base_version) ? a.base_version : null, "claude", c.now); }
+      try { p = await savePortal(c.db, l.id, a.text, Number.isInteger(a.base_version) ? a.base_version : null, "claude", c.now, true); }
       catch (e) {
         if (e instanceof HttpError && e.code === "portal_conflict") return toolError("Der Verlaufsplan wurde inzwischen geändert (aktuelle Version " + e.extra.current.version + "). Bitte get_lesson erneut aufrufen und die Änderungen der Lehrkraft berücksichtigen.");
         throw e;

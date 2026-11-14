@@ -11,7 +11,7 @@ import { gsCourseStmt, gsCourseOut } from "./gs.js";
 import {
   isValidClass, isValidSubject, isValidCode, normalizeCode, greetingText, planningSystemPrompt, portalMessages, feibeitsblattMessages,
   chatTranscript, extractJsonObject, validatePortalData, renderPortalEntry, normalizeFbDraft, isIsoDate, hasStop, gradeKey, isClockTime, printFileName, GS_SUBJECT,
-  planRefs, parentOpensAt, stopParts, planFingerprint, PLAN_FINGERPRINT_STALE, TEACHER_SUMMARY_MAX,
+  planRefs, parentOpensAt, stopParts, planFingerprint, PLAN_FINGERPRINT_STALE, TEACHER_SUMMARY_MAX, savedSinceDecision,
 } from "../public/shared.js";
 import { unitContext, STOP_CHOICE_TEXT, stopChatSection, freeDayOn, schoolOf } from "../public/planning.js";
 import { loadFreeDays, assertNotFree } from "./freedays.js";
@@ -326,11 +326,19 @@ export function stopDecision(l, prev) {
   return { choice: o.choice, at: Number.isFinite(o.at) ? o.at : null };
 }
 export const stopDecisionJson = (choice, prev, now) => JSON.stringify({ v: 1, choice, prevId: prev.id, prevVersion: prev.portal_version, at: now });
+/* Wann die Planung dieser Sitzung (Schulportal-Eintrag bzw. Verlaufsplan) zuletzt wirklich gespeichert wurde (Nachtrag 26): plan_saved_at (savePortal mit
+   plan). Ältere Zeilen (gespeichert, bevor es die Spalte gab): der letzte Eintrag, wenn er von Claude oder der KI kam – diese Quellen speichern immer eine
+   Planung; „lehrkraft“ stand auch beim Laden einer Sitzungsdatei und bei der Vertretung. → ms oder null */
+export const planSavedAt = (l) => (l.plan_saved_at != null ? l.plan_saved_at : l.portal_source === "claude" || l.portal_source === "ki" ? l.portal_updated_at ?? null : null);
+/* Hinweis erledigt (Nachtrag 26): Es gibt eine (noch gültige) Entscheidung und die Planung dieser Sitzung wurde danach – oder im selben Aufruf – gespeichert.
+   Gilt sie nicht mehr (Zwischenstopp verschoben, Eintrag der vorigen Sitzung geändert), ist der Hinweis wieder offen. */
+export const stopSettled = (l, d) => !!d && d.at != null && savedSinceDecision(d, planSavedAt(l));
 /* previousStop (GET lesson, get_lesson, Backup-Chat): null, wenn die vorige Sitzung keinen Zwischenstopp hat. unit = unitOut der Einheit DIESER
-   Sitzung (oder null) – liegt die vorige Stunde in einer anderen Einheit, wird diese gelesen (eine Abfrage) und genannt. */
+   Sitzung (oder null) – liegt die vorige Stunde in einer anderen Einheit, wird diese gelesen (eine Abfrage) und genannt. settled = erledigt (stopSettled):
+   die Sitzungsseite zeigt dann keine Karte mehr, Claude fragt ohnehin nicht erneut. */
 export async function prevStopInfo(db, l, prev, unit) {
   if (!prev || !hasStop(prev.portal)) return null;
-  const { done, open } = stopParts(prev.portal);
+  const { done, open } = stopParts(prev.portal), d = stopDecision(l, prev);
   const same = !!prev.unit_id && !!unit && unit.id === prev.unit_id;
   let u = same ? unit : null, row = null;
   if (prev.unit_id && prev.unit_row && !u) { try { u = unitOut(await getUnit(db, prev.unit_id)); } catch {} }
@@ -339,7 +347,7 @@ export async function prevStopInfo(db, l, prev, unit) {
     if (i >= 0) row = { uid: rows[i].uid, n: i + 1, total: rows.length, stundenfrage: rows[i].stundenfrage || "", ablauf: Array.isArray(rows[i].ablauf) ? rows[i].ablauf : [] };
   }
   return { id: prev.id, title: prev.title, date: prev.lesson_date, portal: prev.portal, portalVersion: prev.portal_version, done, open,
-    unitId: prev.unit_id || null, unitRow: same ? prev.unit_row || null : null, sameUnit: same, unitTitle: !same && u ? u.title || (u.plan && u.plan.titel) || "" : null, row, decision: stopDecision(l, prev) };
+    unitId: prev.unit_id || null, unitRow: same ? prev.unit_row || null : null, sameUnit: same, unitTitle: !same && u ? u.title || (u.plan && u.plan.titel) || "" : null, row, decision: d, settled: stopSettled(l, d) };
 }
 // Grundschule: PDFs, auf die der offene Teil verweist (aus einer Liste mit {id, name}) – in der Reihenfolge des Verlaufsplans
 export const openFilesOf = (ps, files) => { const by = new Map((files || []).map((f) => [f.id, f])); return planRefs(ps.open).all.filter((id) => by.has(id)).map((id) => ({ id, name: by.get(id).name })); };
@@ -478,18 +486,20 @@ export async function routeLessonImport(c, id) {
   if (drafts.length) stmts.push(c.db.prepare("INSERT INTO fb_drafts(id, lesson_id, data, source, status, created_at, updated_at) SELECT lower(hex(randomblob(8))), ?1, json_extract(value,'$.d'), 'uebernommen', 'draft', ?2, ?2 FROM json_each(?3)")
     .bind(id, c.now, JSON.stringify(drafts)));
   await c.db.batch(stmts);
+  // keine Planung dieser Sitzung im Sinn von Nachtrag 26 (plan_saved_at bleibt): der Eintrag kommt aus einer anderen Sitzung
   if (typeof les.portal === "string") await savePortal(c.db, id, les.portal, null, "lehrkraft", c.now);
   return json({ ok: true, lesson: lessonOut(await getLesson(c.db, id)), counts: { chat: chat.length, texts: texts.length, links: links.length, prints: prints.length, drafts: drafts.length } });
 }
 
 /* ---------- Schulportal-Eintrag ---------- */
 // Speichern mit Versionsprüfung: wurde der Eintrag inzwischen anderswo geändert (z. B. von Claude über den Connector), meldet
-// der Server 409 – nie stillschweigend überschreiben.
-export async function savePortal(db, id, text, baseVersion, source, now) {
-  const t = cleanText(text, LIMITS.portal);
+// der Server 409 – nie stillschweigend überschreiben. plan = true: eine echte Speicherung der Planung (Lehrkraft auf der Sitzungsseite, „Mit KI neu
+// erstellen“, save_schulportal_entry, save_verlaufsplan) – setzt plan_saved_at (Nachtrag 26); nicht beim Laden einer Sitzungsdatei und bei der Vertretung.
+export async function savePortal(db, id, text, baseVersion, source, now, plan = false) {
+  const t = cleanText(text, LIMITS.portal), set = "UPDATE lessons SET portal=?2, portal_version=portal_version+1, portal_updated_at=?3, portal_source=?4" + (plan ? ", plan_saved_at=?3" : "") + ", updated_at=?3 ";
   const q = baseVersion == null
-    ? db.prepare("UPDATE lessons SET portal=?2, portal_version=portal_version+1, portal_updated_at=?3, portal_source=?4, updated_at=?3 WHERE id=?1 AND cancelled=0 RETURNING portal_version").bind(id, t, now, source)
-    : db.prepare("UPDATE lessons SET portal=?2, portal_version=portal_version+1, portal_updated_at=?3, portal_source=?4, updated_at=?3 WHERE id=?1 AND portal_version=?5 AND cancelled=0 RETURNING portal_version").bind(id, t, now, source, Number(baseVersion));
+    ? db.prepare(set + "WHERE id=?1 AND cancelled=0 RETURNING portal_version").bind(id, t, now, source)
+    : db.prepare(set + "WHERE id=?1 AND portal_version=?5 AND cancelled=0 RETURNING portal_version").bind(id, t, now, source, Number(baseVersion));
   const r = await q.first();
   if (!r) {
     const cur = await db.prepare("SELECT portal, portal_version, portal_updated_at, portal_source, cancelled FROM lessons WHERE id=?1").bind(id).first();
@@ -505,7 +515,7 @@ export async function routePortalPut(c, id) {
   if (typeof body.text !== "string") throw bad("Text fehlt.");
   const base = body.force ? null : body.baseVersion;
   if (!body.force && !Number.isInteger(base)) throw bad("Version fehlt.");
-  return json({ ok: true, portal: await savePortal(c.db, id, body.text, base, "lehrkraft", c.now) });
+  return json({ ok: true, portal: await savePortal(c.db, id, body.text, base, "lehrkraft", c.now, true) });
 }
 export async function routePortalGenerate(c, id) {
   await requireTeacher(c);
@@ -518,7 +528,7 @@ export async function routePortalGenerate(c, id) {
   const r = await callTask(c.env, c.db, "portal", portalMessages(ctx, chatTranscript(msgs, 30000)));
   const data = validatePortalData(extractJsonObject(r.text));
   const text = renderPortalEntry(data);
-  const saved = await savePortal(c.db, id, text, Number.isInteger(body.baseVersion) ? body.baseVersion : null, "ki", c.now);
+  const saved = await savePortal(c.db, id, text, Number.isInteger(body.baseVersion) ? body.baseVersion : null, "ki", c.now, true);
   return json({ ok: true, portal: saved, model: r.model });
 }
 

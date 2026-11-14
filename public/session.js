@@ -10,7 +10,7 @@ import { extractUnitChange, stripUnitBlock, unitContext, claudeLessonPrompt, les
 import { claudeHandoff } from "./claude.js";
 import { leupoldView } from "./units.js";
 import { substituteCards } from "./substitute.js";
-import { paintPortalPreview, portalPreview, contextMenu, prevStopCard, stopNextHint } from "./portalview.js";
+import { paintPortalPreview, portalPreview, contextMenu, prevStopCard, stopNextHint, prevStopShown, prevStopAfterSave, keepFocusOn, removeKeepingView } from "./portalview.js";
 import { renderMarkdown } from "./markdown.js";
 import { materialBox, dropZone } from "./materialbox.js";
 import { notesPanel, notesDirty, NOTES_UNREADABLE, NOTES_DELETE_TEXT, NOTES_REPLACE_HINT } from "./notesedit.js";
@@ -267,6 +267,7 @@ export async function sessionPage(id) {
         const r = await tapi("PUT", "/api/teacher/lessons/" + id + "/portal", { body: force ? { text, force: true } : { text, baseVersion: portal.version } });
         portal.version = r.portal.version; L().portal = text; L().portalVersion = r.portal.version;
         setSaved("Gespeichert " + new Date().toLocaleTimeString("de-DE", { hour: "2-digit", minute: "2-digit" }) + " (Version " + r.portal.version + ")", "ok");
+        planSaved(r.portal.updatedAt);
         if (portalTA.value !== text) schedulePortal();
         return true;
       } catch (e) {
@@ -325,6 +326,7 @@ export async function sessionPage(id) {
         showPortalEditor();
         portalTA.value = r.portal.text; portal.version = r.portal.version; portal.dirty = false; L().portal = r.portal.text;
         paintPreview(); setPresBtn(); setSaved("Von der KI erstellt und gespeichert (Version " + r.portal.version + ", " + r.model + ")");
+        planSaved(r.portal.updatedAt);
       } catch (e) {
         if (e.status === 409 && e.data && e.data.current) { showPortalEditor(); await portalConflict(e.data.current, portalTA.value); }
         else errToast(e);
@@ -1047,17 +1049,20 @@ export async function sessionPage(id) {
       h("div", { class: "row" }, h("code", { class: "mono", text: id }), h("button", { class: "btn small", type: "button", onclick: async () => toast((await copyText(id)) ? "ID kopiert." : "Kopieren nicht möglich.", "ok") }, "Kopieren"))));
 
   // Hinweis auf den offenen Teil der vorigen Sitzung (Zwischenstopp) samt Stand der Entscheidung mit Claude – beim Zurückkehren neu (onVis)
-  // (direkt vor „Stunde mit Claude planen“; ohne Zwischenstopp gibt es die Karte nicht)
+  // (direkt vor „Stunde mit Claude planen“; ohne Zwischenstopp gibt es die Karte nicht, ebenso nicht mehr, wenn er erledigt ist – Nachtrag 26)
   let prevEl = null, prevHidden = false;
-  const prevCardOf = () => { const ps = d.previousStop; return ps && !prevHidden ? prevStopCard(ps, { gs: false, preview: portalPreview(ps.portal), unit: !!st.unit, onHide: () => { prevHidden = true; prevEl = null; },
+  const prevCardOf = () => { const ps = d.previousStop; return prevStopShown(ps) && !prevHidden ? prevStopCard(ps, { gs: false, preview: portalPreview(ps.portal), unit: !!st.unit, onHide: () => { prevHidden = true; prevEl = null; },
     focusAfter: () => planCard.querySelector("h2") }) : null; };
   const paintPrev = () => {
-    if (prevEl && prevEl.contains(document.activeElement)) return;   // nie unter dem Fokus neu aufbauen
+    // nie unter dem Fokus neu aufbauen – fällt die Karte ganz weg (erledigt), geht der Fokus wie bei „Ausblenden“ auf „Stunde mit Claude planen“
+    if (prevEl && prevStopShown(d.previousStop) && prevEl.contains(document.activeElement)) return;
     const next = prevCardOf();
-    if (prevEl) prevEl.remove();
+    if (prevEl) { const had = prevEl.contains(document.activeElement); if (next) prevEl.remove(); else removeKeepingView(prevEl); if (had) keepFocusOn(planCard.querySelector("h2")); }
     prevEl = next;
     if (next && planCard.parentNode) planCard.before(next);
   };
+  // die Planung dieser Sitzung ist auf der Seite gespeichert (Eintrag, „Mit KI neu erstellen“): nach einer Entscheidung ist der Hinweis erledigt (Nachtrag 26)
+  function planSaved(at) { const ps = prevStopAfterSave(d.previousStop, at); if (ps) { d.previousStop = ps; paintPrev(); } }
   prevEl = prevCardOf();
   const sub = substituteCards({ id, st, L, ctx, fb, analog, reload: () => sessionPage(id), openDraft: (dr, o) => editDraft(dr, { substitute: true, ...o }), flushPortal });
 

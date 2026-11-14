@@ -511,7 +511,8 @@ export function unitContext(unit, rowUid) {
 }
 /* ---------- Offener Teil nach einem Zwischenstopp (Anforderung 13, beide Schulformen) ----------
  * ps = previousStop vom Server (GET lesson, prevStopInfo in worker/lessons.js): {id, title, date, portal, portalVersion, done, open, unitId, unitRow,
- *   sameUnit, unitTitle, row: {uid, n, total, stundenfrage, ablauf} | null, decision: {choice, at} | null, openFiles: [{id, name}] (Grundschule)}.
+ *   sameUnit, unitTitle, row: {uid, n, total, stundenfrage, ablauf} | null, decision: {choice, at} | null, settled (entschieden und danach geplant, Nachtrag 26),
+ *   openFiles: [{id, name}] (Grundschule)}.
  * Knappe Objekte ({title, date, portal}) gehen auch (done/open aus dem Eintrag). opt = {gs, unitId (Einheit DIESER Sitzung), unit (mit params),
  * now}. Dieselben Regeln stehen im Prompt „Stunde mit Claude planen“ (Ich-Form der Lehrkraft), in get_lesson und im Backup-Chat. */
 export { STOP_CHOICE_TEXT, STOP_CHOICES, stopDecidedOn };
@@ -523,6 +524,10 @@ function stopPartsOf(ps) {
 // neues Ende bei einer Verlängerung um eine Stunde: der nächste Termin laut Stundenplan nach dem bisherigen Ende (oder null)
 const nextEndOf = (opt) => { const s = opt.unit && opt.unit.params ? slotsAfterEnd(opt.unit.params, 1, opt.now || Date.now())[0] : null; return s ? s.date : null; };
 const rowWhich = (r, gs) => "Stunde " + r.n + (gs ? " [uid " + r.uid + "]" : "");
+/* Erledigt (Nachtrag 26, ps.settled vom Server): entschieden und die Planung dieser Stunde danach gespeichert – die Sitzungsseite zeigt dann keinen Hinweis
+   mehr. Nur eine sachliche Zeile zum Stand; gefragt wird ohnehin nicht erneut (die Entscheidung steht schon fest). */
+const STOP_SETTLED_ICH = "Die Planung dieser Stunde ist danach gespeichert worden.";
+const STOP_SETTLED_LK = "Die Planung dieser Stunde wurde danach gespeichert.";
 // Was bekannt ist, in der Ich-Form der Lehrkraft (Prompt „Stunde mit Claude planen“)
 function stopFacts(ps, opt) {
   const gs = !!opt.gs, p = stopPartsOf(ps), d = stopDecisionOf(ps), r = ps.row, out = [];
@@ -535,7 +540,8 @@ function stopFacts(ps, opt) {
   out.push("Nicht geschafft (nach dem Zwischenstopp):\n<<<\n" + (p.open ? clip(p.open, 4000) : "(nichts – der Zwischenstopp steht am Ende)") + "\n>>>");
   if (gs) out.push((ps.openFiles || []).length ? "Material nach dem Zwischenstopp (schon angelegt – verweise es mit seiner file_id weiter): " + ps.openFiles.map((f) => "„" + str(f.name) + "“ (file_id " + f.id + ")").join(", ") + "."
     : "Material aus dem offenen Teil verweist du weiter mit seiner file_id.");
-  out.push(d ? "Stand: Ich habe am " + stopDecidedOn(d) + " entschieden: " + STOP_CHOICE_TEXT[d.choice] : "Stand: Ich habe noch nicht entschieden, ob der offene Teil in diese Stunde übernommen wird oder ob wir darauf verzichten.");
+  out.push(d ? "Stand: Ich habe am " + stopDecidedOn(d) + " entschieden: " + STOP_CHOICE_TEXT[d.choice] + (ps.settled ? " " + STOP_SETTLED_ICH : "")
+    : "Stand: Ich habe noch nicht entschieden, ob der offene Teil in diese Stunde übernommen wird oder ob wir darauf verzichten.");
   return out;
 }
 // Was bekannt ist, sachlich (get_lesson und Backup-Chat) → Zeilen
@@ -549,7 +555,8 @@ function stopFactLines(ps, opt) {
   out.push("Geschafft (bis zum Zwischenstopp):", "<<<", p.done ? clip(p.done, 6000) : "(nichts – der Zwischenstopp steht am Anfang)", ">>>",
     "Nicht geschafft (nach dem Zwischenstopp):", "<<<", p.open ? clip(p.open, 6000) : "(nichts – der Zwischenstopp steht am Ende)", ">>>");
   if (gs) out.push("Material nach dem Zwischenstopp:", ...((ps.openFiles || []).length ? ps.openFiles.map((f) => "- file_id " + f.id + ": „" + str(f.name) + "“ → [[pdf:" + f.id + "]]") : ["(keines)"]));
-  out.push("Entscheidung der Lehrkraft: " + (d ? "entschieden am " + stopDecidedOn(d) + ": " + (d.choice === "uebernehmen" ? "übernehmen" : "verzichten") + " – " + STOP_CHOICE_TEXT[d.choice] : "noch nicht entschieden"));
+  out.push("Entscheidung der Lehrkraft: " + (d ? "entschieden am " + stopDecidedOn(d) + ": " + (d.choice === "uebernehmen" ? "übernehmen" : "verzichten") + " – " + STOP_CHOICE_TEXT[d.choice] +
+    (ps.settled ? " " + STOP_SETTLED_LK : "") : "noch nicht entschieden"));
   return out;
 }
 /* Regeln (je ein Stichpunkt): erklären und fragen bzw. „schon entschieden“, Übernehmen (Inhalte rücken nach; verlängern oder kürzen mit drei

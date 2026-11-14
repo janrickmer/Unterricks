@@ -15,6 +15,7 @@ const { fakeCtx } = await import("./fake-d1.mjs");
 const GS = await import("../../worker/gs.js");
 const U = await import("../../worker/units.js");
 const L = await import("../../worker/lessons.js");
+const SUB = await import("../../worker/substitute.js");
 const { routeMcp } = await import("../../worker/mcp.js");
 const { sha256Hex } = await import("../../worker/lib.js");
 const { setSetting } = await import("../../worker/db.js");
@@ -421,4 +422,175 @@ test("Übernehmen: Hinweis auf schon geplante spätere Sitzungen (Material und D
   const d = P.claudeLessonPrompt({ ...F.sekCtx(P.unitContext), previousStop: { ...PREV, decision: { choice: "verzichten", at: at("2026-11-11T09:00:00Z") } }, now: NOW });
   const o = P.claudeLessonPrompt({ ...F.sekCtx(P.unitContext), unit: null, row: null, unitText: "", previousStop: { ...PREV, row: null, unitId: null, unitRow: null, sameUnit: false }, now: NOW });
   assert.ok(!d.includes("in die Inhalte nachrücken") && !o.includes("in die Inhalte nachrücken"));
+});
+
+/* ---------- Nachtrag 26: Der Hinweis ist erledigt, sobald mit Claude entschieden UND die Planung dieser Sitzung danach gespeichert wurde ----------
+   Nur Schulportal-Eintrag bzw. Verlaufsplan zählen (Sitzungsseite, „Mit KI neu erstellen“, save_schulportal_entry, save_verlaufsplan) – nicht Zusammenfassung,
+   Datum, Hausaufgabe, eine Sitzungsdatei oder die Vertretung. Wird die Entscheidung ungültig (Zwischenstopp der vorigen Sitzung verschoben, Eintrag
+   geändert), ist der Hinweis wieder offen. */
+async function mcpBatch(c, calls) {
+  const req = new Request("https://unterricks.test/mcp/geheim", { method: "POST",
+    body: JSON.stringify(calls.map(([name, args], i) => ({ jsonrpc: "2.0", id: i + 1, method: "tools/call", params: { name, arguments: args } }))) });
+  const r = await (await routeMcp({ ...c, request: req, ip: "1.2.3.4", waitUntil: () => {} }, "geheim")).json();
+  return r.map((x) => ({ text: x.result.content[0].text, isError: !!x.result.isError }));
+}
+const PORTAL_JSON = JSON.stringify({ phasen: [{ titel: "Partnerarbeit", punkte: ["~~M1~~ lesen"] }, { titel: "Sicherung", punkte: ["Plenum"] }] });
+
+test("Nachtrag 26: savedSinceDecision (gemeinsam mit dem Podcast) und die sachliche Zeile in Prompt, get_lesson-Abschnitt und Backup-Chat", () => {
+  const d = { choice: "uebernehmen", at: 1000 };
+  assert.equal(S.savedSinceDecision(null, 5000), false, "ohne Entscheidung nie");
+  assert.equal(S.savedSinceDecision(d, null), false, "nie gespeichert");
+  assert.equal(S.savedSinceDecision(d, 999), false, "vor der Entscheidung");
+  assert.equal(S.savedSinceDecision(d, 1000), true, "im selben Aufruf (gleicher Zeitpunkt)");
+  assert.equal(S.savedSinceDecision(d, 999, 1001), true, "einer der Zeitpunkte genügt (Podcast: Eintrag oder Zusammenfassung)");
+  // erledigt: nur eine sachliche Zeile zum Stand – gefragt wird nicht (die Entscheidung steht fest); ohne „settled“ alles wie bisher
+  const dec = { ...PREV, decision: { choice: "uebernehmen", at: at("2026-11-11T09:00:00Z") } };
+  const base = { ...F.sekCtx(P.unitContext), now: NOW };
+  const open = P.claudeLessonPrompt({ ...base, previousStop: dec }), done = P.claudeLessonPrompt({ ...base, previousStop: { ...dec, settled: true } });
+  assert.equal(open, P.claudeLessonPrompt({ ...base, previousStop: { ...dec, settled: false } }), "settled false ändert nichts");
+  assert.equal(done, open.replace("Stand: Ich habe am Mi, 11.11.2026 entschieden: Der offene Teil wird in dieser Stunde übernommen.",
+    "Stand: Ich habe am Mi, 11.11.2026 entschieden: Der offene Teil wird in dieser Stunde übernommen. Die Planung dieser Stunde ist danach gespeichert worden."));
+  assert.ok(!done.includes("Frage mich, ob du es in diese Stunde einbauen sollst") && done.includes("Frage nicht erneut, außer ich möchte es ändern"));
+  // ohne Entscheidung hat „settled“ keine Wirkung (gibt es vom Server so nicht)
+  assert.equal(P.claudeLessonPrompt({ ...base, previousStop: { ...PREV, settled: true } }), P.claudeLessonPrompt({ ...base, previousStop: PREV }));
+  const g = F.gsCtx(P.unitContext), gdec = { ...dec, unitId: g.unit.id, decision: { choice: "verzichten", at: at("2026-11-11T09:00:00Z") } };
+  const gs = G.claudeGsLessonPrompt({ ...g, previousStop: { ...gdec, settled: true }, now: NOW });
+  assert.ok(gs.includes("Stand: Ich habe am Mi, 11.11.2026 entschieden: Auf den offenen Teil wird verzichtet. Die Planung dieser Stunde ist danach gespeichert worden.") && !gs.includes("Frage mich, ob du es"));
+  const lines = P.stopLessonLines({ ...dec, settled: true }, { gs: false, unitId: PREV.unitId }).join("\n");
+  assert.ok(lines.includes("Entscheidung der Lehrkraft: entschieden am Mi, 11.11.2026: übernehmen – Der offene Teil wird in dieser Stunde übernommen. Die Planung dieser Stunde wurde danach gespeichert.")
+    && lines.includes("- Die Lehrkraft hat schon entschieden:") && !lines.includes("Erkläre der Lehrkraft zuerst"));
+  const chat = P.stopChatSection({ ...gdec, settled: true }, { gs: true, unitId: g.unit.id });
+  assert.ok(chat.includes("verzichten – Auf den offenen Teil wird verzichtet. Die Planung dieser Stunde wurde danach gespeichert.") && !chat.includes("Erkläre der Lehrkraft zuerst"));
+});
+
+test("Nachtrag 26 (Gymnasium): erledigt erst nach Entscheidung und Speichern des Eintrags – nicht durch Zusammenfassung, Datum, Sitzungsdatei, Vertretung; wieder offen nach Änderung der vorigen Sitzung", async () => {
+  const c = await base({ AI: { run: async () => ({ response: PORTAL_JSON }) } });
+  const { ids } = await unitWith(c, { subject: "powi", klass: "8B", end: "2026-11-12", n: 4 });
+  const prevText = "**1) Einstieg**\n- Karikatur\n" + STOP + "\n**2) Partnerarbeit**\n- ~~M1~~ lesen\n**3) Sicherung**";
+  await L.savePortal(c.db, ids[0], prevText, null, "lehrkraft", c.now);
+  const ps = async () => (await getLesson(c, ids[1])).previousStop;
+  const state = async () => { const p = await ps(); return [p.decision ? p.decision.choice : null, p.settled]; };
+  const put = (id, text) => call(c, L.routePortalPut, "PUT", "/x", { text, force: true }, id);
+  // nicht entschieden: offen – auch wenn die Planung dieser Sitzung gespeichert wird
+  assert.deepEqual(await state(), [null, false]);
+  c.now = at("2026-11-04T08:00:00Z");
+  assert.equal((await put(ids[1], "**1) Weiter**")).status, 200);
+  assert.deepEqual(await state(), [null, false], "ohne Entscheidung bleibt der Hinweis");
+  // nur entschieden: offen
+  c.now = at("2026-11-04T09:00:00Z");
+  assert.ok(!(await mcp(c, "update_lesson", { lesson_id: ids[1], zwischenstopp: "uebernehmen" })).isError);
+  assert.deepEqual(await state(), ["uebernehmen", false], "nur entschieden – der Eintrag von vorher zählt nicht");
+  // Zusammenfassung (Connector und Sitzungsseite), Hausaufgabe, Datum: zählen nicht
+  c.now += 60e3;
+  assert.ok(!(await mcp(c, "update_lesson", { lesson_id: ids[1], zusammenfassung_lehrkraft: "Erst M1, dann Sicherung.", hausaufgabe: "M1 lesen" })).isError);
+  c.now += 60e3;
+  assert.equal((await call(c, L.routeLessonPatch, "PATCH", "/x", { teacherSummary: "Erst M1, dann die Sicherung im Plenum." }, ids[1])).status, 200);
+  c.now += 60e3;
+  assert.ok(!(await mcp(c, "update_lesson", { lesson_id: ids[1], datum: "2026-11-06" })).isError, "Datum (weiter direkt nach der vorigen Sitzung)");
+  assert.deepEqual(await state(), ["uebernehmen", false], "Zusammenfassung, Hausaufgabe und Datum zählen nicht");
+  // Sitzung aus einer Datei laden: der Eintrag stammt aus einer anderen Sitzung – zählt nicht
+  c.now += 60e3;
+  assert.equal((await call(c, L.routeLessonImport, "POST", "/x", { lesson: { title: "Aus der Datei", portal: "**1) Aus der Datei**" }, chat: [] }, ids[1])).status, 200);
+  assert.deepEqual(await state(), ["uebernehmen", false], "Sitzungsdatei zählt nicht");
+  // Vertretung: Eintrag der Vertretung (Bestätigen), ursprüngliche Planung wiederherstellen bzw. in diese Sitzung übernehmen – zählt nicht
+  c.now += 60e3;
+  await L.savePortal(c.db, ids[1], "**1) Vertretung**", null, "vertretung", c.now);   // genau der Aufruf beim Bestätigen (routeSubstituteConfirm)
+  const sub = (id, portal) => c.db.raw.prepare("INSERT INTO substitutes(lesson_id, status, proposal, archive, created_at, updated_at) VALUES(?, 'aktiv', '{}', ?, ?, ?)")
+    .run(id, JSON.stringify({ portal, homework: "", files: [], sheets: [] }), c.now, c.now);
+  sub(ids[1], "**1) Ursprünglich**");
+  assert.equal((await call(c, SUB.routeSubstituteRestore, "POST", "/x", {}, ids[1])).status, 200);
+  sub(ids[3], "**1) Archiviert**");
+  assert.equal((await call(c, SUB.routeSubstituteTransfer, "POST", "/x", { targetLessonId: ids[1] }, ids[3])).status, 200);
+  assert.ok((await L.getLesson(c.db, ids[1])).portal.endsWith("**1) Archiviert**"), "übernommen");
+  assert.deepEqual(await state(), ["uebernehmen", false], "Vertretung zählt nicht");
+  // Claude speichert den Schulportal-Eintrag → erledigt; get_lesson nennt es sachlich, ohne erneut zu fragen
+  c.now += 60e3;
+  assert.ok(!(await mcp(c, "save_schulportal_entry", { lesson_id: ids[1], text: "**1) Partnerarbeit**\n- ~~M1~~ lesen\n**2) Weiter**" })).isError);
+  assert.deepEqual(await state(), ["uebernehmen", true], "entschieden und danach gespeichert");
+  const g = await mcp(c, "get_lesson", { lesson_id: ids[1] });
+  assert.ok(g.text.includes("Entscheidung der Lehrkraft: entschieden am Mi, 04.11.2026: übernehmen – Der offene Teil wird in dieser Stunde übernommen. Die Planung dieser Stunde wurde danach gespeichert.")
+    && g.text.includes("- Die Lehrkraft hat schon entschieden:") && !g.text.includes("Erkläre der Lehrkraft zuerst"), g.text.slice(g.text.indexOf("Entscheidung der Lehrkraft"), g.text.indexOf("Entscheidung der Lehrkraft") + 300));
+  // Zwischenstopp der vorigen Sitzung verschoben → Entscheidung ungültig → wieder offen (auch der frühere Eintrag zählt nicht mehr)
+  c.now += 60e3;
+  assert.equal((await put(ids[0], prevText.replace(STOP + "\n**2) Partnerarbeit**\n", "**2) Partnerarbeit**\n" + STOP + "\n"))).status, 200);
+  assert.deepEqual(await state(), [null, false], "Zwischenstopp verschoben: wieder offen");
+  // neu entschieden (verzichten), dann speichert die Lehrkraft auf der Sitzungsseite → erledigt (auch beim Verzichten erst nach dem Speichern)
+  c.now += 60e3;
+  assert.ok(!(await mcp(c, "update_lesson", { lesson_id: ids[1], zwischenstopp: "verzichten" })).isError);
+  assert.deepEqual(await state(), ["verzichten", false], "der Eintrag von vorher zählt nicht für die neue Entscheidung");
+  c.now += 60e3;
+  const r = await put(ids[1], "**1) Ohne den offenen Teil**");
+  assert.ok(r.status === 200 && r.data.portal.updatedAt === c.now);
+  assert.deepEqual(await state(), ["verzichten", true]);
+  // Eintrag der vorigen Sitzung geändert (Tippfehler, der Zwischenstopp bleibt) → wieder offen
+  c.now += 60e3;
+  assert.equal((await put(ids[0], prevText.replace("Karikatur", "Karikatur „Macht“"))).status, 200);
+  assert.deepEqual(await state(), [null, false], "Eintrag der vorigen Sitzung geändert: wieder offen");
+  // Entscheidung und Eintrag im selben Aufruf (JSON-RPC-Batch, gleicher Zeitpunkt) → erledigt
+  c.now += 60e3;
+  const b = await mcpBatch(c, [["update_lesson", { lesson_id: ids[1], zwischenstopp: "uebernehmen" }], ["save_schulportal_entry", { lesson_id: ids[1], text: "**1) Mit dem offenen Teil**" }]]);
+  assert.ok(b.every((x) => !x.isError), JSON.stringify(b));
+  let p = await ps();
+  assert.deepEqual([p.decision.choice, p.decision.at, p.settled], ["uebernehmen", c.now, true], "im selben Aufruf");
+  // „Mit KI neu erstellen“ (Backup) speichert die Planung auch
+  c.now += 60e3;
+  assert.equal((await put(ids[0], prevText)).status, 200);
+  c.now += 60e3;
+  assert.ok(!(await mcp(c, "update_lesson", { lesson_id: ids[1], zwischenstopp: "uebernehmen" })).isError);
+  await c.db.prepare("INSERT INTO chat(lesson_id, role, content, mode, created_at) VALUES(?1, 'user', 'Bitte mit M1', 'planning', ?2)").bind(ids[1], c.now).run();
+  assert.deepEqual(await state(), ["uebernehmen", false]);
+  c.now += 60e3;
+  const gen = await call(c, L.routePortalGenerate, "POST", "/x", {}, ids[1]);
+  assert.equal(gen.status, 200, JSON.stringify(gen.data));
+  assert.deepEqual(await state(), ["uebernehmen", true], "„Mit KI neu erstellen“");
+  // die übernächste Sitzung (ohne Zwischenstopp davor): kein previousStop, nichts zu erledigen
+  assert.equal((await getLesson(c, ids[2])).previousStop, null);
+});
+
+test("Nachtrag 26 (Grundschule): erledigt nach Entscheidung und save_verlaufsplan bzw. Speichern auf der Sitzungsseite; wieder offen, wenn sich die vorige Sitzung ändert", async () => {
+  const c = await base();
+  const course = (await call(c, GS.routeGsCourseCreate, "POST", "/api/teacher/gs/courses", { grade: 2, classes: ["a"], religion: true, weekdays: TT, classSize: 20 })).data.course;
+  const { ids } = await unitWith(c, { subject: "gs", klass: course.id, end: "2026-11-12", n: 4 });
+  const prevText = "**1) Erzählung (10 Min., Sitzkreis)**\n" + STOP + "\n**2) Arbeitsblatt (15 Min.)**";
+  await L.savePortal(c.db, ids[0], prevText, null, "lehrkraft", c.now);
+  const state = async () => { const p = (await getLesson(c, ids[1])).previousStop; return [p.decision ? p.decision.choice : null, p.settled]; };
+  assert.deepEqual(await state(), [null, false]);
+  c.now = at("2026-11-04T09:00:00Z");
+  assert.ok(!(await mcp(c, "update_lesson", { lesson_id: ids[1], zwischenstopp: "verzichten", zusammenfassung_lehrkraft: "Bildkarten, dann Lied." })).isError);
+  assert.deepEqual(await state(), ["verzichten", false], "entschieden, Zusammenfassung im selben Aufruf zählt nicht");
+  c.now += 60e3;
+  assert.ok(!(await mcp(c, "update_lesson", { lesson_id: ids[1], inhalt_eltern: "Wir haben gesungen." })).isError);
+  assert.deepEqual(await state(), ["verzichten", false], "Inhalt für die Eltern zählt nicht");
+  c.now += 60e3;
+  const v = await mcp(c, "save_verlaufsplan", { lesson_id: ids[1], text: "**1) Bildkarten (15 Min.)**\n**2) Lied (5 Min.)**" });
+  assert.ok(!v.isError, v.text);
+  assert.deepEqual(await state(), ["verzichten", true], "save_verlaufsplan");
+  const g = await mcp(c, "get_lesson", { lesson_id: ids[1] });
+  assert.ok(g.text.includes("verzichten – Auf den offenen Teil wird verzichtet. Die Planung dieser Stunde wurde danach gespeichert.") && !g.text.includes("Erkläre der Lehrkraft zuerst"));
+  // Zwischenstopp der vorigen Sitzung verschoben → wieder offen; übernehmen, dann speichert die Lehrkraft den Verlaufsplan → erledigt
+  c.now += 60e3;
+  assert.equal((await call(c, L.routePortalPut, "PUT", "/x", { text: STOP + "\n" + prevText.replace(STOP + "\n", ""), force: true }, ids[0])).status, 200);
+  assert.deepEqual(await state(), [null, false]);
+  c.now += 60e3;
+  assert.ok(!(await mcp(c, "update_lesson", { lesson_id: ids[1], zwischenstopp: "uebernehmen" })).isError);
+  assert.deepEqual(await state(), ["uebernehmen", false]);
+  c.now += 60e3;
+  assert.equal((await call(c, L.routePortalPut, "PUT", "/x", { text: "**1) Erzählung zu Ende**\n**2) Bildkarten**", baseVersion: (await L.getLesson(c.db, ids[1])).portal_version }, ids[1])).status, 200);
+  assert.deepEqual(await state(), ["uebernehmen", true], "Verlaufsplan auf der Sitzungsseite gespeichert");
+});
+
+test("Nachtrag 26: ältere Zeilen ohne plan_saved_at – ein Eintrag von Claude bzw. der KI nach der Entscheidung zählt, einer mit der Quelle „lehrkraft“ (auch Sitzungsdatei) nicht", async () => {
+  const c = await base();
+  const { ids } = await unitWith(c, { subject: "powi", klass: "8B", end: "2026-11-12", n: 3 });
+  await L.savePortal(c.db, ids[0], "**1) A**\n" + STOP + "\n**2) Offen**", null, "lehrkraft", c.now);
+  c.now = at("2026-11-04T09:00:00Z");
+  await mcp(c, "update_lesson", { lesson_id: ids[1], zwischenstopp: "uebernehmen" });
+  const settled = async () => (await getLesson(c, ids[1])).previousStop.settled;
+  const row = (source, t) => c.db.raw.prepare("UPDATE lessons SET plan_saved_at=NULL, portal_source=?, portal_updated_at=? WHERE id=?").run(source, t, ids[1]);
+  for (const [src, t, want] of [["claude", c.now + 1, true], ["ki", c.now, true], ["claude", c.now - 1, false], ["lehrkraft", c.now + 1, false], ["vertretung", c.now + 1, false]]) {
+    row(src, t);
+    assert.equal(await settled(), want, src + " " + (t - c.now));
+  }
+  assert.equal(L.planSavedAt({ plan_saved_at: 5, portal_source: "lehrkraft", portal_updated_at: 9 }), 5, "mit Spalte gilt nur sie");
+  assert.equal(L.planSavedAt({ plan_saved_at: null, portal_source: "claude", portal_updated_at: null }), null);
 });

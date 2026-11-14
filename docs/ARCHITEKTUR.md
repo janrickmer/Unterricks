@@ -67,6 +67,7 @@ implementiert und im End-to-End-Test geprüft (Ausnahmen unten ausdrücklich gen
 | Zusammenfassung der Sitzung für die Lehrkraft (Nachtrag 21 vom 13.11.2026) | Gibt die Lehrkraft Claude frei, die Planung abzulegen, schreibt Claude **als letzten Speicherschritt** eine kurze Zusammenfassung des Ablaufs (verständlich für eine Lehrkraft, die nicht mitgeplant hat); Unterricks zeigt sie in der Lehreransicht der Sitzung **ganz oben** in „Zusammenfassung der Sitzung für die Lehrkraft“ (Gymnasium und Grundschule). Rückfrage zur Kopfzeile: **„Unterricks automatisch“** – Fach, Jahrgang, Wochentag mit Datum und Beginn setzt Unterricks aus den aktuellen Sitzungsdaten darüber (stimmt auch nach dem Verschieben); Claude schreibt nur den Ablauf. Grundlage des Podcasts (Nachtrag 22, siehe 4q); siehe 4p |
 | Podcast für den kommenden Unterricht (Nachtrag 22 vom 13.11.2026) | Knopf mit Kopfhörer **direkt unter dem Wochenkalender** beider Startseiten; steht heute noch Unterricht bevor, Rückfrage „heute oder nächster Schultag“. Grundlage: die **Zusammenfassungen** aller Sitzungen des Tages in Unterrichtsreihenfolge; ohne Zusammenfassung **„Ersatz aus der Planung“** (Thema und Schulportal-Eintrag bzw. Verlaufsplan, vorher genannt). Weg (nach Recherche, keine offizielle Schnittstelle zu Gemini Notebook, WeTransfer geprüft und verworfen): **„Claude in Chrome + Datei hineinziehen“** – Unterricks kopiert den Auftrag, Claude erstellt und lädt die Folge in Gemini Notebook herunter, die Lehrkraft zieht die Datei auf das Ablagefeld, danach löscht Claude das Notizbuch (die Lehrkraft bestätigt); am iPad derselbe Text von Hand. Folge möglichst unter 15 Minuten (nur über die Steueranweisung). Player statt Knopf; gelöscht zwei Tage nach dem Unterrichtstag; siehe 4q |
 | Unterrichtsfreie Tage (Nachtrag 24 vom 13.11.2026) | In den **Einstellungen** trägt die Lehrkraft unterrichtsfreie Tage ein – als **Zeitraum mit Bezeichnung** (Ferien, Pädagogischer Tag …); je Eintrag wird **gefragt**, ob er die **Grundschule, das Gymnasium oder beide Schulen** betrifft (Pflichtwahl). Der Wochenkalender zeigt sie blockiert, an ihnen gibt es für die Schule keine Termine, Claude plant drumherum. Rückfragen beantwortet: **nachfragen und verschieben** (vor dem Speichern die betroffenen Sitzungen nennen; auf Wunsch rücken sie und alle folgenden Stunden ihrer Einheit wie bei der Krankmeldung, danach Hinweis zum Überarbeiten mit Claude), **keine automatischen Feiertage**, die Rahmendaten der Einheit **bleiben zusätzlich** (für Ausfälle nur dieser Klasse), die Tage der Einstellungen stehen dort zur Ansicht; siehe 4r |
+| Hinweis zum Zwischenstopp erledigt (Nachtrag 26 vom 14.11.2026) | Die Karte „Hinweis: Die letzte Stunde wurde nicht vollständig beendet“ auf der **Sitzungsseite** (Gymnasium und Grundschule) verschwindet, sobald mit Claude **entschieden** wurde (übernehmen oder verzichten) **und danach** der Schulportal-Eintrag bzw. Verlaufsplan dieser Sitzung **gespeichert** wurde (Rückfragen beantwortet: Auslöser „Entscheidung + Speichern“, dieselbe Regel wie beim Podcast; danach **ganz verschwinden**, bei einem neuen offenen Teil – Zwischenstopp der vorigen Stunde verschoben oder ihr Eintrag geändert – wieder erscheinen; **nur die Sitzungsseite**, die Karte auf der Seite der Klasse bleibt). Siehe 4a |
 | Dialoge: Tastaturfokus (Nachtrag 25 vom 14.11.2026) | Auf die Frage „Soll ich das plattformweit beheben?“ (mit Tab gelangte man aus jedem Dialog auf die Seite dahinter): **„Ja, beheben“** – Tab und Umschalt+Tab bleiben im offenen Dialog, danach geht der Fokus zurück; mit Tests und E2E (Abschnitt 4s) |
 
 ## 2. Gesamtarchitektur
@@ -358,8 +359,8 @@ implementiert und im End-to-End-Test geprüft (Ausnahmen unten ausdrücklich gen
   (davor) und „Nicht geschafft“ (danach). `GET /api/teacher/lessons/<id>` liefert `previousStop` = die vorige Sitzung (`previousLesson`: Fach
   und Klasse bzw. Kurs, nicht ausgefallen) mit Zwischenstopp: `{id, title, date, portal, portalVersion, done, open, unitId, unitRow (nur
   dieselbe Einheit), sameUnit, unitTitle (andere Einheit), row: {uid, n, total, stundenfrage, ablauf} (geplante Zeile der vorigen Stunde),
-  decision, openFiles (Grundschule: PDFs, auf die der offene Teil verweist)}` (`prevStopInfo` in worker/lessons.js) und `nextLesson` (die
-  folgende Sitzung, `planned` = Eintrag bzw. Verlaufsplan oder ein Stundenentwurf von Claude).
+  decision, settled (Nachtrag 26, siehe unten), openFiles (Grundschule: PDFs, auf die der offene Teil verweist)}` (`prevStopInfo` in worker/lessons.js)
+  und `nextLesson` (die folgende Sitzung, `planned` = Eintrag bzw. Verlaufsplan oder ein Stundenentwurf von Claude).
   * **Entscheidung.** Neue Spalte `lessons.stop_decision` (JSON `{v:1, choice: "uebernehmen"|"verzichten", prevId, prevVersion, at}`) – Claude
     hält die Antwort der Lehrkraft mit `update_lesson` (`zwischenstopp`) fest (ohne Zwischenstopp der vorigen Sitzung: Fehler „Die vorige
     Sitzung hat keinen Zwischenstopp.“; Ausfall-Einträge nehmen nichts an). Sie gilt nur, solange die vorige Sitzung dieselbe ist und ihr
@@ -403,6 +404,22 @@ implementiert und im End-to-End-Test geprüft (Ausnahmen unten ausdrücklich gen
     dem Setzen eines Zwischenstopps steht am Editor bzw. unter dem Verlaufsplan „Zwischenstopp gesetzt. …“ – ist die nächste Sitzung schon
     geplant, mit dem Hinweis, dass „Stunde mit Claude planen“ dort erneut fragt (mit Link). Einen Knopf zum Entscheiden gibt es in der
     Plattform nicht – die Entscheidung fällt im Dialog mit Claude.
+  * **Hinweis erledigt (Nachtrag 26 vom 14.11.2026).** `previousStop.settled` = es gibt eine gültige Entscheidung (`stopDecision`) **und** die Planung
+    dieser Sitzung wurde danach oder im selben Aufruf gespeichert (`stopSettled` in worker/lessons.js; der Vergleich `savedSinceDecision` in
+    public/shared.js ist derselbe wie beim Podcast, 4q). Maßgeblich ist die neue Spalte `lessons.plan_saved_at` (additiv, beim ersten Aufruf nach dem
+    Ausrollen ein `ALTER TABLE` mehr; auf einer ganz neuen Datenbank 46 Anweisungen für das Schema): `savePortal(…, plan = true)` setzt sie nur bei
+    echten Speicherungen der Planung – Schulportal-Eintrag bzw. Verlaufsplan auf der Sitzungsseite (`PUT …/portal`, auch „Meine Fassung speichern“),
+    „Mit KI neu erstellen“, `save_schulportal_entry`, `save_verlaufsplan`. Nicht beim Laden einer Sitzungsdatei (der Eintrag stammt aus einer anderen
+    Sitzung) und nicht durch die Vertretung (Bestätigen, Wiederherstellen, Übernehmen in eine andere Sitzung); Zusammenfassung, Datum, Hausaufgabe
+    und andere Felder berühren sie nie (`portal_updated_at` zählt dagegen jede Änderung des Eintrags und bleibt, was die Sitzungsseite anzeigt). Ältere
+    Zeilen ohne die Spalte: der letzte Eintrag zählt, wenn er von Claude oder der KI kam (`planSavedAt`). Keine zusätzliche D1-Abfrage (die Zeile ist
+    schon gelesen). Die Sitzungsseite zeigt die Karte nur ohne `settled` (`prevStopShown` in public/portalview.js) – sie verschwindet ganz, beim
+    Zurückkehren in den Tab (`onVis`) und gleich nach einem Speichern auf der Seite (`prevStopAfterSave` mit dem Zeitpunkt des Servers); hatte sie den
+    Fokus, geht er wie bei „Ausblenden“ auf „Stunde mit Claude planen“ bzw. „Verlaufsplan“; liegt sie ganz oberhalb des sichtbaren Bereichs (Eintrag
+    weiter unten bearbeitet), bleibt das Sichtbare stehen (`removeKeepingView`). Wird die Entscheidung ungültig, ist `settled` wieder false und die
+    Karte da. Claude gegenüber (Prompt, `get_lesson`, Backup-Chat) ändert sich nur der Stand: „… Die Planung dieser Stunde ist danach gespeichert
+    worden.“ bzw. „… wurde danach gespeichert.“ – gefragt wird ohnehin nicht erneut, sobald entschieden ist; ohne Zwischenstopp und ohne `settled`
+    bleiben alle Texte byte-gleich. Die Karte auf der Seite der Klasse (teacher.js, beim Planen einer neuen Stunde) ist unverändert.
 
 ## 4b. Unterrichtseinheiten, Planungsgrundlagen, Krankheitsvertretung (Ergänzung vom 10.11.2026)
 
@@ -936,7 +953,8 @@ Lehrkraft zieht die Datei einmal auf das Ablagefeld (keine automatische Übergab
     (`carryOf`, Zusammenspiel mit Anforderung 13): Hat die vorige Sitzung desselben Kurses (wie `previousLesson`, in derselben Abfrage als JSON) einen
     Zwischenstopp, kommt ihr offener Teil (`stopParts(…).open`, schlicht) mit – `"open"`, solange nicht entschieden ist (`stopDecision`: gilt nur für
     dieselbe vorige Sitzung und Fassung ihres Eintrags), `"take"` bei „übernehmen“, solange weder Eintrag noch Zusammenfassung dieser Sitzung danach
-    (oder im selben Aufruf von `update_lesson`) gespeichert wurden; verzichtet oder neu geplant → nichts. Sonst stünde im Podcast nur der alte Plan. Die Karte nennt es je Sitzung
+    (oder im selben Aufruf von `update_lesson`) gespeichert wurden (`savedSinceDecision`, gemeinsam mit dem Hinweis auf der Sitzungsseite, Nachtrag 26 –
+    der Podcast zählt weiter jede Änderung des Eintrags und die Zusammenfassung); verzichtet oder neu geplant → nichts. Sonst stünde im Podcast nur der alte Plan. Die Karte nennt es je Sitzung
     (`CARRY_NOTE`). Ausfall-Einträge nie. Ob heute noch Unterricht bevorsteht, entscheidet der Browser mit seiner Uhr. 7 D1-Anweisungen.
   - `POST /api/teacher/podcast?day=JJJJ-MM-TT` (roher Rumpf mit Content-Length, höchstens 95 MB; Tag ab heute bis 80 Tage voraus): Rumpf **ohne
     Zwischenspeicher direkt nach R2** (128 MB Arbeitsspeicher, 10 ms CPU), danach liest der Server 64 Bytes per Range und prüft sie (`audioKind`; keine

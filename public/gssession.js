@@ -11,7 +11,7 @@ import { unitContext } from "./planning.js";
 import { claudeGsLessonPrompt, gsChatName } from "./gsplanning.js";
 import { claudeHandoff } from "./claude.js";
 import { leupoldView } from "./units.js";
-import { paintPlanPreview, contextMenu, prevStopCard, stopNextHint } from "./portalview.js";
+import { paintPlanPreview, contextMenu, prevStopCard, stopNextHint, prevStopShown, prevStopAfterSave, keepFocusOn, removeKeepingView } from "./portalview.js";
 import { renderMarkdown } from "./markdown.js";
 import { materialBox } from "./materialbox.js";
 import { cardsCard } from "./cards.js";
@@ -170,6 +170,7 @@ export async function gsSessionPage(id, d) {
         const r = await tapi("PUT", "/api/teacher/lessons/" + id + "/portal", { body: force ? { text, force: true } : { text, baseVersion: plan.version } });
         plan.version = r.portal.version; Object.assign(L(), { portal: r.portal.text, portalVersion: r.portal.version, portalUpdatedAt: r.portal.updatedAt, portalSource: r.portal.source });
         stateLine(planState, "Gespeichert · " + planInfo(), "ok");
+        planSaved(r.portal.updatedAt);
         if (ta.value !== text) schedulePlan();
         return true;
       } catch (e) {
@@ -469,21 +470,25 @@ export async function gsSessionPage(id, d) {
     } }, "Sitzung löschen"));
 
   /* ======================= Offener Teil der vorigen Sitzung (Zwischenstopp; unter dem Verlaufsplan) ======================= */
+  // erledigt (mit Claude entschieden, danach den Verlaufsplan dieser Sitzung gespeichert – Nachtrag 26): keine Karte mehr
   let prevEl = null, prevHidden = false;
   const prevCardOf = () => {
     const ps = d.previousStop;
-    if (!ps || prevHidden) return null;
+    if (!prevStopShown(ps) || prevHidden) return null;
     const nameOf = (fid) => (fileOf(fid) || {}).name || null;
     return prevStopCard(ps, { gs: true, id: "gs-prevstop", nameOf, unit: !!st.unit, onHide: () => { prevHidden = true; prevEl = null; }, focusAfter: () => planCard.querySelector("#gsplan-h"),
       preview: paintPlanPreview(h("div", { class: "portal-preview gsplan-view", "aria-label": "Verlaufsplan der vorigen Sitzung" }), ps.portal, { fileOf, onPending }) });
   };
   const paintPrev = () => {
-    if (prevEl && prevEl.contains(document.activeElement)) return;   // nie unter dem Fokus neu aufbauen
+    // nie unter dem Fokus neu aufbauen – fällt die Karte ganz weg (erledigt), geht der Fokus wie bei „Ausblenden“ auf die Überschrift „Verlaufsplan“
+    if (prevEl && prevStopShown(d.previousStop) && prevEl.contains(document.activeElement)) return;
     const next = prevCardOf();
-    if (prevEl) prevEl.remove();
+    if (prevEl) { const had = prevEl.contains(document.activeElement); if (next) prevEl.remove(); else removeKeepingView(prevEl); if (had) keepFocusOn(planCard.querySelector("#gsplan-h")); }
     prevEl = next;
     if (next && planCard.parentNode) planCard.after(next);
   };
+  // der Verlaufsplan dieser Sitzung ist auf der Seite gespeichert: nach einer Entscheidung ist der Hinweis erledigt (Nachtrag 26)
+  function planSaved(at) { const ps = prevStopAfterSave(d.previousStop, at); if (ps) { d.previousStop = ps; paintPrev(); } }
   prevEl = prevCardOf();
 
   /* ======================= Zusammenfassung der Sitzung für die Lehrkraft (Nachtrag 21): ganz oben, vor dem Verlaufsplan ======================= */

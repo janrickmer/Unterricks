@@ -895,6 +895,10 @@ export const removeStops = (text) => splitLines(text).filter((l) => !isStopLine(
 export const STOP_CHOICE_TEXT = { uebernehmen: "Der offene Teil wird in dieser Stunde übernommen.", verzichten: "Auf den offenen Teil wird verzichtet." };
 export const STOP_CHOICES = Object.keys(STOP_CHOICE_TEXT);
 export const stopDecidedOn = (d) => fmtDay(berlinToday(Number(d && d.at) || 0));
+/* Wurde nach der Entscheidung d ({choice, at}) gespeichert? times = Zeitpunkte von Speicherungen (ms; null = nie); derselbe Zeitpunkt zählt (Entscheidung und
+   Speichern im selben Aufruf). Podcast (worker/podcast.js: Eintrag bzw. Verlaufsplan oder Zusammenfassung) und Hinweis auf der Sitzungsseite (Nachtrag 26:
+   nur die Planung – Schulportal-Eintrag bzw. Verlaufsplan, prevStopInfo in worker/lessons.js) */
+export const savedSinceDecision = (d, ...times) => !!d && times.reduce((m, t) => Math.max(m, Number(t) || 0), 0) >= (Number(d.at) || 0);
 /* Teile um den (ersten) Zwischenstopp: done = Text davor (geschafft), open = Text danach (nicht geschafft) – ohne die Stopp-Zeile, getrimmt.
    Ohne Zwischenstopp: alles gilt als geschafft. Weitere Stopp-Zeilen (von Hand eingetippt) fallen weg. */
 export function stopParts(text) {

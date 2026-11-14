@@ -1,6 +1,6 @@
 // portalview.js – Vorschau eines Schulportal-Eintrags (Schulportal-Zeichen) samt internem Zwischenstopp-Feld.
 import { h, icon } from "./ui.js";
-import { parsePortalMarkup, parsePlanMarkup, fmtDay, STOP_CHOICE_TEXT, stopDecidedOn } from "./shared.js";
+import { parsePortalMarkup, parsePlanMarkup, fmtDay, STOP_CHOICE_TEXT, stopDecidedOn, savedSinceDecision } from "./shared.js";
 
 export function runsNodes(runs) {
   return runs.map((r) => {
@@ -158,13 +158,32 @@ export function prevStopCard(ps, opt) {
       h("button", { class: "btn small ghost", type: "button", onclick: (e) => {
         const card = e.currentTarget.closest(".prevstop"); if (opt.onHide) opt.onHide(); card.remove();
         // der Knopf ist weg: den Fokus nicht auf der Seite verlieren (nur, wenn er nicht schon woanders ist) – opt.focusAfter liefert das Ziel
-        const a = document.activeElement, x = opt.focusAfter ? opt.focusAfter() : null;
-        if ((!a || a === document.body || !a.isConnected) && x && x.isConnected) {
-          if (!/^(A|BUTTON|INPUT|TEXTAREA|SELECT)$/.test(x.tagName) && !x.hasAttribute("tabindex")) x.setAttribute("tabindex", "-1");
-          x.focus({ preventScroll: true });
-        }
+        keepFocusOn(opt.focusAfter ? opt.focusAfter() : null);
       } }, "Ausblenden")));
 }
+/* Ist der Fokus (mit einem entfernten Element) verloren gegangen, kommt er auf x (z. B. die Überschrift der nächsten Karte) – sonst bleibt er, wo er ist */
+export function keepFocusOn(x) {
+  const a = document.activeElement;
+  if ((!a || a === document.body || !a.isConnected) && x && x.isConnected) {
+    if (!/^(A|BUTTON|INPUT|TEXTAREA|SELECT)$/.test(x.tagName) && !x.hasAttribute("tabindex")) x.setAttribute("tabindex", "-1");
+    x.focus({ preventScroll: true });
+  }
+}
+/* Karte entfernen (Nachtrag 26: Hinweis erledigt). Liegt sie ganz oberhalb des sichtbaren Bereichs – z. B. während die Lehrkraft weiter unten den
+   Schulportal-Eintrag bearbeitet –, bleibt das Sichtbare stehen: die Seite rückt um die entfernte Höhe nach (hat der Browser das schon selbst getan, nichts) */
+export function removeKeepingView(el) {
+  const r = el.getBoundingClientRect(), ref = el.nextElementSibling, above = r.height > 0 && r.bottom <= 0 && !!ref && typeof window.scrollBy === "function";
+  const y0 = above ? ref.getBoundingClientRect().top : 0;
+  el.remove();
+  if (above && ref.isConnected) { const dy = ref.getBoundingClientRect().top - y0; if (dy) window.scrollBy(0, dy); }
+}
+/* Nachtrag 26: Die Karte gibt es nur, solange der Hinweis nicht erledigt ist (ps.settled vom Server: mit Claude entschieden und die Planung dieser Sitzung
+   danach gespeichert). Wird die Entscheidung ungültig (Zwischenstopp der vorigen Sitzung verschoben, Eintrag geändert), liefert der Server wieder settled false. */
+export const prevStopShown = (ps) => !!ps && !ps.settled;
+/* … und nach einem Speichern der Planung auf der Seite selbst (at = Zeitpunkt des Servers): mit einer Entscheidung davor (oder zur selben Zeit) ist der
+   Hinweis erledigt → neues previousStop mit settled, sonst null (nichts zu ändern). Dieselbe Regel wie stopSettled in worker/lessons.js. */
+export const prevStopAfterSave = (ps, at) => (ps && !ps.settled && ps.decision && ps.decision.at != null && STOP_CHOICE_TEXT[ps.decision.choice] && savedSinceDecision(ps.decision, at)
+  ? { ...ps, settled: true } : null);
 /* Hinweis direkt nach dem Setzen eines Zwischenstopps: Beim Planen der nächsten Sitzung fragt Claude nach – ist sie schon geplant, dort erneut.
    next = nextLesson (GET lesson: {id, title, date, planned} | null) */
 export function stopNextHint(next) {

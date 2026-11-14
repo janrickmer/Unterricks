@@ -7,7 +7,7 @@ import { requireTeacher } from "./auth.js";
 import { checkStorage } from "./files.js";
 import { nextTeachingDay, sessionOrder } from "./printjobs.js";
 import { stopDecision } from "./lessons.js";
-import { berlinToday, addDays, isIsoDate, subjectShort, classShort, GS_SUBJECT, summaryHead, summaryOutdated, hasStop, stopParts } from "../public/shared.js";
+import { berlinToday, addDays, isIsoDate, subjectShort, classShort, GS_SUBJECT, summaryHead, summaryOutdated, hasStop, stopParts, savedSinceDecision } from "../public/shared.js";
 import { PODCAST_MAX_BYTES, PODCAST_AHEAD_DAYS, PODCAST_LINK_TTL_MS, podcastDeleteAfter, audioKind, planPlain, AUDIO_KINDS_TEXT } from "../public/podcastlib.js";
 
 export const PODCAST_PREFIX = "podcast/";
@@ -36,7 +36,7 @@ export function carryOf(l, isGs, names) {
   const d = stopDecision(l, { id: p.id, portal_version: p.v });
   if (d && d.choice !== "uebernehmen") return null;
   // neu geplant: Eintrag bzw. Verlaufsplan oder Zusammenfassung danach gespeichert (auch im selben Aufruf von update_lesson wie die Entscheidung)
-  if (d && Math.max(Number(l.portal_updated_at) || 0, Number(l.teacher_summary_at) || 0) >= (Number(d.at) || 0)) return null;
+  if (savedSinceDecision(d, l.portal_updated_at, l.teacher_summary_at)) return null;
   return { state: d ? "take" : "open", date: p.date, text };
 }
 /* Namen der PDF-Dateien der Grundschulkurse, die an diesen Tagen Unterricht haben (Verweise [[pdf:…]] im Verlaufsplan zeigen auch auf Dateien

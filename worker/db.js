@@ -121,6 +121,10 @@ export const COLUMNS = [
   ["lessons", "teacher_summary", "TEXT NOT NULL DEFAULT ''"],
   ["lessons", "teacher_summary_at", "INTEGER"],
   ["lessons", "teacher_summary_plan", "TEXT"],
+  // Zeitpunkt, zu dem die Planung dieser Sitzung zuletzt wirklich gespeichert wurde (Nachtrag 26): Schulportal-Eintrag bzw. Verlaufsplan von der
+  // Lehrkraft auf der Sitzungsseite, „Mit KI neu erstellen“, save_schulportal_entry, save_verlaufsplan – nicht beim Laden einer Sitzungsdatei und nicht
+  // durch die Vertretung (portal_updated_at zählt jede Änderung). NULL = nie (bzw. vor dieser Spalte, siehe planSavedAt in worker/lessons.js)
+  ["lessons", "plan_saved_at", "INTEGER"],
 ];
 
 // Indizes über nachträglich ergänzte Spalten (nach den Spalten angelegt; ein Fehler – z. B. alte Doppelungen – hält den Betrieb nicht auf)
@@ -134,7 +138,7 @@ export const INDEXES = [
 ];
 
 let ready = null, warm = false;
-/* true, sobald das Schema in diesem Isolate angelegt ist – vor ensureSchema abgefragt: false heißt, diese Anfrage legt es gerade an (bis zu 45
+/* true, sobald das Schema in diesem Isolate angelegt ist – vor ensureSchema abgefragt: false heißt, diese Anfrage legt es gerade an (bis zu 46
    Anweisungen), lange Abfragen (Beamer-Code) halten dann nicht (höchstens 50 D1-Anweisungen je Aufruf im Free-Plan) */
 export const schemaWarm = () => warm;
 export function ensureSchema(db) {
