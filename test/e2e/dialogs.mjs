@@ -70,6 +70,48 @@ export async function dialogsE2E({ browser, devices, BASE, tStore, sStore, lesso
   st = await inertState(p);
   ok(await p.evaluate(() => document.activeElement.dataset.e2eOpener === "1") && st.all.length === 0, "das zweite Esc schließt „Link hinzufügen“ – Fokus zurück auf den Knopf „Link hinzufügen“, nichts bleibt inert");
 
+  /* ---------- Prüfung: Auslöser neu gezeichnet bzw. gelöscht – der Fokus geht an seinen Platz zurück (nicht auf body) ---------- */
+  const tok = JSON.parse(tStore)["u.ttoken"];
+  const TT = (method, path, body) => fetch(BASE + path, { method, headers: { Authorization: "Bearer " + tok, ...(body ? { "Content-Type": "application/json" } : {}) }, body: body ? JSON.stringify(body) : undefined }).then((r) => r.json());
+  const own = [];
+  for (const t of ["Dialogtest A", "Dialogtest B", "Dialogtest C"]) own.push((await TT("POST", "/api/teacher/lessons/" + lessonId + "/links", { area: "teacher", title: t, url: "https://example.org/" + t.slice(-1) })).file.id);
+  await p.reload();
+  const row = (t) => p.locator(".item", { has: p.locator(".name", { hasText: new RegExp("^" + t + "$") }) });
+  await row("Dialogtest C").waitFor({ timeout: 20000 });
+  const focusRow = () => p.evaluate(() => { const a = document.activeElement, i = a && a !== document.body ? a.closest(".item") : null;
+    return { label: !a || a === document.body ? "body" : (a.getAttribute("aria-label") || a.textContent).trim(), row: i ? i.querySelector(".name").textContent : null }; });
+  await row("Dialogtest B").getByRole("button", { name: "Bearbeiten" }).focus();
+  await p.keyboard.press("Enter");
+  const em = p.locator(".modal", { hasText: "Link bearbeiten" });
+  await em.waitFor();
+  await p.locator("#lk-t").fill("Dialogtest B2");
+  await em.getByRole("button", { name: "Speichern" }).focus(); await p.keyboard.press("Enter");
+  await em.waitFor({ state: "detached" });
+  let fr = await focusRow();
+  ok(fr.label === "Bearbeiten" && fr.row === "Dialogtest B2" && (await inertState(p)).all.length === 0,
+    "Link bearbeitet – die Liste wird neu gezeichnet, der Auslöser ist weg: Fokus auf „Bearbeiten“ der neuen Zeile an derselben Stelle (" + fr.row + "), nicht auf body");
+  await row("Dialogtest B2").getByRole("button", { name: "Löschen" }).focus();
+  await p.keyboard.press("Enter");
+  const dm = p.locator(".modal", { hasText: "Datei löschen" });
+  await dm.waitFor(); await p.waitForTimeout(100);
+  await dm.locator("footer").getByRole("button", { name: "Löschen" }).focus(); await p.keyboard.press("Enter");
+  await row("Dialogtest B2").waitFor({ state: "detached" });
+  await p.waitForFunction(() => { const a = document.activeElement; return !!a && a !== document.body && !!a.closest(".item"); }, null, { timeout: 5000 }).catch(() => {});
+  fr = await focusRow();
+  ok(fr.row === "Dialogtest C" && /^Öffnen/.test(fr.label), "Link gelöscht (nach der Rückfrage zeichnet die Seite die Liste neu): Fokus auf „Öffnen“ des Eintrags, der jetzt an seiner Stelle steht (" + fr.row + ") – nicht auf body");
+  // Dialog A öffnet Dialog B und schließt sich: nach B zurück auf den Auslöser von A
+  await row("Dialogtest C").getByRole("button", { name: "Bearbeiten" }).focus();
+  await p.evaluate(() => import("/ui.js").then((m) => { m.modal({ title: "Kette A", body: m.h("p", { text: "Dialog A" }), actions: [{ label: "Weiter", class: "primary", onClick: () => { m.modal({ title: "Kette B", body: m.h("p", { text: "Dialog B" }), actions: [{ label: "Fertig", class: "primary" }] }); } }] }); }));
+  await p.locator(".modal", { hasText: "Dialog A" }).waitFor(); await p.waitForTimeout(100);
+  await p.keyboard.press("Enter");
+  await p.locator(".modal", { hasText: "Dialog B" }).waitFor(); await p.waitForTimeout(100);
+  const oneLeft = await p.locator(".modal").count();
+  await p.keyboard.press("Enter");
+  await p.locator(".modal").first().waitFor({ state: "detached" });
+  fr = await focusRow();
+  ok(oneLeft === 1 && fr.label === "Bearbeiten" && fr.row === "Dialogtest C", "Dialog A öffnet B und schließt sich: nach B steht der Fokus wieder auf dem Auslöser von A (der Knopf „Weiter“ ist mit A verschwunden)");
+  for (const id of own) await TT("DELETE", "/api/teacher/files/" + id).catch(() => {});
+
   /* ---------- Codefolie „Für den Beamer zeigen“ ---------- */
   await p.getByRole("button", { name: "Für den Beamer zeigen" }).focus();
   await p.keyboard.press("Enter");
@@ -129,6 +171,25 @@ export async function dialogsE2E({ browser, devices, BASE, tStore, sStore, lesso
   release(); await p.waitForTimeout(300); await p.unroute("**/api/teacher/me");
   ok(await p.locator(".modal").count() === 0 && (await inertState(p)).all.length === 0 && (await where(p, "#app")).label === "Alle Unterrichtsinhalte löschen und Unterricks zurücksetzen",
     "Esc schließt den Dialog trotz laufender Prüfung (nichts gelöscht, kein weiterer Dialog), Fokus zurück auf den Knopf, nichts bleibt inert");
+  // Prüfung: die Prüfung scheitert (Server nicht erreichbar), „Weiter“ ist wieder bedienbar – der Fokus kommt auf „Weiter“ zurück (nicht body)
+  await resetBtn.click();
+  await pm.waitFor();
+  let release2 = null;
+  const held2 = new Promise((r) => { release2 = r; });
+  await p.route("**/api/teacher/me", async (route) => { await held2; await route.fulfill({ status: 503, contentType: "application/json", body: JSON.stringify({ ok: false, error: "Der Server ist gerade nicht erreichbar (Test)." }) }); });
+  await pm.locator("#rs-pw").fill("nur-fuer-den-test");
+  await pm.getByRole("button", { name: "Weiter" }).focus();
+  await p.keyboard.press("Enter");
+  await p.waitForFunction(() => { const b = [...document.querySelectorAll(".modal footer button")].find((x) => x.textContent === "Weiter"); return !!b && b.disabled; });
+  const during = await where(p, ".modal-back");
+  release2();
+  await pm.locator(".err", { hasText: "Der Server ist gerade nicht erreichbar (Test)." }).waitFor({ timeout: 5000 });
+  await p.waitForFunction(() => document.activeElement && document.activeElement.textContent === "Weiter", null, { timeout: 5000 }).catch(() => {});
+  const after2 = await where(p, ".modal-back");
+  ok((during.label === "body" || during.label === "Weiter") && after2.inside && after2.label === "Weiter", "„Weiter“ während der Prüfung gesperrt (der Fokus fällt auf body: " + during.label + "), danach wieder bedienbar: der Fokus steht wieder auf „Weiter“ (" + after2.label + ") – die Meldung steht im Dialog");
+  await p.keyboard.press("Escape");
+  await pm.waitFor({ state: "detached" });
+  await p.unroute("**/api/teacher/me");
 
   if (shots) {
     // Bildschirmfotos mit sichtbarem Fokusrahmen (per Tastatur): Laptop und iPad hochkant, hell und dunkel
@@ -178,4 +239,33 @@ export async function dialogsE2E({ browser, devices, BASE, tStore, sStore, lesso
   ok((await where(s, "#app")).label === "KI-Begriffshilfe nutzen" && (await inertState(s)).all.length === 0 && await s.evaluate(() => !Object.keys(localStorage).some((k) => k.startsWith("u.kihelp."))),
     "Esc schließt die Einwilligung ohne Einwilligung – Fokus zurück auf „KI-Begriffshilfe nutzen“, nichts bleibt inert");
   await sctx.close();
+
+  /* ---------- Prüfung: Schüler:in am Handy – die Fehlermeldung (Toast) verdeckt den fokussierten Knopf unten im Dialog nicht (WCAG 2.4.11) ---------- */
+  const hctx = await browser.newContext({ ...devices["iPhone 13"] });
+  await hctx.addInitScript(seed, sStore);
+  const hp = await hctx.newPage(); watch(hp, "Dialoge Handy");
+  await hp.goto(BASE + "/#/schueler/s/" + lessonId);
+  await hp.locator("main").first().waitFor({ timeout: 15000 });
+  await hp.evaluate(() => { for (const k of Object.keys(localStorage)) if (k.startsWith("u.kihelp.")) localStorage.removeItem(k); });   // noch ohne Einwilligung
+  await hp.reload();
+  const hk = hp.getByRole("button", { name: "KI-Begriffshilfe nutzen" });
+  await hk.waitFor({ timeout: 15000 });
+  await hk.focus(); await hp.keyboard.press("Enter");
+  const hm = hp.locator(".modal", { hasText: "KI-Begriffshilfe nutzen?" });
+  await hm.waitFor(); await hp.waitForTimeout(400);
+  await hm.getByRole("button", { name: "Einwilligen und starten" }).focus();
+  await hp.keyboard.press("Enter");   // ohne Haken: Meldung „Bitte setze zuerst den Haken …“
+  await hp.locator(".toast", { hasText: "Bitte setze zuerst den Haken" }).waitFor({ timeout: 5000 });
+  await hp.waitForTimeout(300);
+  const cover = await hp.evaluate(() => {
+    const a = document.activeElement, r = a.getBoundingClientRect(), t = document.getElementById("toasts").getBoundingClientRect();
+    const hit = document.elementFromPoint(r.left + r.width / 2, r.top + r.height / 2);
+    return { label: a.textContent.trim(), free: !!hit && (hit === a || a.contains(hit)), apart: t.bottom <= r.top || t.top >= r.bottom, flip: document.getElementById("toasts").classList.contains("flip") };
+  });
+  if (shots) await hp.screenshot({ path: join(shots, "einwilligung-handy-meldung.png") });
+  ok(cover.label === "Einwilligen und starten" && cover.free && cover.apart,
+    "Handy: die Meldung „Bitte setze zuerst den Haken …“ verdeckt den fokussierten Knopf „Einwilligen und starten“ nicht" + (cover.flip ? " (sie steht am oberen Rand)" : ""));
+  await hp.keyboard.press("Escape");
+  await hm.waitFor({ state: "detached" });
+  await hctx.close();
 }

@@ -94,6 +94,21 @@ export function toast(msg, type = "", ms = 4200) {
   const t = h("div", { class: "toast " + type, text: msg });
   box.append(t);
   t._t = setTimeout(() => t.remove(), ms);
+  placeToasts();
+}
+/* Meldungen über einem offenen Dialog (Prüfung von Nachtrag 25, WCAG 2.4.11): Verdecken sie das fokussierte Element (am Handy z. B. den Knopf unten im
+   Dialog, den man gerade gedrückt hat), wandern sie an den anderen Rand des Bildschirms – sonst bleiben sie, wo sie sind (auch auf den Seiten) */
+const overlap = (a, b) => Math.max(0, Math.min(a.right, b.right) - Math.max(a.left, b.left)) * Math.max(0, Math.min(a.bottom, b.bottom) - Math.max(a.top, b.top));
+function placeToasts() {
+  const box = typeof document !== "undefined" && document.getElementById("toasts");
+  if (!box) return;
+  if (!layers.length) { box.classList.remove("flip"); return; }
+  const a = document.activeElement;
+  if (!box.firstElementChild || !a || a === document.body || !a.getBoundingClientRect) return;
+  const r = a.getBoundingClientRect(), before = overlap(r, box.getBoundingClientRect());
+  if (!before) return;
+  box.classList.toggle("flip");
+  if (overlap(r, box.getBoundingClientRect()) > before) box.classList.toggle("flip");   // am anderen Rand wäre es schlimmer: zurück
 }
 export function errToast(e) { toast(e && e.message ? e.message : String(e), "err", 7000); }
 
@@ -118,11 +133,20 @@ export async function busy(btn, fn, label) {
  * Solange eine Ebene offen ist, sind die übrigen Kinder von <body> inert – Tastatur, Maus und der Lesecursor von VoiceOver bleiben in der Ebene.
  * Ausgenommen sind die Meldungen (#toasts, Live-Region) und das Element im Vollbild. release() hebt das sofort auf, restore() gibt den Fokus
  * zurück: an den Auslöser (falls noch da und fokussierbar), sonst an die Ebene darunter – nie, wenn der Fokus schon woanders steht. Wird eine Ebene
- * ohne release() entfernt (Seitenwechsel, Test), räumt ein MutationObserver sie ab; nichts bleibt inert. */
+ * ohne release() entfernt (Seitenwechsel, Test), räumt ein MutationObserver sie ab; nichts bleibt inert.
+ * Fokus wiederfinden (Prüfung von Nachtrag 25): Wurde der Auslöser inzwischen neu gezeichnet (z. B. die Zeile eines Links nach „Bearbeiten“), geht
+ * der Fokus auf das neue Element an seinem Platz (gleiche Art und Beschriftung); wurde er entfernt (gelöscht), auf den ersten Knopf bzw. Link des
+ * Eintrags, der jetzt an seiner Stelle steht – nie auf ein Eingabefeld und nie über die Grenze der Seite (#app) hinweg (ein Seitenwechsel setzt
+ * seinen Fokus selbst). Hing der Auslöser in einem inzwischen geschlossenen Dialog (Dialog A öffnet B und schließt sich), gilt der Auslöser von A.
+ * Zeichnet die Seite den Auslöser erst kurz nach dem Schließen neu (Löschen nach der Rückfrage), passt eine Wache noch bis zur nächsten Eingabe
+ * (höchstens 10 s) auf. Ebenso im offenen Dialog: Fällt der Fokus auf body, weil das fokussierte Element neu gezeichnet oder gesperrt wurde (busy),
+ * kommt er auf das neue bzw. – wieder bedienbar – dasselbe Element zurück; nicht nach einem Mausklick (der Präsentationsmodus nimmt Knöpfen den
+ * Fokus nach einem Klick bewusst wieder, damit die Leertaste weiter blättert) und nie, wenn der Fokus schon woanders steht. */
 const NATIVE = "a[href], area[href], button, input, select, textarea, iframe, summary, audio[controls], video[controls]", STOPS = NATIVE + ", [contenteditable], [tabindex]";
 const layers = [], inerted = new Set();
-let layerMo = null, layerKeys = false, layerSeq = 0;
+let layerMo = null, layerKeys = false, layerSeq = 0, guard = null, lastPointer = -1e9, pointerAt = null;
 const fsNow = () => document.fullscreenElement || document.webkitFullscreenElement || null;
+const nowMs = () => (typeof performance !== "undefined" && performance.now ? performance.now() : Date.now());
 function shown(el) {
   if (typeof el.checkVisibility === "function") return el.checkVisibility({ visibilityProperty: true, checkVisibilityCSS: true });
   if (el.getClientRects && !el.getClientRects().length) return false;
@@ -171,36 +195,117 @@ export function keepTab(e, root) {
   if (!back && i === list.length - 1) return to(list[0]);
   return false;   // dazwischen: der Browser geht weiter (auch durch Optionsfelder und Scrollbereiche)
 }
+/* ---- Fokus wiederfinden: Spur eines Elements = Art, Beschriftung und sein Platz in jedem Vorfahren bis root (ausschließlich; in der Seite höchstens
+   bis unter #app – render() ersetzt alles darin, ein Element einer anderen Seite wäre kein Ersatz) ---- */
+const TEXT_TYPES = /^(text|search|email|url|tel|password|number|date|datetime-local|month|week|time)$/;
+const isTexty = (el) => el.tagName === "TEXTAREA" || el.tagName === "SELECT" || (el.tagName === "INPUT" && TEXT_TYPES.test((el.getAttribute("type") || "text").toLowerCase()))
+  || (el.hasAttribute("contenteditable") && el.getAttribute("contenteditable") !== "false");   // Eingabefelder (am iPad öffnete der Fokus die Tastatur)
+const keyOf = (el) => el.tagName + "|" + (el.getAttribute("type") || "") + "|" + (el.getAttribute("name") || "") + "|" + (el.getAttribute("aria-label") || el.textContent || "").replace(/\s+/g, " ").trim().slice(0, 120);
+function traceOf(el, root) {
+  if (!el || el.nodeType !== 1 || !el.isConnected || el === document.body) return null;
+  const top = root && root.isConnected ? root : document.body, tag = el.tagName.toLowerCase(), key = keyOf(el);
+  const same = [...top.querySelectorAll(tag)].filter((x) => keyOf(x) === key), all = [...top.querySelectorAll(STOPS)], path = [];
+  for (let a = el.parentElement; a && a !== top && a !== document.body && a.id !== "app"; a = a.parentElement) {
+    const s = same.filter((x) => a.contains(x));
+    path.push({ a, i: s.indexOf(el), n: s.length, pos: all.filter((x) => a.contains(x)).indexOf(el) });
+  }
+  return { el, root: top, tag, key, path };
+}
+/* → { el } (gefunden), "wait" (sein Platz ist gerade leer – vielleicht kommt er gleich neu; nur mit patient) oder null */
+const PATIENCE_MS = 1500;
+function findAgain(t, patient = false) {
+  if (!t) return null;
+  if (canFocus(t.el)) return { el: t.el };
+  const id = t.el.id, byId = id && t.root.isConnected ? document.getElementById(id) : null;
+  if (byId && byId !== t.el && t.root.contains(byId) && canFocus(byId)) return { el: byId };   // neu gezeichnet, mit derselben id
+  for (const p of t.path) {
+    if (!p.a.isConnected) continue;
+    const same = [...p.a.querySelectorAll(t.tag)].filter((x) => keyOf(x) === t.key);
+    if (p.i >= 0 && same.length === p.n && same[p.i] !== t.el && canFocus(same[p.i])) return { el: same[p.i] };   // neu gezeichnet: das neue an seinem Platz
+    if (p.pos < 0) return null;
+    const all = [...p.a.querySelectorAll(STOPS)], st = all.filter(isStop);
+    if (!st.length) { if (patient) return "wait"; continue; }   // leer (z. B. der letzte Eintrag gelöscht): erst kurz warten, dann eine Ebene höher
+    // entfernt: der erste Knopf bzw. Link (kein Eingabefeld) des Eintrags, der jetzt an seiner Stelle steht (bzw. des letzten)
+    const c = all.slice(Math.min(p.pos, all.length - 1)).find(isStop) || st[st.length - 1];
+    let item = c; while (item.parentElement && item.parentElement !== p.a) item = item.parentElement;
+    const x = (item.matches(STOPS) ? [item, ...tabbables(item)] : tabbables(item)).find((y) => isStop(y) && !isTexty(y));
+    return x ? { el: x } : null;
+  }
+  return null;
+}
+const focusEl = (x) => { try { x.focus(); } catch {} return document.activeElement === x; };
+const onBody = () => { const a = document.activeElement; return !a || a === document.body; };
+/* Wache nach dem Schließen: Der Fokus steht wieder auf dem Auslöser (bzw. seinem Ersatz) – zeichnet die Seite ihn kurz danach neu oder entfernt ihn
+   (z. B. nach „Löschen“), bekommt das Element an seinem Platz den Fokus. Endet mit der nächsten Eingabe, einem neuen Dialog oder nach 10 s. */
+function armGuard(el, trace) { guard = { el, trace: trace || traceOf(el, null), since: nowMs(), timer: null }; watch(); }
+function checkGuard() {
+  const g = guard;
+  if (!g) return;
+  const age = nowMs() - g.since;
+  if (age > 10000 || layers.length) { guard = null; watch(); return; }
+  if (!onBody()) return;
+  // der Auslöser ist noch da, aber gerade gesperrt bzw. ausgeblendet (z. B. busy() um den Dialog): erst warten, bis er wieder bedienbar ist
+  if (g.el && g.el.isConnected) { if (g.pending && canFocus(g.el)) { g.pending = false; focusEl(g.el); } return; }
+  const r = findAgain(g.trace, age < PATIENCE_MS);
+  if (r === "wait") { if (!g.timer) g.timer = setTimeout(() => { g.timer = null; checkGuard(); }, PATIENCE_MS + 50); return; }
+  guard = null; watch();
+  if (r && r.el) focusEl(r.el);
+}
+/* im offenen Dialog: Fokus auf body gefallen, weil das fokussierte Element neu gezeichnet bzw. gesperrt wurde → das neue bzw. (wieder bedienbar) dasselbe */
+function keepFocus() {
+  const L = layers[layers.length - 1];
+  if (!L || !L.cur || L.curPointer || !onBody()) return;
+  if (L.cur.isConnected) { if (canFocus(L.cur) && L.el.contains(L.cur)) focusEl(L.cur); return; }   // gesperrt: warten, bis es wieder bedienbar ist
+  if (!L.lostAt) L.lostAt = nowMs();
+  const r = findAgain(L.curTrace, nowMs() - L.lostAt < PATIENCE_MS);
+  if (r === "wait") { if (!L.waitT) L.waitT = setTimeout(() => { L.waitT = null; keepFocus(); }, PATIENCE_MS + 50); return; }
+  L.cur = null;
+  if (r && r.el && L.el.contains(r.el)) focusEl(r.el);
+}
+function watch() {   // ein MutationObserver, solange eine Ebene offen ist oder die Wache aufpasst
+  const need = layers.length > 0 || !!guard;
+  if (need && !layerMo && typeof MutationObserver === "function") {
+    layerMo = new MutationObserver(() => { pruneLayers(true); keepFocus(); checkGuard(); });
+    layerMo.observe(document.body, { childList: true, subtree: true, attributes: true, attributeFilter: ["disabled", "hidden", "inert"] });
+  } else if (!need && layerMo) { layerMo.disconnect(); layerMo = null; }
+}
 function syncLayers() {
   const top = layers[layers.length - 1], fs = fsNow(), want = new Set();
   if (top) for (const c of document.body.children) if (!c.contains(top.el) && c.id !== "toasts" && !(fs && c.contains(fs))) want.add(c);
   for (const el of [...inerted]) if (!want.has(el)) { el.removeAttribute("inert"); inerted.delete(el); }
   for (const el of want) if (!inerted.has(el) && !el.hasAttribute("inert")) { el.setAttribute("inert", ""); inerted.add(el); }
-  if (top && !layerMo && typeof MutationObserver === "function") { layerMo = new MutationObserver(() => pruneLayers(true)); layerMo.observe(document.body, { childList: true, subtree: true }); }
-  else if (!top && layerMo) { layerMo.disconnect(); layerMo = null; }
+  watch();
 }
 function pruneLayers(refocus) {
   let gone = false;
   for (let i = layers.length - 1; i >= 0; i--) if (!layers[i].el.isConnected) { layers.splice(i, 1); gone = true; }
   if (!gone) return;
   syncLayers();
-  const L = layers[layers.length - 1], a = document.activeElement;
-  if (refocus && L && (!a || a === document.body)) focusIn(L);
+  const L = layers[layers.length - 1];
+  if (refocus && L && onBody()) focusIn(L);
 }
 function focusIn(L, extra = []) {
-  for (const x of [...extra, L.last, tabbables(L.el)[0], L.el]) if (x && L.el.contains(x) && canFocus(x)) { try { x.focus(); } catch {} if (document.activeElement === x) return true; }
+  for (const x of [...extra, L.last, tabbables(L.el)[0], L.el]) if (x && L.el.contains(x) && canFocus(x) && focusEl(x)) return true;
   return false;
 }
 function restoreFocus(L) {
   const a = document.activeElement;
   if (a && a !== document.body && a.isConnected && !L.el.contains(a)) return;   // steht schon woanders (von der Seite oder der Nutzerin gesetzt)
-  const below = layers[layers.length - 1], o = L.opener;
+  const below = layers[layers.length - 1];
   if (below && below.seq > L.seq) return;   // ein neuerer Dialog (z. B. aus onClose geöffnet) setzt seinen Fokus selbst
-  if (below) { focusIn(below, [o]); return; }
-  // Seite: der Auslöser – wurde er inzwischen neu gezeichnet, der neue mit derselben id
-  for (const x of [o, o && !o.isConnected && o.id ? document.getElementById(o.id) : null]) if (canFocus(x)) { try { x.focus(); } catch {} if (document.activeElement === x) return; }
+  if (below) { const r = findAgain(L.trace); focusIn(below, [r && r.el ? r.el : null]); return; }
+  // Seite: der Auslöser, sein Ersatz (neu gezeichnet bzw. entfernt) – hing er in einem inzwischen geschlossenen Dialog: dessen Auslöser usw.
+  for (let x = L; x; x = x.via) {
+    const t = x.trace, o = t && t.el;
+    // noch da, nur gerade gesperrt bzw. ausgeblendet: nicht auf ein anderes Element ausweichen, sondern warten (Wache)
+    if (o && o.isConnected && !canFocus(o) && !o.closest("[inert]")) { armGuard(o, t); guard.pending = true; checkGuard(); return; }
+    const r = findAgain(t, true);
+    if (r === "wait") { armGuard(null, t); checkGuard(); return; }
+    if (r && r.el && focusEl(r.el)) { armGuard(r.el); return; }
+  }
 }
 function onLayerKey(e) {
+  if (guard) { guard = null; watch(); }   // die Nutzerin handelt selbst
   if (e.defaultPrevented || e.isComposing || (e.key !== "Tab" && e.key !== "Escape") || e.altKey || e.ctrlKey || e.metaKey) return;
   pruneLayers(false);
   const L = layers[layers.length - 1];
@@ -209,17 +314,44 @@ function onLayerKey(e) {
   if (L.beforeTab) L.beforeTab();
   keepTab(e, L.el);
 }
-const onLayerFocus = (e) => { for (const L of layers) if (L.el.contains(e.target)) L.last = e.target; };
+function onLayerFocus(e) {
+  const t = e.target;
+  placeToasts();
+  if (guard && t !== guard.el) { guard = null; watch(); }
+  for (const L of layers) if (L.el.contains(t)) L.last = t;
+  const L = layers[layers.length - 1];
+  // per Maus bzw. Finger fokussiert (Klick auf genau dieses Element): dann nie zurückholen
+  if (L && L.el.contains(t)) { L.cur = t; L.curTrace = traceOf(t, L.el); L.curPointer = nowMs() - lastPointer < 800 && !!pointerAt && t.contains(pointerAt); L.lostAt = 0; }
+}
+function onLayerBlur(e) {   // Fokus absichtlich weggenommen (blur(), Wechsel in die Adresszeile): nichts zurückholen
+  const t = e.target, L = layers[layers.length - 1];
+  if (e.relatedTarget || !L || L.cur !== t) return;
+  setTimeout(() => { if (L.cur === t && canFocus(t) && document.activeElement !== t) L.cur = null; }, 0);
+}
+function onLayerPointer(e) {
+  lastPointer = nowMs(); pointerAt = e.target;
+  if (guard) { guard = null; watch(); }
+  const L = layers[layers.length - 1];
+  if (L && L.cur && !(L.cur.contains && L.cur.contains(e.target))) L.cur = null;   // Klick daneben (z. B. in Text): kein Fokus zurück
+}
 export function openLayer(el, { onEscape = null, opener, beforeTab = null } = {}) {
-  if (!layerKeys) { layerKeys = true; window.addEventListener("keydown", onLayerKey); document.addEventListener("focusin", onLayerFocus); }
+  if (!layerKeys) {
+    layerKeys = true;
+    window.addEventListener("keydown", onLayerKey);
+    document.addEventListener("focusin", onLayerFocus); document.addEventListener("focusout", onLayerBlur);
+    document.addEventListener("pointerdown", onLayerPointer, true);
+  }
   pruneLayers(false);
-  const o = opener === undefined ? document.activeElement : opener;
-  const L = { el, onEscape, beforeTab, opener: o && o !== document.body && !el.contains(o) ? o : null, last: null, seq: ++layerSeq };
+  guard = null;
+  const o0 = opener === undefined ? document.activeElement : opener, o = o0 && o0 !== document.body && !el.contains(o0) ? o0 : null;
+  const via = o ? layers.slice().reverse().find((x) => x.el.contains(o)) || null : null;
+  const L = { el, onEscape, beforeTab, opener: o, via, trace: o ? traceOf(o, via ? via.el : null) : null, last: null, cur: null, curTrace: null, curPointer: false, seq: ++layerSeq };
   layers.push(L); syncLayers();
   return {
     el,
     get top() { return layers[layers.length - 1] === L; },
     get open() { return layers.includes(L); },
+    get focused() { return !!L.last; },   // in der Ebene stand schon einmal der Fokus
     release(focus = true) { const i = layers.indexOf(L); if (i >= 0) { layers.splice(i, 1); syncLayers(); } if (focus) restoreFocus(L); },
     restore: () => restoreFocus(L),
   };
@@ -259,7 +391,7 @@ export function modal({ title, body, actions = [], wide = false, onClose }) {
   // erster Halt: Eingabefeld bzw. Hauptknopf, sonst der erste Knopf unten („Abbrechen“ – z. B. bei Rückfragen mit einem roten Knopf), sonst „Schließen“;
   // nur, wenn dieser Dialog noch oben liegt und in ihm noch nichts fokussiert ist (schnelles Tippen wird nie umgelenkt)
   setTimeout(() => {
-    if (closed || !layer.top || box.contains(document.activeElement)) return;
+    if (closed || !layer.top || layer.focused || box.contains(document.activeElement)) return;   // auch nicht, wenn der Fokus schon im Dialog war (und z. B. mit einem gesperrten Knopf auf body fiel)
     const st = tabbables(box), f = st.find((x) => x.matches("input, textarea, select, button.primary")) || st.find((x) => foot.contains(x)) || st[0];
     if (f) f.focus();
   }, 30);

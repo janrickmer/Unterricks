@@ -270,3 +270,168 @@ test("Folienfenster als Ebene (ohne Vollbild-Schnittstelle): Tab bleibt im Fenst
   v.destroy();
   assert.deepEqual(inertNow(), []);
 });
+
+/* ---------- Prüfung von Nachtrag 25: Fokus wiederfinden ---------- */
+/* Liste wie im Materialkasten: je Eintrag ein Textfeld, „Bearbeiten“ und „Löschen“ (nur Symbol, aria-label); paint() zeichnet alle Zeilen neu */
+function listPage(names) {
+  page();
+  const list = h("div", { class: "list", id: "lst" });
+  const paint = (ns) => list.replaceChildren(...ns.map((n) => h("div", { class: "item", dataset: { name: n } },
+    h("input", { "aria-label": "Notiz " + n }), h("button", { type: "button" }, "Bearbeiten"), h("button", { type: "button", "aria-label": "Löschen" }, "x"))));
+  paint(names);
+  app.append(h("section", { id: "box" }, h("h2", { text: "Material" }), list, h("button", { type: "button", id: "add" }, "Link hinzufügen")));
+  const btn = (n, label) => button(list.querySelector('[data-name="' + n + '"]'), label);
+  const rowOf = () => { const r = document.activeElement.closest && document.activeElement.closest(".item"); return r ? r.dataset.name : null; };
+  return { list, paint, btn, rowOf };
+}
+const footBtn = (label) => button($$(".modal")[$$(".modal").length - 1].querySelector("footer"), label);
+
+test("Auslöser neu gezeichnet, während der Dialog offen ist: der Fokus geht auf das neue Element an seinem Platz (nicht auf body)", async () => {
+  const L = listPage(["A", "B", "C"]);
+  L.btn("B", "Bearbeiten").focus();
+  modal({ title: "Link bearbeiten", body: h("input", { id: "t" }), actions: [{ label: "Abbrechen" }, { label: "Speichern", class: "primary", onClick: () => { L.paint(["A", "B2", "C"]); } }] });
+  await settle();
+  footBtn("Speichern").click();
+  await settle();
+  assert.equal(document.activeElement.textContent, "Bearbeiten"); assert.equal(L.rowOf(), "B2", "die neu gezeichnete Zeile an derselben Stelle");
+  assert.deepEqual(inertNow(), []);
+});
+
+test("Auslöser nach dem Schließen gelöscht (Rückfrage „Löschen“): Fokus auf den ersten Knopf des Eintrags, der jetzt dort steht – nie ein Eingabefeld", async () => {
+  const L = listPage(["A", "B", "C"]);
+  L.btn("B", "Löschen").focus();
+  const ok = confirmDialog("Datei löschen", "„B“ endgültig löschen?", "Löschen", true);
+  await settle();
+  footBtn("Löschen").click();
+  assert.equal(await ok, true);
+  at(L.btn("B", "Löschen"), "erst wie bisher zurück auf den Auslöser");
+  L.paint(["A", "C"]);   // die Seite löscht und zeichnet die Liste neu
+  await D.sleep(0);
+  assert.equal(L.rowOf(), "C"); assert.equal(document.activeElement.textContent, "Bearbeiten", "der erste Knopf der Zeile, die nun an der Stelle steht (nicht das Textfeld davor)");
+  // den letzten Eintrag gelöscht: die Zeile davor
+  L.btn("C", "Löschen").focus();
+  const ok2 = confirmDialog("Datei löschen", "„C“ endgültig löschen?", "Löschen", true);
+  await settle();
+  footBtn("Löschen").click(); await ok2;
+  L.paint(["A"]);
+  await D.sleep(0);
+  assert.equal(L.rowOf(), "A", "die letzte verbliebene Zeile");
+  // die ganze Liste leer: erst kurz warten (sie könnte gleich neu kommen), dann der Knopf daneben
+  L.btn("A", "Löschen").focus();
+  const ok3 = confirmDialog("Datei löschen", "„A“ endgültig löschen?", "Löschen", true);
+  await settle();
+  footBtn("Löschen").click(); await ok3;
+  L.list.replaceChildren(h("p", { text: "Noch nichts hochgeladen." }));
+  await D.sleep(0);
+  at(document.body, "die Liste ist (noch) leer: kurz warten");
+  await D.sleep(1700);
+  at(document.getElementById("add"), "danach der Knopf daneben („Link hinzufügen“)");
+});
+
+test("Wache nach dem Schließen: sie greift nur, solange die Nutzerin nichts tut, und nie über einen Seitenwechsel hinweg", async () => {
+  const L = listPage(["A", "B"]);
+  L.btn("B", "Löschen").focus();
+  let ok = confirmDialog("Datei löschen", "„B“ löschen?", "Löschen", true);
+  await settle();
+  footBtn("Löschen").click(); await ok;
+  D.press("ArrowDown");   // die Nutzerin handelt selbst (z. B. rollt)
+  L.paint(["A"]);
+  await D.sleep(0);
+  at(document.body, "nach einer eigenen Eingabe setzt die Wache keinen Fokus mehr");
+  // Seitenwechsel: render() ersetzt alles in #app – kein Ersatz von einer anderen Seite
+  L.paint(["A", "B"]);
+  L.btn("B", "Löschen").focus();
+  ok = confirmDialog("Sitzung löschen", "Wirklich?", "Löschen", true);
+  await settle();
+  footBtn("Löschen").click(); await ok;
+  app.replaceChildren(h("main", null, h("div", { class: "list" }, h("div", { class: "item" }, h("button", { type: "button", "aria-label": "Löschen" }, "x")))));
+  await D.sleep(0);
+  at(document.body, "neue Seite: der Fokus bleibt, wo die Seite ihn hinsetzt");
+});
+
+test("Dialog A öffnet B und schließt sich: nach B geht der Fokus an den Auslöser von A", async () => {
+  const { opener } = page();
+  opener.focus();
+  modal({ title: "A", body: h("p", { text: "a" }), actions: [{ label: "Weiter", class: "primary", onClick: () => { modal({ title: "B", body: h("p", { text: "b" }), actions: [{ label: "Fertig", class: "primary" }] }); } }] });
+  await settle();
+  footBtn("Weiter").click();
+  await settle();
+  assert.equal($$(".modal").length, 1); assert.equal(document.querySelector(".modal h2").textContent, "B");
+  D.press("Escape");
+  at(opener, "der Auslöser von A (der Knopf „Weiter“ ist mit A verschwunden)");
+  assert.deepEqual(inertNow(), []);
+});
+
+test("im offenen Dialog: gesperrter Knopf (busy) bekommt den Fokus zurück, sobald er wieder bedienbar ist; neu gezeichnete Knöpfe ebenso – nicht nach blur() oder einem Mausklick", async () => {
+  page();
+  const nav = h("div", { id: "nav" });
+  let k = 1;
+  const paint = () => nav.replaceChildren(h("button", { type: "button" }, "zurück"), h("span", { text: "Seite " + k }), h("button", { type: "button", onclick: () => { k++; paint(); } }, "weiter"));
+  paint();
+  const dlg = modal({ title: "Text", body: nav, actions: [{ label: "Prüfen", class: "primary", onClick: (e) => { e.currentTarget.disabled = true; return false; } }] });
+  await settle();
+  const check = footBtn("Prüfen");
+  check.focus(); check.click();
+  await D.sleep(0);
+  at(document.body, "gesperrt: Fokus auf body");
+  check.disabled = false;
+  await D.sleep(0);
+  at(check, "wieder bedienbar: der Fokus kommt zurück");
+  // neu gezeichnet (Seite weiter): der neue Knopf „weiter“
+  button(nav, "weiter").focus(); button(nav, "weiter").click();
+  await D.sleep(0);
+  at(button(nav, "weiter"), "nach dem Neuzeichnen: das neue „weiter“");
+  assert.equal(nav.querySelector("span").textContent, "Seite 2");
+  // absichtlich weggenommen (blur): nichts zurückholen, auch wenn danach neu gezeichnet wird
+  button(nav, "weiter").blur(); await D.sleep(5);
+  paint(); await D.sleep(0);
+  at(document.body, "nach blur() bleibt der Fokus auf body");
+  // nach einem Mausklick (z. B. Präsentationsmodus): kein Fokus zurück
+  const w = button(nav, "weiter");
+  D.fire(w, "pointerdown"); w.focus(); w.click();
+  await D.sleep(0);
+  at(document.body, "nach einem Mausklick: kein Fokus zurück");
+  dlg.close();
+});
+
+test("Meldungen über einem Dialog: verdecken sie das fokussierte Element, wandern sie an den anderen Rand (ohne Dialog nicht)", async () => {
+  const { opener } = page();
+  const { toast } = await import("../../public/ui.js");
+  const rect = (top, bottom) => () => ({ left: 0, right: 400, top, bottom, width: 400, height: bottom - top, x: 0, y: top });
+  // ohne Dialog: Meldung unten, auch wenn sie etwas verdeckt
+  opener.getBoundingClientRect = rect(780, 820); toasts.getBoundingClientRect = rect(760, 830);
+  opener.focus(); toast("Gespeichert.", "ok");
+  assert.ok(!toasts.classList.contains("flip"), "auf der Seite bleibt alles wie bisher");
+  toasts.replaceChildren();
+  modal({ title: "KI-Begriffshilfe nutzen?", body: h("p", { text: "Text" }), actions: [{ label: "Einwilligen und starten", class: "primary", onClick: () => { toast("Bitte setze zuerst den Haken …", "err"); return false; } }] });
+  await settle();
+  const go = footBtn("Einwilligen und starten");
+  go.getBoundingClientRect = rect(780, 824);
+  // unten verdeckt die Meldung den Knopf, oben (flip) nicht
+  toasts.getBoundingClientRect = () => (toasts.classList.contains("flip") ? rect(16, 80)() : rect(760, 830)());
+  go.focus(); go.click();
+  await D.sleep(0);
+  assert.ok(toasts.classList.contains("flip"), "die Meldung wandert nach oben – der Knopf bleibt sichtbar");
+  // der Fokus wandert nach oben („Schließen“), wo die Meldung jetzt steht: sie wandert wieder nach unten
+  const x = button(document.querySelector(".modal"), "Schließen");
+  x.getBoundingClientRect = rect(20, 64);
+  x.focus();
+  assert.ok(!toasts.classList.contains("flip"), "Fokus oben: die Meldung wieder unten");
+  D.press("Escape");
+  toasts.replaceChildren(); delete toasts.getBoundingClientRect; delete opener.getBoundingClientRect;
+});
+
+test("Auslöser während des Dialogs gesperrt (busy() um den Dialog): nach dem Schließen wartet der Fokus auf ihn – kein Ausweichen auf einen anderen Knopf", async () => {
+  const L = listPage(["A", "B"]);
+  const o = L.btn("B", "Bearbeiten");
+  o.focus();
+  const ask = confirmDialog("Frage", "Text", "OK");
+  o.disabled = true;   // wie busy(): gesperrt, bis die Antwort verarbeitet ist
+  await settle();
+  footBtn("OK").click(); await ask;
+  await D.sleep(0);
+  at(document.body, "der Auslöser ist noch gesperrt – kein Ausweichen auf einen anderen Knopf");
+  o.disabled = false;
+  await D.sleep(0);
+  at(o, "wieder bedienbar: der Fokus kommt auf den Auslöser zurück");
+});

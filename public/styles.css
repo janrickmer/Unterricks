@@ -702,6 +702,7 @@ main.narrow .homework { background: var(--gelb-t); border-color: color-mix(in sr
 @media (prefers-reduced-motion: no-preference) { .modal { animation: auflegen-modal .32s var(--ease) both; } @keyframes auflegen-modal { from { transform: translateY(10px) scale(.99); } } }
 #toasts { position: fixed; bottom: 1rem; left: 50%; transform: translateX(-50%); z-index: 200; display: grid; gap: .5rem; width: min(92vw, 520px); pointer-events: none; }
 body:has(> .presenter) #toasts { top: 1rem; bottom: auto; }   /* im Präsentationsmodus oben – unten liegt die Leiste mit den Knöpfen */
+#toasts.flip { top: 1rem; bottom: auto; } body:has(> .presenter) #toasts.flip { top: auto; bottom: 1rem; }   /* verdeckten sie den Fokus im Dialog: am anderen Rand (ui.js placeToasts) */
 .toast { background: #13213b; color: #fff; padding: .75rem 1.05rem; border-radius: 12px; box-shadow: var(--shadow-lift); font-size: .96rem; font-weight: 700; pointer-events: auto; }
 .toast.err { background: #a81f17; } .toast.ok { background: #116a40; }
 

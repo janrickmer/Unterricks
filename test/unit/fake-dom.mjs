@@ -155,8 +155,10 @@ class FElement extends FNode {
   }
   get nodeName() { return this.tagName; }
   getAttribute(k) { return this._attrs.has(k) ? this._attrs.get(k) : null; }
-  setAttribute(k, v) { this._attrs.set(k, String(v)); }
-  removeAttribute(k) { this._attrs.delete(k); }
+  setAttribute(k, v) { const had = this._attrs.get(k); this._attrs.set(k, String(v)); if (had !== String(v)) this._attrChanged(k); }
+  removeAttribute(k) { if (this._attrs.delete(k)) this._attrChanged(k); }
+  // MutationObserver mit attributes (und attributeFilter): wie im Browser ein Eintrag je Änderung
+  _attrChanged(k) { const d = this.ownerDocument; if (d && d._mutated) d._mutated(this, { attributeName: k }, "attributes"); }
   hasAttribute(k) { return this._attrs.has(k); }
   toggleAttribute(k, force) { const on = force === undefined ? !this.hasAttribute(k) : !!force; if (on) this.setAttribute(k, ""); else this.removeAttribute(k); return on; }
   get attributes() { return [...this._attrs].map(([name, value]) => ({ name, value })); }
@@ -347,10 +349,12 @@ class FDocument extends FNode {
     if (this._focus && (!this._focus.rendered || this._focus.inert || (FOCUSABLE.has(this._focus.tagName) && this._focus.disabled))) this._focus = null;
     return this._focus || this.body;
   }
-  _mutated(target, rec) {
+  _mutated(target, rec, type = "childList") {
     for (const o of this._observers || []) {
       if (!(o.target === target || (o.opts.subtree && o.target.contains(target)))) continue;
-      o.records.push({ type: "childList", target, ...rec });
+      if (type === "childList" && !o.opts.childList) continue;
+      if (type === "attributes" && (!o.opts.attributes || (o.opts.attributeFilter && !o.opts.attributeFilter.includes(rec.attributeName)))) continue;
+      o.records.push({ type, target, ...rec });
       if (!o.queued) { o.queued = true; queueMicrotask(() => { o.queued = false; const r = o.records.splice(0); if (r.length && o.active) o.fn(r, o.mo); }); }
     }
   }

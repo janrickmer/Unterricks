@@ -1061,7 +1061,32 @@ Befund der Prüfung von Nr. 24: Mit Tab gelangte man aus jedem Dialog auf die Se
 - **Fokus zurück:** `restore()` fokussiert den Auslöser (falls noch verbunden, sichtbar, nicht gesperrt), sonst in der Ebene darunter das zuletzt
   fokussierte Element bzw. den ersten Halt, in der Seite ein neu gezeichnetes Element mit derselben `id` – nie, wenn der Fokus schon woanders
   steht, und nie, wenn inzwischen ein neuerer Dialog offen ist. Der verzögerte erste Fokus von `modal()` (30 ms) greift nur, wenn der Dialog
-  noch oben liegt und in ihm noch nichts fokussiert ist.
+  noch oben liegt und in ihm noch nichts fokussiert ist (auch nicht, wenn der Fokus schon einmal im Dialog stand und z. B. mit einem gesperrten
+  Knopf auf `body` fiel).
+- **Fokus wiederfinden (Prüfung von Nachtrag 25):** Die meisten Seiten zeichnen nach einer Aktion im Dialog die betroffene Liste neu („Link
+  bearbeiten“ → `paintFiles()`); der Auslöser ist dann weg, und der Fokus fiel bisher auf `body`. Beim Öffnen merkt sich `openLayer()` eine
+  **Spur** des Auslösers (`traceOf`: Art und Beschriftung – `aria-label` bzw. Text –, dazu je Vorfahr bis unter `#app` sein Platz unter den
+  gleich beschrifteten Elementen und unter allen Halten). `findAgain` sucht im nächsten noch vorhandenen Vorfahren: gleich viele gleich
+  beschriftete Elemente → das neue an seinem Platz (neu gezeichnet); sonst (gelöscht) den ersten Knopf bzw. Link – nie ein Eingabefeld, am
+  iPad öffnete das die Tastatur – des Eintrags, der jetzt an seiner Stelle steht (bzw. des letzten); ist der Vorfahr gerade leer, wird bis zu
+  1,5 s gewartet (die Liste könnte gleich neu kommen), danach eine Ebene höher gesucht. Nie über `#app` hinaus: ein Seitenwechsel setzt seinen
+  Fokus selbst. Hing der Auslöser in einem inzwischen geschlossenen Dialog (Dialog A öffnet B und schließt sich, z. B. „Feibeitsblatt jetzt
+  anlegen“ → „Feibeitsblatt angelegt“), gilt die Spur des Auslösers von A (`via`). Zeichnet die Seite erst **nach** dem Schließen neu (Löschen
+  nach der Rückfrage), passt eine **Wache** noch auf, bis die Nutzerin etwas tut (Taste, Zeiger, Fokus woanders), ein neuer Dialog aufgeht
+  oder 10 s vergangen sind. Ist der Auslöser noch da, aber gerade gesperrt bzw. ausgeblendet (`busy()` um den Dialog), wartet die Wache, bis er
+  wieder bedienbar ist – kein Ausweichen auf einen anderen Knopf.
+- **Fokus im offenen Dialog:** Fällt der Fokus auf `body`, weil das fokussierte Element neu gezeichnet (z. B. „weiter“ in der Textansicht einer
+  Planungsgrundlage) oder gesperrt wurde (`busy()`, „Weiter“ beim Zurücksetzen), kommt er auf das neue Element bzw. – sobald es wieder bedienbar
+  ist – auf dasselbe zurück (`keepFocus`, der `MutationObserver` beobachtet dafür auch `disabled`, `hidden` und `inert`). Nicht nach `blur()`
+  oder einem Wechsel in die Adresszeile (absichtlich weggenommen), nicht nach einem Klick in den Text daneben und nie, wenn das Element mit der
+  Maus bzw. dem Finger fokussiert wurde: Der Präsentationsmodus nimmt Knöpfen nach einem Mausklick den Fokus bewusst wieder, damit Leertaste und
+  Presenter weiter blättern.
+- **Meldungen über einem Dialog:** Verdeckt eine Meldung (`#toasts`) das fokussierte Element im obersten Dialog – am Handy z. B. den Knopf
+  „Einwilligen und starten“ unten in der Einwilligung zur KI-Begriffshilfe, wenn der Haken fehlt –, wandert sie an den anderen Rand
+  (`#toasts.flip`, WCAG 2.4.11); bewegt sich der Fokus dorthin, wieder zurück. Auf den Seiten ohne Dialog bleibt alles, wie es war.
+- **Seitenwechsel bei offenem Dialog** (Zurück-Geste, Abmeldung nach Ablauf): Ein `modal()` bleibt – wie bisher – offen; die neue Seite ist
+  solange inert. Bewusst nicht automatisch geschlossen: eine versehentliche Zurück-Geste am iPad verlöre sonst die Eingaben im Dialog (z. B. im
+  Feibeitsblatt-Editor). Nach dem Schließen ist nichts mehr inert.
 - **Ebenen:** alle `modal()`/`confirmDialog()` (rund 35 Aufrufe), Codefolie `showCode()` (jetzt mit Fokus auf „Schließen“, `aria-modal`),
   Präsentationsmodus (`aria-modal`, Tab-Halt, Esc bleibt beim Vollbild; „Beamer verbinden“ und „Timer“ halten Tab weiter selbst – über
   `keepTab` – und schließen mit Esc; Tasten der Präsentation wirken nur, solange keine Ebene darüber liegt), Escape-Room „Buchstabe
@@ -1070,8 +1095,9 @@ Befund der Prüfung von Nr. 24: Mit Tab gelangte man aus jedem Dialog auf die Se
   dort keinen Knopf mehr). Kein Dialog: das Kontextmenü (`contextMenu`, ein Menü – Tab verlässt es absichtlich), das Beamerfenster und das
   Beamergerät (eigene Seiten), die Elternansicht und die Bildkarten (keine Überlagerung).
 - **Tests:** `test/unit/dialogs.test.mjs` (Browser-Ersatz `fake-dom.mjs`, dafür um `inert`, `getClientRects`, `compareDocumentPosition` und
-  `MutationObserver` ergänzt), E2E-Schritt „Dialoge“ (`test/e2e/dialogs.mjs`, echte Tastatur in Chromium) und die Prüfung von „Buchstabe
-  freigeschaltet“ im Escape-Room-Durchlauf.
+  `MutationObserver` – auch mit `attributes`/`attributeFilter` – ergänzt), E2E-Schritt „Dialoge“ (`test/e2e/dialogs.mjs`, echte Tastatur in
+  Chromium: auch Link bearbeiten und löschen, Dialog-Kette, gesperrter und wieder bedienbarer Knopf, Meldung am Handy) und die Prüfung von
+  „Buchstabe freigeschaltet“ im Escape-Room-Durchlauf.
 
 ## 4i. Druckliste „Von der Lehrkraft auszudrucken“ (Ergänzung vom 10.11.2026)
 
