@@ -47,7 +47,8 @@ export async function sessionPage(id) {
     const r = row(), idx = r && st.unit ? (st.unit.rows || []).indexOf(r) : -1;
     clear(subline).append(...nn(idx >= 0 ? h("span", { class: "chip strong", text: "Stunde " + (idx + 1) + " von " + st.unit.rows.length }) : null,
       h("span", { class: "chip", text: subjectName(L().subject) }), h("span", { class: "chip", text: classShort(L().klass), title: gradeInfo(L().klass).text }),
-      L().date ? h("span", { class: "chip", text: fmtDay(L().date) }) : null, L().durationMin ? h("span", { class: "chip", text: L().durationMin + " Minuten" }) : null,
+      // ohne Termin nur, wenn eine Stunde beim Verschieben wegen unterrichtsfreier Tage hinter das Ende ihrer Einheit gerutscht ist (Nachtrag 24)
+      h("span", { class: "chip", text: L().date ? fmtDay(L().date) : "ohne Termin" }), L().durationMin ? h("span", { class: "chip", text: L().durationMin + " Minuten" }) : null,
       // liegt auf einem unterrichtsfreien Tag der Schule (Einstellungen, Nachtrag 24) – z. B. nach „Nur speichern – Sitzungen bleiben“
       L().freeDay ? h("span", { class: "chip freechip", text: "Liegt auf einem unterrichtsfreien Tag (" + L().freeDay.label + ")" }) : null));
   };
@@ -1128,6 +1129,20 @@ export async function sessionPage(id) {
     h("div", { class: "stack" }, sub.main, prevEl, planCard, unitCard, chatCard, portalCard, hwCard, presPromptCard, filesCard, presCard, fbCard, printCard),
     h("aside", { class: "side" }, codeCard, metaCard, sub.side)), ioCard);
 
+  // Hinweis zum Überarbeiten der Einheit nach dem Verschieben wegen unterrichtsfreier Tage (Nachtrag 24) – derselbe Kasten wie auf der Einheitsseite
+  // und auf den Sitzungsseiten der Grundschule, direkt vor „Stunde mit Claude planen“; ohne offenen Hinweis gibt es ihn nicht (Seite wie bisher)
+  let reviseEl = null, reviseRun = 0;
+  const paintRevise = async () => {
+    const u = st.unit, run = ++reviseRun;
+    const next = u && u.revise && u.revise.open ? (await import("./grundschule.js")).reviseBox(u, { unitLink: true,
+      onChange: (nu) => { if (nu) { st.unit = nu; paintUnit(); paintSubline(); } paintRevise(); } }) : null;
+    if (run !== reviseRun || !main.isConnected) return;   // inzwischen neu gezeichnet bzw. Seite verlassen
+    if (reviseEl) reviseEl.remove();
+    reviseEl = next;
+    if (next && planCard.parentNode) planCard.before(next);
+  };
+  paintRevise();
+
   // Änderungen von außen (z. B. Claude über den Connector) beim Zurückkehren übernehmen
   const onVis = async () => {
     if (document.visibilityState !== "visible") return;
@@ -1140,7 +1155,7 @@ export async function sessionPage(id) {
       if (r.drafts.length !== st.drafts.length || r.sheets.length !== st.sheets.length) { st.drafts = r.drafts; st.sheets = r.sheets; paintFb(); ensureNotfall(st.sheets.filter((x) => !notfallFile(x.code)).map((x) => x.code)); }
       const subKey = (x) => (x ? x.status + ":" + x.updatedAt : "");
       if (subKey(r.substitute) !== subKey(st.sub)) { st.drafts = r.drafts; st.sub = r.substitute; sub.paint(); tsum.paintNote(); if (r.substitute && r.substitute.status === "vorschlag") toast("Claude hat einen Vertretungsvorschlag gespeichert – bitte prüfen.", "ok", 6000); }
-      if (r.unit && st.unit && r.unit.version !== st.unit.version) { st.unit = r.unit; paintUnit(); }
+      if (r.unit && st.unit && r.unit.version !== st.unit.version) { st.unit = r.unit; paintUnit(); if (!reviseEl || !reviseEl.contains(document.activeElement)) paintRevise(); }
       // Zwischenstopp der vorigen Sitzung: inzwischen gesetzt, verschoben oder (mit Claude) entschieden – auch der Prompt nimmt dann den neuen Stand
       if (JSON.stringify(r.previousStop || null) !== JSON.stringify(d.previousStop || null)) { d.previousStop = r.previousStop; paintPrev(); }
       d.nextLesson = r.nextLesson;

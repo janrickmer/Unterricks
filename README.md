@@ -211,7 +211,8 @@ Feibeitsblatt braucht keine Änderung. Die Adressen stehen in `wrangler.jsonc` (
   Titel): **„Speichern und verschieben“** (empfohlen) rückt sie und alle folgenden Stunden ihrer Einheit auf die nächsten freien Termine
   laut Stundenplan – wie die Krankmeldung, aber ohne Ausfall-Eintrag; was hinter das Ende rutscht, bleibt ohne Termin –, danach steht in
   jeder betroffenen Einheit ein Hinweis mit **„Einheit mit Claude überarbeiten“** (Grundschule: der rote Kasten, Grund „unterrichtsfreie
-  Tage“; Gymnasium: derselbe Kasten auf der Einheitsseite und „überarbeiten“ in der Liste der Klasse). **„Nur speichern – Sitzungen
+  Tage“; Gymnasium: derselbe Kasten auf der Einheitsseite und auf den Sitzungsseiten der Einheit, dazu „überarbeiten“ in der Liste der Klasse;
+  Sitzungen ohne Termin stehen dort am Ende und tragen „ohne Termin“). **„Nur speichern – Sitzungen
   bleiben“** lässt die Sitzungen, wo sie sind; sie tragen dann in Sitzung, Tabelle der Einheit und Kalender den Hinweis „Liegt auf einem
   unterrichtsfreien Tag (…)“. Sitzungen ohne Einheit verschieben Sie selbst (die Liste nennt sie). Wurde eine Einheit inzwischen woanders
   geändert, bleibt der Eintrag trotzdem gespeichert und die Meldung nennt sie. **Löschen** macht die Tage wieder zu Unterrichtstagen –
@@ -220,7 +221,8 @@ Feibeitsblatt braucht keine Änderung. Die Adressen stehen in `wrangler.jsonc` (
   Stunde zurück auf einen Tag, der inzwischen für die Grundschule unterrichtsfrei ist – dann passen Sie die Termine von Hand an. In den Rahmendaten jeder Einheit stehen die
   geltenden Tage ihrer Schule zur Ansicht („In den Einstellungen bearbeiten“); „Ferien und bekannte Ausfälle“ der Einheit bleibt für Ausfälle
   nur dieser Klasse (z. B. eine Exkursion). Claude sieht die Tage in `get_unit` (Abschnitt „Unterrichtsfreie Tage (…)“, im Zeitraum und bis acht
-  Wochen danach) und in den Prompts („Unterrichtsfreie Tage: …“).
+  Wochen danach) und in den Prompts („Unterrichtsfreie Tage: …“); Stunden, die nach „Nur speichern“ an einem solchen Tag liegen, nennen
+  `get_unit`, `get_lesson` und der Prompt „Einheit mit Claude überarbeiten“ ausdrücklich – Claude fragt dann, ob sie verschoben werden sollen.
 * **Podcast für den kommenden Unterricht:** Direkt unter dem Wochenkalender (Startseite „Gymnasium“ und Übersicht „Grundschule“ –
   derselbe Podcast) steht der Knopf mit Kopfhörer-Symbol **„Podcast für den kommenden Unterricht entwickeln“**. Ein Podcast erklärt den
   Ablauf **aller Stunden eines Tages** beider Schulformen in der Reihenfolge, in der Sie unterrichten. Ablauf:

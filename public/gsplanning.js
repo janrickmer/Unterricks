@@ -1,7 +1,7 @@
 // gsplanning.js – Prompts für Claude in der Grundschule (Wunsch der Lehrkraft vom 12.11.2026): Einheit planen. Gemeinsam für Browser und
 // Worker (keine DOM-Zugriffe). Die Kinder arbeiten nicht digital: nur analoges, ausdruckbares Material.
-import { fmtDay, SYSTEM_PROMPT_ROLE, UNIT_RULE_BASE, materialDesignText, summarySaveStep, SUMMARY_FALLBACK } from "./shared.js";
-import { lessonSlots, paramsText, freeSlots, normalizeParams, stopCarrySection, stopCarryStep, stopFallbackText, freeShiftText, freeDaysInRange } from "./planning.js";
+import { fmtDay, SYSTEM_PROMPT_ROLE, UNIT_RULE_BASE, materialDesignText, summarySaveStep, SUMMARY_FALLBACK, berlinToday } from "./shared.js";
+import { lessonSlots, paramsText, freeSlots, normalizeParams, stopCarrySection, stopCarryStep, stopFallbackText, freeShiftText, freeDaysInRange, freeBreakOf, freeRowNote } from "./planning.js";
 
 export const GS_RULE = "In der Grundschule arbeiten die Kinder nicht digital: Plane ausschließlich analoges Material (ausdruckbare Arbeitsblätter, Bildkarten, Tafel- und Bodenbilder) – keine Feibeitsblätter, keine Escape-Rooms, keine Online-Aufgaben, keine Präsentation zum Mitverfolgen.";
 
@@ -194,8 +194,10 @@ export function claudeUnitRevisionPrompt(ctx) {
   // so nennt der Prompt nur Stunden „noch nicht geplant“, die die Plattform beim Speichern auch weglassen ließe (Abschlussprüfung F21)
   const state = (l) => { if (!l) return "noch keine Sitzung"; const has = [l.hasPlan ? "Verlaufsplan" : null, l.pdfs ? l.pdfs + (l.pdfs === 1 ? " PDF" : " PDFs") : null, l.cards ? "Bildkarten" : null].filter(Boolean);
     return "Sitzung " + l.id + (has.length ? " – schon geplant: " + has.join(", ") : l.hasContent === true ? " – hat schon Inhalte (z. B. Ideen, Hinweis oder Inhalt für die Eltern, Elternlink, Material, Planungsverlauf), nicht weglassen" : " – noch nicht geplant"); };
+  // Stunden, die trotzdem an einem unterrichtsfreien Tag liegen („Nur speichern“, Nachtrag 24) – ohne solche bleibt der Prompt wie bisher
+  const onFree = freeBreakOf(u.params), today = berlinToday(now);
   const rowLines = rows.map((r, i) => (i + 1) + ". [uid " + r.uid + "] " + (r.date ? at(r.date, r.time) : "ohne Termin") + (r.minutes ? " (" + r.minutes + " Min.)" : "") + ": „" + r.stundenfrage + "“" +
-    (r.schritt != null && (plan.schritte || [])[r.schritt] ? " [Lernschritt " + (r.schritt + 1) + "]" : "") + " – " + state(byRow.get(r.uid)));
+    (r.schritt != null && (plan.schritte || [])[r.schritt] ? " [Lernschritt " + (r.schritt + 1) + "]" : "") + " – " + state(byRow.get(r.uid)) + freeRowNote(onFree, r.date, today));
   const steps = (plan.schritte || []).map((x, i) => (i + 1) + ". " + x.titel + (x.beschreibung ? " – " + x.beschreibung : ""));
   return [
     "Du bist eine erfahrene Fachdidaktikerin bzw. ein erfahrener Fachdidaktiker für " + fach + " an einer Grundschule in Hessen und überarbeitest mit mir eine Unterrichtseinheit meiner Unterrichtsplattform „Unterricks“. Arbeite gründlich, kindgerecht und dialogisch: Warte an den markierten Stellen auf meine Entscheidung.",

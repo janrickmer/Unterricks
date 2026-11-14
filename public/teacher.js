@@ -424,7 +424,8 @@ async function lessonsPage(subject, klass) {
     h("p", { class: "small", text: "Zuerst wird die Einheit geplant: Rahmendaten (Sitzungen pro Woche, Länge, Klausur, Ende), dann mit Claude Planungsgrundlage, zentrale Lernaufgabe, Leupold-Schema und Ablauf. Aus der festgelegten Einheit entstehen die Sitzungen mit Datum – erst dann beginnt die Planung der einzelnen Stunden." }),
     h("div", { class: "field" }, h("label", { for: "ut" }, "Thema / Arbeitstitel (optional, später änderbar)"), title), btn);
   // Einheiten mit ihren Sitzungen (nach Datum)
-  const byDateAsc = (a, b) => (a.date === b.date ? a.createdAt - b.createdAt : (a.date || "") < (b.date || "") ? -1 : 1);
+  // Sitzungen ohne Termin (nach dem Verschieben wegen unterrichtsfreier Tage hinter das Ende gerutscht) am Ende – wie in der Grundschule
+  const byDateAsc = (a, b) => (a.date === b.date ? a.createdAt - b.createdAt : (a.date || "\uffff") < (b.date || "\uffff") ? -1 : 1);
   const unitBox = h("div", { class: "stack" });
   if (!units.length) unitBox.append(h("p", { class: "muted", text: "Noch keine Unterrichtseinheit. Legen Sie rechts die erste an." }));
   for (const u of units) {

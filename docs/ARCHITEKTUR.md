@@ -1012,15 +1012,21 @@ Lehrkraft zieht die Datei einmal auf das Ablagefeld (keine automatische Übergab
   Tag; was hinter das Ende rutscht, bleibt ohne Termin (am Gymnasium dann auch die Sitzung ohne Datum – `extend_unit` und `save_unit_plan` geben
   solchen Sitzungen wieder einen Termin). Hat eine folgende Stunde schon stattgefunden, wird die Einheit nicht verschoben. Danach `units.revise`
   mit einem Eintrag `kind: "free"` (Bezeichnung, Zeitraum, Schule) und `undo: null`: in der Grundschule der rote Kasten mit dem Grund
-  „unterrichtsfreie Tage“ (Elterntexte unberührt, nie „krank“), am Gymnasium derselbe Kasten auf der Einheitsseite (`claudeGymRevisionPrompt`),
-  „überarbeiten“ in der Liste der Klasse; `save_unit_plan` oder „Erledigt“ nehmen ihn weg. Löschen eines Eintrags verschiebt nichts zurück.
+  „unterrichtsfreie Tage“ (Elterntexte unberührt, nie „krank“), am Gymnasium derselbe Kasten auf der Einheitsseite (`claudeGymRevisionPrompt`) und
+  – wie in der Grundschule – auf den Sitzungsseiten der Einheit vor „Stunde mit Claude planen“ (mit „Zur Einheit“; ohne offenen Hinweis bleibt die
+  Seite wie bisher), „überarbeiten“ in der Liste der Klasse (Sitzungen ohne Termin dort am Ende, Chip „ohne Termin“ in der Sitzung);
+  `save_unit_plan` oder „Erledigt“ nehmen ihn weg. Löschen eines Eintrags verschiebt nichts zurück.
 * **Oberfläche:** Karte „Unterrichtsfreie Tage“ ganz oben in den Einstellungen (`public/freedays.js`): Liste nach Datum (vergangene eingeklappt),
   Formular mit Pflichtwahl der Schule (drei Radioknöpfe ohne Vorauswahl, Fehler per `aria-invalid`/`aria-describedby`, Fokus aufs Feld), Rückfrage
   „Sitzungen an unterrichtsfreien Tagen“ mit „Speichern und verschieben (empfohlen)“, „Nur speichern – Sitzungen bleiben“, „Abbrechen“. Rahmendaten
   der Einheit: die geltenden Tage zur Ansicht mit „In den Einstellungen bearbeiten“; Tabelle und Sitzung: „Liegt auf einem unterrichtsfreien Tag (…)“.
 * **Connector:** `get_unit` mit dem Abschnitt „Unterrichtsfreie Tage (Gymnasium|Grundschule)“ (im Zeitraum und bis acht Wochen danach) und – nach
   dem Verschieben – „Verschoben wegen unterrichtsfreier Tage“; `get_planning_basis` mit einem Satz, wenn die Schule heute oder später freie Tage hat;
-  `paramsText` mit „Unterrichtsfreie Tage: …“ (nur, wenn es im Zeitraum welche gibt – sonst bleiben alle Prompts byte-gleich). Die
+  `paramsText` mit „Unterrichtsfreie Tage: …“ (nur, wenn es im Zeitraum welche gibt – sonst bleiben alle Prompts byte-gleich). Stunden heute oder
+  später, die nach „Nur speichern“ an einem freien Tag liegen (`freeBreakOf`, `freeRowNote`), nennen `get_unit` („Trotzdem an einem dieser
+  Tage …“), `get_lesson` („Achtung: Am … ist … unterrichtsfrei …“) und beide Überarbeitungsprompts („– liegt auf einem unterrichtsfreien Tag (…)“);
+  am Gymnasium nennt `get_unit` Sitzungen ohne Termin „[ohne Termin]“ und rät beim Überarbeiten wie der Prompt zu `update_unit_row` (save_unit_plan
+  ordnet dort nach Position zu), `get_lesson` sagt, warum eine Sitzung keinen Termin hat. Alles ohne zusätzliche D1-Abfrage. Die
   Server-Anweisungen bleiben unverändert (Länge).
 * **Sicherung und Zurücksetzen:** Die Einträge gehören zu den Einstellungen: Sie bleiben beim Zurücksetzen und stehen zum Nachlesen als
   „Unterrichtsfreie Tage.txt“ in der Sicherung (nur, wenn es welche gibt).

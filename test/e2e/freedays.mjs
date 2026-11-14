@@ -125,6 +125,14 @@ export async function freeDaysE2E({ browser, BASE, T, storage, ok, OUT, tool = n
       "Connector get_unit (Gymnasium): Abschnitt „Unterrichtsfreie Tage (Gymnasium)“, Rahmendaten mit „Unterrichtsfreie Tage: …“, was verschoben wurde");
     ok(su.content[0].text.includes("## Unterrichtsfreie Tage (Grundschule)") && !su.content[0].text.includes("Pädagogischer Tag") && !su.content[0].text.includes("## Ausfälle")
       && su.content[0].text.includes("Muss überarbeitet werden: ja"), "get_unit (Grundschule): nur die Tage der Grundschule, keine „Ausfälle“ (nicht krank), muss überarbeitet werden");
+    // Prüfung der Abläufe: die Stunde, die nach „Nur speichern“ am Pädagogischen Tag liegt, und Sitzungen ohne Termin nennt der Connector ausdrücklich
+    ok(gu.content[0].text.includes("Trotzdem an einem dieser Tage (die Lehrkraft hat die Sitzungen beim Eintragen dort gelassen): Stunde 2 „Erarbeitung 2“ am " + fmtDay(D(2)) + " (Pädagogischer Tag)")
+      && gu.content[0].text.includes("- " + byRow(g1, 4).id + " [ohne Termin]: Übung 5") && gu.content[0].text.includes("Inhalte und Stundenfragen mit update_unit_row"),
+      "get_unit (Gymnasium): Stunde am freien Tag benannt, Sitzungen „[ohne Termin]“, Überarbeiten wie im Prompt (update_unit_row)");
+    const gl = (await tool("get_lesson", { lesson_id: wed.id })).content[0].text, gl5 = (await tool("get_lesson", { lesson_id: byRow(g1, 4).id })).content[0].text;
+    ok(gl.includes("Achtung: Am " + fmtDay(D(2)) + " ist laut den Einstellungen der Lehrkraft unterrichtsfrei (Pädagogischer Tag) – diese Sitzung liegt trotzdem dort")
+      && gl5.includes("Diese Sitzung hat noch keinen Termin – sie ist beim Verschieben hinter das Ende der Einheit gerutscht") && gl5.includes("Wegen unterrichtsfreier Tage verschoben (Herbstferien)"),
+      "get_lesson (Gymnasium): Sitzung am freien Tag mit Hinweis, Sitzung ohne Termin mit Grund und Verschiebung");
   }
 
   // Kalender: Woche 1 – Mittwoch nur fürs Gymnasium frei (die Sitzung dort markiert), Woche 2 – für beide Schulen frei
@@ -147,6 +155,11 @@ export async function freeDaysE2E({ browser, BASE, T, storage, ok, OUT, tool = n
   ok(w2.every(([c, t, n]) => c.includes("free-all") && t === "Herbstferien – unterrichtsfrei (Grundschule und Gymnasium)" && n === 0) && await p.locator(".weekcal .wk-empty").count() === 0,
     "zweite Woche: jeder Tag „Herbstferien – unterrichtsfrei (Grundschule und Gymnasium)“, ganz schraffiert, ohne Einträge");
   await shotWeek("kalender-beide-schulen");
+  // derselbe Kalender auf der Startseite der Grundschule (Woche 1): Mittwoch frei fürs Gymnasium, die Stunden der Grundschule wie immer
+  await p.goto(BASE + "/#/lk/grundschule"); await p.locator(".weekcal .wk-ev").first().waitFor({ timeout: 20000 });
+  ok((await day(2).locator(".wk-free").textContent()) === "Pädagogischer Tag – unterrichtsfrei (Gymnasium)" && await day(1).locator(".wk-ev", { hasText: "Religion 2ab" }).count() === 1
+    && await day(3).locator(".wk-ev", { hasText: "Religion 2ab" }).count() === 1 && await day(2).locator(".wk-ev.onfree", { hasText: "8A" }).count() === 1,
+    "Startseite Grundschule: derselbe Wochenkalender mit dem Band am Mittwoch, Grundschule Di/Do wie immer");
   const print = (await T("GET", "/api/teacher/print-next")).data;
   ok(print.date !== D(7) && print.date !== D(8), "Druckaufträge: der nächste Arbeitstag überspringt unterrichtsfreie Tage (" + print.date + ")");
 
@@ -174,6 +187,18 @@ export async function freeDaysE2E({ browser, BASE, T, storage, ok, OUT, tool = n
     && prompt.includes("ohne Termin: Stunde 5 „Übung 5“, Stunde 6 „Abschluss 6“") && prompt.includes("extend_unit") && prompt.includes("update_unit_row") && !prompt.includes("krank"),
     "Prompt fürs Gymnasium: welche Tage frei wurden, Stunden ohne Termin, Möglichkeiten (Zusammenlegen, Kürzen, extend_unit nur nach Zustimmung)");
   await p.keyboard.press("Escape"); await cm.waitFor({ state: "detached", timeout: 5000 });
+  // Sitzungen des Gymnasiums nach dem Verschieben: neues Datum, derselbe Hinweis zum Überarbeiten mit „Zur Einheit“; ohne Termin als Chip; Liste der Klasse mit ihnen am Ende
+  await p.goto(BASE + "/#/lk/s/" + byRow(g1, 2).id); await p.locator(".revisebox").waitFor({ timeout: 15000 });
+  ok((await p.locator(".pagehead .chip").allTextContents()).includes(fmtDay(D(14))) && (await p.locator(".revisebox h2").textContent()) === "Die Einheit muss wegen unterrichtsfreier Tage überarbeitet werden"
+    && await p.locator(".revisebox").getByRole("link", { name: "Zur Einheit" }).getAttribute("href") === "#/lk/u/" + gym.id
+    && await p.evaluate(() => document.querySelector(".revisebox").nextElementSibling.classList.contains("claudeplan")),
+    "Sitzung (Gymnasium, verschoben): neues Datum " + fmtDay(D(14)) + ", Hinweis zum Überarbeiten vor „Stunde mit Claude planen“ mit „Zur Einheit“");
+  await p.goto(BASE + "/#/lk/s/" + byRow(g1, 4).id); await p.locator(".revisebox").waitFor({ timeout: 15000 });
+  ok((await p.locator(".pagehead .chip").allTextContents()).includes("ohne Termin") && await p.locator('input[aria-label="Datum der Sitzung"]').inputValue() === "", "Sitzung (Gymnasium) ohne Termin: Chip „ohne Termin“");
+  await p.goto(BASE + "/#/lk/f/powi/8A"); await p.locator(".unit-card .item").first().waitFor({ timeout: 15000 });
+  ok(JSON.stringify(await p.locator(".unit-card .item .name").allTextContents()) === JSON.stringify(gym.rows.map((r) => r.stundenfrage)) && await p.locator(".unit-card .badge", { hasText: "überarbeiten" }).count() === 1,
+    "Klasse 8A: Sitzungen in der Reihenfolge der Einheit (ohne Termin am Ende), Abzeichen „überarbeiten“");
+  await p.goto(BASE + "/#/lk/u/" + gym.id); await p.locator(".revisebox").waitFor({ timeout: 15000 });
   // Datum in der Tabelle auf einen freien Tag → Meldung, Datum bleibt; Server lehnt ebenfalls ab
   const di = p.locator('input[aria-label="Datum Stunde 1"]');
   await di.fill(D(8)); await di.dispatchEvent("change");
@@ -198,8 +223,30 @@ export async function freeDaysE2E({ browser, BASE, T, storage, ok, OUT, tool = n
     && (await p.locator(".fd-unit").textContent()).includes("Unterrichtsfreie Tage der Grundschule") && !(await p.locator(".fd-unit").textContent()).includes("Pädagogischer Tag"),
     "Grundschule: roter Kasten „… wegen unterrichtsfreier Tage …“ (nicht „Ausgefallen“), Rahmendaten nur mit den Tagen der Grundschule");
   await shotUnit("einheit-gs");
-  // Löschen: Bestätigung, danach wieder Unterrichtstag – nichts rückt zurück
+  // Bearbeiten: die Rückfrage nennt nur, was neu dazukommt (Donnerstag für beide Schulen → die Grundschulstunde); nur die Bezeichnung → sofort gespeichert
   await p.goto(BASE + "/#/lk/einstellungen"); await card.locator(".fd-item").first().waitFor({ timeout: 15000 });
+  await card.getByRole("button", { name: "„Pädagogischer Tag“ bearbeiten" }).click();
+  ok(await p.evaluate(() => document.activeElement.id) === "fd-label" && (await card.locator("#fd-form-h").textContent()) === "Eintrag bearbeiten: Pädagogischer Tag"
+    && await card.locator("#fd-from").inputValue() === D(2) && await card.locator("#fd-scope-gym").isChecked(), "Bearbeiten: Formular mit dem Eintrag, Fokus in der Bezeichnung");
+  await card.locator("#fd-to").fill(D(3)); await card.locator("#fd-scope-both").check();
+  await card.getByRole("button", { name: "Änderungen speichern" }).click();
+  await dlg.waitFor({ timeout: 15000 });
+  const rowsE = await dlg.locator("tbody tr").allTextContents();
+  ok(rowsE.length === 1 && rowsE[0].includes(fmtDay(D(3))) && rowsE[0].includes("Religion 2ab") && (await dlg.locator("p").first().textContent()).includes("beide Schulen"),
+    "Bearbeiten (Zeitraum und Schule erweitert): Rückfrage nur zur neu betroffenen Grundschulstunde am " + fmtDay(D(3)));
+  await dlg.getByRole("button", { name: "Abbrechen" }).click();
+  ok((await card.locator("#fd-form-h").textContent()) === "Eintrag bearbeiten: Pädagogischer Tag" && (await T("GET", "/api/teacher/free-days")).data.freeDays.find((f) => f.label === "Pädagogischer Tag").to === D(2),
+    "Abbrechen: nichts geändert, das Formular bleibt beim Bearbeiten");
+  await card.locator("#fd-cancel").click();
+  ok((await card.locator("#fd-form-h").textContent()) === "Unterrichtsfreien Tag eintragen" && await card.locator("#fd-label").inputValue() === "", "„Abbrechen“ im Formular: zurück zum leeren Formular");
+  for (const [from, to] of [["Pädagogischer Tag", "Pädagogischer Tag (Fortbildung)"], ["Pädagogischer Tag (Fortbildung)", "Pädagogischer Tag"]]) {
+    await card.getByRole("button", { name: "„" + from + "“ bearbeiten" }).click();
+    await card.locator("#fd-label").fill(to);
+    await card.getByRole("button", { name: "Änderungen speichern" }).click();
+    await card.locator(".fd-status", { hasText: "„" + to + "“ geändert." }).waitFor({ timeout: 15000 });
+  }
+  ok(await dlg.count() === 0 && (await T("GET", "/api/teacher/free-days")).data.freeDays.some((f) => f.label === "Pädagogischer Tag" && f.scope === "gym"), "nur die Bezeichnung geändert: ohne Rückfrage gespeichert");
+  // Löschen: Bestätigung, danach wieder Unterrichtstag – nichts rückt zurück
   await card.getByRole("button", { name: "„Pädagogischer Tag“ löschen" }).click();
   const del = p.locator(".modal", { hasText: "Unterrichtsfreien Eintrag löschen" }); await del.waitFor();
   ok((await del.textContent()).includes("Schon verschobene Sitzungen bleiben, wo sie sind."), "Löschen fragt nach – verschobene Sitzungen bleiben");

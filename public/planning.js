@@ -133,6 +133,14 @@ export function freeDayOn(date, freeDays, school) {
   if (!isIsoDate(date)) return null;
   return cleanFreeDays(freeDays).find((f) => freeDayCovers(f, school) && date >= f.from && date <= f.to) || null;
 }
+/* Nachschlagen in den Rahmendaten einer Einheit (params.schoolBreaks vom Server): freeBreakOf(params)(date) → der unterrichtsfreie Eintrag der Schule,
+   in den der Tag fällt, sonst null – z. B. für Stunden, die nach „Nur speichern – Sitzungen bleiben“ an einem solchen Tag liegen */
+export function freeBreakOf(params) {
+  const sb = normalizeParams(params).schoolBreaks || [];
+  return (date) => (sb.length && isIsoDate(date) ? sb.find((b) => date >= b.from && date <= b.to) || null : null);
+}
+/* Zusatz für Prompts und den Connector: „ – liegt auf einem unterrichtsfreien Tag (Herbstferien)“ – nur für Tage heute oder später (sonst "") */
+export const freeRowNote = (onFree, date, today) => { const b = date && date >= today ? onFree(date) : null; return b ? " – liegt auf einem unterrichtsfreien Tag (" + b.label + ")" : ""; };
 /* „Mo, 05.10.2026 – Fr, 16.10.2026“ bzw. ein Tag „Mo, 05.10.2026“ */
 export const freeRangeText = (f) => (f.from === f.to ? fmtDay(f.from) : fmtDay(f.from) + " – " + fmtDay(f.to));
 /* Meldung, wenn ein Datum auf einen unterrichtsfreien Tag fällt (Sitzung, Tabelle der Einheit) – sonst null */
@@ -745,8 +753,9 @@ export function claudeGymRevisionPrompt(ctx) {
   const lengths = items.flatMap((x) => x.lengths || []), free = freeSlots(u.params, rows, now), sb = freeDaysInRange(u.params);
   const byRow = new Map((u.lessons || []).filter((l) => l.row).map((l) => [l.row, l]));
   const steps = (plan.schritte || []).map((x, i) => (i + 1) + ". " + x.titel + (x.beschreibung ? " – " + x.beschreibung : ""));
+  const onFree = freeBreakOf(u.params), today = berlinToday(now);   // Stunden, die trotzdem an einem unterrichtsfreien Tag liegen („Nur speichern“)
   const rowLines = rows.map((r, i) => (i + 1) + ". " + (r.date ? fmtDay(r.date) + (r.time ? " " + r.time : "") : "ohne Termin") + (r.minutes ? " (" + r.minutes + " Min.)" : "") + ": „" + r.stundenfrage + "“" +
-    (r.schritt != null && (plan.schritte || [])[r.schritt] ? " [Lernschritt " + (r.schritt + 1) + "]" : "") + " – " + (byRow.get(r.uid) ? "Sitzung " + byRow.get(r.uid).id : "noch keine Sitzung"));
+    (r.schritt != null && (plan.schritte || [])[r.schritt] ? " [Lernschritt " + (r.schritt + 1) + "]" : "") + " – " + (byRow.get(r.uid) ? "Sitzung " + byRow.get(r.uid).id : "noch keine Sitzung") + freeRowNote(onFree, r.date, today));
   return [
     "Du bist eine erfahrene Fachdidaktikerin bzw. ein erfahrener Fachdidaktiker für " + subjectName(u.subject) + " an einem Gymnasium in Hessen und überarbeitest mit mir eine Unterrichtseinheit meiner Unterrichtsplattform „Unterricks“. Arbeite gründlich, fachlich korrekt und dialogisch: Warte an den markierten Stellen auf meine Entscheidung.",
     "",

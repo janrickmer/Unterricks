@@ -11,7 +11,7 @@ import { loadFreeDays } from "./freedays.js";
 import { planningBasis } from "./bases.js";
 import { gsCourseMap, gsCourseOut, getGsCourse, planningBasisGs } from "./gs.js";
 import { saveProposal, getSubstitute } from "./substitute.js";
-import { paramsText, lessonSlots, WEEKDAYS, freeSlots, stopLessonLines, STOP_CHOICES, STOP_CHOICE_TEXT, normalizeParams, schoolOf, FREE_DAY_SCOPES, freeRangeText, schoolBreaks } from "../public/planning.js";
+import { paramsText, lessonSlots, WEEKDAYS, freeSlots, stopLessonLines, STOP_CHOICES, STOP_CHOICE_TEXT, normalizeParams, schoolOf, FREE_DAY_SCOPES, freeRangeText, schoolBreaks, freeBreakOf } from "../public/planning.js";
 import { insertTextMaterial, insertPrintText, saveDesign, renderDesign, getFile } from "./files.js";
 import { shortImages } from "./render.js";
 import { ESCAPE_FORMAT_HINT, PART_TYPES } from "../public/escape-data.js";
@@ -279,6 +279,12 @@ async function lessonDump(db, l, now = Date.now()) {
     "Neue Notizen gehören als Dateianhang " + NOTES_FILE + " in eine neue PDF der Präsentation.");
   if (sub) parts.push("", "## Krankheitsvertretung", "Status: " + sub.status + (sub.status === "aktiv" ? " (die ursprüngliche Planung ist archiviert)" : " (Vorschlag liegt der Lehrkraft vor)"));
   if (l.unit_id) parts.push("", "Unterrichtseinheit: " + l.unit_id + " (Details mit get_unit; Planungsgrundlagen mit get_planning_basis)");
+  // unterrichtsfreie Tage (Nachtrag 24): verschoben, ohne Termin bzw. trotzdem an einem solchen Tag – ohne all das bleibt get_lesson wie bisher
+  const rv = ctx.unit && ctx.unit.revise, moved = rv ? rv.items.filter((x) => x.kind === "free") : [];
+  if (moved.length) parts.push("Wegen unterrichtsfreier Tage verschoben (" + moved.map((x) => x.label).join("; ") + "): die Stunden sind auf die nächsten freien Termine gerückt." +
+    (rv.open ? " Die Einheit muss deshalb überarbeitet werden (Hinweis in der Einheit; nur nach Rücksprache mit der Lehrkraft, siehe get_unit)." : ""));
+  if (ctx.unit && !l.lesson_date) parts.push("Diese Sitzung hat noch keinen Termin" + (moved.length ? " – sie ist beim Verschieben hinter das Ende der Einheit gerutscht; einen Termin bekommt sie mit extend_unit (nur nach Zustimmung der Lehrkraft)" : "") + ".");
+  parts.push(...freeLessonLine(l, ctx.unit, now));
   parts.push("", "## Rolle des Planungsassistenten der Plattform (zur Orientierung)", SYSTEM_PROMPT_ROLE);
   return parts.join("\n");
 }
@@ -368,7 +374,15 @@ async function gsLessonDump(c, l) {
     " – die Stunden sind um je einen Termin nach hinten gerückt." + (rv.open ? " Die Einheit muss deshalb überarbeitet werden (roter Hinweis; nur nach Rücksprache mit der Lehrkraft, siehe get_unit)." : ""));
   if (free.length) parts.push("Wegen unterrichtsfreier Tage verschoben (" + free.map((x) => x.label).join("; ") + "): die Stunden sind auf die nächsten freien Termine gerückt." +
     (rv.open && !sick.length ? " Die Einheit muss deshalb überarbeitet werden (roter Hinweis; nur nach Rücksprache mit der Lehrkraft, siehe get_unit)." : ""));
+  if (!l.cancelled) parts.push(...freeLessonLine(l, ctx.unit, c.now));
   return parts.join("\n");
+}
+/* get_lesson: Sitzung (heute oder später) an einem unterrichtsfreien Tag ihrer Schule – z. B. nach „Nur speichern – Sitzungen bleiben“ (Nachtrag 24); sonst nichts */
+function freeLessonLine(l, unit, now) {
+  const d = l.lesson_date;
+  const b = unit && d && d >= berlinToday(now) ? freeBreakOf(unit.params)(d) : null;
+  return b ? ["Achtung: Am " + fmtDay(d) + " ist laut den Einstellungen der Lehrkraft unterrichtsfrei (" + b.label + ") – diese Sitzung liegt trotzdem dort (die Lehrkraft hat sie beim Eintragen nicht verschoben). " +
+    "Frage sie, ob die Sitzung einen anderen Termin bekommen soll; update_lesson nimmt als datum nur einen Tag mit Unterricht an."] : [];
 }
 
 /* Abschnitt „Bildkarten“ von get_lesson (Grundschule): Zahl der Karten, Stand der Bilder, Freigabe für Eltern und die Erzähltexte */
@@ -406,13 +420,18 @@ function gsLessonState(l) {
 }
 /* Unterrichtsfreie Tage der Schule (Einstellungen, Nachtrag 24) im Zeitraum der Einheit und bis acht Wochen danach (für extend_unit) – aus
    params.schoolBreaks (unitFull); ohne solche Tage kein Abschnitt (get_unit bleibt wie bisher) */
-export function freeDaysLines(u) {
+export function freeDaysLines(u, now = Date.now()) {
   const p = normalizeParams(u.params), until = p.end ? addDays(p.end, 56) : null;
   const list = (p.schoolBreaks || []).filter((b) => (!p.start || b.to >= p.start) && (!until || b.from <= until));
   if (!list.length || !p.start || !p.end) return [];
+  // Stunden (heute oder später), die trotzdem an einem dieser Tage liegen – die Lehrkraft hat sie beim Eintragen dort gelassen („Nur speichern“)
+  const onFree = freeBreakOf(u.params), today = berlinToday(now);
+  const kept = (u.rows || []).map((r, i) => ({ r, i, b: r && r.date && r.date >= today ? onFree(r.date) : null })).filter((x) => x.b);
   return ["", "## Unterrichtsfreie Tage (" + FREE_DAY_SCOPES[schoolOf(u.subject)] + ") – aus den Einstellungen der Lehrkraft",
     ...list.map((b) => "- " + b.label + ": " + freeRangeText(b) + (b.from > p.end ? " (nach dem Ende der Einheit)" : "")),
-    "An diesen Tagen gibt es keine Termine: Die verfügbaren Termine, freie Termine und extend_unit lassen sie schon aus. Ändern kann sie nur die Lehrkraft in den Einstellungen."];
+    "An diesen Tagen gibt es keine Termine: Die verfügbaren Termine, freie Termine und extend_unit lassen sie schon aus. Ändern kann sie nur die Lehrkraft in den Einstellungen.",
+    ...(kept.length ? ["Trotzdem an einem dieser Tage (die Lehrkraft hat die Sitzungen beim Eintragen dort gelassen): " + kept.map((x) => "Stunde " + (x.i + 1) + " „" + x.r.stundenfrage + "“ am " +
+      fmtDay(x.r.date) + " (" + x.b.label + ")").join("; ") + ". Frage die Lehrkraft, ob sie einen anderen Termin bekommen sollen – verschiebe sie nur mit ihrer Zustimmung."] : [])];
 }
 /* Verschiebungen wegen unterrichtsfreier Tage (units.revise, Einträge kind "free") – beide Schulformen */
 const freeShiftLines = (items) => items.map((x) => "- " + x.label + " (" + freeRangeText({ from: x.from || x.date, to: x.to || x.date }) + "): „" + x.title + "“ und alle folgenden Stunden sind auf die nächsten freien Termine gerückt" +
@@ -430,7 +449,7 @@ function gsUnitText(u, now = Date.now()) {
       return (i + 1) + ". [uid " + r.uid + "] " + (r.date ? fmtDay(r.date) + (r.time ? " " + r.time : "") : "[ohne Termin]") + (r.minutes ? " (" + r.minutes + " min)" : "") + ": " + r.stundenfrage +
         (r.schritt != null ? " [Lernschritt " + (r.schritt + 1) + "]" : "") + (l ? " (Sitzung " + l.id + gsLessonState(l) + ")" : "") + (r.ablauf.length ? "\n   - " + r.ablauf.join("\n   - ") : ""); }),
     "", "## Sitzungen", ...(u.lessons.length ? u.lessons.map((l) => "- " + l.id + " " + (l.date ? fmtDay(l.date) : "[ohne Termin]") + ": " + l.title + (l.cancelled ? " (ausgefallen – Ausfall-Eintrag für die Eltern)" : "")) : ["(noch keine)"])];
-  lines.push(...freeDaysLines(u));
+  lines.push(...freeDaysLines(u, now));
   // Krankmeldungen: ausgefallene Termine, Stunden ohne Termin, freie Termine bis zum Ende, ob die Einheit überarbeitet werden muss
   const rv = u.revise || null, items = rv ? rv.items : [], sick = items.filter((x) => x.kind !== "free"), free = items.filter((x) => x.kind === "free");
   if (sick.length) {
@@ -538,8 +557,9 @@ async function callTool(c, name, a) {
       const lines = ["# Unterrichtseinheit " + u.id + " (" + subjectName(u.subject) + ", " + classShort(u.klass) + " – " + gradeInfo(u.klass).text + ", Status: " + u.status + ", Version " + u.version + ")",
         "Titel: " + (u.title || "(offen)"), ...(u.course && Number.isInteger(u.course.classSize) ? ["Schülerzahl laut Kurseinstellungen: " + u.course.classSize] : []), paramsText(u.params), "Verfügbare Sitzungen: " + lessonSlots(u.slots).length, ...lessonSlots(u.slots).map((x, i) => "  " + (i + 1) + ". " + fmtDay(x.date) + " (" + x.minutes + " min)"),
         "", "## Plan", JSON.stringify(u.plan, null, 1), "", "## Ablauf (Zeilen)", ...u.rows.map((r, i) => (i + 1) + ". " + (r.date ? fmtDay(r.date) + ": " : "") + r.stundenfrage + (r.schritt != null ? " [Lernschritt " + (r.schritt + 1) + "]" : "") + "\n   - " + r.ablauf.join("\n   - ")),
-        "", "## Sitzungen", ...(u.lessons.length ? u.lessons.map((l) => "- " + l.id + " " + (l.date ? fmtDay(l.date) : "") + ": " + l.title) : ["(noch keine)"]),
-        ...freeDaysLines(u)];
+        // ohne Termin nur nach dem Verschieben wegen unterrichtsfreier Tage (Nachtrag 24) – sonst hat am Gymnasium jede Sitzung ein Datum
+        "", "## Sitzungen", ...(u.lessons.length ? u.lessons.map((l) => "- " + l.id + " " + (l.date ? fmtDay(l.date) : "[ohne Termin]") + ": " + l.title) : ["(noch keine)"]),
+        ...freeDaysLines(u, c.now)];
       // nach dem Verschieben wegen unterrichtsfreier Tage (units.revise gibt es am Gymnasium nur dann): was passiert ist, Stunden ohne Termin, freie Termine
       const rv = u.revise || null, moved = rv ? rv.items.filter((x) => x.kind === "free") : [];
       if (moved.length) {
@@ -547,7 +567,9 @@ async function callTool(c, name, a) {
         lines.push("", "## Verschoben wegen unterrichtsfreier Tage", ...freeShiftLines(moved),
           "Stunden ohne Termin: " + (undated.length ? undated.map((x) => "Stunde " + (x.i + 1) + " „" + x.r.stundenfrage + "“").join("; ") : "keine"),
           "Noch freie Termine bis zum Ende der Einheit: " + (free.length ? free.map((x) => fmtDay(x.date) + (x.time ? " " + x.time : "") + " (" + x.minutes + " min)").join("; ") : "keine"),
-          "Muss überarbeitet werden: " + (rv.open ? "ja (Hinweis in der Einheit – überarbeite sie nur nach Rücksprache mit der Lehrkraft; Stunden zusammenlegen oder kürzen mit save_unit_plan, verlängern nur nach Zustimmung mit extend_unit)" : "nein"));
+          // Gymnasium: save_unit_plan ordnet nach Position den Sitzungen zu – Inhalte deshalb mit update_unit_row (wie im Prompt „Einheit mit Claude überarbeiten“)
+          "Muss überarbeitet werden: " + (rv.open ? "ja (Hinweis in der Einheit – überarbeite sie nur nach Rücksprache mit der Lehrkraft; Inhalte und Stundenfragen mit update_unit_row und der Nummer nr jeder Stunde, " +
+            "verlängern nur nach Zustimmung mit extend_unit; save_unit_plan ordnet am Gymnasium die Stunden nach ihrer Position den Sitzungen zu – Anzahl und Reihenfolge der Stunden mit Sitzung beibehalten)" : "nein"));
       }
       return toolText(lines.join("\n"), { unit_id: u.id, version: u.version });
     }

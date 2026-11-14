@@ -452,3 +452,54 @@ test("D1: Tabelle des Gymnasiums mit 40 geänderten Sitzungsterminen bleibt bei 
   assert.ok(r.data.unit.params.schoolBreaks && r.data.unit.params.schoolBreaks[0].label === "Osterferien", "Antwort mit den Schultagen");
 });
 const addDays7 = (d) => new Date(Date.parse(d + "T12:00:00Z") + 7 * 86400e3).toISOString().slice(0, 10);
+
+/* ---------- Prüfung der Abläufe der Lehrkraft (Befunde) ---------- */
+test("Connector und Prompts: Stunden, die nach „Nur speichern“ an einem freien Tag liegen, sind markiert; Gymnasium ohne Termin und Hinweis wie im Prompt; ohne freie Tage wie bisher", async () => {
+  const { c, gs, gym } = await setup();
+  // ohne unterrichtsfreie Tage: get_lesson und get_unit ohne die neuen Zeilen (byte-gleich zu vorher)
+  const gl0 = await mcp(c, "get_lesson", { lesson_id: gym.ids[2] }), gu0 = await mcp(c, "get_unit", { unit_id: gym.id }), sl0 = await mcp(c, "get_lesson", { lesson_id: gs.ids[2] });
+  for (const t of [gl0.text, gu0.text, sl0.text]) assert.ok(!/unterrichtsfrei|noch keinen Termin|\[ohne Termin\]|Trotzdem an einem/.test(t), t);
+  const p0 = P.claudeGymRevisionPrompt({ unit: await unitGet(c, gym.id), now: NOW });
+  assert.ok(!p0.includes("liegt auf einem unterrichtsfreien Tag"));
+  // Herbstferien (verschieben) und ein Brückentag am Mo, 16.11. (nur speichern): Stunde 3 des Gymnasiums liegt danach dort
+  await call(c, FD.routeFreeDayCreate, "POST", "/x", body(HERBST, { shift: true }));
+  await call(c, FD.routeFreeDayCreate, "POST", "/x", body({ ...PTAG, from: "2026-11-16", to: "2026-11-16", label: "Brückentag", scope: "both" }, { shift: false }));
+  const gu = (await mcp(c, "get_unit", { unit_id: gym.id })).text;
+  assert.ok(gu.includes("Trotzdem an einem dieser Tage (die Lehrkraft hat die Sitzungen beim Eintragen dort gelassen): Stunde 3 „Stunde 3“ am Mo, 16.11.2026 (Brückentag). " +
+    "Frage die Lehrkraft, ob sie einen anderen Termin bekommen sollen – verschiebe sie nur mit ihrer Zustimmung."), gu);
+  assert.ok(gu.includes("- " + gym.ids[4] + " [ohne Termin]: Stunde 5") && gu.includes("- " + gym.ids[0] + " Mo, 02.11.2026: Stunde 1"), "Sitzungen ohne Termin als solche benannt");
+  assert.ok(gu.includes("Inhalte und Stundenfragen mit update_unit_row und der Nummer nr jeder Stunde") && !gu.includes("zusammenlegen oder kürzen mit save_unit_plan"),
+    "Gymnasium: wie der Prompt – save_unit_plan ordnet nach Position zu");
+  const su = (await mcp(c, "get_unit", { unit_id: gs.id })).text;
+  assert.ok(!su.includes("Trotzdem an einem dieser Tage"), "Grundschule: keine ihrer Stunden liegt am Brückentag (verschoben auf Di/Do)");
+  const gl = (await mcp(c, "get_lesson", { lesson_id: gym.ids[2] })).text;
+  assert.ok(gl.includes("Achtung: Am Mo, 16.11.2026 ist laut den Einstellungen der Lehrkraft unterrichtsfrei (Brückentag) – diese Sitzung liegt trotzdem dort") &&
+    gl.includes("Wegen unterrichtsfreier Tage verschoben (Herbstferien): die Stunden sind auf die nächsten freien Termine gerückt. Die Einheit muss deshalb überarbeitet werden"), gl);
+  const gl5 = (await mcp(c, "get_lesson", { lesson_id: gym.ids[4] })).text;
+  assert.ok(gl5.includes("Diese Sitzung hat noch keinen Termin – sie ist beim Verschieben hinter das Ende der Einheit gerutscht; einen Termin bekommt sie mit extend_unit") && !gl5.includes("Achtung: Am"), gl5);
+  const p = P.claudeGymRevisionPrompt({ unit: await unitGet(c, gym.id), now: NOW });
+  assert.ok(p.includes("3. Mo, 16.11.2026 08:00 (45 Min.): „Stunde 3“ – Sitzung " + gym.ids[2] + " – liegt auf einem unterrichtsfreien Tag (Brückentag)"), p);
+  assert.equal(p.match(/liegt auf einem unterrichtsfreien Tag/g).length, 1);
+  // in der Vergangenheit nie markiert (dort wird nichts mehr geplant)
+  assert.ok(!P.claudeGymRevisionPrompt({ unit: await unitGet(c, gym.id), now: at("2026-11-17T10:00:00Z") }).includes("liegt auf einem unterrichtsfreien Tag"));
+  // Grundschule: eine Stunde an einem Tag, der danach nur für die Grundschule frei wird („Nur speichern“)
+  await call(c, FD.routeFreeDayCreate, "POST", "/x", body({ ...GSTAG, from: "2026-11-17", to: "2026-11-17", label: "Schulfest" }, { shift: false }));
+  const sp = claudeUnitRevisionPrompt({ unit: await unitGet(c, gs.id), now: NOW });
+  assert.ok(/3\. \[uid [a-f0-9]{8}\] Di, 17\.11\.2026 08:00 \(45 Min\.\): „Stunde 3“ – Sitzung [a-f0-9]+ – noch nicht geplant – liegt auf einem unterrichtsfreien Tag \(Schulfest\)/.test(sp), sp);
+  const sl = (await mcp(c, "get_lesson", { lesson_id: gs.ids[2] })).text;
+  assert.ok(sl.includes("Achtung: Am Di, 17.11.2026 ist laut den Einstellungen der Lehrkraft unterrichtsfrei (Schulfest)"), sl);
+  assert.ok((await mcp(c, "get_unit", { unit_id: gs.id })).text.includes("Stunde 3 „Stunde 3“ am Di, 17.11.2026 (Schulfest)"));
+});
+
+test("freeBreakOf/freeRowNote: Eintrag der Schule für einen Tag aus params.schoolBreaks; ohne Einträge null bzw. leer; nur heute oder später", () => {
+  const params = P.withSchoolBreaks({ start: "2026-11-02", end: "2026-11-30", weekdays: GYM_TT }, [HERBST, PTAG, GSTAG], "powi");
+  const on = P.freeBreakOf(params);
+  assert.equal(on("2026-11-10").label, "Herbstferien");
+  assert.equal(on("2026-11-04").label, "Pädagogischer Tag");
+  assert.equal(on("2026-11-05"), null, "Tag der Grundschule zählt am Gymnasium nicht");
+  assert.equal(on(null), null);
+  assert.equal(P.freeBreakOf({ start: "2026-11-02", end: "2026-11-30" })("2026-11-10"), null);
+  assert.equal(P.freeRowNote(on, "2026-11-10", "2026-11-02"), " – liegt auf einem unterrichtsfreien Tag (Herbstferien)");
+  assert.equal(P.freeRowNote(on, "2026-11-10", "2026-11-11"), "", "vergangene Tage nicht markiert");
+  assert.equal(P.freeRowNote(on, "2026-11-03", "2026-11-02"), "");
+});
