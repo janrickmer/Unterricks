@@ -1029,6 +1029,8 @@ async function main() {
       await jp.locator("#tmc-min").fill("1"); await jp.keyboard.press("Enter");
       await qp.locator(".live .tband.tb-last").waitFor({ timeout: 10000 });
       await gp.locator(".beamer .tband.tb-last").waitFor({ timeout: 10000 });
+      // auch das Präsentationsfenster bekommt die Nachricht nicht im selben Augenblick – erst darauf warten, dann lesen (sonst Wettlauf im Test)
+      await jpr.locator(".stage .tband.tb-last").waitFor({ timeout: 10000 }).catch(() => {});
       const lq = await band(qp, ".live");
       ok(lq.bg === "rgb(255, 154, 69)" && /^Noch (1:00|0:5\d)$/.test(lq.text) && (await jpr.locator(".stage .tband").getAttribute("class")) === "tband tb-last", "letzte Minute: orange bei allen (" + lq.text + ")");
       await qp.screenshot({ ...SHOT, path: join(OUT, "timer-schueler-letzte-minute.png") });
@@ -2151,6 +2153,8 @@ async function main() {
       await tp.locator(".toast", { hasText: "(3 Seiten)" }).waitFor({ timeout: 20000 });
       const gsRows = tp.locator(".gs-basis tbody tr");
       await gsRows.nth(3).waitFor({ timeout: 15000 });
+      // die Tabelle stand schon vor dem Hochladen da („fehlt“) und wird danach neu gezeichnet – erst auf den neuen Stand warten, dann lesen
+      await tp.waitForFunction(() => { const r = [...document.querySelectorAll(".gs-basis tbody tr")]; return r.length === 4 && r.every((x) => /vollständig\s*$/.test(x.textContent)); }, null, { timeout: 15000 }).catch(() => {});
       const rowTexts = (await gsRows.allTextContents()).map((t) => t.replace(/\s+/g, " ").trim());
       ok(await tp.locator(".gs-basis h3").textContent() === "Grundschule (Jahrgänge 1–4)" && rowTexts.length === 4
         && rowTexts[0].startsWith("Grundschule Jg. 1") && rowTexts[0].includes("(S. 1–2)") && rowTexts[3].startsWith("Grundschule Jg. 4") && rowTexts[3].includes("(S. 1, 3)")
