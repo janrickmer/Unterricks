@@ -429,4 +429,7 @@ auch die GitHub-Pages-Fassung: `PAGES_API=<Worker-Adresse> npm run build` erzeug
 zweiten Adresse aus (CORS, WebSocket, Links zum Worker, keine CSP-Fehler, Schutz gegen Einbetten). Am Ende öffnet er alle Seiten und
 die wichtigsten Dialoge auf iPhone SE, iPhone 13 und iPad und prüft, dass man nur senkrecht scrollen muss (nichts ragt über den Rand,
 nichts scrollt seitlich – Fundstellen in `test-results/mobile-audit.json`); mit `MOBILE_SHOTS=1` legt er von jeder Seite ein
-Bildschirmfoto in `test-results/mobil/` ab.
+Bildschirmfoto in `test-results/mobil/` ab. Danach bedient er Dialoge nur mit der Tastatur: Tab und Umschalt+Tab bleiben im obersten
+offenen Dialog (nie auf der Seite dahinter), Esc schließt bei zwei Dialogen übereinander nur den oberen, der Fokus geht an den Auslöser
+zurück – auch in Codefolie, Präsentationsmodus und Escape-Room; mit `DIALOG_SHOTS=1` legt er Bildschirmfotos mit sichtbarem Fokusrahmen
+in `test-results/dialoge/` ab.

@@ -4,7 +4,7 @@
 // Die Folienbilder holt die Seite blockweise als kurzlebige, signierte Links (fetchSlides); der Server liefert nie eine Folie jenseits der
 // Markierung. Ein spät geladenes Bild überschreibt nie eine neuere Auswahl; Nachbarfolien werden vorgeladen. Ohne Folienbilder (ältere
 // Präsentation) bleibt nur der Hinweis mit dem Download.
-import { h, icon, busy } from "./ui.js";
+import { h, icon, busy, openLayer } from "./ui.js";
 import { STUDENT_SLIDE_BLOCK } from "./shared.js";
 
 export const SV_TEXT = {
@@ -182,11 +182,14 @@ export function slideViewer(o) {
 
   // Vollbild für das Fenster samt Knöpfen; ohne Vollbild-Schnittstelle (iPhone) als Ebene über der Seite
   const fsEl = () => document.fullscreenElement || document.webkitFullscreenElement || null;
-  let wasFull = false;
+  let wasFull = false, layer = null;
   const paintFs = () => {
     const on = fsEl() === stage || stage.classList.contains("max");
     stage.classList.toggle("full", on);
     exitBtn.hidden = !on;
+    // Ebene (Nachtrag 25): im Vollbild bzw. als Ebene über der Seite bleibt Tab im Fenster; Esc beendet die Ebene (Vollbild: der Browser)
+    if (on && !layer) layer = openLayer(stage, { opener: fsBtn, onEscape: () => { if (stage.classList.contains("max")) toggleFs(); } });
+    else if (!on && layer) { layer.release(false); layer = null; }
     // hinein: der Knopf „Vollbild“ liegt außerhalb – Fokus ins Fenster (Pfeiltasten); heraus: zurück auf „Vollbild“, wenn er im Fenster war
     if (on && !wasFull && (document.activeElement === fsBtn || document.activeElement === document.body)) frame.focus();
     if (!on && wasFull && (stage.contains(document.activeElement) || document.activeElement === document.body) && fsBtn.isConnected) fsBtn.focus();
@@ -233,6 +236,7 @@ export function slideViewer(o) {
       document.removeEventListener("fullscreenchange", paintFs);
       document.removeEventListener("webkitfullscreenchange", paintFs);
       stage.classList.remove("max");
+      if (layer) { layer.release(false); layer = null; }
       if (fsEl() === stage) { const x = document.exitFullscreen || document.webkitExitFullscreen; try { const p = x && x.call(document); if (p && p.catch) p.catch(() => {}); } catch {} }
     },
   };

@@ -177,6 +177,8 @@ input.codein { font-family: var(--mono); font-size: 1.3rem; letter-spacing: .12e
 input.codein::placeholder { font-family: var(--font); font-size: 1.05rem; letter-spacing: normal; text-transform: none; }
 input:focus, select:focus, textarea:focus { outline: none; border-color: var(--fach-text); box-shadow: 0 0 0 3px color-mix(in srgb, var(--fach-text) 28%, transparent); }
 input[type=checkbox], input[type=radio] { width: 1.15rem; height: 1.15rem; }
+/* Kästchen und Optionsfelder: der blasse Schatten der Textfelder allein ist als Fokus kaum zu sehen – per Tastatur der Fokusrahmen (Nachtrag 25) */
+input[type=checkbox]:focus-visible, input[type=radio]:focus-visible { outline: 3px solid var(--ring, var(--fach-text)); outline-offset: 2px; box-shadow: none; }
 .btn { display: inline-flex; align-items: center; justify-content: center; gap: .5rem; font: inherit; font-weight: 700; font-size: 1rem; line-height: 1.2; min-height: 44px; padding: .6rem 1.05rem;
   border-radius: var(--radius-s); border: 1px solid var(--line-ui); background: var(--surface); color: var(--text); cursor: pointer; text-decoration: none;
   transition: background-color .18s var(--ease), border-color .18s var(--ease), box-shadow .18s var(--ease), transform .12s var(--ease); }

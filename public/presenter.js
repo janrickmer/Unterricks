@@ -1,5 +1,5 @@
 // presenter.js – Präsentation (PDF) in Folienbilder umwandeln und im Vollbild live für alle zeigen.
-import { h, clear, api, apiUrl, wsUrl, toast, errToast, icon, store, rand, busy } from "./ui.js";
+import { h, clear, api, apiUrl, wsUrl, toast, errToast, icon, store, rand, busy, openLayer, keepTab } from "./ui.js";
 import { isValidCode, formatCode, slideTextLines, slideCodeBoxes, slideSessionCode, codeCover, coverFill, codeFontStyle, codeSlideLines, cleanCodeSlides, cleanSlideNotes, notesFor,
   nextSlideOf, nextSlideLabel, presenterKey, BEAMER_CHANNEL, normBeamerCode, PUBLIC_URL, beamerWindowNote,
   TIMER_PICKS, TIMER_MAX_MIN, TIMER_TOTAL_MAX_MIN, TIMER_ADDS, TIMER_OVER, normTimerMin } from "./shared.js";
@@ -403,7 +403,7 @@ export async function startPresenter({ lessonId, file, token, startSlide = 0, on
   // Hinweis, warum die Notizen fehlen: nur mit Notizen, eingeblendeter Vorschau und ohne getrennten Beamer – kurz sichtbar (Start, Beamer getrennt)
   const notesHint = h("span", { class: "small notehint", "aria-live": "polite" });
   let hintUntil = 0, hintT = null;
-  const root = h("div", { class: "presenter" + (showNext ? " with-next" : ""), role: "dialog", "aria-label": "Präsentation läuft" },
+  const root = h("div", { class: "presenter" + (showNext ? " with-next" : ""), role: "dialog", "aria-modal": "true", "aria-label": "Präsentation läuft" },
     h("div", { class: "pview" }, curCol, nextPane),
     h("div", { class: "bar" },
       h("button", { class: "btn small", type: "button", onclick: () => goto(cur - 1), "aria-label": "Vorherige Folie" }, icon("left")),
@@ -469,13 +469,7 @@ export async function startPresenter({ lessonId, file, token, startSlide = 0, on
     pairWrap.hidden = true; devBtn.setAttribute("aria-expanded", "false");
     if (mine && root.isConnected) { try { (byKey ? devBtn : root).focus({ preventScroll: true }); } catch {} }
   }
-  function trapTab(e, wrap = pairWrap) {
-    const f = [...wrap.querySelectorAll("button, input")].filter((x) => !x.disabled && x.getClientRects().length > 0);
-    if (!f.length) return;
-    const i = f.indexOf(document.activeElement);
-    if (e.shiftKey && i <= 0) { e.preventDefault(); f[f.length - 1].focus(); }
-    else if (!e.shiftKey && (i < 0 || i === f.length - 1)) { e.preventDefault(); f[0].focus(); }
-  }
+  const trapTab = (e, wrap = pairWrap) => keepTab(e, wrap);   // gemeinsame Hilfe aus ui.js (Nachtrag 25): Tab bleibt im Feld
   async function doPair() {
     const code = normBeamerCode(pairIn.value), keyed = pairKeyed; pairKeyed = false;
     if (!code) { pairErr.textContent = BEAMER_CODE_MISSING; pairIn.setAttribute("aria-invalid", "true"); try { pairIn.focus(); } catch {} return; }
@@ -662,7 +656,9 @@ export async function startPresenter({ lessonId, file, token, startSlide = 0, on
   // Enter/Leertaste auf einem Knopf der Leiste lösen den Knopf aus (Tastatur); nach einem Mausklick verliert der Knopf den Fokus wieder,
   // damit Leertaste und Presenter danach weiter blättern
   const onControl = (t) => !!(t && t.closest && root.contains(t) && t.closest("button, a[href], input, select, textarea"));
+  let layer = null;
   const onKey = (e) => {
+    if (layer && !layer.top) return;   // ein Dialog liegt über der Präsentation: seine Tasten gehören ihm
     if (!pairWrap.hidden) {   // Eingabefeld „Beamer verbinden“: Tasten gehören dem Feld (Pfeile, Rücktaste, Ziffern) – Esc schließt, Tab bleibt darin
       if (e.key === "Escape") { e.preventDefault(); closePair(true); } else if (e.key === "Tab") trapTab(e);
       return;
@@ -700,7 +696,7 @@ export async function startPresenter({ lessonId, file, token, startSlide = 0, on
     if (stopForAll) live.send({ t: "stop" });
     setTimeout(() => live.close(), stopForAll ? 400 : 0);
     if (isFs()) (document.exitFullscreen || document.webkitExitFullscreen).call(document).catch(() => {});
-    root.remove();
+    root.remove(); layer.release(false);
     if (stopForAll) toast("Die Live-Präsentation wurde für alle beendet.", "ok");
     if (onEnd) onEnd(stopForAll);   // baut die Seite dahinter evtl. neu (und setzt den Fokus dann selbst)
     if (back && back.isConnected && typeof back.focus === "function" && (!document.activeElement || document.activeElement === document.body)) try { back.focus({ preventScroll: true }); } catch {}
@@ -709,6 +705,9 @@ export async function startPresenter({ lessonId, file, token, startSlide = 0, on
   const back = document.activeElement;
   root.tabIndex = -1;
   document.body.append(root);
+  // Ebene über der Seite (Nachtrag 25): Tab und Umschalt+Tab bleiben in der Präsentation, die Seite dahinter ist inert; Esc bleibt beim Browser
+  // (Vollbild) und bei den Feldern „Beamer verbinden“ und „Timer“, die Tab selbst in sich halten (onKey läuft vor der Ebene)
+  layer = openLayer(root, { opener: back });
   try { root.focus({ preventScroll: true }); } catch {}
   paint(); paintInfo(); wake(); showNotesHint();
   // Vollbild muss direkt aus dem Klick heraus angefordert werden (Aufrufer ruft startPresenter im Klick-Handler auf)
@@ -723,13 +722,15 @@ export async function startPresenter({ lessonId, file, token, startSlide = 0, on
 /* Sitzungscode groß für den Beamer – dieselbe Codefolie wie in der Präsentation (codeslide.js), mit QR-Code zu Unterricks
    (public/qr-unterricks.svg, erzeugt von scripts/qr-unterricks.mjs) */
 export function showCode(code, title) {
-  const root = h("div", { class: "codeshow", role: "dialog", "aria-label": "Sitzungscode" },
-    codeSlideDom({ code, title }),
-    h("button", { class: "btn cs-close", type: "button", onclick: () => close() }, "Schließen"));
-  const close = () => { root.remove(); document.removeEventListener("keydown", onKey); if (document.fullscreenElement) document.exitFullscreen().catch(() => {}); };
-  const onKey = (e) => { if (e.key === "Escape") close(); };
-  document.addEventListener("keydown", onKey);
+  const shut = h("button", { class: "btn cs-close", type: "button", onclick: () => close() }, "Schließen");
+  const root = h("div", { class: "codeshow", role: "dialog", "aria-modal": "true", "aria-label": "Sitzungscode" }, codeSlideDom({ code, title }), shut);
+  // Ebene (Nachtrag 25): der Fokus geht auf „Schließen“ (sonst bliebe er auf dem Knopf dahinter – Enter öffnete die Folie ein zweites Mal),
+  // Tab bleibt dort, Esc schließt, danach zurück auf den Auslöser
+  let layer = null;
+  const close = () => { if (!layer) return; root.remove(); const l = layer; layer = null; l.release(); if (document.fullscreenElement) document.exitFullscreen().catch(() => {}); };
   document.body.append(root);
+  layer = openLayer(root, { onEscape: close });
+  try { shut.focus({ preventScroll: true }); } catch {}
   const f = root.requestFullscreen || root.webkitRequestFullscreen; if (f) Promise.resolve(f.call(root)).catch(() => {});
 }
 export { clear, errToast };

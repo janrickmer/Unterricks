@@ -1,0 +1,272 @@
+// Dialoge (Nachtrag 25): Der Tastaturfokus bleibt im obersten offenen Dialog – modal(), confirmDialog(), openLayer()/keepTab() aus public/ui.js
+// und die eigenen Ebenen (Codefolie „Für den Beamer zeigen“, Folienfenster als Ebene) im Browser-Ersatz (fake-dom.mjs): Tab und Umschalt+Tab
+// wandern im Kreis, nie auf die Seite dahinter; gesperrte, ausgeblendete, inerte Elemente und tabindex="-1" zählen nicht; Optionsfelder sind ein
+// Halt; Esc schließt nur den obersten Dialog; der Fokus geht zum Auslöser zurück; die Seite ist inert (außer den Meldungen) und nichts bleibt inert.
+import test from "node:test";
+import assert from "node:assert/strict";
+import { register } from "node:module";
+const { installDom, stubs } = await import("./fake-dom.mjs");
+register(stubs);
+const D = installDom({ hash: "#/lk" });
+const { h, modal, confirmDialog, openLayer, keepTab, tabbables } = await import("../../public/ui.js");
+
+const $$ = (s, r = document) => [...r.querySelectorAll(s)];
+const desc = (el) => (el ? el.tagName + (el.id ? "#" + el.id : "") + " „" + el.textContent.trim().slice(0, 30) + "“" : String(el));
+const at = (el, msg) => assert.ok(document.activeElement === el, (msg || "") + " – Fokus auf " + desc(document.activeElement) + ", erwartet " + desc(el));
+const button = (root, text) => $$("button", root).find((b) => b.textContent.trim() === text || b.getAttribute("aria-label") === text);
+const app = document.getElementById("app"), toasts = document.getElementById("toasts");
+const inertNow = () => $$("[inert]").map((x) => x.id || x.className);
+/* Seite mit Knöpfen davor und danach (der Fokus darf nie dorthin) */
+function page() {
+  for (const x of $$("body > *")) if (x !== app && x !== toasts) x.remove();
+  app.replaceChildren(h("button", { id: "p1", type: "button" }, "Vorher"), h("button", { id: "open", type: "button" }, "Öffnen"), h("a", { id: "p2", href: "#/x" }, "Danach"));
+  return { opener: document.getElementById("open") };
+}
+const settle = () => D.sleep(40);   // erster Fokus von modal() (30 ms) und Mikrotasks (MutationObserver)
+/* n-mal Tab (bzw. Umschalt+Tab): jeder Halt liegt in root, nie auf der Seite */
+function cycle(root, n, shift = false) {
+  const seen = [];
+  for (let i = 0; i < n; i++) {
+    D.press("Tab", shift ? { shiftKey: true } : {});
+    const a = document.activeElement;
+    assert.ok(root.contains(a), "Tab " + (i + 1) + (shift ? " (rückwärts)" : "") + " bleibt im Dialog – ist " + desc(a));
+    seen.push(a);
+  }
+  return seen;
+}
+
+test("modal(): erster Fokus im Dialog, Tab vom letzten zum ersten, Umschalt+Tab vom ersten zum letzten, die Seite ist inert", async () => {
+  const { opener } = page();
+  opener.focus();
+  let name = null, check = null;
+  modal({ title: "Link hinzufügen", body: (el) => el.append(name = h("input", { id: "t" }), check = h("input", { type: "checkbox", id: "c" })),
+    actions: [{ label: "Abbrechen" }, { label: "Hinzufügen", class: "primary", onClick: () => false }] });
+  await settle();
+  const box = document.querySelector(".modal"), x = button(box, "Schließen"), ok = button(box, "Hinzufügen");
+  at(name, "erster Fokus: das Eingabefeld");
+  assert.equal(box.getAttribute("role"), "dialog"); assert.equal(box.getAttribute("aria-modal"), "true");
+  assert.deepEqual(inertNow(), ["app"], "die Seite ist inert, die Meldungen (#toasts) nicht");
+  assert.deepEqual(tabbables(box).map((e) => e.id || e.textContent.trim() || e.getAttribute("aria-label")), ["Schließen", "t", "c", "Abbrechen", "Hinzufügen"]);
+  ok.focus(); D.press("Tab"); at(x, "Tab vom letzten Halt → erster (Schließen)");
+  D.press("Tab", { shiftKey: true }); at(ok, "Umschalt+Tab vom ersten Halt → letzter");
+  const fwd = cycle(box, 11), back = cycle(box, 11, true);
+  assert.equal(new Set(fwd).size, 5, "alle fünf Halte, im Kreis"); assert.equal(new Set(back).size, 5);
+  // Fokus auf body (z. B. nach einem Klick auf eine leere Stelle): Tab → erster, Umschalt+Tab → letzter Halt
+  document.activeElement.blur(); at(document.body); D.press("Tab"); at(x, "von body: Tab → erster Halt");
+  document.activeElement.blur(); D.press("Tab", { shiftKey: true }); at(ok, "von body: Umschalt+Tab → letzter Halt");
+  D.press("Escape");
+  assert.equal($$(".modal").length, 0, "Esc schließt");
+  at(opener, "Fokus zurück auf den Auslöser");
+  assert.deepEqual(inertNow(), [], "nichts bleibt inert");
+});
+
+test("übereinander: Esc schließt nur den obersten Dialog, der Fokus geht an seinen Auslöser im Dialog darunter; die Ebene darunter ist solange inert", async () => {
+  const { opener } = page();
+  opener.focus();
+  let inner = null;
+  modal({ title: "Unten", body: (el) => el.append(inner = h("button", { type: "button", id: "inner" }, "Rückfrage öffnen")), actions: [{ label: "Fertig" }] });
+  await settle();
+  const lower = document.querySelector(".modal-back");
+  inner.focus();
+  const asked = confirmDialog("Wirklich?", "Diese Rückfrage liegt oben.", "Ja");
+  await settle();
+  assert.equal($$(".modal").length, 2);
+  const upper = $$(".modal-back")[1];
+  at(button(upper, "Ja"), "Rückfrage ohne Eingabefeld: Fokus auf dem Hauptknopf");
+  assert.ok(lower.hasAttribute("inert") && app.hasAttribute("inert") && !upper.hasAttribute("inert") && !toasts.hasAttribute("inert"), "Seite und Dialog darunter inert: " + inertNow());
+  cycle(upper, 7); cycle(upper, 7, true);
+  D.press("Escape");
+  assert.equal(await asked, false, "Esc beantwortet die Rückfrage mit „nein“");
+  assert.equal($$(".modal").length, 1, "nur der oberste Dialog ist zu");
+  assert.ok(lower.isConnected && !lower.hasAttribute("inert"), "der Dialog darunter ist wieder bedienbar");
+  at(inner, "Fokus zurück auf den Auslöser im Dialog darunter");
+  cycle(lower, 4);
+  D.press("Escape");
+  assert.equal($$(".modal").length, 0);
+  at(opener, "danach zurück auf den Auslöser in der Seite");
+  assert.deepEqual(inertNow(), []);
+});
+
+test("ein gesperrter, ausgeblendeter, inerter oder entfernter Halt: Tab bleibt im Dialog", async () => {
+  const { opener } = page();
+  opener.focus();
+  let busyBtn = null, gone = null;
+  const dlg = modal({ title: "Speichern", body: (el) => el.append(h("input", { id: "f1" }), h("button", { type: "button", id: "hid", class: "hidden" }, "versteckt"),
+    h("span", { tabindex: "-1", id: "neg" }, "nur per Skript"), h("div", { inert: true }, h("button", { type: "button", id: "in" }, "inert")), h("button", { type: "button", id: "dis", disabled: true }, "gesperrt"),
+    gone = h("button", { type: "button", id: "gone" }, "verschwindet")),
+  actions: [{ label: "Abbrechen" }, { label: "Speichern", class: "primary", onClick: (e) => { busyBtn = e.currentTarget; busyBtn.disabled = true; return false; } }] });
+  await settle();
+  const box = document.querySelector(".modal");
+  assert.deepEqual(tabbables(box).map((e) => e.id || e.textContent.trim() || e.getAttribute("aria-label")), ["Schließen", "f1", "gone", "Abbrechen", "Speichern"], "ohne ausgeblendete, gesperrte, inerte und tabindex=-1");
+  // der fokussierte Knopf wird gesperrt (wie busy()): der Fokus fällt auf body – Tab landet im Dialog
+  const save = button(box, "Speichern");
+  save.focus(); save.click();
+  assert.ok(save.disabled); at(document.body, "gesperrt: Fokus auf body (wie im Browser)");
+  D.press("Tab"); at(button(box, "Schließen"), "Tab danach: erster Halt");
+  D.press("Tab", { shiftKey: true }); at(button(box, "Abbrechen"), "Umschalt+Tab vom ersten: letzter erreichbarer Halt (Speichern ist gesperrt)");
+  // tabindex=-1 fokussiert (per Skript): vom Platz im Dokument aus weiter
+  document.getElementById("neg").focus(); at(document.getElementById("neg"));
+  D.press("Tab"); at(gone, "Tab nach dem Element mit tabindex=-1: nächster Halt danach");
+  document.getElementById("neg").focus(); D.press("Tab", { shiftKey: true }); at(document.getElementById("f1"), "Umschalt+Tab: voriger Halt");
+  // fokussierter Knopf entfernt (Inhalt neu gezeichnet): Tab landet im Dialog
+  gone.focus(); gone.remove(); at(document.body);
+  D.press("Tab"); assert.ok(box.contains(document.activeElement)); at(button(box, "Schließen"));
+  dlg.close();
+  at(opener); assert.deepEqual(inertNow(), []);
+});
+
+test("Optionsfelder sind ein Halt (wie im Browser); ohne Wahl das erste bzw. letzte", async () => {
+  page();
+  const radios = ["a", "b", "c"].map((v) => h("input", { type: "radio", name: "r", value: v, id: "r" + v }));
+  const dlg = modal({ title: "Bereich", body: (el) => el.append(...radios), actions: [{ label: "Abbrechen" }, { label: "Übernehmen", class: "primary" }] });
+  await settle();
+  const box = document.querySelector(".modal"), x = button(box, "Schließen"), go = button(box, "Übernehmen");
+  go.focus(); D.press("Tab"); at(x);
+  x.focus(); D.press("Tab", { shiftKey: true }); at(go);
+  radios[1].checked = true;
+  // vom letzten Halt rückwärts im Kreis: Übernehmen → Abbrechen → (Optionsfelder) → Schließen; am Rand landet Tab auf dem gewählten
+  document.activeElement.blur(); D.press("Tab"); at(x);
+  // Optionsfelder als letzter Halt: Tab vom gewählten (nicht vom letzten im Dokument) wandert zum ersten
+  box.querySelector("footer").remove();
+  radios[1].focus(); D.press("Tab"); at(x, "Tab vom gewählten Optionsfeld (letzter Halt) → erster Halt");
+  x.focus(); D.press("Tab", { shiftKey: true }); at(radios[1], "Umschalt+Tab vom ersten Halt → das gewählte Optionsfeld");
+  radios[1].checked = false;
+  x.focus(); D.press("Tab", { shiftKey: true }); at(radios[2], "ohne Wahl: rückwärts das letzte Optionsfeld");
+  dlg.close();
+});
+
+test("Esc und Tab: eigene Tastenhandler gehen vor (preventDefault), Strg/Alt/Cmd und Eingaben mit IME bleiben unberührt", async () => {
+  page();
+  let esc = 0;
+  const host = h("div", { id: "lay" }, h("button", { type: "button", id: "l1" }, "Eins"), h("button", { type: "button", id: "l2" }, "Zwei"));
+  document.body.append(host);
+  const lay = openLayer(host, { onEscape: () => { esc++; } });
+  document.getElementById("l2").focus();
+  D.press("Tab", { ctrlKey: true }); at(document.body, "Strg+Tab (Tab des Browsers): nicht angefasst – der Ersatz-Browser geht ans Ende");
+  D.press("Escape", { isComposing: true }); assert.equal(esc, 0, "Esc während einer Eingabe mit IME: nichts");
+  host.addEventListener("keydown", (e) => { if (e.key === "Escape") e.preventDefault(); }, { once: true });
+  document.getElementById("l1").focus(); D.press("Escape"); assert.equal(esc, 0, "ein eigener Handler hat Esc behalten");
+  D.press("Escape"); assert.equal(esc, 1);
+  assert.equal(lay.top, true);
+  host.remove(); lay.release();
+  assert.deepEqual(inertNow(), []);
+});
+
+test("ohne close() entfernt (Seitenwechsel): die Ebene verschwindet von selbst, nichts bleibt inert, Tab geht in den Dialog darunter", async () => {
+  const { opener } = page();
+  opener.focus();
+  modal({ title: "Unten", body: h("p", { text: "Text" }), actions: [{ label: "Abbrechen" }, { label: "OK", class: "primary" }] });
+  await settle();
+  const lower = document.querySelector(".modal-back");
+  modal({ title: "Oben", body: h("p", { text: "Text" }), actions: [{ label: "Schließen" }] });
+  await settle();
+  const upper = $$(".modal-back")[1];
+  assert.ok(lower.hasAttribute("inert"));
+  upper.remove();
+  await D.sleep(0);
+  assert.ok(!lower.hasAttribute("inert") && app.hasAttribute("inert"), "nach dem Entfernen: der Dialog darunter ist wieder bedienbar, die Seite noch inert");
+  assert.ok(lower.contains(document.activeElement), "der Fokus fiel auf body – er kommt in den Dialog darunter: " + desc(document.activeElement));
+  D.press("Escape");
+  assert.equal($$(".modal").length, 0); assert.deepEqual(inertNow(), []);
+  // ganz ohne Dialog darunter
+  modal({ title: "Allein", body: h("p", { text: "Text" }) });
+  await settle();
+  assert.deepEqual(inertNow(), ["app"]);
+  document.querySelector(".modal-back").remove();
+  await D.sleep(0);
+  assert.deepEqual(inertNow(), [], "nichts bleibt inert");
+  D.press("Escape"); D.press("Tab");
+});
+
+test("erster Fokus: nie über einen schon gesetzten Fokus hinweg und nie, wenn schon ein Dialog darüber liegt", async () => {
+  page();
+  let field = null;
+  modal({ title: "A", body: (el) => el.append(h("input", { id: "a1" }), field = h("input", { id: "a2" })), actions: [{ label: "OK", class: "primary" }] });
+  field.focus();   // schnelles Tippen: die Lehrkraft ist schon im zweiten Feld
+  await settle();
+  at(field, "der verzögerte erste Fokus nimmt ihn nicht weg");
+  const lower = document.querySelector(".modal");
+  document.activeElement.blur();
+  const top = modal({ title: "B", body: h("p", { text: "Nur Text" }) });
+  await settle();
+  const upper = $$(".modal")[1];
+  at(button(upper, "Schließen"), "ohne Eingabefeld und ohne Knöpfe unten: „Schließen“");
+  assert.ok(!lower.contains(document.activeElement));
+  top.close();
+  assert.ok(lower.contains(document.activeElement), "zurück in den Dialog darunter (zuletzt fokussiert bzw. erster Halt)");
+  D.press("Escape");
+});
+
+test("Dialog im Vollbild: er hängt im Element im Vollbild, das nie inert wird; danach wieder an body", async () => {
+  page();
+  const fs = h("div", { class: "presenter", id: "pres", tabindex: "-1" }, h("button", { type: "button", id: "next" }, "Weiter"));
+  document.body.append(fs);
+  document.fullscreenElement = fs;
+  try {
+    modal({ title: "Im Vollbild", body: h("p", { text: "Text" }), actions: [{ label: "OK", class: "primary" }] });
+    await settle();
+    const back = document.querySelector(".modal-back");
+    assert.equal(back.parentNode, fs, "im Element im Vollbild – sonst wäre der Dialog nicht zu sehen");
+    assert.ok(!fs.hasAttribute("inert") && app.hasAttribute("inert"));
+    cycle(back, 4);
+    D.press("Escape");
+  } finally { document.fullscreenElement = undefined; fs.remove(); }
+  assert.deepEqual(inertNow(), []);
+  const d = modal({ title: "Normal", body: h("p", { text: "Text" }) });
+  assert.equal(document.querySelector(".modal-back").parentNode, document.body);
+  d.close();
+});
+
+test("keepTab ohne Ebene (Felder im Präsentationsmodus): hält Tab im Feld, dazwischen bleibt es beim Browser", () => {
+  page();
+  const wrap = h("div", null, h("input", { id: "w1" }), h("button", { type: "button", id: "w2" }, "B"), h("button", { type: "button", id: "w3", hidden: true }, "C"));
+  app.append(wrap);
+  const ev = (shift) => ({ shiftKey: shift, prevented: false, preventDefault() { this.prevented = true; } });
+  document.getElementById("w1").focus();
+  let e = ev(false); assert.equal(keepTab(e, wrap), false); assert.equal(e.prevented, false, "dazwischen: der Browser geht weiter");
+  document.getElementById("w2").focus();
+  e = ev(false); assert.equal(keepTab(e, wrap), true); assert.ok(e.prevented); at(document.getElementById("w1"), "letzter → erster (ausgeblendete zählen nicht)");
+  e = ev(true); keepTab(e, wrap); at(document.getElementById("w2"), "erster → letzter");
+  document.getElementById("open").focus();
+  e = ev(false); keepTab(e, wrap); at(document.getElementById("w1"), "von außerhalb hinein");
+  const empty = h("div"); app.append(empty);
+  e = ev(false); assert.equal(keepTab(e, empty), true); assert.ok(e.prevented, "ohne Halt: Tab tut nichts (verlässt die Ebene nicht)");
+  wrap.remove(); empty.remove();
+});
+
+test("Codefolie „Für den Beamer zeigen“: Fokus auf „Schließen“, Tab bleibt dort, die Seite ist inert, Esc schließt und gibt den Fokus zurück", async () => {
+  const { opener } = page();
+  opener.focus();
+  const { showCode } = await import("../../public/presenter.js");
+  showCode("K7QM4X", "Gewaltenteilung");
+  const cs = document.querySelector(".codeshow"), shut = button(cs, "Schließen");
+  assert.equal(cs.getAttribute("aria-modal"), "true");
+  at(shut, "Fokus auf „Schließen“ (nicht mehr auf dem Knopf dahinter)");
+  assert.deepEqual(inertNow(), ["app"]);
+  D.press("Tab"); at(shut); D.press("Tab", { shiftKey: true }); at(shut);
+  D.press("Escape");
+  assert.ok(!cs.isConnected); at(opener, "zurück auf den Auslöser"); assert.deepEqual(inertNow(), []);
+  showCode("K7QM4X", "Gewaltenteilung");
+  button(document.querySelector(".codeshow"), "Schließen").click();
+  assert.equal($$(".codeshow").length, 0); assert.deepEqual(inertNow(), []);
+});
+
+test("Folienfenster als Ebene (ohne Vollbild-Schnittstelle): Tab bleibt im Fenster, Esc beendet die Ebene", async () => {
+  page();
+  const { slideViewer } = await import("../../public/slideviewer.js");
+  const slides = [1, 2, 3].map((n) => ({ n, w: 1920, h: 1080, url: "https://api.test/s/" + n + ".jpg" }));
+  const v = slideViewer({ total: 3, fetchSlides: async () => ({ total: 3, slides }), download: async () => {}, image: () => ({}) });
+  app.append(v.el);
+  const fs = v.el.querySelector(".sv-fs"), stage = v.el.querySelector(".sv-stage");
+  fs.focus(); fs.click();
+  assert.ok(stage.classList.contains("max"));
+  const seen = cycle(stage, 8);
+  assert.ok(!seen.includes(fs) && !seen.some((x) => x.classList.contains("sv-dl")), "„Vollbild“ und der Download liegen unter der Ebene");
+  cycle(stage, 8, true);
+  document.activeElement.blur();
+  D.press("Escape");
+  assert.ok(!stage.classList.contains("max"), "Esc beendet die Ebene auch ohne Fokus im Fenster");
+  at(fs, "Fokus zurück auf „Vollbild“");
+  v.destroy();
+  assert.deepEqual(inertNow(), []);
+});

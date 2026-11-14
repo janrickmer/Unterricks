@@ -1,4 +1,4 @@
-// ui.js – kleine DOM-Hilfen, API-Aufrufe, Speicher, Dialoge. Fremde Daten nur per textContent (nie innerHTML).
+// ui.js – kleine DOM-Hilfen, API-Aufrufe, Speicher, Dialoge (samt Tastaturfokus im Dialog). Fremde Daten nur per textContent (nie innerHTML).
 
 /* Element bauen: h("div", {class: "x", onclick: fn, text: "…"}, kind1, kind2) */
 export function h(tag, attrs, ...kids) {
@@ -107,12 +107,137 @@ export async function busy(btn, fn, label) {
   finally { btn.disabled = false; btn.removeAttribute("aria-busy"); clear(btn).append(...old); }
 }
 
+/* ---------- Dialogebenen (Nachtrag 25): Der Tastaturfokus bleibt im obersten offenen Dialog ----------
+ * openLayer(el, { onEscape, opener, beforeTab }) meldet einen Dialog bzw. eine Ebene über der Seite an: modal(), die Codefolie „Für den Beamer
+ * zeigen“, den Präsentationsmodus, „Buchstabe freigeschaltet“ im Escape-Room und das Vollbild von Folienfenster und Live-Fenster. Nur die oberste
+ * Ebene behandelt Tab und Esc: Tab und Umschalt+Tab bleiben in ihr (vom letzten erreichbaren Element zum ersten und umgekehrt; liegt der Fokus auf
+ * body, außerhalb oder auf einem gerade gesperrten bzw. entfernten Element, geht Tab zum ersten, Umschalt+Tab zum letzten), Esc ruft onEscape
+ * (ohne onEscape bleibt Esc bei der Ebene bzw. beim Browser – Vollbild). Ausgeblendete, gesperrte, inerte Elemente und tabindex="-1" zählen nicht;
+ * eine Gruppe von Optionsfeldern ist ein Halt (wie im Browser). Eigene Tastenhandler laufen vorher (die Ebenen hören am Fenster): wer
+ * preventDefault() aufruft, behält die Taste (z. B. „Beamer verbinden“ und „Timer“ im Präsentationsmodus).
+ * Solange eine Ebene offen ist, sind die übrigen Kinder von <body> inert – Tastatur, Maus und der Lesecursor von VoiceOver bleiben in der Ebene.
+ * Ausgenommen sind die Meldungen (#toasts, Live-Region) und das Element im Vollbild. release() hebt das sofort auf, restore() gibt den Fokus
+ * zurück: an den Auslöser (falls noch da und fokussierbar), sonst an die Ebene darunter – nie, wenn der Fokus schon woanders steht. Wird eine Ebene
+ * ohne release() entfernt (Seitenwechsel, Test), räumt ein MutationObserver sie ab; nichts bleibt inert. */
+const NATIVE = "a[href], area[href], button, input, select, textarea, iframe, summary, audio[controls], video[controls]", STOPS = NATIVE + ", [contenteditable], [tabindex]";
+const layers = [], inerted = new Set();
+let layerMo = null, layerKeys = false, layerSeq = 0;
+const fsNow = () => document.fullscreenElement || document.webkitFullscreenElement || null;
+function shown(el) {
+  if (typeof el.checkVisibility === "function") return el.checkVisibility({ visibilityProperty: true, checkVisibilityCSS: true });
+  if (el.getClientRects && !el.getClientRects().length) return false;
+  const cs = typeof window !== "undefined" && window.getComputedStyle ? window.getComputedStyle(el) : null;
+  return !cs || cs.visibility !== "hidden";
+}
+/* fokussierbar (auch tabindex="-1"): verbunden, sichtbar, nicht gesperrt, nicht inert */
+const canFocus = (el) => !!el && el.nodeType === 1 && el.isConnected && !el.matches(":disabled") && !el.closest("[inert]") && shown(el);
+function isStop(el) {
+  const ti = el.getAttribute("tabindex");
+  if (ti !== null && /^\s*-\d/.test(ti)) return false;
+  if (el.tagName === "INPUT" && el.type === "hidden") return false;
+  if (el.tagName === "SUMMARY" && ti === null) { const d = el.parentElement; if (!d || d.tagName !== "DETAILS" || [...d.children].find((c) => c.tagName === "SUMMARY") !== el) return false; }
+  if (el.getAttribute("contenteditable") === "false" && ti === null && !el.matches(NATIVE)) return false;
+  return canFocus(el);
+}
+/* per Tab erreichbare Elemente in root (Reihenfolge des Dokuments) */
+export const tabbables = (root) => [...root.querySelectorAll(STOPS)].filter(isStop);
+function stopsOf(root) {   // Halte; Optionsfelder gleichen Namens bilden einen Halt
+  const out = [], groups = new Map();
+  for (const el of tabbables(root)) {
+    const k = el.tagName === "INPUT" && el.type === "radio" && el.name ? el.name : null;
+    if (k === null) { out.push([el]); continue; }
+    if (!groups.has(k)) { groups.set(k, []); out.push(groups.get(k)); }
+    groups.get(k).push(el);
+  }
+  return out;
+}
+/* Tab bzw. Umschalt+Tab (Ereignis e) in root halten → true, wenn der Fokus versetzt wurde (dann mit preventDefault) */
+export function keepTab(e, root) {
+  const list = stopsOf(root), back = !!e.shiftKey, a = document.activeElement;
+  const to = (s) => {
+    e.preventDefault();
+    const t = s && (s.find((x) => x.checked) || (back ? s[s.length - 1] : s[0]));
+    if (t) { try { t.focus(); } catch {} }
+    return true;
+  };
+  if (!list.length) return to(null);
+  if (!a || a === document.body || a === root || !root.contains(a)) return to(back ? list[list.length - 1] : list[0]);
+  const i = list.findIndex((s) => s.includes(a));
+  if (i < 0) {   // fokussiert, aber kein Halt (tabindex="-1", Scrollbereich): vom Platz im Dokument aus weiter (4 = folgt, 2 = davor)
+    if (!back) return to(list.find((s) => a.compareDocumentPosition(s[0]) & 4) || list[0]);
+    return to([...list].reverse().find((s) => a.compareDocumentPosition(s[s.length - 1]) & 2) || list[list.length - 1]);
+  }
+  if (back && i === 0) return to(list[list.length - 1]);
+  if (!back && i === list.length - 1) return to(list[0]);
+  return false;   // dazwischen: der Browser geht weiter (auch durch Optionsfelder und Scrollbereiche)
+}
+function syncLayers() {
+  const top = layers[layers.length - 1], fs = fsNow(), want = new Set();
+  if (top) for (const c of document.body.children) if (!c.contains(top.el) && c.id !== "toasts" && !(fs && c.contains(fs))) want.add(c);
+  for (const el of [...inerted]) if (!want.has(el)) { el.removeAttribute("inert"); inerted.delete(el); }
+  for (const el of want) if (!inerted.has(el) && !el.hasAttribute("inert")) { el.setAttribute("inert", ""); inerted.add(el); }
+  if (top && !layerMo && typeof MutationObserver === "function") { layerMo = new MutationObserver(() => pruneLayers(true)); layerMo.observe(document.body, { childList: true, subtree: true }); }
+  else if (!top && layerMo) { layerMo.disconnect(); layerMo = null; }
+}
+function pruneLayers(refocus) {
+  let gone = false;
+  for (let i = layers.length - 1; i >= 0; i--) if (!layers[i].el.isConnected) { layers.splice(i, 1); gone = true; }
+  if (!gone) return;
+  syncLayers();
+  const L = layers[layers.length - 1], a = document.activeElement;
+  if (refocus && L && (!a || a === document.body)) focusIn(L);
+}
+function focusIn(L, extra = []) {
+  for (const x of [...extra, L.last, tabbables(L.el)[0], L.el]) if (x && L.el.contains(x) && canFocus(x)) { try { x.focus(); } catch {} if (document.activeElement === x) return true; }
+  return false;
+}
+function restoreFocus(L) {
+  const a = document.activeElement;
+  if (a && a !== document.body && a.isConnected && !L.el.contains(a)) return;   // steht schon woanders (von der Seite oder der Nutzerin gesetzt)
+  const below = layers[layers.length - 1], o = L.opener;
+  if (below && below.seq > L.seq) return;   // ein neuerer Dialog (z. B. aus onClose geöffnet) setzt seinen Fokus selbst
+  if (below) { focusIn(below, [o]); return; }
+  // Seite: der Auslöser – wurde er inzwischen neu gezeichnet, der neue mit derselben id
+  for (const x of [o, o && !o.isConnected && o.id ? document.getElementById(o.id) : null]) if (canFocus(x)) { try { x.focus(); } catch {} if (document.activeElement === x) return; }
+}
+function onLayerKey(e) {
+  if (e.defaultPrevented || e.isComposing || (e.key !== "Tab" && e.key !== "Escape") || e.altKey || e.ctrlKey || e.metaKey) return;
+  pruneLayers(false);
+  const L = layers[layers.length - 1];
+  if (!L) return;
+  if (e.key === "Escape") { if (L.onEscape) { e.preventDefault(); L.onEscape(e); } return; }
+  if (L.beforeTab) L.beforeTab();
+  keepTab(e, L.el);
+}
+const onLayerFocus = (e) => { for (const L of layers) if (L.el.contains(e.target)) L.last = e.target; };
+export function openLayer(el, { onEscape = null, opener, beforeTab = null } = {}) {
+  if (!layerKeys) { layerKeys = true; window.addEventListener("keydown", onLayerKey); document.addEventListener("focusin", onLayerFocus); }
+  pruneLayers(false);
+  const o = opener === undefined ? document.activeElement : opener;
+  const L = { el, onEscape, beforeTab, opener: o && o !== document.body && !el.contains(o) ? o : null, last: null, seq: ++layerSeq };
+  layers.push(L); syncLayers();
+  return {
+    el,
+    get top() { return layers[layers.length - 1] === L; },
+    get open() { return layers.includes(L); },
+    release(focus = true) { const i = layers.indexOf(L); if (i >= 0) { layers.splice(i, 1); syncLayers(); } if (focus) restoreFocus(L); },
+    restore: () => restoreFocus(L),
+  };
+}
+/* Dialoge im Vollbild (z. B. im Präsentationsmodus) gehören in das Element im Vollbild – sonst wären sie dort nicht zu sehen */
+function dialogHost() { const f = fsNow(); return f && f.nodeType === 1 && !/^(img|video|iframe|canvas|svg)$/i.test(f.tagName) ? f : document.body; }
+
 export function modal({ title, body, actions = [], wide = false, onClose }) {
+  const prev = document.activeElement;
   const back = h("div", { class: "modal-back", role: "presentation" });
   const box = h("div", { class: "modal" + (wide ? " wide" : ""), role: "dialog", "aria-modal": "true", "aria-label": title });
-  const close = () => { back.remove(); document.removeEventListener("keydown", onKey); if (onClose) onClose(); prev && prev.focus && prev.focus(); };
-  const prev = document.activeElement;
-  const onKey = (e) => { if (e.key === "Escape") close(); };
+  let closed = false, layer = null;
+  const close = () => {
+    if (closed) return;
+    closed = true;
+    back.remove(); if (layer) layer.release(false);
+    try { if (onClose) onClose(); } finally { if (layer) layer.restore(); }
+  };
   const content = h("div", { class: "body" });
   if (typeof body === "function") body(content, close); else if (body) content.append(body);
   const foot = h("footer", null, actions.map((a) => h("button", { class: "btn " + (a.class || ""), type: "button", onclick: async (e) => {
@@ -122,13 +247,22 @@ export function modal({ title, body, actions = [], wide = false, onClose }) {
   if (actions.length) box.append(foot);
   back.append(box);
   back.addEventListener("mousedown", (e) => { if (e.target === back) close(); });
-  document.addEventListener("keydown", onKey);
-  document.body.append(back);
-  // ohne Eingabefeld und ohne Hauptknopf (z. B. Rückfragen mit einem roten Knopf): der erste Knopf unten („Abbrechen“) – sonst bliebe der Fokus
-  // hinter dem Dialog, und Enter auf dem Auslöser öffnete ihn ein zweites Mal
-  const f = box.querySelector("input, textarea, select, button.primary") || foot.querySelector("button");
-  // nur fokussieren, wenn im Dialog noch nichts fokussiert ist (sonst würde schnelles Tippen ins falsche Feld umgelenkt)
-  if (f) setTimeout(() => { if (!box.contains(document.activeElement)) f.focus(); }, 30);
+  if (closed) return { close, el: content };
+  dialogHost().append(back);
+  // langer Text ohne Knöpfe darin: der Inhalt wird selbst ein Halt, damit er sich per Tastatur rollen lässt (auch in Safari)
+  const scrollStop = () => {
+    const can = content.scrollHeight > content.clientHeight + 1 && !tabbables(content).length;
+    if (can && !content.hasAttribute("tabindex")) content.setAttribute("tabindex", "0");
+    else if (!can && content.getAttribute("tabindex") === "0") content.removeAttribute("tabindex");
+  };
+  layer = openLayer(back, { onEscape: close, opener: prev, beforeTab: scrollStop });
+  // erster Halt: Eingabefeld bzw. Hauptknopf, sonst der erste Knopf unten („Abbrechen“ – z. B. bei Rückfragen mit einem roten Knopf), sonst „Schließen“;
+  // nur, wenn dieser Dialog noch oben liegt und in ihm noch nichts fokussiert ist (schnelles Tippen wird nie umgelenkt)
+  setTimeout(() => {
+    if (closed || !layer.top || box.contains(document.activeElement)) return;
+    const st = tabbables(box), f = st.find((x) => x.matches("input, textarea, select, button.primary")) || st.find((x) => foot.contains(x)) || st[0];
+    if (f) f.focus();
+  }, 30);
   return { close, el: content };
 }
 export function confirmDialog(title, text, okLabel = "OK", danger = false) {

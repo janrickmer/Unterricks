@@ -2,7 +2,7 @@
 // Rätselraum, kein Weg zurück) → Buchstaben des Lösungsworts → Finale im Feibeitsblatt (Tunnel mit Datensatz v1). Hilfe in drei
 // Stufen, Fehler im ersten Versuch, Zwischenstand-Datei ab Station 2, Überblick-PDF mit eingebettetem Datensatz.
 // Fortschritt liegt nur im Browser (wie in den bekannten Räumen): Neuladen kostet ihn – vorher wird gefragt.
-import { h, clear, toast, errToast, busy, modal, confirmDialog, api, store, nn } from "./ui.js";
+import { h, clear, toast, errToast, busy, modal, confirmDialog, api, store, nn, openLayer } from "./ui.js";
 import { render, go, onLeave, onStudentExpire, studentAuthFailed, studentAuthLeft } from "./app.js";
 import { gradePart, missingOf, HELP_HEADS, PART_LETTERS, escapeRecord, tunnelUrl, saveEncode, saveDecode, SAVE_BEGIN, SAVE_END, confirmCode, normKlasse } from "./escape-data.js";
 import { classShort, subjectName } from "./shared.js";
@@ -280,9 +280,14 @@ export async function escapePage(lessonId, opt = {}) {
       h("div", { class: "er-reveal-box" }, h("div", { class: "er-kicker", text: "Raum " + (i + 1) + " gelöst" }), h("div", { class: "er-letter", text: room.wort[i] }),
         h("p", { text: "Buchstabe " + (i + 1) + " von " + N + " freigeschaltet" }),
         h("div", { class: "er-tiles" }, S.letters.map((l, k) => h("span", { class: "er-tile" + (S.solved[k] ? " on" : ""), text: S.solved[k] ? l : "" }))), next));
-    next.addEventListener("click", () => { ov.remove(); if (last) finalScreen(); else libScreen(i + 1); });
-    document.body.append(ov); next.focus();
-    onLeave(() => ov.remove());
+    // Ebene (Nachtrag 25): Tab bleibt auf dem einzigen Knopf, die Seite dahinter ist inert; Esc wirkt wie der Knopf (es geht nur weiter)
+    let layer = null;
+    const drop = () => { ov.remove(); if (layer) { layer.release(false); layer = null; } };
+    next.addEventListener("click", () => { drop(); if (last) finalScreen(); else libScreen(i + 1); });
+    document.body.append(ov);
+    layer = openLayer(ov, { onEscape: () => next.click() });
+    next.focus();
+    onLeave(drop);
   }
 
   /* ---------- Finale ---------- */

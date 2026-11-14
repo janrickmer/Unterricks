@@ -13,6 +13,7 @@ import { startMockAI, startMockFeibeitsblatt, startMockPrinter } from "./mocks.m
 import { readZip } from "../../public/zip.js";
 import { horizontalIssues, strayTexts } from "./mobile-audit.mjs";
 import { freeDaysE2E } from "./freedays.mjs";
+import { dialogsE2E } from "./dialogs.mjs";
 
 const require = createRequire(import.meta.url);
 const { chromium, devices } = require("playwright");
@@ -1908,8 +1909,17 @@ async function main() {
       }
       await sp.getByRole("button", { name: "Prüfen" }).click();
       await sp.locator(".er-reveal").waitFor({ timeout: 10000 });
-      if (i === 1) ok((await sp.locator(".er-letter").textContent()) === "E", "gelöster Raum verrät den nächsten Buchstaben des Lösungsworts");
-      await sp.locator(".er-reveal").getByRole("button").click();
+      if (i === 1) {
+        ok((await sp.locator(".er-letter").textContent()) === "E", "gelöster Raum verrät den nächsten Buchstaben des Lösungsworts");
+        // Nachtrag 25: „Buchstabe freigeschaltet“ hält den Fokus auf seinem einzigen Knopf, die Seite dahinter ist inert; Esc wirkt wie der Knopf
+        const onBtn = () => sp.evaluate(() => !!document.activeElement && document.activeElement.matches(".er-reveal button"));
+        const f0 = await onBtn(); await sp.keyboard.press("Tab"); const f1 = await onBtn(); await sp.keyboard.press("Shift+Tab"); const f2 = await onBtn();
+        ok(f0 && f1 && f2 && await sp.evaluate(() => document.getElementById("app").hasAttribute("inert")), "Escape-Room: „Buchstabe freigeschaltet“ – Tab und Umschalt+Tab bleiben auf „Nächste Bibliothek betreten“, die Seite dahinter ist inert");
+        await sp.keyboard.press("Escape");
+        await sp.locator(".er-reveal").waitFor({ state: "detached", timeout: 5000 });
+        await sp.locator(".er-warnbar").waitFor({ timeout: 10000 });
+        ok(await sp.evaluate(() => !document.querySelector("[inert]") && !!document.activeElement && !!document.activeElement.closest("main")), "Esc führt wie der Knopf in die nächste Bibliothek – nichts bleibt inert, der Fokus steht auf der neuen Seite");
+      } else await sp.locator(".er-reveal").getByRole("button").click();
     };
     // Station 1: erst falsch (Fehler im ersten Versuch, Hilfe Stufe 1), dann unvollständig, dann richtig
     await sp.locator(".er-warnbar").waitFor();
@@ -3539,6 +3549,15 @@ async function main() {
           await p.locator(".presenter .tmbtn").click(); await p.locator(".presenter .tmc").waitFor(); });
       }
       writeFileSync(join(OUT, "mobile-audit.json"), JSON.stringify(report, null, 1));
+    }
+
+    /* ---------- Dialoge: Tastaturfokus (Nachtrag 25) ---------- */
+    step("Dialoge: Tab und Umschalt+Tab bleiben im obersten offenen Dialog, Esc schließt nur ihn, der Fokus geht zurück (Lehrkraft, Schüler:in, Codefolie, Präsentationsmodus)");
+    {
+      const tStore = await tp.evaluate(() => JSON.stringify(localStorage)), sStore = await sp.evaluate(() => JSON.stringify(localStorage));
+      const tok = JSON.parse(tStore)["u.ttoken"], now = berlinAt(Date.now() - 10 * 60e3);   // Stunde läuft: KI-Begriffshilfe sichtbar
+      await fetch(BASE + "/api/teacher/lessons/" + lessonId, { method: "PATCH", headers: { Authorization: "Bearer " + tok, "Content-Type": "application/json" }, body: JSON.stringify({ date: now.date, startTime: now.time }) });
+      await dialogsE2E({ browser, devices, BASE, tStore, sStore, lessonId, ok, OUT, watch, shots: process.env.DIALOG_SHOTS ? join(OUT, "dialoge") : null });
     }
 
     /* ---------- Zurücksetzen (ganz am Ende: löscht alle Unterrichtsinhalte) ---------- */

@@ -2,7 +2,9 @@
 // Dialoge, Fokus (samt focusin/focusout und relatedTarget), Ereignisse mit Capture und Bubbling, Tastatur (Enter, Leertaste, Tab) und einfache
 // CSS-Selektoren (Typ, #id, .klasse, [attr], [attr="wert"], :checked, :disabled; Nachfahre und „>“).
 // Ausgeblendet = Klasse „hidden“ oder Attribut hidden an einem Vorfahren (wie display:none in public/styles.css): solche Elemente bekommen keinen
-// Fokus, und hält ein ausgeblendetes Element den Fokus, fällt er (wie im Browser) auf body.
+// Fokus, und hält ein ausgeblendetes Element den Fokus, fällt er (wie im Browser) auf body – ebenso ein gesperrtes oder inertes (Attribut inert an
+// einem Vorfahren). Dazu getClientRects() (leer, wenn ausgeblendet), compareDocumentPosition() und ein MutationObserver (childList, subtree; die
+// Meldungen kommen wie im Browser als Mikrotask).
 // installDom() setzt globalThis.document/window/Node/CSS/location/navigator; stubs = loader-Haken für public/app.js und public/teacher.js.
 
 const kebab = (s) => s.replace(/[A-Z]/g, (c) => "-" + c.toLowerCase());
@@ -36,6 +38,7 @@ class FNode {
     this.childNodes.splice(i, 1); c.parentNode = null;
     const d = this.ownerDocument;
     if (d && d._focus && c.contains(d._focus)) d._focus = null;   // entfernt: der Fokus fällt auf body (ohne Ereignisse)
+    if (d && d._mutated) d._mutated(this, { removedNodes: [c], addedNodes: [] });
   }
   _insertBefore(nodes, ref) {
     const list = [];
@@ -51,7 +54,21 @@ class FNode {
       const i = ref ? this.childNodes.indexOf(ref) : -1;
       n.parentNode = this;
       if (i < 0) this.childNodes.push(n); else this.childNodes.splice(i, 0, n);
+      const d = this.ownerDocument;
+      if (d && d._mutated) d._mutated(this, { removedNodes: [], addedNodes: [n] });
     }
+  }
+  compareDocumentPosition(o) {   // 2 = davor, 4 = danach, 8 = enthält, 16 = enthalten in, 1 = getrennt
+    if (o === this) return 0;
+    const path = (n) => { const p = []; for (; n; n = n.parentNode) p.unshift(n); return p; };
+    const a = path(this), b = path(o);
+    if (a[0] !== b[0]) return 1 | 32;
+    let i = 0;
+    while (i < a.length && i < b.length && a[i] === b[i]) i++;
+    if (i === a.length) return 4 | 16;
+    if (i === b.length) return 2 | 8;
+    const kids = a[i - 1].childNodes;
+    return kids.indexOf(b[i]) > kids.indexOf(a[i]) ? 4 : 2;
   }
   append(...ns) { this._insertBefore(ns, null); }
   prepend(...ns) { this._insertBefore(ns, this.firstChild); }
@@ -183,8 +200,10 @@ class FElement extends FNode {
     for (let n = this; n && n.nodeType === 1; n = n.parentNode) if (n.hasAttribute("hidden") || n.classList.contains("hidden")) return false;
     return true;
   }
+  get inert() { return !!this.closest("[inert]"); } set inert(v) { this.toggleAttribute("inert", !!v); }
+  getClientRects() { return this.rendered ? [this.getBoundingClientRect()] : []; }
   get focusable() {
-    if (!this.rendered) return false;
+    if (!this.rendered || this.inert) return false;
     if (FOCUSABLE.has(this.tagName)) return !this.disabled;
     if (this.tagName === "A" && this.hasAttribute("href")) return true;
     return this.hasAttribute("tabindex");
@@ -324,8 +343,16 @@ class FDocument extends FNode {
   createDocumentFragment() { return new FFragment(this); }
   createEvent() { return new FEvent(""); }
   get activeElement() {
-    if (this._focus && !this._focus.rendered) this._focus = null;   // ausgeblendet oder entfernt: wie im Browser auf body
+    // ausgeblendet, entfernt, gesperrt oder inert: wie im Browser auf body
+    if (this._focus && (!this._focus.rendered || this._focus.inert || (FOCUSABLE.has(this._focus.tagName) && this._focus.disabled))) this._focus = null;
     return this._focus || this.body;
+  }
+  _mutated(target, rec) {
+    for (const o of this._observers || []) {
+      if (!(o.target === target || (o.opts.subtree && o.target.contains(target)))) continue;
+      o.records.push({ type: "childList", target, ...rec });
+      if (!o.queued) { o.queued = true; queueMicrotask(() => { o.queued = false; const r = o.records.splice(0); if (r.length && o.active) o.fn(r, o.mo); }); }
+    }
   }
   _setFocus(el) {
     const old = this._focus && this._focus.rendered ? this._focus : null;
@@ -360,6 +387,12 @@ export function installDom({ hash = "#/" } = {}) {
   const define = (k, v) => Object.defineProperty(globalThis, k, { value: v, configurable: true, writable: true });
   define("document", document); define("window", window); define("location", window.location);
   define("Node", FNode); define("Element", FElement); define("HTMLElement", FElement);
+  define("MutationObserver", class {
+    constructor(fn) { this.fn = fn; this.entries = []; }
+    observe(target, opts = {}) { const o = { target, opts, fn: this.fn, mo: this, records: [], queued: false, active: true }; this.entries.push(o); (document._observers || (document._observers = [])).push(o); }
+    disconnect() { for (const o of this.entries) o.active = false; document._observers = (document._observers || []).filter((o) => !this.entries.includes(o)); this.entries = []; }
+    takeRecords() { return this.entries.flatMap((o) => o.records.splice(0)); }
+  });
   define("navigator", { clipboard: clip, userAgent: "fake-dom" });
   define("CSS", { escape: (s) => String(s).replace(/[^\w-]/g, (c) => "\\" + c).replace(/^(\d)/, (d) => "\\3" + d + " ") });
   for (const id of ["app", "toasts"]) { const d = document.createElement("div"); d.id = id; document.body.append(d); }

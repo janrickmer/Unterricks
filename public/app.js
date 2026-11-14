@@ -1,5 +1,5 @@
 // app.js – Einstieg: Router und Schüleransicht. Die Lehrkräfteansicht wird erst bei Bedarf geladen (teacher.js).
-import { h, $, clear, store, deviceId, api, apiUrl, wsUrl, ApiError, toast, errToast, busy, copyText, fmtBytes, fmtDate, fmtClock, fileIcon, downloadUrl, downloadBlob, topbar, icon, setFach, pageHead, modal } from "./ui.js";
+import { h, $, clear, store, deviceId, api, apiUrl, wsUrl, ApiError, toast, errToast, busy, copyText, fmtBytes, fmtDate, fmtClock, fileIcon, downloadUrl, downloadBlob, topbar, icon, setFach, pageHead, modal, openLayer } from "./ui.js";
 import { SUBJECTS, CLASS_GROUPS, STUDENT_LOGIN_MIN, subjectName, formatCode, normalizeCode, fmtDay, classShort, isAnalogClass, webUrlLabel, fmtClockBerlin, fmtDayBerlin } from "./shared.js";
 import { paintPortalPreview } from "./portalview.js";
 import { codeSlideDom } from "./codeslide.js";
@@ -234,11 +234,25 @@ async function studentRoom(lessonId) {
   const tband = timerBand({ host: live, onStale: () => poll() });   // nach einem Ruhezustand den Stand neu holen
   live.append(tband.el, tband.say);
   live.addEventListener("contextmenu", (e) => e.preventDefault());
+  // Vollbild bzw. Ebene über der Seite (ohne Vollbild-Schnittstelle): Tab bleibt im Live-Fenster, Esc beendet die Ebene (Vollbild: der Browser)
+  let liveLayer = null;
+  const syncLiveLayer = () => {
+    const on = (document.fullscreenElement || document.webkitFullscreenElement) === live || live.classList.contains("max");
+    if (on && !liveLayer) liveLayer = openLayer(live, { opener: fsBtn, onEscape: () => { if (live.classList.contains("max")) setMax(false); } });
+    else if (!on && liveLayer) { liveLayer.release(false); liveLayer = null; }
+  };
+  const setMax = (on) => { live.classList.toggle("max", on); syncLiveLayer(); };
   fsBtn.addEventListener("click", () => {
     const fs = live.requestFullscreen || live.webkitRequestFullscreen;
     if (document.fullscreenElement || document.webkitFullscreenElement) (document.exitFullscreen || document.webkitExitFullscreen).call(document);
-    else if (fs) fs.call(live).catch(() => live.classList.toggle("max"));
-    else live.classList.toggle("max");
+    else if (fs) Promise.resolve(fs.call(live)).catch(() => setMax(!live.classList.contains("max")));
+    else setMax(!live.classList.contains("max"));
+  });
+  document.addEventListener("fullscreenchange", syncLiveLayer);
+  document.addEventListener("webkitfullscreenchange", syncLiveLayer);
+  onLeave(() => {
+    document.removeEventListener("fullscreenchange", syncLiveLayer); document.removeEventListener("webkitfullscreenchange", syncLiveLayer);
+    live.classList.remove("max"); if (liveLayer) { liveLayer.release(false); liveLayer = null; }
   });
   const presRow = h("div", { class: "presrow" });
   // Hausaufgabe aus dieser Sitzung bis zur nächsten Sitzung – der Server liefert sie erst ab 15 Minuten vor dem Ende der Sitzung
@@ -315,6 +329,8 @@ async function studentRoom(lessonId) {
     // Codefolie (Sitzungscode + QR-Code): beim Start vor Folie 1, an Platzhalterfolien und über „Sitzungscode zeigen“ der Lehrkraft
     const isCode = !!(st.active && st.view === "code" && st.code);
     live.classList.toggle("idle", !(st.active && (st.url || isCode)));
+    // ohne Präsentation gibt es im Live-Fenster keinen Knopf mehr: die Ebene über der Seite nicht stehen lassen
+    if (live.classList.contains("idle") && live.classList.contains("max")) setMax(false);
     const onair = () => h("span", { class: "badge onair" }, h("span", { class: "dot" }), "LIVE");
     if (isCode) {
       status.append(onair(), h("span", { class: "badge", text: st.slide >= 1 && !st.codeShown ? "Folie " + st.slide + " / " + st.pages : "Sitzungscode" }));

@@ -67,6 +67,7 @@ implementiert und im End-to-End-Test geprüft (Ausnahmen unten ausdrücklich gen
 | Zusammenfassung der Sitzung für die Lehrkraft (Nachtrag 21 vom 13.11.2026) | Gibt die Lehrkraft Claude frei, die Planung abzulegen, schreibt Claude **als letzten Speicherschritt** eine kurze Zusammenfassung des Ablaufs (verständlich für eine Lehrkraft, die nicht mitgeplant hat); Unterricks zeigt sie in der Lehreransicht der Sitzung **ganz oben** in „Zusammenfassung der Sitzung für die Lehrkraft“ (Gymnasium und Grundschule). Rückfrage zur Kopfzeile: **„Unterricks automatisch“** – Fach, Jahrgang, Wochentag mit Datum und Beginn setzt Unterricks aus den aktuellen Sitzungsdaten darüber (stimmt auch nach dem Verschieben); Claude schreibt nur den Ablauf. Grundlage des Podcasts (Nachtrag 22, siehe 4q); siehe 4p |
 | Podcast für den kommenden Unterricht (Nachtrag 22 vom 13.11.2026) | Knopf mit Kopfhörer **direkt unter dem Wochenkalender** beider Startseiten; steht heute noch Unterricht bevor, Rückfrage „heute oder nächster Schultag“. Grundlage: die **Zusammenfassungen** aller Sitzungen des Tages in Unterrichtsreihenfolge; ohne Zusammenfassung **„Ersatz aus der Planung“** (Thema und Schulportal-Eintrag bzw. Verlaufsplan, vorher genannt). Weg (nach Recherche, keine offizielle Schnittstelle zu Gemini Notebook, WeTransfer geprüft und verworfen): **„Claude in Chrome + Datei hineinziehen“** – Unterricks kopiert den Auftrag, Claude erstellt und lädt die Folge in Gemini Notebook herunter, die Lehrkraft zieht die Datei auf das Ablagefeld, danach löscht Claude das Notizbuch (die Lehrkraft bestätigt); am iPad derselbe Text von Hand. Folge möglichst unter 15 Minuten (nur über die Steueranweisung). Player statt Knopf; gelöscht zwei Tage nach dem Unterrichtstag; siehe 4q |
 | Unterrichtsfreie Tage (Nachtrag 24 vom 13.11.2026) | In den **Einstellungen** trägt die Lehrkraft unterrichtsfreie Tage ein – als **Zeitraum mit Bezeichnung** (Ferien, Pädagogischer Tag …); je Eintrag wird **gefragt**, ob er die **Grundschule, das Gymnasium oder beide Schulen** betrifft (Pflichtwahl). Der Wochenkalender zeigt sie blockiert, an ihnen gibt es für die Schule keine Termine, Claude plant drumherum. Rückfragen beantwortet: **nachfragen und verschieben** (vor dem Speichern die betroffenen Sitzungen nennen; auf Wunsch rücken sie und alle folgenden Stunden ihrer Einheit wie bei der Krankmeldung, danach Hinweis zum Überarbeiten mit Claude), **keine automatischen Feiertage**, die Rahmendaten der Einheit **bleiben zusätzlich** (für Ausfälle nur dieser Klasse), die Tage der Einstellungen stehen dort zur Ansicht; siehe 4r |
+| Dialoge: Tastaturfokus (Nachtrag 25 vom 14.11.2026) | Auf die Frage „Soll ich das plattformweit beheben?“ (mit Tab gelangte man aus jedem Dialog auf die Seite dahinter): **„Ja, beheben“** – Tab und Umschalt+Tab bleiben im offenen Dialog, danach geht der Fokus zurück; mit Tests und E2E (Abschnitt 4s) |
 
 ## 2. Gesamtarchitektur
 
@@ -484,7 +485,8 @@ implementiert und im End-to-End-Test geprüft (Ausnahmen unten ausdrücklich gen
   die Druckliste neu. Der Konflikt-Dialog des Verlaufsplans ohne Wahl geschlossen: „Nicht gespeichert – Konflikt offen“, der Text gilt als ungespeichert
   (nie still ersetzt). „Krankmeldung rückgängig machen“ auf der Seite des Ausfall-Eintrags führt zur Sitzung, die wieder an diesem Termin liegt (sonst
   zur Einheit). Der Dialog „Stunde ausfallen lassen?“ öffnet sich nie doppelt; `modal()` (`ui.js`) fokussiert ohne Eingabefeld und Hauptknopf den
-  ersten Knopf unten („Abbrechen“ – auch in den roten Rückfragen am Gymnasium). `contextMenu` gibt den Fokus beim Schließen an den Auslöser zurück;
+  ersten Knopf unten („Abbrechen“ – auch in den roten Rückfragen am Gymnasium), ganz ohne Knöpfe unten „Schließen“. Tab, Esc und Fokus in
+  Dialogen regelt `openLayer()` (Abschnitt 4s). `contextMenu` gibt den Fokus beim Schließen an den Auslöser zurück;
   Pfeiltasten und Tab wechseln zwischen den Einträgen, Tab über den letzten hinaus schließt das Menü (geht vom Auslöser aus weiter), Umschalt+Tab vor
   dem ersten zurück auf den Auslöser. Solange der Konflikt-Dialog offen ist, gilt der Verlaufsplan ebenfalls als ungespeichert; „Meine Fassung
   speichern“ übernimmt die gesehene Version (ein schon wartendes Speichern fragt nicht noch einmal). Die Felder der Sitzungsdaten sind beschriftet
@@ -1031,6 +1033,45 @@ Lehrkraft zieht die Datei einmal auf das Ablagefeld (keine automatische Übergab
   Server-Anweisungen bleiben unverändert (Länge).
 * **Sicherung und Zurücksetzen:** Die Einträge gehören zu den Einstellungen: Sie bleiben beim Zurücksetzen und stehen zum Nachlesen als
   „Unterrichtsfreie Tage.txt“ in der Sicherung (nur, wenn es welche gibt).
+
+## 4s. Dialoge: Tastaturfokus bleibt im offenen Dialog (Nachtrag der Lehrkraft vom 14.11.2026, Nachtrag 25)
+
+Befund der Prüfung von Nr. 24: Mit Tab gelangte man aus jedem Dialog auf die Seite dahinter. Entscheidung der Lehrkraft: „Ja, beheben“.
+
+- **Eine gemeinsame Hilfe** in `public/ui.js`: `openLayer(el, { onEscape, opener, beforeTab })` meldet eine Ebene über der Seite an und liefert
+  `{ top, open, release(focus), restore() }`; `keepTab(e, root)` hält Tab in einem Bereich; `tabbables(root)` liefert die per Tab erreichbaren
+  Elemente. Ein einziger `keydown`-Listener am Fenster (Bubble-Phase, nach allen Handlern der Seite – wer `preventDefault()` ruft, behält die
+  Taste) behandelt Tab und Esc nur für die **oberste** Ebene; vorher hatte jeder `modal()` einen eigenen Listener, sodass Esc bei zwei Dialogen
+  übereinander beide schloss.
+- **Tab:** Liegt der Fokus auf dem letzten Halt, springt Tab zum ersten, Umschalt+Tab vom ersten zum letzten; liegt er auf `body`, außerhalb
+  oder auf einem Element, das kein Halt ist (gerade gesperrt – Chrome setzt den Fokus dann auf `body` –, entfernt, `tabindex="-1"`,
+  Scrollbereich), geht es vom ersten bzw. letzten Halt bzw. vom Platz im Dokument aus weiter. Dazwischen bleibt Tab beim Browser (Optionsfelder,
+  Scrollbereiche). Nicht als Halt zählen ausgeblendete (`checkVisibility`, sonst `getClientRects`), gesperrte, inerte Elemente und
+  `tabindex="-1"`; Optionsfelder gleichen Namens sind ein Halt (das gewählte, sonst das erste bzw. letzte). Strg/Alt/Cmd+Tab und Tasten
+  während einer Eingabe mit IME bleiben unberührt.
+- **Esc** ruft `onEscape` der obersten Ebene (fehlt es, bleibt Esc bei der Ebene bzw. beim Browser – Vollbild). Esc und ein sichtbarer Knopf
+  zum Schließen bzw. Weitergehen funktionieren immer (keine Tastaturfalle im Sinn von WCAG 2.1.2).
+- **Inert:** Solange eine Ebene offen ist, bekommen alle anderen Kinder von `<body>` das Attribut `inert` (Safari ab 15.5) – so bleiben auch
+  Maus und der Lesecursor von VoiceOver im Dialog. Ausgenommen sind `#toasts` (Live-Region: Meldungen bleiben hörbar) und ein Element, das das
+  Element im Vollbild enthält; `modal()` hängt einen Dialog im Vollbild in das Element im Vollbild (sonst wäre er dort nicht zu sehen).
+  Unterricks merkt sich, welche Elemente es selbst inert gemacht hat, und nimmt genau diese beim Schließen zurück. Wird eine Ebene ohne
+  `release()` entfernt (Seitenwechsel, `onLeave`, Tests), räumt ein `MutationObserver` (nur solange eine Ebene offen ist) sie ab. Ebenen in der
+  Seite (Folienfenster, Live-Fenster) machen nichts inert außer anderen Kindern von `<body>` – ihre eigenen Live-Regionen in `#app` bleiben
+  hörbar.
+- **Fokus zurück:** `restore()` fokussiert den Auslöser (falls noch verbunden, sichtbar, nicht gesperrt), sonst in der Ebene darunter das zuletzt
+  fokussierte Element bzw. den ersten Halt, in der Seite ein neu gezeichnetes Element mit derselben `id` – nie, wenn der Fokus schon woanders
+  steht, und nie, wenn inzwischen ein neuerer Dialog offen ist. Der verzögerte erste Fokus von `modal()` (30 ms) greift nur, wenn der Dialog
+  noch oben liegt und in ihm noch nichts fokussiert ist.
+- **Ebenen:** alle `modal()`/`confirmDialog()` (rund 35 Aufrufe), Codefolie `showCode()` (jetzt mit Fokus auf „Schließen“, `aria-modal`),
+  Präsentationsmodus (`aria-modal`, Tab-Halt, Esc bleibt beim Vollbild; „Beamer verbinden“ und „Timer“ halten Tab weiter selbst – über
+  `keepTab` – und schließen mit Esc; Tasten der Präsentation wirken nur, solange keine Ebene darüber liegt), Escape-Room „Buchstabe
+  freigeschaltet“ (Esc wirkt wie „Nächste Bibliothek betreten“ bzw. „Zum Finale“), Folienfenster und Live-Fenster im Vollbild bzw. als
+  Ebene ohne Vollbild-Schnittstelle (Esc beendet die Ebene; wird das Live-Fenster ohne Präsentation leer, endet die Ebene, denn dann gibt es
+  dort keinen Knopf mehr). Kein Dialog: das Kontextmenü (`contextMenu`, ein Menü – Tab verlässt es absichtlich), das Beamerfenster und das
+  Beamergerät (eigene Seiten), die Elternansicht und die Bildkarten (keine Überlagerung).
+- **Tests:** `test/unit/dialogs.test.mjs` (Browser-Ersatz `fake-dom.mjs`, dafür um `inert`, `getClientRects`, `compareDocumentPosition` und
+  `MutationObserver` ergänzt), E2E-Schritt „Dialoge“ (`test/e2e/dialogs.mjs`, echte Tastatur in Chromium) und die Prüfung von „Buchstabe
+  freigeschaltet“ im Escape-Room-Durchlauf.
 
 ## 4i. Druckliste „Von der Lehrkraft auszudrucken“ (Ergänzung vom 10.11.2026)
 
