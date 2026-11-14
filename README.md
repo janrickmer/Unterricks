@@ -24,7 +24,10 @@ Stunden bei Krankheit (siehe [Grundschule](#grundschule)).
 4. Auf `main` bzw. den Arbeitsbranch `ccr-a0b9567a-04ain7` pushen (jeder Push veröffentlicht automatisch, sobald die
    Unit-Tests grün sind) oder den Workflow **Deploy** von Hand starten (*Actions → Deploy → Run workflow*). Er legt Datenbank und Dateiablage in der EU an,
    veröffentlicht den Worker und erzeugt `SETTINGS_SECRET`. Am Ende steht die Adresse im Protokoll
-   (`https://unterricks.<subdomain>.workers.dev`).
+   (`https://unterricks.<subdomain>.workers.dev`). Außerdem trägt er für die Dateiablage eine **Lebenszyklus-Regel** ein
+   (`podcast-sicherheitsnetz`: Dateien unter `podcast/` verfallen nach 90 Tagen) – ein Sicherheitsnetz für Podcasts, die das Aufräumen von
+   Unterricks einmal nicht erwischt. Fehlt dem Token das Recht dafür, meldet der Workflow nur eine Warnung (der Deploy läuft weiter);
+   die Regel lässt sich dann im Dashboard unter *R2 → unterricks-files → Settings → Object lifecycle rules* von Hand anlegen.
 5. Seite öffnen → unten **„Lehrkräfte“** → Benutzername und Passwort festlegen (einmalig).
 6. **Einstellungen → Claude-Connector:** Adresse erzeugen und in claude.ai als benutzerdefinierten Connector eintragen. Beim
    ersten Einsatz in einem Chat fragt claude.ai, ob der Connector verbunden werden und zugreifen darf – erlauben.
@@ -194,6 +197,46 @@ Feibeitsblatt braucht keine Änderung. Die Adressen stehen in `wrangler.jsonc` (
   Eintrag öffnet die Klasse bzw. den Kurs. Auf dem Handy und dem iPad hochkant erscheint die Woche als Liste je Tag. Der Kalender zeigt
   immer beide Schulformen – auf der Startseite „Gymnasium“ ebenso wie im Bereich „Grundschule“; Termine der Grundschule sind mit
   „Grundschule“ gekennzeichnet und öffnen den Grundschulkurs.
+* **Podcast für den kommenden Unterricht:** Direkt unter dem Wochenkalender (Startseite „Gymnasium“ und Übersicht „Grundschule“ –
+  derselbe Podcast) steht der Knopf mit Kopfhörer-Symbol **„Podcast für den kommenden Unterricht entwickeln“**. Ein Podcast erklärt den
+  Ablauf **aller Stunden eines Tages** beider Schulformen in der Reihenfolge, in der Sie unterrichten. Ablauf:
+  1. Klick auf den Knopf: Steht heute noch Unterricht bevor (eine Sitzung, deren Beginn später ist als jetzt; eine Sitzung ohne
+     eingetragenen Beginn zählt bis 18 Uhr), fragt Unterricks „Für welchen Unterricht ist der Podcast gedacht?“ – „Heute, …“ oder
+     „Nächster Schultag, …“. Sonst gilt gleich der nächste Schultag (wie bei den Druckaufträgen: Freitag bis Sonntag der Montag, Ferien und
+     Ausfälle laut Stundenplan übersprungen). Sitzungen mit bestätigter Vertretung gehören nicht dazu.
+  2. Die Karte nennt die Sitzungen des Tages mit ihrer Kopfzeile (Fach, Jahrgang, Wochentag, Datum, Beginn). Grundlage ist die
+     **„Zusammenfassung der Sitzung für die Lehrkraft“**; fehlt sie, nimmt Unterricks **Thema und Schulportal-Eintrag** (Grundschule:
+     **Verlaufsplan**) – ohne Schulportal-Zeichen und ohne die Zeile „⏸ Zwischenstopp“ – und sagt vorher, für welche Sitzungen das gilt.
+     Der Quelltext ist auf etwa 20 000 Zeichen begrenzt (je Sitzung höchstens 4 000, bei vielen Stunden etwas weniger – dann steht
+     „Für den Podcast gekürzt.“ dabei).
+  3. **„Auftrag für Claude in Chrome kopieren“**, dann in **Claude in Chrome** (Seitenleiste mit Strg+E bzw. Cmd+E) einfügen und Enter.
+     Claude öffnet Gemini Notebook (notebook.google.com) in einem neuen Tab, legt das Notizbuch „Unterricks-Podcast TT.MM.JJJJ“ mit dem
+     Quelltext als „Kopierter Text“ an, erzeugt im Bereich „Studio“ die „Audio-Zusammenfassung“ (Format „Detaillierte Analyse“, Deutsch;
+     die Steueranweisung bittet um höchstens 12 bis 15 Minuten), wartet und lädt die Folge herunter. Fragt Google nach Anmeldung oder
+     Bestätigung, hält Claude an – das erledigen Sie selbst.
+  4. **Ziehen Sie die heruntergeladene Datei** aus der Download-Leiste auf das Feld **„Podcast-Datei hier ablegen oder auswählen“** (auch
+     daneben auf die Seite; oder Feld antippen und auswählen). Erlaubt: M4A bzw. MP4-Audio, WAV, MP3, AAC, Ogg, WebM (Unterricks prüft die
+     ersten Bytes, nicht nur die Endung), höchstens 95 MB.
+  5. Danach löscht Claude das Notizbuch in Gemini Notebook wieder – das Löschen bestätigen Sie dort.
+
+  Danach steht an der Stelle des Knopfes der **Player** „Podcast zum Unterricht am Montag, 16. November 2026“ mit „Abspielen“, „Pause“,
+  Schieberegler zum Spulen (Pfeiltasten ±5 s, Bild auf/ab ±30 s) und Zeitangabe, darunter „KI-erzeugt mit Gemini Notebook“, „Podcast
+  löschen“ (mit Rückfrage) und „Podcast für einen anderen Tag entwickeln“. **Ohne Claude (z. B. am iPad):** aufklappbar in der Karte stehen
+  Quelltext und Steueranweisung zum einzelnen Kopieren und die Schritte in Gemini Notebook von Hand.
+  * **Voraussetzungen:** Claude in Chrome ist eine Browser-Erweiterung – nur in Chrome am Computer und mit einem bezahlten Claude-Tarif;
+    Browser-Aufträge verbrauchen deutlich mehr Claude-Kontingent als ein Chat. Gemini Notebook nutzen Sie mit **Ihrem** Google-Konto (mit
+    einem Schulkonto sind womöglich nur wenige Audio-Zusammenfassungen am Tag möglich, z. B. drei). Unterricks steuert Gemini Notebook nicht
+    selbst (es gibt keine offizielle Schnittstelle dafür) und gibt Claude nie selbst einen Auftrag – er steht nur in Ihrer Zwischenablage.
+  * **Länge:** In Gemini Notebook lässt sich die Länge auf Deutsch nicht fest vorgeben (laut Google-Hilfe gibt es die Längenauswahl nur auf
+    Englisch); die Steueranweisung bittet um höchstens 12 bis 15 Minuten, garantiert ist das nicht.
+  * **Datenfluss:** An Google gehen über Ihr Konto nur die Zusammenfassungen bzw. die Planung der Stunden – ohne Daten von Schüler:innen
+    (dort gibt es keine Namen; die Steueranweisung verbietet Namen ausdrücklich). Claude in Chrome sieht die Tabs, in denen es arbeitet –
+    am besten ein eigenes Chrome-Profil nur für diese Arbeit verwenden. Die Folge liegt nur in Unterricks (R2, EU) und ist nur für Sie
+    abspielbar (über einen signierten Link, 12 Stunden gültig) – nie für Schüler:innen, Eltern, am Beamer oder in der Präsentation.
+  * **Löschen:** Ein Podcast je Tag (eine neue Datei ersetzt die alte). Ist der Unterrichtstag vorbei, erscheint wieder der Knopf; die Datei
+    wird **zwei Tage nach dem Unterrichtstag** automatisch gelöscht (Podcast für Montag → ab Mittwoch 0:00 Uhr) – beim nächsten Öffnen einer
+    Startseite bzw. im gelegentlichen Aufräumen; die Lebenszyklus-Regel für R2 (siehe Einrichtung, Schritt 4) ist das Sicherheitsnetz. Podcasts sind nicht
+    in der Sicherung und nicht in Sitzungsdateien; „Unterricks zurücksetzen“ löscht sie mit.
 * **Aufforderungen an die Lehrkraft unterstrichen:** Muss die Lehrkraft an einer Stelle auf Material zurückgreifen, das nur sie hat
   (z. B. einen Vorlesetext oder eine Lösung), schreiben Claude und die kostenlose KI das als eigenen, unterstrichenen Stichpunkt in die
   Phase, z. B. `- __Lehrkraft liest den Vorlesetext ~~Die Arche Noah~~ vor.__` im Schulportal-Eintrag (bzw. im Verlaufsplan der
@@ -284,7 +327,7 @@ Feibeitsblatt braucht keine Änderung. Die Adressen stehen in `wrangler.jsonc` (
 
 Menü **„Grundschule“** (zwischen „Gymnasium“ und „Planungsgrundlagen“). Ganz oben stehen die **Druckaufträge für den nächsten
 Arbeitstag** (dasselbe Feld wie auf der Startseite „Gymnasium“, mit beiden Schulformen), darunter der Wochenkalender beider Schulformen,
-„Ihre Kurse“ und „Zuletzt bearbeitet“.
+der **Podcast für den kommenden Unterricht** (derselbe wie auf der Startseite „Gymnasium“), „Ihre Kurse“ und „Zuletzt bearbeitet“.
 
 * **Kurs anlegen:** Knopf **„Neuen Kurs anlegen“** im Kopf der Seite → Jahrgang 1–4, eine bis drei Klassen (a, b, c – z. B. alle Kinder aus
   2a oder gemischt 2a und 2b), Fach **„Religion (evangelisch)“** oder **„Anderes Fach“** mit Namen und optional einer Beschreibung, was

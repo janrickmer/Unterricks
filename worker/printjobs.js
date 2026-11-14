@@ -25,15 +25,17 @@ export const PRINT_FILES_SQL = "SELECT " + PRINT_COLS + " FROM files WHERE lesso
 export const FIRST_DAY_SQL = "SELECT MIN(lesson_date) AS d FROM lessons WHERE lesson_date >= ?1 AND lesson_date <= ?2 AND cancelled=0";
 export const DAY_SESSIONS_SQL = "SELECT id, subject, klass, title, lesson_date, start_time, duration_min FROM lessons WHERE lesson_date=?1 AND cancelled=0";
 
-/* Sitzungen nach Beginn (ohne Uhrzeit zuletzt), dann Kurs bzw. Klasse, dann Titel */
-const order = (a, b) => (a.startTime || "99:99").localeCompare(b.startTime || "99:99") || a.label.localeCompare(b.label, "de", { numeric: true }) || a.title.localeCompare(b.title, "de");
+/* Sitzungen nach Beginn (ohne Uhrzeit zuletzt), dann Kurs bzw. Klasse, dann Titel (auch für den Podcast, worker/podcast.js) */
+export const sessionOrder = (a, b) => (a.startTime || "99:99").localeCompare(b.startTime || "99:99") || a.label.localeCompare(b.label, "de", { numeric: true }) || a.title.localeCompare(b.title, "de");
 
 /* GET /api/teacher/print-next → {today, candidate (nomineller nächster Arbeitstag), date (Tag der Druckaufträge oder null), sessions: [{id, subject,
    klass, title, date, startTime, durationMin, school "gym"|"gs", label (wie im Wochenkalender), subtitle (Unterzeile einer Text-PDF wie in der Sitzung),
    course? {id, short, label}, files: [fileOut ohne Text]}]} – auch Sitzungen ohne Druckaufträge (files leer). 7 D1-Anweisungen. */
-export async function routePrintNext(c) {
-  await requireTeacher(c);
-  const today = berlinToday(c.now), candidate = nextWorkday(today), last = addDays(candidate, PRINT_AHEAD_DAYS);
+/* Nächster Tag mit Unterricht nach heute (today, Europe/Berlin): nominell nextWorkday, dann der früheste Tag mit Sitzung oder Termin laut Stundenplan
+   (printTargetDay) → {candidate, date (null = nichts in Sicht), gs (Grundschulkurse: Map id → gsCourseOut)}. 4 D1-Anweisungen (Fach-Einstellungen,
+   ein Batch mit Einheiten, Kursen und frühester Sitzung). Auch für den Podcast (worker/podcast.js). */
+export async function nextTeachingDay(c, today) {
+  const candidate = nextWorkday(today), last = addDays(candidate, PRINT_AHEAD_DAYS);
   const cfgs = await loadSubjectConfigs(c.db);
   const [ur, gr, lr] = await c.db.batch([
     // nur Einheiten, deren Zeitraum das Suchfenster berührt (gespeichert sind die Rahmendaten normalisiert: ISO-Daten)
@@ -45,7 +47,12 @@ export async function routePrintNext(c) {
   const gs = new Map((gr.results || []).map((x) => [x.id, gsCourseOut(x)]));
   const units = (ur.results || []).map((x) => scheduleUnit(x, gs, cfgs)).filter(Boolean);
   const first = ((lr.results || [])[0] || {}).d || null;
-  const date = printTargetDay(candidate, units, first ? [first] : []);
+  return { candidate, date: printTargetDay(candidate, units, first ? [first] : []), gs };
+}
+export async function routePrintNext(c) {
+  await requireTeacher(c);
+  const today = berlinToday(c.now);
+  const { candidate, date, gs } = await nextTeachingDay(c, today);
   if (!date) return json({ ok: true, today, candidate, date: null, sessions: [] });
   const [ls, fs] = await c.db.batch([
     c.db.prepare(DAY_SESSIONS_SQL).bind(date),
@@ -59,6 +66,6 @@ export async function routePrintNext(c) {
       school: isGs ? "gs" : "gym", label: isGs ? (course ? course.short : "Grundschule") : subjectShort(l.subject) + " " + classShort(l.klass),
       subtitle: isGs ? (course ? course.label : "Grundschule") : subjectName(l.subject) + " · " + classShort(l.klass),
       ...(course ? { course: { id: course.id, short: course.short, label: course.label } } : {}), files: byLesson.get(l.id) || [] };
-  }).sort(order);
+  }).sort(sessionOrder);
   return json({ ok: true, today, candidate, date, sessions });
 }

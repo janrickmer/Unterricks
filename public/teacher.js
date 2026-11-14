@@ -7,6 +7,7 @@ import { missingFor } from "./bases-detect.js";
 import { portalPreview } from "./portalview.js";
 import { weekCard } from "./weekcal.js";
 import { printNextCard } from "./printnext.js";
+import { podcastCard } from "./podcast.js";
 import { FbClient } from "./fbclient.js";
 import { deriveLogin, rememberKey, recallKey, forgetKey, sealLink, openLink, linkData, sameApi } from "./fblink.js";
 
@@ -301,14 +302,16 @@ async function subjectsPage() {
   const week = weekCard(() => tapi("GET", "/api/teacher/schedule").then((r) => r.units));
   // darüber das Feld „Druckaufträge für den nächsten Arbeitstag“ (beide Schulformen; lädt ebenso eigenständig)
   const prints = printNextCard();
+  // direkt unter dem Wochenkalender: „Podcast für den kommenden Unterricht entwickeln“ bzw. der Player (Nachtrag 22, beide Schulformen)
+  const podcast = podcastCard();
   resumeCleanup();
   printPending();
   cardsPendingRun();
   const head = () => pageHead({ title: "Welches Fach unterrichten Sie?", sub: "Planung in Unterrichtseinheiten – jede Sitzung gehört zu einer Stunde ihrer Einheit." });
   // auch wenn die Fächer nicht laden: die Druckaufträge (und der Wochenkalender) bleiben ganz oben – wie auf der Übersicht „Grundschule“
-  let all; try { all = await loadLessons(); } catch (e) { clear(main).append(head(), prints, week, h("p", { class: "err", text: e.message })); return; }
+  let all; try { all = await loadLessons(); } catch (e) { clear(main).append(head(), prints, week, podcast, h("p", { class: "err", text: e.message })); return; }
   clear(main).append(...nn(head(),
-    prints, week, h("h2", { class: "sr-only", text: "Fächer" }),
+    prints, week, podcast, h("h2", { class: "sr-only", text: "Fächer" }),
     h("div", { class: "tiles" }, SUBJECTS.map((s) => {
       const n = all.filter((l) => l.subject === s.id).length;
       return h("a", { class: "tile", href: "#/lk/f/" + s.id, dataset: { fach: s.id } }, h("div", { class: "t", text: s.name }), h("div", { class: "s", text: n ? n + " Sitzung" + (n === 1 ? "" : "en") : "Noch keine Sitzungen" }));
@@ -476,7 +479,7 @@ async function settingsPage() {
  * backup.js), eine letzte Bestätigung und das Löschen (worker/reset.js: Datenbank in einem Schritt, Dateien in Runden). */
 export const RESET_LABEL = "Alle Unterrichtsinhalte löschen und Unterricks zurücksetzen";
 const DELETED_TEXT = "Gelöscht werden alle Unterrichtseinheiten und Unterrichtssitzungen mit allem, was dazugehört: Rahmendaten, Leupold-Schema und Ablauf, Planung der Sitzungen, " +
-  "Materialien, Präsentationen, Planungsverläufe, Schulportal-Einträge, Hausaufgaben, Drucklisten, Verknüpfungen und Entwürfe von Feibeitsblättern, Vertretungspläne, die Freischaltungen der Schüler:innen sowie in der Grundschule Verlaufspläne, Bildkarten und Elternlinks.";
+  "Materialien, Präsentationen, Planungsverläufe, Schulportal-Einträge, Hausaufgaben, Drucklisten, Verknüpfungen und Entwürfe von Feibeitsblättern, Vertretungspläne, die Freischaltungen der Schüler:innen sowie in der Grundschule Verlaufspläne, Bildkarten und Elternlinks. Auch die Podcasts für den kommenden Unterricht werden gelöscht.";
 const KEPT_TEXT = "Es bleiben: Ihr Zugang und Ihr Passwort, die Planungsgrundlagen (mit ihren PDF-Dateien), die Fach-Einstellungen mit den Kursen, die Kurseinstellungen (Stundenplan und Schülerzahl), die Grundschulkurse, die KI-Einstellungen, der Claude-Connector, die Feibeitsblatt-Verbindung, " +
   "das Schülerpasswort und die angemeldeten Schülergeräte. Die Feibeitsblätter selbst und die Abgaben darin bleiben im Feibeitsblatt.";
 function resetSection() {

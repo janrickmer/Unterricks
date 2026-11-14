@@ -104,6 +104,23 @@ jobs:
             exit 1
           fi
 
+      - name: R2 – Sicherheitsnetz für Podcast-Folgen (Lebenszyklus-Regel)
+        # Unterricks löscht Podcasts selbst zwei Tage nach dem Unterrichtstag (worker/podcast.js, cleanupPodcasts); diese Regel entfernt
+        # liegen gebliebene Dateien unter podcast/ spätestens 90 Tage nach dem Hochladen. Fehlt dem Token das Recht, nur eine Warnung.
+        continue-on-error: true
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ env.CF_ACCOUNT }}
+        run: |
+          if npx wrangler r2 bucket lifecycle list unterricks-files --jurisdiction eu 2>/dev/null | grep -q "podcast-sicherheitsnetz"; then
+            echo "Lebenszyklus-Regel für podcast/ vorhanden."
+          elif ! OUT=$(npx wrangler r2 bucket lifecycle add unterricks-files podcast-sicherheitsnetz podcast/ --expire-days 90 --jurisdiction eu --force 2>&1); then
+            echo "$OUT" | tail -5
+            echo "::warning title=R2-Lebenszyklus-Regel nicht angelegt::Das Sicherheitsnetz für Podcast-Dateien (podcast/, 90 Tage) fehlt – meist fehlt dem Token „Workers R2 Storage: Bearbeiten“. Unterricks löscht Podcasts trotzdem selbst; die Regel lässt sich im Dashboard (R2 → unterricks-files → Settings → Object lifecycle rules) von Hand anlegen."
+          else
+            echo "Lebenszyklus-Regel für podcast/ angelegt."
+          fi
+
       - name: Worker veröffentlichen
         id: deploy
         env:

@@ -360,11 +360,12 @@ test("Nie für Schüler:innen, Eltern, Beamer und Live: Startliste der Schüler:
   assert.ok(JSON.stringify(pv.data).includes("Wir haben von Mose gehört."));
   for (const x of [pv.data, pp.data]) assert.ok(!JSON.stringify(x).includes("LEHRKRAFTGEHEIM2"));
   // im Quelltext: nur diese Module kennen die Zusammenfassung – Schüler-, Eltern-, Beamer-, Live- und Vertretungsrouten bzw. -seiten nie
+  // (worker/podcast.js: Podcast für den kommenden Unterricht, Nachtrag 22 – nur Lehrkraft-Routen)
   const { readdirSync, readFileSync } = await import("node:fs");
   const root = new URL("../../", import.meta.url), uses = [];
   for (const dir of ["worker", "public"]) for (const f of readdirSync(new URL(dir + "/", root)).filter((x) => x.endsWith(".js")).sort())
     if (/teacher_summary|teacherSummary|zusammenfassung_lehrkraft|summaryCard/.test(readFileSync(new URL(dir + "/" + f, root), "utf8"))) uses.push(dir + "/" + f);
-  assert.deepEqual(uses, ["worker/db.js", "worker/lessons.js", "worker/mcp.js", "worker/units.js",
+  assert.deepEqual(uses, ["worker/db.js", "worker/lessons.js", "worker/mcp.js", "worker/podcast.js", "worker/units.js",
     "public/gsplanning.js", "public/gssession.js", "public/session.js", "public/sessionfile.js", "public/sessionio.js", "public/shared.js", "public/tsummary.js"]);
 });
 

@@ -1,6 +1,7 @@
 // reset.js – „Alle Unterrichtsinhalte löschen und Unterricks zurücksetzen“ (Einstellungen) und die Übersicht für die Sicherung.
 // Gelöscht werden alle Unterrichtseinheiten und Sitzungen mit allem, was an ihnen hängt (Materialien, Präsentationen, Planungschats,
-// Schulportal-Einträge, Drucklisten, Feibeitsblatt-Verknüpfungen und -Entwürfe, Vertretungen, Freischaltungen der Schüler:innen).
+// Schulportal-Einträge, Drucklisten, Feibeitsblatt-Verknüpfungen und -Entwürfe, Vertretungen, Freischaltungen der Schüler:innen) – und die
+// Podcasts für den kommenden Unterricht (Nachtrag 22).
 // Es bleiben: Zugang und Geräte der Lehrkraft, Planungsgrundlagen, Fach-Einstellungen mit Kursen, KI, Connector, Feibeitsblatt-Verbindung,
 // Schülerpasswort und Schülergeräte; die Feibeitsblätter selbst bleiben im Feibeitsblatt (Entscheidung der Lehrkraft vom 11.11.2026).
 // Ablauf: D1 in EINEM Batch (danach ist alles weg, für Unterricks sofort konsistent); die Dateien in R2 (Präfix l/<Sitzung>/) und der
@@ -93,8 +94,13 @@ export async function routeReset(c) {
     db.prepare("DELETE FROM substitutes"),
     db.prepare("DELETE FROM lessons"),
     db.prepare("DELETE FROM units"),
+    // Podcasts für den kommenden Unterricht (Nachtrag 22) entstehen aus den Sitzungen und gehen mit ihnen
+    db.prepare("DELETE FROM podcasts RETURNING r2_key"),
   ]);
   const n = (i) => ((res[i].results && res[i].results[0]) || {}).n || 0;
+  const pods = (res[10].results || []).map((x) => x.r2_key);
+  // bleibt eine Datei liegen, löscht sie das Aufräumen (cleanupPodcasts mit sweep)
+  if (pods.length) { try { await c.env.FILES.delete(pods); } catch {} }
   let pending = null;
   try { pending = await cleanupRound(c, 16); } catch { try { pending = await pendingCount(db); } catch {} }
   return json({ ok: true, deleted: { units: n(0), lessons: n(1) }, pending: pending ?? 1 });

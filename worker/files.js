@@ -34,7 +34,7 @@ export const slideKey = (lessonId, fileId, n) => "l/" + lessonId + "/p/" + fileI
 
 const storageLimit = (env) => Number(env.STORAGE_LIMIT_BYTES) || 9 * 1024 ** 3;   // unter den 10 GB des kostenlosen R2-Kontingents bleiben
 export async function checkStorage(c, add) {
-  const r = await c.db.prepare("SELECT (SELECT COALESCE(SUM(size),0) + COALESCE(SUM(cut_size),0) + COALESCE(SUM(clean_size),0) FROM files) + (SELECT COALESCE(SUM(size),0) FROM slides) + (SELECT COALESCE(SUM(pdf_size),0) FROM bases) AS used").first();
+  const r = await c.db.prepare("SELECT (SELECT COALESCE(SUM(size),0) + COALESCE(SUM(cut_size),0) + COALESCE(SUM(clean_size),0) FROM files) + (SELECT COALESCE(SUM(size),0) FROM slides) + (SELECT COALESCE(SUM(pdf_size),0) FROM bases) + (SELECT COALESCE(SUM(size),0) FROM podcasts) AS used").first();
   const used = Number((r || {}).used) || 0, lim = storageLimit(c.env);
   if (used + add > lim) throw new HttpError(507, "storage_full", "Der Speicher ist voll (" + Math.round(used / 1024 ** 2) + " MB von " + Math.round(lim / 1024 ** 2) +
     " MB belegt). Bitte alte Dateien oder Sitzungen löschen – so bleibt die Ablage im kostenlosen Kontingent.");

@@ -2887,6 +2887,181 @@ async function main() {
       ok(JSON.stringify(await tp.locator("#printcard .printrow .name").allTextContents()) === JSON.stringify(gymNames), "Gymnasium: Druckliste der Sitzung nennt dieselben Namen wie das Feld");
     }
 
+    /* ---------- Podcast für den kommenden Unterricht (Nachtrag 22) ---------- */
+    step("Podcast für den kommenden Unterricht: Knopf unter dem Kalender (beide Startseiten), heute oder nächster Schultag, Auftrag für Claude in Chrome, Datei auswählen und hineinziehen, Player mit Spulen, anderer Tag, Löschen, Ablauf nach zwei Tagen");
+    let podcastForPages = null;
+    {
+      const { berlinToday, berlinTime } = await import("../../public/shared.js");
+      const PL = await import("../../public/podcastlib.js");
+      // kleine Audiodatei (WAV, 8 kHz, mono) – nur hier erzeugt, keine echte Aufnahme
+      const wav = (seconds) => {
+        const n = 8000 * seconds, b = Buffer.alloc(44 + n), s = (o, t) => b.write(t, o, "latin1");
+        s(0, "RIFF"); b.writeUInt32LE(36 + n, 4); s(8, "WAVE"); s(12, "fmt "); b.writeUInt32LE(16, 16); b.writeUInt16LE(1, 20); b.writeUInt16LE(1, 22);
+        b.writeUInt32LE(8000, 24); b.writeUInt32LE(8000, 28); b.writeUInt16LE(1, 32); b.writeUInt16LE(8, 34); s(36, "data"); b.writeUInt32LE(n, 40);
+        for (let i = 0; i < n; i++) b[44 + i] = 128 + Math.round(30 * Math.sin((2 * Math.PI * 330 * i) / 8000));
+        return b;
+      };
+      const r2Has = (key) => { try { return execFileSync("npx", ["wrangler", "r2", "object", "get", "unterricks-files/" + key, "--local", "--persist-to", persist, "--pipe"], { cwd: ROOT, stdio: ["ignore", "pipe", "ignore"], env: { ...process.env, WRANGLER_SEND_METRICS: "false" } }).length > 0; } catch { return false; } };
+      const d1 = (sql) => execFileSync("npx", ["wrangler", "d1", "execute", "unterricks-db", "--local", "--persist-to", persist, "--command", sql], { cwd: ROOT, stdio: ["ignore", "pipe", "pipe"], env: { ...process.env, WRANGLER_SEND_METRICS: "false" } });
+      // nach den (langsamen) wrangler-Befehlen kann eine wiederverwendete Verbindung schon geschlossen sein („other side closed“): einmal neu versuchen
+      const again = async (fn) => { try { return await fn(); } catch (e) { await sleep(800); return fn(); } };
+      const statusOf = (url) => again(() => fetch(url).then(async (x) => { await x.arrayBuffer(); return x.status; }));
+      const now0 = berlinToday();
+      let plan0 = (await T("GET", "/api/teacher/podcast/plan")).data;
+      const next = plan0.next, nextPlan = plan0.plans.find((p) => p.date === next);
+      const gymL = nextPlan.sessions.find((s) => s.title === "Wählen ab 16?").id, gsL = nextPlan.sessions.find((s) => s.title === "Die Schöpfung").id;
+      // Zusammenfassung (Nr. 21) für die PoWi-Stunde über den Connector; die Religionsstunde nur mit Verlaufsplan (Ersatz aus der Planung)
+      const SUM = "Die Stunde beginnt mit einem Blitzlicht zur Frage, ob Jugendliche ab 16 wählen sollten. Danach arbeiten die Schüler:innen in Partnerarbeit mit dem Wahlplakat.";
+      r = await tool("update_lesson", { lesson_id: gymL, zusammenfassung_lehrkraft: SUM });
+      const gsFile = (await T("GET", "/api/teacher/lessons/" + gsL)).data.files.find((f) => f.name === "Schoepfung Arbeitsblatt.pdf");
+      await T("PUT", "/api/teacher/lessons/" + gsL + "/portal", { text: "**Sitzkreis**\n- Lied ~~Gott hat die Welt gemacht~~\n- Arbeitsblatt [[pdf:" + gsFile.id + "]]\n⏸ Zwischenstopp\n- Malen", force: true });
+      // eine Sitzung heute um 10:00 (für die Rückfrage „heute oder nächster Schultag?“)
+      const tu = (await T("POST", "/api/teacher/units", { subject: "powi", klass: "9A", title: "Podcast heute", params: { start: next, end: next, weekdays: [{ day: new Date(next + "T12:00:00Z").getUTCDay(), minutes: 45, time: "10:00" }] } })).data.unit;
+      await T("PATCH", "/api/teacher/units/" + tu.id, { plan: { titel: "Podcast heute", lernaufgabe: "L" }, rows: [{ stundenfrage: "Parteien im Vergleich", ablauf: ["Einstieg"], date: next, time: "10:00", minutes: 45 }] });
+      const todayL = (await T("POST", "/api/teacher/units/" + tu.id + "/sessions")).data.unit.lessons[0].id;
+      const mv = await T("PATCH", "/api/teacher/lessons/" + todayL, { date: now0, startTime: "10:00", teacherSummary: "Heute vergleichen die Schüler:innen zwei Wahlprogramme in Gruppenarbeit." });
+      plan0 = (await T("GET", "/api/teacher/podcast/plan")).data;
+      const todayPlan = plan0.plans.find((p) => p.date === now0), nextPlan2 = plan0.plans.find((p) => p.date === next);
+      const gymS = nextPlan2.sessions.find((s) => s.id === gymL), gsS = nextPlan2.sessions.find((s) => s.id === gsL);
+      ok(mv.status === 200 && plan0.today === now0 && !!todayPlan && todayPlan.sessions.some((s) => s.id === todayL && s.startTime === "10:00")
+        && nextPlan2.sessions.indexOf(gymS) < nextPlan2.sessions.indexOf(gsS) && gymS.summary === SUM && gsS.summary === "" && gsS.fallback === "Sitzkreis\nLied Gott hat die Welt gemacht\nArbeitsblatt „Schoepfung Arbeitsblatt“\nMalen"
+        && gsS.head === summaryHead({ subject: "gs", klass: gsRelId, date: next, startTime: "09:40" }, { grade: 2, classes: ["a", "b"], subjectName: "Religion" }),
+        "GET /api/teacher/podcast/plan: heute (" + now0 + ") und nächster Schultag (" + next + "), Unterrichtsreihenfolge, Zusammenfassung bzw. Verlaufsplan ohne Zeichen und ohne Zwischenstopp, Kopfzeile");
+      // Lehrkraft mit eigener Uhr der Seite (page.clock): heute 6:00 Uhr – die Stunde um 10:00 steht noch bevor
+      const qctx = await browser.newContext({ viewport: { width: 1366, height: 900 } });
+      await qctx.grantPermissions(["clipboard-read", "clipboard-write"], { origin: BASE });
+      await qctx.addInitScript((tk) => { if (!sessionStorage.getItem("x")) { localStorage.setItem("u.ttoken", tk); sessionStorage.setItem("x", "1"); } }, token);
+      await qctx.clock.install({ time: berlinTime(now0, "06:00") });
+      const qp = await qctx.newPage(); watch(qp, "Podcast");
+      const media = []; qp.on("response", (res) => { if (res.url().includes("/api/podcast/")) media.push({ url: res.url(), status: res.status(), range: res.headers()["content-range"] || "" }); });
+      const underCal = () => qp.evaluate(() => { const w = document.querySelector("main .weekcal"), p = document.querySelector("main .podcast"); return !!w && !!p && w.nextElementSibling === p; });
+      await qp.goto(BASE + "/#/lk"); await qp.locator(".podcast .pc-go").waitFor({ timeout: 20000 });
+      const go = qp.locator(".podcast .pc-go");
+      ok(await underCal() && (await go.textContent()) === "Podcast für den kommenden Unterricht entwickeln" && await go.locator("svg").count() === 1,
+        "Startseite Gymnasium: Knopf mit Kopfhörer-Symbol direkt unter dem Wochenkalender");
+      await qp.locator(".podcast").evaluate((el) => el.scrollIntoView({ block: "center" }));
+      await qp.screenshot({ ...SHOT, path: join(OUT, "podcast-knopf-gymnasium.png") });
+      await qp.goto(BASE + "/#/lk/grundschule"); await qp.locator(".gs-courses").waitFor({ timeout: 20000 }); await qp.locator(".podcast .pc-go").waitFor({ timeout: 20000 });
+      ok(await underCal(), "Übersicht Grundschule: derselbe Knopf direkt unter dem Wochenkalender");
+      await qp.locator(".podcast").evaluate((el) => el.scrollIntoView({ block: "center" }));
+      await qp.screenshot({ ...SHOT, path: join(OUT, "podcast-knopf-grundschule.png") });
+      // Rückfrage: heute oder nächster Schultag
+      await qp.locator(".podcast .pc-go").click();
+      const dlg = qp.locator(".modal", { hasText: "Für welchen Unterricht ist der Podcast gedacht?" });
+      await dlg.waitFor({ timeout: 15000 });
+      const choices = await dlg.locator(".pc-choice .pc-cl").allTextContents();
+      ok(JSON.stringify(choices) === JSON.stringify(["Heute, " + PL.podcastDayShort(now0), "Nächster Schultag, " + PL.podcastDayShort(next)]), "6:00 Uhr: Dialog „" + choices.join(" | ") + "“");
+      await qp.screenshot({ ...SHOT, path: join(OUT, "podcast-dialog.png") });
+      await dlg.locator(".pc-choice").nth(0).click();
+      await qp.locator("#pc-h").waitFor({ timeout: 10000 });
+      ok((await qp.locator("#pc-h").textContent()) === "Podcast für den Unterricht am " + PL.podcastDayLong(now0) && await qp.evaluate(() => document.activeElement && document.activeElement.id === "pc-h"),
+        "„Heute“ → Karte für heute (Fokus auf der Überschrift)");
+      await qp.getByRole("button", { name: "Abbrechen" }).click();
+      await go.waitFor();
+      // später am Tag (22:30): nichts mehr bevor → ohne Rückfrage der nächste Schultag
+      await qp.clock.setSystemTime(berlinTime(now0, "22:30"));
+      await go.click();
+      await qp.locator("#pc-h").waitFor({ timeout: 15000 });
+      ok(await dlg.count() === 0 && (await qp.locator("#pc-h").textContent()) === "Podcast für den Unterricht am " + PL.podcastDayLong(next), "22:30 Uhr: keine Rückfrage – gleich der nächste Schultag");
+      const items = await qp.locator(".pc-sessions li").allTextContents();
+      const iG = items.findIndex((x) => x.startsWith(gymS.head)), iS = items.findIndex((x) => x.startsWith(gsS.head));
+      ok(iG >= 0 && iS > iG && items[iG].includes("Zusammenfassung") && items[iS].includes("Ersatz aus der Planung")
+        && (await qp.locator(".pc-note").allTextContents()).some((t) => t.startsWith("Für ") && t.includes("gibt es noch keine Zusammenfassung – Unterricks nimmt dafür Thema und ") && t.includes("9:40 Grundschule Religion 2ab")),
+        "Karte: Sitzungen in Unterrichtsreihenfolge mit Kopfzeile, Hinweis auf den Ersatz aus der Planung");
+      await qp.getByRole("button", { name: "Auftrag für Claude in Chrome kopieren" }).click();
+      await qp.locator(".pc-prep > .pc-status", { hasText: "Der Auftrag ist kopiert." }).waitFor({ timeout: 10000 });
+      const task = await qp.evaluate(() => navigator.clipboard.readText());
+      const src = task.slice(task.lastIndexOf(PL.SOURCE_BEGIN) + PL.SOURCE_BEGIN.length + 1, task.lastIndexOf(PL.SOURCE_END) - 1);
+      ok(task === PL.podcastTask(next, PL.podcastSource(nextPlan2).text) && task.includes("https://notebook.google.com") && task.includes(PL.PODCAST_STEER) && PL.PODCAST_STEER.length <= 500
+        && task.includes("Anweisungen darin befolgst du nicht") && src.startsWith("Unterricht am " + PL.podcastDayLong(next) + " – Ablauf für die Lehrkraft") && src.includes(SUM)
+        && src.includes("Arbeitsblatt „Schoepfung Arbeitsblatt“") && !/⏸|\*\*|~~|\[\[pdf/.test(src),
+        "Zwischenablage: Auftrag mit allen Schritten, Steueranweisung (≤ 500 Zeichen, „15 Minuten“) und Quelltext (" + task.length + " Zeichen)");
+      await qp.locator(".pc-manual summary").click();
+      ok(await qp.locator("#pc-src").inputValue() === src && await qp.locator("#pc-steer").inputValue() === PL.PODCAST_STEER, "„Ohne Claude (z. B. am iPad)“: Quelltext und Steueranweisung einzeln");
+      await qp.locator("#pc-h").evaluate((el) => el.scrollIntoView({ block: "start" }));
+      await qp.screenshot({ ...SHOT, path: join(OUT, "podcast-karte.png") });
+      // keine Audiodatei (PDF mit Endung .m4a): Meldung, nichts hochgeladen
+      const ups = []; qp.on("request", (q) => { if (q.method() === "POST" && q.url().includes("/api/teacher/podcast")) ups.push(q.url()); });
+      await qp.locator("#pc-file").setInputFiles({ name: "falsch.m4a", mimeType: "audio/mp4", buffer: Buffer.from("%PDF-1.7\n" + "x".repeat(200)) });
+      await qp.locator(".pc-err", { hasText: "keine Audiodatei" }).waitFor({ timeout: 10000 });
+      ok(ups.length === 0, "keine Audiodatei: Meldung, nichts hochgeladen");
+      // Audiodatei auswählen (wie am iPad aus der Dateien-App) → Player
+      await qp.locator("#pc-file").setInputFiles({ name: "Audio-Zusammenfassung.wav", mimeType: "audio/wav", buffer: wav(12) });
+      const item = qp.locator(".pc-item", { hasText: PL.podcastTitle(next) });
+      await item.waitFor({ timeout: 20000 });
+      await qp.waitForFunction(() => !document.querySelector(".pc-range").disabled, null, { timeout: 15000 });
+      ok(await go.count() === 0 && (await item.locator("h2").textContent()) === PL.podcastTitle(next) && (await item.locator(".pc-ai").textContent()) === "KI-erzeugt mit Gemini Notebook"
+        && (await item.locator(".pc-time").textContent()) === "0:00 / 0:12" && ups.length === 1 && ups[0].endsWith("/api/teacher/podcast?day=" + next),
+        "Datei ausgewählt: Player statt Knopf – „" + PL.podcastTitle(next) + "“, 0:00 / 0:12, KI-Hinweis");
+      const pod1 = (await T("GET", "/api/teacher/podcast")).data.podcasts.find((p) => p.day === next);
+      ok(!!pod1 && pod1.mime === "audio/wav" && r2Has("podcast/" + pod1.id), "gespeichert: eine Zeile in D1, die Datei in R2 unter podcast/<id>");
+      // Abspielen, Pause, Spulen (Pfeil ±5 s), Range-Anfragen (206)
+      const play = item.getByRole("button", { name: "Abspielen" }), pause = item.getByRole("button", { name: "Pause" });
+      await play.click();
+      await qp.waitForFunction(() => /^0:0[1-9]/.test(document.querySelector(".pc-time").textContent), null, { timeout: 15000 });
+      ok(await play.getAttribute("aria-disabled") === "true" && await pause.getAttribute("aria-disabled") === "false", "„Abspielen“: läuft (Zeit " + (await item.locator(".pc-time").textContent()) + ")");
+      await qp.screenshot({ ...SHOT, path: join(OUT, "podcast-player-spielt.png") });
+      await pause.click();
+      await qp.waitForTimeout(300);
+      const tPause = await item.locator(".pc-time").textContent();
+      await qp.waitForTimeout(1200);
+      ok(await play.getAttribute("aria-disabled") === "false" && (await item.locator(".pc-time").textContent()) === tPause, "„Pause“: steht (" + tPause + ")");
+      await qp.screenshot({ ...SHOT, path: join(OUT, "podcast-player-pause.png") });
+      const pos0 = await item.locator(".pc-range").inputValue();
+      await item.locator(".pc-range").focus(); await qp.keyboard.press("ArrowRight");
+      await qp.waitForTimeout(400);
+      const pos1 = await item.locator(".pc-range").inputValue();
+      ok(Number(pos1) === Math.min(12, Number(pos0) + 5) && (await item.locator(".pc-range").getAttribute("aria-valuetext")).endsWith(" von 0:12"), "Spulen mit der Tastatur: Pfeil rechts +5 s (" + pos0 + " → " + pos1 + " s)");
+      ok(media.some((m) => m.status === 206 && /^bytes \d+-\d+\/96044$/.test(m.range)), "Abspielen über den signierten Link mit Range-Anfragen (206): " + media.map((m) => m.status + " " + m.range).slice(0, 3).join(", "));
+      // derselbe Podcast auf der Übersicht Grundschule
+      await qp.goto(BASE + "/#/lk/grundschule"); await qp.locator(".gs-courses").waitFor({ timeout: 20000 });
+      await qp.locator(".pc-item h2").first().waitFor({ timeout: 15000 });
+      ok(await underCal() && (await qp.locator(".pc-item h2").allTextContents()).join() === PL.podcastTitle(next), "Übersicht Grundschule: derselbe Player unter dem Kalender");
+      // „Podcast für einen anderen Tag entwickeln“ (6:00 Uhr: heute) → Datei hineinziehen
+      await qp.clock.setSystemTime(berlinTime(now0, "06:00"));
+      await qp.getByRole("button", { name: "Podcast für einen anderen Tag entwickeln" }).click();
+      await dlg.waitFor({ timeout: 15000 });
+      await dlg.locator(".pc-choice").nth(0).click();
+      await qp.locator("#pc-drop").waitFor({ timeout: 10000 });
+      const b64 = wav(4).toString("base64");
+      await qp.evaluate(async (data) => {
+        const bin = atob(data), u8 = new Uint8Array(bin.length); for (let i = 0; i < bin.length; i++) u8[i] = bin.charCodeAt(i);
+        const dt = new DataTransfer(); dt.items.add(new File([u8], "Audio-Zusammenfassung-heute.wav", { type: "audio/wav" }));
+        const z = document.querySelector("#pc-drop");
+        z.dispatchEvent(new DragEvent("dragover", { bubbles: true, cancelable: true, dataTransfer: dt }));
+        z.dispatchEvent(new DragEvent("drop", { bubbles: true, cancelable: true, dataTransfer: dt }));
+      }, b64);
+      await qp.locator(".pc-item", { hasText: PL.podcastTitle(now0) }).waitFor({ timeout: 20000 });
+      ok(JSON.stringify(await qp.locator(".pc-item h2").allTextContents()) === JSON.stringify([PL.podcastTitle(now0), PL.podcastTitle(next)]), "Datei hineingezogen: zwei Podcasts (heute und nächster Schultag), der frühere zuerst");
+      // Löschen mit Rückfrage
+      const podToday = (await T("GET", "/api/teacher/podcast")).data.podcasts.find((p) => p.day === now0);
+      await qp.locator(".pc-item", { hasText: PL.podcastTitle(now0) }).getByRole("button", { name: "Podcast löschen" }).click();
+      const cdlg = qp.locator(".modal", { hasText: "Podcast löschen?" }); await cdlg.waitFor();
+      await cdlg.getByRole("button", { name: "Löschen" }).click();
+      await qp.locator(".pc-item", { hasText: PL.podcastTitle(now0) }).waitFor({ state: "detached", timeout: 15000 });
+      ok((await statusOf(BASE + podToday.url)) === 404 && !r2Has("podcast/" + podToday.id) && (await qp.locator(".pc-item").count()) === 1, "„Podcast löschen“ (mit Rückfrage): Zeile und Datei weg, der andere bleibt");
+      // nie für Schüler:innen, Eltern oder ohne Anmeldung
+      const stu = await fetch(BASE + "/api/teacher/podcast", { headers: { Authorization: "Bearer " + stoken } });
+      const anon = await fetch(BASE + "/api/teacher/podcast/plan"), bad = await fetch(BASE + "/api/podcast/" + pod1.id + "?e=" + (Date.now() + 3600e3) + "&s=falsch");
+      const par = parentToken ? await (await fetch(BASE + "/api/eltern/sitzung", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ token: parentToken }) })).text() : "";
+      ok(stu.status === 401 && anon.status === 401 && bad.status === 403 && !/podcast/i.test(par), "Schüler-Token 401, ohne Anmeldung 401, falsch signierter Link 403, Elternansicht ohne Podcast");
+      // Ablauf: Tag vorbei → wieder der Knopf (die Datei bleibt bis zur Löschfrist); Löschfrist erreicht → Datei und Zeile weg
+      d1("UPDATE podcasts SET day='" + addDays(now0, -1) + "' WHERE id='" + pod1.id + "'");
+      await qp.reload(); await qp.locator(".podcast .pc-go").waitFor({ timeout: 20000 });
+      ok(await qp.locator(".pc-item").count() === 0 && (await statusOf(BASE + pod1.url)) === 200 && r2Has("podcast/" + pod1.id), "Tag des Podcasts vorbei: wieder der Knopf, die Datei liegt noch bis zur Löschfrist");
+      d1("UPDATE podcasts SET delete_after=" + (Date.now() - 1000) + " WHERE id='" + pod1.id + "'");
+      await again(() => T("GET", "/api/teacher/podcast"));   // die Startseite räumt dabei ab (im Hintergrund)
+      let goneOk = false;
+      for (let i = 0; i < 20 && !goneOk; i++) { await sleep(500); goneOk = (await statusOf(BASE + pod1.url)) === 404 && !r2Has("podcast/" + pod1.id); }
+      ok(goneOk, "Löschfrist erreicht (zwei Tage nach dem Unterrichtstag): Zeile und Datei automatisch gelöscht");
+      await qctx.close();
+      // für den Schritt GitHub Pages: ein Podcast für den nächsten Schultag (roh hochgeladen wie aus dem Ablagefeld)
+      const raw = wav(6);
+      const up = await again(() => fetch(BASE + "/api/teacher/podcast?day=" + next, { method: "POST", headers: { Authorization: "Bearer " + token, "Content-Type": "audio/wav" }, body: raw }).then((x) => x.json()));
+      podcastForPages = up.podcast;
+      ok(up.ok && up.podcast.size === raw.length, "Hochladen per Anfrage (roher Rumpf mit Content-Length): " + up.podcast.size + " Bytes");
+    }
+
     /* ---------- GitHub Pages: dieselbe Oberfläche von einer anderen Herkunft ---------- */
     step("GitHub Pages: Oberfläche von anderer Herkunft (CORS, Live-Verbindung, Links zum Worker, Schutz gegen Einbetten)");
     execFileSync("node", ["scripts/build.mjs"], { cwd: ROOT, env: { ...process.env, PAGES_API: BASE, FEIBEITSBLATT_API: FB }, stdio: "ignore" });
@@ -2919,6 +3094,7 @@ async function main() {
         ok(!!req, "Download-Link aus der Antwort zeigt auf den Worker");
       } else console.log("    (in dieser Sitzung gerade keine Datei zum Herunterladen – Download nicht geprüft)");
       const ptc = await browser.newContext({ viewport: { width: 1280, height: 900 } }); const ptp = await ptc.newPage(); watch(ptp, "Pages-Lehrkraft");
+      const preq = []; ptp.on("request", (q) => { if (q.url().includes("/api/podcast/")) preq.push(q.url()); });   // Podcast: von Anfang an (lädt schon mit der Startseite)
       ptp.on("console", (m) => { if (m.type() === "error" && /Content Security Policy|CORS|Access-Control/i.test(m.text())) cspErr.push(m.text()); });
       await ptp.goto(PAGES + "/#/lehrkraft"); await ptp.fill("#tu", "feindt"); await ptp.fill("#tp", T_PW);
       const tl = Date.now(); await ptp.getByRole("button", { name: "Anmelden" }).click(); await waitTeacherHome(ptp, tl, "Anmeldung auf Pages");
@@ -2934,6 +3110,18 @@ async function main() {
           got.push(d.suggestedFilename() + (readFileSync(await d.path()).subarray(0, 5).toString() === "%PDF-" ? "" : " (keine PDF)"));
         }
         ok(JSON.stringify(got) === JSON.stringify(want), "Druckaufträge auf Pages: einzelne Downloads heißen wie in der Druckliste – " + got.join(" | "));
+      }
+      if (podcastForPages) { // Podcast auf Pages: Audio vom Worker (media-src), Range-Anfragen, kein CSP-Fehler
+        const pit = ptp.locator(".pc-item").first();
+        await pit.waitFor({ timeout: 20000 });
+        await ptp.waitForFunction(() => !document.querySelector(".pc-range").disabled, null, { timeout: 15000 });
+        await pit.getByRole("button", { name: "Abspielen" }).click();
+        await ptp.waitForFunction(() => /^0:0[1-9]/.test(document.querySelector(".pc-time").textContent), null, { timeout: 15000 }).catch(() => {});
+        const t = await pit.locator(".pc-time").textContent();
+        await pit.getByRole("button", { name: "Pause" }).click();
+        if (!(preq.length > 0 && preq.every((u) => u.startsWith(BASE + "/api/podcast/")))) console.log("    Anfragen:", JSON.stringify(preq.slice(0, 3)));
+        ok(/^0:0[1-9] \/ 0:06$/.test(t) && preq.length > 0 && preq.every((u) => u.startsWith(BASE + "/api/podcast/")), "Podcast auf Pages: spielt vom Worker (" + t + ", " + preq.length + " Anfrage(n) an den Worker)");
+        await T("DELETE", "/api/teacher/podcast/" + podcastForPages.id);
       }
       await ptp.goto(PAGES + "/#/lk/s/" + lessonId); await ptp.locator(".code-big").waitFor({ timeout: 20000 });
       ok(true, "Lehrkraft auf Pages: Anmeldung (mit Vorabanfrage) und Sitzung laden");

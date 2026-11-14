@@ -199,6 +199,9 @@ const ICONS = {
   download: "M12 4v11M7 10l5 5 5-5M5 20h14",
   printer: "M7 9V3.5h10V9M7 17.5H5a2 2 0 0 1-2-2V11a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2v4.5a2 2 0 0 1-2 2h-2M7 14h10v7H7z",
   timer: "M12 21.5a8 8 0 1 0 0-16 8 8 0 0 0 0 16zM12 9.5v4l2.5 1.5M10 2.5h4M12 2.5v3",
+  headphones: "M3 18v-6a9 9 0 0 1 18 0v6M21 19a2 2 0 0 1-2 2h-1a2 2 0 0 1-2-2v-3a2 2 0 0 1 2-2h3zM3 19a2 2 0 0 0 2 2h1a2 2 0 0 0 2-2v-3a2 2 0 0 0-2-2H3z",
+  upload: "M12 15V4M7 9l5-5 5 5M5 20h14",
+  copy: "M9 9h11v11H9zM5 15H4V4h11v1",
 };
 const SVGNS = "http://www.w3.org/2000/svg";
 export function icon(name) {

@@ -43,7 +43,7 @@ if (!pagesApi) {
   await copySite(out);
   await rm(join(out, "_headers"), { force: true });   // GitHub Pages wertet _headers nicht aus
   const wss = pagesApi.replace(/^http/, "ws");
-  const csp = ["default-src 'self'", "script-src 'self'", "style-src 'self' 'unsafe-inline'", "img-src 'self' data: blob: " + pagesApi, "font-src 'self'",
+  const csp = ["default-src 'self'", "script-src 'self'", "style-src 'self' 'unsafe-inline'", "img-src 'self' data: blob: " + pagesApi, "font-src 'self'", "media-src 'self' " + pagesApi,
     "connect-src 'self' " + pagesApi + " " + wss + " " + fb, "worker-src 'self' blob:", "frame-src 'none'", "object-src 'none'", "base-uri 'none'", "form-action 'self'"].join("; ");
   const ip = join(out, "index.html");
   const html = await readFile(ip, "utf8");

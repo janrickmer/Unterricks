@@ -1048,6 +1048,85 @@ img.sub-photo { max-width: 100%; max-height: 60vh; border-radius: 12px; border: 
 .pn-hint { margin: .8rem 0 0; }
 @media (max-width: 560px) { .pn-all { width: 100%; } .pn-ico { width: 42px; height: 42px; } .pn-ico .ico { width: 24px; height: 24px; } }
 
+/* ---------- Podcast für den kommenden Unterricht (podcast.js, Nachtrag 22: direkt unter dem Wochenkalender auf beiden Startseiten der Lehrkraft) ----------
+   Ohne eigene Farbe: Knopf bzw. Karte wie alle anderen, das Kopfhörer-Schild in Tinte. Im Player ist der gerade mögliche Knopf (Abspielen bzw. Pause)
+   primär, der andere gesperrt; der Schieberegler zum Spulen ist mindestens 44px hoch, die Zeit steht in tabellarischen Ziffern. */
+.podcast { margin: 0 0 1.15rem; }
+.podcast.loading { min-height: 54px; }
+.pc-go { white-space: normal; text-align: left; max-width: 100%; }
+.pc-go .ico { width: 1.35em; height: 1.35em; flex: none; }
+.podcast > .pc-status { margin: .55rem 0 0; font-weight: 700; }
+.podcast .pc-status:empty { margin: 0; }
+.pc-head { display: flex; align-items: flex-start; gap: .85rem; min-width: 0; }
+.pc-ico { flex: none; width: 48px; height: 48px; border-radius: 12px; display: grid; place-items: center; background: var(--ink); color: #fff; }
+.pc-ico .ico { width: 28px; height: 28px; }
+.pc-tt { min-width: 0; }
+.pc-tt h2 { margin: 0; overflow-wrap: anywhere; }
+.pc-tt h2:focus { outline: none; } .pc-tt h2:focus-visible { outline: 3px solid var(--fach-text); outline-offset: 3px; border-radius: 4px; }
+.pc-day { margin: .2rem 0 0; color: var(--muted); font-weight: 600; }
+.pc-ai { margin: .15rem 0 0; color: var(--muted); font-weight: 700; font-size: .92rem; }
+.pc-sub { margin: 1.1rem 0 .2rem; font-size: 1.02rem; }
+.pc-sessions { margin: 0; padding-left: 1.5em; }
+.pc-sessions li { padding: .1rem 0 .45rem; line-height: 1.45; }
+.pc-sl { display: block; padding: .55rem 0 .25rem; min-height: 44px; color: var(--text); font-weight: 700; text-decoration: none; overflow-wrap: anywhere; }
+.pc-sl:hover, .pc-sl:focus-visible { text-decoration: underline; }
+.pc-st { font-weight: 600; }
+.pc-sn { display: block; margin-bottom: .3rem; font-size: .92rem; color: var(--muted); }
+.pc-note { margin: .7rem 0 0; }
+.pc-empty { margin: .9rem 0 0; font-weight: 700; }
+.pc-copyrow { margin-top: 1.1rem; }
+.pc-copy { white-space: normal; }
+.pc-prep > .pc-status { margin: .55rem 0 0; font-weight: 700; }
+.pc-steps { margin: .9rem 0 0; padding-left: 1.5em; display: grid; gap: .4rem; }
+.pc-steps kbd { font-family: var(--mono); font-size: .82rem; border: 1px solid var(--line-ui); border-bottom-width: 2px; border-radius: 6px; padding: 0 .32rem; background: var(--surface); }
+.pc-zone { margin-top: 1rem; }
+.pc-drop { display: grid; justify-items: center; gap: .25rem; padding: 1.4rem 1rem; }
+.pc-drop > .ico { width: 30px; height: 30px; color: var(--fach-text); }
+.pc-drop strong { margin: 0; }
+.pc-drop:focus-visible { outline: 3px solid var(--fach-text); outline-offset: 2px; }
+.pc-drop.busy { cursor: progress; }
+.pc-bar { display: block; width: 100%; height: 14px; margin-top: .7rem; accent-color: var(--ink); }
+.pc-prog { margin: .35rem 0 0; font-weight: 700; font-variant-numeric: tabular-nums; }
+.pc-zone .pc-status { margin: .35rem 0 0; font-weight: 700; } .pc-zone .pc-status:empty, .pc-err:empty { margin: 0; }
+.pc-err { margin: .5rem 0 0; }
+.pc-manual { margin-top: 1.1rem; border-top: 1px solid var(--line); padding-top: .4rem; }
+.pc-manual > summary { min-height: 44px; display: flex; align-items: center; gap: .55rem; cursor: pointer; font-weight: 700; list-style: none; border-radius: var(--radius-s); }
+.pc-manual > summary::-webkit-details-marker { display: none; }
+.pc-manual > summary::before { content: ""; width: .55em; height: .55em; border-right: 2px solid currentColor; border-bottom: 2px solid currentColor; transform: rotate(-45deg); transition: transform .2s var(--ease); flex: none; }
+.pc-manual[open] > summary::before { transform: rotate(45deg); }
+.pc-msteps { margin: .3rem 0 .9rem; padding-left: 1.5em; display: grid; gap: .25rem; }
+.pc-fh { display: flex; align-items: center; justify-content: space-between; gap: .3rem .8rem; flex-wrap: wrap; margin-bottom: .35rem; }
+.pc-fh label { margin: 0; }
+.pc-copied:empty { display: none; }
+.pc-text { width: 100%; font: .92rem/1.45 var(--font); resize: vertical; }
+.pc-foot { margin-top: .9rem; }
+.pc-aux { font-size: .95rem; white-space: normal; text-align: left; justify-content: flex-start; }
+.pc-item + .pc-item { border-top: 1px solid var(--line); margin-top: 1.1rem; padding-top: 1.1rem; }
+.pc-ctrl { display: flex; flex-wrap: wrap; align-items: center; gap: .6rem; margin-top: 1rem; }
+.pc-track { flex: 1 1 16rem; min-width: 0; display: flex; align-items: center; gap: .75rem; }
+.pc-range { flex: 1 1 auto; min-width: 0; width: 100%; height: 44px; margin: 0; accent-color: var(--ink); cursor: pointer; }
+.pc-range:disabled { cursor: default; }
+.pc-time { flex: none; font-variant-numeric: tabular-nums; font-weight: 700; white-space: nowrap; }
+.pc-msg { margin: .5rem 0 0; font-weight: 700; } .pc-msg:empty { margin: 0; }
+.pc-metarow { display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: .2rem 1rem; margin-top: .4rem; }
+.pc-meta { margin: 0; }
+.pc-player > .pc-foot { margin-top: .6rem; }
+.pc-choices { display: grid; gap: .7rem; margin-top: .9rem; }
+.pc-choice { flex-direction: column; align-items: flex-start; text-align: left; white-space: normal; gap: .1rem; width: 100%; }
+.pc-cl { font-weight: 800; }
+.pc-cs { font-weight: 600; font-size: .92rem; }
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) .pc-ico { background: #e8edf6; color: #13213b; }
+  :root:not([data-theme="light"]) .pc-range, :root:not([data-theme="light"]) .pc-bar { accent-color: #e8edf6; }
+}
+@media (max-width: 560px) {
+  .pc-go { width: 100%; justify-content: flex-start; }
+  .pc-ico { width: 42px; height: 42px; } .pc-ico .ico { width: 24px; height: 24px; }
+  .pc-ctrl > .btn { flex: 1 1 0; }
+  .pc-track { flex-basis: 100%; }
+  .pc-copy { width: 100%; }
+}
+
 /* Grundschule: Übersicht der Kurse (unter dem Wochenkalender) */
 .gs-courses { margin-top: 1.2rem; }
 .gs-courses h3 { margin: 1rem 0 .55rem; }

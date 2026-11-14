@@ -22,12 +22,16 @@ export function fakeD1() {
 }
 
 export function fakeR2() {
-  const m = new Map();
+  const m = new Map(), at = new Map();   // at: Zeitpunkt des Hochladens (für list → uploaded)
   // get(k, {range}) wie R2: Ausschnitt, size, text()
   const obj = (b) => ({ body: b, size: b.length, text: async () => new TextDecoder().decode(b), arrayBuffer: async () => b.slice().buffer });
-  return { m, put: async (k, v) => { m.set(k, v instanceof Uint8Array ? v : new Uint8Array(await new Response(v).arrayBuffer())); },
+  return { m, at, put: async (k, v) => { m.set(k, v instanceof Uint8Array ? v : new Uint8Array(await new Response(v).arrayBuffer())); at.set(k, Date.now()); },
     get: async (k, o) => { if (!m.has(k)) return null; const b = m.get(k), r = o && o.range; return obj(r ? b.slice(r.offset || 0, (r.offset || 0) + (r.length ?? b.length)) : b); },
-    delete: async (k) => { for (const x of Array.isArray(k) ? k : [k]) m.delete(x); } };
+    delete: async (k) => { for (const x of Array.isArray(k) ? k : [k]) { m.delete(x); at.delete(x); } },
+    list: async ({ prefix = "", limit = 1000 } = {}) => {
+      const objects = [...m.keys()].filter((k) => k.startsWith(prefix)).sort().slice(0, limit).map((k) => ({ key: k, size: m.get(k).length, uploaded: new Date(at.get(k) || 0) }));
+      return { objects, truncated: false };
+    } };
 }
 
 // frisches Schema direkt anlegen (ensureSchema merkt sich das Anlegen je Isolate)

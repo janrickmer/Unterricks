@@ -19,6 +19,7 @@ import * as CA from "./cards.js";
 import * as PA from "./parents.js";
 import * as PJ from "./printjobs.js";
 import * as BM from "./beamer.js";
+import * as PC from "./podcast.js";
 
 export { LiveRoom } from "./live.js";
 
@@ -77,6 +78,12 @@ const ROUTES = [
   ["GET", "/api/teacher/units", U.routeUnitsList],
   ["GET", "/api/teacher/schedule", U.routeSchedule],
   ["GET", "/api/teacher/print-next", PJ.routePrintNext],   // Druckaufträge für den nächsten Arbeitstag (beide Startseiten)
+  // Podcast für den kommenden Unterricht (Nachtrag 22, beide Startseiten): Grundlage, Ablage der Audiodatei, Link zum Abspielen, Löschen
+  ["GET", "/api/teacher/podcast", PC.routePodcastList],
+  ["POST", "/api/teacher/podcast", PC.routePodcastUpload],
+  ["GET", "/api/teacher/podcast/plan", PC.routePodcastPlan],
+  ["POST", "/api/teacher/podcast/" + ID + "/link", PC.routePodcastLink],
+  ["DELETE", "/api/teacher/podcast/" + ID, PC.routePodcastDelete],
   ["GET", "/api/teacher/course-settings", CS.routeCourseSettingsGet],
   ["PUT", "/api/teacher/course-settings", CS.routeCourseSettingsPut],
   ["POST", "/api/teacher/units", U.routeUnitCreate],
@@ -186,6 +193,8 @@ const ROUTES = [
   ["GET", "/api/base/" + ID, B.routeBaseFile],
   ["GET", "/api/slide/" + ID + "/(\\d{1,3})", F.routeSlide],
   ["GET", "/api/card/" + ID + "/(\\d{1,2})", CA.routeCardImage],
+  ["GET", "/api/podcast/" + ID, PC.routePodcastStream],    // Podcast abspielen (signierter Link, Range-Anfragen)
+  ["HEAD", "/api/podcast/" + ID, PC.routePodcastStream],
   ["GET", "/api/live/" + ID, LV.routeLiveSocket],
 ].map(([method, pat, handler, opts]) => ({ method, re: new RegExp("^" + pat + "$"), handler, opts: opts || {} }));
 
@@ -201,7 +210,10 @@ async function handleApi(request, env, ctx, path) {
     if (!r.opts.noDb) {
       c.warm = schemaWarm();   // Schema schon vor dieser Anfrage angelegt (siehe db.js)
       await ensureSchema(env.DB);
-      if (Math.random() < 0.01) c.waitUntil(env.DB.batch(cleanupStatements(env.DB, c.now)).catch(() => {}));
+      if (Math.random() < 0.01) {
+        c.waitUntil(env.DB.batch(cleanupStatements(env.DB, c.now)).catch(() => {}));
+        c.waitUntil(PC.cleanupPodcasts(c, { sweep: true }).catch(() => {}));   // abgelaufene Podcasts und liegen gebliebene Dateien
+      }
     }
     return r.handler(c, ...m.slice(1));
   }
@@ -231,7 +243,7 @@ function securityHeaders(res, request, env) {
   if ((h.get("content-type") || "").includes("text/html")) {
     const host = new URL(request.url).host;
     h.set("Content-Security-Policy", [
-      "default-src 'self'", "script-src 'self'", "style-src 'self' 'unsafe-inline'", "img-src 'self' data: blob:", "font-src 'self'",
+      "default-src 'self'", "script-src 'self'", "style-src 'self' 'unsafe-inline'", "img-src 'self' data: blob:", "font-src 'self'", "media-src 'self'",
       "connect-src 'self' wss://" + host + " ws://" + host + " " + fbApi(env), "worker-src 'self' blob:", "frame-src 'none'",
       "object-src 'none'", "base-uri 'none'", "form-action 'self'", "frame-ancestors 'none'",
     ].join("; "));
@@ -246,6 +258,7 @@ export default {
     await ensureSchema(env.DB);
     await env.DB.batch(cleanupStatements(env.DB, Date.now()));
     try { await R.cleanupRound({ db: env.DB, env, now: Date.now() }); } catch {}   // Dateien nach einem unterbrochenen Zurücksetzen
+    try { await PC.cleanupPodcasts({ db: env.DB, env, now: Date.now() }, { sweep: true }); } catch {}   // Podcasts zwei Tage nach dem Unterricht
   },
   async fetch(request, env, ctx) {
     const url = new URL(request.url);

@@ -56,6 +56,10 @@ export const SCHEMA = [
   // geheimen pairKey (nur er holt die Kopplung ab). Gibt die Lehrkraft den Code ein, stehen hier Sitzung und Generation (beamerGen im Durable
   // Object); das Gerät holt sie einmal ab (die Zeile wird dabei gelöscht) und bekommt dann seinen signierten Beamer-Schlüssel (6 h).
   "CREATE TABLE IF NOT EXISTS beamer_pairs (code TEXT PRIMARY KEY, key_hash TEXT NOT NULL, created_at INTEGER NOT NULL, lesson_id TEXT, beamer_gen INTEGER, paired_at INTEGER)",
+  // Podcast für den kommenden Unterricht (Nachtrag 22, nur Lehrkraft): eine Audiodatei aus Gemini Notebook je Unterrichtstag (day), in R2 unter
+  // podcast/<id> (außerhalb der Sitzungen – nicht in Sicherung und Sitzungsdateien); delete_after = Beginn des zweiten Tages nach dem Unterrichtstag
+  // (Berliner Zeit) – ab dann gelöscht (worker/podcast.js, cleanupPodcasts). Wenige Zeilen, deshalb ohne Index.
+  "CREATE TABLE IF NOT EXISTS podcasts (id TEXT PRIMARY KEY, day TEXT NOT NULL, r2_key TEXT NOT NULL, mime TEXT NOT NULL, size INTEGER NOT NULL, created_at INTEGER NOT NULL, delete_after INTEGER NOT NULL)",
 ];
 
 // Nachträglich ergänzte Spalten (bestehende Datenbanken bekommen sie per ALTER TABLE, nur additiv)
