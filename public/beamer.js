@@ -18,6 +18,7 @@ import { render, onLeave } from "./app.js";
 import { BEAMER_CHANNEL, beamerFollow, cleanBeamerView, presenterKey, beamerScreen, fmtBeamerCode, normBeamerCode, readBeamerLink, readBeamerPair } from "./shared.js";
 import { codeSlideDom } from "./codeslide.js";
 import { timerBand } from "./timerband.js";
+import { holdReload } from "./update.js";
 
 const hex = (b) => Array.from(b, (x) => x.toString(16).padStart(2, "0")).join("");
 export const BEAMER_WAIT = "Wartet auf die Präsentation – starten Sie sie in Unterricks. Dieses Fenster zeigt dann die aktuelle Folie.";
@@ -71,6 +72,8 @@ export function beamerPage() {
     tband.set(src ? src.raw : null, src ? src.at : undefined);
   }
   render(root);
+  // solange eine Folie zu sehen ist (die Präsentation läuft), lädt dieses Fenster nach einem Update nie von selbst neu (update.js)
+  onLeave(holdReload(() => alive && (stage.firstChild === img || !!(stage.firstChild && stage.firstChild.classList && stage.firstChild.classList.contains("codeslide")))));
   document.title = "Unterricks – Beamerfenster";
   wait("Verbinde mit der Präsentation …");
   waitT = setTimeout(() => { if (!st) enterDevice(); }, 1500);

@@ -50,7 +50,23 @@ export const wsUrl = (path) => (API || location.origin).replace(/^http/, "ws") +
 export class ApiError extends Error {
   constructor(message, status, data) { super(message); this.status = status; this.data = data || {}; this.code = (data && data.code) || ""; }
 }
+/* ---------- Laufende Arbeiten (S24): Speichern, Hochladen, Herunterladen, Umwandeln ----------
+ * Solange etwas davon läuft, lädt Unterricks nach einem Update nie von selbst neu (update.js): Anfragen, die etwas ändern (alles außer GET/HEAD),
+ * Uploads, Aktionen hinter busy(), mit trackWork() angemeldete Arbeiten (z. B. Folien erzeugen) und – einige Sekunden – ein gerade begonnener Download. */
+let working = 0, downloadUntil = 0;
+export function trackWork(p) {
+  working++;
+  let done = false;
+  const end = () => { if (!done) { done = true; working--; } };
+  Promise.resolve(p).then(end, end);
+  return p;
+}
+export const workPending = () => working > 0 || Date.now() < downloadUntil;
 export async function api(method, path, o = {}) {
+  if (!/^(GET|HEAD)$/i.test(method)) { working++; try { return await apiCall(method, path, o); } finally { working--; } }
+  return apiCall(method, path, o);
+}
+async function apiCall(method, path, o) {
   const headers = { ...(o.headers || {}) };
   if (o.token) headers.Authorization = "Bearer " + o.token;
   let body;
@@ -70,7 +86,7 @@ export async function api(method, path, o = {}) {
 }
 /* Datei-Upload mit Fortschritt (XMLHttpRequest, weil fetch keinen Upload-Fortschritt meldet) */
 export function upload(path, file, token, onProgress, contentType) {
-  return new Promise((resolve, reject) => {
+  return trackWork(new Promise((resolve, reject) => {
     const x = new XMLHttpRequest();
     x.open("POST", apiUrl(path));
     if (token) x.setRequestHeader("Authorization", "Bearer " + token);
@@ -83,7 +99,7 @@ export function upload(path, file, token, onProgress, contentType) {
     };
     x.onerror = () => reject(new ApiError("Keine Verbindung zum Server.", 0));
     x.send(file);
-  });
+  }));
 }
 
 /* ---------- Rückmeldungen ---------- */
@@ -110,7 +126,11 @@ function placeToasts() {
   box.classList.toggle("flip");
   if (overlap(r, box.getBoundingClientRect()) > before) box.classList.toggle("flip");   // am anderen Rand wäre es schlimmer: zurück
 }
-export function errToast(e) { toast(e && e.message ? e.message : String(e), "err", 7000); }
+/* Ein Programmteil ließ sich nicht laden (update.js, lazy()): Der Fehler zeigt selbst den passenden Hinweis mit „Neu laden“ statt einer Meldung */
+export function errToast(e) {
+  if (e && e.moduleLoad === true && typeof e.report === "function") { e.report(); return; }
+  toast(e && e.message ? e.message : String(e), "err", 7000);
+}
 
 /* Knopf während einer Aktion sperren und Drehsymbol zeigen */
 export async function busy(btn, fn, label) {
@@ -118,8 +138,9 @@ export async function busy(btn, fn, label) {
   const old = Array.from(btn.childNodes);
   btn.disabled = true; btn.setAttribute("aria-busy", "true");
   clear(btn).append(h("span", { class: "spin", "aria-hidden": "true" }), label || "Bitte warten …");
+  working++;
   try { return await fn(); }
-  finally { btn.disabled = false; btn.removeAttribute("aria-busy"); clear(btn).append(...old); }
+  finally { working--; btn.disabled = false; btn.removeAttribute("aria-busy"); clear(btn).append(...old); }
 }
 
 /* ---------- Dialogebenen (Nachtrag 25): Der Tastaturfokus bleibt im obersten offenen Dialog ----------
@@ -334,6 +355,8 @@ function onLayerPointer(e) {
   const L = layers[layers.length - 1];
   if (L && L.cur && !(L.cur.contains && L.cur.contains(e.target))) L.cur = null;   // Klick daneben (z. B. in Text): kein Fokus zurück
 }
+/* Zahl der offenen Ebenen (Dialoge, Präsentationsmodus, Codefolie, Vollbild-Ebenen) – update.js lädt nie unter einer offenen Ebene neu */
+export const openLayerCount = () => { pruneLayers(false); return layers.length; };
 export function openLayer(el, { onEscape = null, opener, beforeTab = null } = {}) {
   if (!layerKeys) {
     layerKeys = true;
@@ -437,6 +460,7 @@ export function fileIcon(name, mime, kind) {
 
 /* Datei aus signiertem Link herunterladen (funktioniert auch auf dem iPad: „In GoodNotes öffnen“ über Teilen) */
 export function downloadUrl(url, name) {
+  downloadUntil = Math.max(downloadUntil, Date.now() + 5000);   // der Browser übernimmt den Download erst – solange nicht neu laden (update.js)
   const a = h("a", { href: apiUrl(url), download: name || "", rel: "noopener" });
   document.body.append(a); a.click(); a.remove();
 }

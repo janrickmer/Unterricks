@@ -64,7 +64,10 @@ jobs:
         run: npm test
 
       - name: Seite bauen (dist/)
-        run: npm run build
+        # Stand = Prüfsumme über public/ und die Bibliotheken (scripts/build.mjs): derselbe Commit ergibt für Worker und Pages denselben Stand
+        run: |
+          npm run build
+          echo "::notice title=Stand der Oberfläche (Worker)::$(jq -r .build dist/version.json)"
 
       - name: Konto-ID ermitteln
         env:
@@ -206,6 +209,16 @@ jobs:
         run: |
           if [ -z "$PAGES_API" ]; then echo "::error::Die Adresse des Workers ist unbekannt (workers.dev-Subdomain nicht ermittelbar)."; exit 1; fi
           npm run build
+
+      - name: Stand mit dem Worker vergleichen (nur Hinweis)
+        if: steps.check.outputs.enabled == 'true'
+        env:
+          PAGES_API: ${{ needs.deploy.outputs.api }}
+        run: |
+          P=$(jq -r .build dist-pages/version.json)
+          W=$(curl -fsS "$PAGES_API/version.json?t=$(date +%s)" | jq -r '.build // empty' || true)
+          echo "Stand der Oberfläche: GitHub Pages $P, Worker ${W:-unbekannt}"
+          if [ -n "$W" ] && [ "$W" != "$P" ]; then echo "::warning title=Unterschiedliche Stände::GitHub Pages bekommt den Stand $P, der Worker liefert $W aus. Jede Adresse bleibt in sich stimmig; derselbe Commit sollte aber denselben Stand ergeben."; fi
 
       - if: steps.check.outputs.enabled == 'true'
         uses: actions/upload-pages-artifact@fc324d3547104276b827a68afc52ff2a11cc49c9 # v5.0.0

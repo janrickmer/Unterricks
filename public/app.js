@@ -6,6 +6,7 @@ import { codeSlideDom } from "./codeslide.js";
 import { timerBand } from "./timerband.js";
 import { renderMarkdown } from "./markdown.js";
 import { slideViewer } from "./slideviewer.js";
+import { lazy, isModuleError, pageFailed, navCheckDue, navBlockers, beforeRoute, waitPage, holdReload, installUpdateChecks } from "./update.js";
 
 // Nie in fremden Seiten eingebettet anzeigen: Auf GitHub Pages fehlen die Schutz-Header (frame-ancestors gilt nicht als <meta>)
 if (window.top !== window.self) { document.documentElement.hidden = true; throw new Error("Unterricks lässt sich nicht in andere Seiten einbetten."); }
@@ -250,6 +251,7 @@ async function studentRoom(lessonId) {
   });
   document.addEventListener("fullscreenchange", syncLiveLayer);
   document.addEventListener("webkitfullscreenchange", syncLiveLayer);
+  onLeave(holdReload(() => !live.classList.contains("idle")));   // nach einem Update nie mitten in der Live-Präsentation neu laden (update.js)
   onLeave(() => {
     document.removeEventListener("fullscreenchange", syncLiveLayer); document.removeEventListener("webkitfullscreenchange", syncLiveLayer);
     live.classList.remove("max"); if (liveLayer) { liveLayer.release(false); liveLayer = null; }
@@ -433,7 +435,7 @@ async function studentRoom(lessonId) {
       let shown = null;
       acts.append(h("button", { class: "btn small", type: "button", onclick: () => { if (shown) { shown.remove(); shown = null; } else { shown = h("div", { class: "card", style: { marginTop: ".4rem" } }, renderMarkdown(f.text)); row.after(shown); } } }, "Lesen"),
         h("button", { class: "btn primary small", type: "button", onclick: (e) => busy(e.currentTarget, async () => {
-          try { const { markdownToPdf, pdfName } = await import("./pdfmaker.js"); downloadBlob(await markdownToPdf(f.name, f.text, { subtitle: d.lesson.subjectName + " · " + d.lesson.klass }), pdfName(f.name)); }
+          try { const { markdownToPdf, pdfName } = await lazy(import("./pdfmaker.js")); downloadBlob(await markdownToPdf(f.name, f.text, { subtitle: d.lesson.subjectName + " · " + d.lesson.klass }), pdfName(f.name)); }
           catch (err) { errToast(err); }
         }, "Erzeuge PDF …") }, "Als PDF herunterladen"));
     } else {
@@ -463,23 +465,42 @@ export const NOTFALL_NOTE = "Eigentlich sollst du mit den digitalen Feibeitsblä
   "die technische Probleme beim Aufrufen von Feibeitsblättern haben. Nur in diesen Ausnahmefällen soll mit einem Notfall-Feibeitsblatt gearbeitet werden.";
 
 /* ---------- Router ---------- */
+// Ließ sich ein Programmteil nicht laden (z. B. nach einem Update von Unterricks), zeigt die Seite einen ruhigen Hinweis mit „Neu laden“ (update.js);
+// andere Fehler wie bisher mit der Meldung
+const failed = (what) => (e) => (isModuleError(e) ? pageFailed(e, render) : render(h("main", null, h("p", { class: "err", text: what + " konnte nicht geladen werden: " + e.message }))));
 const ROUTES = [
   [/^#?\/?$/, () => studentStart()],
   [/^#\/schueler$/, () => studentHome()],
   [/^#\/schueler\/s\/([a-f0-9]{16})$/, (m) => studentRoom(m[1])],
-  [/^#\/schueler\/escape\/([a-f0-9]{16})$/, (m) => import("./escape.js").then((x) => x.escapePage(m[1])).catch((e) => { render(h("main", null, h("p", { class: "err", text: "Der Escape-Room konnte nicht geladen werden: " + e.message }))); })],
+  [/^#\/schueler\/escape\/([a-f0-9]{16})$/, (m) => lazy(import("./escape.js")).then((x) => x.escapePage(m[1])).catch(failed("Der Escape-Room"))],
   // Elternansicht (Grundschule): geheimer Link der Lehrkraft, ohne Anmeldung; lädt keine Module der Lehrkraft
-  [/^#\/eltern\/([A-Za-z0-9_-]{32})(?:\/(s|pdf)\/([a-f0-9]{16})(?:\/([a-f0-9]{16}))?)?$/, (m) => import("./parents.js").then((p) => p.parentsPage(m[1], m[2] || null, m[3] || null, m[4] || null)).catch((e) => { render(h("main", null, h("p", { class: "err", text: "Die Elternansicht konnte nicht geladen werden: " + e.message }))); })],
-  [/^#\/eltern(?:\/.*)?$/, () => import("./parents.js").then((p) => p.parentsPage("", null, null, null)).catch(() => go("#/"))],   // beschädigter Link: Meldung des Servers
-  [/^#\/beamer$/, () => import("./beamer.js").then((b) => b.beamerPage()).catch((e) => { render(h("main", null, h("p", { class: "err", text: "Das Beamerfenster konnte nicht geladen werden: " + e.message }))); })],
-  [/^#\/(lehrkraft|lk)(\/.*)?$/, () => import("./teacher.js").then((t) => t.route(location.hash)).catch((e) => { render(h("main", null, h("p", { class: "err", text: "Die Lehrkräfteansicht konnte nicht geladen werden: " + e.message }))); })],
+  [/^#\/eltern\/([A-Za-z0-9_-]{32})(?:\/(s|pdf)\/([a-f0-9]{16})(?:\/([a-f0-9]{16}))?)?$/, (m) => lazy(import("./parents.js")).then((p) => p.parentsPage(m[1], m[2] || null, m[3] || null, m[4] || null)).catch(failed("Die Elternansicht"))],
+  [/^#\/eltern(?:\/.*)?$/, () => lazy(import("./parents.js")).then((p) => p.parentsPage("", null, null, null)).catch((e) => (isModuleError(e) ? pageFailed(e, render) : go("#/")))],   // beschädigter Link: Meldung des Servers
+  [/^#\/beamer$/, () => lazy(import("./beamer.js")).then((b) => b.beamerPage()).catch(failed("Das Beamerfenster"))],
+  [/^#\/(lehrkraft|lk)(\/.*)?$/, () => lazy(import("./teacher.js")).then((t) => t.route(location.hash)).catch(failed("Die Lehrkräfteansicht"))],
 ];
+// Nach einem Update von Unterricks (S24): Beim Seitenwechsel fragt update.js höchstens alle 15 Sekunden nach dem aktuellen Stand. Dafür verlässt die
+// Seite die bisherige sofort (sie speichert dabei wie bei jedem Seitenwechsel); gibt es einen neuen Stand und ist der Moment sicher, lädt sie an der
+// neuen Adresse neu, statt Programmteile des alten Stands nachzuladen – sonst geht es wie bisher weiter.
+let routeSeq = 0, routed = false;
 export function route() {
+  const seq = ++routeSeq;
+  if (routed && navCheckDue()) {
+    const pre = navBlockers();   // offener Dialog, laufende Präsentation …: noch auf der bisherigen Seite feststellen
+    render(waitPage());
+    beforeRoute(pre).then((reloading) => { if (!reloading && seq === routeSeq) dispatch(); }, () => { if (seq === routeSeq) dispatch(); });
+    return;
+  }
+  routed = true;
+  dispatch();
+}
+function dispatch() {
   const hash = location.hash || "#/";
   for (const [re, fn] of ROUTES) { const m = re.exec(hash); if (m) return fn(m); }
   go("#/");
 }
 window.addEventListener("hashchange", route);
+installUpdateChecks();
 checkAuth();   // gespeicherte Frist der Anmeldung (auch nach dem Neuladen)
 // beim Abmelden gesicherte Escape-Room-Stände (mit Namen) nicht länger als einen Tag auf dem Gerät lassen
 try { for (const k of Object.keys(localStorage)) if (k.startsWith("u.esc.")) { let at = 0; try { at = Number(JSON.parse(localStorage.getItem(k)).at); } catch {} if (!(Date.now() - at < 24 * 3600e3)) localStorage.removeItem(k); } } catch {}

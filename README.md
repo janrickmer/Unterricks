@@ -362,6 +362,10 @@ Feibeitsblatt braucht keine Änderung. Die Adressen stehen in `wrangler.jsonc` (
   Escape-Room nach dem bekannten Aufbau mit Feibeitsblatt-Finale) → Vorschau ansehen, prüfen und bestätigen (die ursprüngliche
   Planung wird archiviert und bleibt wiederherstellbar). Für das Anlegen des Feibeitsblatts beim Bestätigen muss die Sitzung mit
   dem Feibeitsblatt verbunden sein (Türcode + Passwort im Abschnitt „Feibeitsblatt“).
+* **Nach einem Update von Unterricks:** Ein Tab, der schon vorher offen war, merkt das beim nächsten Seitenwechsel (z. B. beim Klick auf
+  eine Sitzung) und lädt sich dann an derselben Stelle neu – Sie müssen nichts tun. Solange ein Dialog offen ist, eine Präsentation läuft
+  (auch am Beamergerät und im Live-Fenster der Schüler:innen) oder noch etwas gespeichert, hochgeladen oder heruntergeladen wird, lädt er
+  nicht von selbst neu; fehlt dann ein Programmteil, erscheint der Hinweis „Unterricks wurde aktualisiert“ mit „Jetzt neu laden“.
 
 ## Grundschule
 
@@ -437,3 +441,11 @@ offenen Dialog (nie auf der Seite dahinter), Esc schließt bei zwei Dialogen üb
 zurück – auch wenn die Seite ihn inzwischen neu gezeichnet oder gelöscht hat, in Codefolie, Präsentationsmodus und Escape-Room; am Handy
 verdeckt eine Meldung den fokussierten Knopf im Dialog nicht; mit `DIALOG_SHOTS=1` legt er Bildschirmfotos mit sichtbarem Fokusrahmen
 in `test-results/dialoge/` ab.
+
+`npm run build` legt jeden Stand in einen eigenen Ordner `/v/<Stand>/` (Stand = Prüfsumme über `public/` und die Bibliotheken, für Worker
+und GitHub Pages gleich); `index.html` lädt `app.js` dieses Stands, die Startdatei `/boot.js` springt nur ein, wenn es den Stand nicht mehr
+gibt (veraltetes `index.html`), und erfragt ihn dann über `/version.json`. So mischt ein offener Tab nach einem Deploy nie alte und neue
+Programmteile (Fehler vom 14.11.2026, Einzelheiten in `docs/ARCHITEKTUR.md`, 4t).
+`public/` bleibt unversioniert. Der End-to-End-Test spielt das mit zwei Ständen nach (Schritt „Nach einem Update“, auch mit einem
+eigenen `wrangler dev` auf Port 8795 – vor einem Lauf frei halten); mit `UPDATE_SHOTS=1` legt er Bildschirmfotos der Hinweise in
+`test-results/update/` ab.

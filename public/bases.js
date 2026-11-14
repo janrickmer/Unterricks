@@ -2,6 +2,7 @@
 // per PDF.js im Browser – die KI arbeitet nur mit diesem Text; zusätzlich liegt die Original-PDF in Unterricks, damit die Lehrkraft sie
 // aus der Planung heraus öffnen kann), Abschnitte automatisch erkennen und korrigieren; Fach-Einstellungen. Ev. Religion: auch das
 // Schulcurriculum der Grundschule (Jahrgänge 1–4). Jede Planungsgrundlage öffnet sich über #/lk/grundlage/<id> in einem neuen Tab.
+import { lazy } from "./update.js";
 import { h, clear, toast, errToast, busy, modal, confirmDialog, fmtTime, fmtBytes, icon, pageHead, upload, apiUrl, stateLine } from "./ui.js";
 import { render, go } from "./app.js";
 import { T, tapi, teacherBar } from "./teacher.js";
@@ -10,7 +11,8 @@ import { BASE_KINDS, detectSections, parseRanges, formatRanges, sectionLabel, pa
 
 let pdfjsP = null;
 function pdfjs() {
-  if (!pdfjsP) pdfjsP = import("/vendor/pdf.min.mjs").then((m) => { m.GlobalWorkerOptions.workerSrc = "/vendor/pdf.worker.min.mjs"; return m; });
+  // der Worker der Bibliothek kommt aus demselben Stand wie dieses Modul (/v/<Stand>/vendor/, S24)
+  if (!pdfjsP) pdfjsP = lazy(import("/vendor/pdf.min.mjs")).then((m) => { m.GlobalWorkerOptions.workerSrc = new URL("./vendor/pdf.worker.min.mjs", import.meta.url).href; return m; });
   return pdfjsP;
 }
 /* Text je Seite (Index 0 = Seite 1) */

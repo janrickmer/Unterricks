@@ -14,6 +14,7 @@ import { readZip } from "../../public/zip.js";
 import { horizontalIssues, strayTexts } from "./mobile-audit.mjs";
 import { freeDaysE2E } from "./freedays.mjs";
 import { dialogsE2E } from "./dialogs.mjs";
+import { updateE2E } from "./update.mjs";
 
 const require = createRequire(import.meta.url);
 const { chromium, devices } = require("playwright");
@@ -3272,7 +3273,7 @@ async function main() {
         // Hochladen von der Pages-Herkunft über denselben Weg wie das Ablagefeld (XMLHttpRequest an den Worker: Vorabanfrage wegen Authorization und
         // Content-Type audio/wav, roher Rumpf): ersetzt den Podcast desselben Tages
         const pu = await ptp.evaluate(async (day) => {
-          const m = await import("/podcast.js");
+          const m = await import("/v/" + document.querySelector('meta[name="unterricks-build"]').content + "/podcast.js");   // dieselbe Instanz wie die der Seite (S24: Stand im Pfad)
           const n = 8000, b = new Uint8Array(44 + n).fill(128), v = new DataView(b.buffer), s = (o, x) => { for (let i = 0; i < x.length; i++) b[o + i] = x.charCodeAt(i); };
           s(0, "RIFF"); v.setUint32(4, 36 + n, true); s(8, "WAVE"); s(12, "fmt "); v.setUint32(16, 16, true); v.setUint16(20, 1, true); v.setUint16(22, 1, true);
           v.setUint32(24, 8000, true); v.setUint32(28, 8000, true); v.setUint16(32, 1, true); v.setUint16(34, 8, true); s(36, "data"); v.setUint32(40, n, true);
@@ -3331,7 +3332,12 @@ async function main() {
       for (let i = 0; i < 40 && hidden === null; i++) { await sleep(250); const fr = fp.frames().find((f) => f.url().startsWith(PAGES)); if (fr) hidden = await fr.evaluate(() => document.documentElement.hidden === true && !document.querySelector(".login-wrap, .topbar")).catch(() => null); }
       ok(hidden === true, "eingebettet in eine fremde Seite: Unterricks zeigt nichts");
       await fctx.close(); await ptc.close(); await pctx.close();
-    } finally { pagesSrv.close(); }
+    } finally { await new Promise((r) => pagesSrv.close(r)); }
+
+    /* ---------- Nach einem Update (S24): nie alte und neue Programmteile mischen ---------- */
+    step("Nach einem Update: ein offener Tab mischt nie zwei Stände – er lädt beim nächsten Seitenwechsel sicher neu (Nachbau von GitHub Pages und Worker)");
+    await updateE2E({ browser, devices, ROOT, BASE, FB, PAGES, PAGES_PORT, tStore: await tp.evaluate(() => JSON.stringify(localStorage)), studentCode: lesson0.code, lessonId,
+      gsLessonId: parentLessonId, ok, watch, shots: process.env.UPDATE_SHOTS ? join(OUT, "update") : null });
 
     /* ---------- Sitzung als Datei ---------- */
     step("Sitzung als Datei herunterladen und in einer anderen Sitzung laden (Daten angepasst)");

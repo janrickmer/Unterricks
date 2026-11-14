@@ -1,4 +1,5 @@
 // session.js – Sitzungsansicht der Lehrkraft: Planung im Chat, Schulportal-Eintrag, Claude-Prompts, Material, Präsentation, Feibeitsblatt.
+import { lazy } from "./update.js";
 import { h, clear, toast, errToast, busy, modal, confirmDialog, copyText, fmtBytes, fmtDate, fmtTime, fileIcon, downloadBlob, upload, api, apiUrl, nn, icon, pageHead, setFach, stateLine } from "./ui.js";
 import { render, go, onLeave } from "./app.js";
 import { T, tapi, teacherBar, fbAutoConnect, fbUnlock, fbStore, fbForget, askTeacherPassword, notfallBackfill } from "./teacher.js";
@@ -28,7 +29,7 @@ export async function sessionPage(id) {
   catch (e) { clear(main).append(h("div", { class: "card" }, h("p", { class: "err", text: e.message }), h("a", { class: "btn", href: "#/lk" }, "Zur Übersicht"))); return; }
   // Grundschule: eigene Sitzungsseite (Verlaufsplan statt Schulportal-Eintrag, keine Präsentation, Elternansicht)
   // (nur, wenn die Seite noch angezeigt wird – sonst würde sie eine inzwischen geöffnete andere Seite überschreiben)
-  if (isGsLesson(d.lesson)) { const gs = await import("./gssession.js"); return main.isConnected ? gs.gsSessionPage(id, d) : undefined; }
+  if (isGsLesson(d.lesson)) { const gs = await lazy(import("./gssession.js")); return main.isConnected ? gs.gsSessionPage(id, d) : undefined; }
   const st = { lesson: d.lesson, messages: d.messages, files: d.files, sheets: d.sheets, drafts: d.drafts, slides: null, unit: d.unit, sub: d.substitute };
   const L = () => st.lesson;
   const analog = isAnalogClass(d.lesson.klass);
@@ -417,7 +418,7 @@ export async function sessionPage(id) {
   };
   async function regenAnnotated(p, notes, rev, say) {
     try {
-      const { makeAnnotated } = await import("./pdfnotes.js");
+      const { makeAnnotated } = await lazy(import("./pdfnotes.js"));
       const r = await makeAnnotated(p, { token: T.token, notes, rev, codeSlides: (st.slides && st.slides.codeSlides) || p.codeSlides || [] });
       swapAnnotated(p.id, r.file, r.removed || []);
       say("Gespeichert. Die „Präsentation mit Anmerkungen“ unter „Material nur für die Lehrkraft“ ist erneuert.", "ok");
@@ -440,7 +441,7 @@ export async function sessionPage(id) {
   // letzte im Unterricht gezeigte Folie markieren (n) bzw. aufheben (null): gekürzte PDF im Browser erzeugen und hochladen (pdfcut.js)
   async function setShown(n, onStep) {
     const p = curPres(); if (!p) return false;
-    const { markShown } = await import("./pdfcut.js");
+    const { markShown } = await lazy(import("./pdfcut.js"));
     const r = await markShown(p, n, T.token, onStep);
     Object.assign(p, r.file);
     return true;
@@ -468,7 +469,7 @@ export async function sessionPage(id) {
     const cleanBox = p.cleanNeeded && !p.cleanReady ? h("div", { class: "notice warn" },
       h("p", { text: "Diese PDF enthält Notizen bzw. Dateianhänge. Die Fassung ohne sie für Schüler:innen fehlt noch – bis dahin können Schüler:innen die Präsentation nach der Stunde nicht herunterladen (die Folienbilder sind nicht betroffen)." }),
       h("button", { class: "btn small", type: "button", onclick: (e) => busy(e.currentTarget, async () => {
-        try { const { uploadClean } = await import("./pdfcut.js"); const r = await uploadClean(p, T.token); Object.assign(p, r.file); toast("Die Fassung für Schüler:innen (ohne Notizen) ist gespeichert.", "ok"); paintPres(); }
+        try { const { uploadClean } = await lazy(import("./pdfcut.js")); const r = await uploadClean(p, T.token); Object.assign(p, r.file); toast("Die Fassung für Schüler:innen (ohne Notizen) ist gespeichert.", "ok"); paintPres(); }
         catch (err) { errToast(err); }
       }, "Erzeuge …") }, "Fassung für Schüler:innen erzeugen")) : null;
     const shown = shownOf(p), shownState = h("span", { class: "save-state" });
@@ -502,7 +503,7 @@ export async function sessionPage(id) {
     const startBtn = h("button", { class: "btn onair big", type: "button" }, "Ich bin im Unterricht und starte die Präsentation für alle.");
     startBtn.addEventListener("click", async () => {
       try {
-        const { startPresenter } = await import("./presenter.js");
+        const { startPresenter } = await lazy(import("./presenter.js"));
         // neu starten → Codefolie (0) vor Folie 1; läuft diese Präsentation schon, geht es an der laufenden Stelle weiter
         const running = liveState && liveState.active && liveState.fileId === p.id;
         await startPresenter({ lessonId: id, file: p, token: T.token, slides: st.slides, startSlide: running ? liveState.slide : 0, code: L().code, title: L().title,
@@ -555,7 +556,7 @@ export async function sessionPage(id) {
       const r = await upload("/api/teacher/lessons/" + id + "/presentation?name=" + encodeURIComponent(file.name), file, T.token, (p) => { bar.style.width = Math.round(p * 30) + "%"; }, "application/pdf");
       const oldPres = st.files.filter((f) => f.area === "presentation").map((f) => f.id);   // samt ihrer Anmerkungs-PDF ersetzt (Server)
       st.files = st.files.filter((f) => f.area !== "presentation" && !oldPres.includes(f.notesOf)); st.files.push(r.file); st.slides = null; paintFiles();
-      const { rasterizeAndUpload } = await import("./presenter.js");
+      const { rasterizeAndUpload } = await lazy(import("./presenter.js"));
       const out = await rasterizeAndUpload(pendingPdf, r.file.id, T.token, (i, n) => { label.textContent = "Erzeuge Folie " + i + " von " + n + " …"; bar.style.width = (30 + Math.round((i / n) * 70)) + "%"; },
         { code: L().code, exclude: [...st.sheets.map((s) => s.code), ...moreSheetCodes], notes });
       Object.assign(r.file, out.file);
@@ -599,7 +600,7 @@ export async function sessionPage(id) {
     const set = (state, msg) => { if (run === notfallRun) { notfall.set(code, { state, msg }); paintFb(); } };
     set("busy", "Notfall-Feibeitsblatt wird geprüft …");
     try {
-      const N = await import("./notfall.js");
+      const N = await lazy(import("./notfall.js"));
       // dieselbe Sitzung und dasselbe Blatt nur einmal gleichzeitig (das Nachholen für bestehende Sitzungen läuft womöglich gerade)
       const res = await N.notfallOnce(id, code, async () => {
         const info = await N.notfallInfo(fb, code);
@@ -954,7 +955,7 @@ export async function sessionPage(id) {
     h("div", { class: "code-box" }, h("div", { class: "code-big", text: formatCode(L().code) }), h("div", { class: "small muted", text: L().studentCount + " Gerät" + (L().studentCount === 1 ? "" : "e") + " freigeschaltet" })),
     h("div", { class: "row", style: { marginTop: ".6rem" } },
       h("button", { class: "btn small", type: "button", onclick: async () => toast((await copyText(formatCode(L().code))) ? "Code kopiert." : "Kopieren nicht möglich.", "ok") }, "Kopieren"),
-      h("button", { class: "btn small", type: "button", onclick: async () => (await import("./presenter.js")).showCode(formatCode(L().code), L().title) }, "Für den Beamer zeigen")),
+      h("button", { class: "btn small", type: "button", onclick: async () => (await lazy(import("./presenter.js"))).showCode(formatCode(L().code), L().title) }, "Für den Beamer zeigen")),
     h("p", { class: "hint", text: "Der Code öffnet nur diese Sitzung – und nur für Schüler:innen, die " + (isCourseClass(L().klass)
       ? (courseMembers(cfg && cfg[L().subject], L().klass).length ? "eine der Klassen " + courseMembers(cfg[L().subject], L().klass).map(classShort).join(", ") : "eine Klasse dieses Kurses (noch keine eingetragen)")
       : classShort(L().klass)) + " und " + subjectName(L().subject) + " gewählt haben." }));
@@ -1069,13 +1070,13 @@ export async function sessionPage(id) {
   /* ======================= Sitzung als Datei (ganz unten): herunterladen und – in einer anderen Sitzung – wieder laden ======================= */
   async function exportSession(onStep) {
     flushPortal();
-    const { buildSessionZip } = await import("./sessionio.js");
+    const { buildSessionZip } = await lazy(import("./sessionio.js"));
     const r = await buildSessionZip(st, { fb, onStep, homework: hwTA.value || "", portal: portalTA ? portalTA.value : L().portal || "" });
     downloadBlob(new Blob([r.bytes], { type: "application/zip" }), r.name);
     return { name: r.name, files: r.files, notes: r.notes };
   }
   async function importSession(file, onStep) {
-    const IO = await import("./sessionio.js");
+    const IO = await lazy(import("./sessionio.js"));
     const { data, byPath } = await IO.readSessionZip(new Uint8Array(await file.arrayBuffer()));
     const src = data.source, plan = IO.planSessionImport(data, L());
     const { texts, links, prints, bins, pres, pairs } = plan;
@@ -1139,7 +1140,7 @@ export async function sessionPage(id) {
   let reviseEl = null, reviseRun = 0;
   const paintRevise = async () => {
     const u = st.unit, run = ++reviseRun;
-    const next = u && u.revise && u.revise.open ? (await import("./grundschule.js")).reviseBox(u, { unitLink: true,
+    const next = u && u.revise && u.revise.open ? (await lazy(import("./grundschule.js"))).reviseBox(u, { unitLink: true,
       onChange: (nu) => { if (nu) { st.unit = nu; paintUnit(); paintSubline(); } paintRevise(); } }) : null;
     if (run !== reviseRun || !main.isConnected) return;   // inzwischen neu gezeichnet bzw. Seite verlassen
     if (reviseEl) reviseEl.remove();

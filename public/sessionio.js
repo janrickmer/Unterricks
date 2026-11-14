@@ -1,5 +1,6 @@
 // sessionio.js – Unterrickssitzung als Datei zusammenstellen und in eine Sitzung übernehmen, ohne dass deren Seite offen sein muss:
 // für die Sitzungsseite („Sitzung als Datei“), die Einheit als Datei und die große Sicherung (backup.js). Format: sessionfile.js.
+import { lazy } from "./update.js";
 import { apiUrl, upload } from "./ui.js";
 import { T, tapi } from "./teacher.js";
 import { formatCode, GS_SUBJECT, summaryOutdated } from "./shared.js";
@@ -166,7 +167,7 @@ export function planSessionImport(data, target) {
 /* Präsentation in eine Sitzung hochladen und in Folienbilder umwandeln (ohne Sitzungsseite) */
 export async function uploadPresentationTo(lessonId, file, { code, exclude = [], onProgress, notes } = {}) {
   const r = await upload("/api/teacher/lessons/" + lessonId + "/presentation?name=" + encodeURIComponent(file.name), file, T.token, null, "application/pdf");
-  const { rasterizeAndUpload } = await import("./presenter.js");
+  const { rasterizeAndUpload } = await lazy(import("./presenter.js"));
   return rasterizeAndUpload(file, r.file.id, T.token, onProgress, { code, exclude, notes });
 }
 

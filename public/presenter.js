@@ -1,5 +1,6 @@
 // presenter.js – Präsentation (PDF) in Folienbilder umwandeln und im Vollbild live für alle zeigen.
-import { h, clear, api, apiUrl, wsUrl, toast, errToast, icon, store, rand, busy, openLayer, keepTab } from "./ui.js";
+import { lazy } from "./update.js";
+import { h, clear, api, apiUrl, wsUrl, toast, errToast, icon, store, rand, busy, openLayer, keepTab, trackWork } from "./ui.js";
 import { isValidCode, formatCode, slideTextLines, slideCodeBoxes, slideSessionCode, codeCover, coverFill, codeFontStyle, codeSlideLines, cleanCodeSlides, cleanSlideNotes, notesFor,
   nextSlideOf, nextSlideLabel, presenterKey, BEAMER_CHANNEL, normBeamerCode, PUBLIC_URL, beamerWindowNote,
   TIMER_PICKS, TIMER_MAX_MIN, TIMER_TOTAL_MAX_MIN, TIMER_ADDS, TIMER_OVER, normTimerMin } from "./shared.js";
@@ -8,7 +9,8 @@ import { timerBand } from "./timerband.js";
 
 let pdfjsP = null;
 async function pdfjs() {
-  if (!pdfjsP) pdfjsP = import("/vendor/pdf.min.mjs").then((m) => { m.GlobalWorkerOptions.workerSrc = "/vendor/pdf.worker.min.mjs"; return m; });
+  // der Worker der Bibliothek kommt aus demselben Stand wie dieses Modul (/v/<Stand>/vendor/, S24)
+  if (!pdfjsP) pdfjsP = lazy(import("/vendor/pdf.min.mjs")).then((m) => { m.GlobalWorkerOptions.workerSrc = new URL("./vendor/pdf.worker.min.mjs", import.meta.url).href; return m; });
   return pdfjsP;
 }
 
@@ -89,7 +91,9 @@ export async function pdfPageCount(file) {
    Trägt die PDF Anhänge oder Notiz-Anmerkungen, bekommen Schüler:innen nur eine bereinigte Fassung (…/clean); die Folienbilder entstehen dann aus
    ihr. Mit Notizen entsteht danach die Anmerkungs-PDF (nur Lehrkraft). Ergebnis zusätzlich notes (Zahl), clean {needed, ok, error}, annotated
    {file, removed} | {error}. */
-export async function rasterizeAndUpload(file, fileId, token, onProgress, opt = {}) {
+// angemeldet als laufende Arbeit: solange Folien entstehen, lädt die Seite nach einem Update nicht von selbst neu (update.js)
+export function rasterizeAndUpload(file, fileId, token, onProgress, opt = {}) { return trackWork(rasterize(file, fileId, token, onProgress, opt)); }
+async function rasterize(file, fileId, token, onProgress, opt) {
   const cards = !!opt.cards;
   const want = !cards && isValidCode(opt.code) ? opt.code : "";
   let oldCode = "";
@@ -104,15 +108,15 @@ export async function rasterizeAndUpload(file, fileId, token, onProgress, opt = 
   // Notizen und Anhänge (nicht bei Bildkarten): bereinigte Fassung für Schüler:innen zuerst – die Folienbilder zeigen dann genau sie
   let scan = { needsClean: false, raw: null }, cleanState = null, renderOpt = {};
   if (!cards) {
-    const { scanPdfNotes } = await import("./pdfnotes.js");
+    const { scanPdfNotes } = await lazy(import("./pdfnotes.js"));
     let plib = null;
-    try { plib = await (await import("./pdfcut.js")).pdfLib(); } catch {}
+    try { plib = await (await lazy(import("./pdfcut.js"))).pdfLib(); } catch {}
     // auch mit pdf-lib durchsehen (Metadaten, Seiteneinträge …); scheitert die Durchsicht selbst, lieber bereinigen als Notizen bei Schüler:innen
     try { scan = await scanPdfNotes(doc, { bytes, lib: plib }); } catch { scan = { needsClean: true, raw: null }; }
     if (scan.needsClean) {
       cleanState = { needed: true, ok: false, error: null };
       try {
-        const { uploadClean } = await import("./pdfcut.js");
+        const { uploadClean } = await lazy(import("./pdfcut.js"));
         const c = await uploadClean({ id: fileId }, token, bytes);
         const cdoc = await open(c.bytes.slice());
         if (cdoc.numPages === n) { await doc.destroy(); doc = cdoc; cleanState.ok = true; } else { await cdoc.destroy(); throw new Error("Seitenzahl stimmt nicht."); }
@@ -180,7 +184,7 @@ export async function rasterizeAndUpload(file, fileId, token, onProgress, opt = 
   let annotated = null;
   const rev = ready.file && ready.file.notesRev;
   if (notes.length && Number.isInteger(rev)) {
-    try { const { makeAnnotated } = await import("./pdfnotes.js"); annotated = await makeAnnotated({ id: fileId, name: file.name }, { token, notes, rev, codeSlides: sent, bytes }); }
+    try { const { makeAnnotated } = await lazy(import("./pdfnotes.js")); annotated = await makeAnnotated({ id: fileId, name: file.name }, { token, notes, rev, codeSlides: sent, bytes }); }
     catch (e) { annotated = { error: e && e.message ? e.message : String(e) }; }
   }
   // notesBad: die PDF trägt unterricks-notizen.json, daraus kam aber nichts (z. B. kein gültiges JSON oder ein anderes Format) – sonst bliebe das still

@@ -2,6 +2,7 @@
 // Rätselraum, kein Weg zurück) → Buchstaben des Lösungsworts → Finale im Feibeitsblatt (Tunnel mit Datensatz v1). Hilfe in drei
 // Stufen, Fehler im ersten Versuch, Zwischenstand-Datei ab Station 2, Überblick-PDF mit eingebettetem Datensatz.
 // Fortschritt liegt nur im Browser (wie in den bekannten Räumen): Neuladen kostet ihn – vorher wird gefragt.
+import { lazy } from "./update.js";
 import { h, clear, toast, errToast, busy, modal, confirmDialog, api, store, nn, openLayer } from "./ui.js";
 import { render, go, onLeave, onStudentExpire, studentAuthFailed, studentAuthLeft } from "./app.js";
 import { gradePart, missingOf, HELP_HEADS, PART_LETTERS, escapeRecord, tunnelUrl, saveEncode, saveDecode, SAVE_BEGIN, SAVE_END, confirmCode, normKlasse } from "./escape-data.js";
@@ -409,7 +410,7 @@ export async function escapePage(lessonId, opt = {}) {
 
 /* ======================= Überblick-PDF (pdf-lib, Standardschrift Helvetica) ======================= */
 let libP = null;
-const pdfLib = () => (libP = libP || import("/vendor/pdf-lib.esm.min.js"));
+const pdfLib = () => (libP = libP || lazy(import("/vendor/pdf-lib.esm.min.js")));
 export async function overviewPdf(room, S, d, hull) {
   const L = await pdfLib(), { PDFDocument, StandardFonts, rgb, PDFName, PDFString, PDFHexString } = L;
   const doc = await PDFDocument.create();

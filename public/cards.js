@@ -1,6 +1,7 @@
 // cards.js – Bildkarten der Grundschule (Wunsch der Lehrkraft vom 12.11.2026): Betrachter zum Durchklicken (Lehrkraft und Eltern), die Karte
 // „Bildkarten“ der Grundschul-Sitzung (Erzähltexte prüfen und ändern, Freigabe für Eltern, Hochladen einer PDF – eine Seite = eine Karte) und
 // das Erstellen der Kartenbilder im Browser der Lehrkraft (PDF.js über presenter.js, opt.cards) – nacheinander, einmal je Stand der PDF.
+import { lazy, isModuleError } from "./update.js";
 import { h, clear, nn, api, apiUrl, upload, toast, errToast, confirmDialog, icon, stateLine } from "./ui.js";
 import { onLeave } from "./app.js";
 import { T, tapi } from "./teacher.js";
@@ -26,7 +27,7 @@ export const cardsFailed = (id, version) => failed.get(id + ":" + version) || nu
 
 /* Bilder einer PDF (Blob) für den Kartensatz fileId erzeugen und hochladen; version = Stand der PDF (cards.version) */
 export async function rasterizeCards(blob, fileId, version, onProgress) {
-  const { rasterizeAndUpload } = await import("./presenter.js");
+  const { rasterizeAndUpload } = await lazy(import("./presenter.js"));
   return rasterizeAndUpload(blob, fileId, T.token, onProgress, { cards: true, version });
 }
 async function pdfBlob(fileId) {
@@ -101,8 +102,8 @@ export function cardsCard({ lessonId, st, insertRef, onChange = () => {} }) {
       // vorher prüfen: lesbar und höchstens 40 Seiten (sonst ließen sich die Bilder nie erstellen – und jede Startseite versuchte es erneut)
       stateLine(upState, "„" + file.name + "“ wird geprüft …");
       let pages = 0;
-      try { pages = await (await import("./presenter.js")).pdfPageCount(file); }
-      catch { stateLine(upState, "Diese PDF-Datei lässt sich nicht lesen. Bitte eine andere PDF-Datei wählen (eine Seite = eine Karte).", "err"); return; }
+      try { pages = await (await lazy(import("./presenter.js"))).pdfPageCount(file); }
+      catch (e) { stateLine(upState, isModuleError(e) ? e.message : "Diese PDF-Datei lässt sich nicht lesen. Bitte eine andere PDF-Datei wählen (eine Seite = eine Karte).", "err"); return; }
       if (pages > MAX_CARDS) { stateLine(upState, "Die PDF hat " + pages + " Seiten – höchstens " + MAX_CARDS + " Bildkarten je PDF (eine Seite = eine Karte).", "err"); return; }
       stateLine(upState, "„" + file.name + "“ wird hochgeladen …");
       const r = await upload("/api/teacher/lessons/" + lessonId + "/cards?name=" + encodeURIComponent(file.name) + "&share=" + (share.checked ? "1" : "0"), file, T.token,

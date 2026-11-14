@@ -1307,3 +1307,11 @@ img.sub-photo { max-width: 100%; max-height: 60vh; border-radius: 12px; border: 
 .fd-row { margin-top: .25rem; padding: .1rem .35rem; border-left: 3px solid var(--frei-k); background: var(--frei-t); color: var(--text); font-weight: 700; }
 /* Sitzung: liegt auf einem unterrichtsfreien Tag (ruhig, im Kopfband) */
 .chip.freechip { background: rgba(255, 255, 255, .14); border: 1px dashed rgba(255, 255, 255, .8); }
+/* Nach einem Update bzw. wenn ein Programmteil nicht lädt (S24, public/update.js und public/boot.js): ruhiger Hinweis statt der Seite */
+main.loadfail { padding-top: 2.5rem; }
+main.loadfail .card > h1:first-child { margin-top: 0; font-size: clamp(1.4rem, 1.15rem + 1vw, 1.8rem); }
+main.loadfail .card p { max-width: 62ch; }
+/* Seitenwechsel mit Prüfung auf ein Update (S24): „Einen Moment bitte …“ erscheint erst, wenn es länger dauert */
+main.navwait p { opacity: 0; animation: navwait-zeigen .2s ease-out .5s forwards; }
+@keyframes navwait-zeigen { to { opacity: 1; } }
+@media (prefers-reduced-motion: reduce) { main.navwait p { animation-duration: .01s; } }

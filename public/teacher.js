@@ -1,4 +1,5 @@
 // teacher.js – Lehrkräfteansicht: Anmeldung/Einrichtung, Fach- und Klassenauswahl, Sitzungslisten, Einstellungen.
+import { lazy } from "./update.js";
 import { h, clear, store, deviceId, api, apiUrl, toast, errToast, busy, modal, confirmDialog, copyText, fmtDate, fmtTime, topbar, nn, pageHead, setFach, icon, downloadBlob, fmtBytes, stateLine } from "./ui.js";
 import { render, go, onLeave } from "./app.js";
 import { SUBJECTS, subjectName, gradeInfo, isValidClass, isValidSubject, formatCode, fmtDay, classGroupsFor, classAllowed, classShort, gradeKey, isAnalogClass, ANALOG_RULE,
@@ -153,7 +154,7 @@ export function notfallBackfill(opt = {}) {
     const byCode = new Map();
     for (const x of list) if (all || !x.fileId) { if (!byCode.has(x.code)) byCode.set(x.code, []); byCode.get(x.code).push(x); }
     NF.total = [...byCode.values()].reduce((n, a) => n + a.length, 0); nfPaint();
-    const N = byCode.size ? await import("./notfall.js") : null;
+    const N = byCode.size ? await lazy(import("./notfall.js")) : null;
     for (const [code, items] of byCode) {
       if (!live()) return;
       if (!T.fb.connected) return stop("noconn");   // Verbindung unterwegs verloren: später erneut (nach dem Verbinden)
@@ -228,7 +229,7 @@ async function logout() {
   if (T.fb) T.fb.disconnect();
   T.wrapKey = null; T.fbLink = { state: "checking" }; fbAuto = null; await forgetKey();   // dieses Gerät vergisst den Schlüssel
   nfReset();   // ein laufendes Nachholen endet
-  import("./designrender.js").then((m) => m.resetPrintQueue()).catch(() => {});   // ebenso das Drucken gestalteter Materialien
+  lazy(import("./designrender.js")).then((m) => m.resetPrintQueue()).catch(() => {});   // ebenso das Drucken gestalteter Materialien
   toLogin();
 }
 
@@ -402,7 +403,7 @@ async function lessonsPage(subject, klass) {
       tapi("GET", "/api/teacher/bases?subject=" + subject).then((r) => r.bases),
       // Kurseinstellungen (Stundenplan, Schülerzahl) – nur für Klassen, die laut Fach-Einstellungen unterrichtet werden (sonst null)
       tapi("GET", "/api/teacher/course-settings?subject=" + subject + "&klass=" + klass).then((r) => ({ settings: r.settings })).catch(() => null),
-      import("./coursecard.js")]);
+      lazy(import("./coursecard.js"))]);
   } catch (e) { clear(main).append(h("p", { class: "err", text: e.message })); return; }
   const name = subjectName(subject), gk = gradeKey(klass), members = courseMembers(cfg, klass);
   if (!classAllowed(cfg, klass)) {
@@ -540,7 +541,7 @@ async function runBackup() {
     body: (el) => el.append(status, h("div", { class: "progress" }, bar), h("p", { class: "hint", text: "Bitte lassen Sie diese Seite geöffnet. Gelöscht wird erst nach Ihrer Bestätigung." })),
     actions: [{ label: "Abbrechen", onClick: () => { stop = true; } }] });
   try {
-    const B = await import("./backup.js");
+    const B = await lazy(import("./backup.js"));
     const r = await B.buildBackup({ onStep: (m) => { status.textContent = m; }, onProgress: (d, n) => { bar.style.width = (n ? Math.round((d / n) * 100) : 100) + "%"; }, cancelled: () => stop });
     if (!closed) dlg.close();
     downloadBlob(r.blob, r.name, 30 * 60e3);
@@ -599,7 +600,7 @@ async function startReset(btn, status) {
       else { stateLine(status, (e.code === "changed" ? "" : "Nicht gelöscht: ") + e.message, "err"); errToast(e); return; }
     }
     store.del("u.nfFails");
-    try { const B = await import("./backup.js"); await B.clearAllPending(); } catch {}
+    try { const B = await lazy(import("./backup.js")); await B.clearAllPending(); } catch {}
     if (r.pending) await finishCleanup(status, r.pending);
     else stateLine(status, "Alle Unterrichtsinhalte sind gelöscht.", "ok");
     toast("Unterricks wurde zurückgesetzt: " + r.deleted.units + " Einheiten und " + r.deleted.lessons + " Sitzungen gelöscht.", "ok", 9000);
@@ -612,7 +613,7 @@ let resumeChecked = false;
 export function printPending() {
   tapi("GET", "/api/teacher/render").then(async (r) => {
     if (!r.configured || !Array.isArray(r.pending) || !r.pending.length || (r.usage && r.usage.quotaUntil)) return;
-    const { printQueue } = await import("./designrender.js");
+    const { printQueue } = await lazy(import("./designrender.js"));
     const q = printQueue(), before = q.pending;
     for (const f of r.pending) q.add(f);
     const added = q.pending - before;
@@ -625,13 +626,13 @@ export function printPending() {
 const cardsHooked = new WeakSet();
 export function cardsPendingRun() {
   tapi("GET", "/api/teacher/cards/pending").then(async (r) => {
-    if (Array.isArray(r.files) && r.files.length) (await import("./cards.js")).rasterizePending(r.files);
+    if (Array.isArray(r.files) && r.files.length) (await lazy(import("./cards.js"))).rasterizePending(r.files);
   }).catch(() => {});
-  import("./designrender.js").then(({ printQueue }) => {
+  lazy(import("./designrender.js")).then(({ printQueue }) => {
     const q = printQueue();
     if (cardsHooked.has(q)) return;
     cardsHooked.add(q);
-    q.on({ done: (f) => { if (f && f.cards && !f.cards.current && f.status === "ready") import("./cards.js").then((m) => m.rasterizePending([{ id: f.id, version: f.cards.version }])).catch(() => {}); } });
+    q.on({ done: (f) => { if (f && f.cards && !f.cards.current && f.status === "ready") lazy(import("./cards.js")).then((m) => m.rasterizePending([{ id: f.id, version: f.cards.version }])).catch(() => {}); } });
   }).catch(() => {});
 }
 function resumeCleanup() {
@@ -899,15 +900,15 @@ export async function route(hash) {
   if ((m = /^#\/lk\/f\/([a-z]+)$/.exec(hash))) return classesPage(m[1]);
   if ((m = /^#\/lk\/f\/([a-z]+)\/([A-Z0-9-]{2,5})$/.exec(hash))) return lessonsPage(m[1], m[2]);
   // „/druckliste“ (aus dem Feld „Druckaufträge“ der Startseiten): die Sitzung mit ihrer Druckliste „Von der Lehrkraft auszudrucken“ im Blick
-  if ((m = /^#\/lk\/s\/([a-f0-9]{16})(\/druckliste)?$/.exec(hash))) { await (await import("./session.js")).sessionPage(m[1]); if (m[2]) showPrintCard(hash); return; }
-  if ((m = /^#\/lk\/u\/([a-f0-9]{16})$/.exec(hash))) return (await import("./units.js")).unitPage(m[1]);
-  if ((m = /^#\/lk\/escape\/([a-f0-9]{16})$/.exec(hash))) return (await import("./escape.js")).escapePage(m[1], { teacher: true });
-  if (hash === "#/lk/grundschule" || hash === "#/lk/grundschule/") return (await import("./grundschule.js")).gsOverviewPage();
-  if ((m = /^#\/lk\/grundschule\/k\/(gs[a-f0-9]{8})$/.exec(hash))) return (await import("./grundschule.js")).gsCoursePage(m[1]);
-  if ((m = /^#\/lk\/grundlage\/([a-f0-9]{16})$/.exec(hash))) return (await import("./bases.js")).baseDocPage(m[1]);
+  if ((m = /^#\/lk\/s\/([a-f0-9]{16})(\/druckliste)?$/.exec(hash))) { await (await lazy(import("./session.js"))).sessionPage(m[1]); if (m[2]) showPrintCard(hash); return; }
+  if ((m = /^#\/lk\/u\/([a-f0-9]{16})$/.exec(hash))) return (await lazy(import("./units.js"))).unitPage(m[1]);
+  if ((m = /^#\/lk\/escape\/([a-f0-9]{16})$/.exec(hash))) return (await lazy(import("./escape.js"))).escapePage(m[1], { teacher: true });
+  if (hash === "#/lk/grundschule" || hash === "#/lk/grundschule/") return (await lazy(import("./grundschule.js"))).gsOverviewPage();
+  if ((m = /^#\/lk\/grundschule\/k\/(gs[a-f0-9]{8})$/.exec(hash))) return (await lazy(import("./grundschule.js"))).gsCoursePage(m[1]);
+  if ((m = /^#\/lk\/grundlage\/([a-f0-9]{16})$/.exec(hash))) return (await lazy(import("./bases.js"))).baseDocPage(m[1]);
   if ((m = /^#\/lk\/datei\/([a-f0-9]{16})$/.exec(hash))) return fileOpenPage(m[1]);
-  if ((m = /^#\/lk\/eltern\/([a-f0-9]{16})(?:\/([a-f0-9]{16}))?$/.exec(hash))) return (await import("./grundschule.js")).parentsPreviewPage(m[1], m[2] || null);
-  if (hash === "#/lk/grundlagen") return (await import("./bases.js")).basesOverview();
-  if ((m = /^#\/lk\/grundlagen\/([a-z]+)$/.exec(hash))) return (await import("./bases.js")).basesPage(m[1]);
+  if ((m = /^#\/lk\/eltern\/([a-f0-9]{16})(?:\/([a-f0-9]{16}))?$/.exec(hash))) return (await lazy(import("./grundschule.js"))).parentsPreviewPage(m[1], m[2] || null);
+  if (hash === "#/lk/grundlagen") return (await lazy(import("./bases.js"))).basesOverview();
+  if ((m = /^#\/lk\/grundlagen\/([a-z]+)$/.exec(hash))) return (await lazy(import("./bases.js"))).basesPage(m[1]);
   go("#/lk");
 }

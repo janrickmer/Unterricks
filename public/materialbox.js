@@ -1,6 +1,7 @@
 // materialbox.js – Materialkasten einer Sitzung: Material für Schüler:innen und Lehrkräfte (Dateien, Links, Texte, von Claude gestaltetes
 // Material mit Druckwarteschlange) und die Druckliste „Von der Lehrkraft auszudrucken“. Aus session.js ausgelagert (unverändert), damit
 // auch die Sitzungsseite der Grundschule ihn nutzen kann.
+import { lazy } from "./update.js";
 import { h, clear, toast, errToast, busy, modal, confirmDialog, fmtBytes, fmtTime, fileIcon, downloadUrl, downloadBlob, upload, apiUrl, nn, icon } from "./ui.js";
 import { onLeave } from "./app.js";
 import { T, tapi } from "./teacher.js";
@@ -85,7 +86,7 @@ export function materialBox({ lessonId: id, st, L, gs = false, labels = {}, excl
         h("button", { class: "btn small", type: "button", onclick: () => editLink(f) }, "Bearbeiten"));
     } else if (f.kind === "text") {
       acts.append(h("button", { class: "btn small", type: "button", onclick: () => editText(f) }, "Ansehen/Bearbeiten"),
-        h("button", { class: "btn small", type: "button", onclick: (e) => busy(e.currentTarget, async () => { try { const { markdownToPdf, pdfName } = await import("./pdfmaker.js"); downloadBlob(await markdownToPdf(f.name, f.text, { subtitle: textSub(), nameLine: f.area !== "teacher" }), pdfName(f.name)); } catch (err) { errToast(err); } }) }, "PDF"));
+        h("button", { class: "btn small", type: "button", onclick: (e) => busy(e.currentTarget, async () => { try { const { markdownToPdf, pdfName } = await lazy(import("./pdfmaker.js")); downloadBlob(await markdownToPdf(f.name, f.text, { subtitle: textSub(), nameLine: f.area !== "teacher" }), pdfName(f.name)); } catch (err) { errToast(err); } }) }, "PDF"));
     } else {
       acts.append(h("button", { class: "btn small", type: "button", onclick: (e) => busy(e.currentTarget, async () => { try { const r = await tapi("POST", "/api/teacher/files/" + f.id + "/link", { body: {} }); downloadUrl(r.url, f.name); } catch (err) { errToast(err); } }) }, "Herunterladen"));
     }
@@ -190,10 +191,10 @@ export function materialBox({ lessonId: id, st, L, gs = false, labels = {}, excl
   // nur PDF, gedruckt wird nur A4 (andere Formate rechnet a4.js beim Hochladen um); Dateiname „28x - beidseitig - sw - Name.pdf“
   const printList = h("div", { class: "list" }), printProg = h("div", { class: "stack" });
   const printFiles = () => st.files.filter((f) => f.area === "print" || (gs && f.area === "student" && f.print && shown(f)));
-  const pdfLib = () => import("/vendor/pdf-lib.esm.min.js");
+  const pdfLib = () => lazy(import("/vendor/pdf-lib.esm.min.js"));
   async function printBytes(f) {
     if (f.kind === "text") {
-      const { markdownToPdf } = await import("./pdfmaker.js");
+      const { markdownToPdf } = await lazy(import("./pdfmaker.js"));
       return new Uint8Array(await (await markdownToPdf(f.name, f.text, { subtitle: subtitle || subjectName(L().subject) + " · " + classShort(L().klass) })).arrayBuffer());
     }
     const r = await tapi("POST", "/api/teacher/files/" + f.id + "/link", { body: {} });
@@ -254,7 +255,7 @@ export function materialBox({ lessonId: id, st, L, gs = false, labels = {}, excl
       try {
         const buf = new Uint8Array(await file.arrayBuffer());
         if (!(buf[0] === 0x25 && buf[1] === 0x50 && buf[2] === 0x44 && buf[3] === 0x46 && buf[4] === 0x2d)) throw new Error("„" + file.name + "“ ist keine PDF-Datei. Zum Ausdrucken sind nur PDF-Dateien erlaubt.");
-        const { toA4 } = await import("./a4.js");
+        const { toA4 } = await lazy(import("./a4.js"));
         const a4 = await toA4(buf, await pdfLib());
         const name = /\.pdf$/i.test(file.name) ? file.name : file.name + ".pdf";
         const r = await upload("/api/teacher/lessons/" + id + "/print?name=" + encodeURIComponent(name), new Blob([a4.bytes], { type: "application/pdf" }), T.token, (q) => { bar.style.width = Math.round(q * 100) + "%"; }, "application/pdf");
@@ -274,7 +275,7 @@ export function materialBox({ lessonId: id, st, L, gs = false, labels = {}, excl
       if (!fs.length) { toast("Die Vorlagen werden gerade noch als PDF gedruckt – bitte gleich noch einmal.", "err"); return; }
       const entries = [];
       for (const f of fs) entries.push({ name: f.printName || printFileName({ name: f.name, ...(f.print || {}) }), data: await printBytes(f) });
-      const { makeZip } = await import("./zip.js");
+      const { makeZip } = await lazy(import("./zip.js"));
       downloadBlob(new Blob([makeZip(entries)], { type: "application/zip" }), zipName());
       toast((fs.length === 1 ? "Die Datei ist als ZIP-Datei heruntergeladen." : "Alle " + fs.length + " Dateien sind als eine ZIP-Datei heruntergeladen.") +
         (wait.length ? " Noch nicht dabei (wird gerade als PDF gedruckt): " + wait.map((f) => "„" + f.name + "“").join(", ") + "." : ""), wait.length ? "" : "ok", wait.length ? 9000 : 4200);

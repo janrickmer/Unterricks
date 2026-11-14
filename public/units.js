@@ -1,5 +1,6 @@
 // units.js – Seite einer Unterrichtseinheit: Rahmendaten → Termine, Planungsgrundlagen, Planung mit Claude, Leupold-Schema, Ablauf-Tabelle,
 // Sitzungen anlegen. Außerdem: Darstellung des Leupold-Schemas (auch in der Sitzungsansicht, aktuelle Stunde fett).
+import { lazy } from "./update.js";
 import { h, clear, toast, errToast, busy, confirmDialog, fmtTime, nn, icon, pageHead, modal, stateLine, downloadBlob, fmtBytes } from "./ui.js";
 import { render, go, onLeave } from "./app.js";
 import { T, tapi, teacherBar, markNav } from "./teacher.js";
@@ -43,7 +44,7 @@ export async function unitPage(id) {
   const pendFor = (uid) => !!(pend && pend.rows && pend.rows[uid]);
   const pendOpen = () => (pend ? u.lessons.filter((l) => pendFor(l.row)) : []);
   // Grundschule: „Einheit als Datei“ gibt es dort (noch) nicht – also auch keine gesicherten Sitzungen, die auf ihre Übernahme warten (R14, F13/F27)
-  if (!gs) import("./backup.js").then((B) => B.loadPending(id)).then((p) => { if (p && Object.keys(p.rows || {}).length) { pend = p; paint(); } }).catch(() => {});
+  if (!gs) lazy(import("./backup.js")).then((B) => B.loadPending(id)).then((p) => { if (p && Object.keys(p.rows || {}).length) { pend = p; paint(); } }).catch(() => {});
   const unitInput = h("input", { type: "file", class: "hidden", accept: ".zip,.json,application/zip,application/json", "aria-label": "Gesicherte Unterrichtseinheit (ZIP- oder JSON-Datei) auswählen" });
   unitInput.addEventListener("change", () => { const f = unitInput.files[0]; unitInput.value = ""; if (f) importUnit(f); });
   const markDirty = () => { dirty = true; saveState.textContent = "Ungespeicherte Änderungen"; };
@@ -318,7 +319,7 @@ export async function unitPage(id) {
       if (dirty) return;
     }
     try {
-      const B = await import("./backup.js"), full = (await tapi("GET", "/api/teacher/units/" + id)).unit;
+      const B = await lazy(import("./backup.js")), full = (await tapi("GET", "/api/teacher/units/" + id)).unit;
       const r = await B.buildUnitZip(full, { onStep: (m) => stateLine(state, m) });
       downloadBlob(r.blob, r.name, 10 * 60e3);
       stateLine(state, "Heruntergeladen: " + r.name + " (" + fmtBytes(r.blob.size) + ", " + r.sessions + " Sitzung" + (r.sessions === 1 ? "" : "en") + ")", "ok");
@@ -329,7 +330,7 @@ export async function unitPage(id) {
     if (gs) return;
     if (u.lessons.length) { toast("Zu dieser Einheit gibt es schon Sitzungen – bitte eine neue Einheit anlegen und die Datei dort laden.", "err"); return; }
     let B, r;
-    try { B = await import("./backup.js"); r = await B.readUnitFile(file); } catch (e) { errToast(e); return; }
+    try { B = await lazy(import("./backup.js")); r = await B.readUnitFile(file); } catch (e) { errToast(e); return; }
     const x = r.unit, n = x.rows.length, withS = r.sessions.filter(Boolean).length, ls = lessonSlots(computeSlots(u.params));
     const had = rows.length || (plan.lernaufgabe || "").trim() || (plan.schritte || []).length;
     const warn = [x.source.subject && x.source.subject !== u.subject ? "Die Einheit stammt aus " + subjectName(x.source.subject) + ", diese Einheit gehört zu " + subjectName(u.subject) + "." : null,
@@ -380,7 +381,7 @@ export async function unitPage(id) {
     window.addEventListener("beforeunload", guard);
     let report = null;
     try {
-      const B = await import("./backup.js");
+      const B = await lazy(import("./backup.js"));
       let k = 0;
       report = await B.applyPending(id, todo, pend, { onStep: (m) => { status.textContent = m; const n = Number((/^Sitzung (\d+) von/.exec(m) || [])[1]); if (n && n !== k) { k = n; bar.style.width = Math.round(((n - 1) / todo.length) * 100) + "%"; } } });
       pend = await B.loadPending(id);

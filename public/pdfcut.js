@@ -3,10 +3,11 @@
 // Musterlösungen enthalten. Gekürzt wird im Browser der Lehrkraft mit pdf-lib (Seiten unverändert kopiert, Text bleibt Text).
 // Nachtrag 20: Trägt die Präsentation Notizen der Lehrkraft (Dateianhang unterricks-notizen.json) bzw. Notiz-Anmerkungen, bekommen Schüler:innen
 // nur eine bereinigte Kopie (cleanPdfBytes): neue PDF mit den Seiten, ohne Dateianhänge (EmbeddedFiles, /AF) und ohne Anmerkungen außer Links.
+import { lazy } from "./update.js";
 import { api, apiUrl } from "./ui.js";
 
 let libP = null;
-export const pdfLib = () => (libP ||= import("/vendor/pdf-lib.esm.min.js"));
+export const pdfLib = () => (libP ||= lazy(import("/vendor/pdf-lib.esm.min.js")));
 
 const loadErr = (e, what) => new Error("Diese PDF lässt sich im Browser nicht " + what + (/encrypt/i.test(String(e && e.message)) ? " (sie ist geschützt)" : "") +
   ". Bitte die Präsentation ohne Kennwortschutz als PDF exportieren und erneut hochladen.");

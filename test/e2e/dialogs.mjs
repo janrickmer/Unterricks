@@ -2,6 +2,7 @@
 // Umschalt+Tab vom ersten zum letzten, nie auf die Seite dahinter (inert); Esc schließt bei zwei Dialogen übereinander nur den oberen; der Fokus geht
 // an den Auslöser zurück; ein gesperrter Knopf („Weiter“ während der Prüfung) hält Tab im Dialog; Codefolie und Präsentationsmodus; Schüler:in am
 // iPad (Einwilligung KI-Begriffshilfe). Mit shots (DIALOG_SHOTS=1) Bildschirmfotos mit sichtbarem Fokusrahmen: Laptop und iPad hochkant, hell und dunkel.
+// ui.js der Seite (dieselbe Instanz wie die der Oberfläche) liegt im Ordner ihres Stands: /v/<Stand>/ui.js (S24; der Stand steht in <meta name="unterricks-build">).
 import { mkdirSync } from "node:fs";
 import { join } from "node:path";
 
@@ -54,7 +55,7 @@ export async function dialogsE2E({ browser, devices, BASE, tStore, sStore, lesso
 
   /* ---------- zwei Dialoge übereinander: Esc schließt nur den oberen ---------- */
   await p.locator("#lk-u").focus();
-  await p.evaluate(() => { import("/ui.js").then((m) => { window.__e2eAsk = m.confirmDialog("Zweite Rückfrage", "Diese Rückfrage liegt über dem Dialog „Link hinzufügen“.", "Ja"); }); });
+  await p.evaluate(() => { import("/v/" + document.querySelector('meta[name="unterricks-build"]').content + "/ui.js").then((m) => { window.__e2eAsk = m.confirmDialog("Zweite Rückfrage", "Diese Rückfrage liegt über dem Dialog „Link hinzufügen“.", "Ja"); }); });
   await p.waitForFunction(() => document.querySelectorAll(".modal").length === 2);
   await p.waitForTimeout(100);
   const two = await p.evaluate(() => { const b = document.querySelectorAll(".modal-back"); return { lower: b[0].hasAttribute("inert"), upper: b[1].hasAttribute("inert"), app: document.getElementById("app").hasAttribute("inert") }; });
@@ -101,7 +102,7 @@ export async function dialogsE2E({ browser, devices, BASE, tStore, sStore, lesso
   ok(fr.row === "Dialogtest C" && /^Öffnen/.test(fr.label), "Link gelöscht (nach der Rückfrage zeichnet die Seite die Liste neu): Fokus auf „Öffnen“ des Eintrags, der jetzt an seiner Stelle steht (" + fr.row + ") – nicht auf body");
   // Dialog A öffnet Dialog B und schließt sich: nach B zurück auf den Auslöser von A
   await row("Dialogtest C").getByRole("button", { name: "Bearbeiten" }).focus();
-  await p.evaluate(() => import("/ui.js").then((m) => { m.modal({ title: "Kette A", body: m.h("p", { text: "Dialog A" }), actions: [{ label: "Weiter", class: "primary", onClick: () => { m.modal({ title: "Kette B", body: m.h("p", { text: "Dialog B" }), actions: [{ label: "Fertig", class: "primary" }] }); } }] }); }));
+  await p.evaluate(() => import("/v/" + document.querySelector('meta[name="unterricks-build"]').content + "/ui.js").then((m) => { m.modal({ title: "Kette A", body: m.h("p", { text: "Dialog A" }), actions: [{ label: "Weiter", class: "primary", onClick: () => { m.modal({ title: "Kette B", body: m.h("p", { text: "Dialog B" }), actions: [{ label: "Fertig", class: "primary" }] }); } }] }); }));
   await p.locator(".modal", { hasText: "Dialog A" }).waitFor(); await p.waitForTimeout(100);
   await p.keyboard.press("Enter");
   await p.locator(".modal", { hasText: "Dialog B" }).waitFor(); await p.waitForTimeout(100);
@@ -132,7 +133,7 @@ export async function dialogsE2E({ browser, devices, BASE, tStore, sStore, lesso
   st = await inertState(p);
   await p.keyboard.press("Shift+Tab");
   const last = await where(p, ".presenter");
-  const nStops = await p.evaluate(async () => (await import("/ui.js")).tabbables(document.querySelector(".presenter")).length);
+  const nStops = await p.evaluate(async () => (await import("/v/" + document.querySelector('meta[name="unterricks-build"]').content + "/ui.js")).tabbables(document.querySelector(".presenter")).length);
   c = await cycle(p, ".presenter", nStops + 2); cb = await cycle(p, ".presenter", nStops + 2, true);
   ok(st.app && last.inside && c.inside && cb.inside && c.kinds === nStops, "Präsentationsmodus: Umschalt+Tab vom Anfang springt ans Ende der Leiste, Tab läuft im Kreis über alle " + nStops + " Halte – nie auf die Seite dahinter (inert)");
   await p.keyboard.press("t");

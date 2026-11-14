@@ -132,7 +132,10 @@ implementiert und im End-to-End-Test geprüft (Ausnahmen unten ausdrücklich gen
 | | `worker/printjobs.js`, `public/printnext.js` | Druckaufträge für den nächsten Arbeitstag (`GET /api/teacher/print-next`; Feld ganz oben auf beiden Startseiten), siehe 4n |
 | | `worker/podcast.js`, `public/podcast.js`, `public/podcastlib.js` | Podcast für den kommenden Unterricht (Nachtrag 22): Grundlage des Tages, Auftrag für Claude in Chrome, Ablage der Audiodatei in R2, Player mit Range-Anfragen, Löschen zwei Tage nach dem Unterricht – Knopf bzw. Player unter dem Wochenkalender beider Startseiten, siehe 4q |
 | | `worker/substitute.js` | Krankheitsvertretung: Vorschlag, Bestätigen (Archiv), Wiederherstellen, Übertragen |
-| Oberfläche | `public/app.js` | Router, Startseite, Schüleransicht |
+| Oberfläche | `public/boot.js` | Startdatei (unversioniert, bleibt über Deploys gleich): aktuellen Stand erfragen, `/v/<Stand>/app.js` laden, Hinweis bei einem Ladefehler, siehe 4t |
+| | `public/update.js` | Nach einem Update: Prüfung beim Seitenwechsel, sicheres Neuladen, `lazy()` für jedes Nachladen, Hinweis „Unterricks wurde aktualisiert“, siehe 4t |
+| | `scripts/build.mjs` | Build für Worker (`dist/`) und GitHub Pages (`dist-pages/`): Stand je Build in `/v/<Stand>/`, `version.json`, Prüfung der Verweise, siehe 4t |
+| | `public/app.js` | Router, Startseite, Schüleransicht |
 | | `public/teacher.js`, `public/session.js` | Lehrkräfteansicht (Fach → Klasse/Kurs → Einheiten), Sitzungsansicht |
 | | `public/materialbox.js` | Materialkasten einer Sitzung (Material für Schüler:innen und Lehrkräfte, Druckliste) – aus `session.js` ausgelagert |
 | | `public/coursecard.js` | Karte „Kurseinstellungen“ auf der Klassen- bzw. Kursseite (Termine pro Woche, Schülerzahl) |
@@ -693,7 +696,8 @@ implementiert und im End-to-End-Test geprüft (Ausnahmen unten ausdrücklich gen
 
 ## 4e. Eigene Adresse über GitHub Pages (Ergänzung vom 10.11.2026)
 
-* **Aufbau:** `PAGES_API=<Worker-Adresse> npm run build` erzeugt `dist-pages/`: dieselben Dateien wie `dist/`, dazu in
+* **Aufbau:** `PAGES_API=<Worker-Adresse> npm run build` erzeugt `dist-pages/`: dieselben Dateien wie `dist/` (derselbe Stand in `/v/<Stand>/`,
+  siehe 4t), dazu in
   `index.html` `<meta name="unterricks-api">` (Server-Adresse) und die CSP als `<meta http-equiv>` (GitHub Pages setzt keine
   eigenen Header; `_headers` entfällt). Im Browser setzt `public/ui.js` (`API`, `apiUrl`, `wsUrl`) alle Pfade `/api/…` – auch
   signierte Links aus Antworten (Downloads, Folien) und den WebSocket der Live-Präsentation – auf den Worker.
@@ -1119,6 +1123,85 @@ Befund der Prüfung von Nr. 24: Mit Tab gelangte man aus jedem Dialog auf die Se
   `MutationObserver` – auch mit `attributes`/`attributeFilter` – ergänzt), E2E-Schritt „Dialoge“ (`test/e2e/dialogs.mjs`, echte Tastatur in
   Chromium: auch Link bearbeiten und löschen, Dialog-Kette, gesperrter und wieder bedienbarer Knopf, Meldung am Handy) und die Prüfung von
   „Buchstabe freigeschaltet“ im Escape-Room-Durchlauf.
+
+## 4t. Stände: nach einem Update nie alte und neue Programmteile mischen (Fehler vom 14.11.2026)
+
+Gemeldet nach dem Deploy von Nr. 26 (14.11.2026, 12:02 UTC): Beim Öffnen einer Grundschul-Sitzung „Die Lehrkräfteansicht konnte nicht geladen
+werden: The requested module './portalview.js' does not provide an export named 'keepFocusOn'“. Ursache: Der Tab war vor dem Deploy geöffnet
+(`app.js` lädt `portalview.js` fest); die Lehrkräfteansicht wird erst bei Bedarf geladen (`import("./teacher.js")`) und zieht `session.js`/
+`gssession.js` nach – neu vom Server, die alte `portalview.js` aber noch aus dem Speicher des Tabs. Der Code auf dem Server war richtig. Dieselbe
+Lücke hatte jedes Nachladen (Escape-Room, Eltern, Beamer, Präsentation, PDF-Bausteine, `/vendor/*` …). GitHub Pages hält zudem jede Datei
+10 Minuten (`Cache-Control: max-age=600`, auch `index.html`) und ignoriert Abfragen (`?v=…` liefert den neuen Inhalt).
+
+- **Stand je Build** (`scripts/build.mjs`): die ersten 12 Zeichen des SHA-256 über `public/` (Pfad, Länge, Inhalt) und die drei Bibliotheken –
+  `dist/` (Worker) und `dist-pages/` (Pages) desselben Commits bekommen denselben Stand, ein zweiter Build ist byte-gleich. Alle Programmteile
+  (`*.js` außer `boot.js`), `styles.css` und `vendor/` liegen in **`/v/<Stand>/`**; untereinander laden sie sich wie bisher relativ („./ui.js“)
+  und bleiben so im Ordner ihres Stands. Absolute Verweise („/vendor/…“) schreibt der Build auf „/v/<Stand>/vendor/…“ um (`versionSpecifiers`:
+  statisch, Seiteneffekt, `export … from`, `import()` mit fester Adresse – nie in Kommentaren oder Zeichenketten, genau einmal, mehrfach
+  anwenden ändert nichts, sonst ändert sich am Code nichts); der PDF.js-Worker kommt per `new URL("./vendor/…", import.meta.url)` aus demselben
+  Stand. Danach prüft der Build (`verifyVersioned`), dass jeder Verweis jedes Moduls genau einmal in den Stand auf eine vorhandene Datei zeigt
+  und es kein `import(variable)` gibt – sonst bricht er ab. `public/` bleibt unverändert (Unit-Tests lesen die Quellen; `npm run dev` baut erst).
+- **Warum ein Ordner je Stand und keine Abfrage `?v=`:** Nach einem Deploy gibt es den alten Ordner nicht mehr (Pages: 404, Worker: die Seite
+  statt eines Moduls) – ein alter Tab bekommt unter einer alten Adresse nie neuen Code, sondern entweder dieselben alten Dateien aus einem
+  Zwischenspeicher (in sich stimmig) oder einen sauberen Fehler. Mit `?v=` lieferte Pages unter der alten Adresse den neuen Inhalt, der dann
+  ein zweites `ui.js` usw. nachlüde (Zustand doppelt). Ohne Service Worker: Er brächte eigene Zwischenspeicher-Stände, Aktualisierungsfallen
+  und auf dem iPad eigene Grenzen; Ordner + Startdatei genügen.
+- **Start:** `index.html` (Stand als `<meta name="unterricks-build">`) lädt Stylesheet und `app.js` des Stands direkt aus `/v/<Stand>/` – die
+  Seite steht wie bisher beim `load`-Ereignis, ohne zusätzliche Anfrage – und danach die **Startdatei `/boot.js`** (`public/boot.js`,
+  unversioniert, bleibt über Deploys gleich, keine Importe). Läuft die Oberfläche (`update.js` setzt `<html data-unterricks>`), tut sie nichts.
+  Sonst – ein veraltetes `index.html` verweist auf einen Stand, den es nicht mehr gibt, oder ein ganz altes lädt noch `/app.js` (= diese Datei) –
+  fragt sie **`/version.json`** (`{"build":"<Stand>"}`) ohne Zwischenspeicher (`cache: "no-store"` für den Browser, `?t=<Zeit>` für das CDN
+  von Pages), höchstens 4 s, sonst gilt der Stand aus dem `<meta>`; sie stellt das Stylesheet des Stands sicher und lädt `/v/<Stand>/app.js`.
+  Scheitert das, lädt sie nur dann einmal von selbst neu, wenn inzwischen ein anderer Stand ausgeliefert wird, sonst zeigt sie „Unterricks
+  konnte nicht geladen werden“ mit „Neu laden“ und der technischen Angabe darunter (Sie bzw. du nach Adresse; ohne Stylesheet des Stands mit
+  dem unversionierten `/styles.css`). In einer fremden Seite zeigt sie nichts. Kommt ein veraltetes `index.html` samt seinem Stand aus dem
+  Zwischenspeicher des Browsers (Pages, bis zu 10 Minuten), läuft dieser alte Stand in sich stimmig, bis der nächste Seitenwechsel neu lädt;
+  dafür fragt `update.js` 3 s nach dem Start einmal im Hintergrund nach dem Stand.
+- **Übergang von alten Tabs** (vor dieser Umstellung geöffnet): `/app.js` ist eine Kopie der Startdatei (ein altes, zwischengespeichertes
+  `index.html` lädt noch `/app.js`), `/styles.css` und `/vendor/` bleiben unversioniert erreichbar, alle übrigen `/<Modul>.js` sind Platzhalter,
+  die „Unterricks wurde aktualisiert – bitte die Seite neu laden.“ melden – ein alter Tab mischt also auch beim ersten Deploy nichts, er zeigt
+  einmal diese Meldung.
+- **Kopfzeilen am Worker** (`_headers`, vom Build ergänzt): `/version.json` `no-store`, `/boot.js` und `/app.js` `no-cache`, `index.html` wie
+  bisher `no-cache`; `/v/…` behält die Vorgabe der Workers Static Assets (`max-age=0, must-revalidate` mit ETag) – ein dauerhaftes `immutable`
+  würde auch die Ersatzseite für eine fehlende alte Datei festhalten. Auf Pages lassen sich keine Kopfzeilen setzen; dort sorgen `?t=` und die
+  Startdatei dafür, dass ein veraltetes `index.html` nicht schadet.
+- **Bemerken im offenen Tab** (`public/update.js`, kennt seinen Stand aus der eigenen Adresse): Beim Seitenwechsel (Router in `app.js`) fragt
+  es nach dem Stand, wenn die letzte Prüfung mindestens 15 s alt ist (Weiterleitungen und schnelles Klicken lösen keine weitere aus; der Start
+  zählt als Prüfung, 3 s danach fragt es einmal im Hintergrund) – höchstens 2,5 s, ohne Antwort geht es weiter. Dafür verlässt die Seite die bisherige sofort (sie speichert dabei wie bei
+  jedem Seitenwechsel) und zeigt „Einen Moment bitte …“ (erst nach 0,5 s sichtbar, nicht vorgelesen). Gibt es einen neuen Stand und ist der
+  Moment sicher, wartet sie laufende Arbeiten ab (höchstens 8 s) und lädt **an der neuen Adresse** neu – bevor Programmteile des alten Stands
+  nachgeladen werden; sonst geht es mit dem bisherigen Stand weiter (in sich stimmig) und der nächste Seitenwechsel versucht es wieder. Beim
+  Zurückkehren in den Tab fragt es höchstens einmal je Minute im Hintergrund (lädt dann aber nie neu).
+- **Sicherer Moment** (`navBlockers`, `reloadSnapshot`, `blockersOf`): nie neu laden bei einer offenen Ebene (`openLayerCount()` in `ui.js`:
+  Dialoge, Präsentationsmodus, Codefolie, Vollbild-Ebenen; zusätzlich `[aria-modal="true"]`), im Vollbild, bei einer angemeldeten
+  Präsentation (`holdReload`: das Beamerfenster bzw. Beamergerät, solange eine Folie zu sehen ist; das Live-Fenster der Schüler:innen,
+  solange die Live-Präsentation läuft), bei laufender Arbeit (`ui.js`: jede Anfrage außer GET/HEAD, Uploads, Aktionen hinter `busy()`, mit
+  `trackWork()` angemeldete Arbeiten wie Folien erzeugen und der Podcast-Upload, 5 s nach einem begonnenen Download) und bei ungespeicherten
+  Eingaben – das sind die eigenen Rückfragen der Seiten beim Verlassen (`beforeunload`: Schulportal-Eintrag, Verlaufsplan, Notizen,
+  Zusammenfassung, Drucken gestalteter Materialien, Escape-Room …), probeweise ausgelöst. Dialog, Präsentation und Vollbild werden noch auf der
+  bisherigen Seite festgestellt (sie überdauern den Seitenwechsel), Arbeit und Rückfragen danach.
+- **Schutz vor einer Schleife:** je Tab höchstens ein automatisches Neuladen je Ziel-Stand (`sessionStorage` `u.reload` = `{to, at}`, gemeinsam
+  für Startdatei und `update.js`); ohne nutzbaren `sessionStorage` nie automatisch. „Neu laden“ von Hand geht immer.
+- **Scheitert ein Nachladen trotzdem** (Netz, Deploy genau in dem Moment, Prüfung gerade noch frisch): Jedes `import()` läuft über
+  `lazy(import(…))`; daraus wird `ModuleLoadError` mit einem Text ohne Technik („Ein Teil von Unterricks ließ sich nicht laden. Bitte laden
+  Sie die Seite neu.“ bzw. du). Beim Seitenwechsel zeigt der Router statt der Seite einen ruhigen Hinweis (`pageFailed`, `main.loadfail`):
+  „Unterricks wurde aktualisiert“ mit „Jetzt neu laden“, wenn ein neuer Stand vorliegt – dann lädt er einmal von selbst neu, sofern der Moment
+  sicher ist –, sonst „Ein Teil von Unterricks ließ sich nicht laden“ mit „Neu laden“ und der technischen Angabe. Bei einer Aktion auf der Seite
+  (Knopf) erscheint derselbe Hinweis als Dialog über `modal()` mit „Abbrechen“ – nie ein automatisches Neuladen, die Seite bleibt, wie sie ist
+  (auch wo die Seite den Fehler nur in einer Statuszeile nennt oder still übergeht; `errToast` zeigt dafür keine zweite Meldung, nicht
+  abgefangene landen über `unhandledrejection` beim selben Dialog). „Jetzt neu laden“ ruft `location.reload()` – ungespeicherte Eingaben meldet
+  der Browser dann wie gewohnt.
+- **Deploy** (`.github/workflows/deploy.yml`): unverändert `npm run build` im Worker-Job und `PAGES_API=… npm run build` im Pages-Job –
+  derselbe Commit ergibt denselben Stand; beide Jobs geben ihn aus, der Pages-Job vergleicht ihn mit `version.json` des Workers (nur Hinweis).
+  Zwischen Worker- und Pages-Deploy (einige Minuten) hat jede Herkunft weiter ihren eigenen, in sich stimmigen Stand.
+- **Tests:** `test/unit/update.test.mjs` (Umbau der Verweise in jeder Form, gebauter Stand, Worker = Pages, Startdatei, Schutz vor einer
+  Schleife, sicherer Moment, Seitenwechsel, Hinweise und Texte), E2E-Schritt „Nach einem Update“ (`test/e2e/update.mjs`): Gegenprobe im alten
+  Aufbau (derselbe Fehler wie gemeldet), Startseite → Deploy → Grundschul-Sitzung (neu geladen, keine Anfrage an den alten Stand), Deploy
+  direkt nach einer Prüfung (sauberer 404, einmal neu geladen), veraltetes `index.html` (auch aus dem Zwischenspeicher des Browsers und von
+  vor der Umstellung), Schleifenschutz, offener Dialog, laufende Präsentation, Live-Präsentation der Schüler:innen (Dialog in der du-Form),
+  am Worker mit Neustart von `wrangler dev` (eigener Port 8795). Mit `UPDATE_SHOTS=1` Bildschirmfotos in `test-results/update/`.
+- **Nicht prüfbar hier:** das echte CDN von GitHub Pages (ob ein Deploy dort sofort überall gilt), ein echtes iPad mit tagelang offenem Tab,
+  das Apple TV.
 
 ## 4i. Druckliste „Von der Lehrkraft auszudrucken“ (Ergänzung vom 10.11.2026)
 

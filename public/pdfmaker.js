@@ -1,10 +1,11 @@
 // pdfmaker.js – Textmaterial (Markdown) im Browser als A4-PDF erzeugen (pdf-lib, Standardschriften; für GoodNotes & Co.). Rückfall: Material
 // gestaltet sonst Claude selbst (HTML, Druck auf dem Server, worker/render.js). Die Standardschriften kennen nur WinAnsi (Westeuropa) –
 // Griechisch oder Hebräisch erscheinen hier als „?“.
+import { lazy } from "./update.js";
 import { parseBlocks, parseInline, plainInline } from "./markdown.js";
 
 let libP = null;
-const lib = () => (libP = libP || import("/vendor/pdf-lib.esm.min.js"));
+const lib = () => (libP = libP || lazy(import("/vendor/pdf-lib.esm.min.js")));
 
 // Standardschriften kennen nur WinAnsi: übliche Sonderzeichen ersetzen, Unbekanntes als „?“
 const REPL = { "→": "->", "←": "<-", "⇒": "=>", "↔": "<->", "✓": "v", "✔": "v", "✗": "x", "✘": "x", "≤": "<=", "≥": ">=", "≠": "!=", "≈": "~", "−": "-", " ": " ", " ": " ", " ": " ", "☐": "[ ]", "□": "[ ]", "■": "#", "★": "*", "☆": "*", "⚖": "", "→️": "->" };

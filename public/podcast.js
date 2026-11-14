@@ -5,7 +5,7 @@
 //   steht nur in der Zwischenablage – eine Webseite gibt Claude nie selbst einen Auftrag), drei Schritten und dem Ablagefeld für die Datei aus Gemini
 //   Notebook; „Ohne Claude (z. B. am iPad)“ mit Quelltext und Steueranweisung zum einzelnen Kopieren.
 //   Liegt ein Podcast für heute oder später, steht dort der Player („Abspielen“, „Pause“, Spulen, Zeitangabe) statt des Knopfes.
-import { h, clear, icon, apiUrl, copyText, confirmDialog, modal, ApiError, fmtBytes } from "./ui.js";
+import { h, clear, icon, apiUrl, copyText, confirmDialog, modal, ApiError, fmtBytes, trackWork } from "./ui.js";
 import { onLeave } from "./app.js";
 import { tapi, T } from "./teacher.js";
 import { berlinToday, addDays } from "./shared.js";
@@ -39,6 +39,7 @@ function xhrUpload(path, file, type, onProgress) {
     x.onabort = () => { const e = new Error("abgebrochen"); e.name = "AbortError"; reject(e); };
     x.send(file);
   });
+  trackWork(promise);   // solange hochgeladen wird, lädt die Seite nach einem Update nicht von selbst neu (update.js)
   return { promise, abort: () => { try { if (x) x.abort(); } catch {} } };
 }
 /* Ein- und Ausgänge, die Unit-Tests ersetzen */

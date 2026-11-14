@@ -4,6 +4,7 @@
 // (materialbox.js: printName, Textmaterial als A4-PDF, gestaltetes Material erst nach dem Druck); „Alle Dateien herunterladen“ lädt alle
 // fertigen Dateien nacheinander als einzelne Downloads – ausdrücklich keine ZIP-Datei. Das Feld ist eine Übersicht: Anzahl, Druckart und
 // Namen ändert die Lehrkraft in der Sitzung („In der Sitzung bearbeiten“ führt zu deren Druckliste).
+import { lazy } from "./update.js";
 import { h, clear, icon, fileIcon, fmtBytes, errToast, downloadUrl, downloadBlob, apiUrl } from "./ui.js";
 import { onLeave } from "./app.js";
 import { tapi } from "./teacher.js";
@@ -94,7 +95,7 @@ export function printNextCard(load = () => tapi("GET", "/api/teacher/print-next"
       if (!texts.has(s.id)) texts.set(s.id, tapi("GET", "/api/teacher/lessons/" + s.id).then((r) => new Map((r.files || []).map((x) => [x.id, x.text || ""]))));
       const t = (await texts.get(s.id)).get(f.id);
       if (t === undefined) throw new Error("„" + f.name + "“ gibt es in der Sitzung nicht mehr – bitte die Seite neu laden.");
-      const { markdownToPdf } = await import("./pdfmaker.js");
+      const { markdownToPdf } = await lazy(import("./pdfmaker.js"));
       return new Uint8Array(await (await markdownToPdf(f.name, t, { subtitle: s.subtitle })).arrayBuffer());
     }
     const r = await tapi("POST", "/api/teacher/files/" + f.id + "/link", { body: {} });
