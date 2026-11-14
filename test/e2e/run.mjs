@@ -2927,6 +2927,33 @@ async function main() {
         && nextPlan2.sessions.indexOf(gymS) < nextPlan2.sessions.indexOf(gsS) && gymS.summary === SUM && gsS.summary === "" && gsS.fallback === "Sitzkreis\nLied Gott hat die Welt gemacht\nArbeitsblatt „Schoepfung Arbeitsblatt“\nMalen"
         && gsS.head === summaryHead({ subject: "gs", klass: gsRelId, date: next, startTime: "09:40" }, { grade: 2, classes: ["a", "b"], subjectName: "Religion" }),
         "GET /api/teacher/podcast/plan: heute (" + now0 + ") und nächster Schultag (" + next + "), Unterrichtsreihenfolge, Zusammenfassung bzw. Verlaufsplan ohne Zeichen und ohne Zwischenstopp, Kopfzeile");
+      // Zusammenspiel mit dem Zwischenstopp (Anforderung 13): Endete die vorige Stunde des Kurses mit einem Zwischenstopp, nennt der Podcast den offenen
+      // Teil, solange er nicht in der Planung dieser Stunde steht – offen, „übernehmen“ entschieden, nach dem Speichern der neuen Planung nicht mehr.
+      // Eigener Kurs (PoWi 9H), danach wieder gelöscht – der Rest des Schritts sieht ihn nicht.
+      {
+        const pair = [];
+        for (const t of ["Podcast Zwischenstopp vorher", "Podcast Zwischenstopp danach"]) {
+          const u = (await T("POST", "/api/teacher/units", { subject: "powi", klass: "9H", title: t, params: { start: next, end: next, weekdays: [{ day: new Date(next + "T12:00:00Z").getUTCDay(), minutes: 45, time: "12:00" }] } })).data.unit;
+          await T("PATCH", "/api/teacher/units/" + u.id, { plan: { titel: t, lernaufgabe: "L" }, rows: [{ stundenfrage: t, ablauf: ["Einstieg"], date: next, time: "12:00", minutes: 45 }] });
+          pair.push({ u: u.id, l: (await T("POST", "/api/teacher/units/" + u.id + "/sessions")).data.unit.lessons[0].id });
+        }
+        const [pa, pb] = pair;
+        const mvA = await T("PATCH", "/api/teacher/lessons/" + pa.l, { date: addDays(now0, -1), startTime: "12:00" });
+        await T("PUT", "/api/teacher/lessons/" + pa.l + "/portal", { text: "**1) Einstieg**\n- Umfrage\n⏸ Zwischenstopp\n**2) Partnerarbeit**\n- ~~M2 Wahlalter~~ auswerten", force: true });
+        await tool("update_lesson", { lesson_id: pb.l, zusammenfassung_lehrkraft: "Die Stunde beginnt mit einer Karikatur zum Wahlalter." });
+        const carry = async () => { const p = (await T("GET", "/api/teacher/podcast/plan")).data.plans.find((x) => x.date === next); return p.sessions.find((s) => s.id === pb.l).carry; };
+        const c1 = await carry();
+        const d1r = await tool("update_lesson", { lesson_id: pb.l, zwischenstopp: "uebernehmen" });
+        const c2 = await carry();
+        const sv = await tool("save_schulportal_entry", { lesson_id: pb.l, text: "**1) Partnerarbeit**\n- ~~M2 Wahlalter~~ auswerten\n\n**2) Karikatur**\n- Wahlalter" });
+        const c3 = await carry();
+        const srcA = PL.podcastSource({ date: next, sessions: [{ head: "Kopf", summary: "Die Stunde beginnt mit einer Karikatur zum Wahlalter.", carry: c1 }] }).text;
+        ok(mvA.status === 200 && !d1r.isError && !sv.isError && c1 && c1.state === "open" && c1.text === "2) Partnerarbeit\nM2 Wahlalter auswerten" && c2 && c2.state === "take" && c3 === undefined
+          && srcA.includes("Achtung: In der vorigen Stunde dieses Kurses (" + PL.podcastDayShort(addDays(now0, -1)) + ") wurde nicht alles geschafft. Ob der offene Teil in dieser Stunde nachgeholt wird, ist noch nicht entschieden. Offen geblieben ist:\n2) Partnerarbeit\nM2 Wahlalter auswerten"),
+          "Zwischenstopp der vorigen Stunde: offener Teil im Podcast („offen“ → „übernehmen“ entschieden → nach dem Speichern der neuen Planung nicht mehr)");
+        for (const x of pair) { await T("DELETE", "/api/teacher/lessons/" + x.l); await T("DELETE", "/api/teacher/units/" + x.u); }
+        ok(!(await T("GET", "/api/teacher/podcast/plan")).data.plans.some((p) => p.sessions.some((s) => s.klass === "9H")), "Test-Kurs PoWi 9H wieder gelöscht");
+      }
       // Lehrkraft mit eigener Uhr der Seite (page.clock): heute 6:00 Uhr – die Stunde um 10:00 steht noch bevor
       const qctx = await browser.newContext({ viewport: { width: 1366, height: 900 } });
       await qctx.grantPermissions(["clipboard-read", "clipboard-write"], { origin: BASE });

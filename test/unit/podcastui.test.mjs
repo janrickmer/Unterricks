@@ -119,6 +119,25 @@ test("ohne Unterricht heute direkt der nächste Schultag; nichts in Sicht → Me
   assert.equal($("#pc-drop", card), null); assert.equal(button(card, PC.COPY_LABEL), undefined);
 });
 
+test("Zwischenstopp der vorigen Stunde: die Karte nennt den offenen Teil je Sitzung, der Auftrag enthält ihn", async () => {
+  const plan = PLAN().plans[1];
+  plan.sessions[0].carry = { state: "open", date: "2026-11-17", text: "Plakat fertigstellen" };
+  plan.sessions[1].carry = { state: "take", date: "2026-11-16", text: "Lied singen" };
+  const card = await mount([[/^GET \/api\/teacher\/podcast\/plan$/, () => ({ ...PLAN(), plans: [plan] })]]);
+  D.userClick(button(card, PC.GO_LABEL));
+  await until(() => $("#pc-h", card), "Karte");
+  const items = $$(".pc-sessions li", card).map((li) => li.textContent);
+  assert.ok(items[0].endsWith(PC.CARRY_NOTE.open) && items[0].includes("bei Bedarf in der Sitzung anpassen."), items[0]);
+  assert.ok(items[1].endsWith(PC.CARRY_NOTE.take), items[1]);
+  assert.ok(!items[2].includes("Zwischenstopp"), "Vertretung ohne Hinweis");
+  assert.ok(!/Tippzeit|Schalter/.test(PC.CARRY_NOTE.open + PC.CARRY_NOTE.take));
+  D.userClick(button(card, PC.COPY_LABEL));
+  await until(() => rec.copies.length === 1, "kopiert");
+  assert.ok(rec.copies[0].includes("Achtung: In der vorigen Stunde dieses Kurses (Dienstag, 17.11.) wurde nicht alles geschafft. Ob der offene Teil in dieser Stunde nachgeholt wird, ist noch nicht entschieden. Offen geblieben ist:\nPlakat fertigstellen"));
+  assert.ok(rec.copies[0].includes("(Montag, 16.11.) wurde nicht alles geschafft. Der offene Teil soll in dieser Stunde nachgeholt werden"));
+  assert.equal(globalThis.__domErrors.length, 0, globalThis.__domErrors.join("\n"));
+});
+
 test("Ablagefeld: keine Audiodatei bzw. zu groß → Meldung ohne Hochladen; Audiodatei → Fortschritt, danach der Player (Fokus auf „Abspielen“)", async () => {
   const card = await mount([[/^GET \/api\/teacher\/podcast\/plan$/, () => ({ ...PLAN(), plans: PLAN().plans.slice(1) })]]);
   D.userClick(button(card, PC.GO_LABEL));
@@ -261,7 +280,7 @@ test("nach dem Hochladen: Fokus auf „Abspielen“ genau des neuen Podcasts (au
   await until(() => $(".pc-item", card), "Player für heute");
   D.userClick(button(card, "Podcast für einen anderen Tag entwickeln"));
   await until(() => $("#pc-drop", card), "Karte für morgen");
-  assert.equal($$(".pc-steps li", card)[2].textContent, "Ziehen Sie die heruntergeladene Datei aus den Downloads von Chrome (Download-Symbol oben rechts) auf das Feld „Podcast-Datei hier ablegen“ – oder klicken Sie auf das Feld und wählen Sie sie aus. Danach löscht Claude das Notizbuch in Gemini Notebook wieder – vorher fragt Claude Sie.");
+  assert.equal($$(".pc-steps li", card)[2].textContent, "Ziehen Sie die heruntergeladene Datei aus den Downloads von Chrome (Download-Symbol oben rechts) auf das Feld „Podcast-Datei hier ablegen“ – oder klicken Sie auf das Feld und wählen Sie sie aus. Danach löscht Claude das Notizbuch in Gemini Notebook wieder – vorher fragt Claude Sie. Die Datei in Ihrem Download-Ordner können Sie dann selbst löschen.");
   assert.match($("#pc-drop-h", card).textContent, /Klicken, antippen oder Enter: Datei auswählen\.$/);
   let done;
   PC.io.upload = (path, file, type) => { rec.uploads.push([path, file.name, type]); return { promise: new Promise((r) => { done = r; }), abort: () => {} }; };

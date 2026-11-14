@@ -6,7 +6,8 @@ import { HttpError, bad, json, randomId, isId, requireSecret, signLink, checkLin
 import { requireTeacher } from "./auth.js";
 import { checkStorage } from "./files.js";
 import { nextTeachingDay, sessionOrder } from "./printjobs.js";
-import { berlinToday, addDays, isIsoDate, subjectShort, classShort, GS_SUBJECT, summaryHead, summaryOutdated } from "../public/shared.js";
+import { stopDecision } from "./lessons.js";
+import { berlinToday, addDays, isIsoDate, subjectShort, classShort, GS_SUBJECT, summaryHead, summaryOutdated, hasStop, stopParts } from "../public/shared.js";
 import { PODCAST_MAX_BYTES, PODCAST_AHEAD_DAYS, PODCAST_LINK_TTL_MS, podcastDeleteAfter, audioKind, planPlain, AUDIO_KINDS_TEXT } from "../public/podcastlib.js";
 
 export const PODCAST_PREFIX = "podcast/";
@@ -16,9 +17,28 @@ const EXT = { "audio/mp4": "m4a", "audio/wav": "wav", "audio/mpeg": "mp3", "audi
 const GONE = "Diesen Podcast gibt es nicht mehr.";
 
 /* Sitzungen von heute und vom nächsten Schultag (?1, ?2) – ohne Ausfall-Einträge; sub = Stand einer Vertretung ('aktiv' = bestätigt: die Lehrkraft
-   unterrichtet sie nicht) */
-export const PODCAST_SESSIONS_SQL = "SELECT id, subject, klass, title, topic, lesson_date, start_time, duration_min, portal, teacher_summary, teacher_summary_plan, " +
-  "(SELECT status FROM substitutes WHERE lesson_id=lessons.id) AS sub FROM lessons WHERE lesson_date IN (?1, ?2) AND cancelled=0";
+   unterrichtet sie nicht); prev = die vorige Sitzung desselben Kurses (wie previousLesson in worker/lessons.js) als JSON {id, date, portal, v} – für den
+   offenen Teil nach einem Zwischenstopp (Anforderung 13), in derselben Anweisung */
+export const PODCAST_SESSIONS_SQL = "SELECT id, subject, klass, title, topic, lesson_date, start_time, duration_min, portal, portal_updated_at, teacher_summary, teacher_summary_plan, " +
+  "teacher_summary_at, stop_decision, (SELECT status FROM substitutes WHERE lesson_id=lessons.id) AS sub, " +
+  "(SELECT json_object('id', p.id, 'date', p.lesson_date, 'portal', p.portal, 'v', p.portal_version) FROM lessons p WHERE p.subject=lessons.subject AND p.klass=lessons.klass " +
+  "AND p.id<>lessons.id AND p.lesson_date IS NOT NULL AND p.cancelled=0 AND (p.lesson_date < lessons.lesson_date OR (p.lesson_date = lessons.lesson_date AND p.created_at < lessons.created_at)) " +
+  "ORDER BY p.lesson_date DESC, p.created_at DESC LIMIT 1) AS prev FROM lessons WHERE lesson_date IN (?1, ?2) AND cancelled=0";
+/* Offener Teil der vorigen Stunde nach einem Zwischenstopp (Anforderung 13), der in der Planung dieser Sitzung (und damit in ihrer Zusammenfassung)
+   noch nicht steht: noch nicht entschieden ("open") bzw. „übernehmen“ entschieden, die Sitzung danach aber noch nicht neu geplant ("take"). Verzichtet
+   oder schon neu geplant (Eintrag bzw. Zusammenfassung nach der Entscheidung gespeichert) → null. → {state, date (der vorigen Stunde), text (schlicht)} */
+export function carryOf(l, isGs, names) {
+  let p = null;
+  try { p = l.prev ? JSON.parse(l.prev) : null; } catch {}
+  if (!p || !hasStop(p.portal)) return null;
+  const text = planPlain(stopParts(p.portal).open, isGs, names);
+  if (!text) return null;
+  const d = stopDecision(l, { id: p.id, portal_version: p.v });
+  if (d && d.choice !== "uebernehmen") return null;
+  // neu geplant: Eintrag bzw. Verlaufsplan oder Zusammenfassung danach gespeichert (auch im selben Aufruf von update_lesson wie die Entscheidung)
+  if (d && Math.max(Number(l.portal_updated_at) || 0, Number(l.teacher_summary_at) || 0) >= (Number(d.at) || 0)) return null;
+  return { state: d ? "take" : "open", date: p.date, text };
+}
 /* Namen der PDF-Dateien der Grundschulkurse, die an diesen Tagen Unterricht haben (Verweise [[pdf:…]] im Verlaufsplan zeigen auch auf Dateien
    früherer Sitzungen des Kurses) */
 export const PODCAST_FILES_SQL = "SELECT id, name FROM files WHERE kind='file' AND lesson_id IN (SELECT id FROM lessons WHERE subject='" + GS_SUBJECT + "' AND klass IN " +
@@ -74,8 +94,9 @@ export async function routePodcastList(c) {
 /* GET /api/teacher/podcast/plan → {today, candidate, next (nächster Schultag wie bei den Druckaufträgen: Fr/Sa/So → Montag, Ferien und Ausfälle laut
    Stundenplan übersprungen; null = kein Unterricht in Sicht), plans: [{date, sessions}]} für heute (nur mit Sitzungen) und den nächsten Schultag.
    Je Sitzung (in Unterrichtsreihenfolge) die Kopfzeile wie in der Zusammenfassung (summaryHead), die Zusammenfassung oder – ohne sie – der Ersatz aus
-   der Planung (Schulportal-Eintrag bzw. Verlaufsplan als schlichter Text, ohne Zwischenstopp-Zeile). Ob heute noch Unterricht bevorsteht, entscheidet
-   der Browser mit seiner Uhr (podcastChoice). Nie Daten von Schüler:innen – es gibt sie hier nicht. 7 D1-Anweisungen. */
+   der Planung (Schulportal-Eintrag bzw. Verlaufsplan als schlichter Text, ohne Zwischenstopp-Zeile) und – nach einem Zwischenstopp der vorigen Stunde
+   desselben Kurses, solange ihr offener Teil noch nicht in dieser Sitzung eingeplant ist – carry (carryOf). Ob heute noch Unterricht bevorsteht,
+   entscheidet der Browser mit seiner Uhr (podcastChoice). 7 D1-Anweisungen. */
 export async function routePodcastPlan(c) {
   await requireTeacher(c);
   const today = berlinToday(c.now);
@@ -86,10 +107,12 @@ export async function routePodcastPlan(c) {
   const sessions = (ls.results || []).map((l) => {
     const isGs = l.subject === GS_SUBJECT, course = isGs ? gs.get(l.klass) || null : null, sum = String(l.teacher_summary || "").trim(), sub = l.sub === "aktiv";
     const one = { subject: l.subject, klass: l.klass, date: l.lesson_date, startTime: l.start_time || null };
-    return { id: l.id, ...one, title: l.title || "", topic: l.topic || "", durationMin: l.duration_min ?? null, school: isGs ? "gs" : "gym",
+    const out = { id: l.id, ...one, title: l.title || "", topic: l.topic || "", durationMin: l.duration_min ?? null, school: isGs ? "gs" : "gym",
       label: isGs ? (course ? course.short : "Grundschule") : subjectShort(l.subject) + " " + classShort(l.klass), head: summaryHead(one, course),
       summary: sub ? "" : sum, summaryOutdated: !sub && summaryOutdated(sum, l.teacher_summary_plan, l.portal), fallback: sub || sum ? "" : planPlain(l.portal, isGs, names),
       ...(sub ? { substitute: true } : {}) };
+    const carry = sub ? null : carryOf(l, isGs, names);
+    return carry ? { ...out, carry } : out;
   }).sort(sessionOrder);
   const plans = [];
   const todays = sessions.filter((s) => s.date === today);

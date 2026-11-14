@@ -207,8 +207,11 @@ Feibeitsblatt braucht keine Änderung. Die Adressen stehen in `wrangler.jsonc` (
   2. Die Karte nennt die Sitzungen des Tages mit ihrer Kopfzeile (Fach, Jahrgang, Wochentag, Datum, Beginn). Grundlage ist die
      **„Zusammenfassung der Sitzung für die Lehrkraft“**; fehlt sie, nimmt Unterricks **Thema und Schulportal-Eintrag** (Grundschule:
      **Verlaufsplan**) – ohne Schulportal-Zeichen und ohne die Zeile „⏸ Zwischenstopp“ – und sagt vorher, für welche Sitzungen das gilt.
-     Der Quelltext ist auf etwa 20 000 Zeichen begrenzt (je Sitzung höchstens 4 000, bei vielen Stunden etwas weniger – dann steht
-     „Für den Podcast gekürzt.“ dabei).
+     Endete die vorige Stunde eines Kurses mit einem **Zwischenstopp** und steht der offene Teil noch nicht in der Planung dieser Stunde
+     (noch nicht entschieden bzw. „übernehmen“ entschieden, aber noch nicht neu geplant), nennt der Podcast ihn dazu („Achtung: In der
+     vorigen Stunde dieses Kurses … wurde nicht alles geschafft …“), und die Karte sagt es bei der Sitzung – am besten planen Sie die
+     Stunde vorher mit Claude. Der Quelltext ist auf etwa 20 000 Zeichen begrenzt (je Sitzung höchstens 4 000 samt offenem Teil, bei vielen
+     Stunden etwas weniger – dann steht „Für den Podcast gekürzt.“ dabei).
   3. **„Auftrag für Claude in Chrome kopieren“**, dann in **Claude in Chrome** (Seitenleiste mit Strg+E bzw. Cmd+E) einfügen und Enter.
      Claude öffnet Gemini Notebook (notebook.google.com) in einem neuen Tab, legt das Notizbuch „Unterricks-Podcast TT.MM.JJJJ“ mit dem
      Quelltext als „Kopierter Text“ an, erzeugt im Bereich „Studio“ die „Audio-Zusammenfassung“ (Format „Detaillierte Analyse“, Deutsch;
@@ -230,10 +233,14 @@ Feibeitsblatt braucht keine Änderung. Die Adressen stehen in `wrangler.jsonc` (
     selbst (es gibt keine offizielle Schnittstelle dafür) und gibt Claude nie selbst einen Auftrag – er steht nur in Ihrer Zwischenablage.
   * **Länge:** In Gemini Notebook lässt sich die Länge auf Deutsch nicht fest vorgeben (laut Google-Hilfe gibt es die Längenauswahl nur auf
     Englisch); die Steueranweisung bittet um höchstens 12 bis 15 Minuten, garantiert ist das nicht.
-  * **Datenfluss:** An Google gehen über Ihr Konto nur die Zusammenfassungen bzw. die Planung der Stunden – ohne Daten von Schüler:innen
-    (dort gibt es keine Namen; die Steueranweisung verbietet Namen ausdrücklich). Claude in Chrome sieht die Tabs, in denen es arbeitet –
-    am besten ein eigenes Chrome-Profil nur für diese Arbeit verwenden. Die Folge liegt nur in Unterricks (R2, EU) und ist nur für Sie
-    abspielbar (über einen signierten Link, 12 Stunden gültig) – nie für Schüler:innen, Eltern, am Beamer oder in der Präsentation.
+  * **Datenfluss:** An Google gehen über Ihr Konto nur die Zusammenfassungen bzw. die Planung der Stunden (Quelltext unter „Ohne Claude“ zum
+    Nachlesen). Unterricks speichert keine Namen von Schüler:innen, Claude schreibt die Zusammenfassungen ohne Namen, und die Steueranweisung
+    verbietet Namen ausdrücklich; stehen trotzdem Namen in einer Zusammenfassung oder Planung (z. B. von Hand ergänzt), gehen sie mit – prüfen
+    Sie den Quelltext im Zweifel vor dem Kopieren. Claude in Chrome sieht die Tabs, in denen es arbeitet –
+    am besten ein eigenes Chrome-Profil nur für diese Arbeit verwenden. In Unterricks liegt die Folge in R2 (EU) und ist nur für Sie
+    abspielbar (über einen signierten Link, 12 Stunden gültig) – nie für Schüler:innen, Eltern, am Beamer oder in der Präsentation. Die
+    heruntergeladene Datei bleibt außerdem in Ihrem Download-Ordner, bis Sie sie löschen (die Karte erinnert daran), und in Gemini Notebook,
+    bis Claude bzw. Sie das Notizbuch gelöscht haben.
   * **Löschen:** Ein Podcast je Tag (eine neue Datei ersetzt die alte). Ist der Unterrichtstag vorbei, erscheint wieder der Knopf; die Datei
     wird **zwei Tage nach dem Unterrichtstag** automatisch gelöscht (Podcast für Montag → ab Mittwoch 0:00 Uhr) – beim nächsten Öffnen einer
     Startseite bzw. im gelegentlichen Aufräumen; die Lebenszyklus-Regel für R2 (siehe Einrichtung, Schritt 4) ist das Sicherheitsnetz. Podcasts sind nicht

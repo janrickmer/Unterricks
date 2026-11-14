@@ -15,6 +15,11 @@ export const GO_LABEL = "Podcast für den kommenden Unterricht entwickeln";
 export const COPY_LABEL = "Auftrag für Claude in Chrome kopieren";
 export const DROP_LABEL = "Podcast-Datei hier ablegen oder auswählen";
 const ACCEPT = "audio/*,.m4a,.mp4,.wav,.mp3,.aac,.ogg,.oga,.opus,.webm";
+// offener Teil der vorigen Stunde nach einem Zwischenstopp (Anforderung 13), noch nicht in der Planung dieser Stunde – der Podcast nennt ihn (carryText)
+export const CARRY_NOTE = {
+  open: "Die vorige Stunde dieses Kurses endete mit einem Zwischenstopp. Ob der offene Teil nachgeholt wird, ist noch nicht entschieden – der Podcast nennt ihn als offen. Soll er eingeplant werden, planen Sie die Stunde vorher mit Claude („Stunde mit Claude planen“).",
+  take: "Der offene Teil der vorigen Stunde (Zwischenstopp) soll nachgeholt werden, steht aber noch nicht in der Planung dieser Stunde – der Podcast nennt ihn dazu. Planen Sie die Stunde am besten vorher mit Claude neu.",
+};
 
 /* Hochladen mit Fortschritt (XMLHttpRequest – fetch meldet keinen Upload-Fortschritt), abbrechbar */
 function xhrUpload(path, file, type, onProgress) {
@@ -144,7 +149,7 @@ export function podcastCard(load = () => tapi("GET", "/api/teacher/podcast")) {
         const badge = kind === "summary" ? h("span", { class: "badge ok", text: "Zusammenfassung" }) : kind === "fallback" ? h("span", { class: "badge", text: "Ersatz aus der Planung" })
           : kind === "empty" ? h("span", { class: "badge", text: "noch nicht geplant" }) : h("span", { class: "badge ink", text: "Vertretung – nicht im Podcast" });
         const notes = [s.summaryOutdated && kind === "summary" ? "Die Zusammenfassung beschreibt eine frühere Planung – bei Bedarf in der Sitzung anpassen." : null,
-          u && u.cut ? "Für den Podcast gekürzt." : null].filter(Boolean);
+          u && u.carry ? CARRY_NOTE[u.carry] : null, u && u.cut ? "Für den Podcast gekürzt." : null].filter(Boolean);
         return h("li", null, h("a", { href: "#/lk/s/" + s.id, class: "pc-sl" }, s.head, s.title ? h("span", { class: "pc-st", text: " – " + s.title }) : null), " ", badge,
           notes.length ? h("span", { class: "pc-sn", text: notes.join(" ") }) : null);
       })));
@@ -172,7 +177,7 @@ export function podcastCard(load = () => tapi("GET", "/api/teacher/podcast")) {
       const steps = h("ol", { class: "pc-steps" },
         h("li", null, "Öffnen Sie Claude in Chrome – die Seitenleiste mit ", kbd("Strg"), "+", kbd("E"), " (Mac: ", kbd("Cmd"), "+", kbd("E"), ") oder über das Claude-Symbol in der Symbolleiste. Claude in Chrome gibt es nur in Chrome am Computer."),
         h("li", null, "Fügen Sie den Auftrag ein (", kbd("Strg"), "+", kbd("V"), " bzw. ", kbd("Cmd"), "+", kbd("V"), ") und drücken Sie ", kbd("Enter"), ". Claude erstellt die Folge in Gemini Notebook und lädt sie herunter – das dauert einige Minuten."),
-        h("li", null, "Ziehen Sie die heruntergeladene Datei aus den Downloads von Chrome (Download-Symbol oben rechts) auf das Feld „Podcast-Datei hier ablegen“ – oder klicken Sie auf das Feld und wählen Sie sie aus. Danach löscht Claude das Notizbuch in Gemini Notebook wieder – vorher fragt Claude Sie."));
+        h("li", null, "Ziehen Sie die heruntergeladene Datei aus den Downloads von Chrome (Download-Symbol oben rechts) auf das Feld „Podcast-Datei hier ablegen“ – oder klicken Sie auf das Feld und wählen Sie sie aus. Danach löscht Claude das Notizbuch in Gemini Notebook wieder – vorher fragt Claude Sie. Die Datei in Ihrem Download-Ordner können Sie dann selbst löschen."));
       // 2) Ablagefeld (Ziehen und Ablegen, Klick, Tastatur; am iPad „Datei auswählen“ aus der Dateien-App)
       const zone = dropArea(plan);
       // 3) ohne Claude: Quelltext und Steueranweisung einzeln

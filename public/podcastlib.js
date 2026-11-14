@@ -86,10 +86,23 @@ export function sessionText(s, cap = PODCAST_SESSION_MAX) {
   lines.push("Für diese Stunde ist in Unterricks noch kein Ablauf geplant.");
   return { kind: "empty", text: lines.join("\n"), cut: false };
 }
+/* Offener Teil der vorigen Stunde nach einem Zwischenstopp (s.carry vom Server: {state "open" | "take", date, text}), der in der Planung dieser Stunde
+   noch nicht steht – der Podcast nennt ihn, damit er nicht unbemerkt fehlt. max = höchstens so viele Zeichen (samt Einleitung). → {text, cut} oder null */
+export function carryText(s, max = PODCAST_SESSION_MAX) {
+  const c = s && s.carry;
+  const body = String((c && c.text) || "").trim();
+  if (!body) return null;
+  const prev = isIsoDate(c.date) ? " (" + podcastDayShort(c.date) + ")" : "";
+  const intro = "Achtung: In der vorigen Stunde dieses Kurses" + prev + " wurde nicht alles geschafft. " + (c.state === "take"
+    ? "Der offene Teil soll in dieser Stunde nachgeholt werden, steht aber noch nicht in ihrer Planung. Offen geblieben ist:"
+    : "Ob der offene Teil in dieser Stunde nachgeholt wird, ist noch nicht entschieden. Offen geblieben ist:");
+  return cut(intro + "\n" + body, max);
+}
 const safe = (t) => String(t).replace(/={3,}/g, "==");   // die Markierungen des Auftrags kommen im Text nie vor
-/* Quelltext des Tages: Kopf, Zahl der Stunden, je Sitzung in Unterrichtsreihenfolge die Kopfzeile (wie in der Sitzung, s.head) und ihr Text.
-   plan = {date, sessions: [{id, head, summary, fallback, title, topic, school, substitute, …}]} (Reihenfolge wie vom Server) →
-   {text, used: [{s, kind, cut}], skipped: [Sitzungen mit bestätigter Vertretung]} */
+/* Quelltext des Tages: Kopf, Zahl der Stunden, je Sitzung in Unterrichtsreihenfolge die Kopfzeile (wie in der Sitzung, s.head) und ihr Text, dazu
+   gegebenenfalls der offene Teil der vorigen Stunde (carryText – er zählt zur Grenze der Sitzung: höchstens ein Drittel davon, ihr Text bekommt den Rest).
+   plan = {date, sessions: [{id, head, summary, fallback, title, topic, school, substitute, carry?, …}]} (Reihenfolge wie vom Server) →
+   {text, used: [{s, kind, cut, carry}], skipped: [Sitzungen mit bestätigter Vertretung]} */
 export function podcastSource(plan) {
   const all = Array.isArray(plan && plan.sessions) ? plan.sessions : [];
   const used = all.filter((s) => s && !s.substitute), skipped = all.filter((s) => s && s.substitute);
@@ -98,11 +111,13 @@ export function podcastSource(plan) {
     n === 1 ? "An diesem Tag gibt es 1 Unterrichtsstunde." : "An diesem Tag gibt es " + n + " Unterrichtsstunden – hier in der Reihenfolge, in der sie unterrichtet werden."];
   const out = [];
   used.forEach((s, i) => {
-    const t = sessionText(s, cap);
-    out.push({ s, kind: t.kind, cut: t.cut });
+    const c = carryText(s, Math.min(1200, Math.floor(cap / 3)));
+    const t = sessionText(s, c ? cap - c.text.length - 1 : cap);
+    out.push({ s, kind: t.kind, cut: t.cut || !!(c && c.cut), carry: c ? s.carry.state : null });
     lines.push("", "Stunde " + (i + 1) + " von " + n + ": " + oneLine(s.head));
     if (t.kind === "fallback") lines.push("(Für diese Stunde gibt es noch keine Zusammenfassung – hier steht die Planung in Stichpunkten.)");
     lines.push(t.text);
+    if (c) lines.push(c.text);
   });
   return { text: safe(lines.join("\n")), used: out, skipped };
 }

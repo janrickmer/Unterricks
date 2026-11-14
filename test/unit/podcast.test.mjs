@@ -240,6 +240,66 @@ test("nächster Schultag: Freitag/Samstag/Sonntag → Montag, Ferien übersprung
   assert.equal(r.data.next, null); assert.deepEqual(r.data.plans, []); assert.equal(P.podcastChoice(r.data, berlin(20, 15)).plan, null);
 });
 
+test("Zwischenstopp der vorigen Stunde: offener Teil, der noch nicht in der Planung steht, kommt in den Podcast (offen bzw. übernommen, aber nicht neu geplant)", async () => {
+  const c = await ctx(berlin(17, 15));   // Dienstag, 17.11., 15:00 – Podcast für Mittwoch
+  const gs = await gsCourse(c);
+  const fid = hex(16);
+  const STOP = "**1) Einstieg**\n- Blitzlicht\n⏸ Zwischenstopp\n- ~~Plakat~~ fertigstellen\n- Vorstellen";
+  const prevOf = async (klass, subject = "powi", portal = STOP) => lesson(c, { subject, klass, date: "2026-11-17", time: "08:00", portal });
+  const decide = (id, prev, choice, at, v = 0) => c.db.prepare("UPDATE lessons SET stop_decision=?2 WHERE id=?1").bind(id, JSON.stringify({ v: 1, choice, prevId: prev, prevVersion: v, at })).run();
+  // 8A: noch nicht entschieden; 9B: übernehmen, danach nicht neu geplant; 10C: übernehmen und danach neu geplant; 7A: verzichtet;
+  // 6A: Entscheidung zu einer älteren Fassung des Eintrags (Zwischenstopp inzwischen verschoben) – gilt wieder als offen; 5A: vorige Stunde ohne Zwischenstopp
+  const p8 = await prevOf("8A"), p9 = await prevOf("9B"), p10 = await prevOf("10C"), p7 = await prevOf("7A"), p6 = await prevOf("6A"); await prevOf("5A", "powi", "**1)** Alles geschafft");
+  const pg = await prevOf(gs, "gs", "**Sitzkreis**\n⏸ Zwischenstopp\n- Arbeitsblatt [[pdf:" + fid + "]]");
+  await c.db.prepare("INSERT INTO files(id, lesson_id, area, kind, name, mime, size, status, created_at, updated_at) VALUES(?1, ?2, 'student', 'file', 'Josef Arbeitsblatt.pdf', 'application/pdf', 9, 'ready', 1, 1)").bind(fid, pg).run();
+  await c.db.prepare("UPDATE lessons SET portal_version=3 WHERE id=?1").bind(p6).run();
+  const n8 = await lesson(c, { klass: "8A", date: "2026-11-18", time: "08:00", summary: "Die Stunde beginnt mit einer Umfrage." });
+  const n9 = await lesson(c, { klass: "9B", date: "2026-11-18", time: "08:50", summary: "Gruppenarbeit." });
+  const n10 = await lesson(c, { klass: "10C", date: "2026-11-18", time: "09:40", summary: "Plakat fertig, dann vorstellen." });
+  const n7 = await lesson(c, { klass: "7A", date: "2026-11-18", time: "10:30", summary: "Neues Thema." });
+  const n6 = await lesson(c, { klass: "6A", date: "2026-11-18", time: "11:20", summary: "Weiter." });
+  await lesson(c, { klass: "5A", date: "2026-11-18", time: "12:10", summary: "Fünf." });
+  await lesson(c, { subject: "gs", klass: gs, date: "2026-11-18", time: "13:00", title: "Josef" });
+  await decide(n9, p9, "uebernehmen", berlin(17, 14));
+  await decide(n10, p10, "uebernehmen", berlin(17, 14));
+  await c.db.prepare("UPDATE lessons SET portal_updated_at=?2, teacher_summary_at=?2 WHERE id=?1").bind(n10, berlin(17, 14, 30)).run();
+  // im selben Aufruf von update_lesson: Entscheidung und Zusammenfassung zur selben Zeit → gilt als neu geplant
+  const p11 = await prevOf("11A"), n11 = await lesson(c, { klass: "11A", date: "2026-11-18", time: "13:50", summary: "Mit dem offenen Teil." });
+  await decide(n11, p11, "uebernehmen", berlin(17, 14));
+  await c.db.prepare("UPDATE lessons SET teacher_summary_at=?2 WHERE id=?1").bind(n11, berlin(17, 14)).run();
+  await decide(n7, p7, "verzichten", berlin(17, 14));
+  await decide(n6, p6, "uebernehmen", berlin(17, 14), 2);
+  const n0 = c.db.counter.n;
+  const r = await call(c, W.routePodcastPlan, "/api/teacher/podcast/plan");
+  assert.equal(c.db.counter.n - n0, 7, "weiter 7 D1-Anweisungen (die vorige Stunde steht in derselben Abfrage)");
+  const next = r.data.plans.find((p) => p.date === "2026-11-18");
+  const by = (k) => next.sessions.find((s) => s.klass === k);
+  assert.deepEqual(by("8A").carry, { state: "open", date: "2026-11-17", text: "Plakat fertigstellen\nVorstellen" });
+  assert.deepEqual(by("9B").carry, { state: "take", date: "2026-11-17", text: "Plakat fertigstellen\nVorstellen" });
+  assert.equal(by("10C").carry, undefined, "nach der Entscheidung neu geplant");
+  assert.equal(by("7A").carry, undefined, "verzichtet");
+  assert.equal(by("6A").carry.state, "open", "Entscheidung zu einer älteren Fassung gilt nicht mehr");
+  assert.equal(by("5A").carry, undefined, "ohne Zwischenstopp");
+  assert.equal(by("11A").carry, undefined, "Entscheidung und Zusammenfassung im selben Aufruf");
+  assert.deepEqual(by(gs).carry, { state: "open", date: "2026-11-17", text: "Arbeitsblatt „Josef Arbeitsblatt“" });
+  const src = P.podcastSource(next);
+  assert.ok(src.text.includes("Die Stunde beginnt mit einer Umfrage.\nAchtung: In der vorigen Stunde dieses Kurses (Dienstag, 17.11.) wurde nicht alles geschafft. " +
+    "Ob der offene Teil in dieser Stunde nachgeholt wird, ist noch nicht entschieden. Offen geblieben ist:\nPlakat fertigstellen\nVorstellen\n"), src.text);
+  assert.ok(src.text.includes("Gruppenarbeit.\nAchtung: In der vorigen Stunde dieses Kurses (Dienstag, 17.11.) wurde nicht alles geschafft. " +
+    "Der offene Teil soll in dieser Stunde nachgeholt werden, steht aber noch nicht in ihrer Planung. Offen geblieben ist:\nPlakat fertigstellen"));
+  assert.deepEqual(src.used.map((u) => u.carry), ["open", "take", null, null, "open", null, "open", null]);
+  assert.ok(src.text.includes("Für diese Stunde ist in Unterricks noch kein Ablauf geplant.\nAchtung:"), "auch bei einer noch nicht geplanten Stunde");
+  assert.ok(!/⏸|Zwischenstopp|~~/.test(src.text), "ohne interne Markierung und Schulportal-Zeichen");
+  // Grenze: der offene Teil zählt zur Sitzung (höchstens ein Drittel) – acht lange Zusammenfassungen mit langem offenem Teil bleiben unter 20 000 Zeichen
+  const long = "Wort ".repeat(TEACHER_SUMMARY_MAX / 5).trim();
+  const big = P.podcastSource({ date: "2026-11-18", sessions: Array.from({ length: 8 }, () => S({ summary: long, carry: { state: "open", date: "2026-11-17", text: long } })) });
+  assert.ok(big.text.length <= P.PODCAST_SOURCE_MAX, "Quelltext " + big.text.length + " Zeichen");
+  assert.equal(big.text.split("Achtung: In der vorigen Stunde").length, 9, "jede Sitzung nennt ihren offenen Teil");
+  const one = P.podcastSource({ date: "2026-11-18", sessions: [S({ summary: long, carry: { state: "take", date: "2026-11-17", text: long } })] });
+  assert.ok(one.text.length <= 4000 + 400 && one.used[0].cut, "eine Sitzung: Zusammenfassung und offener Teil zusammen höchstens 4000 Zeichen");
+  assert.equal(P.carryText(S({ carry: { state: "open", date: "2026-11-17", text: " " } })), null);
+});
+
 /* ---------- Ablage, Abspielen, Löschen ---------- */
 const upload = (c, day, body, mime = "audio/wav", headers = {}) => call(c, W.routePodcastUpload, "/api/teacher/podcast?day=" + day,
   { method: "POST", headers: { "Content-Type": mime, "Content-Length": String(body.length), ...headers }, body });
