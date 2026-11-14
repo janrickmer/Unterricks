@@ -382,7 +382,7 @@ function lessonList(lessons, showContext) {
   for (const l of lessons) list.append(h("a", { class: "item", href: "#/lk/s/" + l.id },
     showContext ? h("span", { class: "ftag", dataset: { fach: l.subject }, text: (SUBJECTS.find((s) => s.id === l.subject) || {}).short || "" }) : null,
     h("div", { class: "main" }, h("div", { class: "name", text: l.title }),
-      h("div", { class: "meta", text: [showContext ? subjectName(l.subject) + " · " + classShort(l.klass) : null, l.date ? fmtDay(l.date) : "ohne Datum", showContext ? l.topic || null : null, l.durationMin ? l.durationMin + " min" : null].filter(Boolean).join(" · ") })),
+      h("div", { class: "meta", text: [showContext ? subjectName(l.subject) + " · " + classShort(l.klass) : null, l.date ? fmtDay(l.date) : "ohne Termin", showContext ? l.topic || null : null, l.durationMin ? l.durationMin + " min" : null].filter(Boolean).join(" · ") })),
     h("div", { class: "row" }, l.substitute === "aktiv" ? h("span", { class: "badge ink", text: "Vertretung aktiv" }) : l.substitute === "vorschlag" ? h("span", { class: "badge", text: "Vertretungsvorschlag" }) : null,
       l.hasStop ? h("span", { class: "badge stop" }, icon("pause"), "Zwischenstopp") : null, l.hasHomework ? h("span", { class: "badge", text: "Hausaufgabe" }) : null,
       l.hasPortal ? h("span", { class: "badge ok" }, icon("check"), "Schulportal") : null, h("span", { class: "badge", text: l.studentCount + " SuS" }), h("span", { class: "badge mono", text: formatCode(l.code) }))));

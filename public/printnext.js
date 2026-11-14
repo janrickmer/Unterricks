@@ -9,6 +9,7 @@ import { onLeave } from "./app.js";
 import { tapi } from "./teacher.js";
 import { berlinToday, addDays, daysBetween, isIsoDate, isWeekend, printFileName, subjectShort, classShort } from "./shared.js";
 import { designState, printQueue } from "./designrender.js";
+import { freeScopeText } from "./planning.js";
 
 /* Ein- und Ausgänge, die Unit-Tests ersetzen (Downloads, Abruf der PDF, Pause zwischen zwei Downloads – Browser blockieren schnelle
    Mehrfach-Downloads) */
@@ -18,15 +19,28 @@ const DAYS = ["Sonntag", "Montag", "Dienstag", "Mittwoch", "Donnerstag", "Freita
 /* „Mittwoch, 19.11.2026“ */
 export const longDay = (iso) => (isIsoDate(iso) ? DAYS[new Date(iso + "T12:00:00Z").getUTCDay()] + ", " + iso.slice(8, 10) + "." + iso.slice(5, 7) + "." + iso.slice(0, 4) : "");
 const upper = (s) => s.charAt(0).toUpperCase() + s.slice(1);
-/* Zeile unter der Überschrift: für welchen Tag – und warum der nominelle nächste Arbeitstag übersprungen ist (kein Unterricht laut Stundenplan) */
+/* Unterrichtsfreie Einträge der Einstellungen (Nachtrag 24) zwischen from und to → {text: „Herbstferien, beide Schulen; Brückentag, Gymnasium“ (höchstens
+   drei), all: liegt jeder Wochentag des Zeitraums in einem Eintrag?} bzw. null */
+function freeWhy(list, from, to) {
+  const xs = (Array.isArray(list) ? list : []).filter((f) => f && isIsoDate(f.from) && isIsoDate(f.to) && f.to >= from && f.from <= to
+    && typeof f.label === "string" && f.label.trim() && freeScopeText(f.scope));
+  if (!xs.length) return null;
+  let all = true;
+  for (let d = from, i = 0; d <= to && i < 400; d = addDays(d, 1), i++) if (!isWeekend(d) && !xs.some((f) => d >= f.from && d <= f.to)) { all = false; break; }
+  return { text: xs.slice(0, 3).map((f) => f.label.trim() + ", " + freeScopeText(f.scope)).join("; ") + (xs.length > 3 ? "; …" : ""), all };
+}
+/* Zeile unter der Überschrift: für welchen Tag – und warum der nominelle nächste Arbeitstag übersprungen ist: laut Stundenplan kein Unterricht bzw.
+   unterrichtsfrei laut den Einstellungen (r.freeDays vom Server, nur die Einträge im übersprungenen Zeitraum; ohne sie der Satz wie bisher) */
 export function dayText(r) {
   if (!r || !isIsoDate(r.date)) return "In den nächsten Wochen ist kein Unterricht geplant.";
   const day = (r.today && daysBetween(r.today, r.date) === 1 ? "morgen, " : "") + longDay(r.date);
   if (!isIsoDate(r.candidate) || r.date <= r.candidate) return "für " + day;
   let until = addDays(r.date, -1);
   while (until > r.candidate && isWeekend(until)) until = addDays(until, -1);   // „bis Freitag“ statt „bis Sonntag“
+  const why = freeWhy(r.freeDays, r.candidate, until);
   return (until > r.candidate ? "Von " + longDay(r.candidate) + ", bis " + longDay(until) + ", ist" : "Am " + longDay(r.candidate) + ", ist") +
-    " laut Stundenplan kein Unterricht – deshalb die Druckaufträge für " + day + ".";
+    (!why ? " laut Stundenplan kein Unterricht" : why.all ? " unterrichtsfrei (" + why.text + ")" : " laut Stundenplan kein Unterricht (darin unterrichtsfrei: " + why.text + ")") +
+    " – deshalb die Druckaufträge für " + day + ".";
 }
 /* Name einer Datei wie in der Druckliste der Sitzung */
 export const printNameOf = (f) => f.printName || printFileName({ name: f.name, ...(f.print || {}) });
@@ -152,7 +166,7 @@ export function printNextCard(load = () => tapi("GET", "/api/teacher/print-next"
   }
   async function reload() {
     const mine = ++run, had = card.contains(document.activeElement);
-    try { const r = await load(); if (mine !== run) return; data = { today: r.today || null, candidate: r.candidate || null, date: r.date || null, sessions: Array.isArray(r.sessions) ? r.sessions : [] }; paint(); }
+    try { const r = await load(); if (mine !== run) return; data = { today: r.today || null, candidate: r.candidate || null, date: r.date || null, sessions: Array.isArray(r.sessions) ? r.sessions : [], freeDays: Array.isArray(r.freeDays) ? r.freeDays : [] }; paint(); }
     catch (e) {
       if (mine !== run) return;
       data = null; rowEls.clear(); day.textContent = ""; day.classList.add("hidden"); paintAll();

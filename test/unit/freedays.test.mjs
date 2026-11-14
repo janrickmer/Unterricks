@@ -11,6 +11,7 @@ const U = await import("../../worker/units.js");
 const L = await import("../../worker/lessons.js");
 const FD = await import("../../worker/freedays.js");
 const PJ = await import("../../worker/printjobs.js");
+const PC = await import("../../worker/podcast.js");
 const R = await import("../../worker/reset.js");
 const { routeMcp } = await import("../../worker/mcp.js");
 const { sha256Hex } = await import("../../worker/lib.js");
@@ -301,6 +302,12 @@ test("Kalender, Druckaufträge, Podcast-Tag, Connector, Prompts der Überarbeitu
   c.now = at("2026-11-06T09:00:00Z");
   const pn = (await call(c, PJ.routePrintNext, "GET", "/x")).data;
   assert.deepEqual([pn.candidate, pn.date], ["2026-11-09", "2026-11-16"], "Montag (Herbstferien) → Montag danach (Sitzung am Brückentag bleibt eine Sitzung)");
+  // das Feld nennt den Grund: nur die Einträge im übersprungenen Zeitraum (nicht der Brückentag, an dem die Druckaufträge stehen)
+  assert.deepEqual(pn.freeDays, [{ from: "2026-11-09", to: "2026-11-13", label: "Herbstferien", scope: "both" }]);
+  // Podcast: derselbe „nächste Schultag“ – die Herbstferien zählen für beide Schulen nicht
+  const pc = (await call(c, PC.routePodcastPlan, "GET", "/x")).data;
+  assert.deepEqual([pc.candidate, pc.next, pc.plans.map((x) => [x.date, x.sessions.map((s) => s.id)])], ["2026-11-09", "2026-11-16", [["2026-11-16", [gym.ids[2]]]]],
+    "Podcast für den nächsten Schultag nach den Herbstferien (die Sitzung am Brückentag blieb dort)");
   c.now = NOW;
   // Connector: Abschnitt in get_unit, Satz in get_planning_basis nur mit Einträgen der Schule, update_lesson lehnt ab
   const gu = await mcp(c, "get_unit", { unit_id: gym.id });
@@ -326,6 +333,24 @@ test("Kalender, Druckaufträge, Podcast-Tag, Connector, Prompts der Überarbeitu
   const idx = (await call(c, R.routeBackupIndex, "GET", "/x")).data;
   assert.deepEqual(idx.freeDays.map((f) => f.label), ["Herbstferien", "Brückentag"]);
   assert.equal(UF.unitFileData(gFull).source.params.schoolBreaks, undefined);
+});
+
+test("Druckaufträge und Podcast: frei nur für die eine Schule – der Tag der anderen zählt; die Antwort nennt die übersprungenen Einträge", async () => {
+  const { c, gs, gym } = await setup();   // Montag, 02.11., 11 Uhr: nominell ist Dienstag der nächste Arbeitstag (Grundschule Di/Do, Gymnasium Mo/Mi)
+  let pn = (await call(c, PJ.routePrintNext, "GET", "/x")).data;
+  assert.deepEqual([pn.candidate, pn.date, pn.freeDays], ["2026-11-03", "2026-11-03", undefined], "ohne Einträge wie bisher");
+  // Dienstag nur für die Grundschule frei (verschoben): Mittwoch hat das Gymnasium Unterricht
+  await call(c, FD.routeFreeDayCreate, "POST", "/x", body({ ...GSTAG, from: "2026-11-03", to: "2026-11-03" }, { shift: true }));
+  pn = (await call(c, PJ.routePrintNext, "GET", "/x")).data;
+  let pc = (await call(c, PC.routePodcastPlan, "GET", "/x")).data;
+  assert.deepEqual([pn.date, pc.next, pn.sessions.map((s) => s.id)], ["2026-11-04", "2026-11-04", [gym.ids[1]]], "Mittwoch (Gymnasium) statt Dienstag");
+  assert.deepEqual(pn.freeDays, [{ from: "2026-11-03", to: "2026-11-03", label: "Schulfest", scope: "gs" }], "der übersprungene Dienstag (den Text prüft printnext.test.mjs)");
+  // dazu Mittwoch nur fürs Gymnasium frei (verschoben): Donnerstag hat die Grundschule Unterricht (ihre verschobene Stunde 1)
+  await call(c, FD.routeFreeDayCreate, "POST", "/x", body(PTAG, { shift: true }));
+  pn = (await call(c, PJ.routePrintNext, "GET", "/x")).data;
+  pc = (await call(c, PC.routePodcastPlan, "GET", "/x")).data;
+  assert.deepEqual([pn.date, pc.next, pn.sessions.map((s) => s.id)], ["2026-11-05", "2026-11-05", [gs.ids[0]]], "Donnerstag (Grundschule)");
+  assert.deepEqual(pn.freeDays.map((f) => f.label), ["Schulfest", "Pädagogischer Tag"]);
 });
 
 test("Krankmeldung ohne unterrichtsfreie Tage: Prompt und Kasten-Text wie bisher (Grundschule)", async () => {

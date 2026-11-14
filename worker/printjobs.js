@@ -31,7 +31,8 @@ export const sessionOrder = (a, b) => (a.startTime || "99:99").localeCompare(b.s
 
 /* GET /api/teacher/print-next → {today, candidate (nomineller nächster Arbeitstag), date (Tag der Druckaufträge oder null), sessions: [{id, subject,
    klass, title, date, startTime, durationMin, school "gym"|"gs", label (wie im Wochenkalender), subtitle (Unterzeile einer Text-PDF wie in der Sitzung),
-   course? {id, short, label}, files: [fileOut ohne Text]}]} – auch Sitzungen ohne Druckaufträge (files leer). 8 D1-Anweisungen. */
+   course? {id, short, label}, files: [fileOut ohne Text]}], freeDays? [{from, to, label, scope}] (unterrichtsfreie Einträge im übersprungenen Zeitraum,
+   nur wenn es welche gibt – Nachtrag 24)} – auch Sitzungen ohne Druckaufträge (files leer). 8 D1-Anweisungen. */
 /* Nächster Tag mit Unterricht nach heute (today, Europe/Berlin): nominell nextWorkday, dann der früheste Tag mit Sitzung oder Termin laut Stundenplan
    (printTargetDay; unterrichtsfreie Tage der Einstellungen zählen für ihre Schule nicht – Nachtrag 24) → {candidate, date (null = nichts in Sicht),
    gs (Grundschulkurse: Map id → gsCourseOut), freeDays}. 5 D1-Anweisungen (Fach-Einstellungen, ein Batch mit Einheiten, Kursen, frühester Sitzung und
@@ -52,11 +53,19 @@ export async function nextTeachingDay(c, today) {
   const first = ((lr.results || [])[0] || {}).d || null;
   return { candidate, date: printTargetDay(candidate, units, first ? [first] : []), gs, freeDays };
 }
+/* Unterrichtsfreie Einträge (Einstellungen) im übersprungenen Zeitraum vom nominellen Arbeitstag bis vor den Tag der Druckaufträge – damit das Feld
+   den Grund nennen kann („Herbstferien, beide Schulen“) statt nur „laut Stundenplan kein Unterricht“; ohne solche Einträge kein Feld (wie bisher) */
+export function skippedFreeDays(freeDays, candidate, date) {
+  if (!candidate || !date || date <= candidate) return [];
+  const until = addDays(date, -1);
+  return (freeDays || []).filter((f) => f.to >= candidate && f.from <= until).slice(0, 10).map((f) => ({ from: f.from, to: f.to, label: f.label, scope: f.scope }));
+}
 export async function routePrintNext(c) {
   await requireTeacher(c);
   const today = berlinToday(c.now);
-  const { candidate, date, gs } = await nextTeachingDay(c, today);
+  const { candidate, date, gs, freeDays } = await nextTeachingDay(c, today);
   if (!date) return json({ ok: true, today, candidate, date: null, sessions: [] });
+  const skipped = skippedFreeDays(freeDays, candidate, date);
   const [ls, fs] = await c.db.batch([
     c.db.prepare(DAY_SESSIONS_SQL).bind(date),
     c.db.prepare(PRINT_FILES_SQL).bind(date),
@@ -70,5 +79,5 @@ export async function routePrintNext(c) {
       subtitle: isGs ? (course ? course.label : "Grundschule") : subjectName(l.subject) + " · " + classShort(l.klass),
       ...(course ? { course: { id: course.id, short: course.short, label: course.label } } : {}), files: byLesson.get(l.id) || [] };
   }).sort(sessionOrder);
-  return json({ ok: true, today, candidate, date, sessions });
+  return json({ ok: true, today, candidate, date, sessions, ...(skipped.length ? { freeDays: skipped } : {}) });
 }

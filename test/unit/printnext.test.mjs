@@ -62,6 +62,23 @@ test("Texte: Tag (morgen, übersprungener Tag, Ferien bis Freitag), keine Drucka
   assert.equal(PN.dayText({ today: "2026-11-20", candidate: "2026-11-23", date: "2026-11-30" }),
     "Von Montag, 23.11.2026, bis Freitag, 27.11.2026, ist laut Stundenplan kein Unterricht – deshalb die Druckaufträge für Montag, 30.11.2026.", "bis Freitag, nicht bis Sonntag");
   assert.equal(PN.dayText({ today: "2026-11-17", candidate: "2026-11-18", date: null }), "In den nächsten Wochen ist kein Unterricht geplant.");
+  // unterrichtsfreie Tage der Einstellungen (Nachtrag 24): der Grund steht im Satz – Eintrag und Schule; ohne passende Einträge wie bisher
+  const HERBST = { from: "2026-11-09", to: "2026-11-13", label: "Herbstferien", scope: "both" };
+  assert.equal(PN.dayText({ today: "2026-11-06", candidate: "2026-11-09", date: "2026-11-16", freeDays: [HERBST] }),
+    "Von Montag, 09.11.2026, bis Freitag, 13.11.2026, ist unterrichtsfrei (Herbstferien, beide Schulen) – deshalb die Druckaufträge für Montag, 16.11.2026.");
+  assert.equal(PN.dayText({ today: "2026-11-02", candidate: "2026-11-03", date: "2026-11-04", freeDays: [{ from: "2026-11-03", to: "2026-11-03", label: "Schulfest", scope: "gs" }] }),
+    "Am Dienstag, 03.11.2026, ist unterrichtsfrei (Schulfest, Grundschule) – deshalb die Druckaufträge für Mittwoch, 04.11.2026.");
+  assert.equal(PN.dayText({ today: "2026-11-02", candidate: "2026-11-03", date: "2026-11-05", freeDays: [{ from: "2026-11-03", to: "2026-11-03", label: "Schulfest", scope: "gs" },
+    { from: "2026-11-04", to: "2026-11-04", label: "Pädagogischer Tag", scope: "gym" }] }),
+    "Von Dienstag, 03.11.2026, bis Mittwoch, 04.11.2026, ist unterrichtsfrei (Schulfest, Grundschule; Pädagogischer Tag, Gymnasium) – deshalb die Druckaufträge für Donnerstag, 05.11.2026.");
+  assert.equal(PN.dayText({ today: "2026-11-16", candidate: "2026-11-17", date: "2026-11-18", freeDays: [HERBST, { label: "x", scope: "alle", from: "2026-11-17", to: "2026-11-17" }] }),
+    "Am Dienstag, 17.11.2026, ist laut Stundenplan kein Unterricht – deshalb die Druckaufträge für Mittwoch, 18.11.2026.", "Einträge außerhalb des übersprungenen Zeitraums bzw. ohne gültige Schule zählen nicht");
+  const many = ["A", "B", "C", "D"].map((l, i) => ({ from: "2026-11-1" + (6 + i), to: "2026-11-1" + (6 + i), label: l, scope: "gym" }));
+  assert.equal(PN.dayText({ today: "2026-11-13", candidate: "2026-11-16", date: "2026-11-20", freeDays: many }),
+    "Von Montag, 16.11.2026, bis Donnerstag, 19.11.2026, ist unterrichtsfrei (A, Gymnasium; B, Gymnasium; C, Gymnasium; …) – deshalb die Druckaufträge für Freitag, 20.11.2026.", "höchstens drei");
+  // nur ein Teil des übersprungenen Zeitraums ist unterrichtsfrei (die übrigen Tage ohne Unterricht laut Stundenplan): beides im Satz
+  assert.equal(PN.dayText({ today: "2026-11-06", candidate: "2026-11-09", date: "2026-11-18", freeDays: [HERBST] }),
+    "Von Montag, 09.11.2026, bis Dienstag, 17.11.2026, ist laut Stundenplan kein Unterricht (darin unterrichtsfrei: Herbstferien, beide Schulen) – deshalb die Druckaufträge für Mittwoch, 18.11.2026.");
   const f = (n) => ({ printName: n + ".pdf" });
   assert.equal(PN.doneText(3, [], []), "Fertig: Alle 3 Dateien sind einzeln heruntergeladen.");
   assert.equal(PN.doneText(1, [f("Gestaltet")], [{ f: f("Kaputt"), msg: "Fehler 404" }]),

@@ -992,7 +992,8 @@ Lehrkraft zieht die Datei einmal auf das Ablagefeld (keine automatische Übergab
   `printTargetDay`, `planCancellation`, `weekSchedule` erfasst): `worker/units.js` (Tabelle speichern, „Termine neu verteilen“, `save_unit_plan`
   nach Position und nach uid, `extend_unit`, Liste, `unitFull`), `worker/gs.js` (Krankmeldung; Rückgängig speichert ohne sie und legt keine
   Stunde – heute oder später – zurück auf einen Tag, der inzwischen für die Grundschule unterrichtsfrei ist: 409 `free_day`, Termine von Hand anpassen),
-  `worker/printjobs.js` (`nextTeachingDay`: Druckaufträge und „nächster Schultag“ des Podcasts, die Einträge im vorhandenen Batch),
+  `worker/printjobs.js` (`nextTeachingDay`: Druckaufträge und „nächster Schultag“ des Podcasts, die Einträge im vorhandenen Batch; das Feld der
+  Druckaufträge nennt übersprungene Einträge mit Bezeichnung und Schule),
   `worker/lessons.js` (Sitzung, Chat- und Connector-Kontext), Wochenkalender (Browser). Die Sitzungsdatei behält das Datum der geöffneten Sitzung,
   die Einheitsdatei verteilt die Termine neu (`assignDates` auf dem Server) – beide damit ohne freie Tage.
 * **Datum direkt gesetzt:** Sitzung anlegen bzw. Datum ändern (`createLesson`, `updateLesson` – auch `update_lesson` des Connectors), ein neues
@@ -1054,7 +1055,8 @@ Lehrkraft zieht die Datei einmal auf das Ablagefeld (keine automatische Übergab
   Druckaufträge sind dieselbe Auswahl wie `printFiles()` der Sitzung (`public/materialbox.js`): alles im Bereich `print`, in der
   Grundschule zusätzlich PDFs der Kinder mit „Auch ausdrucken“ (`print_copies`, ohne Bildkarten); nie Archiv oder Präsentation.
   Antwort `{today, candidate, date (null = nichts gefunden), sessions: [{id, subject, klass, title, date, startTime, school, label,
-  subtitle, course?, files}]}`, Sitzungen nach Beginn (ohne Uhrzeit zuletzt), dann Klasse bzw. Kurs, Dateien in der Reihenfolge der
+  subtitle, course?, files}], freeDays?}` (`freeDays` nur, wenn unterrichtsfreie Einträge im übersprungenen Zeitraum liegen – `skippedFreeDays`),
+  Sitzungen nach Beginn (ohne Uhrzeit zuletzt), dann Klasse bzw. Kurs, Dateien in der Reihenfolge der
   Sitzung (`fileOut` ohne den Text von Textmaterial und ohne Claudes Gestaltung); auch Sitzungen ohne Druckaufträge (für die Zeile
   „Ohne Druckaufträge: …“). 8 D1-Anweisungen (Anmeldung, Fach-Einstellungen, ein Batch mit Einheiten/Kursen/frühester Sitzung/unterrichtsfreien
   Tagen, ein Batch mit den Sitzungen und Dateien des Tages), ohne Tag 6. Die Termine der Einheiten rechnen mit den unterrichtsfreien Tagen
@@ -1063,7 +1065,8 @@ Lehrkraft zieht die Datei einmal auf das Ablagefeld (keine automatische Übergab
 * **Oberfläche** (`public/printnext.js`, `printNextCard()`): auf der Startseite „Gymnasium“ (`teacher.js`) und der Übersicht
   „Grundschule“ (`grundschule.js`) direkt unter dem Kopfband und vor dem Wochenkalender, lädt eigenständig (ein Fehler dort verhindert
   die Seite nicht; „Erneut versuchen“). Zeile zum Tag („für morgen, Mittwoch, 19.11.2026“ bzw. „Am Montag, 16.11.2026, ist laut
-  Stundenplan kein Unterricht – deshalb …“), je Sitzung eine Gruppe (Überschrift = Link zur Sitzung; „In der Sitzung bearbeiten“ führt
+  Stundenplan kein Unterricht – deshalb …“; mit unterrichtsfreien Tagen der Einstellungen „… ist unterrichtsfrei (Herbstferien, beide
+  Schulen) – deshalb …“, liegen sie nur in einem Teil des Zeitraums „… ist laut Stundenplan kein Unterricht (darin unterrichtsfrei: …)“), je Sitzung eine Gruppe (Überschrift = Link zur Sitzung; „In der Sitzung bearbeiten“ führt
   zu `#/lk/s/<id>/druckliste`: die Sitzung öffnet sich mit ihrer Druckliste im Blick, Fokus auf deren Überschrift – nur, wenn niemand den
   Fokus schon gesetzt hat). Je Datei der Druck-Name (`printName`) und „Herunterladen“ wie in der Sitzung (Druckvorlagen über den
   signierten Link – der Server nennt sie selbst mit dem Druck-Namen, das zählt auf GitHub Pages, wo der Browser das download-Attribut einer

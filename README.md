@@ -184,7 +184,9 @@ Feibeitsblatt braucht keine Änderung. Die Adressen stehen in `wrangler.jsonc` (
   Unterricht: Montag bis Donnerstag den folgenden Tag, Freitag bis Sonntag den Montag; ist dort laut Stundenplan kein Unterricht (Ferien,
   Feiertag oder ein ausgefallener Termin – maßgeblich sind die Stundenpläne der Einheiten mit den unterrichtsfreien Tagen aus den
   Einstellungen und die Termine der Sitzungen, Ausfall-Einträge der Grundschule zählen nicht), nennt das Feld den freien Tag und zeigt den
-  nächsten Tag mit Unterricht (höchstens 70 Tage voraus). Dieselbe Regel bestimmt beim Podcast den „nächsten Schultag“.
+  nächsten Tag mit Unterricht (höchstens 70 Tage voraus) – unterrichtsfreie Tage mit Bezeichnung und Schule, z. B. „Von Montag, 05.10.2026,
+  bis Freitag, 16.10.2026, ist unterrichtsfrei (Herbstferien, beide Schulen) – deshalb die Druckaufträge für …“. Dieselbe Regel bestimmt beim
+  Podcast den „nächsten Schultag“.
   Nach Sitzung gruppiert (Beginn, Fach und Klasse bzw. Grundschulkurs, Titel – ein Klick öffnet die Sitzung) stehen alle Dateien genau
   so wie in deren Liste „Von der Lehrkraft auszudrucken“, z. B. „28x - beidseitig - sw - Arbeitsblatt.pdf“ (in der Grundschule auch
   Arbeitsblätter der Kinder mit „Auch ausdrucken“). Jede Datei lässt sich einzeln herunterladen; **„Alle Dateien herunterladen“** lädt
@@ -400,7 +402,8 @@ der **Podcast für den kommenden Unterricht** (derselbe wie auf der Startseite �
   Link in falsche Hände geraten: „Link erneuern“ – der bisherige funktioniert dann nicht mehr. Bitte in Hinweisen und Texten für Eltern
   keine Namen von Kindern nennen.
 * **Krankheit:** Karte „Krankheit“ → **„Krankmeldung: Diese Stunde fällt aus“**. Eine Vorschau zeigt, wohin die Stunden rücken: Diese
-  und alle folgenden Stunden der Einheit wandern um je einen Termin nach hinten (mit Verlaufsplan und Material); die letzte Stunde, die
+  und alle folgenden Stunden der Einheit wandern um je einen Termin nach hinten (mit Verlaufsplan und Material; unterrichtsfreie Tage der
+  Grundschule aus den Einstellungen überspringen sie); die letzte Stunde, die
   hinter das Ende der Einheit rutscht, bleibt ohne Datum in der Einheit stehen. Eltern sehen für den ausgefallenen Termin, dass der
   Unterricht leider nicht stattfinden konnte (der bisherige Elternlink gilt für diesen Termin weiter). In der Einheit und in jeder ihrer
   Sitzungen steht dann ein **roter Kasten** „Die Einheit muss wegen der Ausfälle überarbeitet werden“ mit **„Einheit mit Claude

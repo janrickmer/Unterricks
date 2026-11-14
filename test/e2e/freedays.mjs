@@ -8,7 +8,7 @@
 import { join } from "node:path";
 import { mkdirSync } from "node:fs";
 import { berlinToday, berlinTime, addDays, mondayOf, fmtDay } from "../../public/shared.js";
-import { freeRangeText, weekRangeText } from "../../public/planning.js";
+import { freeRangeText, weekRangeText, nextWorkday } from "../../public/planning.js";
 
 export async function freeDaysE2E({ browser, BASE, T, storage, ok, OUT, tool = null, shots = null, watch = () => {} }) {
   const today = berlinToday(), M = addDays(mondayOf(today), 14), D = (n) => addDays(M, n);
@@ -162,6 +162,16 @@ export async function freeDaysE2E({ browser, BASE, T, storage, ok, OUT, tool = n
     "Startseite Grundschule: derselbe Wochenkalender mit dem Band am Mittwoch, Grundschule Di/Do wie immer");
   const print = (await T("GET", "/api/teacher/print-next")).data;
   ok(print.date !== D(7) && print.date !== D(8), "Druckaufträge: der nächste Arbeitstag überspringt unterrichtsfreie Tage (" + print.date + ")");
+  // Feld „Druckaufträge“: ist der nominelle nächste Arbeitstag (Uhr des Servers) unterrichtsfrei, nennt die Zeile den Eintrag und die Schule
+  const cand = nextWorkday(berlinToday()), dmy = (iso) => iso.slice(8, 10) + "." + iso.slice(5, 7) + "." + iso.slice(0, 4);
+  const bt = (await T("POST", "/api/teacher/free-days", { label: "Brückentag", from: cand, to: cand, scope: "both", shift: false })).data.freeDay;
+  const pn = (await T("GET", "/api/teacher/print-next")).data;
+  await p.goto(BASE + "/#/lk"); await p.locator("#pn-day", { hasText: "unterrichtsfrei" }).waitFor({ timeout: 20000 });
+  const pnDay = await p.locator("#pn-day").textContent();
+  ok(pn.candidate === cand && pn.date === M && JSON.stringify(pn.freeDays) === JSON.stringify([{ from: cand, to: cand, label: "Brückentag", scope: "both" }])
+    && pnDay.includes(dmy(cand)) && pnDay.includes(" ist laut Stundenplan kein Unterricht (darin unterrichtsfrei: Brückentag, beide Schulen) – deshalb die Druckaufträge für ") && pnDay.endsWith(dmy(M) + "."),
+    "Druckaufträge: „… ist laut Stundenplan kein Unterricht (darin unterrichtsfrei: Brückentag, beide Schulen) – deshalb …“ (" + pnDay + ")");
+  await T("DELETE", "/api/teacher/free-days/" + bt.id);
 
   // Rahmendaten der Einheit: die geltenden Tage zur Ansicht; Tabelle: Zeile auf dem freien Tag markiert; neues Datum auf freiem Tag → Meldung
   await p.goto(BASE + "/#/lk/u/" + gym.id); await p.locator(".fd-unit").waitFor({ timeout: 15000 });
