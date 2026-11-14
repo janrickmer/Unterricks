@@ -98,23 +98,32 @@ export function normalizeFreeDay(raw) {
   if (!Object.prototype.hasOwnProperty.call(FREE_DAY_SCOPES, r.scope)) throw freeErr("scope", "Bitte wählen, ob der Eintrag die Grundschule, das Gymnasium oder beide Schulen betrifft.");
   return { from, to, label, scope: r.scope };
 }
-/* Liste säubern (vom Server bzw. aus der Datenbank): nur gültige Einträge, sortiert nach Beginn, Ende und Bezeichnung */
+/* Liste säubern (vom Server bzw. aus der Datenbank): nur gültige Einträge, sortiert nach Beginn, Ende und Bezeichnung. Das Ergebnis ist eingefroren und
+   wird wiedererkannt: Eine schon gesäuberte Liste kommt ohne neue Prüfung zurück – sonst prüfte jede Datumsprüfung (je Zeile einer Einheit, je Einheit
+   der Vorschau) alle bis zu 200 Einträge erneut (Free-Plan: 10 ms CPU je Anfrage). */
+const CLEAN_FREE = new WeakSet();
 export function cleanFreeDays(list) {
+  if (list && typeof list === "object" && CLEAN_FREE.has(list)) return list;
   const out = [];
   for (const x of (Array.isArray(list) ? list : []).slice(0, FREE_DAYS_MAX)) {
-    try { const f = normalizeFreeDay(x); out.push(typeof (x && x.id) === "string" ? { id: x.id, ...f } : f); } catch {}
+    try { const f = normalizeFreeDay(x); out.push(Object.freeze(typeof (x && x.id) === "string" ? { id: x.id, ...f } : f)); } catch {}
   }
-  return out.sort((a, b) => (a.from < b.from ? -1 : a.from > b.from ? 1 : a.to < b.to ? -1 : a.to > b.to ? 1 : a.label.localeCompare(b.label, "de")));
+  const res = Object.freeze(out.sort((a, b) => (a.from < b.from ? -1 : a.from > b.from ? 1 : a.to < b.to ? -1 : a.to > b.to ? 1 : a.label.localeCompare(b.label, "de"))));
+  CLEAN_FREE.add(res);
+  return res;
 }
 /* Die für eine Schule wirksamen Unterbrechungen [{from, to, label}] (sortiert). from: nur Einträge, die nicht vor diesem Tag enden. */
 export function schoolBreaks(freeDays, school, { from = null } = {}) {
   return cleanFreeDays(freeDays).filter((f) => freeDayCovers(f, school) && (!from || f.to >= from)).map((f) => ({ from: f.from, to: f.to, label: f.label }));
 }
 /* Rahmendaten einer Einheit mit den unterrichtsfreien Tagen ihrer Schule (nur zum Rechnen und Anzeigen – storeParams entfernt sie vor dem Speichern).
-   Ohne passende Einträge bleibt das Objekt, wie es ist. */
+   Ohne passende Einträge bleibt das Objekt, wie es ist. Nur Einträge, die nicht vor dem Beginn enden (ohne Beginn: nicht vor dem Ende – extend_unit);
+   ohne Beginn und Ende rechnet nichts mit den Tagen (computeSlots braucht beide) – dann keine (CPU und Größe der Antwort bei bis zu 200 Einträgen). */
 export function withSchoolBreaks(params, freeDays, subject) {
   const p = params && typeof params === "object" ? params : {};
-  const sb = schoolBreaks(freeDays, schoolOf(subject), { from: isIsoDate(p.start) ? p.start : null });
+  const from = isIsoDate(p.start) ? p.start : isIsoDate(p.end) ? p.end : null;
+  if (!from) return storeParams(p);
+  const sb = schoolBreaks(freeDays, schoolOf(subject), { from });
   if (!sb.length) return storeParams(p);
   return { ...p, schoolBreaks: sb };
 }

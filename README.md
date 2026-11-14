@@ -216,7 +216,8 @@ Feibeitsblatt braucht keine Änderung. Die Adressen stehen in `wrangler.jsonc` (
   unterrichtsfreien Tag (…)“. Sitzungen ohne Einheit verschieben Sie selbst (die Liste nennt sie). Wurde eine Einheit inzwischen woanders
   geändert, bleibt der Eintrag trotzdem gespeichert und die Meldung nennt sie. **Löschen** macht die Tage wieder zu Unterrichtstagen –
   verschobene Sitzungen rücken nicht zurück. Ein Datum, das Sie (oder Claude) direkt auf einen unterrichtsfreien Tag legen, lehnt Unterricks
-  ab: „Am … ist unterrichtsfrei (Herbstferien, Gymnasium). Bitte einen anderen Tag wählen.“ In den Rahmendaten jeder Einheit stehen die
+  ab: „Am … ist unterrichtsfrei (Herbstferien, Gymnasium). Bitte einen anderen Tag wählen.“ Ebenso legt „Krankmeldung rückgängig machen“ keine
+  Stunde zurück auf einen Tag, der inzwischen für die Grundschule unterrichtsfrei ist – dann passen Sie die Termine von Hand an. In den Rahmendaten jeder Einheit stehen die
   geltenden Tage ihrer Schule zur Ansicht („In den Einstellungen bearbeiten“); „Ferien und bekannte Ausfälle“ der Einheit bleibt für Ausfälle
   nur dieser Klasse (z. B. eine Exkursion). Claude sieht die Tage in `get_unit` (Abschnitt „Unterrichtsfreie Tage (…)“, im Zeitraum und bis acht
   Wochen danach) und in den Prompts („Unterrichtsfreie Tage: …“).

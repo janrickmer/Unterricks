@@ -357,3 +357,98 @@ test("Gymnasium nach dem Verschieben: extend_unit gibt Sitzungen ohne Termin ein
   assert.equal((await c.db.prepare("SELECT lesson_date, start_time FROM lessons WHERE id=?1").bind(gym.ids[5]).first()).lesson_date, "2026-11-25", "die Sitzung ohne Termin hat jetzt den ihrer Zeile");
   assert.equal((await c.db.prepare("SELECT lesson_date FROM lessons WHERE id=?1").bind(gym.ids[0]).first()).lesson_date, "2026-11-02", "andere Sitzungen unberührt");
 });
+
+/* ---------- Prüfung der Terminlogik (Befunde) ---------- */
+test("CPU: gesäuberte Listen werden wiedererkannt (eingefroren, keine neue Prüfung je Datum); ohne Beginn und Ende keine Schultage in den Rahmendaten", () => {
+  const many = Array.from({ length: 200 }, (_, i) => ({ id: (i + 1).toString(16).padStart(16, "0"), from: "2026-11-04", to: "2026-11-04", label: "Tag " + i, scope: i % 2 ? "gs" : "gym" }));
+  const clean = P.cleanFreeDays(many);
+  assert.equal(P.cleanFreeDays(clean), clean, "dieselbe Liste ohne neue Prüfung");
+  assert.ok(Object.isFrozen(clean) && clean.every((f) => Object.isFrozen(f)), "eingefroren – niemand ändert eine schon geprüfte Liste");
+  assert.notEqual(P.cleanFreeDays([...clean]), clean, "eine neue (ungeprüfte) Liste wird geprüft");
+  assert.deepEqual(P.cleanFreeDays([...clean]), clean);
+  // je Zeile einer Einheit (Tabelle, Sitzungen anlegen): 150 Prüfungen gegen 200 Einträge ohne erneutes Säubern
+  const t0 = performance.now();
+  for (let i = 0; i < 150; i++) P.freeDateError(i % 2 ? "2026-11-04" : "2026-11-05", clean, "powi");
+  assert.ok(performance.now() - t0 < 60, "150 Datumsprüfungen gegen 200 Einträge: " + (performance.now() - t0).toFixed(1) + " ms");
+  // Rahmendaten ohne Beginn und Ende: keine Schultage (nichts rechnet damit); nur mit Ende: ab dem Ende (extend_unit)
+  assert.deepEqual(P.withSchoolBreaks({ weekdays: GYM_TT }, [HERBST], "powi"), { weekdays: GYM_TT });
+  assert.deepEqual(P.withSchoolBreaks({ weekdays: GYM_TT, schoolBreaks: [{ from: "2026-11-09", to: "2026-11-13", label: "x" }] }, [HERBST], "powi"), { weekdays: GYM_TT }, "auch keine mitgebrachten");
+  assert.deepEqual(P.withSchoolBreaks({ end: "2026-11-06", weekdays: GYM_TT }, [HERBST, PTAG], "powi").schoolBreaks.map((b) => b.label), ["Herbstferien"], "ohne Beginn: ab dem Ende");
+  assert.deepEqual(P.slotsAfterEnd(P.withSchoolBreaks({ end: "2026-11-06", weekdays: GYM_TT }, [HERBST], "powi"), 1, NOW).map((s) => s.date), ["2026-11-16"]);
+});
+
+test("Speichern und verschieben: Eintrag inzwischen gelöscht bzw. nicht angelegt – dann wird auch nichts verschoben", async () => {
+  const { c, gs, gym } = await setup();
+  const dates = async (id) => (await unitGet(c, id)).rows.map((r) => r.date);
+  const gsBefore = await dates(gs.id), gymBefore = await dates(gym.id);
+  const lessonDates = async () => (await c.db.prepare("SELECT id, lesson_date FROM lessons ORDER BY id").all()).results;
+  const before = await lessonDates();
+  // Ändern: zwischen dem Lesen und dem Schreiben löscht ein anderes Fenster den Eintrag
+  const saved = await call(c, FD.routeFreeDayCreate, "POST", "/x", body({ ...HERBST, from: "2026-11-13", to: "2026-11-13" }, { shift: true }));
+  assert.equal(saved.status, 200);
+  const id = saved.data.freeDay.id, orig = c.db.batch;
+  let n = 0;
+  c.db.batch = async (list) => { if (++n === 2) { c.db.batch = orig; await c.db.prepare("DELETE FROM free_days WHERE id=?1").bind(id).run(); } return orig(list); };
+  const put = await call(c, FD.routeFreeDayPut, "PUT", "/x", body(HERBST, { shift: true }), id);
+  assert.deepEqual([put.status, put.data.error], [404, "Diesen unterrichtsfreien Eintrag gibt es nicht (mehr)."]);
+  assert.deepEqual([await dates(gs.id), await dates(gym.id)], [gsBefore, gymBefore], "keine Einheit verschoben");
+  assert.deepEqual(await lessonDates(), before, "keine Sitzung verschoben");
+  assert.equal((await unitGet(c, gs.id)).revise, undefined, "kein Hinweis zum Überarbeiten");
+  // Neu: inzwischen 200 Einträge (gleichzeitig angelegt) – der Eintrag wird nicht gespeichert, also auch nichts verschoben
+  n = 0;
+  c.db.batch = async (list) => {
+    if (++n === 2) { c.db.batch = orig;
+      await c.db.prepare("INSERT INTO free_days(id, date_from, date_to, label, scope, created_at, updated_at) SELECT printf('%016x', value + 100), '2030-01-01', '2030-01-01', 'Tag', 'gs', 1, 1 FROM json_each(?1)")
+        .bind(JSON.stringify(Array.from({ length: 200 }, (_, i) => i))).run(); }
+    return orig(list);
+  };
+  const add = await call(c, FD.routeFreeDayCreate, "POST", "/x", body(HERBST, { shift: true }));
+  assert.deepEqual([add.status, add.data.error], [400, "Höchstens 200 unterrichtsfreie Einträge – bitte zuerst vergangene löschen."]);
+  assert.deepEqual([await dates(gs.id), await dates(gym.id)], [gsBefore, gymBefore]);
+  assert.deepEqual(await lessonDates(), before);
+});
+
+test("Krankmeldung rückgängig: nie zurück auf einen Tag, der inzwischen für die Grundschule unterrichtsfrei ist", async () => {
+  const { c, gs } = await setup();
+  const pre = await call(c, GS.routeLessonCancel, "POST", "/x", { dryRun: true }, gs.ids[1]);
+  const done = await call(c, GS.routeLessonCancel, "POST", "/x", { version: pre.data.version }, gs.ids[1]);
+  assert.equal(done.status, 200);
+  const after = await unitGet(c, gs.id);
+  assert.deepEqual(after.rows.map((r) => r.date), ["2026-11-03", "2026-11-10", "2026-11-12", "2026-11-17", "2026-11-19", null]);
+  // am Do, 05.11. (nur noch der Ausfall-Eintrag) ist inzwischen Schulfest – die Vorschau fragt nicht (keine Sitzung dort), die Einheit bleibt unverändert
+  const p2 = await call(c, FD.routeFreeDaysPreview, "POST", "/x", body(GSTAG));
+  assert.deepEqual(p2.data.items, []);
+  await call(c, FD.routeFreeDayCreate, "POST", "/x", body(GSTAG, { shift: false }));
+  const u = await unitGet(c, gs.id);
+  assert.equal(u.revise.canUndo, true);
+  const r = await call(c, GS.routeCancelUndo, "POST", "/x", { undoId: u.revise.undoId }, gs.id);
+  assert.deepEqual([r.status, r.data.code, r.data.error], [409, "free_day", "Am Do, 05.11.2026 ist inzwischen unterrichtsfrei (Schulfest, Grundschule) – die Krankmeldung lässt sich deshalb nicht mehr rückgängig machen. Bitte die Termine von Hand anpassen."]);
+  assert.deepEqual((await unitGet(c, gs.id)).rows.map((x) => x.date), after.rows.map((x) => x.date), "nichts zurückgelegt");
+  assert.equal((await c.db.prepare("SELECT lesson_date FROM lessons WHERE id=?1").bind(gs.ids[1]).first()).lesson_date, "2026-11-10");
+  assert.equal((await c.db.prepare("SELECT COUNT(*) AS n FROM lessons WHERE cancelled=1").first()).n, 1, "der Ausfall-Eintrag bleibt");
+  // ein unterrichtsfreier Tag nur des Gymnasiums hält „rückgängig“ nicht auf
+  await c.db.prepare("UPDATE free_days SET scope='gym'").run();
+  const ok = await call(c, GS.routeCancelUndo, "POST", "/x", { undoId: u.revise.undoId }, gs.id);
+  assert.equal(ok.status, 200, JSON.stringify(ok.data));
+  assert.deepEqual(ok.data.unit.rows.map((x) => x.date), ["2026-11-03", "2026-11-05", "2026-11-10", "2026-11-12", "2026-11-17", "2026-11-19"]);
+});
+
+test("D1: Tabelle des Gymnasiums mit 40 geänderten Sitzungsterminen bleibt bei höchstens 50 Anweisungen (unterrichtsfreie Tage einmal gelesen)", async () => {
+  const { c } = await setup();
+  await call(c, FD.routeFreeDayCreate, "POST", "/x", body({ ...HERBST, from: "2027-03-22", to: "2027-03-26", label: "Osterferien" }, { shift: false }));
+  const unit = (await call(c, U.routeUnitCreate, "POST", "/x", { subject: "powi", klass: "9B", title: "Lang", params: { start: "2026-11-16", end: "2027-06-30", weekdays: GYM_TT } })).data.unit;
+  const rows = Array.from({ length: 24 }, (_, i) => ({ stundenfrage: "S" + (i + 1), ablauf: ["x"] }));
+  await call(c, U.routeUnitPatch, "PATCH", "/x", { plan: { lernaufgabe: "Z" }, rows, assignDates: true }, unit.id);
+  const made = await call(c, U.routeUnitSessions, "POST", "/x", undefined, unit.id);
+  assert.equal(made.data.created, 24);
+  const u = made.data.unit;
+  // jede Zeile eine Woche später und mit anderer Uhrzeit: je Sitzung zwei Anweisungen (höchstens 40); Anmeldung mit Auffrischen des Tokens
+  await c.db.prepare("UPDATE teacher_tokens SET last_used=?1").bind(c.now - 2 * 3600e3).run();
+  c.db.counter.n = 0;
+  const r = await call(c, U.routeUnitPatch, "PATCH", "/x", { rows: u.rows.map((x) => ({ ...x, date: addDays7(x.date), time: "09:30" })), baseVersion: u.version }, unit.id);
+  assert.equal(r.status, 200, JSON.stringify(r.data));
+  assert.ok(c.db.counter.n <= 49, "D1-Anweisungen: " + c.db.counter.n);
+  assert.deepEqual(r.data.unit.rows.map((x) => x.date), u.rows.map((x) => addDays7(x.date)));
+  assert.ok(r.data.unit.params.schoolBreaks && r.data.unit.params.schoolBreaks[0].label === "Osterferien", "Antwort mit den Schultagen");
+});
+const addDays7 = (d) => new Date(Date.parse(d + "T12:00:00Z") + 7 * 86400e3).toISOString().slice(0, 10);

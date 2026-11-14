@@ -62,7 +62,8 @@ const whoOf = (subject, klass, gs) => (subject === GS_SUBJECT ? { school: "gs", 
   : { school: "gym", label: classShort(klass), subject: subjectShort(subject) || subjectName(subject), fach: subject });
 /* Für jede betroffene Einheit der Plan (planFreeShift) und – für die Vorschau – die Liste. after = alle Einträge nach dem Speichern (mit entry),
    hit(date, school) = Tag ist neu unterrichtsfrei. → {items, plans: [{u, plan|null, error|null}]} */
-function analyse(c, data, entry, old, after) {
+function analyse(c, data, entry, old, afterRaw) {
+  const after = cleanFreeDays(afterRaw);   // einmal säubern – je Einheit nur noch nachschlagen (CPU)
   const hit = (d, school) => d >= entry.from && d <= entry.to && d >= data.today && freeDayCovers(entry, school) && !(old && freeDayCovers(old, school) && d >= old.from && d <= old.to);
   const plans = [], blocked = new Map(), unitById = new Map(data.units.map((u) => [u.id, u]));
   for (const u of data.units) {
@@ -155,19 +156,22 @@ async function saveEntry(c, id) {
     unitsJ.push({ id: u.id, v: u.version, rows: JSON.stringify(plan.rows), revise: JSON.stringify(revise) });
   }
   const versions = JSON.stringify(unitsJ.map((x) => ({ id: x.id, v: x.v })));
+  /* verschoben wird nur, wenn der Eintrag in diesem Batch wirklich gespeichert ist (erste Anweisung): nicht angelegt (inzwischen 200 Einträge) bzw.
+     inzwischen gelöscht → keine Sitzung und keine Einheit wird angefasst */
+  const SAVED = "EXISTS(SELECT 1 FROM free_days WHERE id=?4)";
   if (lessonsJ.length) {
     const pick = (k) => "(SELECT json_extract(x.value,'$." + k + "') FROM json_each(?1) x WHERE json_extract(x.value,'$.id')=lessons.id)";
     // Datum, Beginn und Dauer wie die Zeile (ohne Termin: auch ohne Beginn); nur, solange die Einheit noch die gelesene Version hat
     stmts.push(c.db.prepare("UPDATE lessons SET lesson_date=" + pick("d") + ", start_time=CASE WHEN " + pick("d") + " IS NULL THEN NULL ELSE COALESCE(" + pick("t") + ", start_time) END, " +
       "duration_min=COALESCE(" + pick("m") + ", duration_min), updated_at=?2 WHERE id IN (SELECT json_extract(x.value,'$.id') FROM json_each(?1) x) AND cancelled=0 " +
-      "AND EXISTS(SELECT 1 FROM units u, json_each(?3) y WHERE u.id=lessons.unit_id AND json_extract(y.value,'$.id')=u.id AND json_extract(y.value,'$.v')=u.version)")
-      .bind(JSON.stringify(lessonsJ), c.now, versions));
+      "AND EXISTS(SELECT 1 FROM units u, json_each(?3) y WHERE u.id=lessons.unit_id AND json_extract(y.value,'$.id')=u.id AND json_extract(y.value,'$.v')=u.version) AND " + SAVED)
+      .bind(JSON.stringify(lessonsJ), c.now, versions, fid));
   }
   if (unitsJ.length) {
     const pick = (k) => "(SELECT json_extract(x.value,'$." + k + "') FROM json_each(?1) x WHERE json_extract(x.value,'$.id')=units.id)";
     stmts.push(c.db.prepare("UPDATE units SET rows=" + pick("rows") + ", revise=" + pick("revise") + ", version=version+1, updated_at=?2, source='lehrkraft' " +
-      "WHERE EXISTS(SELECT 1 FROM json_each(?1) x WHERE json_extract(x.value,'$.id')=units.id AND json_extract(x.value,'$.v')=units.version) RETURNING id, version")
-      .bind(JSON.stringify(unitsJ), c.now));
+      "WHERE EXISTS(SELECT 1 FROM json_each(?1) x WHERE json_extract(x.value,'$.id')=units.id AND json_extract(x.value,'$.v')=units.version) AND " + SAVED.replace("?4", "?3") + " RETURNING id, version")
+      .bind(JSON.stringify(unitsJ), c.now, fid));
   }
   const res = await c.db.batch(stmts);
   if (!(res[0].results || []).length) {

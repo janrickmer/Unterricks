@@ -307,9 +307,10 @@ export async function routeUnitPatch(c, id) {
     if (r) fields.revise = JSON.stringify({ ...r, open: false, undo: null });
   }
   const before = [];
+  let fd = null;   // unterrichtsfreie Tage – einmal gelesen, auch für die Antwort (D1: bis zu 40 Sitzungen am Gymnasium in dieser Anfrage)
   if (body.rows !== undefined) {
     let rows = normalizeRows(body.rows, newUid);
-    const fd = await loadFreeDays(c.db);
+    fd = await loadFreeDays(c.db);
     if (body.assignDates) rows = assignDates(rows.map((r) => ({ ...r, date: null, time: null })), computeSlots(withSchoolBreaks(params || parseJ(u.params, {}), fd, u.subject)));
     else assertRowDates(rows, parseJ(u.rows, []), fd, u.subject);   // ein neues Datum auf einem unterrichtsfreien Tag: Meldung statt Speichern
     fields.rows = JSON.stringify(rows);
@@ -327,9 +328,9 @@ export async function routeUnitPatch(c, id) {
       if (stmts.length) await c.db.batch(stmts.slice(0, 40));
     }
   }
-  if (!Object.keys(fields).length) return json({ ok: true, unit: await unitFull(c.db, u) });
+  if (!Object.keys(fields).length) return json({ ok: true, unit: await unitFull(c.db, u, fd) });
   await saveUnit(c.db, id, fields, ver, "lehrkraft", c.now, before);
-  return json({ ok: true, unit: await unitFull(c.db, await getUnit(c.db, id)) });
+  return json({ ok: true, unit: await unitFull(c.db, await getUnit(c.db, id), fd) });
 }
 export async function routeUnitDelete(c, id) {
   await requireTeacher(c);
@@ -360,7 +361,7 @@ export async function routeUnitSessions(c, id) {
   const created = await createLessonsBulk(c.db, { subject: u.subject, klass: u.klass, topic: u.title || plan.titel || "", unitId: u.id },
     todo.map((r) => ({ title: r.stundenfrage || plan.titel || u.title, date: r.date, durationMin: r.minutes, startTime: r.time || null, unitRow: r.uid })), c.now);
   if (u.status !== "geplant") await c.db.prepare("UPDATE units SET status='geplant', updated_at=?2 WHERE id=?1").bind(id, c.now).run();
-  return json({ ok: true, created, ...(skipped ? { skipped } : {}), unit: await unitFull(c.db, await getUnit(c.db, id)) });
+  return json({ ok: true, created, ...(skipped ? { skipped } : {}), unit: await unitFull(c.db, await getUnit(c.db, id), fd) });
 }
 /* Zeile einer Stunde ändern (Abweichung im Stunden-Chat übernommen; auch per Connector) */
 function rowChange(row, change) {

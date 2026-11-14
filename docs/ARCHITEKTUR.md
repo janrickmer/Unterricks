@@ -979,15 +979,19 @@ Lehrkraft zieht die Datei einmal auf das Ablagefeld (keine automatische Übergab
   in Berlin (JJJJ-MM-TT), `date_from ≤ date_to`, höchstens 366 Tage je Eintrag, Bezeichnung einzeilig 1–80 Zeichen; geprüft in
   `normalizeFreeDay` (`public/planning.js`, gemeinsam für Browser und Server, Meldungen mit Feld). „Gymnasium“ = alle Fächer außer `gs`.
 * **Rechnen:** `schoolBreaks(freeDays, "gs"|"gym")` bildet die wirksamen Unterbrechungen; `withSchoolBreaks(params, freeDays, subject)` legt sie
-  als `params.schoolBreaks` an die Rahmendaten (nur die Einträge, die nicht vor dem Beginn der Einheit enden), `computeSlots` lässt diese Tage
+  als `params.schoolBreaks` an die Rahmendaten (nur die Einträge, die nicht vor dem Beginn der Einheit enden – ohne Beginn nicht vor dem Ende, ohne
+  beides keine), `computeSlots` lässt diese Tage
   aus wie die `breaks` der Einheit – damit auch `lessonSlots`, `assignDates`, `repackFuture`, `planCancellation` (Krankmeldung), `freeSlots`,
   `slotsAfterEnd`/`extend_unit`, `weekSchedule` und `printTargetDay`. `normalizeParams` kennt den Schlüssel nur, wenn es Einträge gibt; vor jedem
   Speichern entfernt `storeParams` ihn (Anlegen, Rahmendaten speichern, Krankmeldung und Rückgängig, `extend_unit`; die Einheitsdatei ebenfalls) –
   ein Speichern der Einheit schreibt die Schultage nie hinein. Der Server liefert sie mit (`unitFull`, Liste der Einheiten, Sitzung, Kontext für
-  Chat und Connector): Rahmendaten, „Sitzungen verfügbar“ und alle Prompts im Browser rechnen so ohne eigene Abfrage mit.
+  Chat und Connector): Rahmendaten, „Sitzungen verfügbar“ und alle Prompts im Browser rechnen so ohne eigene Abfrage mit. CPU (Free-Plan, 10 ms):
+  `cleanFreeDays` liefert eine eingefrorene Liste und erkennt sie wieder – Datumsprüfungen je Zeile und die Vorschau über viele Einheiten prüfen die
+  bis zu 200 Einträge nicht jedes Mal neu.
 * **Wo Termine entstehen** (vollständig per `grep` über `computeSlots`, `lessonSlots`, `assignDates`, `repackFuture`, `slotsAfterEnd`, `nextWorkday`,
   `printTargetDay`, `planCancellation`, `weekSchedule` erfasst): `worker/units.js` (Tabelle speichern, „Termine neu verteilen“, `save_unit_plan`
-  nach Position und nach uid, `extend_unit`, Liste, `unitFull`), `worker/gs.js` (Krankmeldung, Rückgängig speichert ohne sie),
+  nach Position und nach uid, `extend_unit`, Liste, `unitFull`), `worker/gs.js` (Krankmeldung; Rückgängig speichert ohne sie und legt keine
+  Stunde – heute oder später – zurück auf einen Tag, der inzwischen für die Grundschule unterrichtsfrei ist: 409 `free_day`, Termine von Hand anpassen),
   `worker/printjobs.js` (`nextTeachingDay`: Druckaufträge und „nächster Schultag“ des Podcasts, die Einträge im vorhandenen Batch),
   `worker/lessons.js` (Sitzung, Chat- und Connector-Kontext), Wochenkalender (Browser). Die Sitzungsdatei behält das Datum der geöffneten Sitzung,
   die Einheitsdatei verteilt die Termine neu (`assignDates` auf dem Server) – beide damit ohne freie Tage.
@@ -1001,7 +1005,8 @@ Lehrkraft zieht die Datei einmal auf das Ablagefeld (keine automatische Übergab
   (5 Anweisungen: Einträge, Sitzungen im Zeitraum, betroffene Einheiten, deren Sitzungen, Grundschulkurse) und ein Schreib-Batch (Eintrag, **eine**
   Anweisung für die Termine aller verschobenen Sitzungen, **eine** für alle Einheiten – je Einheit an ihre gelesene Version gebunden, `RETURNING`):
   höchstens 12 D1-Anweisungen, gleich wie viele Einheiten betroffen sind. Wurde eine Einheit inzwischen geändert, bleiben sie und ihre Sitzungen
-  unberührt, der Eintrag ist trotzdem gespeichert, die Antwort nennt sie.
+  unberührt, der Eintrag ist trotzdem gespeichert, die Antwort nennt sie. Umgekehrt verschieben die beiden Anweisungen nur, wenn der Eintrag im
+  selben Batch gespeichert wurde (`EXISTS` auf `free_days`): Ist er inzwischen gelöscht bzw. sind gleichzeitig 200 Einträge entstanden, rückt nichts.
 * **Verschieben** (`planFreeShift`): Packlogik der Krankmeldung (`packFrom`) ohne Ausfall-Eintrag – ab der ersten betroffenen Stunde (Datum ihrer
   Sitzung bzw. der Zeile, heute oder später) bekommen sie und alle folgenden Stunden der Reihe nach die freien Termine **nach** ihrem bisherigen
   Tag; was hinter das Ende rutscht, bleibt ohne Termin (am Gymnasium dann auch die Sitzung ohne Datum – `extend_unit` und `save_unit_plan` geben

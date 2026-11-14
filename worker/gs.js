@@ -6,8 +6,8 @@ import { HttpError, bad, json, readJson, randomId, generateCode } from "./lib.js
 import { requireTeacher } from "./auth.js";
 import { basisText, basePdfKey, rangeText } from "./bases.js";
 import { courseSettingsOut } from "./courses.js";
-import { GS_SUBJECT, isGsCourseId, normalizeGsCourse, gsCourseShort, gsCourseLabel, gsGradeText, schoolYearOf, berlinToday } from "../public/shared.js";
-import { normalizeCourseSettings, planCancellation, normalizeParams, withSchoolBreaks, storeParams } from "../public/planning.js";
+import { GS_SUBJECT, isGsCourseId, normalizeGsCourse, gsCourseShort, gsCourseLabel, gsGradeText, schoolYearOf, berlinToday, fmtDay } from "../public/shared.js";
+import { normalizeCourseSettings, planCancellation, normalizeParams, withSchoolBreaks, storeParams, freeDayOn, freeScopeText } from "../public/planning.js";
 import { loadFreeDays } from "./freedays.js";
 import { getLesson } from "./lessons.js";
 import { getUnit, linkedLessons, reviseData, unitFull } from "./units.js";
@@ -204,7 +204,7 @@ export async function routeCancelUndo(c, id) {
   const u = await getUnit(c.db, id), rev = reviseData(u.revise), undo = rev && rev.undo;
   const STALE = "Seit der Krankmeldung wurde die Einheit geändert – bitte die Termine von Hand anpassen.";
   if (!undo || undo.id !== body.undoId || undo.version !== u.version) throw new HttpError(409, "undo_stale", STALE);
-  const lessons = await linkedLessons(c.db, u.id, true);
+  const [lessons, fd] = await Promise.all([linkedLessons(c.db, u.id, true), loadFreeDays(c.db)]);
   const params = normalizeParams(parseJ(u.params, {})), list = params.cancelled || [], slot = undo.slot || {};
   // der ausgefallene Termin: genau dieser (Tag und Uhrzeit), sonst der letzte Ausfall desselben Tages
   let k = list.findIndex((x) => x.date === slot.date && (x.time || null) === (slot.time || null));
@@ -224,6 +224,15 @@ export async function routeCancelUndo(c, id) {
     const r = snap.get(l.row);
     return snapL.get(l.id) || { id: l.id, d: r.date || null, t: r.time || null, m: r.minutes ?? null };
   });
+  /* unterrichtsfreie Tage (Nachtrag 24): Ist ein Tag, auf den eine Stunde zurückkäme (heute oder später), seit der Krankmeldung für die Grundschule
+     unterrichtsfrei geworden (z. B. ohne Rückfrage eingetragen, weil dort gerade keine Stunde lag), legt „rückgängig“ nichts dorthin zurück */
+  const today = berlinToday(c.now);
+  const freeHit = [...back.map((x) => x.d), ...rows.filter((r) => snap.has(r.uid)).map((r) => r.date)].filter((d) => d && d >= today).sort().find((d) => freeDayOn(d, fd, "gs"));
+  if (freeHit) {
+    const f = freeDayOn(freeHit, fd, "gs");
+    throw new HttpError(409, "free_day", "Am " + fmtDay(freeHit) + " ist inzwischen unterrichtsfrei (" + f.label + ", " + freeScopeText(f.scope) + ") – die Krankmeldung lässt sich deshalb nicht mehr " +
+      "rückgängig machen. Bitte die Termine von Hand anpassen.");
+  }
   // Elternlink zurück zur Sitzung wie bei der Krankmeldung: der jetzige Hash des Ausfall-Eintrags (auch nach „Link erneuern“), in der Datenbank gelesen
   const res = await c.db.batch([
     c.db.prepare("UPDATE lessons SET parent_hash='~'||parent_hash WHERE id=?1 AND cancelled=1 AND parent_hash IS NOT NULL AND " + G).bind(undo.placeholderId, u.id, u.version),
