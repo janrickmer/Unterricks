@@ -5,7 +5,7 @@
 import { HttpError, json, readJson, sha256Hex, timingSafeEqual, randomToken, LOCKS, lockedFor, registerFail, cleanText, cleanLine } from "./lib.js";
 import { getSetting, setSetting } from "./db.js";
 import { requireTeacher } from "./auth.js";
-import { getLesson, lessonCtx, chatMessages, updateLesson, savePortal, insertDraft, lessonOut, fileOut, LIMITS, previousLesson, cardData, cardVersion, prevStopInfo, openFilesOf, stopDecisionJson } from "./lessons.js";
+import { getLesson, lessonCtx, chatMessages, updateLesson, savePortal, insertDraft, lessonOut, fileOut, LIMITS, previousLesson, cardData, cardVersion, prevStopInfo, openFilesOf, stopDecision, stopDecisionJson } from "./lessons.js";
 import { getUnit, unitFull, applyPlan, updateRow, updateRows, extendUnit, ROWS_MAX, EXTEND_MAX } from "./units.js";
 import { loadFreeDays } from "./freedays.js";
 import { planningBasis } from "./bases.js";
@@ -97,7 +97,7 @@ const TOOLS = [
       beginn: { type: "string", pattern: "^([01]\\d|2[0-3]):[0-5]\\d$", description: "Uhrzeit des Unterrichtsbeginns, z. B. 07:45" }, ideen: { type: "string", maxLength: 20000 },
       hausaufgabe: { type: "string", maxLength: 10000, description: "Schulportal-Zeichen erlaubt; leer = keine Hausaufgabe (Grundschule: schlichter Text für Eltern und Kinder, ohne Schulportal-Zeichen; Eltern sehen sie nach der Stunde)" },
       inhalt_eltern: { type: "string", maxLength: 800, description: "nur Grundschule: Inhalt der Unterrichtsstunde für die Eltern – 2–3 Sätze, elternverständlich: worum es ging und was die Kinder lernen sollten; nie Namen von Kindern" },
-      zwischenstopp: { type: "string", enum: STOP_CHOICES, description: "Entscheidung der Lehrkraft zum offenen Teil der vorigen Sitzung nach ihrem Zwischenstopp: \"uebernehmen\" (in diese Stunde einbauen) oder \"verzichten\" – nur, was die Lehrkraft entschieden hat" },
+      zwischenstopp: { type: "string", enum: STOP_CHOICES, description: "Entscheidung der Lehrkraft zum offenen Teil der vorigen Sitzung nach ihrem Zwischenstopp: \"uebernehmen\" (in diese Stunde einbauen) oder \"verzichten\" – nur, was die Lehrkraft entschieden hat; halte sie gleich nach ihrer Antwort fest, vor dem Speichern der Planung dieser Stunde (erst eine danach gespeicherte Planung erledigt den Hinweis darauf in Unterricks)" },
       zusammenfassung_lehrkraft: { type: "string", maxLength: TEACHER_SUMMARY_MAX, description: TEACHER_SUMMARY_TITLE + " (nie für Schüler:innen oder Eltern sichtbar). " + teacherSummaryRules("beide") + " Leer = löschen." } },
       required: ["lesson_id"], additionalProperties: false } },
   { name: "save_planning_result", title: "Planungsergebnis in der Sitzung speichern", annotations: wr,
@@ -697,7 +697,10 @@ async function callTool(c, name, a) {
       }
       let { lesson: l } = await updateLesson(c.db, a.lesson_id, b, c.now);
       if (stopPrev) {
-        await c.db.prepare("UPDATE lessons SET stop_decision=?2, updated_at=?3 WHERE id=?1").bind(l.id, stopDecisionJson(a.zwischenstopp, stopPrev, c.now), c.now).run();
+        // dieselbe Entscheidung noch einmal (z. B. am Ende zusammen mit der Zusammenfassung): ihr Zeitpunkt bleibt – sonst gälte eine schon danach
+        // gespeicherte Planung nicht mehr und der Hinweis auf der Sitzungsseite käme zurück (Nachtrag 26); eine andere Entscheidung ist neu
+        const was = stopDecision(l0, stopPrev), when = was && was.choice === a.zwischenstopp && was.at != null ? was.at : c.now;
+        await c.db.prepare("UPDATE lessons SET stop_decision=?2, updated_at=?3 WHERE id=?1").bind(l.id, stopDecisionJson(a.zwischenstopp, stopPrev, when), c.now).run();
         l = await getLesson(c.db, l.id);
         stopNote = " Entscheidung zum offenen Teil der vorigen Sitzung „" + stopPrev.title + "“ festgehalten: " + STOP_CHOICE_TEXT[a.zwischenstopp] +
           (l.unit_id || stopPrev.unit_row ? " Passe die Einheit an, sobald die Lehrkraft die Planung dieser Stunde bestätigt hat (siehe get_lesson)." : "");

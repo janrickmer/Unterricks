@@ -1772,6 +1772,8 @@ async function main() {
       await back();
       await tp.locator("#tsum-text p", { hasText: "Partnerarbeit zu M1 zu Ende führen" }).waitFor({ timeout: 10000 });
       ok(await tp.locator(".prevstop").count() === 1 && (await psOf()).settled === false, "… die Zusammenfassung allein (Nachtrag 21) erledigt den Hinweis nicht");
+      // der Fokus liegt in der Karte („Ausblenden“), wenn sie wegfällt: er geht wie bei „Ausblenden“ auf „Stunde mit Claude planen“ (Prüfung Nachtrag 26)
+      await tp.locator(".prevstop").getByRole("button", { name: "Ausblenden" }).focus();
       r = await tool("save_schulportal_entry", { lesson_id: l2.id, base_version: (await T("GET", "/api/teacher/lessons/" + l2.id)).data.lesson.portalVersion,
         text: "**1) Partnerarbeit fortsetzen**\n- ~~M1~~ zu Ende bearbeiten\n\n**2) Diskussionsrunde**\n- Argumentationswippe: https://argumentationswippe.de/" });
       ok(!r.isError, "Claude speichert den Schulportal-Eintrag dieser Sitzung (Connector)");
@@ -1779,6 +1781,8 @@ async function main() {
       await tp.locator(".prevstop").waitFor({ state: "detached", timeout: 10000 });
       ok(await tp.locator(".prevstop").count() === 0 && await tp.locator("section.claudeplan").isVisible() && (await psOf()).settled === true,
         "Nachtrag 26: beim Zurückkehren in den Tab (ohne Neuladen) ist die Karte nach Entscheidung + Speichern ganz weg");
+      ok(await tp.evaluate(() => { const a = document.activeElement; return !!a && a.tagName === "H2" && !!a.closest("section.claudeplan") && a.textContent.includes("Stunde mit Claude planen"); }),
+        "… „Ausblenden“ hatte den Fokus: er steht danach auf „Stunde mit Claude planen“ (nicht verloren)");
       await tp.getByRole("button", { name: "Stunde mit Claude planen" }).click();
       const sm3 = tp.locator(".modal", { hasText: "Welches Sprachmodell?" });
       await sm3.waitFor();
@@ -1789,6 +1793,12 @@ async function main() {
       await sm3.getByRole("button", { name: "Schließen", exact: true }).getByText("Schließen").click();
       const gl3 = (await tool("get_lesson", { lesson_id: l2.id })).content[0].text;
       ok(gl3.includes("Die Planung dieser Stunde wurde danach gespeichert.") && !gl3.includes("Erkläre der Lehrkraft zuerst"), "get_lesson danach: sachlich, keine erneute Frage");
+      // Claude hält dieselbe Entscheidung am Ende noch einmal fest (zusammen mit der Zusammenfassung): ihr Zeitpunkt bleibt, der Hinweis bleibt erledigt
+      const dec0 = (await psOf()).decision;
+      ok(!(await tool("update_lesson", { lesson_id: l2.id, zwischenstopp: "uebernehmen", zusammenfassung_lehrkraft: "Partnerarbeit zu M1 zu Ende führen, dann die Diskussionsrunde." })).isError, "Claude hält dieselbe Entscheidung am Ende noch einmal fest");
+      await back(); await tp.locator("#tsum-text p", { hasText: "dann die Diskussionsrunde." }).waitFor({ timeout: 10000 });
+      const dec1 = await psOf();
+      ok(await tp.locator(".prevstop").count() === 0 && dec1.settled === true && dec1.decision.at === dec0.at, "… die Karte bleibt weg (die Entscheidung behält ihren Zeitpunkt)");
       await tp.reload(); await tp.locator("section.claudeplan").waitFor({ timeout: 10000 }); await sleep(300);
       ok(await tp.locator(".prevstop").count() === 0, "… auch nach dem Neuladen keine Karte");
       // die vorige Sitzung ändert sich: Zwischenstopp verschoben → die Entscheidung gilt nicht mehr → beim Zurückkehren ist die Karte wieder da
@@ -2503,12 +2513,14 @@ async function main() {
         await backG();
         await tp.locator("#gs-prevstop-state", { hasText: "Der offene Teil wird in dieser Stunde übernommen." }).waitFor({ timeout: 10000 });
         ok((await psG()).settled === false, "Nachtrag 26 (Grundschule): nach Entscheidung und Zusammenfassung allein bleibt die Karte");
+        await tp.locator("#gs-prevstop").getByRole("link", { name: "Vorige Sitzung öffnen" }).focus();   // Fokus in der Karte, wenn sie wegfällt
         const sv = await tool("save_verlaufsplan", { lesson_id: les3.id, text: "**1) Rätsel aus der letzten Stunde (10 Min., Partnerarbeit)**\n- [[pdf:" + raeId + "]]\n**2) Josef im Gefängnis (15 Min., Sitzkreis)**" });
         ok(!sv.isError, "Claude speichert den Verlaufsplan dieser Sitzung (" + sv.content[0].text.slice(0, 60) + ")");
         await backG();
         await tp.locator("#gs-prevstop").waitFor({ state: "detached", timeout: 10000 });
         ok(await tp.evaluate(() => { const s = document.querySelector(".gs-session > .stack"); return !!s && s.firstElementChild.id === "gsplan" && !document.getElementById("gs-prevstop"); }) && (await psG()).settled === true,
           "Nachtrag 26 (Grundschule): beim Zurückkehren in den Tab ist die Karte unter dem Verlaufsplan ganz weg");
+        ok(await tp.evaluate(() => document.activeElement && document.activeElement.id === "gsplan-h"), "… der Fokus lag in der Karte: er steht danach auf „Verlaufsplan“ (nicht verloren)");
         // Verlaufsplan der vorigen Sitzung geändert (Zwischenstopp verschoben) → wieder da; neu entschieden, die Lehrkraft speichert den Verlaufsplan auf der Seite → weg
         const g2v = (await T("GET", "/api/teacher/lessons/" + les2.id)).data.lesson;
         const g2moved = g2v.portal.replace("⏸ Zwischenstopp\n", "").replace("**4) Rätsel (10 Min., Partnerarbeit)**", "**4) Rätsel (10 Min., Partnerarbeit)**\n⏸ Zwischenstopp");

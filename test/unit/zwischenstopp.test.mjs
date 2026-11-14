@@ -397,6 +397,8 @@ test("Connector: neue Werkzeuge in tools/list, Beschreibungen zum Zwischenstopp"
   const tools = (await (await routeMcp({ ...c, request: req, ip: "1.2.3.4", waitUntil: () => {} }, "geheim")).json()).result.tools;
   const t = (n) => tools.find((x) => x.name === n);
   assert.deepEqual(t("update_lesson").inputSchema.properties.zwischenstopp.enum, ["uebernehmen", "verzichten"]);
+  // Nachtrag 26: erst eine danach gespeicherte Planung erledigt den Hinweis – deshalb gleich nach der Antwort festhalten, nicht erst am Ende
+  assert.ok(t("update_lesson").inputSchema.properties.zwischenstopp.description.endsWith("; halte sie gleich nach ihrer Antwort fest, vor dem Speichern der Planung dieser Stunde (erst eine danach gespeicherte Planung erledigt den Hinweis darauf in Unterricks)"));
   assert.equal(t("update_unit_row").inputSchema.properties.stunden.maxItems, 30);
   assert.deepEqual(t("extend_unit").inputSchema.required, ["unit_id", "base_version", "termine"]);
   assert.equal(t("extend_unit").inputSchema.properties.termine.maximum, 3);
@@ -593,4 +595,51 @@ test("Nachtrag 26: ältere Zeilen ohne plan_saved_at – ein Eintrag von Claude 
   }
   assert.equal(L.planSavedAt({ plan_saved_at: 5, portal_source: "lehrkraft", portal_updated_at: 9 }), 5, "mit Spalte gilt nur sie");
   assert.equal(L.planSavedAt({ plan_saved_at: null, portal_source: "claude", portal_updated_at: null }), null);
+});
+
+test("Nachtrag 26 (Prüfung): dieselbe Entscheidung noch einmal festgehalten (z. B. am Ende mit der Zusammenfassung) behält ihren Zeitpunkt – eine schon danach gespeicherte Planung zählt weiter; Zwischenstopp in dieser Sitzung, Datum, eingeschobene und gelöschte Sitzung", async () => {
+  const c = await base();
+  const { ids } = await unitWith(c, { subject: "powi", klass: "8B", end: "2026-11-12", n: 4 });
+  await L.savePortal(c.db, ids[0], "**1) Einstieg**\n- Karikatur\n" + STOP + "\n**2) Partnerarbeit**\n- ~~M1~~ lesen", null, "lehrkraft", c.now);
+  const ps = async () => (await getLesson(c, ids[1])).previousStop;
+  const state = async () => { const p = await ps(); return p ? [p.decision ? p.decision.choice : null, p.decision ? p.decision.at : null, p.settled] : null; };
+  c.now = at("2026-11-04T09:00:00Z");
+  const t1 = c.now;
+  assert.ok(!(await mcp(c, "update_lesson", { lesson_id: ids[1], zwischenstopp: "uebernehmen" })).isError);
+  c.now += 60e3;
+  assert.ok(!(await mcp(c, "save_schulportal_entry", { lesson_id: ids[1], text: "**1) Partnerarbeit**\n- ~~M1~~ zu Ende" })).isError);
+  assert.deepEqual(await state(), ["uebernehmen", t1, true]);
+  // Claude hält dieselbe Entscheidung am Ende noch einmal fest (zusammen mit der Zusammenfassung): Zeitpunkt bleibt, der Hinweis bleibt erledigt
+  c.now += 60e3;
+  assert.ok(!(await mcp(c, "update_lesson", { lesson_id: ids[1], zwischenstopp: "uebernehmen", zusammenfassung_lehrkraft: "Erst M1 zu Ende, dann Sicherung." })).isError);
+  assert.deepEqual(await state(), ["uebernehmen", t1, true], "dieselbe Entscheidung noch einmal: Zeitpunkt bleibt, erledigt bleibt erledigt");
+  assert.ok((await mcp(c, "get_lesson", { lesson_id: ids[1] })).text.includes("entschieden am Mi, 04.11.2026: übernehmen"));
+  // eine andere Entscheidung ist neu: neuer Zeitpunkt, wieder offen bis zum nächsten Speichern; dieselbe danach noch einmal: Zeitpunkt bleibt
+  c.now += 60e3;
+  const t4 = c.now;
+  assert.ok(!(await mcp(c, "update_lesson", { lesson_id: ids[1], zwischenstopp: "verzichten" })).isError);
+  assert.deepEqual(await state(), ["verzichten", t4, false], "geänderte Entscheidung: wieder offen");
+  c.now += 60e3;
+  assert.ok(!(await mcp(c, "update_lesson", { lesson_id: ids[1], zwischenstopp: "verzichten" })).isError);
+  assert.deepEqual(await state(), ["verzichten", t4, false]);
+  // Zwischenstopp in DIESER Sitzung eingefügt (Sitzungsseite, PUT …/portal): eine Speicherung des Eintrags durch die Lehrkraft – zählt
+  c.now += 60e3;
+  assert.equal((await call(c, L.routePortalPut, "PUT", "/x", { text: "**1) Partnerarbeit**\n" + STOP + "\n- ~~M1~~ zu Ende", force: true }, ids[1])).status, 200);
+  assert.deepEqual(await state(), ["verzichten", t4, true], "Zwischenstopp in dieser Sitzung = Eintrag gespeichert");
+  // Datum dieser Sitzung vor die vorige verschoben: keine vorige Sitzung mit Zwischenstopp mehr; zurück: dieselbe Entscheidung gilt wieder, erledigt
+  c.now += 60e3;
+  assert.equal((await call(c, L.routeLessonPatch, "PATCH", "/x", { date: "2026-11-02" }, ids[1])).status, 200);
+  assert.equal(await ps(), null, "vor der vorigen Sitzung: kein Hinweis");
+  assert.equal((await call(c, L.routeLessonPatch, "PATCH", "/x", { date: "2026-11-05" }, ids[1])).status, 200);
+  assert.deepEqual(await state(), ["verzichten", t4, true], "zurück: dieselbe vorige Sitzung, dieselbe Fassung");
+  // eine Sitzung dazwischen (ohne Zwischenstopp): sie ist die vorige – kein Hinweis; mit Zwischenstopp: offen, nicht entschieden; wieder weg: erledigt
+  assert.equal((await call(c, L.routeLessonPatch, "PATCH", "/x", { date: "2026-11-04" }, ids[3])).status, 200);
+  assert.equal(await ps(), null, "Sitzung dazwischen ohne Zwischenstopp");
+  await L.savePortal(c.db, ids[3], "**1) X**\n" + STOP + "\n**2) Rest**", null, "lehrkraft", c.now);
+  assert.deepEqual(await state(), [null, null, false], "Sitzung dazwischen mit Zwischenstopp: neuer offener Teil");
+  assert.equal((await call(c, L.routeLessonPatch, "PATCH", "/x", { date: "2026-11-12" }, ids[3])).status, 200);
+  assert.deepEqual(await state(), ["verzichten", t4, true]);
+  // vorige Sitzung gelöscht: keine vorige Sitzung mit Zwischenstopp mehr
+  assert.equal((await call(c, L.routeLessonDelete, "DELETE", "/x", undefined, ids[0])).status, 200);
+  assert.equal(await ps(), null, "vorige Sitzung gelöscht");
 });

@@ -365,7 +365,9 @@ implementiert und im End-to-End-Test geprüft (Ausnahmen unten ausdrücklich gen
     hält die Antwort der Lehrkraft mit `update_lesson` (`zwischenstopp`) fest (ohne Zwischenstopp der vorigen Sitzung: Fehler „Die vorige
     Sitzung hat keinen Zwischenstopp.“; Ausfall-Einträge nehmen nichts an). Sie gilt nur, solange die vorige Sitzung dieselbe ist und ihr
     Eintrag dieselbe Version hat (`stopDecision`) – ist der Zwischenstopp verschoben oder der Eintrag geändert, gilt wieder „noch nicht
-    entschieden“.
+    entschieden“. Hält Claude dieselbe (noch gültige) Entscheidung noch einmal fest – z. B. am Ende zusammen mit der Zusammenfassung –, behält sie
+    ihren Zeitpunkt `at` (sonst gälte eine schon danach gespeicherte Planung nicht mehr, Nachtrag 26); eine andere Wahl ist eine neue Entscheidung.
+    Die Beschreibung von `zwischenstopp` bittet Claude, die Antwort gleich festzuhalten – vor dem Speichern der Planung dieser Stunde.
   * **Prompt „Stunde mit Claude planen“** (beide Schulformen, Bausteine `stopCarrySection`/`stopCarryStep`/`stopFallbackText` in
     public/planning.js): Abschnitt „## Vorige Stunde nicht vollständig beendet“ (vorige Sitzung mit ID, geplante Zeile, Geschafft und Nicht
     geschafft im Wortlaut, in der Grundschule das Material danach mit file_id, Stand) und ein eigener Schritt direkt nach `get_lesson`: erklären
@@ -408,12 +410,13 @@ implementiert und im End-to-End-Test geprüft (Ausnahmen unten ausdrücklich gen
     dieser Sitzung wurde danach oder im selben Aufruf gespeichert (`stopSettled` in worker/lessons.js; der Vergleich `savedSinceDecision` in
     public/shared.js ist derselbe wie beim Podcast, 4q). Maßgeblich ist die neue Spalte `lessons.plan_saved_at` (additiv, beim ersten Aufruf nach dem
     Ausrollen ein `ALTER TABLE` mehr; auf einer ganz neuen Datenbank 46 Anweisungen für das Schema): `savePortal(…, plan = true)` setzt sie nur bei
-    echten Speicherungen der Planung – Schulportal-Eintrag bzw. Verlaufsplan auf der Sitzungsseite (`PUT …/portal`, auch „Meine Fassung speichern“),
-    „Mit KI neu erstellen“, `save_schulportal_entry`, `save_verlaufsplan`. Nicht beim Laden einer Sitzungsdatei (der Eintrag stammt aus einer anderen
-    Sitzung) und nicht durch die Vertretung (Bestätigen, Wiederherstellen, Übernehmen in eine andere Sitzung); Zusammenfassung, Datum, Hausaufgabe
-    und andere Felder berühren sie nie (`portal_updated_at` zählt dagegen jede Änderung des Eintrags und bleibt, was die Sitzungsseite anzeigt). Ältere
-    Zeilen ohne die Spalte: der letzte Eintrag zählt, wenn er von Claude oder der KI kam (`planSavedAt`). Keine zusätzliche D1-Abfrage (die Zeile ist
-    schon gelesen). Die Sitzungsseite zeigt die Karte nur ohne `settled` (`prevStopShown` in public/portalview.js) – sie verschwindet ganz, beim
+    echten Speicherungen der Planung – Schulportal-Eintrag bzw. Verlaufsplan auf der Sitzungsseite (`PUT …/portal`, auch „Meine Fassung speichern“
+    und ein dort eingefügter Zwischenstopp dieser Sitzung), „Mit KI neu erstellen“, `save_schulportal_entry`, `save_verlaufsplan`. Nicht beim Laden
+    einer Sitzungsdatei (der Eintrag stammt aus einer anderen Sitzung) und nicht durch die Vertretung (Bestätigen, Wiederherstellen, Übernehmen in
+    eine andere Sitzung); Zusammenfassung, Datum, Hausaufgabe und andere Felder berühren sie nie (`portal_updated_at` zählt dagegen jede Änderung
+    des Eintrags und bleibt, was die Sitzungsseite anzeigt). Ältere Zeilen ohne die Spalte: der letzte Eintrag zählt, wenn er von Claude oder der KI
+    kam (`planSavedAt`). Keine zusätzliche D1-Abfrage (die Zeile ist schon gelesen). Die Sitzungsseite zeigt die Karte nur ohne `settled`
+    (`prevStopShown` in public/portalview.js) – sie verschwindet ganz, beim
     Zurückkehren in den Tab (`onVis`) und gleich nach einem Speichern auf der Seite (`prevStopAfterSave` mit dem Zeitpunkt des Servers); hatte sie den
     Fokus, geht er wie bei „Ausblenden“ auf „Stunde mit Claude planen“ bzw. „Verlaufsplan“; liegt sie ganz oberhalb des sichtbaren Bereichs (Eintrag
     weiter unten bearbeitet), bleibt das Sichtbare stehen (`removeKeepingView`). Wird die Entscheidung ungültig, ist `settled` wieder false und die
