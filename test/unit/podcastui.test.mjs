@@ -211,3 +211,69 @@ test("abgelaufener Link: „Abspielen“ holt erst einen neuen; ein Ladefehler e
   globalThis.__leave();
   assert.equal(a.paused, true); assert.equal(a._src, "");
 });
+
+test("Tastatur: Enter auf „Abspielen“ → Fokus auf „Pause“ (der gesperrte Knopf behält ihn nicht), Enter → zurück; am Ende ebenso; woanders gesetzter Fokus bleibt", async () => {
+  const card = await mount([], { ok: true, today: "2026-11-17", podcasts: [POD()] });
+  await until(() => $(".pc-item", card) && !$(".pc-range", card).disabled, "Player");
+  const a = rec.audios[0], play = button(card, "Abspielen"), pause = button(card, "Pause"), range = $(".pc-range", card);
+  play.focus(); D.press("Enter");
+  assert.equal(rec.plays, 1); assert.equal(play.getAttribute("aria-disabled"), "true");
+  assert.equal(document.activeElement, pause, "Fokus auf „Pause“ – " + desc(document.activeElement));
+  D.press("Enter");
+  assert.equal(a.paused, true); assert.equal(document.activeElement, play, "Fokus zurück auf „Abspielen“ – " + desc(document.activeElement));
+  // die Folge endet, während der Fokus auf „Pause“ liegt → „Abspielen“
+  D.press("Enter"); assert.equal(document.activeElement, pause);
+  a.paused = true; a.emit("ended");
+  assert.equal(document.activeElement, play, "am Ende: Fokus auf „Abspielen“ – " + desc(document.activeElement));
+  // Fokus auf dem Schieberegler: Abspielen und das Ende ändern ihn nicht
+  D.userClick(play); range.focus();
+  a.paused = true; a.emit("pause"); a.emit("ended");
+  assert.equal(document.activeElement, range, "der Fokus bleibt, wo die Lehrkraft ihn hingesetzt hat – " + desc(document.activeElement));
+  assert.equal(globalThis.__domErrors.length, 0, globalThis.__domErrors.join("\n"));
+});
+
+test("Tag vorbei, Fenster blieb offen: beim Zurückkehren ins Fenster (focus) bzw. in den Tab neu geladen – wieder der Knopf; nie mitten in die Karte", async () => {
+  let lists = 0;
+  const card = await mount([[/^GET \/api\/teacher\/podcast\/plan$/, () => ({ ...PLAN(), plans: PLAN().plans.slice(1) })]],
+    () => (++lists === 1 ? { ok: true, today: "2026-11-17", podcasts: [POD({ day: "2026-11-17" })] } : { ok: true, today: "2026-11-18", podcasts: [] }));
+  await until(() => $(".pc-item", card), "Player für den 17.");
+  D.fire(globalThis.window, "focus"); document.dispatchEvent(new D.Event("visibilitychange"));
+  await D.sleep(10);
+  assert.equal(lists, 1, "am selben Tag: kein Neuladen");
+  PC.io.now = () => NOW + 22 * 3600e3;   // Mittwoch, 18.11., 8:00 Uhr
+  D.fire(globalThis.window, "focus");
+  await until(() => button(card, PC.GO_LABEL), "Knopf nach dem Tageswechsel");
+  assert.equal(lists, 2); assert.equal($(".pc-item", card), null);
+  D.fire(globalThis.window, "focus"); await D.sleep(10);
+  assert.equal(lists, 2, "nur einmal je Tag");
+  PC.io.now = () => NOW + 46 * 3600e3;   // Donnerstag
+  // in der Karte (Claude arbeitet gerade in Gemini Notebook): kein Neuladen beim Hin- und Herwechseln
+  D.userClick(button(card, PC.GO_LABEL));
+  await until(() => $("#pc-drop", card), "Karte");
+  D.fire(globalThis.window, "focus"); document.dispatchEvent(new D.Event("visibilitychange"));
+  await D.sleep(10);
+  assert.ok($("#pc-drop", card), "die Karte bleibt"); assert.equal(lists, 2);
+});
+
+test("nach dem Hochladen: Fokus auf „Abspielen“ genau des neuen Podcasts (auch wenn ein früherer Tag darüber steht); Karte nennt Download-Symbol und Auswahl", async () => {
+  const todays = POD({ id: "d".repeat(16), day: "2026-11-17" });
+  const card = await mount([[/^GET \/api\/teacher\/podcast\/plan$/, () => ({ ...PLAN(), plans: PLAN().plans.slice(1) })]], { ok: true, today: "2026-11-17", podcasts: [todays] });
+  await until(() => $(".pc-item", card), "Player für heute");
+  D.userClick(button(card, "Podcast für einen anderen Tag entwickeln"));
+  await until(() => $("#pc-drop", card), "Karte für morgen");
+  assert.equal($$(".pc-steps li", card)[2].textContent, "Ziehen Sie die heruntergeladene Datei aus den Downloads von Chrome (Download-Symbol oben rechts) auf das Feld „Podcast-Datei hier ablegen“ – oder klicken Sie auf das Feld und wählen Sie sie aus. Danach löscht Claude das Notizbuch in Gemini Notebook wieder – vorher fragt Claude Sie.");
+  assert.match($("#pc-drop-h", card).textContent, /Klicken, antippen oder Enter: Datei auswählen\.$/);
+  let done;
+  PC.io.upload = (path, file, type) => { rec.uploads.push([path, file.name, type]); return { promise: new Promise((r) => { done = r; }), abort: () => {} }; };
+  const zone = $("#pc-drop", card), inp = $("#pc-file", card);
+  zone.focus();
+  Object.defineProperty(inp, "files", { value: [{ name: "morgen.wav", size: 8044, _head: new Uint8Array([82, 73, 70, 70, 0, 0, 0, 0, 87, 65, 86, 69]) }], configurable: true });
+  D.fire(inp, "change");
+  await until(() => rec.uploads.length === 1, "Hochladen");
+  done({ ok: true, podcast: POD() });
+  await until(() => $$(".pc-item", card).length === 2, "zwei Player");
+  assert.deepEqual($$(".pc-item h2", card).map((x) => x.textContent), ["Podcast zum Unterricht am Dienstag, 17. November 2026", "Podcast zum Unterricht am Mittwoch, 18. November 2026"]);
+  const item = $$(".pc-item", card)[1];
+  assert.equal(document.activeElement, button(item, "Abspielen"), "Fokus auf „Abspielen“ des neuen Podcasts – " + desc(document.activeElement));
+  assert.equal(globalThis.__domErrors.length, 0, globalThis.__domErrors.join("\n"));
+});

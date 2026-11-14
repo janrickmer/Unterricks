@@ -214,10 +214,11 @@ Feibeitsblatt braucht keine Änderung. Die Adressen stehen in `wrangler.jsonc` (
      Quelltext als „Kopierter Text“ an, erzeugt im Bereich „Studio“ die „Audio-Zusammenfassung“ (Format „Detaillierte Analyse“, Deutsch;
      die Steueranweisung bittet um höchstens 12 bis 15 Minuten), wartet und lädt die Folge herunter. Fragt Google nach Anmeldung oder
      Bestätigung, hält Claude an – das erledigen Sie selbst.
-  4. **Ziehen Sie die heruntergeladene Datei** aus der Download-Leiste auf das Feld **„Podcast-Datei hier ablegen oder auswählen“** (auch
-     daneben auf die Seite; oder Feld antippen und auswählen). Erlaubt: M4A bzw. MP4-Audio, WAV, MP3, AAC, Ogg, WebM (Unterricks prüft die
-     ersten Bytes, nicht nur die Endung), höchstens 95 MB.
-  5. Danach löscht Claude das Notizbuch in Gemini Notebook wieder – das Löschen bestätigen Sie dort.
+  4. **Ziehen Sie die heruntergeladene Datei** aus den Downloads von Chrome (Download-Symbol oben rechts) auf das Feld **„Podcast-Datei
+     hier ablegen oder auswählen“** (auch daneben auf die Seite; oder Feld anklicken bzw. antippen und die Datei auswählen). Erlaubt:
+     M4A bzw. MP4-Audio, WAV, MP3, AAC, Ogg, WebM (Unterricks prüft die ersten Bytes, nicht nur die Endung), höchstens 95 MB.
+  5. Sobald Sie Claude bestätigt haben, dass der Podcast in Unterricks zu sehen ist, fragt Claude, ob es das Notizbuch in Gemini Notebook
+     löschen soll, und löscht nach Ihrer Zustimmung nur dieses Notizbuch.
 
   Danach steht an der Stelle des Knopfes der **Player** „Podcast zum Unterricht am Montag, 16. November 2026“ mit „Abspielen“, „Pause“,
   Schieberegler zum Spulen (Pfeiltasten ±5 s, Bild auf/ab ±30 s) und Zeitangabe, darunter „KI-erzeugt mit Gemini Notebook“, „Podcast

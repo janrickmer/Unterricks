@@ -3012,6 +3012,14 @@ async function main() {
       await qp.waitForTimeout(400);
       const pos1 = await item.locator(".pc-range").inputValue();
       ok(Number(pos1) === Math.min(12, Number(pos0) + 5) && (await item.locator(".pc-range").getAttribute("aria-valuetext")).endsWith(" von 0:12"), "Spulen mit der Tastatur: Pfeil rechts +5 s (" + pos0 + " → " + pos1 + " s)");
+      // Tastatur: Enter auf „Abspielen“ → der Fokus wandert zu „Pause“ (der gesperrte Knopf behält ihn nicht), Enter → angehalten, Fokus zurück
+      const focusOn = (cls) => qp.waitForFunction((c) => !!document.activeElement && document.activeElement.classList.contains(c), cls, { timeout: 10000 }).then(() => true, () => false);
+      await play.focus(); await qp.keyboard.press("Enter");
+      const kPause = await focusOn("pc-pause");
+      await qp.keyboard.press("Enter");
+      const kPlay = await focusOn("pc-play");
+      ok(kPause && kPlay && await play.getAttribute("aria-disabled") === "false" && await pause.getAttribute("aria-disabled") === "true",
+        "Tastatur: Enter auf „Abspielen“ → Fokus auf „Pause“, Enter → angehalten, Fokus zurück auf „Abspielen“");
       ok(media.some((m) => m.status === 206 && /^bytes \d+-\d+\/96044$/.test(m.range)), "Abspielen über den signierten Link mit Range-Anfragen (206): " + media.map((m) => m.status + " " + m.range).slice(0, 3).join(", "));
       // derselbe Podcast auf der Übersicht Grundschule
       await qp.goto(BASE + "/#/lk/grundschule"); await qp.locator(".gs-courses").waitFor({ timeout: 20000 });

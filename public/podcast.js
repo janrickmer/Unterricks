@@ -79,7 +79,7 @@ export function askDay(todayPlan, nextPlan, now = io.now()) {
    mit onLeave ab). */
 export function podcastCard(load = () => tapi("GET", "/api/teacher/podcast")) {
   const root = h("section", { class: "podcast loading", "aria-label": "Podcast für den kommenden Unterricht", "aria-busy": "true" });
-  let run = 0, stopped = false, today = berlinToday(), podcasts = [], mode = "loading", cleanups = [], listErr = "";
+  let run = 0, stopped = false, today = berlinToday(io.now()), podcasts = [], mode = "loading", cleanups = [], listErr = "";
   // Zustandswechsel: was in dieser Form lief (Audio, Hochladen, Zuhörer an der Seite), endet; war der Fokus im Feld, geht er an focusEl des neuen Zustands
   function swap(cls, build) {
     const had = root.contains(document.activeElement);
@@ -172,7 +172,7 @@ export function podcastCard(load = () => tapi("GET", "/api/teacher/podcast")) {
       const steps = h("ol", { class: "pc-steps" },
         h("li", null, "Öffnen Sie Claude in Chrome – die Seitenleiste mit ", kbd("Strg"), "+", kbd("E"), " (Mac: ", kbd("Cmd"), "+", kbd("E"), ") oder über das Claude-Symbol in der Symbolleiste. Claude in Chrome gibt es nur in Chrome am Computer."),
         h("li", null, "Fügen Sie den Auftrag ein (", kbd("Strg"), "+", kbd("V"), " bzw. ", kbd("Cmd"), "+", kbd("V"), ") und drücken Sie ", kbd("Enter"), ". Claude erstellt die Folge in Gemini Notebook und lädt sie herunter – das dauert einige Minuten."),
-        h("li", null, "Ziehen Sie die heruntergeladene Datei aus der Download-Leiste auf das Feld „Podcast-Datei hier ablegen“. Danach löscht Claude das Notizbuch in Gemini Notebook wieder – das Löschen bestätigen Sie."));
+        h("li", null, "Ziehen Sie die heruntergeladene Datei aus den Downloads von Chrome (Download-Symbol oben rechts) auf das Feld „Podcast-Datei hier ablegen“ – oder klicken Sie auf das Feld und wählen Sie sie aus. Danach löscht Claude das Notizbuch in Gemini Notebook wieder – vorher fragt Claude Sie."));
       // 2) Ablagefeld (Ziehen und Ablegen, Klick, Tastatur; am iPad „Datei auswählen“ aus der Dateien-App)
       const zone = dropArea(plan);
       // 3) ohne Claude: Quelltext und Steueranweisung einzeln
@@ -191,7 +191,7 @@ export function podcastCard(load = () => tapi("GET", "/api/teacher/podcast")) {
     const state = h("p", { class: "pc-status", role: "status" });
     const z = h("div", { class: "drop pc-drop", id: "pc-drop", tabindex: "0", role: "button", "aria-label": DROP_LABEL, "aria-describedby": "pc-drop-h" },
       icon("upload"), h("strong", { text: DROP_LABEL }),
-      h("span", { class: "small muted", id: "pc-drop-h", text: "Die Audiodatei aus Gemini Notebook (" + P.AUDIO_KINDS_TEXT + "), höchstens " + P.PODCAST_MAX_BYTES / 1e6 + " MB. Klicken oder Enter: Datei auswählen." }), inp);
+      h("span", { class: "small muted", id: "pc-drop-h", text: "Die Audiodatei aus Gemini Notebook (" + P.AUDIO_KINDS_TEXT + "), höchstens " + P.PODCAST_MAX_BYTES / 1e6 + " MB. Klicken, antippen oder Enter: Datei auswählen." }), inp);
     let up = null;
     const busyNow = () => !!up;
     async function take(file) {
@@ -215,7 +215,7 @@ export function podcastCard(load = () => tapi("GET", "/api/teacher/podcast")) {
         up = null;
         if (stopped) return;
         podcasts = [...podcasts.filter((p) => p.day !== r.podcast.day), r.podcast].sort((a, b) => a.day.localeCompare(b.day));
-        showPlayers("Gespeichert: „" + P.podcastTitle(r.podcast.day) + "“ – Sie können ihn jetzt abspielen.");
+        showPlayers("Gespeichert: „" + P.podcastTitle(r.podcast.day) + "“ – Sie können ihn jetzt abspielen.", r.podcast.id);
       } catch (e) {
         up = null;
         if (!z.isConnected || (e && e.name === "AbortError")) return;
@@ -248,7 +248,7 @@ export function podcastCard(load = () => tapi("GET", "/api/teacher/podcast")) {
       h("ol", { class: "small pc-msteps" },
         h("li", null, "Öffnen Sie ", h("a", { href: P.NOTEBOOK_URL, target: "_blank", rel: "noopener noreferrer", text: "notebook.google.com" }), " und legen Sie ein neues Notizbuch an (z. B. „" + P.notebookName(plan.date) + "“)."),
         h("li", null, "Fügen Sie als Quelle „Kopierter Text“ den Quelltext unten ein."),
-        h("li", null, "Im Bereich „Studio“ die „Audio-Zusammenfassung“ anpassen: Format „Detaillierte Analyse“, Sprache Deutsch, Länge „Kürzer“ (falls angeboten) – und die Steueranweisung unten einfügen."),
+        h("li", null, "Im Bereich „Studio“ die „Audio-Zusammenfassung“ über „Anpassen“ (Stift-Symbol) einstellen – ein Tipp auf die Kachel selbst startet womöglich sofort ohne Einstellungen: Format „Detaillierte Analyse“, Sprache Deutsch, Länge „Kürzer“ (falls angeboten) – und die Steueranweisung unten einfügen."),
         h("li", null, "Erzeugen, einige Minuten warten und die Audio-Zusammenfassung herunterladen."),
         h("li", null, "Die Datei oben ablegen bzw. mit einem Tipp auf das Feld auswählen (am iPad aus der Dateien-App)."),
         h("li", null, "Das Notizbuch in Gemini Notebook wieder löschen.")),
@@ -257,15 +257,17 @@ export function podcastCard(load = () => tapi("GET", "/api/teacher/podcast")) {
   }
 
   /* ---------- Player ---------- */
-  function showPlayers(note = "") {
+  /* focusId: nach dem Hochladen der Podcast, dessen „Abspielen“ den Fokus bekommt (sonst der erste) – nur, wenn der Fokus vorher im Feld lag (swap) */
+  function showPlayers(note = "", focusId = "") {
     mode = "players";
     swap("card podcast pc-player", () => {
       const status = h("p", { class: "pc-status", role: "status" });
       const other = h("button", { class: "btn ghost pc-aux pc-other", type: "button", onclick: () => start(other, status) }, icon("headphones"), "Podcast für einen anderen Tag entwickeln");
-      const items = podcasts.map((p) => playerBlock(p, status));
+      const items = podcasts.map((p) => ({ id: p.id, ...playerBlock(p, status) }));
       root.append(...items.map((x) => x.el), h("div", { class: "row pc-foot" }, other), status);
       announce(status, note);
-      return items.length ? items[0].play : other;
+      const mine = items.find((x) => x.id === focusId) || items[0];
+      return mine ? mine.play : other;
     });
   }
   function playerBlock(p, status) {
@@ -287,7 +289,13 @@ export function podcastCard(load = () => tapi("GET", "/api/teacher/podcast")) {
       range.setAttribute("aria-valuetext", P.fmtPlayTime(pos) + " von " + (d ? P.fmtPlayTime(d) : "unbekannt"));
       if (!dragging) range.value = String(Math.floor(pos || 0));
     };
-    const playing = (on) => { play.setAttribute("aria-disabled", String(!!on)); pause.setAttribute("aria-disabled", String(!on)); play.classList.toggle("primary", !on); pause.classList.toggle("primary", !!on); };
+    // Der gerade gesperrte Knopf behält den Fokus nicht: Lag er dort (z. B. Enter auf „Abspielen“), geht er zum anderen – sonst bliebe er auf einem
+    // Knopf, der nichts mehr tut. Hat die Lehrkraft den Fokus inzwischen woanders hingesetzt, bleibt er dort.
+    const playing = (on) => {
+      play.setAttribute("aria-disabled", String(!!on)); pause.setAttribute("aria-disabled", String(!on)); play.classList.toggle("primary", !on); pause.classList.toggle("primary", !!on);
+      const from = on ? play : pause, to = on ? pause : play;
+      if (document.activeElement === from && to.isConnected) to.focus();
+    };
     const seek = (to) => { const d = dur(); if (!d) return; const t = Math.max(0, Math.min(d, to)); audio.currentTime = t; paint(t); };
     // Link erneuern (gilt 12 Stunden): rechtzeitig im Hintergrund, beim Zurückkehren in den Tab und nach einem Ladefehler; Position und Wiedergabe bleiben
     async function renew(resume) {
@@ -363,22 +371,30 @@ export function podcastCard(load = () => tapi("GET", "/api/teacher/podcast")) {
     try {
       const r = await load();
       if (mine !== run || stopped) return;
-      today = r.today || berlinToday(); podcasts = Array.isArray(r.podcasts) ? r.podcasts : []; listErr = "";
+      today = r.today || berlinToday(io.now()); podcasts = Array.isArray(r.podcasts) ? r.podcasts : []; listErr = "";
     } catch (e) {
       if (mine !== run || stopped) return;
       podcasts = []; listErr = "Gespeicherte Podcasts ließen sich nicht laden: " + ((e && e.message) || e);
     }
     if (mode !== "prep") paintIdle();
   }
-  // zurück im Tab an einem anderen Tag (z. B. am nächsten Morgen): neu laden – nie mitten in die Karte oder ein laufendes Abspielen
+  // zurück im Tab bzw. Fenster an einem anderen Tag (z. B. am nächsten Morgen): neu laden – ein vergangener Tag wird nicht mehr angeboten, dann steht
+  // wieder der Knopf da; nie mitten in die Karte oder ein laufendes Abspielen. Auch beim Zurückkehren ins Fenster (focus): ein Fenster, das die
+  // Nacht über offen und nur von anderen verdeckt war, meldet keinen Wechsel der Sichtbarkeit.
+  // Verglichen wird mit dem Tag, an dem diese Seite zuletzt geladen hat (seen) – nicht mit dem Tag des Servers: geht die Uhr des Geräts anders, lädt
+  // sonst jedes Zurückkehren neu.
+  let seen = berlinToday(io.now());
+  const off = () => { document.removeEventListener("visibilitychange", onVis); window.removeEventListener("focus", onVis); };
   const onVis = () => {
-    if (!root.isConnected) { document.removeEventListener("visibilitychange", onVis); return; }
-    if (document.visibilityState !== "visible" || berlinToday() === today || mode === "prep") return;
+    if (!root.isConnected) { off(); return; }
+    const d = berlinToday(io.now());
+    if (document.visibilityState !== "visible" || d === seen || mode === "prep") return;
     if (root.querySelector(".pc-pause[aria-disabled='false']")) return;
-    today = berlinToday(); reload();
+    seen = d; today = d; reload();
   };
   document.addEventListener("visibilitychange", onVis);
-  onLeave(() => { stopped = true; run++; document.removeEventListener("visibilitychange", onVis); for (const fn of cleanups.splice(0)) { try { fn(); } catch {} } });
+  window.addEventListener("focus", onVis);
+  onLeave(() => { stopped = true; run++; off(); for (const fn of cleanups.splice(0)) { try { fn(); } catch {} } });
   reload();
   return root;
 }
