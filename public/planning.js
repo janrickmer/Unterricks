@@ -2,7 +2,7 @@
 // Gemeinsam für Browser und Worker (keine DOM-Zugriffe).
 import { subjectName, gradeInfo, classShort, isAnalogClass, ANALOG_RULE, fmtDay, addDays, isIsoDate, isClockTime, PORTAL_RULES, PORTAL_EXAMPLE, PORTAL_TEACHER_RULE, FEIBEITSBLATT_INFO, materialDesignText,
   SYSTEM_PROMPT_ROLE, UNIT_RULE_BASE, STOP_LINE, lessonContext, teacherWishes, groupShort, subjectShort, isValidSubject, isValidClass, clockMinutes, minutesClock, mondayOf, isWeekend,
-  GS_SUBJECT, isGsCourseId, parentOpensAt, berlinToday, stopParts, STOP_CHOICE_TEXT, STOP_CHOICES, stopDecidedOn, summarySaveStep, SUMMARY_FALLBACK } from "./shared.js";
+  GS_SUBJECT, isGsCourseId, parentOpensAt, berlinToday, stopParts, STOP_CHOICE_TEXT, STOP_CHOICES, stopDecidedOn, summarySaveStep, SUMMARY_FALLBACK, daysBetween } from "./shared.js";
 import { ESCAPE_FORMAT_HINT } from "./escape-data.js";
 export { UNIT_RULE } from "./shared.js";
 
@@ -12,21 +12,26 @@ const str = (v, max) => { const s = typeof v === "string" ? v : v == null ? "" :
 const clip = (s, n) => { s = str(s); return s.length > n ? s.slice(0, n) + " […gekürzt]" : s; };
 
 /* ---------- Rahmendaten und Termine ---------- */
-// params = { start, end, exam, weekdays: [{day 1–5, minutes, time? „HH:MM“}], breaks: [{from, to, label}], notes, cancelled?: [{date, time}] }
+// params = { start, end, exam, weekdays: [{day 1–5, minutes, time? „HH:MM“}], breaks: [{from, to, label}], notes, cancelled?: [{date, time}],
+//            schoolBreaks?: [{from, to, label}] (unterrichtsfreie Tage der Schule aus den Einstellungen – nur ausgeliefert, nie gespeichert: storeParams) }
 export const CANCEL_MAX = 60;   // höchstens so viele Ausfälle (Krankmeldungen) je Einheit
+const breakList = (raw, max) => (Array.isArray(raw) ? raw : []).slice(0, max)
+  .map((b) => ({ from: isIsoDate(b && b.from) ? b.from : null, to: isIsoDate(b && (b.to || b.from)) ? b.to || b.from : null, label: str(b && b.label, 80) }))
+  .filter((b) => b.from && b.to && b.to >= b.from);
 export function normalizeParams(raw) {
   const p = raw && typeof raw === "object" ? raw : {};
   const date = (v) => (isIsoDate(v) ? v : null);
   const weekdays = (Array.isArray(p.weekdays) ? p.weekdays : []).slice(0, 10)
     .map((w) => ({ day: Number(w && w.day), minutes: Number(w && w.minutes), time: isClockTime(w && w.time) ? w.time : null }))
     .filter((w) => Number.isInteger(w.day) && w.day >= 1 && w.day <= 5 && Number.isInteger(w.minutes) && w.minutes >= 20 && w.minutes <= 240);
-  const breaks = (Array.isArray(p.breaks) ? p.breaks : []).slice(0, 30)
-    .map((b) => ({ from: date(b && b.from), to: date(b && (b.to || b.from)), label: str(b && b.label, 80) }))
-    .filter((b) => b.from && b.to && b.to >= b.from);
+  const breaks = breakList(p.breaks, 30);
   // Grundschule: ausgefallene Termine (Krankmeldung, nur von der Plattform gesetzt) – der Schlüssel nur, wenn es welche gibt (Gymnasium unverändert)
   const cancelled = (Array.isArray(p.cancelled) ? p.cancelled : []).slice(0, CANCEL_MAX)
     .map((x) => ({ date: date(x && x.date), time: isClockTime(x && x.time) ? x.time : null })).filter((x) => x.date);
-  return { start: date(p.start), end: date(p.end), exam: date(p.exam), weekdays, breaks, notes: str(p.notes, 2000), ...(cancelled.length ? { cancelled } : {}) };
+  // unterrichtsfreie Tage der Schule (Nachtrag 24) – der Schlüssel nur, wenn es welche gibt; gespeichert wird er nie (storeParams)
+  const schoolBreaks = breakList(p.schoolBreaks, FREE_DAYS_MAX);
+  return { start: date(p.start), end: date(p.end), exam: date(p.exam), weekdays, breaks, notes: str(p.notes, 2000), ...(cancelled.length ? { cancelled } : {}),
+    ...(schoolBreaks.length ? { schoolBreaks } : {}) };
 }
 /* Kurseinstellungen (course_settings; beide Schulformen): Stundenplan wie units.params.weekdays und Schülerzahl (1–60, null = nicht eingetragen).
  * requireTime (Grundschule): jeder Termin braucht eine Uhrzeit – daraus ergibt sich, ab wann Eltern eine Sitzung sehen. Wirft deutsche Meldungen. */
@@ -44,14 +49,16 @@ export function normalizeCourseSettings(raw, { requireTime = false } = {}) {
   if (requireTime && weekdays.some((w) => !w.time)) throw new Error("Bitte bei jedem Termin die Uhrzeit eintragen – daraus ergibt sich, ab wann Eltern eine Sitzung sehen können.");
   return { weekdays, classSize };
 }
-/* Alle Unterrichtstermine im Zeitraum nach Stundenplan, ohne Ferien/Ausfälle; der Klausurtag wird markiert */
+/* Alle Unterrichtstermine im Zeitraum nach Stundenplan, ohne Ferien/Ausfälle der Einheit und ohne die unterrichtsfreien Tage der Schule
+   (schoolBreaks); der Klausurtag wird markiert */
 export function computeSlots(raw) {
   const p = normalizeParams(raw), out = [];
   if (!p.start || !p.end || p.end < p.start || !p.weekdays.length) return out;
+  const sb = (p.schoolBreaks || []).filter((b) => b.to >= p.start && b.from <= p.end);   // nur die im Zeitraum (wenig Arbeit je Tag)
   for (let d = p.start, i = 0; d <= p.end && i < 400; d = addDays(d, 1), i++) {
     const wd = new Date(d + "T12:00:00Z").getUTCDay();
     const hits = p.weekdays.filter((w) => w.day === wd);
-    if (!hits.length || p.breaks.some((b) => d >= b.from && d <= b.to)) continue;
+    if (!hits.length || p.breaks.some((b) => d >= b.from && d <= b.to) || sb.some((b) => d >= b.from && d <= b.to)) continue;
     for (const w of hits) if (!isCancelled(p, d, w.time, hits.length === 1)) out.push({ date: d, minutes: w.minutes, time: w.time || null, kind: d === p.exam ? "klausur" : "stunde" });
   }
   return out;
@@ -61,21 +68,122 @@ export const lessonSlots = (slots) => slots.filter((s) => s.kind === "stunde");
 // (single), genügt der Tag: Eine später geänderte Uhrzeit im Stundenplan holt den ausgefallenen Termin nicht zurück (Abschlussprüfung F04).
 const isCancelled = (p, date, time, single = false) => (p.cancelled || []).some((c) => c.date === date && (c.time == null || single || c.time === (time || null)));
 
+/* ---------- Unterrichtsfreie Tage (Einstellungen, Nachtrag 24 vom 13.11.2026) ----------
+ * Die Lehrkraft trägt Zeiträume mit Bezeichnung ein (Ferien, Pädagogischer Tag, Brückentag …) und wählt je Eintrag die Schule: Grundschule
+ * (Fach „gs“), Gymnasium (alle anderen Fächer, Sek I und II) oder beide. An diesen Tagen gibt es für die Schule keine Termine: computeSlots lässt
+ * sie über params.schoolBreaks aus (withSchoolBreaks beim Ausliefern, storeParams beim Speichern). Keine automatischen Feiertage, nur ganze Tage.
+ * Einträge: {id?, from, to, label, scope "gs"|"gym"|"both"} (Kalendertage in Berlin, JJJJ-MM-TT). Gemeinsam für Worker und Browser. */
+export const FREE_DAYS_MAX = 200, FREE_DAY_SPAN_MAX = 366, FREE_DAY_LABEL_MAX = 80;
+export const FREE_DAY_SCOPES = { gs: "Grundschule", gym: "Gymnasium", both: "Beide Schulen" };
+// „(Herbstferien, Gymnasium)“ – im Satz klein: „beide Schulen“
+export const freeScopeText = (scope) => (scope === "both" ? "beide Schulen" : FREE_DAY_SCOPES[scope] || "");
+export const schoolOf = (subject) => (subject === GS_SUBJECT ? "gs" : "gym");
+export const freeDayCovers = (f, school) => !!f && (f.scope === "both" || f.scope === school);
+const freeErr = (field, message) => Object.assign(new Error(message), { status: 400, code: "bad_request", field });
+/* Eingabe prüfen (Formular der Einstellungen und Server) → {from, to, label, scope}; „Bis“ leer = ein Tag. Wirft Fehler mit field ("label" |
+   "from" | "to" | "scope") und deutscher Meldung. */
+export function normalizeFreeDay(raw) {
+  const r = raw && typeof raw === "object" ? raw : {};
+  const label = str(r.label).replace(/[\u0000-\u001f\u007f\u2028\u2029]+/g, " ").replace(/\s+/g, " ").trim();
+  if (!label) throw freeErr("label", "Bitte eine Bezeichnung eintragen, z. B. „Herbstferien“ oder „Pädagogischer Tag“.");
+  if (label.length > FREE_DAY_LABEL_MAX) throw freeErr("label", "Die Bezeichnung ist zu lang (höchstens " + FREE_DAY_LABEL_MAX + " Zeichen).");
+  const from = r.from, to = r.to === undefined || r.to === null || r.to === "" ? r.from : r.to;
+  const inRange = (d) => d >= "2000-01-01" && d <= "2099-12-31";
+  if (!isIsoDate(from)) throw freeErr("from", "Bitte den ersten unterrichtsfreien Tag bei „Von“ eintragen.");
+  if (!inRange(from)) throw freeErr("from", "Bitte ein Datum zwischen 2000 und 2099 eintragen.");
+  if (!isIsoDate(to)) throw freeErr("to", "Bitte den letzten unterrichtsfreien Tag bei „Bis“ eintragen.");
+  if (!inRange(to)) throw freeErr("to", "Bitte ein Datum zwischen 2000 und 2099 eintragen.");
+  if (to < from) throw freeErr("to", "„Bis“ darf nicht vor „Von“ liegen.");
+  if (daysBetween(from, to) + 1 > FREE_DAY_SPAN_MAX) throw freeErr("to", "Ein Eintrag umfasst höchstens " + FREE_DAY_SPAN_MAX + " Tage – bitte längere Zeiträume aufteilen.");
+  if (!Object.prototype.hasOwnProperty.call(FREE_DAY_SCOPES, r.scope)) throw freeErr("scope", "Bitte wählen, ob der Eintrag die Grundschule, das Gymnasium oder beide Schulen betrifft.");
+  return { from, to, label, scope: r.scope };
+}
+/* Liste säubern (vom Server bzw. aus der Datenbank): nur gültige Einträge, sortiert nach Beginn, Ende und Bezeichnung */
+export function cleanFreeDays(list) {
+  const out = [];
+  for (const x of (Array.isArray(list) ? list : []).slice(0, FREE_DAYS_MAX)) {
+    try { const f = normalizeFreeDay(x); out.push(typeof (x && x.id) === "string" ? { id: x.id, ...f } : f); } catch {}
+  }
+  return out.sort((a, b) => (a.from < b.from ? -1 : a.from > b.from ? 1 : a.to < b.to ? -1 : a.to > b.to ? 1 : a.label.localeCompare(b.label, "de")));
+}
+/* Die für eine Schule wirksamen Unterbrechungen [{from, to, label}] (sortiert). from: nur Einträge, die nicht vor diesem Tag enden. */
+export function schoolBreaks(freeDays, school, { from = null } = {}) {
+  return cleanFreeDays(freeDays).filter((f) => freeDayCovers(f, school) && (!from || f.to >= from)).map((f) => ({ from: f.from, to: f.to, label: f.label }));
+}
+/* Rahmendaten einer Einheit mit den unterrichtsfreien Tagen ihrer Schule (nur zum Rechnen und Anzeigen – storeParams entfernt sie vor dem Speichern).
+   Ohne passende Einträge bleibt das Objekt, wie es ist. */
+export function withSchoolBreaks(params, freeDays, subject) {
+  const p = params && typeof params === "object" ? params : {};
+  const sb = schoolBreaks(freeDays, schoolOf(subject), { from: isIsoDate(p.start) ? p.start : null });
+  if (!sb.length) return storeParams(p);
+  return { ...p, schoolBreaks: sb };
+}
+export const storeParams = (p) => { if (!p || typeof p !== "object" || !("schoolBreaks" in p)) return p; const { schoolBreaks: _, ...rest } = p; return rest; };
+/* der (erste) unterrichtsfreie Eintrag, in den ein Tag für die Schule fällt – oder null */
+export function freeDayOn(date, freeDays, school) {
+  if (!isIsoDate(date)) return null;
+  return cleanFreeDays(freeDays).find((f) => freeDayCovers(f, school) && date >= f.from && date <= f.to) || null;
+}
+/* „Mo, 05.10.2026 – Fr, 16.10.2026“ bzw. ein Tag „Mo, 05.10.2026“ */
+export const freeRangeText = (f) => (f.from === f.to ? fmtDay(f.from) : fmtDay(f.from) + " – " + fmtDay(f.to));
+/* Meldung, wenn ein Datum auf einen unterrichtsfreien Tag fällt (Sitzung, Tabelle der Einheit) – sonst null */
+export function freeDateError(date, freeDays, subject) {
+  const f = freeDayOn(date, freeDays, schoolOf(subject));
+  return f ? "Am " + fmtDay(date) + " ist unterrichtsfrei (" + f.label + ", " + freeScopeText(f.scope) + "). Bitte einen anderen Tag wählen." : null;
+}
+/* Verschieben nach einem neuen unterrichtsfreien Zeitraum (Entscheidung der Lehrkraft vom 13.11.2026: „nachfragen und verschieben“) – dieselbe
+   Packlogik wie die Krankmeldung, aber ohne Ausfall-Eintrag: Die erste betroffene Stunde (hit(date) – Datum ihrer Sitzung bzw. der Zeile, heute
+   oder später) und alle folgenden Stunden der Einheit bekommen der Reihe nach die freien Termine nach ihrem bisherigen Tag; was hinter das Ende
+   rutscht, bleibt ohne Termin. params mit den neuen schoolBreaks; lessons wie bei planCancellation. → null (nichts betroffen) bzw. {rows, s, moves,
+   undated, undatedRows, lengthChanges, first: {date, title}}. Wirft already_held wie planCancellation. */
+export function planFreeShift({ params, rows, lessons, hit, now = Date.now() }) {
+  const p = normalizeParams(params), list = Array.isArray(lessons) ? lessons : [], today = berlinToday(now);
+  const byRow = new Map(list.filter((l) => l.row && !l.cancelled).map((l) => [l.row, l]));
+  const dateOf = (r) => { const l = byRow.get(r.uid); return l ? l.date || null : r.date || null; };
+  const s = rows.findIndex((r) => { const d = dateOf(r); return !!d && d >= today && hit(d); });
+  if (s < 0) return null;
+  for (const r of rows.slice(s + 1)) {
+    const l = byRow.get(r.uid), open = l ? parentOpensAt({ date: l.date, startTime: l.time, durationMin: l.minutes }) : null;
+    if (open != null && open <= now) throw cancelErr(409, "already_held", "Die Stunde „" + (l.title || r.stundenfrage || "") + "“ am " + fmtDay(l.date) + " hat schon stattgefunden – verschieben lässt sich nur, solange die folgenden Stunden noch ausstehen.");
+  }
+  const next = packFrom(rows, upcoming(sortSlots(lessonSlots(computeSlots(p))), now), s, { date: dateOf(rows[s]), time: null });
+  const title = (r) => r.stundenfrage || (byRow.get(r.uid) || {}).title || "";
+  const moves = [], lengthChanges = [];
+  next.forEach((r, i) => {
+    const o = rows[i];
+    if (i < s || (o.date === r.date && (o.time || null) === (r.time || null) && (o.minutes ?? null) === (r.minutes ?? null))) return;
+    const l = byRow.get(r.uid);
+    moves.push({ uid: r.uid, n: i + 1, title: title(r), lessonId: l ? l.id : null, from: { date: (l ? l.date : o.date) || null, time: (l ? l.time : o.time) || null, minutes: o.minutes ?? null },
+      to: r.date ? { date: r.date, time: r.time || null, minutes: r.minutes ?? null } : null });
+    if (r.date && o.minutes && r.minutes && o.minutes !== r.minutes) lengthChanges.push({ uid: r.uid, n: i + 1, title: title(r), from: o.minutes, to: r.minutes });
+  });
+  const undatedRows = next.map((r, i) => ({ uid: r.uid, n: i + 1, title: title(r), date: r.date })).filter((r) => !r.date).map(({ uid, n, title }) => ({ uid, n, title }));
+  return { rows: next, s, moves, undated: undatedRows.map((r) => r.uid), undatedRows, lengthChanges, first: { date: dateOf(rows[s]), title: title(rows[s]) } };
+}
+
 /* ---------- Wochenkalender der Lehrkraft (Startseite) ----------
  * units = [{id, subject, klass, title, params}] (GET /api/teacher/schedule), monday = Montag der Woche. Eine Einheit gilt an einem Tag, wenn er
  * in ihrem Zeitraum liegt (Beginn und Ende einschließlich), sein Wochentag in ihrem Stundenplan steht und er in keinen ihrer Ferien/Ausfälle
  * fällt – wie computeSlots. Dieselbe Klasse zur selben Zeit (überlappende Einheiten) erscheint einmal. Je Tag: timed (mit Uhrzeit, nach Beginn),
- * untimed (ohne Uhrzeit), off (Unterricht, der laut Einheit an diesem Tag entfällt, mit dem Grund). */
-export function weekSchedule(units, monday) {
-  const friday = addDays(monday, 4);
-  const days = WEEKDAYS.map((w, i) => ({ date: addDays(monday, i), day: w.d, name: w.n, timed: [], untimed: [], off: [] }));
+ * untimed (ohne Uhrzeit), off (Unterricht, der laut Einheit an diesem Tag entfällt, mit dem Grund), free (unterrichtsfreie Einträge der
+ * Einstellungen an diesem Tag [{label, scope}]) und freeFor ({gs, gym}: Bezeichnung bzw. null). opt.freeDays = Einträge der Einstellungen (an
+ * diesen Tagen hat die betroffene Schule keine Termine, ihre Klassen erscheinen nicht unter „Entfällt“); opt.lessons = Sitzungen, die trotzdem
+ * an einem unterrichtsfreien Tag ihrer Schule liegen ([{id, subject, klass, title, date, time, minutes, course?}], GET /api/teacher/schedule) –
+ * sie erscheinen an ihrem Tag mit onFree (Bezeichnung) und führen zur Sitzung. */
+export function weekSchedule(units, monday, opt = {}) {
+  const friday = addDays(monday, 4), fd = cleanFreeDays(opt && opt.freeDays);
+  const days = WEEKDAYS.map((w, i) => {
+    const date = addDays(monday, i), free = fd.filter((f) => date >= f.from && date <= f.to).map((f) => ({ label: f.label, scope: f.scope }));
+    const on = (school) => { const f = free.find((x) => x.scope === "both" || x.scope === school); return f ? f.label : null; };
+    return { date, day: w.d, name: w.n, timed: [], untimed: [], off: [], free, freeFor: { gs: on("gs"), gym: on("gym") } };
+  });
   const byKey = new Map();
   for (const u of Array.isArray(units) ? units : []) {
     // Grundschule: Kurs „gs…“ mit Namen aus der Übersicht (u.course.short); beschriftet mit „Grundschule“, Klick öffnet den Kurs
     const gs = !!u && u.subject === GS_SUBJECT && isGsCourseId(u.klass) && !!u.course && typeof u.course.short === "string";
     if (!u || (!gs && (!isValidSubject(u.subject) || !isValidClass(u.klass)))) continue;
     const who = gs ? { subjectShort: "Grundschule", label: str(u.course.short, 60), gs: true } : { subjectShort: subjectShort(u.subject), label: classShort(u.klass) };
-    const p = normalizeParams(u.params);
+    const p = normalizeParams(fd.length ? withSchoolBreaks(u.params, fd, u.subject) : u.params), school = schoolOf(u.subject);
     if (!p.start || !p.end || p.end < p.start || !p.weekdays.length || p.end < monday || p.start > friday) continue;
     const from = p.start > monday ? p.start : monday, to = p.end < friday ? p.end : friday;
     const nth = new Map();   // zwei Stunden derselben Einheit am selben Tag (auch ohne Uhrzeit) bleiben zwei Einträge
@@ -101,7 +209,8 @@ export function weekSchedule(units, monday) {
     }
     // Ausfall laut Einheit (Ferien, Exkursion …): an Tagen im Zeitraum mit Unterricht nach Stundenplan, die in einen Ausfall fallen
     for (const day of days) {
-      if (day.date < from || day.date > to || !p.weekdays.some((w) => w.day === day.day)) continue;
+      // unterrichtsfrei für die ganze Schule: steht einmal am Tag (free), nicht je Klasse unter „Entfällt“
+      if (day.date < from || day.date > to || !p.weekdays.some((w) => w.day === day.day) || day.freeFor[school]) continue;
       const b = p.breaks.find((x) => day.date >= x.from && day.date <= x.to);
       if (b && !day.off.some((o) => o.subject === u.subject && o.klass === u.klass))
         day.off.push({ subject: u.subject, subjectShort: who.subjectShort, klass: u.klass, label: who.label, reason: b.label || "" });
@@ -109,6 +218,20 @@ export function weekSchedule(units, monday) {
       else if (!b && p.weekdays.some((w) => w.day === day.day && isCancelled(p, day.date, w.time, p.weekdays.filter((x) => x.day === day.day).length === 1)) && !day.off.some((o) => o.subject === u.subject && o.klass === u.klass))
         day.off.push({ subject: u.subject, subjectShort: who.subjectShort, klass: u.klass, label: who.label, reason: "Unterricht ausgefallen", cancelled: true });
     }
+  }
+  // Sitzungen auf einem unterrichtsfreien Tag ihrer Schule (z. B. nach „Nur speichern – Sitzungen bleiben“): mit Markierung, Klick öffnet die Sitzung
+  for (const l of Array.isArray(opt && opt.lessons) ? opt.lessons : []) {
+    const day = l && days.find((d) => d.date === l.date);
+    const gs = !!day && l.subject === GS_SUBJECT && isGsCourseId(l.klass);
+    if (!day || (!gs && (!isValidSubject(l.subject) || !isValidClass(l.klass))) || typeof l.id !== "string") continue;
+    const onFree = day.freeFor[schoolOf(l.subject)];
+    if (!onFree) continue;
+    const minutes = Number.isInteger(l.minutes) && l.minutes > 0 ? l.minutes : 45, time = isClockTime(l.time) ? l.time : null;
+    const start = clockMinutes(time), end = start == null ? null : Math.min(24 * 60, start + minutes);
+    const who = gs ? { subjectShort: "Grundschule", label: str(l.course && l.course.short, 60) || "Kurs", gs: true } : { subjectShort: subjectShort(l.subject), label: classShort(l.klass) };
+    const e = { key: "lesson|" + l.id, date: day.date, day: day.day, time, endTime: end == null ? null : minutesClock(end), start, end, minutes, kind: "stunde",
+      subject: l.subject, ...who, klass: l.klass, title: str(l.title, 200), unitIds: [], href: "#/lk/s/" + l.id, onFree };
+    (e.time ? day.timed : day.untimed).push(e);
   }
   const order = (a, b) => (a.subjectShort < b.subjectShort ? -1 : a.subjectShort > b.subjectShort ? 1 : a.label.localeCompare(b.label, "de", { numeric: true }));
   for (const d of days) {
@@ -180,6 +303,9 @@ export function paramsText(raw, { exam = true } = {}) {
   if (p.start || p.end) lines.push("Zeitraum der Einheit: " + (p.start ? fmtDay(p.start) : "?") + " bis " + (p.end ? fmtDay(p.end) : "?") + " (bis dahin soll die Einheit abgeschlossen sein)");
   if (exam) lines.push("Klausurtermin: " + (p.exam ? fmtDay(p.exam) : "keiner angegeben"));
   if (p.breaks.length) lines.push("Ferien/Ausfälle: " + p.breaks.map((b) => (b.label ? b.label + " " : "") + fmtDay(b.from) + (b.to !== b.from ? "–" + fmtDay(b.to) : "")).join("; "));
+  // unterrichtsfreie Tage der Schule (Einstellungen) im Zeitraum – ohne solche bleibt der Text wie bisher
+  const sb = p.start && p.end ? (p.schoolBreaks || []).filter((b) => b.to >= p.start && b.from <= p.end) : [];
+  if (sb.length) lines.push("Unterrichtsfreie Tage: " + sb.map((b) => b.label + " " + fmtDay(b.from) + (b.to !== b.from ? "–" + fmtDay(b.to) : "")).join("; ") + " (aus den Einstellungen; ohne Termine)");
   if (p.cancelled) lines.push("Ausgefallene Termine (Krankmeldung): " + p.cancelled.map((c) => fmtDay(c.date) + (c.time ? " " + c.time : "")).join("; "));
   if (p.notes) lines.push("Hinweise der Lehrkraft: " + p.notes);
   return lines.join("\n");
@@ -589,6 +715,58 @@ export function claudeLessonPrompt(ctx) {
 }
 
 /* ---------- Krankheitsvertretung ---------- */
+/* ---------- Nach dem Verschieben wegen unterrichtsfreier Tage (Nachtrag 24): Texte und Prompt fürs Gymnasium ----------
+ * Einträge aus unit.revise.items mit kind "free" ({label, from, to, …}). Die Grundschule nutzt den roten Kasten und ihren Prompt (gsplanning.js). */
+const freeItemText = (x) => x.label + ": " + fmtDay(x.from || x.date) + ((x.to || x.date) !== (x.from || x.date) ? "–" + fmtDay(x.to || x.date) : "");
+export function freeShiftText(items, unitId, title) {
+  return "Wegen unterrichtsfreier Tage (" + items.map(freeItemText).join("; ") + ") hat Unterricks die betroffenen und alle folgenden Stunden" +
+    (unitId ? " der Einheit " + unitId + " („" + title + "“)" : "") + " auf die nächsten freien Termine laut Stundenplan verschoben";
+}
+/* unterrichtsfreie Tage der Schule im Zeitraum der Einheit (params.schoolBreaks vom Server) */
+export function freeDaysInRange(params) {
+  const p = normalizeParams(params);
+  return p.start && p.end ? (p.schoolBreaks || []).filter((b) => b.to >= p.start && b.from <= p.end) : [];
+}
+/* Prompt für Claude: Einheit des Gymnasiums nach unterrichtsfreien Tagen überarbeiten (Hinweis in der Einheit). ctx = {unit (wie GET
+   /api/teacher/units/<id>: rows, plan, params, revise, lessons, course), now} */
+export function claudeGymRevisionPrompt(ctx) {
+  const u = ctx.unit || {}, rows = u.rows || [], plan = u.plan || {}, rv = u.revise || { items: [] }, now = ctx.now || Date.now();
+  const n = u.course && Number.isInteger(u.course.classSize) ? u.course.classSize : null, p = normalizeParams(u.params);
+  const items = (rv.items || []).filter((x) => x.kind === "free"), undated = rows.map((r, i) => ({ r, i })).filter((x) => !x.r.date);
+  const lengths = items.flatMap((x) => x.lengths || []), free = freeSlots(u.params, rows, now), sb = freeDaysInRange(u.params);
+  const byRow = new Map((u.lessons || []).filter((l) => l.row).map((l) => [l.row, l]));
+  const steps = (plan.schritte || []).map((x, i) => (i + 1) + ". " + x.titel + (x.beschreibung ? " – " + x.beschreibung : ""));
+  const rowLines = rows.map((r, i) => (i + 1) + ". " + (r.date ? fmtDay(r.date) + (r.time ? " " + r.time : "") : "ohne Termin") + (r.minutes ? " (" + r.minutes + " Min.)" : "") + ": „" + r.stundenfrage + "“" +
+    (r.schritt != null && (plan.schritte || [])[r.schritt] ? " [Lernschritt " + (r.schritt + 1) + "]" : "") + " – " + (byRow.get(r.uid) ? "Sitzung " + byRow.get(r.uid).id : "noch keine Sitzung"));
+  return [
+    "Du bist eine erfahrene Fachdidaktikerin bzw. ein erfahrener Fachdidaktiker für " + subjectName(u.subject) + " an einem Gymnasium in Hessen und überarbeitest mit mir eine Unterrichtseinheit meiner Unterrichtsplattform „Unterricks“. Arbeite gründlich, fachlich korrekt und dialogisch: Warte an den markierten Stellen auf meine Entscheidung.",
+    "",
+    "## Was passiert ist",
+    freeShiftText(items, u.id, u.title || plan.titel || "ohne Titel") + (undated.length ? "; ohne Termin: " + undated.map((x) => "Stunde " + (x.i + 1) + " „" + x.r.stundenfrage + "“").join(", ") +
+      " (Ende der Einheit am " + (p.end ? fmtDay(p.end) : "?") + ")" : "") + "." + (lengths.length ? " Geänderte Längen: " + lengths.map((g) => "Stunde " + g.n + " (" + g.from + " → " + g.to + " Min.)").join(", ") + "." : ""),
+    "",
+    "## Die Einheit jetzt",
+    "- Klasse/Kurs: " + classShort(u.klass) + " – " + gradeInfo(u.klass).text + (n ? ", " + n + " Schüler:innen (laut Kurseinstellungen)" : ""),
+    plan.lernaufgabe ? "- Zentrale Lernaufgabe (Ziel der Einheit): " + plan.lernaufgabe : null,
+    steps.length ? "- Lernschritte:\n" + steps.map((x) => "  " + x).join("\n") : null,
+    "- Stunden:",
+    ...rowLines.map((x) => "  " + x),
+    "- Noch freie Termine bis zum Ende der Einheit: " + (free.length ? free.map((x) => fmtDay(x.date) + (x.time ? " " + x.time : "") + " (" + x.minutes + " Min.)").join("; ") : "keine"),
+    sb.length ? "- Unterrichtsfreie Tage des Gymnasiums im Zeitraum (aus meinen Einstellungen, ohne Termine): " + sb.map((b) => b.label + " " + fmtDay(b.from) + (b.to !== b.from ? "–" + fmtDay(b.to) : "")).join("; ") : null,
+    p.exam ? "- Klausurtermin: " + fmtDay(p.exam) : null,
+    "",
+    "## Vorgehen",
+    "1. Rufe mit dem Connector „Unterricks“ `get_unit` mit der ID " + u.id + " auf (Stunden ohne Termin, freie Termine, unterrichtsfreie Tage). Für einzelne Sitzungen liefert `get_lesson` Schulportal-Eintrag und Material.",
+    "2. Schlage mir zwei oder drei Möglichkeiten vor, wie die Einheit trotz der wegfallenden Termine ihre zentrale Lernaufgabe erreicht – z. B. Stunden zusammenlegen oder kürzen, eine Stunde ohne Termin mit einer anderen zusammenführen, oder die Einheit verlängern (stimme ich zu, trägst du das mit `extend_unit` ein: Die Plattform setzt das Ende auf den nächsten Termin laut Stundenplan, gibt zuerst den Stunden ohne Termin einen Termin – auch ihren Sitzungen – und legt fehlende Sitzungen an). Nenne zu jeder Möglichkeit kurz Vor- und Nachteile.",
+    "3. Warte auf meine Entscheidung.",
+    "4. Soll verlängert werden, rufe zuerst `extend_unit` auf (mit `base_version` aus `get_unit` und `termine` – so viele Termine, wie gebraucht werden, höchstens 3). Inhalte und Stundenfragen änderst du mit `update_unit_row` (`unit_id`, `base_version` und `stunden` mit der Nummer `nr` jeder geänderten Stunde aus `get_unit`) – in einer Speicherung. " +
+      "Willst du den ganzen Plan neu speichern (`save_unit_plan`): Am Gymnasium ordnet die Plattform die Stunden nach ihrer Position den bestehenden Sitzungen zu – behalte deshalb Anzahl und Reihenfolge der Stunden mit Sitzung bei (Inhalt und Stundenfrage darfst du ändern) und streiche höchstens Stunden ohne Sitzung am Ende. Stunden ohne Termin bekommen die freien Termine.",
+    "5. Passe betroffene Sitzungen nur nach meiner Zustimmung an (`save_schulportal_entry`, danach mit `update_lesson` auch die „Zusammenfassung der Sitzung für die Lehrkraft“).",
+    "",
+    "Falls der Connector „Unterricks“ in diesem Chat nicht verfügbar ist, sage es mir sofort (er muss in claude.ai unter „Connectors“ eingerichtet und im Chat aktiviert sein).",
+  ].filter((l) => l !== null).join("\n").replace(/\n{3,}/g, "\n\n");
+}
+
 export const SUBSTITUTE_SHARE = 0.8;   // Vorgabe: ca. 80 % der Unterrichtszeit für die Bearbeitung
 export const DEFAULT_SUBSTITUTE_NOTICE = "Deine Lehrkraft kann heute nicht persönlich im Unterricht sein. Bitte bearbeite die folgenden Vertretungsaufgaben selbstständig der Reihe nach.";
 export function claudeSubstitutePrompt(ctx) {

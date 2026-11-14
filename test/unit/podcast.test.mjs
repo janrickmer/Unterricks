@@ -185,7 +185,7 @@ test("Audiodatei über die ersten Bytes (nicht die Endung): M4A, WAV, MP3, AAC, 
 });
 
 /* ---------- Grundlage (GET /api/teacher/podcast/plan) ---------- */
-test("Grundlage: heute und nächster Schultag beider Schulformen in Unterrichtsreihenfolge, Kopfzeile, Ersatz, Vertretung, 7 D1-Anweisungen", async () => {
+test("Grundlage: heute und nächster Schultag beider Schulformen in Unterrichtsreihenfolge, Kopfzeile, Ersatz, Vertretung, 8 D1-Anweisungen", async () => {
   const c = await ctx(berlin(17, 10));   // Dienstag, 17.11., 10:00
   const gs = await gsCourse(c);
   const fid = hex(16);
@@ -200,7 +200,7 @@ test("Grundlage: heute und nächster Schultag beider Schulformen in Unterrichtsr
   await lesson(c, { subject: "gs", klass: gs, date: "2026-11-18", time: "11:00", cancelled: 1, summary: "AUSFALL" });
   const n0 = c.db.counter.n;
   const r = await call(c, W.routePodcastPlan, "/api/teacher/podcast/plan");
-  assert.equal(c.db.counter.n - n0, 7, "D1-Anweisungen");
+  assert.equal(c.db.counter.n - n0, 8, "D1-Anweisungen (dazu die unterrichtsfreien Tage)");
   assert.equal(r.status, 200);
   assert.equal(r.data.today, "2026-11-17"); assert.equal(r.data.next, "2026-11-18");
   assert.deepEqual(r.data.plans.map((p) => [p.date, p.sessions.map((s) => s.label + " " + (s.startTime || "–"))]), [
@@ -271,7 +271,7 @@ test("Zwischenstopp der vorigen Stunde: offener Teil, der noch nicht in der Plan
   await decide(n6, p6, "uebernehmen", berlin(17, 14), 2);
   const n0 = c.db.counter.n;
   const r = await call(c, W.routePodcastPlan, "/api/teacher/podcast/plan");
-  assert.equal(c.db.counter.n - n0, 7, "weiter 7 D1-Anweisungen (die vorige Stunde steht in derselben Abfrage)");
+  assert.equal(c.db.counter.n - n0, 8, "weiter 8 D1-Anweisungen (die vorige Stunde steht in derselben Abfrage)");
   const next = r.data.plans.find((p) => p.date === "2026-11-18");
   const by = (k) => next.sessions.find((s) => s.klass === k);
   assert.deepEqual(by("8A").carry, { state: "open", date: "2026-11-17", text: "Plakat fertigstellen\nVorstellen" });

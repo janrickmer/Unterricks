@@ -17,6 +17,7 @@ import { materialBox } from "./materialbox.js";
 import { cardsCard } from "./cards.js";
 import { reviseBox } from "./grundschule.js";
 import { summaryCard } from "./tsummary.js";
+import { freeDateMessage } from "./freedays.js";
 
 const isPdf = (f) => !!f && f.kind === "file" && f.mime === "application/pdf" && f.area !== "archive" && f.area !== "presentation";
 const NOT_YET = "„Diese Unterrichtssitzung hat noch nicht stattgefunden.“";
@@ -117,7 +118,9 @@ export async function gsSessionPage(id, d) {
     const r = row(), idx = r && st.unit ? (st.unit.rows || []).indexOf(r) : -1;
     clear(subline).append(...nn(idx >= 0 ? h("span", { class: "chip strong", text: "Stunde " + (idx + 1) + " von " + st.unit.rows.length }) : null,
       course ? h("span", { class: "chip", text: course.subjectName }) : null, course ? h("span", { class: "chip", text: course.grade + course.classes.join(""), title: course.gradeText }) : null,
-      h("span", { class: "chip", text: L().date ? fmtDay(L().date) + (L().startTime ? ", " + L().startTime : "") : "ohne Termin" }), L().durationMin ? h("span", { class: "chip", text: L().durationMin + " Minuten" }) : null));
+      h("span", { class: "chip", text: L().date ? fmtDay(L().date) + (L().startTime ? ", " + L().startTime : "") : "ohne Termin" }), L().durationMin ? h("span", { class: "chip", text: L().durationMin + " Minuten" }) : null,
+      // liegt auf einem unterrichtsfreien Tag der Grundschule (Einstellungen, Nachtrag 24)
+      L().freeDay ? h("span", { class: "chip freechip", text: "Liegt auf einem unterrichtsfreien Tag (" + L().freeDay.label + ")" }) : null));
   };
   paintSubline();
   main.append(pageHead({ fach: "gs", title: heading, sub: subline,
@@ -446,9 +449,12 @@ export async function gsSessionPage(id, d) {
     const nd = fDate.value, od = L().date;
     if (!nd) { fDate.value = od || ""; toast("Bitte ein Datum wählen.", "err"); return; }
     if (nd === od) return;
+    // nie an einem unterrichtsfreien Tag der Grundschule (Einstellungen) – der Server prüft noch einmal
+    const free = await freeDateMessage(nd, "gs");
+    if (free) { fDate.value = od || ""; toast(free, "err", 9000); return; }
     try {
       const r = await tapi("PATCH", "/api/teacher/lessons/" + id, { body: { date: nd } });
-      L().date = r.lesson.date; L().nextDate = r.lesson.nextDate; syncRow({ date: nd }); paintSubline(); paintParents(); stateLine(metaState, "Gespeichert", "ok");
+      L().date = r.lesson.date; L().nextDate = r.lesson.nextDate; L().freeDay = null; syncRow({ date: nd }); paintSubline(); paintParents(); stateLine(metaState, "Gespeichert", "ok");
       toast("Datum geändert" + (st.unit ? " – auch in der Unterrichtseinheit." : "."), "ok");
     } catch (e) { fDate.value = od || ""; errToast(e); }
   });
@@ -525,6 +531,7 @@ export async function gsSessionPage(id, d) {
         if (nv !== cur && el.value === cur) { L()[k] = r.lesson[k]; el.value = nv; changed = true; }
       }
       if ((r.lesson.date || null) !== (L().date || null)) { L().date = r.lesson.date; fDate.value = r.lesson.date || ""; changed = true; }
+      if (JSON.stringify(r.lesson.freeDay || null) !== JSON.stringify(L().freeDay || null)) { L().freeDay = r.lesson.freeDay || null; changed = true; }
       if ((r.lesson.startTime || null) !== (L().startTime || null)) { L().startTime = r.lesson.startTime; fStart.value = r.lesson.startTime || ""; changed = true; }
       if (changed) { heading.textContent = L().title; paintSubline(); paintParents(); stateLine(metaState, "Aktualisiert"); }
     }

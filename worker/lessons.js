@@ -13,7 +13,8 @@ import {
   chatTranscript, extractJsonObject, validatePortalData, renderPortalEntry, normalizeFbDraft, isIsoDate, hasStop, gradeKey, isClockTime, printFileName, GS_SUBJECT,
   planRefs, parentOpensAt, stopParts, planFingerprint, PLAN_FINGERPRINT_STALE, TEACHER_SUMMARY_MAX,
 } from "../public/shared.js";
-import { unitContext, STOP_CHOICE_TEXT, stopChatSection } from "../public/planning.js";
+import { unitContext, STOP_CHOICE_TEXT, stopChatSection, freeDayOn, schoolOf } from "../public/planning.js";
+import { loadFreeDays, assertNotFree } from "./freedays.js";
 
 export const LIMITS = { title: 200, topic: 500, ideas: 20000, homework: 10000, portal: 30000, message: 30000, answer: 100000, textMaterial: 200000, parentSummary: 800, parentNote: 2000, teacherSummary: TEACHER_SUMMARY_MAX };
 
@@ -92,7 +93,8 @@ export async function lessonCtx(db, lesson) {
   const settings = courseSettingsOut((cs.results || [])[0]);
   if (gs) return gsLessonCtx(db, lesson, files.results || [], settings, gsCourseOut((gc.results || [])[0]));
   let unit = null;
-  if (lesson.unit_id) { try { unit = unitOut(await getUnit(db, lesson.unit_id)); } catch {} }
+  // mit den unterrichtsfreien Tagen der Schule (Termine nach dem Ende der Einheit in den Regeln zum Zwischenstopp)
+  if (lesson.unit_id) { try { const [u, fd] = await Promise.all([getUnit(db, lesson.unit_id), loadFreeDays(db)]); unit = unitOut(u, {}, fd); } catch {} }
   const cfg = (await loadSubjectConfigs(db))[lesson.subject] || { gradeNotes: {} };
   return {
     lessonId: lesson.id, subject: lesson.subject, klass: lesson.klass,
@@ -108,7 +110,7 @@ export const GS_CTX_FILES = "SELECT id, lesson_id, name, area, kind, mime, pages
   "print_copies, print_duplex, print_color, (html IS NOT NULL) AS designed, substr(text, 1, 6000) AS text FROM files";
 async function gsLessonCtx(db, lesson, files, settings, course) {
   let unit = null;
-  if (lesson.unit_id) { try { unit = unitOut(await getUnit(db, lesson.unit_id)); } catch {} }
+  if (lesson.unit_id) { try { const [u, fd] = await Promise.all([getUnit(db, lesson.unit_id), loadFreeDays(db)]); unit = unitOut(u, {}, fd); } catch {} }
   return {
     lessonId: lesson.id, subject: lesson.subject, klass: lesson.klass, course,
     lesson: { title: lesson.title, topic: lesson.topic, durationMin: lesson.duration_min, date: lesson.lesson_date, startTime: lesson.start_time || null, ideas: lesson.ideas,
@@ -167,6 +169,7 @@ export async function createLesson(db, body, now) {
     if (!isValidClass(body.klass)) throw bad("Bitte eine gültige Klasse wählen.");
   }
   const f = lessonFields(body, false);
+  if (f.lesson_date) await assertNotFree(db, f.lesson_date, body.subject);   // nie an einem unterrichtsfreien Tag der Schule (Nachtrag 24)
   if (!f.title) f.title = f.topic || "Sitzung vom " + new Date(now).toLocaleDateString("de-DE", { timeZone: "Europe/Berlin" });
   const id = randomId(8);
   for (let i = 0; i < 8; i++) {
@@ -264,8 +267,10 @@ export async function routeLessonGet(c, id) {
   const messages = await chatMessages(c.db, id, full ? 5000 : 200);
   // nextDate = Fälligkeit der Hausaufgabe (erstes späteres Datum); next = die folgende Sitzung (gleiches Datum zählt mit) für den Hinweis nach einem Zwischenstopp
   const [prev, nextDate, next, course] = await Promise.all([previousLesson(c.db, l), nextLessonDate(c.db, l), followingLesson(c.db, l), courseInfo(c.db, l.subject, l.klass)]);
+  // unterrichtsfreie Tage (Nachtrag 24): die Einheit rechnet mit denen ihrer Schule; liegt die Sitzung auf einem, sagt es die Sitzungsseite
+  const fd = await loadFreeDays(c.db), fday = freeDayOn(l.lesson_date, fd, schoolOf(l.subject));
   let unit = null;
-  if (l.unit_id) { try { unit = unitOut(await getUnit(c.db, l.unit_id)); } catch {} }
+  if (l.unit_id) { try { unit = unitOut(await getUnit(c.db, l.unit_id), {}, fd); } catch {} }
   const previousStop = await prevStopInfo(c.db, l, prev, unit);
   // Grundschule: PDFs anderer Sitzungen des Kurses, auf die der Verlaufsplan (oder der der vorigen Sitzung) verweist, und die der vorigen Sitzung
   const gs = l.subject === GS_SUBJECT ? { refFiles: await gsRefFiles(c.db, l, prev), opensAt: parentOpensAt({ date: l.lesson_date, startTime: l.start_time, durationMin: l.duration_min }) } : {};
@@ -276,7 +281,8 @@ export async function routeLessonGet(c, id) {
   if (sub) { try { proposal = JSON.parse(sub.proposal); } catch {} try { archive = sub.archive ? JSON.parse(sub.archive) : null; } catch {} }
   const substitute = sub ? { status: sub.status, proposal, createdAt: sub.created_at, updatedAt: sub.updated_at, confirmedAt: sub.confirmed_at ?? null,
     archive: archive ? { portal: archive.portal || "", homework: archive.homework || "", sheets: archive.sheets || [], files: (archive.files || []).map((f) => f.id), at: archive.at || null } : null } : null;
-  return json({ ok: true, lesson: lessonOut(l, { studentCount: (students.results[0] || {}).n || 0, nextDate }), previousStop, unit, course, substitute, ...gs, messages: messages.map(msgOut),
+  return json({ ok: true, lesson: lessonOut(l, { studentCount: (students.results[0] || {}).n || 0, nextDate, freeDay: fday ? { from: fday.from, to: fday.to, label: fday.label, scope: fday.scope } : null }),
+    previousStop, unit, course, substitute, ...gs, messages: messages.map(msgOut),
     nextLesson: next ? { id: next.id, title: next.title, date: next.lesson_date, planned: !!next.planned } : null,
     files: (files.results || []).map((f) => fileOut(f)), sheets: (sheets.results || []).map((s) => ({ code: s.code, title: s.title, kind: s.kind || "", createdAt: s.created_at })),
     drafts: (drafts.results || []).map(draftOut) });
@@ -355,6 +361,8 @@ export async function updateLesson(db, id, body, now) {
   if ((f.parent_summary !== undefined || f.parent_note !== undefined) && old.subject !== GS_SUBJECT) throw bad("Nur bei Sitzungen der Grundschule.");
   // Ausfall-Eintrag (Krankmeldung, Grundschule): nur der Hinweis für die Eltern lässt sich ändern
   if (old.cancelled && keys.some((k) => k !== "parent_note")) throw bad("Bei einem Ausfall-Eintrag lässt sich nur der Hinweis der Lehrkraft für die Eltern ändern.");
+  // ein neues Datum nie an einem unterrichtsfreien Tag der Schule (Nachtrag 24) – ein bisheriges bleibt, auch wenn es inzwischen frei ist
+  if (f.lesson_date && f.lesson_date !== old.lesson_date) await assertNotFree(db, f.lesson_date, old.subject);
   // Zusammenfassung für die Lehrkraft (Nachtrag 21): mit Zeitpunkt und Fingerabdruck der Planung (Hinweis, wenn die Planung danach geändert wird).
   // teacherSummaryBase (Sitzungsseite): Stand, auf dem die Bearbeitung beruht – hat inzwischen jemand anderes (z. B. Claude) gespeichert, meldet der
   // Server 409 statt still zu überschreiben (wie beim Schulportal-Eintrag); ohne Base (Connector, „Meine Fassung speichern“) wird gespeichert

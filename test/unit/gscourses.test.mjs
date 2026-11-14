@@ -131,7 +131,7 @@ test("Wochenkalender: Einheiten beider Schulformen; Grundschule mit Kursnamen, n
   await c.db.prepare("INSERT INTO units(id, subject, klass, title, params, created_at, updated_at) VALUES('00000000000000aa', 'gs', 'gs0000ffff', 'weg', ?1, 1, 1)").bind(JSON.stringify(P)).run();
   c.db.counter.n = 0;
   const r = await call(c, U.routeSchedule, "GET", "/api/teacher/schedule");
-  assert.ok(c.db.counter.n <= 4, "Anmeldung, Fach-Einstellungen, ein Batch mit 2 Anweisungen: " + c.db.counter.n);
+  assert.ok(c.db.counter.n <= 6, "Anmeldung, Fach-Einstellungen, ein Batch mit 4 Anweisungen (dazu die unterrichtsfreien Tage und Sitzungen an ihnen): " + c.db.counter.n);
   const units = r.data.units;
   assert.deepEqual(units.map((x) => x.id).sort(), [g.id, s.id].sort(), "Einheit eines gelöschten Kurses fehlt");
   const gu = units.find((x) => x.id === g.id), su = units.find((x) => x.id === s.id);

@@ -5,7 +5,7 @@ import { h, clear, nn, pageHead, toast, errToast, busy, confirmDialog, icon, sta
 import { render, go } from "./app.js";
 import { tapi, teacherBar, markNav, printPending, cardsPendingRun } from "./teacher.js";
 import { fmtClockBerlin, berlinToday, schoolYearOf, gsCourseShort, normalizeGsCourse, GS_CLASS_LETTERS, GS_LIMITS, fmtDay, clockMinutes, minutesClock, addDays } from "./shared.js";
-import { WEEKDAYS, normalizeCourseSettings } from "./planning.js";
+import { WEEKDAYS, normalizeCourseSettings, claudeGymRevisionPrompt } from "./planning.js";
 import { weekCard } from "./weekcal.js";
 import { printNextCard } from "./printnext.js";
 import { podcastCard } from "./podcast.js";
@@ -27,7 +27,7 @@ export async function gsOverviewPage() {
   const main = h("main", null, h("div", { class: "skeleton", text: "Lade …" }));
   render(teacherBar("primary"), main);
   // derselbe Wochenkalender wie auf der Startseite: immer alle Termine beider Schulformen (lädt eigenständig)
-  const week = weekCard(() => tapi("GET", "/api/teacher/schedule").then((r) => r.units));
+  const week = weekCard(() => tapi("GET", "/api/teacher/schedule"));
   // ganz oben das Feld „Druckaufträge für den nächsten Arbeitstag“ – dasselbe wie auf der Startseite „Gymnasium“ (beide Schulformen)
   const prints = printNextCard();
   // direkt unter dem Wochenkalender: derselbe Podcast wie auf der Startseite „Gymnasium“ (Nachtrag 22, beide Schulformen)
@@ -361,6 +361,8 @@ export async function parentsPreviewPage(id, other = null) {
 
 
 /* ---------- Roter Kasten nach einer Krankmeldung (Einheit und jede ihrer Sitzungen) ----------
+ * Auch nach dem Verschieben wegen unterrichtsfreier Tage (Nachtrag 24, Einträge kind "free") – dann für beide Schulformen (am Gymnasium mit dessen
+ * Prompt) und ohne „krank“; ohne solche Einträge bleibt der Kasten wie bisher.
  * unit = Einheit wie vom Server (mit revise; lessons nur bei GET /api/teacher/units/<id> – sonst lädt der Kasten sie für den Prompt nach).
  * opt.unitLink: Link „Zur Einheit“ (auf Sitzungsseiten); opt.onChange(unit|null): nach „Erledigt“ bzw. „rückgängig“ (Seite neu aufbauen). */
 const listAnd = (xs) => (xs.length <= 1 ? xs.join("") : xs.slice(0, -1).join(", ") + " und " + xs[xs.length - 1]);
@@ -374,14 +376,17 @@ export function reviseBox(unit, opt = {}) {
     .then((r) => { if (!r.unit || !Array.isArray(r.unit.lessons)) throw new Error("Die Einheit ist unvollständig."); return (full = r.unit); })
     .finally(() => { fullP = null; })));
   if (!full) loadFull().catch(() => {});
-  const items = rv.items || [], rows = unit.rows || [], end = (unit.params || {}).end || null;
+  const all = rv.items || [], rows = unit.rows || [], end = (unit.params || {}).end || null;
+  const items = all.filter((x) => x.kind !== "free"), freeItems = all.filter((x) => x.kind === "free"), gymU = unit.subject !== "gs";
   const days = items.map((x) => fmtDay(x.date));
   const undated = rows.filter((r) => !r.date).map((r) => "„" + (r.stundenfrage || "Stunde ohne Titel") + "“");
-  const lengths = items.flatMap((x) => x.lengths || []);
+  const lengths = all.flatMap((x) => x.lengths || []);
   const hid = "rv-h-" + unit.id;
+  const freeRange = (x) => fmtDay(x.from || x.date) + ((x.to || x.date) !== (x.from || x.date) ? " – " + fmtDay(x.to || x.date) : "");
   const text = [
-    "Ausgefallen: " + (listAnd(days) || "–") + ". " + (items.length > 1 ? "Unterricks hat jeweils die ausgefallene und alle folgenden Stunden um je einen Termin verschoben."
-      : "Unterricks hat diese und alle folgenden Stunden um je einen Termin verschoben."),
+    items.length || !freeItems.length ? "Ausgefallen: " + (listAnd(days) || "–") + ". " + (items.length > 1 ? "Unterricks hat jeweils die ausgefallene und alle folgenden Stunden um je einen Termin verschoben."
+      : "Unterricks hat diese und alle folgenden Stunden um je einen Termin verschoben.") : null,
+    freeItems.length ? "Unterrichtsfrei: " + listAnd(freeItems.map((x) => x.label + " (" + freeRange(x) + ")")) + ". Unterricks hat die betroffenen und alle folgenden Stunden auf die nächsten freien Termine verschoben." : null,
     undated.length ? "Ohne Termin: " + undated.join(", ") + (end ? " (Ende der Einheit: " + fmtDay(end) + ")" : "") + "." : null,
     ...lengths.map((g) => "Achtung: Stunde " + g.n + " dauert am neuen Termin " + g.to + " statt " + g.from + " Minuten."),
   ].filter(Boolean);
@@ -402,14 +407,15 @@ export function reviseBox(unit, opt = {}) {
       // der Dialog gibt den Fokus beim Schließen an das zurück, was ihn beim Öffnen hatte – also wieder an diesen Knopf (nur, wenn er auf body fiel)
       if ((!a || a === document.body) && b.isConnected) b.focus();
     }
-    claudeHandoff({ title: "Einheit nach Ausfällen überarbeiten",
-      intro: "Claude schlägt Ihnen vor, wie die Einheit trotz der Ausfälle ihre Lernaufgabe erreicht, und speichert erst nach Ihrer Zustimmung.",
-      after: "Wenn Claude die Einheit gespeichert hat, kommen Sie hierher zurück: Die Seite lädt die neuen Termine beim Zurückkehren – der rote Hinweis verschwindet dann.",
-      prompt: () => claudeUnitRevisionPrompt({ unit: u, now: Date.now() }) });
+    const onlyFree = !items.length && freeItems.length > 0;
+    claudeHandoff({ title: onlyFree ? "Einheit nach unterrichtsfreien Tagen überarbeiten" : "Einheit nach Ausfällen überarbeiten",
+      intro: "Claude schlägt Ihnen vor, wie die Einheit trotz " + (onlyFree ? "der wegfallenden Termine" : "der Ausfälle") + " ihre Lernaufgabe erreicht, und speichert erst nach Ihrer Zustimmung.",
+      after: "Wenn Claude die Einheit gespeichert hat, kommen Sie hierher zurück: Die Seite lädt die neuen Termine beim Zurückkehren – der " + (gymU ? "" : "rote ") + "Hinweis verschwindet dann.",
+      prompt: () => (gymU ? claudeGymRevisionPrompt({ unit: u, now: Date.now() }) : claudeUnitRevisionPrompt({ unit: u, now: Date.now() })) });
   } }, "Einheit mit Claude überarbeiten");
   const doneBtn = h("button", { class: "btn", type: "button", onclick: (e) => busy(e.currentTarget, async () => {
     // mit den Ausfällen, die dieser Kasten zeigt: eine inzwischen dazugekommene Krankmeldung schließt er nicht mit (der Server antwortet dann 409)
-    try { const r = await tapi("PATCH", "/api/teacher/units/" + unit.id, { body: { reviseDone: true, reviseSeen: items.map((x) => x.id) } }); toast("Hinweis entfernt.", "ok"); if (opt.onChange) opt.onChange(r.unit); refocus(); }
+    try { const r = await tapi("PATCH", "/api/teacher/units/" + unit.id, { body: { reviseDone: true, reviseSeen: all.map((x) => x.id) } }); toast("Hinweis entfernt.", "ok"); if (opt.onChange) opt.onChange(r.unit); refocus(); }
     catch (x) { errToast(x); }
   }) }, icon("check"), "Erledigt – Hinweis entfernen");
   const undoBtn = rv.canUndo ? h("button", { class: "btn ghost danger", type: "button", onclick: async (e) => {
@@ -433,7 +439,7 @@ export function reviseBox(unit, opt = {}) {
     setTimeout(tick, 0);
   };
   const box = h("section", { class: "card revisebox", role: "region", "aria-labelledby": hid },
-    h("h2", { id: hid }, icon("alert"), h("span", { text: "Die Einheit muss wegen der Ausfälle überarbeitet werden" })),
+    h("h2", { id: hid }, icon("alert"), h("span", { text: "Die Einheit muss wegen " + (items.length || !freeItems.length ? "der Ausfälle" + (freeItems.length ? " und unterrichtsfreier Tage" : "") : "unterrichtsfreier Tage") + " überarbeitet werden" })),
     ...text.map((t) => h("p", { text: t })),
     h("div", { class: "row" }, claudeBtn, doneBtn, undoBtn, opt.unitLink ? h("a", { class: "btn ghost", href: "#/lk/u/" + unit.id }, "Zur Einheit") : null));
   return box;

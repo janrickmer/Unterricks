@@ -182,8 +182,9 @@ Feibeitsblatt braucht keine Änderung. Die Adressen stehen in `wrangler.jsonc` (
 * **Druckaufträge für den nächsten Arbeitstag:** Ganz oben auf beiden Startseiten (Startseite „Gymnasium“ und Übersicht
   „Grundschule“) steht ein oranges Feld mit Drucker-Symbol. Es zeigt die Druckaufträge **beider Schulformen** für den nächsten Tag mit
   Unterricht: Montag bis Donnerstag den folgenden Tag, Freitag bis Sonntag den Montag; ist dort laut Stundenplan kein Unterricht (Ferien,
-  Feiertag oder ein ausgefallener Termin – maßgeblich sind die Stundenpläne der Einheiten und die Termine der Sitzungen, Ausfall-Einträge
-  der Grundschule zählen nicht), nennt das Feld den freien Tag und zeigt den nächsten Tag mit Unterricht (höchstens 70 Tage voraus).
+  Feiertag oder ein ausgefallener Termin – maßgeblich sind die Stundenpläne der Einheiten mit den unterrichtsfreien Tagen aus den
+  Einstellungen und die Termine der Sitzungen, Ausfall-Einträge der Grundschule zählen nicht), nennt das Feld den freien Tag und zeigt den
+  nächsten Tag mit Unterricht (höchstens 70 Tage voraus). Dieselbe Regel bestimmt beim Podcast den „nächsten Schultag“.
   Nach Sitzung gruppiert (Beginn, Fach und Klasse bzw. Grundschulkurs, Titel – ein Klick öffnet die Sitzung) stehen alle Dateien genau
   so wie in deren Liste „Von der Lehrkraft auszudrucken“, z. B. „28x - beidseitig - sw - Arbeitsblatt.pdf“ (in der Grundschule auch
   Arbeitsblätter der Kinder mit „Auch ausdrucken“). Jede Datei lässt sich einzeln herunterladen; **„Alle Dateien herunterladen“** lädt
@@ -196,7 +197,29 @@ Feibeitsblatt braucht keine Änderung. Die Adressen stehen in `wrangler.jsonc` (
   Wochenende zeigt er die kommende Woche. Unterricht ohne eingetragene Uhrzeit steht in der Zeile „ohne Uhrzeit“. Ein Klick auf einen
   Eintrag öffnet die Klasse bzw. den Kurs. Auf dem Handy und dem iPad hochkant erscheint die Woche als Liste je Tag. Der Kalender zeigt
   immer beide Schulformen – auf der Startseite „Gymnasium“ ebenso wie im Bereich „Grundschule“; Termine der Grundschule sind mit
-  „Grundschule“ gekennzeichnet und öffnen den Grundschulkurs.
+  „Grundschule“ gekennzeichnet und öffnen den Grundschulkurs. **Unterrichtsfreie Tage** (Einstellungen) stehen als schraffiertes Band
+  oben am Tag, z. B. „Herbstferien – unterrichtsfrei (Gymnasium)“; der Unterricht der anderen Schule erscheint an dem Tag weiter, ist der
+  Tag für beide Schulen frei, ist der ganze Tag schraffiert. Eine Sitzung, die trotzdem an einem solchen Tag liegt (nach „Nur speichern“),
+  steht mit der Markierung „unterrichtsfrei“ da und öffnet die Sitzung.
+* **Unterrichtsfreie Tage** (Einstellungen, ganz oben): Tragen Sie Ferien, Feiertage, Pädagogische Tage oder Brückentage als **Zeitraum mit
+  Bezeichnung** ein („Von“ und „Bis“; ein einzelner Tag: „Bis“ wie „Von“) und wählen Sie bei **„Betrifft“**, ob der Eintrag die
+  **Grundschule**, das **Gymnasium** oder **beide Schulen** betrifft – die Wahl ist Pflicht, es gibt keine Vorauswahl. Unterricks kennt
+  keine Feiertage von selbst, auch keine halben Tage. An diesen Tagen gibt es für die betroffene Schule keine Termine: Der Kalender zeigt sie
+  als unterrichtsfrei, „Sitzungen verfügbar“, „Termine neu verteilen“, die Krankmeldung der Grundschule, Claudes Planung (`extend_unit`,
+  `save_unit_plan`), Druckaufträge und Podcast lassen sie aus. Liegen an den neuen Tagen schon Sitzungen (heute oder später, ohne
+  Ausfall-Einträge) oder Stunden einer Einheit, fragt Unterricks vor dem Speichern mit einer Liste (Datum, Uhrzeit, Fach/Kurs, Klasse,
+  Titel): **„Speichern und verschieben“** (empfohlen) rückt sie und alle folgenden Stunden ihrer Einheit auf die nächsten freien Termine
+  laut Stundenplan – wie die Krankmeldung, aber ohne Ausfall-Eintrag; was hinter das Ende rutscht, bleibt ohne Termin –, danach steht in
+  jeder betroffenen Einheit ein Hinweis mit **„Einheit mit Claude überarbeiten“** (Grundschule: der rote Kasten, Grund „unterrichtsfreie
+  Tage“; Gymnasium: derselbe Kasten auf der Einheitsseite und „überarbeiten“ in der Liste der Klasse). **„Nur speichern – Sitzungen
+  bleiben“** lässt die Sitzungen, wo sie sind; sie tragen dann in Sitzung, Tabelle der Einheit und Kalender den Hinweis „Liegt auf einem
+  unterrichtsfreien Tag (…)“. Sitzungen ohne Einheit verschieben Sie selbst (die Liste nennt sie). Wurde eine Einheit inzwischen woanders
+  geändert, bleibt der Eintrag trotzdem gespeichert und die Meldung nennt sie. **Löschen** macht die Tage wieder zu Unterrichtstagen –
+  verschobene Sitzungen rücken nicht zurück. Ein Datum, das Sie (oder Claude) direkt auf einen unterrichtsfreien Tag legen, lehnt Unterricks
+  ab: „Am … ist unterrichtsfrei (Herbstferien, Gymnasium). Bitte einen anderen Tag wählen.“ In den Rahmendaten jeder Einheit stehen die
+  geltenden Tage ihrer Schule zur Ansicht („In den Einstellungen bearbeiten“); „Ferien und bekannte Ausfälle“ der Einheit bleibt für Ausfälle
+  nur dieser Klasse (z. B. eine Exkursion). Claude sieht die Tage in `get_unit` (Abschnitt „Unterrichtsfreie Tage (…)“, im Zeitraum und bis acht
+  Wochen danach) und in den Prompts („Unterrichtsfreie Tage: …“).
 * **Podcast für den kommenden Unterricht:** Direkt unter dem Wochenkalender (Startseite „Gymnasium“ und Übersicht „Grundschule“ –
   derselbe Podcast) steht der Knopf mit Kopfhörer-Symbol **„Podcast für den kommenden Unterricht entwickeln“**. Ein Podcast erklärt den
   Ablauf **aller Stunden eines Tages** beider Schulformen in der Reihenfolge, in der Sie unterrichten. Ablauf:
@@ -284,8 +307,9 @@ Feibeitsblatt braucht keine Änderung. Die Adressen stehen in `wrangler.jsonc` (
   * Gelöscht werden alle Unterrichtseinheiten und Sitzungen mit allem, was dazugehört – in der Grundschule auch Verlaufspläne,
     Bildkarten und Elternlinks (die verteilten Links funktionieren danach nicht mehr).
   * Es bleiben: Zugang, Planungsgrundlagen (mit ihren PDF-Dateien), Fach-Einstellungen mit Kursen, Kurseinstellungen (Stundenplan und
-    Schülerzahl), die Grundschulkurse, KI, Connector, Feibeitsblatt-Verbindung, Schülerpasswort und Schülergeräte. Die Feibeitsblätter
-    und ihre Abgaben bleiben im Feibeitsblatt.
+    Schülerzahl), die Grundschulkurse, die unterrichtsfreien Tage, KI, Connector, Feibeitsblatt-Verbindung, Schülerpasswort und Schülergeräte.
+    Die Feibeitsblätter und ihre Abgaben bleiben im Feibeitsblatt. Die unterrichtsfreien Tage stehen zum Nachlesen in der Sicherung
+    („Unterrichtsfreie Tage.txt“).
   * Zuerst fragt Unterricks Ihr Passwort ab (zwei Fehlversuche sperren wie bei der Anmeldung 30 Minuten). Dann bietet es eine
     Sicherung als ZIP-Datei an: 1. Ebene Fächer, 2. Ebene Einheiten mit der Einheitsdatei, 3. Ebene die Sitzungen, chronologisch
     nummeriert, je als Sitzungsdatei. Sitzungen ohne Einheit liegen in „… - Sitzungen ohne Einheit“.

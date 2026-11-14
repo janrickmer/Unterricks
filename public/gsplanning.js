@@ -1,7 +1,7 @@
 // gsplanning.js – Prompts für Claude in der Grundschule (Wunsch der Lehrkraft vom 12.11.2026): Einheit planen. Gemeinsam für Browser und
 // Worker (keine DOM-Zugriffe). Die Kinder arbeiten nicht digital: nur analoges, ausdruckbares Material.
 import { fmtDay, SYSTEM_PROMPT_ROLE, UNIT_RULE_BASE, materialDesignText, summarySaveStep, SUMMARY_FALLBACK } from "./shared.js";
-import { lessonSlots, paramsText, freeSlots, normalizeParams, stopCarrySection, stopCarryStep, stopFallbackText } from "./planning.js";
+import { lessonSlots, paramsText, freeSlots, normalizeParams, stopCarrySection, stopCarryStep, stopFallbackText, freeShiftText, freeDaysInRange } from "./planning.js";
 
 export const GS_RULE = "In der Grundschule arbeiten die Kinder nicht digital: Plane ausschließlich analoges Material (ausdruckbare Arbeitsblätter, Bildkarten, Tafel- und Bodenbilder) – keine Feibeitsblätter, keine Escape-Rooms, keine Online-Aufgaben, keine Präsentation zum Mitverfolgen.";
 
@@ -184,8 +184,11 @@ export function claudeUnitRevisionPrompt(ctx) {
   const c = (u.course && u.course.gs) || {}, n = u.course && Number.isInteger(u.course.classSize) ? u.course.classSize : null, fach = c.subjectName || "Religion";
   const p = normalizeParams(u.params), at = (d, t) => fmtDay(d) + (t ? " " + t : "");
   const byRow = new Map((u.lessons || []).filter((l) => l.row && !l.cancelled).map((l) => [l.row, l]));
-  const items = rv.items || [], undated = rows.map((r, i) => ({ r, i })).filter((x) => !x.r.date);
-  const lengths = items.flatMap((x) => x.lengths || []);
+  const all = rv.items || [], undated = rows.map((r, i) => ({ r, i })).filter((x) => !x.r.date);
+  // Krankmeldungen und Verschiebungen wegen unterrichtsfreier Tage (Nachtrag 24) getrennt – ohne letztere bleibt der Prompt wie bisher
+  const items = all.filter((x) => x.kind !== "free"), freeItems = all.filter((x) => x.kind === "free");
+  const sb = freeDaysInRange(u.params);
+  const lengths = all.flatMap((x) => x.lengths || []);
   const free = freeSlots(u.params, rows, now);
   // hasContent (Server: nicht leer wie beim Speichern geprüft – auch Ideen, Hinweis oder Inhalt für die Eltern, Elternlink, anderes Material, Planungsverlauf):
   // so nennt der Prompt nur Stunden „noch nicht geplant“, die die Plattform beim Speichern auch weglassen ließe (Abschlussprüfung F21)
@@ -198,8 +201,9 @@ export function claudeUnitRevisionPrompt(ctx) {
     "Du bist eine erfahrene Fachdidaktikerin bzw. ein erfahrener Fachdidaktiker für " + fach + " an einer Grundschule in Hessen und überarbeitest mit mir eine Unterrichtseinheit meiner Unterrichtsplattform „Unterricks“. Arbeite gründlich, kindgerecht und dialogisch: Warte an den markierten Stellen auf meine Entscheidung.",
     "",
     "## Was passiert ist",
-    "Wegen Ausfällen (Lehrkraft krank: " + (items.length ? items.map((x) => at(x.date, x.time)).join("; ") : "–") + ") hat Unterricks die ausgefallene und alle folgenden Stunden der Einheit " + u.id +
-      " („" + (u.title || plan.titel || "ohne Titel") + "“) um je einen Termin verschoben" + (undated.length ? "; ohne Termin: " + undated.map((x) => "Stunde " + (x.i + 1) + " „" + x.r.stundenfrage + "“").join(", ") +
+    (items.length || !freeItems.length ? "Wegen Ausfällen (Lehrkraft krank: " + (items.length ? items.map((x) => at(x.date, x.time)).join("; ") : "–") + ") hat Unterricks die ausgefallene und alle folgenden Stunden der Einheit " + u.id +
+      " („" + (u.title || plan.titel || "ohne Titel") + "“) um je einen Termin verschoben" : freeShiftText(freeItems, u.id, u.title || plan.titel || "ohne Titel")) +
+      (items.length && freeItems.length ? ". " + freeShiftText(freeItems, null, null) : "") + (undated.length ? "; ohne Termin: " + undated.map((x) => "Stunde " + (x.i + 1) + " „" + x.r.stundenfrage + "“").join(", ") +
       " (Ende der Einheit am " + (p.end ? fmtDay(p.end) : "?") + ")" : "") + "." + (lengths.length ? " Geänderte Längen: " + lengths.map((g) => "Stunde " + g.n + " (" + g.from + " → " + g.to + " Min.)").join(", ") + "." : ""),
     "",
     "## Die Einheit jetzt",
@@ -209,10 +213,11 @@ export function claudeUnitRevisionPrompt(ctx) {
     "- Stunden (uid = Kennung der Stunde):",
     ...rowLines.map((x) => "  " + x),
     "- Noch freie Termine bis zum Ende der Einheit: " + (free.length ? free.map((x) => at(x.date, x.time) + " (" + x.minutes + " Min.)").join("; ") : "keine"),
+    sb.length ? "- Unterrichtsfreie Tage der Grundschule im Zeitraum (aus meinen Einstellungen, ohne Termine): " + sb.map((b) => b.label + " " + fmtDay(b.from) + (b.to !== b.from ? "–" + fmtDay(b.to) : "")).join("; ") : null,
     "",
     "## Vorgehen",
     "1. Rufe mit dem Connector „Unterricks“ `get_unit` mit der ID " + u.id + " auf (Ausfälle, Stunden ohne Termin, freie Termine und die uid jeder Stunde). Für einzelne Sitzungen liefert `get_lesson` Verlaufsplan und Material.",
-    "2. Schlage mir zwei oder drei Möglichkeiten vor, wie die Einheit trotz der Ausfälle ihre zentrale Lernaufgabe erreicht – z. B. Stunden zusammenlegen oder kürzen, eine Stunde ohne Termin streichen oder mit einer anderen zusammenführen, oder die Einheit verlängern (stimme ich zu, trägst du das mit `extend_unit` ein: Die Plattform setzt das Ende auf den nächsten Termin laut Stundenplan, gibt zuerst den Stunden ohne Termin einen Termin und legt ihre Sitzungen an – sofort in der Einheit sichtbar). Nenne zu jeder Möglichkeit kurz Vor- und Nachteile.",
+    "2. Schlage mir zwei oder drei Möglichkeiten vor, wie die Einheit trotz der " + (items.length || !freeItems.length ? "Ausfälle" : "wegfallenden Termine") + " ihre zentrale Lernaufgabe erreicht – z. B. Stunden zusammenlegen oder kürzen, eine Stunde ohne Termin streichen oder mit einer anderen zusammenführen, oder die Einheit verlängern (stimme ich zu, trägst du das mit `extend_unit` ein: Die Plattform setzt das Ende auf den nächsten Termin laut Stundenplan, gibt zuerst den Stunden ohne Termin einen Termin und legt ihre Sitzungen an – sofort in der Einheit sichtbar). Nenne zu jeder Möglichkeit kurz Vor- und Nachteile.",
     "3. Warte auf meine Entscheidung.",
     "4. Soll verlängert werden, rufe zuerst `extend_unit` auf (mit `base_version` aus `get_unit` und `termine` – so viele Termine, wie gebraucht werden, höchstens 3; neue Stunden nur, wenn wir welche vereinbart haben). Speichere dann die überarbeitete Einheit mit `save_unit_plan` (mit `base_version` aus `get_unit` bzw. aus der Antwort von `extend_unit`) und gib bei jeder Stunde, die bleibt, ihre `uid` an. Stunden, deren Sitzung schon geplant ist oder schon Inhalte hat, lässt du nicht weg (Inhalt und Stundenfrage darfst du ändern); nur Stunden ohne Sitzung oder mit „noch nicht geplant“ dürfen wegfallen. Die Termine verteilt die Plattform neu.",
     "5. Passe betroffene Sitzungen nur nach meiner Zustimmung an (`save_verlaufsplan`, `update_lesson` mit `inhalt_eltern` und – für mich – `zusammenfassung_lehrkraft`, die „Zusammenfassung der Sitzung für die Lehrkraft“).",

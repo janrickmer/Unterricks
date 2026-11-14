@@ -5,7 +5,7 @@
 //   Einheit als Datei (ZIP): die Einheitsdatei + je Sitzung ein Ordner „01 - 12.11.2026 - <Stundenfrage>“ mit der Sitzungsdatei (sessionfile.js),
 //   chronologisch nummeriert. Die große Sicherung legt genau diese Ordner unter Fach/Einheit ab.
 import { SUBJECTS, subjectName, subjectShort, groupShort, classShort, isIsoDate, isValidSubject, isValidClass, GS_SUBJECT, isGsCourseId } from "./shared.js";
-import { normalizePlan, normalizeRows } from "./planning.js";
+import { normalizePlan, normalizeRows, storeParams } from "./planning.js";
 import { zipPath } from "./zip.js";
 
 export const UNIT_FILE = { kind: "unterricks-einheit", v: 1 };
@@ -60,7 +60,8 @@ export function chronoLessons(lessons, rows = []) {
 export function unitFileData(unit, sessionPath = new Map(), now = Date.now()) {
   const plan = normalizePlan(unit.plan || {});
   return { kind: UNIT_FILE.kind, v: UNIT_FILE.v, exportedAt: now,
-    source: { subject: unit.subject, klass: unit.klass, title: unit.title || "", status: unit.status || "", params: unit.params || {} },
+    // Rahmendaten der Einheit – ohne die unterrichtsfreien Tage der Schule (Einstellungen, nie Teil der Einheit)
+    source: { subject: unit.subject, klass: unit.klass, title: unit.title || "", status: unit.status || "", params: storeParams(unit.params || {}) },
     unit: { title: unit.title || plan.titel || "", plan,
       rows: (unit.rows || []).map((r) => ({ stundenfrage: r.stundenfrage || "", ablauf: r.ablauf || [], schritt: r.schritt ?? null, date: r.date || null, minutes: r.minutes || null,
         time: r.time || null, session: sessionPath.get(r.uid) || null })) } };

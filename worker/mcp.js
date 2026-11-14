@@ -7,15 +7,16 @@ import { getSetting, setSetting } from "./db.js";
 import { requireTeacher } from "./auth.js";
 import { getLesson, lessonCtx, chatMessages, updateLesson, savePortal, insertDraft, lessonOut, fileOut, LIMITS, previousLesson, cardData, cardVersion, prevStopInfo, openFilesOf, stopDecisionJson } from "./lessons.js";
 import { getUnit, unitFull, applyPlan, updateRow, updateRows, extendUnit, ROWS_MAX, EXTEND_MAX } from "./units.js";
+import { loadFreeDays } from "./freedays.js";
 import { planningBasis } from "./bases.js";
 import { gsCourseMap, gsCourseOut, getGsCourse, planningBasisGs } from "./gs.js";
 import { saveProposal, getSubstitute } from "./substitute.js";
-import { paramsText, lessonSlots, WEEKDAYS, freeSlots, stopLessonLines, STOP_CHOICES, STOP_CHOICE_TEXT } from "../public/planning.js";
+import { paramsText, lessonSlots, WEEKDAYS, freeSlots, stopLessonLines, STOP_CHOICES, STOP_CHOICE_TEXT, normalizeParams, schoolOf, FREE_DAY_SCOPES, freeRangeText, schoolBreaks } from "../public/planning.js";
 import { insertTextMaterial, insertPrintText, saveDesign, renderDesign, getFile } from "./files.js";
 import { shortImages } from "./render.js";
 import { ESCAPE_FORMAT_HINT, PART_TYPES } from "../public/escape-data.js";
 import { SUBJECTS, ALL_CLASSES, subjectName, gradeInfo, formatCode, lessonContext, chatTranscript, PORTAL_RULES, PORTAL_EXAMPLE, PORTAL_TEACHER_RULE, SYSTEM_PROMPT_ROLE, FEIBEITSBLATT_INFO, FB_LINK_HINT, classShort, fmtDay, materialDesignText, printFileName, GS_SUBJECT,
-  STOP_LINE, hasStop, planRefs, pdfRef, PLAN_REF_RE, NOTES_FILE, TEACHER_SUMMARY_TITLE, TEACHER_SUMMARY_MAX, teacherSummaryRules, summaryHead, summaryOutdated, fmtStampBerlin } from "../public/shared.js";
+  STOP_LINE, hasStop, planRefs, pdfRef, PLAN_REF_RE, NOTES_FILE, TEACHER_SUMMARY_TITLE, TEACHER_SUMMARY_MAX, teacherSummaryRules, summaryHead, summaryOutdated, fmtStampBerlin, addDays, berlinToday } from "../public/shared.js";
 import { gsLessonContext, GS_MATERIAL_RULES, CARD_DESIGN_RULES, VERLAUFSPLAN_EXAMPLE, VERLAUFSPLAN_RULES } from "../public/gsplanning.js";
 import { saveCardSet, setCardTexts } from "./cards.js";
 import { parentFiles, refCounts } from "./parents.js";
@@ -87,7 +88,7 @@ const TOOLS = [
     description: "Liefert alle aktuellen Daten einer Sitzung: Fach, Klasse/Jahrgang, Thema, Dauer, Ideen, Planungsverlauf, Schulportal-Eintrag (mit Version), Materialien (Textmaterial im Wortlaut), Feibeitsblätter und Entwürfe.",
     inputSchema: { type: "object", properties: { lesson_id: ID_ARG }, required: ["lesson_id"], additionalProperties: false } },
   { name: "update_lesson", title: "Sitzungsdaten ändern", annotations: wr,
-    description: "Ändert Titel, Thema, Dauer, Datum, Beginn (Uhrzeit), das Notizfeld „Ideen und Wünsche“ oder die Hausaufgabe (bis zur nächsten Sitzung; Schüler:innen sehen sie ab 15 Minuten vor dem Ende der Sitzung) einer Sitzung (nur übergebene Felder). " +
+    description: "Ändert Titel, Thema, Dauer, Datum, Beginn (Uhrzeit), das Notizfeld „Ideen und Wünsche“ oder die Hausaufgabe (bis zur nächsten Sitzung; Schüler:innen sehen sie ab 15 Minuten vor dem Ende der Sitzung) einer Sitzung (nur übergebene Felder). Ein Datum an einem unterrichtsfreien Tag der Schule (Einstellungen der Lehrkraft) lehnt die Plattform ab. " +
       "Mit zwischenstopp hältst du die Entscheidung der Lehrkraft zum offenen Teil der vorigen Sitzung fest (get_lesson, Abschnitt „Vorige Stunde nicht vollständig beendet“). " +
       "Mit zusammenfassung_lehrkraft speicherst du die „" + TEACHER_SUMMARY_TITLE + "“ (Gymnasium und Grundschule; Unterricks zeigt sie ganz oben in der Sitzung, nur der Lehrkraft) – " +
       "immer, wenn du Unterrichtsinhalte der Sitzung ablegst, als letzten Speicherschritt (auch wenn die Lehrkraft nur einen Teil freigibt, ohne eigene Rückfrage), und erneut, wenn du die Planung später überarbeitest – nicht für einen Vertretungsvorschlag.",
@@ -177,7 +178,8 @@ const TOOLS = [
     description: "Listet die Unterrichtseinheiten, optional nach Fach und Klasse/Kurs bzw. Grundschulkurs.",
     inputSchema: { type: "object", properties: { fach: SUBJECT_ARG, klasse: CLASS_ARG, kurs: KURS_ARG }, additionalProperties: false } },
   { name: "get_unit", title: "Unterrichtseinheit lesen", annotations: ro,
-    description: "Liefert eine Unterrichtseinheit: Rahmendaten, verfügbare Termine, Plan (Planungsgrundlage, Lernaufgabe, Ausgangslage, Lernschritte), Ablauf-Zeilen und die angelegten Sitzungen.",
+    description: "Liefert eine Unterrichtseinheit: Rahmendaten, verfügbare Termine, Plan (Planungsgrundlage, Lernaufgabe, Ausgangslage, Lernschritte), Ablauf-Zeilen und die angelegten Sitzungen. " +
+      "Dazu die unterrichtsfreien Tage der Schule aus den Einstellungen (Ferien, Pädagogischer Tag …) im Zeitraum und kurz danach – an ihnen gibt es keine Termine, die verfügbaren Termine lassen sie schon aus.",
     inputSchema: { type: "object", properties: { unit_id: UNIT_ID }, required: ["unit_id"], additionalProperties: false } },
   { name: "get_planning_basis", title: "Planungsgrundlagen lesen", annotations: ro,
     description: "Liefert die für Fach und Klasse/Kurs einer Einheit (oder einer Sitzung) geltenden Planungsgrundlagen im Wortlaut: Schulcurriculum (Sek I), KCGO (Regeln, Kurshalbjahr, didaktische Grundlagen), schulinternes E-Phasen-Curriculum, Fachteil des Abiturerlasses des Kurses, dazu die Planungsregeln der Lehrkraft und fehlende Dokumente.",
@@ -207,7 +209,7 @@ const TOOLS = [
       base_version: { type: "integer", minimum: 0, description: "Version aus get_unit (bei stunden; Pflicht mit nr)" } }, required: [], additionalProperties: false } },
   { name: "extend_unit", title: "Unterrichtseinheit verlängern", annotations: wr,
     description: "Verlängert eine Unterrichtseinheit um 1–" + EXTEND_MAX + " Termine laut ihrem Stundenplan – NUR nach ausdrücklicher Zustimmung der Lehrkraft (z. B. wenn nach einem Zwischenstopp Inhalte nachrücken und am Ende etwas übrig bleibt, oder nach Ausfällen). " +
-      "Die Plattform nimmt die nächsten termine Termine nach dem bisherigen Ende (Ferien und Ausfälle wie in den Rahmendaten), setzt das Ende der Einheit auf den letzten davon, gibt zuerst Stunden ohne Termin einen Termin und hängt dann die neuen stunden an (Datum, Beginn und Dauer aus dem Termin); übrige Termine bleiben frei. " +
+      "Die Plattform nimmt die nächsten termine Termine nach dem bisherigen Ende (Ferien und Ausfälle wie in den Rahmendaten, unterrichtsfreie Tage der Schule ausgelassen), setzt das Ende der Einheit auf den letzten davon, gibt zuerst Stunden ohne Termin einen Termin und hängt dann die neuen stunden an (Datum, Beginn und Dauer aus dem Termin); übrige Termine bleiben frei. " +
       "Ist die Einheit schon festgelegt (Sitzungen angelegt), legt die Plattform die Sitzungen dieser Stunden gleich an. Bestehende Sitzungen behalten ihre Termine, Klausurtermine bleiben unverändert. " +
       "Übergib base_version aus get_unit; die Antwort nennt das neue Ende, die Stunden mit Datum und Sitzungs-ID und die neue Version (für update_unit_row).",
     inputSchema: { type: "object", properties: { unit_id: UNIT_ID, base_version: { type: "integer", minimum: 0 }, termine: { type: "integer", minimum: 1, maximum: EXTEND_MAX, description: "so viele Termine nach dem bisherigen Ende kommen dazu (meist 1)" },
@@ -361,9 +363,11 @@ async function gsLessonDump(c, l) {
   if (results.length) parts.push("", "## Gespeicherter Stundenentwurf (save_planning_result)", results[results.length - 1].content.slice(0, 20000));
   if (l.unit_id) parts.push("", "Unterrichtseinheit: " + l.unit_id + " (Details mit get_unit; Planungsgrundlagen mit get_planning_basis)");
   // Krankmeldungen in der Einheit: ausgefallene Termine und ob sie überarbeitet werden muss (Einzelheiten und uid jeder Stunde in get_unit)
-  const rv = ctx.unit && ctx.unit.revise;
-  if (rv && rv.items.length) parts.push("Ausgefallen (Lehrkraft krank): " + rv.items.map((x) => fmtDay(x.date) + (x.time ? " " + x.time : "")).join("; ") +
+  const rv = ctx.unit && ctx.unit.revise, sick = rv ? rv.items.filter((x) => x.kind !== "free") : [], free = rv ? rv.items.filter((x) => x.kind === "free") : [];
+  if (sick.length) parts.push("Ausgefallen (Lehrkraft krank): " + sick.map((x) => fmtDay(x.date) + (x.time ? " " + x.time : "")).join("; ") +
     " – die Stunden sind um je einen Termin nach hinten gerückt." + (rv.open ? " Die Einheit muss deshalb überarbeitet werden (roter Hinweis; nur nach Rücksprache mit der Lehrkraft, siehe get_unit)." : ""));
+  if (free.length) parts.push("Wegen unterrichtsfreier Tage verschoben (" + free.map((x) => x.label).join("; ") + "): die Stunden sind auf die nächsten freien Termine gerückt." +
+    (rv.open && !sick.length ? " Die Einheit muss deshalb überarbeitet werden (roter Hinweis; nur nach Rücksprache mit der Lehrkraft, siehe get_unit)." : ""));
   return parts.join("\n");
 }
 
@@ -400,6 +404,19 @@ function gsLessonState(l) {
   const has = [l.hasPlan ? "Verlaufsplan" : null, l.pdfs ? l.pdfs + (l.pdfs === 1 ? " PDF" : " PDFs") : null, l.cards ? "Bildkarten" : null].filter(Boolean);
   return has.length ? " – schon geplant: " + has.join(", ") + "; nicht weglassen" : l.hasContent ? " – hat schon Inhalte (z. B. Ideen, Hinweis oder Inhalt für die Eltern, Elternlink, Material, Planungsverlauf); nicht weglassen" : " – noch leer";
 }
+/* Unterrichtsfreie Tage der Schule (Einstellungen, Nachtrag 24) im Zeitraum der Einheit und bis acht Wochen danach (für extend_unit) – aus
+   params.schoolBreaks (unitFull); ohne solche Tage kein Abschnitt (get_unit bleibt wie bisher) */
+export function freeDaysLines(u) {
+  const p = normalizeParams(u.params), until = p.end ? addDays(p.end, 56) : null;
+  const list = (p.schoolBreaks || []).filter((b) => (!p.start || b.to >= p.start) && (!until || b.from <= until));
+  if (!list.length || !p.start || !p.end) return [];
+  return ["", "## Unterrichtsfreie Tage (" + FREE_DAY_SCOPES[schoolOf(u.subject)] + ") – aus den Einstellungen der Lehrkraft",
+    ...list.map((b) => "- " + b.label + ": " + freeRangeText(b) + (b.from > p.end ? " (nach dem Ende der Einheit)" : "")),
+    "An diesen Tagen gibt es keine Termine: Die verfügbaren Termine, freie Termine und extend_unit lassen sie schon aus. Ändern kann sie nur die Lehrkraft in den Einstellungen."];
+}
+/* Verschiebungen wegen unterrichtsfreier Tage (units.revise, Einträge kind "free") – beide Schulformen */
+const freeShiftLines = (items) => items.map((x) => "- " + x.label + " (" + freeRangeText({ from: x.from || x.date, to: x.to || x.date }) + "): „" + x.title + "“ und alle folgenden Stunden sind auf die nächsten freien Termine gerückt" +
+  (x.lengths && x.lengths.length ? "; geänderte Länge: " + x.lengths.map((g) => "Stunde " + g.n + " (" + g.from + " → " + g.to + " Min.)").join(", ") : "") + ".");
 /* get_unit einer Grundschul-Einheit: Kurs im Kopf, ohne Klausur, jede Stunde mit uid und Sitzung (bzw. „[ohne Termin]“) */
 function gsUnitText(u, now = Date.now()) {
   const g = (u.course && u.course.gs) || null, n = u.course && Number.isInteger(u.course.classSize) ? u.course.classSize : null;
@@ -413,13 +430,15 @@ function gsUnitText(u, now = Date.now()) {
       return (i + 1) + ". [uid " + r.uid + "] " + (r.date ? fmtDay(r.date) + (r.time ? " " + r.time : "") : "[ohne Termin]") + (r.minutes ? " (" + r.minutes + " min)" : "") + ": " + r.stundenfrage +
         (r.schritt != null ? " [Lernschritt " + (r.schritt + 1) + "]" : "") + (l ? " (Sitzung " + l.id + gsLessonState(l) + ")" : "") + (r.ablauf.length ? "\n   - " + r.ablauf.join("\n   - ") : ""); }),
     "", "## Sitzungen", ...(u.lessons.length ? u.lessons.map((l) => "- " + l.id + " " + (l.date ? fmtDay(l.date) : "[ohne Termin]") + ": " + l.title + (l.cancelled ? " (ausgefallen – Ausfall-Eintrag für die Eltern)" : "")) : ["(noch keine)"])];
+  lines.push(...freeDaysLines(u));
   // Krankmeldungen: ausgefallene Termine, Stunden ohne Termin, freie Termine bis zum Ende, ob die Einheit überarbeitet werden muss
-  const rv = u.revise || null, items = rv ? rv.items : [];
-  if (items.length) {
+  const rv = u.revise || null, items = rv ? rv.items : [], sick = items.filter((x) => x.kind !== "free"), free = items.filter((x) => x.kind === "free");
+  if (sick.length) {
     const at = (x) => fmtDay(x.date) + (x.time ? " " + x.time : "");
-    lines.push("", "## Ausfälle", ...items.map((x) => "- " + at(x) + ": Unterricht ausgefallen (Lehrkraft krank) – „" + x.title + "“ und alle folgenden Stunden sind um einen Termin nach hinten gerückt" +
+    lines.push("", "## Ausfälle", ...sick.map((x) => "- " + at(x) + ": Unterricht ausgefallen (Lehrkraft krank) – „" + x.title + "“ und alle folgenden Stunden sind um einen Termin nach hinten gerückt" +
       (x.lengths && x.lengths.length ? "; geänderte Länge: " + x.lengths.map((g) => "Stunde " + g.n + " (" + g.from + " → " + g.to + " Min.)").join(", ") : "") + "."));
   }
+  if (free.length) lines.push("", "## Verschoben wegen unterrichtsfreier Tage", ...freeShiftLines(free));
   const undated = u.rows.map((r, i) => ({ r, i })).filter((x) => !x.r.date);
   if (items.length || undated.length) {
     const free = freeSlots(u.params, u.rows, now);
@@ -519,7 +538,17 @@ async function callTool(c, name, a) {
       const lines = ["# Unterrichtseinheit " + u.id + " (" + subjectName(u.subject) + ", " + classShort(u.klass) + " – " + gradeInfo(u.klass).text + ", Status: " + u.status + ", Version " + u.version + ")",
         "Titel: " + (u.title || "(offen)"), ...(u.course && Number.isInteger(u.course.classSize) ? ["Schülerzahl laut Kurseinstellungen: " + u.course.classSize] : []), paramsText(u.params), "Verfügbare Sitzungen: " + lessonSlots(u.slots).length, ...lessonSlots(u.slots).map((x, i) => "  " + (i + 1) + ". " + fmtDay(x.date) + " (" + x.minutes + " min)"),
         "", "## Plan", JSON.stringify(u.plan, null, 1), "", "## Ablauf (Zeilen)", ...u.rows.map((r, i) => (i + 1) + ". " + (r.date ? fmtDay(r.date) + ": " : "") + r.stundenfrage + (r.schritt != null ? " [Lernschritt " + (r.schritt + 1) + "]" : "") + "\n   - " + r.ablauf.join("\n   - ")),
-        "", "## Sitzungen", ...(u.lessons.length ? u.lessons.map((l) => "- " + l.id + " " + (l.date ? fmtDay(l.date) : "") + ": " + l.title) : ["(noch keine)"])];
+        "", "## Sitzungen", ...(u.lessons.length ? u.lessons.map((l) => "- " + l.id + " " + (l.date ? fmtDay(l.date) : "") + ": " + l.title) : ["(noch keine)"]),
+        ...freeDaysLines(u)];
+      // nach dem Verschieben wegen unterrichtsfreier Tage (units.revise gibt es am Gymnasium nur dann): was passiert ist, Stunden ohne Termin, freie Termine
+      const rv = u.revise || null, moved = rv ? rv.items.filter((x) => x.kind === "free") : [];
+      if (moved.length) {
+        const undated = u.rows.map((r, i) => ({ r, i })).filter((x) => !x.r.date), free = freeSlots(u.params, u.rows, c.now);
+        lines.push("", "## Verschoben wegen unterrichtsfreier Tage", ...freeShiftLines(moved),
+          "Stunden ohne Termin: " + (undated.length ? undated.map((x) => "Stunde " + (x.i + 1) + " „" + x.r.stundenfrage + "“").join("; ") : "keine"),
+          "Noch freie Termine bis zum Ende der Einheit: " + (free.length ? free.map((x) => fmtDay(x.date) + (x.time ? " " + x.time : "") + " (" + x.minutes + " min)").join("; ") : "keine"),
+          "Muss überarbeitet werden: " + (rv.open ? "ja (Hinweis in der Einheit – überarbeite sie nur nach Rücksprache mit der Lehrkraft; Stunden zusammenlegen oder kürzen mit save_unit_plan, verlängern nur nach Zustimmung mit extend_unit)" : "nein"));
+      }
       return toolText(lines.join("\n"), { unit_id: u.id, version: u.version });
     }
     case "get_planning_basis": {
@@ -527,25 +556,30 @@ async function callTool(c, name, a) {
       if (a.unit_id) { const u = await getUnit(c.db, a.unit_id); subject = u.subject; klass = u.klass; }
       else if (a.lesson_id) { const l = await getLesson(c.db, a.lesson_id); subject = l.subject; klass = l.klass; }
       else return toolError("Bitte unit_id oder lesson_id angeben.");
+      // unterrichtsfreie Tage (Nachtrag 24): ein kurzer Satz, nur wenn die Schule heute oder später welche hat (sonst bleibt die Antwort wie bisher)
+      const freeNote = schoolBreaks(await loadFreeDays(c.db), schoolOf(subject), { from: berlinToday(c.now) }).length
+        ? "Unterrichtsfreie Tage: Die Lehrkraft hat in den Einstellungen unterrichtsfreie Tage für " + (subject === GS_SUBJECT ? "die Grundschule" : "das Gymnasium") +
+          " eingetragen. An ihnen gibt es keine Termine – Unterricks lässt sie bei allen Terminen schon aus (die Tage im Zeitraum einer Einheit nennt get_unit)." : "";
       if (subject === GS_SUBJECT) {   // Grundschulkurs: Curriculum des Jahrgangs (Religion) bzw. die Grundlagen des Kurses
         const course = gsCourseOut(await getGsCourse(c.db, klass));
         const b = await planningBasisGs(c.db, course, a.max_zeichen || 180000);
         const head = ["# Planungsgrundlagen für " + course.label + " (Grundschule)", "Lerngruppe: " + course.gradeText,
           course.description ? "## Ziel des Kurses\n" + course.description : "",
-          b.missing.length ? "## Fehlende Planungsgrundlagen\n- " + b.missing.join("\n- ") : "", b.truncated ? "(Gekürzt – weitere Seiten über max_zeichen anfordern.)" : ""].filter(Boolean);
+          b.missing.length ? "## Fehlende Planungsgrundlagen\n- " + b.missing.join("\n- ") : "", b.truncated ? "(Gekürzt – weitere Seiten über max_zeichen anfordern.)" : "", freeNote].filter(Boolean);
         return toolText(head.join("\n\n") + "\n\n" + (b.text || "(Es sind noch keine passenden Dokumente hochgeladen.)"), { docs: b.docs, missing: b.missing });
       }
       const b = await planningBasis(c.db, subject, klass, a.max_zeichen || 180000);
       const head = ["# Planungsgrundlagen für " + subjectName(subject) + ", " + classShort(klass) + " – " + gradeInfo(klass).text,
         b.rules ? "## Planungsregeln der Lehrkraft\n" + b.rules : "", b.gradeNote ? "Hinweis zum Jahrgang: " + b.gradeNote : "",
-        b.missing.length ? "## Fehlende Planungsgrundlagen\n- " + b.missing.join("\n- ") : "", b.truncated ? "(Gekürzt – weitere Seiten über max_zeichen anfordern.)" : ""].filter(Boolean);
+        b.missing.length ? "## Fehlende Planungsgrundlagen\n- " + b.missing.join("\n- ") : "", b.truncated ? "(Gekürzt – weitere Seiten über max_zeichen anfordern.)" : "", freeNote].filter(Boolean);
       return toolText(head.join("\n\n") + "\n\n" + (b.text || "(Es sind noch keine passenden Dokumente hochgeladen.)"), { docs: b.docs, missing: b.missing });
     }
     case "save_unit_plan": {
       const u = await getUnit(c.db, a.unit_id);
       try {
         const r = await applyPlan(c.db, u, a.plan, a.stunden, Number.isInteger(a.base_version) ? a.base_version : null, "claude", c.now);
-        if (!r.uid) return toolText("Plan gespeichert (Version " + r.version + ", " + a.stunden.length + " Stunden). Die Lehrkraft prüft ihn in der Plattform und legt dort die Sitzungen an.", { version: r.version });
+        if (!r.uid) return toolText("Plan gespeichert (Version " + r.version + ", " + a.stunden.length + " Stunden)." + (r.reviseClosed ? " Der Hinweis zum Überarbeiten in der Einheit ist entfernt." : "") +
+          " Die Lehrkraft prüft ihn in der Plattform und legt dort die Sitzungen an.", { version: r.version });
         // mit uid (Überarbeitung): Stunden samt Sitzungen bleiben; in der Grundschule verteilt die Plattform die Termine neu
         const when = (m) => (m.to ? fmtDay(m.to) + (m.time ? " " + m.time : "") : "ohne Termin");
         const t = ["Plan gespeichert (Version " + r.version + ", " + a.stunden.length + " Stunden; Stunden mit uid behalten ihre Sitzung)."];

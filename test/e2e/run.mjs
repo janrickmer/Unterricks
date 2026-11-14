@@ -12,6 +12,7 @@ import { PDFDocument, StandardFonts, rgb, PDFName, PDFString } from "pdf-lib";
 import { startMockAI, startMockFeibeitsblatt, startMockPrinter } from "./mocks.mjs";
 import { readZip } from "../../public/zip.js";
 import { horizontalIssues, strayTexts } from "./mobile-audit.mjs";
+import { freeDaysE2E } from "./freedays.mjs";
 
 const require = createRequire(import.meta.url);
 const { chromium, devices } = require("playwright");
@@ -3604,6 +3605,14 @@ async function main() {
         && kept.includes("sowie in der Grundschule Verlaufspläne, Bildkarten und Elternlinks."), "Einstellungen nennen, was bleibt und was gelöscht wird – auch für die Grundschule");
       await tp.goto(BASE + "/#/lk"); await tp.locator("main").first().waitFor();
       ok((await TR("POST", "/api/teacher/reset", { authKey: "x".repeat(43) })).status === 403, "der Server verlangt das Passwort auch selbst (ohne richtiges Passwort kein Zurücksetzen)");
+    }
+
+    /* ---------- Unterrichtsfreie Tage (Nachtrag 24) – nach dem Zurücksetzen: eigene Einheiten beider Schulformen, zwei Wochen voraus ---------- */
+    step("Unterrichtsfreie Tage (Einstellungen): Pflichtwahl der Schule, Rückfrage mit den betroffenen Sitzungen, „Nur speichern“ und „Speichern und verschieben“, Kalender, Rahmendaten, Ablehnung, Löschen");
+    {
+      const tok = await tp.evaluate(() => localStorage.getItem("u.ttoken"));
+      const TF = (method, path, body) => fetch(BASE + path, { method, headers: { Authorization: "Bearer " + tok, ...(body ? { "Content-Type": "application/json" } : {}) }, body: body ? JSON.stringify(body) : undefined }).then(async (r) => ({ status: r.status, data: await r.json().catch(() => null) }));
+      await freeDaysE2E({ browser, BASE, T: TF, storage: await tp.context().storageState(), ok, OUT, tool, shots: process.env.FREEDAYS_SHOTS ? join(OUT, "unterrichtsfrei") : null, watch });
     }
   } finally {
     await browser.close();

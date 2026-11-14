@@ -66,6 +66,7 @@ implementiert und im End-to-End-Test geprüft (Ausnahmen unten ausdrücklich gen
 | Druckaufträge für den nächsten Arbeitstag (Nachtrag vom 13.11.2026) | Ganz oben auf **beiden Startseiten** (Gymnasium und Übersicht „Grundschule“) ein **oranges Feld mit Drucker-Symbol**, jeweils mit den Druckaufträgen **beider Schulformen**; **nach Sitzung gruppiert**, jede Datei einzeln herunterladbar und benannt wie in der Druckliste der Sitzung, dazu ein Knopf, der **alle Dateien nacheinander einzeln** herunterlädt (**keine ZIP-Datei**); „nächster Arbeitstag“ = Mo–Do der folgende Tag, Fr/Sa/So der Montag, ohne Unterricht dort (Ferien, Feiertag, kein Termin laut Stundenplan) der nächste Tag mit Unterricht; siehe 4n |
 | Zusammenfassung der Sitzung für die Lehrkraft (Nachtrag 21 vom 13.11.2026) | Gibt die Lehrkraft Claude frei, die Planung abzulegen, schreibt Claude **als letzten Speicherschritt** eine kurze Zusammenfassung des Ablaufs (verständlich für eine Lehrkraft, die nicht mitgeplant hat); Unterricks zeigt sie in der Lehreransicht der Sitzung **ganz oben** in „Zusammenfassung der Sitzung für die Lehrkraft“ (Gymnasium und Grundschule). Rückfrage zur Kopfzeile: **„Unterricks automatisch“** – Fach, Jahrgang, Wochentag mit Datum und Beginn setzt Unterricks aus den aktuellen Sitzungsdaten darüber (stimmt auch nach dem Verschieben); Claude schreibt nur den Ablauf. Grundlage des Podcasts (Nachtrag 22, siehe 4q); siehe 4p |
 | Podcast für den kommenden Unterricht (Nachtrag 22 vom 13.11.2026) | Knopf mit Kopfhörer **direkt unter dem Wochenkalender** beider Startseiten; steht heute noch Unterricht bevor, Rückfrage „heute oder nächster Schultag“. Grundlage: die **Zusammenfassungen** aller Sitzungen des Tages in Unterrichtsreihenfolge; ohne Zusammenfassung **„Ersatz aus der Planung“** (Thema und Schulportal-Eintrag bzw. Verlaufsplan, vorher genannt). Weg (nach Recherche, keine offizielle Schnittstelle zu Gemini Notebook, WeTransfer geprüft und verworfen): **„Claude in Chrome + Datei hineinziehen“** – Unterricks kopiert den Auftrag, Claude erstellt und lädt die Folge in Gemini Notebook herunter, die Lehrkraft zieht die Datei auf das Ablagefeld, danach löscht Claude das Notizbuch (die Lehrkraft bestätigt); am iPad derselbe Text von Hand. Folge möglichst unter 15 Minuten (nur über die Steueranweisung). Player statt Knopf; gelöscht zwei Tage nach dem Unterrichtstag; siehe 4q |
+| Unterrichtsfreie Tage (Nachtrag 24 vom 13.11.2026) | In den **Einstellungen** trägt die Lehrkraft unterrichtsfreie Tage ein – als **Zeitraum mit Bezeichnung** (Ferien, Pädagogischer Tag …); je Eintrag wird **gefragt**, ob er die **Grundschule, das Gymnasium oder beide Schulen** betrifft (Pflichtwahl). Der Wochenkalender zeigt sie blockiert, an ihnen gibt es für die Schule keine Termine, Claude plant drumherum. Rückfragen beantwortet: **nachfragen und verschieben** (vor dem Speichern die betroffenen Sitzungen nennen; auf Wunsch rücken sie und alle folgenden Stunden ihrer Einheit wie bei der Krankmeldung, danach Hinweis zum Überarbeiten mit Claude), **keine automatischen Feiertage**, die Rahmendaten der Einheit **bleiben zusätzlich** (für Ausfälle nur dieser Klasse), die Tage der Einstellungen stehen dort zur Ansicht; siehe 4r |
 
 ## 2. Gesamtarchitektur
 
@@ -124,7 +125,8 @@ implementiert und im End-to-End-Test geprüft (Ausnahmen unten ausdrücklich gen
 | | `worker/gs.js` | Grundschulkurse (Jahrgang, Klassen a–c, Fach, Beschreibung, Schuljahr): anlegen, ändern, löschen; Planungsgrundlagen eines Kurses; Krankmeldung (Stunden verschieben, Ausfall-Eintrag, rückgängig) |
 | | `worker/parents.js` | Elternansicht der Grundschule: geheimer Link je Sitzung (nur Hash + verschlüsselte Kopie in D1), öffentliche Routen `/api/eltern/*` (Zeitsperre bis zum Ende der Sitzung, Material bis zum Zwischenstopp, vorherige Sitzungen des Schuljahres, PDF-Links, Sperre je IP), Vorschau der Lehrkraft |
 | | `worker/cards.js` | Bildkarten der Grundschule: PDF hochladen (eine Seite = eine Karte), Kartenbilder mit Stand der PDF, Erzähltexte und Freigabe für Eltern, signierte Bilder (`/api/card/…`), von Claude gestaltete Bildkarten |
-| | `public/weekcal.js` | Wochenkalender auf der Startseite der Lehrkraft (Raster bzw. Liste je Tag) |
+| | `public/weekcal.js` | Wochenkalender auf der Startseite der Lehrkraft (Raster bzw. Liste je Tag; unterrichtsfreie Tage als schraffiertes Band) |
+| | `worker/freedays.js`, `public/freedays.js` | Unterrichtsfreie Tage (Nachtrag 24): Liste, Vorschau der betroffenen Sitzungen, Speichern mit Verschieben, Löschen, Prüfung eines Datums; Karte in den Einstellungen mit Rückfrage, siehe 4r |
 | | `worker/printjobs.js`, `public/printnext.js` | Druckaufträge für den nächsten Arbeitstag (`GET /api/teacher/print-next`; Feld ganz oben auf beiden Startseiten), siehe 4n |
 | | `worker/podcast.js`, `public/podcast.js`, `public/podcastlib.js` | Podcast für den kommenden Unterricht (Nachtrag 22): Grundlage des Tages, Auftrag für Claude in Chrome, Ablage der Audiodatei in R2, Player mit Range-Anfragen, Löschen zwei Tage nach dem Unterricht – Knopf bzw. Player unter dem Wochenkalender beider Startseiten, siehe 4q |
 | | `worker/substitute.js` | Krankheitsvertretung: Vorschlag, Bestätigen (Archiv), Wiederherstellen, Übertragen |
@@ -410,7 +412,9 @@ implementiert und im End-to-End-Test geprüft (Ausnahmen unten ausdrücklich gen
   unterrichtet werden. Die Woche rechnet der Browser (`weekSchedule` in `public/planning.js`, gemeinsam mit `computeSlots`): Eine
   Einheit gilt an einem Tag, wenn er in ihrem Zeitraum liegt (Beginn und Ende einschließlich), sein Wochentag im Stundenplan steht und
   er in keinen ihrer Ausfälle fällt; der Klausurtag ist markiert. Dieselbe Klasse zur selben Zeit aus zwei überlappenden Einheiten
-  erscheint einmal; entfällt Unterricht laut Einheit, steht „Entfällt: … (Grund)“ am Tag. „Heute“ ist das Datum in Europe/Berlin
+  erscheint einmal; entfällt Unterricht laut Einheit, steht „Entfällt: … (Grund)“ am Tag. Unterrichtsfreie Tage der Einstellungen (4r) liefert
+  dieselbe Route mit (`freeDays`, dazu `freeLessons`: Sitzungen, die trotzdem an einem solchen Tag ihrer Schule liegen); sie stehen als
+  schraffiertes Band oben am Tag, die Klassen der betroffenen Schule nicht unter „Entfällt“. „Heute“ ist das Datum in Europe/Berlin
   (`berlinToday`); am Wochenende zeigt der Kalender die kommende Woche (`calendarWeek`). Ab 1000 px Breite ein Zeitraster (Einträge
   nach Uhrzeit, Überschneidungen in Spuren nebeneinander – `assignLanes`), darunter eine Liste je Tag; Unterricht ohne Uhrzeit steht in
   einer eigenen Zeile „ohne Uhrzeit“. Jeder Eintrag ist ein Link auf die Klasse bzw. den Kurs (`#/lk/f/<Fach>/<Klasse>`). Der Kalender
@@ -968,6 +972,54 @@ Lehrkraft zieht die Datei einmal auf das Ablagefeld (keine automatische Übergab
   nach dem Hochladen auf „Abspielen“ genau dieses Podcasts; liegt er auf dem Knopf, der gerade gesperrt wird („Abspielen“ beim Start, „Pause“ beim
   Anhalten bzw. am Ende), geht er zum anderen (so bleibt Enter/Leertaste wirksam), sonst bleibt er, wo die Lehrkraft ihn hingesetzt hat.
 
+## 4r. Unterrichtsfreie Tage (Nachtrag der Lehrkraft vom 13.11.2026, Anforderung 24)
+
+* **Daten:** Tabelle `free_days(id, date_from, date_to, label, scope 'gs'|'gym'|'both', created_at, updated_at)` (additiv in `worker/db.js`;
+  höchstens 200 Zeilen, jede Abfrage liest alle – deshalb ohne Index, das spart beim ersten Aufruf eines Isolats eine Anweisung). Kalendertage
+  in Berlin (JJJJ-MM-TT), `date_from ≤ date_to`, höchstens 366 Tage je Eintrag, Bezeichnung einzeilig 1–80 Zeichen; geprüft in
+  `normalizeFreeDay` (`public/planning.js`, gemeinsam für Browser und Server, Meldungen mit Feld). „Gymnasium“ = alle Fächer außer `gs`.
+* **Rechnen:** `schoolBreaks(freeDays, "gs"|"gym")` bildet die wirksamen Unterbrechungen; `withSchoolBreaks(params, freeDays, subject)` legt sie
+  als `params.schoolBreaks` an die Rahmendaten (nur die Einträge, die nicht vor dem Beginn der Einheit enden), `computeSlots` lässt diese Tage
+  aus wie die `breaks` der Einheit – damit auch `lessonSlots`, `assignDates`, `repackFuture`, `planCancellation` (Krankmeldung), `freeSlots`,
+  `slotsAfterEnd`/`extend_unit`, `weekSchedule` und `printTargetDay`. `normalizeParams` kennt den Schlüssel nur, wenn es Einträge gibt; vor jedem
+  Speichern entfernt `storeParams` ihn (Anlegen, Rahmendaten speichern, Krankmeldung und Rückgängig, `extend_unit`; die Einheitsdatei ebenfalls) –
+  ein Speichern der Einheit schreibt die Schultage nie hinein. Der Server liefert sie mit (`unitFull`, Liste der Einheiten, Sitzung, Kontext für
+  Chat und Connector): Rahmendaten, „Sitzungen verfügbar“ und alle Prompts im Browser rechnen so ohne eigene Abfrage mit.
+* **Wo Termine entstehen** (vollständig per `grep` über `computeSlots`, `lessonSlots`, `assignDates`, `repackFuture`, `slotsAfterEnd`, `nextWorkday`,
+  `printTargetDay`, `planCancellation`, `weekSchedule` erfasst): `worker/units.js` (Tabelle speichern, „Termine neu verteilen“, `save_unit_plan`
+  nach Position und nach uid, `extend_unit`, Liste, `unitFull`), `worker/gs.js` (Krankmeldung, Rückgängig speichert ohne sie),
+  `worker/printjobs.js` (`nextTeachingDay`: Druckaufträge und „nächster Schultag“ des Podcasts, die Einträge im vorhandenen Batch),
+  `worker/lessons.js` (Sitzung, Chat- und Connector-Kontext), Wochenkalender (Browser). Die Sitzungsdatei behält das Datum der geöffneten Sitzung,
+  die Einheitsdatei verteilt die Termine neu (`assignDates` auf dem Server) – beide damit ohne freie Tage.
+* **Datum direkt gesetzt:** Sitzung anlegen bzw. Datum ändern (`createLesson`, `updateLesson` – auch `update_lesson` des Connectors), ein neues
+  Datum in der Tabelle der Einheit und `save_unit_plan` mit Datum, „Sitzungen anlegen“ für Zeilen ohne Sitzung: an einem unterrichtsfreien Tag
+  der Schule 400 `free_day` „Am … ist unterrichtsfrei (Herbstferien, Gymnasium). Bitte einen anderen Tag wählen.“ (`freeDateError`). Im Browser
+  dieselbe Meldung sofort (`freeDateMessage`, Liste einmal je Seite geladen). Ein Datum, das schon dort liegt, bleibt speicherbar.
+* **Routen** (`worker/freedays.js`): `GET /api/teacher/free-days`; `POST …/free-days/preview` (nichts gespeichert) → betroffene Sitzungen (heute
+  oder später, ohne Ausfall-Einträge, nur die Schule des Eintrags; beim Ändern nur die neu hinzugekommenen Tage) und Stunden ohne Sitzung, je mit
+  „ohne Einheit“ bzw. „wird nicht verschoben“; `POST …/free-days` bzw. `PUT …/free-days/<id>` mit `shift`; `DELETE …/free-days/<id>`. Ein Lese-Batch
+  (5 Anweisungen: Einträge, Sitzungen im Zeitraum, betroffene Einheiten, deren Sitzungen, Grundschulkurse) und ein Schreib-Batch (Eintrag, **eine**
+  Anweisung für die Termine aller verschobenen Sitzungen, **eine** für alle Einheiten – je Einheit an ihre gelesene Version gebunden, `RETURNING`):
+  höchstens 12 D1-Anweisungen, gleich wie viele Einheiten betroffen sind. Wurde eine Einheit inzwischen geändert, bleiben sie und ihre Sitzungen
+  unberührt, der Eintrag ist trotzdem gespeichert, die Antwort nennt sie.
+* **Verschieben** (`planFreeShift`): Packlogik der Krankmeldung (`packFrom`) ohne Ausfall-Eintrag – ab der ersten betroffenen Stunde (Datum ihrer
+  Sitzung bzw. der Zeile, heute oder später) bekommen sie und alle folgenden Stunden der Reihe nach die freien Termine **nach** ihrem bisherigen
+  Tag; was hinter das Ende rutscht, bleibt ohne Termin (am Gymnasium dann auch die Sitzung ohne Datum – `extend_unit` und `save_unit_plan` geben
+  solchen Sitzungen wieder einen Termin). Hat eine folgende Stunde schon stattgefunden, wird die Einheit nicht verschoben. Danach `units.revise`
+  mit einem Eintrag `kind: "free"` (Bezeichnung, Zeitraum, Schule) und `undo: null`: in der Grundschule der rote Kasten mit dem Grund
+  „unterrichtsfreie Tage“ (Elterntexte unberührt, nie „krank“), am Gymnasium derselbe Kasten auf der Einheitsseite (`claudeGymRevisionPrompt`),
+  „überarbeiten“ in der Liste der Klasse; `save_unit_plan` oder „Erledigt“ nehmen ihn weg. Löschen eines Eintrags verschiebt nichts zurück.
+* **Oberfläche:** Karte „Unterrichtsfreie Tage“ ganz oben in den Einstellungen (`public/freedays.js`): Liste nach Datum (vergangene eingeklappt),
+  Formular mit Pflichtwahl der Schule (drei Radioknöpfe ohne Vorauswahl, Fehler per `aria-invalid`/`aria-describedby`, Fokus aufs Feld), Rückfrage
+  „Sitzungen an unterrichtsfreien Tagen“ mit „Speichern und verschieben (empfohlen)“, „Nur speichern – Sitzungen bleiben“, „Abbrechen“. Rahmendaten
+  der Einheit: die geltenden Tage zur Ansicht mit „In den Einstellungen bearbeiten“; Tabelle und Sitzung: „Liegt auf einem unterrichtsfreien Tag (…)“.
+* **Connector:** `get_unit` mit dem Abschnitt „Unterrichtsfreie Tage (Gymnasium|Grundschule)“ (im Zeitraum und bis acht Wochen danach) und – nach
+  dem Verschieben – „Verschoben wegen unterrichtsfreier Tage“; `get_planning_basis` mit einem Satz, wenn die Schule heute oder später freie Tage hat;
+  `paramsText` mit „Unterrichtsfreie Tage: …“ (nur, wenn es im Zeitraum welche gibt – sonst bleiben alle Prompts byte-gleich). Die
+  Server-Anweisungen bleiben unverändert (Länge).
+* **Sicherung und Zurücksetzen:** Die Einträge gehören zu den Einstellungen: Sie bleiben beim Zurücksetzen und stehen zum Nachlesen als
+  „Unterrichtsfreie Tage.txt“ in der Sicherung (nur, wenn es welche gibt).
+
 ## 4i. Druckliste „Von der Lehrkraft auszudrucken“ (Ergänzung vom 10.11.2026)
 
 * Bereich `print` (für Schüler:innen nie sichtbar) mit `files.print_copies`, `print_duplex`, `print_color`. Nur PDF (Kennung `%PDF-`
@@ -993,8 +1045,9 @@ Lehrkraft zieht die Datei einmal auf das Ablagefeld (keine automatische Übergab
   Antwort `{today, candidate, date (null = nichts gefunden), sessions: [{id, subject, klass, title, date, startTime, school, label,
   subtitle, course?, files}]}`, Sitzungen nach Beginn (ohne Uhrzeit zuletzt), dann Klasse bzw. Kurs, Dateien in der Reihenfolge der
   Sitzung (`fileOut` ohne den Text von Textmaterial und ohne Claudes Gestaltung); auch Sitzungen ohne Druckaufträge (für die Zeile
-  „Ohne Druckaufträge: …“). 7 D1-Anweisungen (Anmeldung, Fach-Einstellungen, ein Batch mit Einheiten/Kursen/frühester Sitzung, ein
-  Batch mit den Sitzungen und Dateien des Tages), ohne Tag 5. Die Sitzungen eines Tages findet der Index `lessons_day` (`lessons(lesson_date)`,
+  „Ohne Druckaufträge: …“). 8 D1-Anweisungen (Anmeldung, Fach-Einstellungen, ein Batch mit Einheiten/Kursen/frühester Sitzung/unterrichtsfreien
+  Tagen, ein Batch mit den Sitzungen und Dateien des Tages), ohne Tag 6. Die Termine der Einheiten rechnen mit den unterrichtsfreien Tagen
+  ihrer Schule (4r) – ist der nominelle nächste Arbeitstag für beide Schulen frei, gilt der nächste Tag mit Unterricht (auch für den Podcast). Die Sitzungen eines Tages findet der Index `lessons_day` (`lessons(lesson_date)`,
   in `INDEXES` von `worker/db.js`) – sonst durchsuchte jeder Aufruf einer Startseite mehrmals alle Sitzungen.
 * **Oberfläche** (`public/printnext.js`, `printNextCard()`): auf der Startseite „Gymnasium“ (`teacher.js`) und der Übersicht
   „Grundschule“ (`grundschule.js`) direkt unter dem Kopfband und vor dem Wochenkalender, lädt eigenständig (ein Fehler dort verhindert

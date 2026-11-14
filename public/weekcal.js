@@ -1,6 +1,8 @@
 // weekcal.js – Wochenkalender auf der Startseite der Lehrkraft: der Unterricht der Woche aus den Stundenplänen der Unterrichtseinheiten
 // (weekSchedule in planning.js). Breit ein Zeitraster Mo–Fr (Einträge nach Uhrzeit, Überschneidungen nebeneinander), schmal eine Liste je Tag
-// – eine Struktur, umgeschaltet nur per CSS (styles.css .weekcal). Jeder Eintrag ist ein Link auf die Klasse bzw. den Kurs.
+// – eine Struktur, umgeschaltet nur per CSS (styles.css .weekcal). Jeder Eintrag ist ein Link auf die Klasse bzw. den Kurs. Unterrichtsfreie Tage
+// (Einstellungen, Nachtrag 24) stehen als schraffiertes Band oben am Tag („Herbstferien – unterrichtsfrei (Gymnasium)“); ist der Tag für beide
+// Schulen frei, ist der ganze Tag schraffiert. Sitzungen, die trotzdem an einem solchen Tag liegen, erscheinen mit dieser Markierung.
 import { h, clear, icon } from "./ui.js";
 import { addDays, berlinToday, isoWeek, minutesClock } from "./shared.js";
 import { weekSchedule, assignLanes, calendarWeek, weekRangeText, dayMonthText } from "./planning.js";
@@ -8,10 +10,10 @@ import { weekSchedule, assignLanes, calendarWeek, weekRangeText, dayMonthText } 
 const MIN_SPAN = 40;   // Mindesthöhe eines Eintrags im Raster in Minuten (54 px bei --ppm 1.35px)
 const setVars = (el, vars) => { for (const [k, v] of Object.entries(vars)) el.style.setProperty(k, String(v)); return el; };
 
-/* load() → Promise mit den Einheiten (GET /api/teacher/schedule); today = Datum an der Schule (für Tests fest einstellbar, sonst jedes Mal neu –
-   ein Tab, der übers Wochenende offen bleibt, zeigt danach die richtige Woche) */
+/* load() → Promise mit der Antwort von GET /api/teacher/schedule ({units, freeDays, freeLessons}; ein Array = nur die Einheiten); today = Datum an
+   der Schule (für Tests fest einstellbar, sonst jedes Mal neu – ein Tab, der übers Wochenende offen bleibt, zeigt danach die richtige Woche) */
 export function weekCard(load, { today: fixed = null } = {}) {
-  let today = fixed || berlinToday(), home = calendarWeek(today), monday = home, units = null;
+  let today = fixed || berlinToday(), home = calendarWeek(today), monday = home, units = null, extra = {};
   const refresh = () => { const t = fixed || berlinToday(); if (t === today) return false; const wasHome = monday === home; today = t; home = calendarWeek(t); if (wasHome) monday = home; return true; };
   const range = h("p", { class: "wk-range", id: "wk-range", "aria-live": "polite" });
   const prev = h("button", { class: "btn ghost iconbtn", type: "button", "aria-label": "Vorige Woche", onclick: () => move(-7) }, icon("left"));
@@ -30,24 +32,43 @@ export function weekCard(load, { today: fixed = null } = {}) {
     range.textContent = weekRangeText(monday) + " · KW " + isoWeek(monday);
     back.setAttribute("aria-disabled", String(monday === home));
     back.setAttribute("aria-label", monday === home ? "Heute – diese Woche wird schon gezeigt" : "Zur Woche von heute");
-    if (units) { clear(body); body.classList.remove("skeleton"); body.append(...weekBody(weekSchedule(units, monday), today)); }
+    if (units) { clear(body); body.classList.remove("skeleton"); body.append(...weekBody(weekSchedule(units, monday, extra), today)); }
   }
   paint();
-  Promise.resolve().then(load).then((u) => { units = Array.isArray(u) ? u : []; paint(); }, (e) => {
+  Promise.resolve().then(load).then((u) => {
+    if (Array.isArray(u)) units = u;
+    else { units = Array.isArray(u && u.units) ? u.units : []; extra = { freeDays: (u && u.freeDays) || [], lessons: (u && u.freeLessons) || [] }; }
+    paint();
+  }, (e) => {
     clear(body); body.classList.remove("skeleton");
     body.append(h("p", { class: "err", role: "alert", text: "Der Wochenkalender ließ sich nicht laden: " + ((e && e.message) || e) }));
   });
   return card;
 }
 
+/* Text eines unterrichtsfreien Eintrags am Tag: „Herbstferien – unterrichtsfrei (Gymnasium)“ (beide Schulen: „(Grundschule und Gymnasium)“) */
+export const freeBandText = (f) => f.label + " – unterrichtsfrei (" + (f.scope === "both" ? "Grundschule und Gymnasium" : f.scope === "gs" ? "Grundschule" : "Gymnasium") + ")";
+// Band über den Einträgen: im Raster so hoch wie das höchste der Woche (gemessen, damit die Zeitachse passt)
+function fitBands(grid) {
+  const bands = [...grid.querySelectorAll(".wk-fband")];
+  if (!bands.length) return;
+  const fit = () => {
+    if (!grid.isConnected) return;
+    grid.style.setProperty("--fb", "auto");
+    const hmax = Math.max(0, ...bands.map((b) => b.getBoundingClientRect().height));   // mit Rand und Innenabstand
+    grid.style.setProperty("--fb", Math.ceil(hmax) + "px");
+  };
+  (typeof requestAnimationFrame === "function" ? requestAnimationFrame : setTimeout)(fit);
+  if (typeof ResizeObserver === "function") { let w = 0; const ro = new ResizeObserver((es) => { if (!grid.isConnected) { ro.disconnect(); return; } const nw = Math.round(es[0].contentRect.width); if (nw !== w) { w = nw; fit(); } }); ro.observe(grid); }
+}
 function weekBody(w, today) {
-  const all = w.days.flatMap((d) => [...d.timed, ...d.untimed]);
-  if (!all.length && !w.days.some((d) => d.off.length))
+  const all = w.days.flatMap((d) => [...d.timed, ...d.untimed]), anyFree = w.days.some((d) => d.free.length);
+  if (!all.length && !w.days.some((d) => d.off.length) && !anyFree)
     return [h("p", { class: "muted wk-empty", text: "In dieser Woche ist kein Unterricht eingetragen. Den Stundenplan übernehmen neue Unterrichtseinheiten aus den Kurseinstellungen; ändern lässt er sich in jeder Einheit unter „1. Rahmendaten der Einheit“." })];
   const timed = w.days.flatMap((d) => d.timed), urows = Math.max(0, ...w.days.map((d) => d.untimed.length));
   const from = timed.length ? Math.floor(Math.min(...timed.map((e) => e.start)) / 60) * 60 : 0;
   const to = timed.length ? Math.min(24 * 60, Math.ceil(Math.max(...timed.map((e) => Math.max(e.end, e.start + MIN_SPAN))) / 60) * 60) : 0;
-  const grid = setVars(h("div", { class: "wk-grid" + (timed.length ? "" : " no-time") }), { "--span": to - from, "--urows": urows, "--ugap": urows ? ".45rem" : "0px" });
+  const grid = setVars(h("div", { class: "wk-grid" + (timed.length ? "" : " no-time") + (anyFree ? " has-free" : "") }), { "--span": to - from, "--urows": urows, "--ugap": urows ? ".45rem" : "0px" });
   if (timed.length) {   // Zeitachse – nur im breiten Raster sichtbar
     const axis = h("div", { class: "wk-axis", "aria-hidden": "true" }, urows ? h("span", { class: "wk-ax-u", text: "ohne Uhrzeit" }) : null);
     const marks = h("div", { class: "wk-ax-m" });
@@ -56,10 +77,13 @@ function weekBody(w, today) {
   }
   const ol = h("ol", { class: "wk-days" });
   for (const d of w.days) {
-    const isToday = d.date === today, hid = "wk-d" + d.day;
-    const li = h("li", { class: "wk-day" + (isToday ? " today" : ""), "aria-labelledby": hid, "aria-current": isToday ? "date" : null },
+    const isToday = d.date === today, hid = "wk-d" + d.day, allFree = !!(d.freeFor.gs && d.freeFor.gym);
+    const li = h("li", { class: "wk-day" + (isToday ? " today" : "") + (allFree ? " free-all" : d.free.length ? " free-part" : ""), "aria-labelledby": hid, "aria-current": isToday ? "date" : null },
       h("h3", { class: "wk-dh", id: hid }, h("span", { class: "sr-only", text: d.name + ", " + dayMonthText(d.date) + (isToday ? " – heute" : "") }),
         h("span", { "aria-hidden": "true", title: isToday ? "heute" : null }, h("span", { class: "wk-wd", text: d.name.slice(0, 2) }), " ", h("time", { datetime: d.date, text: d.date.slice(8, 10) + "." + d.date.slice(5, 7) + "." }))));
+    // unterrichtsfrei (Einstellungen): Band mit Text – an Tagen ohne Eintrag leer (nur im Raster, damit die Zeitachse passt)
+    if (anyFree) li.append(d.free.length ? h("div", { class: "wk-fband" }, d.free.map((f) => h("p", { class: "wk-free", dataset: { scope: f.scope }, text: freeBandText(f) })))
+      : h("div", { class: "wk-fband empty", "aria-hidden": "true" }));
     if (urows) li.append(h("ul", { class: "wk-untimed", "aria-label": "ohne Uhrzeit" }, d.untimed.map((e) => h("li", null, entry(e, d)))));
     if (timed.length) {
       const track = h("ul", { class: "wk-track", "aria-label": "mit Uhrzeit" });
@@ -69,10 +93,11 @@ function weekBody(w, today) {
       li.append(track);
     }
     if (d.off.length) li.append(h("p", { class: "wk-off", text: "Entfällt: " + d.off.map((o) => o.subjectShort + " " + o.label + (o.reason ? " (" + o.reason + ")" : "")).join(", ") }));
-    if (!d.timed.length && !d.untimed.length && !d.off.length) li.append(h("p", { class: "wk-none", text: "kein Unterricht" }));
+    if (!d.timed.length && !d.untimed.length && !d.off.length && !d.free.length) li.append(h("p", { class: "wk-none", text: "kein Unterricht" }));
     ol.append(li);
   }
   grid.append(ol);
+  if (anyFree) fitBands(grid);
   const out = [grid];
   if (w.days.some((d) => d.untimed.length))
     out.push(h("p", { class: "hint wk-hint", text: "„ohne Uhrzeit“: Im Stundenplan dieser Einheiten fehlt die Uhrzeit – tragen Sie sie in der Unterrichtseinheit ein, dann erscheint der Unterricht im Zeitraster." }));
@@ -82,14 +107,15 @@ function weekBody(w, today) {
 // Im Raster: short = zu niedrig für die Titelzeile (entfällt dort), lane = Spur geteilt mit einer Überschneidung (die Zeitzeile entfällt, die Lage
 // am Raster zeigt die Zeit; Fach und Klasse dürfen umbrechen). Uhrzeit, Klausur und Titel stehen immer im Linktext (sr-only) und im Tooltip.
 function entry(e, d) {
-  const exam = e.kind === "klausur", short = !e.time || e.minutes < 56, lane = (e.lanes || 1) > 1;
+  const exam = e.kind === "klausur", short = !e.time || e.minutes < 56, lane = (e.lanes || 1) > 1, free = e.onFree ? "liegt auf einem unterrichtsfreien Tag (" + e.onFree + ")" : "";
   const when = e.time ? e.time + "–" + e.endTime : "ohne Uhrzeit, " + e.minutes + " Minuten";
   // Grundschule (Kennzeichnung „Grundschule“ vor allem anderen, auch im Tooltip und für Screenreader)
   const gs = e.gs ? "Grundschule, " : "";
-  return h("a", { class: "wk-ev" + (exam ? " exam" : "") + (short ? " short" : "") + (lane ? " lane" : ""), href: e.href, dataset: { fach: e.subject },
-    title: gs + (e.time ? e.time + "–" + e.endTime + " " : "") + (e.gs ? "" : e.subjectShort + " ") + e.label + (exam ? " – Klausur" : "") + (e.title ? " – " + e.title : "") },
-    h("span", { class: "sr-only", text: gs + d.name + ", " + dayMonthText(d.date) + ", " + when + (exam ? ", Klausur" : "") + ": " }),
+  return h("a", { class: "wk-ev" + (exam ? " exam" : "") + (short ? " short" : "") + (lane ? " lane" : "") + (free ? " onfree" : ""), href: e.href, dataset: { fach: e.subject },
+    title: gs + (e.time ? e.time + "–" + e.endTime + " " : "") + (e.gs ? "" : e.subjectShort + " ") + e.label + (exam ? " – Klausur" : "") + (e.title ? " – " + e.title : "") + (free ? " – " + free : "") },
+    h("span", { class: "sr-only", text: gs + d.name + ", " + dayMonthText(d.date) + ", " + when + (exam ? ", Klausur" : "") + (free ? ", Sitzung " + free : "") + ": " }),
     h("span", { class: "wk-time", "aria-hidden": "true" }, exam ? h("span", { class: "wk-exam", text: "Klausur" }) : null, exam ? " · " : null, e.time ? e.time + "–" + e.endTime : "ohne Uhrzeit · " + e.minutes + " Min."),
     h("span", { class: "wk-who" }, h("span", { class: "ftag", dataset: { fach: e.subject }, text: e.subjectShort }), h("strong", { text: e.label }), exam ? h("span", { class: "wk-exam wk-exam-l", "aria-hidden": "true", text: "Klausur" }) : null),
-    e.title ? h("span", { class: "wk-t", text: e.title }) : null);
+    e.title ? h("span", { class: "wk-t", text: e.title }) : null,
+    free ? h("span", { class: "wk-onfree", "aria-hidden": "true", text: "unterrichtsfrei" }) : null);
 }

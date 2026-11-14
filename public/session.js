@@ -16,6 +16,7 @@ import { materialBox, dropZone } from "./materialbox.js";
 import { notesPanel, notesDirty, NOTES_UNREADABLE, NOTES_DELETE_TEXT, NOTES_REPLACE_HINT } from "./notesedit.js";
 import { personLabel, personKey, cleanPhoto, PHOTO_TASKS_MAX, materialRuns, taskTextFmt, fbLinksOf } from "./fbclient.js";
 import { summaryCard } from "./tsummary.js";
+import { freeDateMessage } from "./freedays.js";
 
 const MODES = [["planning", "Planung"], ["ideas", "Ideen weiterentwickeln"], ["material", "Material erstellen"]];
 
@@ -46,7 +47,9 @@ export async function sessionPage(id) {
     const r = row(), idx = r && st.unit ? (st.unit.rows || []).indexOf(r) : -1;
     clear(subline).append(...nn(idx >= 0 ? h("span", { class: "chip strong", text: "Stunde " + (idx + 1) + " von " + st.unit.rows.length }) : null,
       h("span", { class: "chip", text: subjectName(L().subject) }), h("span", { class: "chip", text: classShort(L().klass), title: gradeInfo(L().klass).text }),
-      L().date ? h("span", { class: "chip", text: fmtDay(L().date) }) : null, L().durationMin ? h("span", { class: "chip", text: L().durationMin + " Minuten" }) : null));
+      L().date ? h("span", { class: "chip", text: fmtDay(L().date) }) : null, L().durationMin ? h("span", { class: "chip", text: L().durationMin + " Minuten" }) : null,
+      // liegt auf einem unterrichtsfreien Tag der Schule (Einstellungen, Nachtrag 24) – z. B. nach „Nur speichern – Sitzungen bleiben“
+      L().freeDay ? h("span", { class: "chip freechip", text: "Liegt auf einem unterrichtsfreien Tag (" + L().freeDay.label + ")" }) : null));
   };
   paintSubline();
   // Zeitpunkte der Sitzung (Beginn + Dauer): Hausaufgabe und Präsentation für Schüler:innen
@@ -1000,9 +1003,12 @@ export async function sessionPage(id) {
     const nd = fDate.value, od = L().date;
     if (!nd) { fDate.value = od || ""; toast("Jede Sitzung braucht ein Datum.", "err"); return; }
     if (nd === od) return;
+    // nie an einem unterrichtsfreien Tag des Gymnasiums (Einstellungen) – der Server prüft noch einmal
+    const free = await freeDateMessage(nd, L().subject);
+    if (free) { fDate.value = od || ""; toast(free, "err", 9000); return; }
     try {
       const r = await tapi("PATCH", "/api/teacher/lessons/" + id, { body: { date: nd } });
-      L().date = r.lesson.date; L().nextDate = r.lesson.nextDate; paintSubline(); paintTimes();
+      L().date = r.lesson.date; L().nextDate = r.lesson.nextDate; L().freeDay = null; paintSubline(); paintTimes();
       if (st.unit) { const x = (st.unit.rows || []).find((y) => y.uid === L().unitRow); if (x) x.date = nd; }
       stateLine(metaState, "Gespeichert", "ok");
       toast("Datum geändert" + (st.unit ? " – auch in der Unterrichtseinheit." : "."), "ok");
@@ -1152,6 +1158,7 @@ export async function sessionPage(id) {
           if (nv !== cur && el.value === cur) { L()[k] = r.lesson[k]; el.value = nv; changed = true; }   // nur Felder ohne ungespeicherte eigene Änderung
         }
         if (r.lesson.date && r.lesson.date !== L().date) { L().date = r.lesson.date; L().nextDate = r.lesson.nextDate; fDate.value = r.lesson.date; changed = true; }
+        if (JSON.stringify(r.lesson.freeDay || null) !== JSON.stringify(L().freeDay || null)) { L().freeDay = r.lesson.freeDay || null; changed = true; }
         if ((r.lesson.startTime || null) !== (L().startTime || null) && !busyField(fStart)) { L().startTime = r.lesson.startTime; fStart.value = r.lesson.startTime || ""; changed = true; }
         if (changed) paintTimes();
         if (changed) { heading.textContent = L().title; paintSubline(); stateLine(metaState, "Aktualisiert"); }

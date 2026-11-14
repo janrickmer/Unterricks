@@ -26,6 +26,8 @@
      im dunklen Modus. Letzte Minute orange (Wunsch der Lehrkraft), abgelaufen Signalrot; Schrift darauf 7,6 : 1 bzw. 5,6 : 1 */
   --timer-bg: #13213b; --timer-ink: #fff; --timer-bar: #ffd43b; --timer-track: rgba(255, 255, 255, .22);
   --timer-last: #ff9a45; --timer-last-ink: #13213b; --timer-over: #c8281e; --timer-over-ink: #fff; --timer-pause: #2b3550; --timer-pause-ink: #e8edf6;
+  /* Unterrichtsfrei (Nachtrag 24): abgedeckte Folie – graublaue Schraffur aus zwei Tönen, Kante; Schrift --text darauf mindestens 11 : 1 */
+  --frei-t: #edf0f5; --frei-s: #dce2ec; --frei-k: #7d8aa2;
   /* Fach der Seite (ohne Fach: Marke) */
   --fach: var(--marke); --fach-t: var(--marke-t); --fach-text: var(--marke);
   /* Zustände als Text */
@@ -55,6 +57,7 @@
     --marke: #23396a;
     --blau-t: #1a2a4f; --violett-t: #261d45; --kupfer-t: #3a2216; --marke-t: #1c2436; --gelb-t: #3a3214; --rot-t: #3d1a1a; --gruen-t: #12301f;
     --orange: #ff9a45; --orange-t: #37230f; --orange-ink: #13213b;
+    --frei-t: #182033; --frei-s: #232d44; --frei-k: #7987a3;
     --fach-text: #c9d3e6; --ok: #5fd39a; --warn: var(--text); --err: #ff8a80;
     --foil: color-mix(in srgb, var(--fach) 30%, #c8d0de); --foil-op: .72;
     --shadow: 0 1px 2px rgba(0, 0, 0, .35), 0 10px 24px -12px rgba(0, 0, 0, .65);
@@ -990,6 +993,18 @@ img.sub-photo { max-width: 100%; max-height: 60vh; border-radius: 12px; border: 
 }
 .wk-t { color: var(--muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .wk-off, .wk-none { margin: .35rem 0 0; font-size: .78rem; color: var(--muted); line-height: 1.3; }
+/* Unterrichtsfreie Tage (Nachtrag 24): schraffiertes Band über den Einträgen (im Raster so hoch wie das höchste der Woche – weekcal.js misst
+   --fb; die Zeitachse rückt um dieselbe Höhe), ist der Tag für beide Schulen frei, ist auch die Spur schraffiert. Text immer sichtbar (nie nur Farbe). */
+.wk-fband:not(.empty), .wk-day.free-all .wk-track { background: repeating-linear-gradient(135deg, var(--frei-t) 0 7px, var(--frei-s) 7px 14px); }
+.wk-grid.has-free { --fb: 3.2rem; }
+.wk-grid.has-free .wk-axis { padding-top: calc(var(--dh) + var(--fb)); }
+.wk-fband { height: var(--fb); overflow: hidden; border-radius: 8px 8px 0 0; }
+.wk-fband:not(.empty) { border: 1px solid var(--frei-k); border-bottom-width: 3px; padding: .25rem .4rem; }
+.wk-free { margin: 0; font-size: .76rem; font-weight: 800; line-height: 1.25; color: var(--text); overflow-wrap: anywhere; }
+.wk-free + .wk-free { margin-top: .2rem; }
+.wk-day.free-all .wk-track { border-color: var(--frei-k); }
+.wk-ev.onfree { border-style: dashed; }
+.wk-onfree { display: inline-block; align-self: flex-start; font-size: .7rem; font-weight: 800; padding: .05rem .4rem; border-radius: 6px; border: 1px solid var(--frei-k); background: var(--frei-t); color: var(--text); }
 .wk-empty { margin: .2rem 0 0; }
 .wk-hint { margin-top: .6rem; }
 @media (max-width: 1000px) {   /* Handy und Tablet hochkant: Liste je Tag statt Raster */
@@ -1014,6 +1029,12 @@ img.sub-photo { max-width: 100%; max-height: 60vh; border-radius: 12px; border: 
   .weekcal .section-title { display: grid; grid-template-columns: minmax(0, 1fr); gap: .35rem; }
   .wk-nav { display: grid; grid-template-columns: auto auto minmax(0, 1fr); gap: .25rem; justify-items: start; }
   .wk-range { grid-column: 1 / -1; order: -1; margin: 0; }   /* Zeitraum oben, darunter ‹ › Heute (Tab-Reihenfolge bleibt) */
+  .wk-fband { height: auto; border-radius: 8px; margin-bottom: .35rem; }
+  .wk-fband.empty { display: none; }
+  .wk-fband:not(.empty) { padding: .45rem .6rem; border-bottom-width: 1px; border-left-width: 4px; }
+  .wk-free { font-size: .88rem; }
+  .wk-day.free-all .wk-track { background: none; }
+  .wk-onfree { grid-column: 2; justify-self: start; }
 }
 
 /* ---------- Druckaufträge für den nächsten Arbeitstag (printnext.js, ganz oben auf beiden Startseiten der Lehrkraft) ----------
@@ -1240,3 +1261,46 @@ img.sub-photo { max-width: 100%; max-height: 60vh; border-radius: 12px; border: 
 .cancel-table td.none { font-weight: 700; }
 .gs-placeholder .lead { font-size: 1.05rem; }
 .unit-cancelled { margin: .6rem 0 0; padding-left: 1.2rem; }
+
+/* ---------- Unterrichtsfreie Tage (Nachtrag 24): Karte in den Einstellungen, Rückfrage, Hinweise in Einheit und Sitzung (freedays.js) ---------- */
+.freedays .fd-list { margin: 0 0 .4rem; padding: 0; list-style: none; }
+.freedays .fd-item .acts .btn { min-height: 44px; }
+.fd-scopetag { display: inline-block; font-weight: 800; color: var(--text); padding: .05rem .5rem; border-radius: 999px; border: 1px solid var(--frei-k);
+  background: repeating-linear-gradient(135deg, var(--frei-t) 0 6px, var(--frei-s) 6px 12px); }
+.fd-past { margin: .3rem 0 .6rem; }
+.fd-past > summary { min-height: 44px; display: flex; align-items: center; cursor: pointer; font-weight: 700; border-radius: var(--radius-s); padding: 0 .3rem; }
+@media (hover: hover) { .fd-past > summary:hover { background: var(--surface-2); } }
+.fd-status:empty { display: none; }
+.fd-result .notice { margin: .5rem 0; } .fd-result .notice p { margin: 0 0 .3rem; } .fd-result ul { margin: 0; padding-left: 1.2rem; }
+.fd-result li { padding: .15rem 0; } .fd-result a { display: inline-block; min-height: 32px; }
+.fd-form { margin-top: 1rem; padding-top: 1rem; border-top: 1px solid var(--line); }
+.fd-form h3 { margin: 0 0 .7rem; }
+.fd-scope { border: 0; padding: 0; margin: 0 0 .6rem; min-width: 0; }
+.fd-scope legend { padding: 0; font-weight: 700; font-size: .95rem; margin-bottom: .35rem; }
+.fd-radios { display: flex; flex-wrap: wrap; gap: .4rem; }
+.fd-radio { min-height: 44px; align-items: center; margin: 0; padding: .35rem .8rem; border: 1px solid var(--line-ui); border-radius: var(--radius-s); background: var(--surface); font-weight: 700; }
+.fd-radio:has(input:checked) { border-color: var(--fach-text); box-shadow: inset 0 0 0 1px var(--fach-text); background: var(--fach-t); }
+.fd-radio input { margin: 0; }
+.fd-scope[aria-invalid="true"] .fd-radio { border-color: var(--err); }
+.fd-form input[aria-invalid="true"] { border-color: var(--err); box-shadow: 0 0 0 2px color-mix(in srgb, var(--err) 30%, transparent); }
+.fd-err:empty { display: none; }
+.modal .table-wrap:has(.fd-table) { margin: .4rem 0 .8rem; }
+.fd-table { width: 100%; border-collapse: collapse; font-size: .94rem; }
+.fd-table th, .fd-table td { text-align: left; padding: .4rem .5rem; border-bottom: 1px solid var(--line); vertical-align: top; }
+.fd-table .ftag { min-width: 0; }
+.fd-table .ftag[data-fach=""] { background: var(--marke); }
+@media (max-width: 560px) {
+  .fd-table thead { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); }
+  .fd-table, .fd-table tbody, .fd-table tr, .fd-table td { display: block; width: 100%; }
+  .fd-table tr { padding: .5rem 0; border-bottom: 1px solid var(--line); }
+  .fd-table td { border: 0; padding: .1rem .2rem; }
+  .fd-table td[data-label]::before { content: attr(data-label) ": "; content: attr(data-label) ": " / ""; font-weight: 800; font-size: .8rem; color: var(--muted); }
+  .fd-radio { flex: 1 1 100%; }
+}
+/* Rahmendaten der Einheit: die unterrichtsfreien Tage der Schule (nur Ansicht) und Zeilen auf einem solchen Tag */
+.fd-unit { margin-top: .6rem; padding: .5rem .7rem; border-left: 4px solid var(--frei-k); border-radius: 0 8px 8px 0; background: var(--frei-t); }
+.fd-unit p { margin: .2rem 0; } .fd-unit ul { margin: .2rem 0; padding-left: 1.2rem; }
+.fd-unit a { display: inline-flex; align-items: center; min-height: 44px; font-weight: 700; }
+.fd-row { margin-top: .25rem; padding: .1rem .35rem; border-left: 3px solid var(--frei-k); background: var(--frei-t); color: var(--text); font-weight: 700; }
+/* Sitzung: liegt auf einem unterrichtsfreien Tag (ruhig, im Kopfband) */
+.chip.freechip { background: rgba(255, 255, 255, .14); border: 1px dashed rgba(255, 255, 255, .8); }

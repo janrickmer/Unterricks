@@ -20,6 +20,7 @@ import * as PA from "./parents.js";
 import * as PJ from "./printjobs.js";
 import * as BM from "./beamer.js";
 import * as PC from "./podcast.js";
+import * as FD from "./freedays.js";
 
 export { LiveRoom } from "./live.js";
 
@@ -84,6 +85,12 @@ const ROUTES = [
   ["GET", "/api/teacher/podcast/plan", PC.routePodcastPlan],
   ["POST", "/api/teacher/podcast/" + ID + "/link", PC.routePodcastLink],
   ["DELETE", "/api/teacher/podcast/" + ID, PC.routePodcastDelete],
+  // Unterrichtsfreie Tage (Einstellungen, Nachtrag 24)
+  ["GET", "/api/teacher/free-days", FD.routeFreeDaysList],
+  ["POST", "/api/teacher/free-days/preview", FD.routeFreeDaysPreview],
+  ["POST", "/api/teacher/free-days", FD.routeFreeDayCreate],
+  ["PUT", "/api/teacher/free-days/" + ID, FD.routeFreeDayPut],
+  ["DELETE", "/api/teacher/free-days/" + ID, FD.routeFreeDayDelete],
   ["GET", "/api/teacher/course-settings", CS.routeCourseSettingsGet],
   ["PUT", "/api/teacher/course-settings", CS.routeCourseSettingsPut],
   ["POST", "/api/teacher/units", U.routeUnitCreate],

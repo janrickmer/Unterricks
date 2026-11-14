@@ -7,7 +7,8 @@ import { requireTeacher } from "./auth.js";
 import { basisText, basePdfKey, rangeText } from "./bases.js";
 import { courseSettingsOut } from "./courses.js";
 import { GS_SUBJECT, isGsCourseId, normalizeGsCourse, gsCourseShort, gsCourseLabel, gsGradeText, schoolYearOf, berlinToday } from "../public/shared.js";
-import { normalizeCourseSettings, planCancellation, normalizeParams } from "../public/planning.js";
+import { normalizeCourseSettings, planCancellation, normalizeParams, withSchoolBreaks, storeParams } from "../public/planning.js";
+import { loadFreeDays } from "./freedays.js";
 import { getLesson } from "./lessons.js";
 import { getUnit, linkedLessons, reviseData, unitFull } from "./units.js";
 import { wantedGsSections, missingForGs } from "../public/bases-detect.js";
@@ -143,9 +144,10 @@ async function cancelContext(c, id) {
   if (!X.unit_id || !X.unit_row) throw new HttpError(400, "no_unit", "Diese Sitzung gehört zu keiner Einheit – bitte das Datum von Hand ändern.");
   if (!X.lesson_date) throw new HttpError(400, "no_date", "Diese Sitzung hat keinen Termin.");
   const u = await getUnit(c.db, X.unit_id);
-  const lessons = await linkedLessons(c.db, u.id, true);
+  const [lessons, fd] = await Promise.all([linkedLessons(c.db, u.id, true), loadFreeDays(c.db)]);
   let plan;
-  try { plan = planCancellation({ params: parseJ(u.params, {}), rows: parseJ(u.rows, []), lessons, lessonId: X.id, now: c.now }); }
+  // die Stunden rücken nur auf Tage, die für die Grundschule nicht unterrichtsfrei sind (Nachtrag 24); gespeichert werden die Rahmendaten ohne sie
+  try { plan = planCancellation({ params: withSchoolBreaks(parseJ(u.params, {}), fd, u.subject), rows: parseJ(u.rows, []), lessons, lessonId: X.id, now: c.now }); }
   catch (e) { if (e && e.code) throw new HttpError(e.status || 400, e.code, e.message); throw e; }
   return { X, u, lessons, plan };
 }
@@ -188,7 +190,7 @@ export async function routeLessonCancel(c, id) {
       "duration_min=COALESCE((SELECT json_extract(value,'$.m') FROM json_each(?1) WHERE json_extract(value,'$.id')=lessons.id), duration_min), updated_at=?2 " +
       "WHERE id IN (SELECT json_extract(value,'$.id') FROM json_each(?1)) AND cancelled=0 AND EXISTS(SELECT 1 FROM units WHERE id=?3 AND version=?4)").bind(JSON.stringify(moved), c.now, u.id, v),
     c.db.prepare("UPDATE units SET params=?3, rows=?4, revise=?5, version=version+1, updated_at=?6, source='lehrkraft' WHERE id=?1 AND version=?2 RETURNING version")
-      .bind(u.id, v, JSON.stringify(plan.params), JSON.stringify(plan.rows), JSON.stringify(revise), c.now),
+      .bind(u.id, v, JSON.stringify(storeParams(plan.params)), JSON.stringify(plan.rows), JSON.stringify(revise), c.now),
   ]);
   if (!(res[4].results || []).length) throw new HttpError(409, "unit_conflict", "Die Einheit wurde inzwischen geändert – die Vorschau wird neu geladen.");
   // Sitzungscode zufällig schon vergeben (praktisch nie): Ausfall-Eintrag mit neuem Code nachtragen – an die neue Version gebunden
@@ -235,7 +237,7 @@ export async function routeCancelUndo(c, id) {
       "duration_min=COALESCE((SELECT json_extract(value,'$.m') FROM json_each(?1) WHERE json_extract(value,'$.id')=lessons.id), duration_min), updated_at=?4 " +
       "WHERE id IN (SELECT json_extract(value,'$.id') FROM json_each(?1)) AND cancelled=0 AND " + G).bind(JSON.stringify(back), u.id, u.version, c.now),
     c.db.prepare("UPDATE units SET params=?3, rows=?4, revise=?5, version=version+1, updated_at=?6, source='lehrkraft' WHERE id=?1 AND version=?2 RETURNING version")
-      .bind(u.id, u.version, JSON.stringify(p2), JSON.stringify(rows), revise ? JSON.stringify(revise) : null, c.now),
+      .bind(u.id, u.version, JSON.stringify(storeParams(p2)), JSON.stringify(rows), revise ? JSON.stringify(revise) : null, c.now),
   ]);
   if (!(res[res.length - 1].results || []).length) throw new HttpError(409, "undo_stale", STALE);
   return json({ ok: true, unit: await unitFull(c.db, await getUnit(c.db, u.id)) });

@@ -7,6 +7,7 @@
 import { T, tapi, fbAutoConnect } from "./teacher.js";
 import { readZip, ZipBlob } from "./zip.js";
 import { berlinToday, GS_SUBJECT } from "./shared.js";
+import { cleanFreeDays, freeRangeText, FREE_DAY_SCOPES } from "./planning.js";
 import * as UF from "./unitfile.js";
 import { buildSessionZip, readSessionZip, planSessionImport, applySessionImport, retry } from "./sessionio.js";
 
@@ -131,7 +132,7 @@ export async function applyPending(unitId, lessons, rec, { onStep = () => {} } =
 }
 
 /* ---------- Große Sicherung: alle Einheiten und Sitzungen ---------- */
-const README = (when, counts, gs) => [
+const README = (when, counts, gs, free = false) => [
   "Sicherung aus Unterricks vom " + when + ".",
   "",
   "Aufbau: Fach / Unterrichtseinheit / Sitzungen (chronologisch nummeriert).",
@@ -147,8 +148,13 @@ const README = (when, counts, gs) => [
   "  Einheit „Einheit aus Datei laden“ nutzen. Mit der ZIP-Datei bekommen die Sitzungen beim Anlegen ihre gesicherten Inhalte.",
   "",
   ...(gs ? GS_README(gs) : []),
+  ...(free ? ["Unterrichtsfreie Tage: Die Einträge aus den Einstellungen stehen zum Nachlesen in „" + FREE_FILE + "“ – sie bleiben beim Zurücksetzen erhalten.", ""] : []),
   "Inhalt: " + counts.units + " Unterrichtseinheiten, " + counts.lessons + " Sitzungen.",
 ].join("\r\n");
+/* Unterrichtsfreie Tage aus den Einstellungen (Nachtrag 24) – nur, wenn es welche gibt (sonst bleibt die Sicherung wie bisher) */
+const FREE_FILE = "Unterrichtsfreie Tage.txt";
+const freeText = (list) => ["Unterrichtsfreie Tage (Einstellungen von Unterricks)", "",
+  ...list.map((f) => "- " + f.label + ": " + freeRangeText(f) + " (" + FREE_DAY_SCOPES[f.scope] + ")"), ""].join("\r\n");
 /* nur, wenn die Sicherung Einheiten oder Sitzungen der Grundschule enthält (sonst bleibt „Lies mich.txt“ wie bisher); example = erster Ordner */
 const GS_README = (example) => [
   "Grundschule:",
@@ -199,7 +205,9 @@ export async function buildBackup({ onStep = () => {}, onProgress = () => {}, ca
   }
   if (cancelled()) throw new Cancelled();
   const today = berlinToday();
-  zip.add("Lies mich.txt", te.encode(README(today.slice(8, 10) + "." + today.slice(5, 7) + "." + today.slice(0, 4), { units: units.length, lessons: lessons.length }, gsExample)));
+  const free = cleanFreeDays(idx.freeDays);
+  zip.add("Lies mich.txt", te.encode(README(today.slice(8, 10) + "." + today.slice(5, 7) + "." + today.slice(0, 4), { units: units.length, lessons: lessons.length }, gsExample, free.length > 0)));
+  if (free.length) zip.add(FREE_FILE, te.encode(freeText(free)));
   zip.add(UF.BACKUP_FILE.json, te.encode(JSON.stringify({ kind: UF.BACKUP_FILE.kind, v: UF.BACKUP_FILE.v, exportedAt: Date.now(), units: units.length, lessons: lessons.length, notes, missing }, null, 1)));
   return { blob: zip.finish(), name: UF.backupFileName(today), counts: { units: units.length, lessons: lessons.length }, notes, missing, mark: idx.mark || null };
 }

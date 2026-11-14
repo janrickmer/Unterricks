@@ -4,7 +4,8 @@ import { h, clear, toast, errToast, busy, confirmDialog, fmtTime, nn, icon, page
 import { render, go, onLeave } from "./app.js";
 import { T, tapi, teacherBar, markNav } from "./teacher.js";
 import { subjectName, gradeInfo, classShort, fmtDay, isAnalogClass, GS_SUBJECT } from "./shared.js";
-import { WEEKDAYS, computeSlots, lessonSlots, claudeUnitPrompt, normalizeParams } from "./planning.js";
+import { WEEKDAYS, computeSlots, lessonSlots, claudeUnitPrompt, normalizeParams, freeRangeText } from "./planning.js";
+import { freeDateMessage } from "./freedays.js";
 import { claudeHandoff } from "./claude.js";
 import { claudeGsUnitPrompt } from "./gsplanning.js";
 import { baseLink } from "./bases.js";
@@ -56,8 +57,9 @@ export async function unitPage(id) {
       : pageHead({ fach: u.subject, crumbs: [["#/lk", "Fächer"], ["#/lk/f/" + u.subject, subjectName(u.subject)], ["#/lk/f/" + u.subject + "/" + u.klass, classShort(u.klass)], u.title || "Neue Einheit"],
         title: u.title || "Neue Unterrichtseinheit", aside: badge,
         sub: subjectName(u.subject) + " · " + classShort(u.klass) + " · " + gradeInfo(u.klass).text }),
-      // „Erledigt“ ändert die Zeilen nicht: ungespeicherte Änderungen der Tabelle bleiben; nach „rückgängig“ neu laden
-      gs ? reviseBox(u, { onChange: (nu) => { if (nu && JSON.stringify(nu.rows) === JSON.stringify(u.rows)) { u = nu; if (!dirty) { rows = u.rows.map((x) => ({ ...x })); plan = JSON.parse(JSON.stringify(u.plan || {})); } paint(); } else unitPage(id); } }) : null,
+      // „Erledigt“ ändert die Zeilen nicht: ungespeicherte Änderungen der Tabelle bleiben; nach „rückgängig“ neu laden. Am Gymnasium gibt es den
+      // Hinweis nur nach dem Verschieben wegen unterrichtsfreier Tage (Nachtrag 24)
+      reviseBox(u, { onChange: (nu) => { if (nu && JSON.stringify(nu.rows) === JSON.stringify(u.rows)) { u = nu; if (!dirty) { rows = u.rows.map((x) => ({ ...x })); plan = JSON.parse(JSON.stringify(u.plan || {})); } paint(); } else unitPage(id); } }),
       paramsCard(), basisCard(), claudeCard(), schemaCard(), tableCard(), finishCard(), gs ? null : ioCard()));
   };
 
@@ -101,7 +103,8 @@ export async function unitPage(id) {
       h("div", { class: "meta-grid" },
         h("div", { class: "field" }, h("label", null, "Sitzungen pro Woche (Wochentag, Beginn und Länge)"), wdBox, takeWd, wdState),
         h("div", { class: "field" }, h("label", null, "Ferien und bekannte Ausfälle im Zeitraum"), brBox,
-          ...(p.cancelled || []).map((x) => h("p", { class: "small warnc", text: "Ausgefallen (Krankmeldung): " + fmtDay(x.date) + (x.time ? ", " + x.time : "") + " – die Stunden wurden verschoben." }))),
+          ...(p.cancelled || []).map((x) => h("p", { class: "small warnc", text: "Ausgefallen (Krankmeldung): " + fmtDay(x.date) + (x.time ? ", " + x.time : "") + " – die Stunden wurden verschoben." })),
+          schoolFreeBox(p)),
         h("div", { class: "field" }, h("label", null, "Beginn der Einheit"), start),
         h("div", { class: "field" }, h("label", null, "Abgeschlossen sein bis"), end),
         gs ? null : h("div", { class: "field" }, h("label", null, "Klausurtermin (falls vorhanden)"), exam),
@@ -114,6 +117,18 @@ export async function unitPage(id) {
             toast(lessonSlots(computeSlots(u.params)).length + " Sitzungen verfügbar.", "ok"); paint();
           } catch (err) { errToast(err); }
         }) }, "Speichern und Termine berechnen")));
+  }
+
+  // Unterrichtsfreie Tage der Schule (Einstellungen, Nachtrag 24) im Zeitraum – nur zur Ansicht; „Ferien und bekannte Ausfälle“ bleibt für Ausfälle nur dieser Klasse
+  function schoolFreeBox(p) {
+    const list = p.start && p.end ? (p.schoolBreaks || []).filter((b) => b.to >= p.start && b.from <= p.end) : [];
+    const who = gs ? "der Grundschule" : "des Gymnasiums";
+    return h("div", { class: "fd-unit", role: "group", "aria-labelledby": "fd-unit-h" },
+      h("p", { class: "small fd-unit-h", id: "fd-unit-h" }, h("strong", { text: "Unterrichtsfreie Tage " + who }), " (aus den Einstellungen, gelten für alle Einheiten " + who + "):"),
+      list.length ? h("ul", { class: "small fd-unit-list" }, list.map((b) => h("li", { text: b.label + ": " + freeRangeText(b) })))
+        : h("p", { class: "small muted", text: p.start && p.end ? "Keine im Zeitraum der Einheit." : "Sie gelten, sobald Beginn und Ende eingetragen sind." }),
+      h("p", { class: "small", text: "An diesen Tagen gibt es keine Termine; „Sitzungen verfügbar“ zählt sie schon nicht mit." }),
+      h("p", { class: "small" }, h("a", { href: "#/lk/einstellungen", text: "In den Einstellungen bearbeiten" })));
   }
 
   /* 2) Planungsgrundlagen */
@@ -194,14 +209,23 @@ export async function unitPage(id) {
   const saveState = h("span", { class: "save-state" });
   function tableCard() {
     const steps = plan.schritte || [], lessonByRow = new Map(u.lessons.map((l) => [l.row, l]));
+    const sbs = normalizeParams(u.params).schoolBreaks || [];
+    const freeOn = (d) => (d ? sbs.find((b) => d >= b.from && d <= b.to) || null : null);
     const tbody = h("tbody", { role: "rowgroup" });
     const paintRows = () => {
       clear(tbody);
       rows.forEach((r, i) => {
         const l = lessonByRow.get(r.uid);
         tbody.append(h("tr", { role: "row" },
-          h("td", { class: "small", "data-label": "Stunde", role: "cell" }, h("strong", { text: String(i + 1) }), h("br"), h("input", { type: "date", value: r.date || "", "aria-label": "Datum Stunde " + (i + 1), style: { maxWidth: "10.5rem", fontSize: ".85rem" }, onchange: (e) => { r.date = e.target.value || null; markDirty(); } }),
-            gs && !r.date ? h("div", null, h("span", { class: "badge warnc", text: "ohne Termin" })) : null,
+          h("td", { class: "small", "data-label": "Stunde", role: "cell" }, h("strong", { text: String(i + 1) }), h("br"), h("input", { type: "date", value: r.date || "", "aria-label": "Datum Stunde " + (i + 1), style: { maxWidth: "10.5rem", fontSize: ".85rem" }, onchange: async (e) => {
+              const el = e.target, v = el.value || null, before = r.date;
+              // ein neues Datum nie an einem unterrichtsfreien Tag der Schule (Nachtrag 24) – sofort sagen, der Server prüft noch einmal
+              const msg = v && v !== before ? await freeDateMessage(v, u.subject) : null;
+              if (msg) { el.value = before || ""; toast("Stunde " + (i + 1) + ": " + msg, "err", 9000); return; }
+              r.date = v; markDirty();
+            } }),
+            (gs || u.revise) && !r.date ? h("div", null, h("span", { class: "badge warnc", text: "ohne Termin" })) : null,
+            freeOn(r.date) ? h("div", { class: "small fd-row" }, "Liegt auf einem unterrichtsfreien Tag (" + freeOn(r.date).label + ")") : null,
             h("div", { class: "muted", text: r.minutes ? r.minutes + " min" : "" })),
           h("td", { "data-label": "Stundenfrage", role: "cell" }, h("textarea", { rows: "3", value: r.stundenfrage, "aria-label": "Stundenfrage " + (i + 1), oninput: (e) => { r.stundenfrage = e.target.value; markDirty(); } })),
           h("td", { "data-label": "Grober Stundenablauf", role: "cell" }, h("textarea", { rows: "4", value: r.ablauf.map((a) => "- " + a).join("\n"), "aria-label": "Ablauf " + (i + 1), oninput: (e) => { r.ablauf = e.target.value.split("\n").map((x) => x.replace(/^\s*[-•*]\s*/, "").trim()).filter(Boolean); markDirty(); } })),

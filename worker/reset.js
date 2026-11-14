@@ -3,13 +3,15 @@
 // Schulportal-Einträge, Drucklisten, Feibeitsblatt-Verknüpfungen und -Entwürfe, Vertretungen, Freischaltungen der Schüler:innen) – und die
 // Podcasts für den kommenden Unterricht (Nachtrag 22).
 // Es bleiben: Zugang und Geräte der Lehrkraft, Planungsgrundlagen, Fach-Einstellungen mit Kursen, KI, Connector, Feibeitsblatt-Verbindung,
-// Schülerpasswort und Schülergeräte; die Feibeitsblätter selbst bleiben im Feibeitsblatt (Entscheidung der Lehrkraft vom 11.11.2026).
+// Schülerpasswort und Schülergeräte; die Feibeitsblätter selbst bleiben im Feibeitsblatt (Entscheidung der Lehrkraft vom 11.11.2026). Die
+// unterrichtsfreien Tage (Nachtrag 24) gehören zu den Einstellungen: Sie bleiben und stehen zum Nachlesen in der Sicherung.
 // Ablauf: D1 in EINEM Batch (danach ist alles weg, für Unterricks sofort konsistent); die Dateien in R2 (Präfix l/<Sitzung>/) und der
 // Live-Zustand je Sitzung folgen in Runden über die Warteschlange reset_queue – der Browser ruft /reset/cleanup, bis nichts mehr offen ist
 // (Grenzen des Free-Plans: wenige Aufrufe je Anfrage). Neue Sitzungen sind nie betroffen: gelöscht wird nur unter den gemerkten Kennungen.
 import { HttpError, json, readJson, isId } from "./lib.js";
 import { requireTeacher, checkTeacherPassword } from "./auth.js";
 import { gsCourseOut } from "./gs.js";
+import { freeDaysStmt, freeDaysOf } from "./freedays.js";
 
 const ROUND_CALLS = 30;   // R2-/Durable-Object-Aufrufe je Anfrage (Free-Plan: höchstens 50 Unteranfragen, dazu die Datenbank-Aufrufe)
 
@@ -117,16 +119,17 @@ export async function routeResetCleanup(c) {
 export async function routeBackupIndex(c) {
   await requireTeacher(c);
   const mark = await contentMark(c.db);
-  const [u, l, n, g] = await c.db.batch([
+  const [u, l, n, g, f] = await c.db.batch([
     c.db.prepare("SELECT id, subject, klass, title, status, params, created_at, updated_at FROM units ORDER BY subject, klass, created_at LIMIT 5000"),
     c.db.prepare("SELECT id, subject, klass, title, lesson_date, start_time, duration_min, unit_id, unit_row, code, created_at FROM lessons ORDER BY COALESCE(lesson_date,''), created_at LIMIT 20000"),
     c.db.prepare("SELECT (SELECT COUNT(*) FROM units) AS u, (SELECT COUNT(*) FROM lessons) AS l"),
     c.db.prepare("SELECT * FROM gs_courses"),   // Namen der Grundschulkurse für die Ordner („Grundschule/Religion 2ab - …“)
+    freeDaysStmt(c.db),   // unterrichtsfreie Tage (Einstellungen) – zum Nachlesen in der Sicherung
   ]);
   const lessons = (l.results || []).map((x) => ({ id: x.id, subject: x.subject, klass: x.klass, title: x.title, date: x.lesson_date || null, time: x.start_time || null,
     durationMin: x.duration_min ?? null, unitId: x.unit_id || null, unitRow: x.unit_row || null, code: x.code, createdAt: x.created_at }));
   const units = (u.results || []).map((x) => { let params = {}; try { params = JSON.parse(x.params || "{}"); } catch {} return { id: x.id, subject: x.subject, klass: x.klass, title: x.title, status: x.status, params, createdAt: x.created_at }; });
   const t = (n.results && n.results[0]) || {};
   const gsCourses = (g.results || []).map((x) => { const o = gsCourseOut(x); return { id: o.id, short: o.short, label: o.label }; });
-  return json({ ok: true, units, lessons, totals: { units: t.u || 0, lessons: t.l || 0 }, mark, gsCourses });
+  return json({ ok: true, units, lessons, totals: { units: t.u || 0, lessons: t.l || 0 }, mark, gsCourses, freeDays: freeDaysOf(f) });
 }

@@ -60,6 +60,11 @@ export const SCHEMA = [
   // podcast/<id> (außerhalb der Sitzungen – nicht in Sicherung und Sitzungsdateien); delete_after = Beginn des zweiten Tages nach dem Unterrichtstag
   // (Berliner Zeit) – ab dann gelöscht (worker/podcast.js, cleanupPodcasts). Wenige Zeilen, deshalb ohne Index.
   "CREATE TABLE IF NOT EXISTS podcasts (id TEXT PRIMARY KEY, day TEXT NOT NULL, r2_key TEXT NOT NULL, mime TEXT NOT NULL, size INTEGER NOT NULL, created_at INTEGER NOT NULL, delete_after INTEGER NOT NULL)",
+  // Unterrichtsfreie Tage (Einstellungen, Nachtrag 24): Zeitraum (Kalendertage in Berlin, JJJJ-MM-TT), Bezeichnung und Schule (gs = Grundschule, gym =
+  // Gymnasium, both = beide). Höchstens 200 Zeilen (worker/freedays.js) – jede Abfrage liest alle, deshalb ohne Index (spart beim Anlegen des Schemas
+  // eine Anweisung). An diesen Tagen hat die Schule keine Termine (params.schoolBreaks beim Rechnen, nie in units.params gespeichert).
+  "CREATE TABLE IF NOT EXISTS free_days (id TEXT PRIMARY KEY, date_from TEXT NOT NULL, date_to TEXT NOT NULL, label TEXT NOT NULL, " +
+    "scope TEXT NOT NULL CHECK (scope IN ('gs','gym','both')), created_at INTEGER NOT NULL, updated_at INTEGER NOT NULL)",
 ];
 
 // Nachträglich ergänzte Spalten (bestehende Datenbanken bekommen sie per ALTER TABLE, nur additiv)
@@ -129,7 +134,7 @@ export const INDEXES = [
 ];
 
 let ready = null, warm = false;
-/* true, sobald das Schema in diesem Isolate angelegt ist – vor ensureSchema abgefragt: false heißt, diese Anfrage legt es gerade an (bis zu 44
+/* true, sobald das Schema in diesem Isolate angelegt ist – vor ensureSchema abgefragt: false heißt, diese Anfrage legt es gerade an (bis zu 45
    Anweisungen), lange Abfragen (Beamer-Code) halten dann nicht (höchstens 50 D1-Anweisungen je Aufruf im Free-Plan) */
 export const schemaWarm = () => warm;
 export function ensureSchema(db) {

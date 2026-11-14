@@ -75,7 +75,7 @@ test("Zieltag: nächster Tag mit Unterricht laut Stundenplan (Ferien, Ausfälle)
   assert.equal(printTargetDay("x", [u({ weekdays: WED })]), null);
 });
 
-test("GET /api/teacher/print-next: Dateien beider Schulformen wie in der Druckliste der Sitzung, nach Beginn sortiert, ohne Text, 7 D1-Anweisungen", async () => {
+test("GET /api/teacher/print-next: Dateien beider Schulformen wie in der Druckliste der Sitzung, nach Beginn sortiert, ohne Text, 8 D1-Anweisungen", async () => {
   const c = await ctx(berlin(17));   // Dienstag → Mittwoch, 18.11.
   const gs = await gsCourse(c);
   await unit(c, "powi", "8A", { start: "2026-11-02", end: "2026-12-18", weekdays: WED });
@@ -101,7 +101,7 @@ test("GET /api/teacher/print-next: Dateien beider Schulformen wie in der Druckli
   c.db.counter.n = 0;
   const r = await call(c);
   assert.equal(r.status, 200, JSON.stringify(r.data));
-  assert.ok(c.db.counter.n <= 7, "D1-Anweisungen: " + c.db.counter.n);
+  assert.ok(c.db.counter.n <= 8, "D1-Anweisungen: " + c.db.counter.n);
   assert.deepEqual([r.data.today, r.data.candidate, r.data.date], ["2026-11-17", "2026-11-18", "2026-11-18"]);
   assert.deepEqual(r.data.sessions.map((s) => s.id), [L2, L1, L3, L6], "nach Beginn (ohne Uhrzeit zuletzt); Ausfall-Eintrag und anderer Tag fehlen");
   const [g, y, e, n] = r.data.sessions;
@@ -152,7 +152,7 @@ test("print-next: Mitternacht in Berlin, Freitag → Montag, freier Tag überspr
   c.db.counter.n = 0;
   r = await call(c);
   assert.deepEqual([r.data.date, r.data.sessions.map((s) => s.id), r.data.sessions[0].files.length], ["2026-11-24", [only], 1]);
-  assert.ok(c.db.counter.n <= 7);
+  assert.ok(c.db.counter.n <= 8);
   // Einheit einer Klasse, die laut Fach-Einstellungen nicht unterrichtet wird (PoWi in Jg. 7), und ohne Termine in 70 Tagen: nichts
   c = await ctx(berlin(17));
   await unit(c, "powi", "7A", { start: "2026-11-02", end: "2026-12-18", weekdays: WED });
@@ -160,7 +160,7 @@ test("print-next: Mitternacht in Berlin, Freitag → Montag, freier Tag überspr
   c.db.counter.n = 0;
   r = await call(c);
   assert.deepEqual([r.data.date, r.data.sessions], [null, []]);
-  assert.ok(c.db.counter.n <= 5, "ohne Zieltag keine zweite Abfrage: " + c.db.counter.n);
+  assert.ok(c.db.counter.n <= 6, "ohne Zieltag keine zweite Abfrage: " + c.db.counter.n);
   // der Wochenkalender nimmt dieselben Einheiten (gemeinsame Auswahl scheduleUnit) – PoWi 7A auch dort nicht
   assert.deepEqual((await call(c, routeSchedule, "/api/teacher/schedule")).data.units.map((u) => u.klass), ["10C"]);
 });

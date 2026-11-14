@@ -9,7 +9,8 @@ import { loadSubjectConfigs } from "./bases.js";
 import { scheduleUnit } from "./units.js";
 import { gsCourseOut } from "./gs.js";
 import { berlinToday, addDays, subjectName, subjectShort, classShort, GS_SUBJECT } from "../public/shared.js";
-import { nextWorkday, printTargetDay, PRINT_AHEAD_DAYS } from "../public/planning.js";
+import { nextWorkday, printTargetDay, PRINT_AHEAD_DAYS, withSchoolBreaks } from "../public/planning.js";
+import { freeDaysStmt, freeDaysOf } from "./freedays.js";
 
 /* Spalten wie FILE_COLS (lessons.js) für fileOut – ohne den Text von Textmaterial (holt der Browser bei Bedarf über die Sitzung) und ohne
    Claudes Gestaltung (nur das Kennzeichen „gestaltet“) */
@@ -30,24 +31,26 @@ export const sessionOrder = (a, b) => (a.startTime || "99:99").localeCompare(b.s
 
 /* GET /api/teacher/print-next → {today, candidate (nomineller nächster Arbeitstag), date (Tag der Druckaufträge oder null), sessions: [{id, subject,
    klass, title, date, startTime, durationMin, school "gym"|"gs", label (wie im Wochenkalender), subtitle (Unterzeile einer Text-PDF wie in der Sitzung),
-   course? {id, short, label}, files: [fileOut ohne Text]}]} – auch Sitzungen ohne Druckaufträge (files leer). 7 D1-Anweisungen. */
+   course? {id, short, label}, files: [fileOut ohne Text]}]} – auch Sitzungen ohne Druckaufträge (files leer). 8 D1-Anweisungen. */
 /* Nächster Tag mit Unterricht nach heute (today, Europe/Berlin): nominell nextWorkday, dann der früheste Tag mit Sitzung oder Termin laut Stundenplan
-   (printTargetDay) → {candidate, date (null = nichts in Sicht), gs (Grundschulkurse: Map id → gsCourseOut)}. 4 D1-Anweisungen (Fach-Einstellungen,
-   ein Batch mit Einheiten, Kursen und frühester Sitzung). Auch für den Podcast (worker/podcast.js). */
+   (printTargetDay; unterrichtsfreie Tage der Einstellungen zählen für ihre Schule nicht – Nachtrag 24) → {candidate, date (null = nichts in Sicht),
+   gs (Grundschulkurse: Map id → gsCourseOut), freeDays}. 5 D1-Anweisungen (Fach-Einstellungen, ein Batch mit Einheiten, Kursen, frühester Sitzung und
+   den unterrichtsfreien Tagen). Auch für den Podcast (worker/podcast.js). */
 export async function nextTeachingDay(c, today) {
   const candidate = nextWorkday(today), last = addDays(candidate, PRINT_AHEAD_DAYS);
   const cfgs = await loadSubjectConfigs(c.db);
-  const [ur, gr, lr] = await c.db.batch([
+  const [ur, gr, lr, fr] = await c.db.batch([
     // nur Einheiten, deren Zeitraum das Suchfenster berührt (gespeichert sind die Rahmendaten normalisiert: ISO-Daten)
     c.db.prepare("SELECT id, subject, klass, title, params FROM units WHERE json_valid(params) AND json_extract(params, '$.end') >= ?1 AND json_extract(params, '$.start') <= ?2 " +
       "ORDER BY created_at DESC LIMIT 2000").bind(candidate, last),
     c.db.prepare("SELECT * FROM gs_courses"),
     c.db.prepare(FIRST_DAY_SQL).bind(candidate, last),
+    freeDaysStmt(c.db),
   ]);
-  const gs = new Map((gr.results || []).map((x) => [x.id, gsCourseOut(x)]));
-  const units = (ur.results || []).map((x) => scheduleUnit(x, gs, cfgs)).filter(Boolean);
+  const gs = new Map((gr.results || []).map((x) => [x.id, gsCourseOut(x)])), freeDays = freeDaysOf(fr);
+  const units = (ur.results || []).map((x) => scheduleUnit(x, gs, cfgs)).filter(Boolean).map((u) => ({ ...u, params: withSchoolBreaks(u.params, freeDays, u.subject) }));
   const first = ((lr.results || [])[0] || {}).d || null;
-  return { candidate, date: printTargetDay(candidate, units, first ? [first] : []), gs };
+  return { candidate, date: printTargetDay(candidate, units, first ? [first] : []), gs, freeDays };
 }
 export async function routePrintNext(c) {
   await requireTeacher(c);

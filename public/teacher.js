@@ -8,6 +8,7 @@ import { portalPreview } from "./portalview.js";
 import { weekCard } from "./weekcal.js";
 import { printNextCard } from "./printnext.js";
 import { podcastCard } from "./podcast.js";
+import { freeDaysCard } from "./freedays.js";
 import { FbClient } from "./fbclient.js";
 import { deriveLogin, rememberKey, recallKey, forgetKey, sealLink, openLink, linkData, sameApi } from "./fblink.js";
 
@@ -299,7 +300,7 @@ async function subjectsPage() {
   const main = h("main", null, h("div", { class: "skeleton", text: "Lade …" }));
   render(teacherBar("lessons"), main);
   // Wochenkalender ganz oben: lädt eigenständig (ein Fehler dort verhindert die Fächer nicht)
-  const week = weekCard(() => tapi("GET", "/api/teacher/schedule").then((r) => r.units));
+  const week = weekCard(() => tapi("GET", "/api/teacher/schedule"));
   // darüber das Feld „Druckaufträge für den nächsten Arbeitstag“ (beide Schulformen; lädt ebenso eigenständig)
   const prints = printNextCard();
   // direkt unter dem Wochenkalender: „Podcast für den kommenden Unterricht entwickeln“ bzw. der Player (Nachtrag 22, beide Schulformen)
@@ -431,7 +432,9 @@ async function lessonsPage(subject, klass) {
     const dates = ls.map((l) => l.date).filter(Boolean);
     unitBox.append(h("section", { class: "card unit-card" },
       h("div", { class: "section-title" }, h("h2", null, h("a", { href: "#/lk/u/" + u.id, text: u.title || "Unterrichtseinheit ohne Titel" })),
-        h("span", { class: "badge " + (u.status === "geplant" ? "ok" : ""), text: u.status === "geplant" ? "festgelegt" : "in Planung" })),
+        h("span", { class: "badge " + (u.status === "geplant" ? "ok" : ""), text: u.status === "geplant" ? "festgelegt" : "in Planung" }),
+        // nach dem Verschieben wegen unterrichtsfreier Tage (Nachtrag 24): Hinweis zum Überarbeiten in der Einheit
+        u.revise && u.revise.open ? h("span", { class: "badge stop", text: "überarbeiten" }) : null),
       h("p", { class: "small muted", text: [u.plan && u.plan.lernaufgabe ? "Lernaufgabe: " + u.plan.lernaufgabe.slice(0, 160) + (u.plan.lernaufgabe.length > 160 ? " …" : "") : "Lernaufgabe noch offen",
         u.rows.length ? u.rows.length + " Stunden geplant" : null, dates.length ? fmtDay(dates[0]) + " – " + fmtDay(dates[dates.length - 1]) : null].filter(Boolean).join(" · ") }),
       ls.length ? lessonList(ls, false) : h("p", { class: "small" }, u.status === "geplant" ? "Noch keine Sitzungen." : "Sitzungen entstehen, sobald die Einheit festgelegt ist. ", h("a", { href: "#/lk/u/" + u.id }, "Einheit öffnen"))));
@@ -471,7 +474,7 @@ async function settingsPage() {
   try { [ai, mcp, me, sp] = await Promise.all([tapi("GET", "/api/teacher/ai"), tapi("GET", "/api/teacher/mcp"), tapi("GET", "/api/teacher/me"), tapi("GET", "/api/teacher/student-settings"), config()]); }
   catch (e) { clear(main).append(h("p", { class: "err", text: e.message })); return; }
   clear(main).append(pageHead({ title: "Einstellungen" }));
-  main.append(aiSection(ai), connectorSection(mcp), studentSection(sp), accountSection(me), fbSection(), resetSection());
+  main.append(freeDaysCard(), aiSection(ai), connectorSection(mcp), studentSection(sp), accountSection(me), fbSection(), resetSection());
 }
 
 /* ---------- Unterricks zurücksetzen (Einstellungen, ganz unten) ----------
@@ -480,7 +483,7 @@ async function settingsPage() {
 export const RESET_LABEL = "Alle Unterrichtsinhalte löschen und Unterricks zurücksetzen";
 const DELETED_TEXT = "Gelöscht werden alle Unterrichtseinheiten und Unterrichtssitzungen mit allem, was dazugehört: Rahmendaten, Leupold-Schema und Ablauf, Planung der Sitzungen, " +
   "Materialien, Präsentationen, Planungsverläufe, Schulportal-Einträge, Hausaufgaben, Drucklisten, Verknüpfungen und Entwürfe von Feibeitsblättern, Vertretungspläne, die Freischaltungen der Schüler:innen sowie in der Grundschule Verlaufspläne, Bildkarten und Elternlinks. Auch die Podcasts für den kommenden Unterricht werden gelöscht.";
-const KEPT_TEXT = "Es bleiben: Ihr Zugang und Ihr Passwort, die Planungsgrundlagen (mit ihren PDF-Dateien), die Fach-Einstellungen mit den Kursen, die Kurseinstellungen (Stundenplan und Schülerzahl), die Grundschulkurse, die KI-Einstellungen, der Claude-Connector, die Feibeitsblatt-Verbindung, " +
+const KEPT_TEXT = "Es bleiben: Ihr Zugang und Ihr Passwort, die Planungsgrundlagen (mit ihren PDF-Dateien), die Fach-Einstellungen mit den Kursen, die Kurseinstellungen (Stundenplan und Schülerzahl), die Grundschulkurse, die unterrichtsfreien Tage, die KI-Einstellungen, der Claude-Connector, die Feibeitsblatt-Verbindung, " +
   "das Schülerpasswort und die angemeldeten Schülergeräte. Die Feibeitsblätter selbst und die Abgaben darin bleiben im Feibeitsblatt.";
 function resetSection() {
   const status = h("p", { class: "small", role: "status" });

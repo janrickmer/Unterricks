@@ -8,7 +8,9 @@ import { loadSubjectConfigs } from "./bases.js";
 import { courseInfo, getCourseSettings, courseRef } from "./courses.js";
 import { gsCourseOut } from "./gs.js";
 import { isValidSubject, isValidClass, classAllowed, subjectName, classShort, GS_SUBJECT, greetingText, fmtDay } from "../public/shared.js";
-import { normalizeParams, computeSlots, normalizePlan, normalizeRows, assignDates, lessonSlots, repackFuture, slotsAfterEnd, occupy } from "../public/planning.js";
+import { normalizeParams, computeSlots, normalizePlan, normalizeRows, assignDates, lessonSlots, repackFuture, slotsAfterEnd, occupy, storeParams, withSchoolBreaks,
+  freeDateError } from "../public/planning.js";
+import { loadFreeDays, freeDaysStmt, freeDaysOf } from "./freedays.js";
 
 const newUid = () => randomId(4);
 const parseJ = (s, d) => { try { const v = JSON.parse(s); return v ?? d; } catch { return d; } };
@@ -24,11 +26,15 @@ export const reviseData = (raw) => {
 export const reviseOut = (u) => {
   const r = reviseData(u.revise);
   if (!r) return null;
+  // kind "free": verschoben wegen unterrichtsfreier Tage (Nachtrag 24) – mit Bezeichnung, Zeitraum und Schule; sonst eine Krankmeldung (Grundschule)
   return { open: r.open, items: r.items.map((x) => ({ id: x.id, date: x.date || null, time: x.time || null, minutes: x.minutes ?? null, lessonId: x.lessonId || null, placeholderId: x.placeholderId || null,
-    title: x.title || "", at: x.at ?? null, lengths: Array.isArray(x.lengths) ? x.lengths : [] })), undated: r.undated, undoId: r.undo ? r.undo.id : null, canUndo: !!r.undo && r.undo.version === u.version };
+    title: x.title || "", at: x.at ?? null, lengths: Array.isArray(x.lengths) ? x.lengths : [],
+    ...(x.kind === "free" ? { kind: "free", label: String(x.label || ""), from: x.from || null, to: x.to || null, scope: x.scope || null } : {}) })),
+    undated: r.undated, undoId: r.undo ? r.undo.id : null, canUndo: !!r.undo && r.undo.version === u.version };
 };
-export const unitOut = (u, extra = {}) => ({
-  id: u.id, subject: u.subject, klass: u.klass, title: u.title, status: u.status, params: parseJ(u.params, {}), plan: parseJ(u.plan, {}), rows: parseJ(u.rows, []),
+/* fd = unterrichtsfreie Tage der Einstellungen (loadFreeDays): dann stehen die der Schule in params.schoolBreaks (nur ausgeliefert, nie gespeichert) */
+export const unitOut = (u, extra = {}, fd = null) => ({
+  id: u.id, subject: u.subject, klass: u.klass, title: u.title, status: u.status, params: fd ? withSchoolBreaks(parseJ(u.params, {}), fd, u.subject) : parseJ(u.params, {}), plan: parseJ(u.plan, {}), rows: parseJ(u.rows, []),
   version: u.version, source: u.source || null, createdAt: u.created_at, updatedAt: u.updated_at, ...(u.revise != null && reviseOut(u) ? { revise: reviseOut(u) } : {}), ...extra,
 });
 export async function getUnit(db, id) {
@@ -47,10 +53,29 @@ export async function linkedLessons(db, unitId, gs = false) {
   return (r.results || []).map((l) => ({ id: l.id, title: l.title, date: l.lesson_date, time: l.start_time || null, row: l.unit_row, code: l.code,
     ...(gs ? { minutes: l.duration_min ?? null, cancelled: !!l.cancelled, hasPlan: !!l.has_plan, pdfs: l.pdfs || 0, cards: l.cardsets || 0, hasContent: !!l.has_content } : {}) }));
 }
-export async function unitFull(db, u) {
-  const lessons = await linkedLessons(db, u.id, u.subject === GS_SUBJECT);
-  const params = parseJ(u.params, {});
-  return unitOut(u, { slots: computeSlots(params), lessons, course: await courseInfo(db, u.subject, u.klass) });
+export async function unitFull(db, u, fd = null) {
+  const [lessons, free] = await Promise.all([linkedLessons(db, u.id, u.subject === GS_SUBJECT), fd ? fd : loadFreeDays(db)]);
+  const params = withSchoolBreaks(parseJ(u.params, {}), free, u.subject);
+  return unitOut(u, { slots: computeSlots(params), lessons, course: await courseInfo(db, u.subject, u.klass) }, free);
+}
+/* Rahmendaten aus der Datenbank mit den unterrichtsfreien Tagen der Schule (zum Rechnen) */
+export const paramsFree = (u, fd) => withSchoolBreaks(parseJ(u.params, {}), fd, u.subject);
+/* Neue Daten in Zeilen (Lehrkraft in der Tabelle, Claude mit save_unit_plan): ein Tag, der für die Schule unterrichtsfrei ist, wird abgelehnt – nur,
+   wenn sich das Datum der Zeile ändert (bestehende Zeilen auf einem freien Tag, z. B. nach „Nur speichern“, bleiben speicherbar) */
+export function assertRowDates(rows, oldRows, fd, subject) {
+  const old = new Map((oldRows || []).map((r) => [r && r.uid, r && r.date]));
+  rows.forEach((r, i) => {
+    if (!r.date || old.get(r.uid) === r.date) return;
+    const msg = freeDateError(r.date, fd, subject);
+    if (msg) throw new HttpError(400, "free_day", "Stunde " + (i + 1) + ": " + msg);
+  });
+}
+/* Gymnasium: Sitzungen, die nach dem Verschieben wegen unterrichtsfreier Tage ohne Termin sind (lesson_date NULL), bekommen den Termin ihrer
+   Zeile, sobald sie wieder einen hat – eine Anweisung (nur für solche Sitzungen; sonst führt das Gymnasium die Termine wie bisher). guard wie mirrorStmt */
+function datedAgainStmt(db, rows, lessons, now, guard, unitId, ver) {
+  const byRow = new Map(rows.map((r) => [r.uid, r]));
+  const list = lessons.filter((l) => !l.date && l.row && byRow.has(l.row) && byRow.get(l.row).date);
+  return list.length ? mirrorStmt(db, rows, list, now, guard, unitId, ver) : null;
 }
 
 /* Speichern mit Versionsprüfung (Claude über den Connector und die Lehrkraft im Browser schreiben dieselbe Einheit). before: Anweisungen, die im
@@ -85,17 +110,27 @@ export async function applyPlan(db, u, planRaw, rowsRaw, baseVersion, source, no
   if (gs && (await db.prepare("SELECT 1 AS x FROM lessons WHERE unit_id=?1 AND cancelled=0 LIMIT 1").bind(u.id).first()))
     throw new HttpError(409, "uid_required", "Diese Einheit hat schon Sitzungen: Gib bei jeder Stunde, die bleibt, ihre uid aus get_unit an (Stunden ohne uid sind dann neu). " +
       "Ohne uid kämen Sitzungen samt Verlaufsplan und Material an andere Stunden – der Plan wurde nicht gespeichert.");
-  return { version: await applyPlanByPosition(db, u, planRaw, rowsRaw, baseVersion, source, now), uid: false };
+  const rev = reviseData(u.revise);
+  return { version: await applyPlanByPosition(db, u, planRaw, rowsRaw, baseVersion, source, now), uid: false, reviseClosed: !!(rev && rev.open) };
 }
 async function applyPlanByPosition(db, u, planRaw, rowsRaw, baseVersion, source, now) {
-  const plan = normalizePlan(planRaw), oldRows = parseJ(u.rows, []);
+  const plan = normalizePlan(planRaw), oldRows = parseJ(u.rows, []), fd = await loadFreeDays(db);
   let rows = normalizeRows(rowsRaw, newUid);
   // bestehende Zeilen mit Sitzung behalten ihre Kennung (gleiche Position), damit die Verknüpfung erhalten bleibt
   rows = rows.map((r, i) => (oldRows[i] && !rowsRaw[i]?.uid ? { ...r, uid: oldRows[i].uid, date: r.date || oldRows[i].date, minutes: r.minutes || oldRows[i].minutes, time: r.time || oldRows[i].time || null } : r));
-  rows = assignDates(rows, computeSlots(parseJ(u.params, {})));
+  assertRowDates(rows, oldRows, fd, u.subject);
+  rows = assignDates(rows, computeSlots(paramsFree(u, fd)));
   const fields = { plan: JSON.stringify(plan), rows: JSON.stringify(rows) };
   if (plan.titel && !u.title) fields.title = plan.titel;
-  return saveUnit(db, u.id, fields, baseVersion, source, now);
+  // Gymnasium nach unterrichtsfreien Tagen: Hinweis zum Überarbeiten erledigt; Sitzungen ohne Termin bekommen den ihrer Zeile (sonst wie bisher)
+  const rev = reviseData(u.revise), before = [];
+  if (rev && rev.open) fields.revise = JSON.stringify({ ...rev, open: false, undated: rows.filter((r) => !r.date).map((r) => r.uid), undo: null });
+  if (u.subject !== GS_SUBJECT && oldRows.some((r) => !r.date)) {
+    const ver = baseVersion == null ? u.version : Number(baseVersion);
+    const st = datedAgainStmt(db, rows, await linkedLessons(db, u.id), now, "EXISTS(SELECT 1 FROM units WHERE id=?3 AND version=?4)", u.id, ver);
+    if (st) { before.push(st); if (baseVersion == null) baseVersion = u.version; }
+  }
+  return saveUnit(db, u.id, fields, baseVersion, source, now, before);
 }
 
 /* leere Sitzung (darf beim Überarbeiten mit ihrer Zeile wegfallen): nichts geplant, kein Material, kein Chat außer der Begrüßung, kein Elternlink */
@@ -124,8 +159,8 @@ async function applyPlanByUid(db, u, planRaw, rowsRaw, baseVersion, source, now)
     if (keep.length) throw new HttpError(409, "rows_with_lessons", "Diese Stunden haben schon geplante Sitzungen und müssen mit ihrer uid erhalten bleiben (Inhalt darfst du ändern): " +
       keep.map((l) => "„" + (oldBy.get(l.row) || {}).stundenfrage + "“ (uid " + l.row + ", Sitzung " + l.id + ")").join(", "), { uids: keep.map((l) => l.row) });
   }
-  const before = new Map(rows.map((r) => [r.uid, r]));
-  rows = gs ? repackFuture({ params: parseJ(u.params, {}), rows, lessons, now }) : assignDates(rows, computeSlots(parseJ(u.params, {})));
+  const before = new Map(rows.map((r) => [r.uid, r])), fd = await loadFreeDays(db);
+  rows = gs ? repackFuture({ params: paramsFree(u, fd), rows, lessons, now }) : assignDates(rows, computeSlots(paramsFree(u, fd)));
   const byRow = new Map(lessons.filter((l) => l.row && !l.cancelled).map((l) => [l.row, l]));
   const moves = [];
   rows.forEach((r, i) => {
@@ -137,6 +172,8 @@ async function applyPlanByUid(db, u, planRaw, rowsRaw, baseVersion, source, now)
   if (plan.titel && !u.title) fields.title = plan.titel;
   const rev = reviseData(u.revise);
   if (gs && rev) fields.revise = JSON.stringify({ ...rev, open: false, undated: undated.map((r) => r.uid), undo: null });
+  // Gymnasium nach unterrichtsfreien Tagen (units.revise gibt es dort nur dann): Hinweis erledigt
+  else if (rev && rev.open) fields.revise = JSON.stringify({ ...rev, open: false, undated: undated.map((r) => r.uid), undo: null });
   // ein Batch: leere Sitzungen weggefallener Stunden löschen, Termine der Sitzungen mitführen (Grundschule), Einheit mit Versionsprüfung zuletzt
   const G = "EXISTS(SELECT 1 FROM units WHERE id=?3 AND version=?4)", GD = "EXISTS(SELECT 1 FROM units WHERE id=?2 AND version=?3)", dropIds = JSON.stringify(dropLessons.map((l) => l.id));
   const stmts = [];
@@ -146,6 +183,7 @@ async function applyPlanByUid(db, u, planRaw, rowsRaw, baseVersion, source, now)
     stmts.push(db.prepare("DELETE FROM lessons WHERE id IN (SELECT value FROM json_each(?1)) AND " + EMPTY_LESSON + " AND " + GD).bind(dropIds, u.id, ver));
   }
   if (gs) stmts.push(mirrorStmt(db, rows, lessons, now, G, u.id, ver));
+  else { const st = datedAgainStmt(db, rows, lessons, now, G, u.id, ver); if (st) stmts.push(st); }
   const sets = Object.keys(fields).map((k, i) => k + "=?" + (i + 4));
   stmts.push(db.prepare("UPDATE units SET " + sets.join(", ") + ", updated_at=?2, source=?3, version=version+1 WHERE id=?1 AND version=?" + (Object.keys(fields).length + 4) + " RETURNING version")
     .bind(u.id, now, source, ...Object.values(fields), ver));
@@ -155,7 +193,7 @@ async function applyPlanByUid(db, u, planRaw, rowsRaw, baseVersion, source, now)
     const cur = await db.prepare("SELECT version FROM units WHERE id=?1").bind(u.id).first();
     throw new HttpError(409, "unit_conflict", "Die Einheit wurde inzwischen an anderer Stelle geändert. Bitte neu laden.", { version: cur ? cur.version : null });
   }
-  return { version: last.version, uid: true, moves, undated, deleted: dropLessons.length, reviseClosed: !!(gs && rev && rev.open) };
+  return { version: last.version, uid: true, moves, undated, deleted: dropLessons.length, reviseClosed: !!(rev && rev.open) };
 }
 /* Grundschule: Datum, Beginn und Dauer der Sitzungen aus den Zeilen übernehmen – eine Anweisung (auch „ohne Termin“), nie für Ausfall-Einträge.
    guard = optionale SQL-Bedingung mit ?3 (Einheit) und ?4 (Version) */
@@ -173,8 +211,10 @@ export async function routeUnitsList(c) {
   const u = new URL(c.request.url), subject = u.searchParams.get("subject"), klass = u.searchParams.get("klass");
   if (subject === GS_SUBJECT) await courseRef(c.db, subject, klass);   // Grundschule: der Kurs muss existieren
   else if (!isValidSubject(subject) || !isValidClass(klass)) throw bad("Fach oder Klasse ungültig.");
-  const r = await c.db.prepare("SELECT u.*, (SELECT COUNT(*) FROM lessons l WHERE l.unit_id=u.id) AS n FROM units u WHERE subject=?1 AND klass=?2 ORDER BY created_at DESC").bind(subject, klass).all();
-  return json({ ok: true, units: (r.results || []).map((x) => { const o = unitOut(x, { lessonCount: x.n || 0 }); return { ...o, slotCount: lessonSlots(computeSlots(o.params)).length }; }) });
+  const [r, f] = await c.db.batch([c.db.prepare("SELECT u.*, (SELECT COUNT(*) FROM lessons l WHERE l.unit_id=u.id) AS n FROM units u WHERE subject=?1 AND klass=?2 ORDER BY created_at DESC").bind(subject, klass),
+    freeDaysStmt(c.db)]);
+  const fd = freeDaysOf(f);
+  return json({ ok: true, units: (r.results || []).map((x) => { const o = unitOut(x, { lessonCount: x.n || 0 }, fd); return { ...o, slotCount: lessonSlots(computeSlots(o.params)).length }; }) });
 }
 /* Wochenkalender der Startseite (beider Schulformen): alle Einheiten mit Stundenplan und Zeitraum (nur Rahmendaten – nie Plan, Ablauf oder
    Notizen), am Gymnasium nur Klassen, die laut Fach-Einstellungen unterrichtet werden, in der Grundschule nur vorhandene Kurse (mit ihrem
@@ -190,17 +230,28 @@ export function scheduleUnit(x, gs, cfgs) {
   return { id: x.id, subject: x.subject, klass: x.klass, title: x.title, params: { start: p.start, end: p.end, exam: p.exam, weekdays: p.weekdays, breaks: p.breaks, ...(p.cancelled ? { cancelled: p.cancelled } : {}) },
     ...(course ? { course: { id: course.id, short: course.short, label: course.label } } : {}) };
 }
+/* Sitzungen, die auf einem unterrichtsfreien Tag ihrer Schule liegen (z. B. nach „Nur speichern – Sitzungen bleiben“) – für den Wochenkalender;
+   über den Index lessons_day nur im Zeitraum aller Einträge */
+export const FREE_LESSONS_SQL = "SELECT l.id, l.subject, l.klass, l.title, l.lesson_date, l.start_time, l.duration_min FROM lessons l WHERE l.cancelled=0 AND l.lesson_date IS NOT NULL " +
+  "AND l.lesson_date >= (SELECT MIN(date_from) FROM free_days) AND l.lesson_date <= (SELECT MAX(date_to) FROM free_days) AND EXISTS(SELECT 1 FROM free_days f " +
+  "WHERE l.lesson_date BETWEEN f.date_from AND f.date_to AND (f.scope='both' OR (f.scope='gs') = (l.subject='" + GS_SUBJECT + "'))) ORDER BY l.lesson_date LIMIT 500";
+/* → {units, freeDays: [{id, from, to, label, scope}], freeLessons: [{id, subject, klass, title, date, time, minutes, course?}]} (weekSchedule rechnet die
+   unterrichtsfreien Tage selbst ein) */
 export async function routeSchedule(c) {
   await requireTeacher(c);
   const cfgs = await loadSubjectConfigs(c.db);
-  const [r, g] = await c.db.batch([
+  const [r, g, f, fl] = await c.db.batch([
     c.db.prepare("SELECT id, subject, klass, title, params FROM units ORDER BY created_at DESC LIMIT 2000"),   // die neuesten zuerst
     c.db.prepare("SELECT * FROM gs_courses"),
+    freeDaysStmt(c.db),
+    c.db.prepare(FREE_LESSONS_SQL),
   ]);
   const gs = new Map((g.results || []).map((x) => [x.id, gsCourseOut(x)]));
   const units = [];
   for (const x of r.results || []) { const u = scheduleUnit(x, gs, cfgs); if (u) units.push(u); }
-  return json({ ok: true, units });
+  const freeLessons = (fl.results || []).map((l) => { const k = l.subject === GS_SUBJECT ? gs.get(l.klass) : null;
+    return { id: l.id, subject: l.subject, klass: l.klass, title: l.title || "", date: l.lesson_date, time: l.start_time || null, minutes: l.duration_min ?? null, ...(k ? { course: { short: k.short } } : {}) }; });
+  return json({ ok: true, units, freeDays: freeDaysOf(f), freeLessons });
 }
 export async function routeUnitCreate(c) {
   await requireTeacher(c);
@@ -217,7 +268,7 @@ export async function routeUnitCreate(c) {
   // ohne eigenen Stundenplan übernimmt die neue Einheit den aus den Kurseinstellungen (in der Einheit änderbar)
   if (!params.weekdays.length) { const cs = await getCourseSettings(c.db, body.subject, body.klass); if (cs && cs.weekdays.length) params.weekdays = cs.weekdays; }
   await c.db.prepare("INSERT INTO units(id, subject, klass, title, params, created_at, updated_at) VALUES(?1, ?2, ?3, ?4, ?5, ?6, ?6)")
-    .bind(id, body.subject, body.klass, cleanLine(body.title, 200), JSON.stringify(params), c.now).run();
+    .bind(id, body.subject, body.klass, cleanLine(body.title, 200), JSON.stringify(storeParams(params)), c.now).run();
   return json({ ok: true, unit: await unitFull(c.db, await getUnit(c.db, id)) });
 }
 export async function routeUnitGet(c, id) {
@@ -236,6 +287,7 @@ export async function routeUnitPatch(c, id) {
     // ausgefallene Termine (Krankmeldung) verwaltet nur die Plattform: fehlen sie im Rumpf, bleiben die gespeicherten
     const old = normalizeParams(parseJ(u.params, {}));
     if (!(body.params && typeof body.params === "object" && "cancelled" in body.params) && old.cancelled) params.cancelled = old.cancelled;
+    params = storeParams(params);   // die unterrichtsfreien Tage der Schule stehen nie in den Rahmendaten der Einheit
     fields.params = JSON.stringify(params);
   }
   if (body.plan !== undefined) fields.plan = JSON.stringify(normalizePlan(body.plan));
@@ -246,7 +298,10 @@ export async function routeUnitPatch(c, id) {
     const r = reviseData(u.revise);
     if (r && Array.isArray(body.reviseSeen)) {
       const seen = new Set(body.reviseSeen.filter((x) => typeof x === "string"));
-      if (r.items.some((x) => !seen.has(x.id))) throw new HttpError(409, "revise_changed", "Inzwischen ist eine weitere Krankmeldung dazugekommen – der Hinweis bleibt. Bitte neu laden.", { version: u.version });
+      const fresh = r.items.filter((x) => !seen.has(x.id));
+      if (fresh.length) throw new HttpError(409, "revise_changed", fresh.every((x) => x.kind === "free")
+        ? "Inzwischen wurden wegen unterrichtsfreier Tage weitere Stunden verschoben – der Hinweis bleibt. Bitte neu laden."
+        : "Inzwischen ist eine weitere Krankmeldung dazugekommen – der Hinweis bleibt. Bitte neu laden.", { version: u.version });
       if (ver == null) ver = u.version;
     }
     if (r) fields.revise = JSON.stringify({ ...r, open: false, undo: null });
@@ -254,7 +309,9 @@ export async function routeUnitPatch(c, id) {
   const before = [];
   if (body.rows !== undefined) {
     let rows = normalizeRows(body.rows, newUid);
-    if (body.assignDates) rows = assignDates(rows.map((r) => ({ ...r, date: null, time: null })), computeSlots(params || parseJ(u.params, {})));
+    const fd = await loadFreeDays(c.db);
+    if (body.assignDates) rows = assignDates(rows.map((r) => ({ ...r, date: null, time: null })), computeSlots(withSchoolBreaks(params || parseJ(u.params, {}), fd, u.subject)));
+    else assertRowDates(rows, parseJ(u.rows, []), fd, u.subject);   // ein neues Datum auf einem unterrichtsfreien Tag: Meldung statt Speichern
     fields.rows = JSON.stringify(rows);
     // Datum/Dauer verknüpfter Sitzungen mitführen. Grundschule: eine Anweisung (auch „ohne Termin“ und die Dauer) im selben Batch wie die Einheit
     // und an deren Version gebunden – eine veraltete Seite schreibt nie alte Termine in die Sitzungen (Abschlussprüfung F03)
@@ -292,6 +349,10 @@ export async function routeUnitSessions(c, id) {
   if (!plan.lernaufgabe) throw bad("Bitte zuerst eine zentrale Lernaufgabe festlegen – sie ist das Ziel der Einheit.");
   const have = new Set((await linkedLessons(c.db, id)).map((l) => l.row));
   const missingDate = rows.filter((r) => !have.has(r.uid) && !r.date);
+  // keine neue Sitzung an einem unterrichtsfreien Tag der Schule (z. B. Zeilen von vor dem Eintrag, „Nur speichern“)
+  const fd = await loadFreeDays(c.db);
+  rows.forEach((r, i) => { if (!have.has(r.uid) && r.date) { const msg = freeDateError(r.date, fd, u.subject);
+    if (msg) throw new HttpError(400, "free_day", "Stunde " + (i + 1) + ": " + msg.replace(" Bitte einen anderen Tag wählen.", "") + " Bitte „Termine neu verteilen“ oder in der Tabelle ein anderes Datum eintragen."); } });
   // Grundschule: Stunden ohne Termin (z. B. nach einer Krankmeldung) bekommen noch keine Sitzung
   const skipped = u.subject === GS_SUBJECT ? missingDate.length : 0;
   if (missingDate.length && !skipped) throw bad(missingDate.length + " Zeile(n) haben noch kein Datum. Bitte Termine berechnen oder Datum eintragen.");
@@ -360,7 +421,7 @@ export async function extendUnit(db, u, opts, source, now) {
   if (!Number.isInteger(ver)) throw bad("Bitte base_version aus get_unit angeben.");
   if (ver !== u.version) throw new HttpError(409, "unit_conflict", "Die Einheit wurde inzwischen an anderer Stelle geändert. Bitte neu laden.", { version: u.version });
   if (!Number.isInteger(n) || n < 1 || n > EXTEND_MAX) throw bad("termine muss 1, 2 oder 3 sein (so viele Termine laut Stundenplan kommen nach dem bisherigen Ende dazu).");
-  const params = normalizeParams(parseJ(u.params, {}));
+  const params = normalizeParams(parseJ(u.params, {})), fd = await loadFreeDays(db);
   if (!params.end || !params.weekdays.length) throw bad("Die Einheit hat in den Rahmendaten noch kein Ende oder keinen Stundenplan – das trägt die Lehrkraft in der Plattform ein.");
   const raw = Array.isArray(opts.stunden) ? opts.stunden : [];
   if (raw.length > n) throw bad("Mehr neue Stunden (" + raw.length + ") als Termine (" + n + "): Jede neue Stunde braucht einen Termin – erhöhe termine (höchstens " + EXTEND_MAX + ") oder schicke weniger Stunden.");
@@ -371,11 +432,12 @@ export async function extendUnit(db, u, opts, source, now) {
   });
   const rows = parseJ(u.rows, []), lessons = await linkedLessons(db, u.id, gs);
   // Termine nach dem Ende, die keine Zeile schon belegt (z. B. von Hand dahinter eingetragen)
-  const after = slotsAfterEnd(params, n + rows.length, now), used = occupy(after, rows), slots = after.filter((s, i) => !used.has(i)).slice(0, n);
+  const after = slotsAfterEnd(withSchoolBreaks(params, fd, u.subject), n + rows.length, now), used = occupy(after, rows), slots = after.filter((s, i) => !used.has(i)).slice(0, n);
   if (slots.length < n) throw bad("Nach dem Ende der Einheit (" + fmtDay(params.end) + ") gibt es laut Stundenplan " + (slots.length ? "nur " + slots.length + (slots.length === 1 ? " weiteren Termin" : " weitere Termine") : "keinen weiteren Termin") + ".");
   const byRow = new Map(lessons.filter((l) => l.row && !l.cancelled).map((l) => [l.row, l]));
-  // Zeilen ohne Termin: Grundschule alle (ihre Sitzungen stehen dann „ohne Termin“), Gymnasium nur ohne Sitzung (Sitzungen behalten ihre Termine)
-  const undated = rows.map((r, i) => ({ r, i })).filter((x) => !x.r.date && (gs || !byRow.has(x.r.uid)));
+  // Zeilen ohne Termin: Grundschule alle (ihre Sitzungen stehen dann „ohne Termin“), Gymnasium ohne Sitzung oder mit einer Sitzung ohne Termin (nach
+  // unterrichtsfreien Tagen) – Sitzungen mit Termin behalten ihn
+  const undated = rows.map((r, i) => ({ r, i })).filter((x) => !x.r.date && (gs || !byRow.has(x.r.uid) || !byRow.get(x.r.uid).date));
   const room = n - Math.min(undated.length, n);
   if (fresh.length > room) throw bad("Für " + fresh.length + (fresh.length === 1 ? " neue Stunde" : " neue Stunden") + " reichen die Termine nicht: " + Math.min(undated.length, n) + " von " + n +
     (n === 1 ? " Termin geht" : " Terminen gehen") + " zuerst an Stunden ohne Termin (" + undated.slice(0, n).map((x) => "Stunde " + (x.i + 1) + " „" + x.r.stundenfrage + "“").join(", ") + "). Erhöhe termine (höchstens " + EXTEND_MAX + ") oder schicke weniger Stunden.");
@@ -389,15 +451,16 @@ export async function extendUnit(db, u, opts, source, now) {
   }
   for (const r of fresh) { const s = slots[k++]; rows.push({ ...r, date: s.date, time: s.time || null, minutes: s.minutes }); changed.push({ i: rows.length - 1, fresh: true }); }
   const free = slots.slice(k), end = slots[n - 1].date, uids = new Set(changed.map((c) => rows[c.i].uid));
-  const fields = { params: JSON.stringify({ ...params, end }), rows: JSON.stringify(rows) };
+  const fields = { params: JSON.stringify(storeParams({ ...params, end })), rows: JSON.stringify(rows) };
   const rev = reviseData(u.revise);
-  if (gs && rev) fields.revise = JSON.stringify({ ...rev, undated: rows.filter((r) => !r.date).map((r) => r.uid), undo: null });
+  if (rev) fields.revise = JSON.stringify({ ...rev, undated: rows.filter((r) => !r.date).map((r) => r.uid), undo: null });
   // Sitzungen: nur, wenn die Einheit schon festgelegt ist
   const planned = u.status === "geplant";
   const toCreate = planned ? changed.map((c) => rows[c.i]).filter((r) => !byRow.has(r.uid)) : [];
   const newLessons = toCreate.map((r) => ({ id: randomId(8), code: generateCode(), title: cleanLine(r.stundenfrage, 200) || u.title || "Sitzung", date: r.date, min: r.minutes ?? null, row: r.uid, time: r.time || null }));
   const G = "EXISTS(SELECT 1 FROM units WHERE id=?3 AND version=?4)", stmts = [];
   if (gs) { const dated = lessons.filter((l) => !l.cancelled && l.row && uids.has(l.row)); if (dated.length) stmts.push(mirrorStmt(db, rows, dated, now, G, u.id, ver)); }
+  else { const dated = lessons.filter((l) => !l.date && l.row && uids.has(l.row)); if (dated.length) stmts.push(mirrorStmt(db, rows, dated, now, G, u.id, ver)); }
   if (newLessons.length) {
     stmts.push(db.prepare("INSERT INTO lessons(id, subject, klass, title, topic, duration_min, lesson_date, ideas, homework, code, unit_id, unit_row, created_at, updated_at, start_time) " +
       "SELECT json_extract(value,'$.id'), ?1, ?2, json_extract(value,'$.title'), ?5, json_extract(value,'$.min'), json_extract(value,'$.date'), '', '', json_extract(value,'$.code'), ?3, json_extract(value,'$.row'), ?6, ?6, json_extract(value,'$.time') " +

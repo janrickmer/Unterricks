@@ -212,7 +212,7 @@ test("Route Krankmeldung: Vorschau, ausführen (ein Batch), Ausfall-Eintrag mit 
   c.db.counter.n = 0;
   const r = await call(c, GS.routeLessonCancel, "POST", "/x", { version: pre.data.version }, ids[2]);
   assert.equal(r.status, 200);
-  assert.ok(c.db.counter.n <= 13, "D1-Anweisungen der Krankmeldung: " + c.db.counter.n);   // Batch mit 5 Anweisungen (der Elternlink wandert in der Datenbank, F02)
+  assert.ok(c.db.counter.n <= 15, "D1-Anweisungen der Krankmeldung: " + c.db.counter.n);   // Batch mit 5 Anweisungen (der Elternlink wandert in der Datenbank, F02); unterrichtsfreie Tage (Nachtrag 24) beim Planen und in der Antwort
   const P1 = r.data.placeholderId;
   // Sitzungen: Datum wandert mit, die letzte ohne Termin; Ausfall-Eintrag am alten Termin
   const got = await Promise.all(ids.map((id) => lessonRow(c, id)));

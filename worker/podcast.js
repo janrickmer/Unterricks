@@ -96,7 +96,7 @@ export async function routePodcastList(c) {
    Je Sitzung (in Unterrichtsreihenfolge) die Kopfzeile wie in der Zusammenfassung (summaryHead), die Zusammenfassung oder – ohne sie – der Ersatz aus
    der Planung (Schulportal-Eintrag bzw. Verlaufsplan als schlichter Text, ohne Zwischenstopp-Zeile) und – nach einem Zwischenstopp der vorigen Stunde
    desselben Kurses, solange ihr offener Teil noch nicht in dieser Sitzung eingeplant ist – carry (carryOf). Ob heute noch Unterricht bevorsteht,
-   entscheidet der Browser mit seiner Uhr (podcastChoice). 7 D1-Anweisungen. */
+   entscheidet der Browser mit seiner Uhr (podcastChoice). 8 D1-Anweisungen. */
 export async function routePodcastPlan(c) {
   await requireTeacher(c);
   const today = berlinToday(c.now);
