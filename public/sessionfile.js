@@ -109,7 +109,7 @@ export function cleanSessionFile(raw) {
       date: isIsoDate(s.date) ? s.date : null, nextDate: isIsoDate(s.nextDate) ? s.nextDate : null, startTime: isClockTime(s.startTime) ? s.startTime : null,
       durationMin: Number.isInteger(s.durationMin) ? s.durationMin : null, title: str(s.title, 200) },
     lesson: { title: str(l.title, 200), topic: str(l.topic, 500), ideas: str(l.ideas, 20000), homework: str(l.homework, 10000), portal: str(l.portal, 30000),
-      teacherSummary: str(l.teacherSummary, TEACHER_SUMMARY_MAX) },
+      teacherSummary: str(l.teacherSummary, TEACHER_SUMMARY_MAX), ...(l.teacherSummaryOutdated === true ? { teacherSummaryOutdated: true } : {}) },
     chat: (Array.isArray(raw.chat) ? raw.chat : []).slice(-SESSION_LIMITS.chat).filter((m) => m && (m.role === "user" || m.role === "assistant") && typeof m.content === "string" && m.content.trim())
       .map((m) => ({ role: m.role, content: m.content.slice(0, 100000), model: str(m.model, 200) || null, mode: str(m.mode, 20) || null })),
     files, drafts,

@@ -155,12 +155,14 @@ Feibeitsblatt braucht keine Änderung. Die Adressen stehen in `wrangler.jsonc` (
   z. B. „Jg. 8 - PoWi - Sitzung 1 - Das Bundesverfassungsgericht“ (Jahrgang bzw. „E-Phase“/„Q2 GK“, Fach, Stunde in der
   Einheit, Titel der Sitzung); den Namen vergibt claude.ai selbst – passt er nicht, im Dialog „Chat-Namen kopieren“ und in
   claude.ai über „Umbenennen“ einfügen.
-* **Zusammenfassung der Sitzung für die Lehrkraft:** Gibt man Claude im Chat frei, die Planung abzulegen, schreibt Claude als letzten
-  Speicherschritt auch eine kurze Zusammenfassung des Ablaufs – so, dass eine Lehrkraft, die nicht mitgeplant hat, versteht, was in der
-  Stunde passieren wird (Ablauf mit ungefähren Minuten und Sozialformen, was die Lehrkraft tut und sagt, was die Schüler:innen tun,
-  Materialien mit Titel, Feibeitsblatt mit Code, erwartete Ergebnisse, Hausaufgabe, Stolperstellen; schlichte Sätze, etwa 120–300 Wörter,
-  ohne Namen von Schüler:innen). Connector: `update_lesson` mit `zusammenfassung_lehrkraft` (höchstens 4000 Zeichen, leer = löschen);
-  `get_lesson` zeigt sie im Abschnitt „Zusammenfassung der Sitzung für die Lehrkraft“. Sie steht in der Sitzung **ganz oben** (Gymnasium und
+* **Zusammenfassung der Sitzung für die Lehrkraft:** Gibt man Claude im Chat frei, die Planung abzulegen (auch nur einen Teil davon), schreibt
+  Claude als letzten Speicherschritt – ohne eigene Rückfrage – auch eine kurze Zusammenfassung des Ablaufs, so, dass eine Lehrkraft, die nicht
+  mitgeplant hat, versteht, was in der Stunde passieren wird (Ablauf mit ungefähren Minuten und Sozialformen, was die Lehrkraft tut und sagt, was
+  die Schüler:innen tun, Materialien mit Titel, ein schon angelegtes Feibeitsblatt mit Code, erwartete Ergebnisse, Hausaufgabe, Stolperstellen;
+  schlichte, gut vorlesbare Sätze ohne Abkürzungen, etwa 120–300 Wörter, ohne Namen von Schüler:innen). Connector: `update_lesson` mit
+  `zusammenfassung_lehrkraft` (höchstens 4000 Zeichen, leer = löschen); fehlt sie oder beschreibt sie eine frühere Planung, erinnert die Antwort
+  von `save_schulportal_entry` bzw. `save_verlaufsplan` daran; beim Vertretungsvorschlag bleibt sie, wie sie ist. `get_lesson` zeigt sie im
+  Abschnitt „Zusammenfassung der Sitzung für die Lehrkraft“. Sie steht in der Sitzung **ganz oben** (Gymnasium und
   Grundschule) in der Karte „Zusammenfassung der Sitzung für die Lehrkraft“. Die erste Zeile setzt Unterricks **automatisch** aus den
   aktuellen Sitzungsdaten – Fach, Jahrgang, Wochentag mit Datum und Beginn, z. B. „Politik und Wirtschaft · Jahrgang 8 (Klasse 8b) ·
   Dienstag, 17.11.2026, 8:00 Uhr“ (ohne Uhrzeit „Beginn noch nicht eingetragen“); sie stimmt deshalb auch nach dem Verschieben. Darunter
@@ -168,7 +170,8 @@ Feibeitsblatt braucht keine Änderung. Die Adressen stehen in `wrangler.jsonc` (
   Hinweis „Die Planung wurde danach geändert – die Zusammenfassung ist vielleicht nicht mehr aktuell.“ Mit **„Bearbeiten“** ändern Sie
   sie selbst (leeren und speichern = löschen); hat Claude inzwischen eine neue Fassung gespeichert, fragt Unterricks wie beim
   Schulportal-Eintrag, welche gilt. Plant Claude ohne Connector, gibt es die Zusammenfassung am Ende zum Kopieren aus. Schüler:innen,
-  Eltern, Beamer und Live-Präsentation sehen sie nie; sie kommt mit „Sitzung als Datei“ (Datumsangaben angepasst) und der Sicherung mit.
+  Eltern, Beamer und Live-Präsentation sehen sie nie; sie kommt mit „Sitzung als Datei“ (Datumsangaben angepasst; war sie schon beim
+  Herunterladen nicht mehr aktuell, bleibt der Hinweis) und der Sicherung mit.
 * **Feibeitsblatt-Verbindung:** Türcode und Feibeitsblatt-Passwort nur einmal eingeben (Haken „Verbindung verschlüsselt in meinem
   Benutzerkonto speichern“). Danach verbindet sich Unterricks auf jedem Gerät, auf dem Sie sich mit Ihrem Passwort anmelden,
   automatisch; Geräte, die schon vorher angemeldet waren, entsperren sie einmal mit dem Unterricks-Passwort. Der Server sieht dabei

@@ -849,15 +849,22 @@ Elternansicht samt `POST /api/eltern/sitzung` und `…/verlauf`).
   „E-Phase (Kurs E-K)“, Oberstufe „Q3 Leistungskurs“, Grundschule Kursfach + „Jahrgang 2 (Klassen 2a, 2b)“; ohne Uhrzeit „…, Beginn noch nicht
   eingetragen“, ohne Datum „Termin noch nicht eingetragen“. Dieselbe Funktion nutzen Sitzungsseite, `get_lesson`, die Rückmeldung von `update_lesson`
   (und später der Podcast).
-* **Connector** (`worker/mcp.js`): Server-Anweisungen („Legst du Unterrichtsinhalte einer Sitzung ab …, schreibe immer auch die … mit update_lesson
-  (zusammenfassung_lehrkraft) – auch, wenn du die Planung später überarbeitest (z. B. nach einem Zwischenstopp)“), `update_lesson` mit
-  `zusammenfassung_lehrkraft` (Schema mit `maxLength` 4000 und den Regeln aus `teacherSummaryRules`), Satz in `save_schulportal_entry` und
-  `save_verlaufsplan` („Schreibe danach auch die …“). Die Rückmeldung nennt Wortzahl, Anfang und die Kopfzeile, die Unterricks darüber setzt, und
-  warnt bei Markdown/Aufzählungszeichen bzw. mehr als 400 Wörtern. `get_lesson`: Abschnitt „## Zusammenfassung der Sitzung für die Lehrkraft“ mit
-  Kopfzeile, Text und Stand (bzw. „(noch leer – schreibe sie mit update_lesson und zusammenfassung_lehrkraft)“), Hinweis bei geänderter Planung bzw.
-  bestätigter Vertretung; Gymnasium vor dem Planungsverlauf, Grundschule vor dem Inhalt für die Eltern; Ausfall-Einträge ohne Abschnitt.
-* **Prompts**: „Stunde mit Claude planen“ beider Schulformen (`summarySaveStep` als letzter Unterpunkt von Schritt 4 – in Jg. 5/6 und in der Grundschule
-  ohne „(ein Feibeitsblatt mit seinem Code)“ –, `SUMMARY_FALLBACK` im Rückfall
+* **Connector** (`worker/mcp.js`): Server-Anweisungen („Legst du Unterrichtsinhalte einer Sitzung ab (nach Freigabe der Lehrkraft, auch wenn sie nur
+  einen Teil freigibt), schreibe zum Schluss immer auch die … mit update_lesson (zusammenfassung_lehrkraft) – ohne eigene Rückfrage und auch, wenn du die
+  Planung später überarbeitest (z. B. nach einem Zwischenstopp); … nicht für einen Vertretungsvorschlag“), `update_lesson` mit
+  `zusammenfassung_lehrkraft` (Schema mit `maxLength` 4000 und den Regeln aus `teacherSummaryRules`: u. a. ein Feibeitsblatt-Code nur, wenn das Blatt
+  schon angelegt ist – nie erfinden –, Abkürzungen ausgeschrieben, keine Schulportal-Zeichen und keine Verweise `[[pdf:…]]`), Satz in
+  `save_schulportal_entry` und `save_verlaufsplan` („Schreibe danach auch die …“), in `save_substitute_plan` „… änderst du dabei nicht“. Deren
+  Antworten erinnern genau beim Ablegen daran (`summaryReminder`): fehlt die Zusammenfassung („… – sie fehlt in dieser Sitzung noch.“) bzw. passt ihr
+  Fingerabdruck nicht mehr zur gespeicherten Planung („… beschreibt noch die vorige Planung – passe sie zum Schluss … an.“); passt sie (auch nur ein
+  Zwischenstopp dazu) oder gilt eine bestätigte Vertretung, bleibt die Antwort wie bisher. Die Rückmeldung von `update_lesson` nennt Wortzahl, Anfang und
+  die Kopfzeile, die Unterricks darüber setzt, und warnt bei Markdown/Aufzählungszeichen/Verweisen `[[pdf:…]]` bzw. mehr als 400 Wörtern. `get_lesson`:
+  Abschnitt „## Zusammenfassung der Sitzung für die Lehrkraft“ mit Kopfzeile, Text und Stand (bzw. „(noch leer – schreibe sie mit update_lesson und
+  zusammenfassung_lehrkraft, sobald du Unterrichtsinhalte dieser Sitzung ablegst)“), Hinweis bei geänderter Planung bzw. bestätigter Vertretung; Gymnasium
+  vor dem Planungsverlauf, Grundschule vor dem Inhalt für die Eltern; Ausfall-Einträge ohne Abschnitt.
+* **Prompts**: „Stunde mit Claude planen“ beider Schulformen (`summarySaveStep` als letzter Unterpunkt von Schritt 4: „sobald ich etwas zum Speichern
+  freigebe, auch wenn es nur ein Teil ist, und ohne eigene Rückfrage“; in Jg. 5/6 und in der Grundschule ohne den Satz zum Feibeitsblatt-Code –,
+  `SUMMARY_FALLBACK` im Rückfall
   ohne Connector – ohne beide sind die Prompts byte-gleich, SHA-Test in `zwischenstopp.test.mjs`); „Einheit nach Ausfällen überarbeiten“ (Grundschule,
   Schritt 5). Nicht im Vertretungs- und Präsentations-Prompt, nicht im Backup-Chat (die kostenlose KI kann nichts ablegen; die Lehrkraft trägt eine
   Zusammenfassung dort selbst ein).
@@ -870,7 +877,9 @@ Elternansicht samt `POST /api/eltern/sitzung` und `…/verlauf`).
   Schulportal-Eintrag. Beim Zurückkehren in den Tab (`onVis`) übernimmt die Karte einen neuen Stand von Claude – nie in eine laufende Bearbeitung.
   Die Kopfzeile folgt Datum- und Beginnänderungen sofort (`onTimes` bzw. `paintSubline`).
 * **Sitzung als Datei / Sicherung**: `lesson.teacherSummary` in `sitzung.json` (nur, wenn es eine gibt – sonst bleibt die Datei gleich), Datumsangaben
-  beim Laden angepasst (`adaptDates`); `routeLessonImport` übernimmt sie mit dem Fingerabdruck des Eintrags aus der Datei bzw. leert sie. Vertretung:
+  beim Laden angepasst (`adaptDates`); `routeLessonImport` übernimmt sie mit dem Fingerabdruck des Eintrags aus der Datei bzw. leert sie. Passte sie
+  schon beim Herunterladen nicht mehr zur Planung, steht `teacherSummaryOutdated: true` in der Datei; beim Laden bekommt sie dann den Fingerabdruck
+  `PLAN_FINGERPRINT_STALE` („p1:veraltet“, passt zu keiner Planung) – der Hinweis „danach geändert“ bleibt, bis sie neu gespeichert wird. Vertretung:
   Bestätigen und Wiederherstellen ändern die Zusammenfassung nicht (sie beschreibt die ursprüngliche Planung, siehe Hinweis); „Übernehmen“ in eine andere
   Sitzung kopiert sie nicht.
 

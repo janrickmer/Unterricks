@@ -66,7 +66,14 @@ test("Prompts: „Stunde mit Claude planen“ (Gymnasium, Jg. 5/6, Grundschule) 
     const step = S.summarySaveStep(gs, analog);
     assert.equal(p.split(step).length - 1, 1);
     // Feibeitsblatt mit Code nur dort, wo es Feibeitsblätter gibt (nicht in Jg. 5/6 und nicht in der Grundschule)
-    assert.equal(step.includes("(ein Feibeitsblatt mit seinem Code)"), !gs && !analog);
+    assert.equal(step.includes("(bei einem Feibeitsblatt auch den Code, wenn es schon angelegt ist – erfinde keinen)"), !gs && !analog);
+    assert.ok(!step.includes("(ein Feibeitsblatt mit seinem Code)"), "nie einen Code verlangen, den es noch nicht gibt");
+    // Freigabe auch nur eines Teils genügt, keine eigene Rückfrage; der Ablauf wie vereinbart; vorlesbar (Podcast, Nr. 22)
+    assert.ok(step.includes("sobald ich etwas zum Speichern freigebe, auch wenn es nur ein Teil ist, und ohne eigene Rückfrage") && step.includes("Sie beschreibt die Stunde so, wie wir sie vereinbart haben."));
+    assert.ok(step.includes("Abkürzungen ausgeschrieben (z. B. „Minuten“ statt „Min.“, „Partnerarbeit“ statt „PA“)"));
+    // Grundschule: keine Zeichen und Verweise des Verlaufsplans in der Zusammenfassung
+    assert.equal(step.includes("keine Zeichen wie im Verlaufsplan (**, ~~, __) und keine Verweise [[pdf:…]]"), !!gs);
+    assert.equal(step.includes("keine Schulportal-Zeichen"), !gs);
     assert.ok(p.indexOf(step) < p.indexOf("Sage mir zum Schluss kurz"), "letzter Speicherschritt vor dem Schluss");
     for (const s of ["`update_lesson` mit `zusammenfassung_lehrkraft`", "`update_lesson` und `zusammenfassung_lehrkraft`"].filter((x) => step.includes(x))) assert.ok(p.includes(s));
     assert.ok(step.includes(S.TEACHER_SUMMARY_TITLE) && step.includes("etwa 120 bis 300 Wörter") && step.includes("wiederhole sie nicht") && step.includes("nach einem Zwischenstopp"));
@@ -107,13 +114,16 @@ test("Connector: Werkzeugschema, Beschreibungen und Anweisungen nennen die Zusam
   const p = by("update_lesson").inputSchema.properties.zusammenfassung_lehrkraft;
   assert.deepEqual([p.type, p.maxLength], ["string", 4000]);
   for (const s of [S.TEACHER_SUMMARY_TITLE, "nie für Schüler:innen oder Eltern sichtbar", "ungefähren Minuten und Sozialformen", "was die Lehrkraft jeweils tut und sagt", "Materialien mit ihrem Titel",
-    "(ein Feibeitsblatt mit seinem Code)", "erwarteten Ergebnisse, die Hausaufgabe und mögliche Stolperstellen", "kein Markdown, keine Schulportal-Zeichen, keine Tabellen", "etwa 120 bis 300 Wörter",
+    "(bei einem Feibeitsblatt auch den Code, wenn es schon angelegt ist – erfinde keinen)", "erwarteten Ergebnisse, die Hausaufgabe und mögliche Stolperstellen", "kein Markdown, keine Schulportal-Zeichen, keine Verweise [[pdf:…]], keine Tabellen", "etwa 120 bis 300 Wörter",
     "Fach, Jahrgang, Wochentag und Beginn setzt Unterricks automatisch darüber", "Nenne nie Namen von Schüler:innen bzw. Kindern.", "Leer = löschen."]) assert.ok(p.description.includes(s), s);
   assert.ok(by("update_lesson").description.includes("immer, wenn du Unterrichtsinhalte der Sitzung ablegst, als letzten Speicherschritt"));
   for (const n of ["save_schulportal_entry", "save_verlaufsplan"]) assert.ok(by(n).description.includes("Schreibe danach auch die „" + S.TEACHER_SUMMARY_TITLE + "“ mit update_lesson (zusammenfassung_lehrkraft)"), n);
   const init = await mcp(c, "initialize", { protocolVersion: "2025-06-18", capabilities: {}, clientInfo: { name: "t", version: "1" } });
-  assert.ok(init.instructions.includes("Legst du Unterrichtsinhalte einer Sitzung ab (nach Freigabe der Lehrkraft), schreibe immer auch die „" + S.TEACHER_SUMMARY_TITLE + "“ mit update_lesson (zusammenfassung_lehrkraft) – " +
-    "auch, wenn du die Planung später überarbeitest (z. B. nach einem Zwischenstopp); das gilt am Gymnasium und in der Grundschule."));
+  assert.ok(init.instructions.includes("Legst du Unterrichtsinhalte einer Sitzung ab (nach Freigabe der Lehrkraft, auch wenn sie nur einen Teil freigibt), schreibe zum Schluss immer auch die „" + S.TEACHER_SUMMARY_TITLE +
+    "“ mit update_lesson (zusammenfassung_lehrkraft) – ohne eigene Rückfrage und auch, wenn du die Planung später überarbeitest (z. B. nach einem Zwischenstopp); das gilt am Gymnasium und in der Grundschule, nicht für einen Vertretungsvorschlag."));
+  assert.ok(by("update_lesson").description.includes("(auch wenn die Lehrkraft nur einen Teil freigibt, ohne eigene Rückfrage)") && by("update_lesson").description.includes("nicht für einen Vertretungsvorschlag"));
+  // Vertretung: die Zusammenfassung beschreibt die ursprüngliche Planung – Claude ändert sie dabei nicht
+  assert.ok(by("save_substitute_plan").description.endsWith("Die „" + S.TEACHER_SUMMARY_TITLE + "“ (zusammenfassung_lehrkraft) änderst du dabei nicht – sie beschreibt die ursprüngliche Planung."));
 });
 
 test("Gymnasium: update_lesson speichert (Zeitpunkt, Fingerabdruck), meldet Kopfzeile und Form, leer löscht, zu lang abgelehnt; get_lesson-Abschnitt mit Hinweisen", async () => {
@@ -121,7 +131,7 @@ test("Gymnasium: update_lesson speichert (Zeitpunkt, Fingerabdruck), meldet Kopf
   const l = await L.createLesson(c.db, { subject: "powi", klass: "8B", title: "Gewaltenteilung", date: "2026-11-17", startTime: "08:00", durationMin: 45 }, c.now);
   let g = await tool(c, "get_lesson", { lesson_id: l.id });
   assert.ok(g.text.includes("\n## " + S.TEACHER_SUMMARY_TITLE + "\nKopfzeile (setzt Unterricks automatisch aus den aktuellen Sitzungsdaten): Politik und Wirtschaft · Jahrgang 8 (Klasse 8b) · Dienstag, 17.11.2026, 8:00 Uhr\n" +
-    "(noch leer – schreibe sie mit update_lesson und zusammenfassung_lehrkraft)\n"));
+    "(noch leer – schreibe sie mit update_lesson und zusammenfassung_lehrkraft, sobald du Unterrichtsinhalte dieser Sitzung ablegst)\n"));
   assert.ok(g.text.indexOf("## " + S.TEACHER_SUMMARY_TITLE) > g.text.indexOf("## Schulportal-Eintrag") && g.text.indexOf("## " + S.TEACHER_SUMMARY_TITLE) < g.text.indexOf("## Planungsverlauf"));
   await L.savePortal(c.db, l.id, "**1) Einstieg**\n- Karikatur\n**2) Partnerarbeit**\n- ~~M1~~ lesen", null, "claude", c.now);
   let r = await tool(c, "update_lesson", { lesson_id: l.id, hausaufgabe: "Lies M2.", zusammenfassung_lehrkraft: "  " + TEXT + "  " });
@@ -145,7 +155,7 @@ test("Gymnasium: update_lesson speichert (Zeitpunkt, Fingerabdruck), meldet Kopf
   c.db.raw.prepare("DELETE FROM substitutes").run();
   // Form: Markdown und Länge
   r = await tool(c, "update_lesson", { lesson_id: l.id, zusammenfassung_lehrkraft: "**Einstieg**\n- Karikatur (10 min)\n- Partnerarbeit" });
-  assert.ok(!r.isError && r.text.includes("Achtung: Die Zusammenfassung erscheint als schlichter Text – schreibe sie ohne Markdown, Schulportal-Zeichen, Aufzählungszeichen und Tabellen."));
+  assert.ok(!r.isError && r.text.includes("Achtung: Die Zusammenfassung erscheint als schlichter Text – schreibe sie ohne Markdown, Schulportal-Zeichen, Verweise [[pdf:…]], Aufzählungszeichen und Tabellen."));
   r = await tool(c, "update_lesson", { lesson_id: l.id, zusammenfassung_lehrkraft: "Wort ".repeat(450) });
   assert.ok(r.text.includes("Sie ist länger als vorgesehen (etwa 120 bis 300 Wörter) – kürze sie, wenn möglich."));
   r = await tool(c, "update_lesson", { lesson_id: l.id, zusammenfassung_lehrkraft: "x".repeat(4001) });
@@ -171,7 +181,7 @@ test("Grundschule: update_lesson mit Kopfzeile des Kurses, get_lesson-Abschnitt 
   const l = await L.createLesson(c.db, { subject: "gs", klass: course.id, title: "Josef", date: "2026-11-16", startTime: "09:50", durationMin: 45 }, c.now);
   let g = await tool(c, "get_lesson", { lesson_id: l.id });
   const head = "Religion · Jahrgang 2 (Klassen 2a, 2b) · Montag, 16.11.2026, 9:50 Uhr";
-  assert.ok(g.text.includes("## " + S.TEACHER_SUMMARY_TITLE + "\nKopfzeile (setzt Unterricks automatisch aus den aktuellen Sitzungsdaten): " + head + "\n(noch leer – schreibe sie mit update_lesson und zusammenfassung_lehrkraft)"));
+  assert.ok(g.text.includes("## " + S.TEACHER_SUMMARY_TITLE + "\nKopfzeile (setzt Unterricks automatisch aus den aktuellen Sitzungsdaten): " + head + "\n(noch leer – schreibe sie mit update_lesson und zusammenfassung_lehrkraft, sobald du Unterrichtsinhalte dieser Sitzung ablegst)"));
   assert.ok(g.text.indexOf("## " + S.TEACHER_SUMMARY_TITLE) < g.text.indexOf("## Inhalt der Unterrichtsstunde (für die Eltern)"));
   const t = "Im Sitzkreis erzählt die Lehrkraft mit Bildkarten, wie Josef nach Ägypten kommt. Danach malen die Kinder ihre Lieblingsszene.";
   const r = await tool(c, "update_lesson", { lesson_id: l.id, zusammenfassung_lehrkraft: t, inhalt_eltern: "Wir haben gehört, wie Josef nach Ägypten kam." });
@@ -228,6 +238,72 @@ test("Sitzung aus Datei laden: die Zusammenfassung kommt mit (Fingerabdruck des 
   assert.deepEqual(row(c, l.id), { t: "", at: null, fp: null });
 });
 
+test("Sitzungsdatei: eine schon beim Herunterladen veraltete Zusammenfassung bleibt nach dem Laden als „danach geändert“ markiert; eine aktuelle gilt als aktuell", async () => {
+  const IO = await import("../../public/sessionio.js");
+  const plan = "**1) Einstieg**\n- Karikatur", detail = (lesson) => ({ lesson: { id: "l1", subject: "powi", klass: "8B", title: "Macht", topic: "Macht", date: "2026-11-17", portal: plan, ...lesson },
+    files: [], drafts: [], sheets: [], messages: [] });
+  const read = async (lesson) => (await IO.readSessionZip((await IO.buildSessionZip(detail(lesson), { fb: null })).bytes)).data;
+  // aktuell (Fingerabdruck passt, auch mit Zwischenstopp): kein Vermerk in der Datei
+  let data = await read({ teacherSummary: "Aktuell.", teacherSummaryPlan: S.planFingerprint(plan) });
+  assert.deepEqual(data.lesson.teacherSummary, "Aktuell.");
+  assert.ok(!("teacherSummaryOutdated" in data.lesson));
+  data = await read({ teacherSummary: "Aktuell.", teacherSummaryPlan: S.planFingerprint(plan), portal: plan + "\n" + STOP });
+  assert.ok(!("teacherSummaryOutdated" in data.lesson));
+  // ohne Zusammenfassung: die Datei bleibt, wie sie vor Nachtrag 21 war
+  data = await read({});
+  assert.ok(data.lesson.teacherSummary === "" && !("teacherSummaryOutdated" in data.lesson));
+  // veraltet: Vermerk in der Datei → nach dem Laden weiter „danach geändert“
+  data = await read({ teacherSummary: "Beschreibt den alten Ablauf.", teacherSummaryPlan: S.planFingerprint("**1) Früher**") });
+  assert.equal(data.lesson.teacherSummaryOutdated, true);
+  assert.equal(SF.cleanSessionFile({ kind: SF.SESSION_FILE.kind, v: SF.SESSION_FILE.v, source: {}, lesson: { teacherSummary: "x", teacherSummaryOutdated: "ja" } }).lesson.teacherSummaryOutdated, undefined, "nur true zählt");
+  const c = await base();
+  const l = await L.createLesson(c.db, { subject: "powi", klass: "9C", title: "Wahlen", date: "2026-11-24" }, c.now);
+  const p = IO.planSessionImport(data, (await call(c, L.routeLessonGet, "GET", "/x", undefined, l.id)).data.lesson);
+  assert.equal(p.lesson.teacherSummaryOutdated, true);
+  await call(c, L.routeLessonImport, "POST", "/x", { lesson: p.lesson, chat: [] }, l.id);
+  const imp = (await call(c, L.routeLessonGet, "GET", "/x", undefined, l.id)).data.lesson;
+  assert.deepEqual([imp.teacherSummary, imp.teacherSummaryPlan, imp.portal], ["Beschreibt den alten Ablauf.", S.PLAN_FINGERPRINT_STALE, plan]);
+  assert.equal(S.summaryOutdated(imp.teacherSummary, imp.teacherSummaryPlan, imp.portal), true);
+  assert.ok((await tool(c, "get_lesson", { lesson_id: l.id })).text.includes("Achtung: Der Schulportal-Eintrag wurde danach geändert"));
+  // erneut gespeichert (Claude oder die Lehrkraft): wieder aktuell
+  await call(c, L.routeLessonPatch, "PATCH", "/x", { teacherSummary: "Neu zum jetzigen Ablauf." }, l.id);
+  assert.equal(row(c, l.id).fp, S.planFingerprint(plan));
+});
+
+test("Erinnerung: save_schulportal_entry bzw. save_verlaufsplan nennen eine fehlende oder veraltete Zusammenfassung – nicht bei passender oder während einer Vertretung", async () => {
+  const c = await base();
+  const l = await L.createLesson(c.db, { subject: "powi", klass: "8B", title: "Macht", date: "2026-11-17", startTime: "08:00" }, c.now);
+  const MISSING = " Schreibe zum Schluss auch die „" + S.TEACHER_SUMMARY_TITLE + "“ mit update_lesson (zusammenfassung_lehrkraft) – sie fehlt in dieser Sitzung noch.";
+  const OLD = " Die „" + S.TEACHER_SUMMARY_TITLE + "“ beschreibt noch die vorige Planung – passe sie zum Schluss mit update_lesson (zusammenfassung_lehrkraft) an.";
+  const plan = "**1) Einstieg**\n- Karikatur\n**2) Partnerarbeit**\n- ~~M1~~ lesen";
+  let r = await tool(c, "save_schulportal_entry", { lesson_id: l.id, text: plan });
+  assert.equal(r.text, "Schulportal-Eintrag gespeichert (Version 1)." + MISSING);
+  await tool(c, "update_lesson", { lesson_id: l.id, zusammenfassung_lehrkraft: TEXT });
+  r = await tool(c, "save_schulportal_entry", { lesson_id: l.id, text: plan });
+  assert.equal(r.text, "Schulportal-Eintrag gespeichert (Version 2).", "passende Zusammenfassung: Antwort wie bisher");
+  r = await tool(c, "save_schulportal_entry", { lesson_id: l.id, text: "**1) Einstieg**\n- Karikatur\n" + STOP + "\n**2) Partnerarbeit**\n- ~~M1~~ lesen" });
+  assert.equal(r.text, "Schulportal-Eintrag gespeichert (Version 3).", "ein Zwischenstopp ändert die Planung nicht");
+  r = await tool(c, "save_schulportal_entry", { lesson_id: l.id, text: plan + "\n**3) Sicherung**" });
+  assert.equal(r.text, "Schulportal-Eintrag gespeichert (Version 4)." + OLD);
+  // bestätigte Vertretung: keine Erinnerung (die Zusammenfassung beschreibt die ursprüngliche Planung)
+  c.db.raw.prepare("INSERT INTO substitutes(lesson_id, status, proposal, archive, created_at, updated_at) VALUES(?, 'aktiv', '{}', '{}', ?, ?)").run(l.id, c.now, c.now);
+  r = await tool(c, "save_schulportal_entry", { lesson_id: l.id, text: "**1) Vertretung**" });
+  assert.equal(r.text, "Schulportal-Eintrag gespeichert (Version 5).");
+  // Grundschule
+  const course = (await call(c, GS.routeGsCourseCreate, "POST", "/x", { grade: 2, classes: ["a"], religion: true, weekdays: [{ day: 1, minutes: 45, time: "09:50" }] })).data.course;
+  const g = await L.createLesson(c.db, { subject: "gs", klass: course.id, title: "Josef", date: "2026-11-16", startTime: "09:50" }, c.now);
+  r = await tool(c, "save_verlaufsplan", { lesson_id: g.id, text: "**1) Sitzkreis (10 Min.)**\n- Lied" });
+  assert.ok(!r.isError && r.text.endsWith("Eltern sehen nach der Stunde: noch kein Material." + MISSING), r.text);
+  await tool(c, "update_lesson", { lesson_id: g.id, zusammenfassung_lehrkraft: "Im Sitzkreis singen alle ein Lied." });
+  r = await tool(c, "save_verlaufsplan", { lesson_id: g.id, text: "**1) Sitzkreis (10 Min.)**\n- Lied" });
+  assert.ok(r.text.endsWith("Eltern sehen nach der Stunde: noch kein Material."), r.text);
+  r = await tool(c, "save_verlaufsplan", { lesson_id: g.id, text: "**1) Sitzkreis (10 Min.)**\n- Lied\n**2) Malen (20 Min.)**" });
+  assert.ok(r.text.endsWith("Eltern sehen nach der Stunde: noch kein Material." + OLD), r.text);
+  // Verweise des Verlaufsplans in der Zusammenfassung: Hinweis zur Form
+  r = await tool(c, "update_lesson", { lesson_id: g.id, zusammenfassung_lehrkraft: "Die Lehrkraft liest [[pdf:0123456789abcdef]] vor." });
+  assert.ok(r.text.includes("Achtung: Die Zusammenfassung erscheint als schlichter Text – schreibe sie ohne Markdown, Schulportal-Zeichen, Verweise [[pdf:…]], Aufzählungszeichen und Tabellen."), r.text);
+});
+
 test("Nie für Schüler:innen und Eltern: Code einlösen, Schüleransicht, Elternansicht und vorherige Sitzungen enthalten den Text nicht", async () => {
   const c = await base();
   const secret = "LEHRKRAFTGEHEIM Ablauf mit Stolperstellen";
@@ -258,6 +334,38 @@ test("Nie für Schüler:innen und Eltern: Code einlösen, Schüleransicht, Elter
   assert.equal((await U.linkedLessons(c.db, u.id, true))[0].hasContent, false);
   await call(c, L.routeLessonPatch, "PATCH", "/x", { teacherSummary: "Nur die Zusammenfassung." }, empty.id);
   assert.equal((await U.linkedLessons(c.db, u.id, true))[0].hasContent, true);
+});
+
+test("Nie für Schüler:innen, Eltern, Beamer und Live: Startliste der Schüler:innen, Schüleransicht einer Vertretungsstunde, Elternvorschau der Lehrkraft; nur bestimmte Module kennen die Zusammenfassung", async () => {
+  const c = await base();
+  const secret = "LEHRKRAFTGEHEIM2 Stolperstelle";
+  const day = new Date(c.now - 864e5).toISOString().slice(0, 10);
+  const l = await L.createLesson(c.db, { subject: "powi", klass: "Q2-GK", title: "Vertretene Stunde", date: day, startTime: "08:00", durationMin: 90 }, c.now - 2 * 864e5);
+  await call(c, L.routeLessonPatch, "PATCH", "/x", { teacherSummary: secret }, l.id);
+  c.db.raw.prepare("INSERT INTO substitutes(lesson_id, status, proposal, archive, created_at, updated_at) VALUES(?, 'aktiv', ?, '{}', ?, ?)")
+    .run(l.id, JSON.stringify({ hinweis: "Deine Lehrkraft ist heute nicht da.", schritte: [{ titel: "Lesen", anleitung: "Lies M1." }] }), c.now, c.now);
+  c.db.raw.prepare("INSERT INTO student_devices(id, token_hash, klass, subject, created_at, last_seen, auth_until) VALUES(?, ?, 'Q2-GK', 'powi', ?, ?, ?)").run(DEV, await sha256Hex(STOKEN), c.now, c.now, c.now + 3600e3);
+  assert.equal((await scall(c, ST.routeStudentJoin, "POST", "/api/student/join", { code: l.code })).status, 200);
+  const me = await scall(c, ST.routeStudentMe, "GET", "/api/student/me");
+  const sv = await scall(c, ST.routeStudentLesson, "GET", "/api/student/lessons/" + l.id, undefined, l.id);
+  assert.deepEqual([me.status, sv.status, me.data.lessons.length], [200, 200, 1]);
+  assert.ok(sv.data.substitute, "die Vertretungsansicht der Schüler:innen ist da");
+  for (const x of [me.data, sv.data]) assert.ok(!JSON.stringify(x).includes("LEHRKRAFTGEHEIM2") && !JSON.stringify(x).includes("teacherSummary"));
+  // Grundschule: Vorschau der Elternansicht für die Lehrkraft (zeigt genau, was Eltern sehen)
+  const course = (await call(c, GS.routeGsCourseCreate, "POST", "/x", { grade: 3, classes: ["b"], religion: true, weekdays: [{ day: 2, minutes: 45, time: "08:00" }] })).data.course;
+  const gl = await L.createLesson(c.db, { subject: "gs", klass: course.id, title: "Mose", date: day, startTime: "08:00", durationMin: 45 }, c.now - 2 * 864e5);
+  await call(c, L.routeLessonPatch, "PATCH", "/x", { teacherSummary: secret, parentSummary: "Wir haben von Mose gehört." }, gl.id);
+  const pv = await call(c, PA.routeTeacherParentPreview, "GET", "/x", undefined, gl.id), pp = await call(c, PA.routeTeacherParentPrevious, "GET", "/x", undefined, gl.id);
+  assert.deepEqual([pv.status, pp.status], [200, 200]);
+  assert.ok(JSON.stringify(pv.data).includes("Wir haben von Mose gehört."));
+  for (const x of [pv.data, pp.data]) assert.ok(!JSON.stringify(x).includes("LEHRKRAFTGEHEIM2"));
+  // im Quelltext: nur diese Module kennen die Zusammenfassung – Schüler-, Eltern-, Beamer-, Live- und Vertretungsrouten bzw. -seiten nie
+  const { readdirSync, readFileSync } = await import("node:fs");
+  const root = new URL("../../", import.meta.url), uses = [];
+  for (const dir of ["worker", "public"]) for (const f of readdirSync(new URL(dir + "/", root)).filter((x) => x.endsWith(".js")).sort())
+    if (/teacher_summary|teacherSummary|zusammenfassung_lehrkraft|summaryCard/.test(readFileSync(new URL(dir + "/" + f, root), "utf8"))) uses.push(dir + "/" + f);
+  assert.deepEqual(uses, ["worker/db.js", "worker/lessons.js", "worker/mcp.js", "worker/units.js",
+    "public/gsplanning.js", "public/gssession.js", "public/session.js", "public/sessionfile.js", "public/sessionio.js", "public/shared.js", "public/tsummary.js"]);
 });
 
 /* ---------- Oberfläche (public/tsummary.js) im Browser-Ersatz ---------- */

@@ -11,7 +11,7 @@ import { gsCourseStmt, gsCourseOut } from "./gs.js";
 import {
   isValidClass, isValidSubject, isValidCode, normalizeCode, greetingText, planningSystemPrompt, portalMessages, feibeitsblattMessages,
   chatTranscript, extractJsonObject, validatePortalData, renderPortalEntry, normalizeFbDraft, isIsoDate, hasStop, gradeKey, isClockTime, printFileName, GS_SUBJECT,
-  planRefs, parentOpensAt, stopParts, planFingerprint, TEACHER_SUMMARY_MAX,
+  planRefs, parentOpensAt, stopParts, planFingerprint, PLAN_FINGERPRINT_STALE, TEACHER_SUMMARY_MAX,
 } from "../public/shared.js";
 import { unitContext, STOP_CHOICE_TEXT, stopChatSection } from "../public/planning.js";
 
@@ -435,11 +435,13 @@ export async function routeLessonImport(c, id) {
   if (typeof les.topic === "string") f.topic = cleanLine(les.topic, LIMITS.topic);
   if (typeof les.ideas === "string") f.ideas = cleanText(les.ideas, LIMITS.ideas);
   if (typeof les.homework === "string") f.homework = cleanText(les.homework, LIMITS.homework).trim();
-  // Zusammenfassung für die Lehrkraft (Nachtrag 21): kommt mit der Planung aus der Datei (ohne = leer) – ihr Fingerabdruck gehört zum Eintrag aus der Datei
+  // Zusammenfassung für die Lehrkraft (Nachtrag 21): kommt mit der Planung aus der Datei (ohne = leer) – ihr Fingerabdruck gehört zum Eintrag aus der Datei;
+  // passte sie schon beim Herunterladen nicht mehr zur Planung (teacherSummaryOutdated), bleibt der Hinweis „danach geändert“
   if (typeof les.teacherSummary === "string") {
     f.teacher_summary = cleanText(les.teacherSummary, LIMITS.teacherSummary).trim();
     f.teacher_summary_at = f.teacher_summary ? c.now : null;
-    f.teacher_summary_plan = f.teacher_summary ? planFingerprint(typeof les.portal === "string" ? cleanText(les.portal, LIMITS.portal) : l.portal) : null;
+    f.teacher_summary_plan = !f.teacher_summary ? null : les.teacherSummaryOutdated === true ? PLAN_FINGERPRINT_STALE
+      : planFingerprint(typeof les.portal === "string" ? cleanText(les.portal, LIMITS.portal) : l.portal);
   }
   const keys = Object.keys(f), stmts = [];
   if (keys.length) stmts.push(c.db.prepare("UPDATE lessons SET " + keys.map((k, i) => k + "=?" + (i + 2)).join(", ") + ", updated_at=?" + (keys.length + 2) + " WHERE id=?1").bind(id, ...keys.map((k) => f[k]), c.now));

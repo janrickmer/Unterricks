@@ -137,7 +137,7 @@ const README = (when, counts, gs) => [
   "Aufbau: Fach / Unterrichtseinheit / Sitzungen (chronologisch nummeriert).",
   "- Im Ordner einer Einheit liegt die Einheitsdatei („Unterrichtseinheit - … .json“): Rahmendaten, Leupold-Schema und Ablauf.",
   "- Jeder Sitzungsordner enthält die Sitzungsdatei („Unterrickssitzung.zip“) mit Planung, Schulportal-Eintrag, Hausaufgabe,",
-  "  Planungsverlauf, Materialien, Präsentation, Druckliste und Feibeitsblättern (als Entwürfe).",
+  "  Zusammenfassung für die Lehrkraft, Planungsverlauf, Materialien, Präsentation, Druckliste und Feibeitsblättern (als Entwürfe).",
   "- „… - Sitzungen ohne Einheit“: ältere Sitzungen, die zu keiner Einheit gehören.",
   "- Vertretene Sitzungen: Die ursprüngliche Planung steht in der Sitzungsdatei unter „archive“ (sitzung.json) und im Ordner „archiv/“.",
   "",

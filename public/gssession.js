@@ -6,7 +6,7 @@
 import { h, clear, nn, toast, errToast, modal, confirmDialog, copyText, fmtTime, icon, pageHead, stateLine } from "./ui.js";
 import { render, go, onLeave } from "./app.js";
 import { tapi, teacherBar, markNav } from "./teacher.js";
-import { fmtDay, insertStop, removeStops, hasStop, isStopLine, parsePlanMarkup, parentMaterial, parentOpensAt, pdfRef, lessonTimes, fmtClockBerlin } from "./shared.js";
+import { fmtDay, insertStop, removeStops, hasStop, isStopLine, parsePlanMarkup, parentMaterial, parentOpensAt, pdfRef, lessonTimes, fmtClockBerlin, TEACHER_SUMMARY_TITLE } from "./shared.js";
 import { unitContext } from "./planning.js";
 import { claudeGsLessonPrompt, gsChatName } from "./gsplanning.js";
 import { claudeHandoff } from "./claude.js";
@@ -314,8 +314,9 @@ export async function gsSessionPage(id, d) {
   const planWithClaude = () => {
     flushPlan();
     claudeHandoff({ title: "Stunde mit Claude planen",
-      intro: "Claude plant mit Ihnen die Stunde, gestaltet Arbeitsblätter und Bildkarten und speichert Verlaufsplan, Inhalt für die Eltern und Hausaufgabe direkt hier.",
-      after: "Wenn Claude gespeichert hat, kommen Sie hierher zurück: Die Seite übernimmt Verlaufsplan, Inhalt für die Eltern, Hausaufgabe und Materialien beim Zurückkehren automatisch.",
+      intro: "Claude plant mit Ihnen die Stunde, gestaltet Arbeitsblätter und Bildkarten und speichert Verlaufsplan, Inhalt für die Eltern und Hausaufgabe direkt hier – " +
+        "dazu jedes Mal die „" + TEACHER_SUMMARY_TITLE + "“ (ganz oben auf dieser Seite, nur für Sie).",
+      after: "Wenn Claude gespeichert hat, kommen Sie hierher zurück: Die Seite übernimmt Verlaufsplan, Inhalt für die Eltern, Hausaufgabe, Materialien und die Zusammenfassung beim Zurückkehren automatisch.",
       chatName: () => gsChatName(ctx()), prompt: () => claudeGsLessonPrompt(ctx()) });
   };
   const claudeCard = h("section", { class: "card claudeplan", id: "gs-claude" },

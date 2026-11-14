@@ -2,7 +2,7 @@
 // für die Sitzungsseite („Sitzung als Datei“), die Einheit als Datei und die große Sicherung (backup.js). Format: sessionfile.js.
 import { apiUrl, upload } from "./ui.js";
 import { T, tapi } from "./teacher.js";
-import { formatCode, GS_SUBJECT } from "./shared.js";
+import { formatCode, GS_SUBJECT, summaryOutdated } from "./shared.js";
 import { SESSION_FILE, sessionFileName, sheetToDraft, cleanSessionFile, adaptDates } from "./sessionfile.js";
 import { makeZip, readZip } from "./zip.js";
 
@@ -110,8 +110,10 @@ export async function buildSessionZip(detail, { fb = T.fb, onStep = () => {}, ho
     source: { subject: L.subject, klass: L.klass, unitTitle: unit ? unit.title || "" : "", sessionNo: idx >= 0 ? idx + 1 : null, date: L.date, nextDate: L.nextDate || null,
       startTime: L.startTime || null, durationMin: L.durationMin || null, title: L.title },
     lesson: { title: L.title, topic: L.topic, ideas: L.ideas || "", homework: homework !== undefined ? homework : L.homework || "", portal: portal !== undefined ? portal : L.portal || "",
-      // Zusammenfassung der Sitzung für die Lehrkraft (Nachtrag 21) – nur, wenn es eine gibt (sonst bleibt die Datei, wie sie war); die Kopfzeile nicht
-      ...(String(L.teacherSummary || "").trim() ? { teacherSummary: L.teacherSummary } : {}) },
+      // Zusammenfassung der Sitzung für die Lehrkraft (Nachtrag 21) – nur, wenn es eine gibt (sonst bleibt die Datei, wie sie war); die Kopfzeile nicht.
+      // Passt sie schon jetzt nicht mehr zur Planung, steht das in der Datei (teacherSummaryOutdated) – der Hinweis „danach geändert“ bleibt so erhalten
+      ...(String(L.teacherSummary || "").trim() ? { teacherSummary: L.teacherSummary,
+        ...(summaryOutdated(L.teacherSummary, L.teacherSummaryPlan, portal !== undefined ? portal : L.portal || "") ? { teacherSummaryOutdated: true } : {}) } : {}) },
     chat: (detail.messages || []).filter((m) => (m.role === "user" || m.role === "assistant") && m.model !== "begruessung").map((m) => ({ role: m.role, content: m.content, model: m.model || null, mode: m.mode || null })),
     files, drafts, sheets, notes };
   // Grundschule: Inhalt und Hinweis für die Eltern, Ausfall-Eintrag (nie der Elternlink); am Gymnasium bleibt die Datei, wie sie war
@@ -150,7 +152,7 @@ export function planSessionImport(data, target) {
   const replaced = [], unknown = [];
   const fix = (t, where) => { const r = adaptDates(t, pairs); replaced.push(...r.replaced); unknown.push(...r.unknown.map((u) => where + ": „" + u + "“")); return r.text; };
   const lesson = { title: data.lesson.title, topic: data.lesson.topic, ideas: fix(data.lesson.ideas, "Ideen und Wünsche"), homework: fix(data.lesson.homework, "Hausaufgabe"), portal: fix(data.lesson.portal, "Schulportal-Eintrag"),
-    teacherSummary: fix(data.lesson.teacherSummary || "", "Zusammenfassung für die Lehrkraft") };
+    teacherSummary: fix(data.lesson.teacherSummary || "", "Zusammenfassung für die Lehrkraft"), ...(data.lesson.teacherSummaryOutdated ? { teacherSummaryOutdated: true } : {}) };
   const texts = [], links = [], prints = [], bins = [];
   for (const f of data.files) {
     if (f.kind === "link") links.push({ area: f.area, title: f.name, url: f.url });

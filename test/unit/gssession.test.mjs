@@ -14,6 +14,8 @@ const { sha256Hex } = await import("../../worker/lib.js");
 const { setSetting } = await import("../../worker/db.js");
 const { SYSTEM_PROMPT_ROLE, PORTAL_EXAMPLE, MATERIAL_DESIGN_RULES, parentMaterial, STOP_LINE } = await import("../../public/shared.js");
 const P = await import("../../public/gsplanning.js");
+// Nr. 21: Ohne Zusammenfassung der Sitzung für die Lehrkraft erinnert die Antwort von save_verlaufsplan zum Schluss daran
+const REMIND = " Schreibe zum Schluss auch die „Zusammenfassung der Sitzung für die Lehrkraft“ mit update_lesson (zusammenfassung_lehrkraft) – sie fehlt in dieser Sitzung noch.";
 
 const TOKEN = "lehrkraft-token-123";
 async function ctx() {
@@ -176,7 +178,7 @@ test("Connector (Grundschule): get_lesson, save_verlaufsplan, update_lesson inha
   r = await mcp("get_lesson", { lesson_id: l2.id });
   assert.ok(r.content[0].text.includes("Eltern sehen nach der Stunde: „Bildkarten Josef.pdf“\n") && r.content[0].text.includes("hat die Lehrkraft gesetzt"), r.content[0].text);
   r = await mcp("save_verlaufsplan", { lesson_id: l2.id, text: "**1) Erzählung**\n- [[pdf:" + prevAb + "|Bildkarten]]\n**2) Arbeitsblatt**\n- [[pdf:" + abId + "]]", base_version: 2 });
-  assert.ok(!r.isError && r.content[0].text.endsWith("Eltern sehen nach der Stunde: „Bildkarten Josef.pdf“."), r.content[0].text);   // das Arbeitsblatt ist noch nicht gedruckt
+  assert.ok(!r.isError && r.content[0].text.endsWith("Eltern sehen nach der Stunde: „Bildkarten Josef.pdf“." + REMIND), r.content[0].text);   // das Arbeitsblatt ist noch nicht gedruckt
   // update_lesson inhalt_eltern
   r = await mcp("update_lesson", { lesson_id: l2.id, inhalt_eltern: "Wir haben gehört, wie Josef nach Ägypten kam." });
   assert.ok(!r.isError && r.structuredContent.lesson.parentSummary === "Wir haben gehört, wie Josef nach Ägypten kam.");
@@ -238,7 +240,7 @@ test("F01/F19/F18: „Eltern sehen nach der Stunde“ wie parentFiles – Verwei
   // F18: l2 verweist auf das Blatt der späteren Sitzung l3 → gespeichert, aber Eltern sehen es nicht (und die Antwort sagt das)
   const r = await mcp("save_verlaufsplan", { lesson_id: l2.id, text: "**1) Arbeitsblatt (15 Min.)**\n- [[pdf:" + late + "]]", base_version: 0 });
   t = r.content[0].text;
-  assert.ok(!r.isError && t.endsWith("Eltern sehen nach der Stunde: noch kein Material."), t);
+  assert.ok(!r.isError && t.endsWith("Eltern sehen nach der Stunde: noch kein Material." + REMIND), t);
   assert.ok(t.includes("Achtung: Eltern sehen diesen Verweis zu dieser Stunde nicht, weil die Datei nicht zu dieser oder einer früheren Sitzung gehört: „AB später.pdf“ (Sitzung „Josef verzeiht“, Di, 17.11.2026)."), t);
   assert.deepEqual([r.structuredContent.later_refs, r.structuredContent.unknown_refs], [[late], []]);
   assert.deepEqual((await PA.parentFiles(c, await L.getLesson(c.db, l2.id))).files, []);
@@ -259,12 +261,12 @@ test("F20: ungültige Verweise ([[pdf:<file_id>]] aus dem Beispiel, Großbuchsta
   const r = await mcp("save_verlaufsplan", { lesson_id: l2.id, text: "**1) Erzählung**\n- [[pdf:<file_id>]]\n- [[pdf:ABCDEF0123456789]]\n- " + long + "\n- [[pdf:" + ab + "|Arbeitsblatt]]", base_version: 0 });
   const t = r.content[0].text;
   assert.ok(!r.isError && t.includes("Achtung: Diese Verweise sind ungültig und erscheinen nur als Text: [[pdf:<file_id>]], [[pdf:ABCDEF0123456789]], [[pdf:" + ab + "|xxx"), t);
-  assert.ok(t.includes("Gültige file_id: " + ab + " („AB.pdf“). Bitte korrigieren (save_verlaufsplan mit base_version 1).") && t.endsWith("Eltern sehen nach der Stunde: „AB.pdf“."), t);
+  assert.ok(t.includes("Gültige file_id: " + ab + " („AB.pdf“). Bitte korrigieren (save_verlaufsplan mit base_version 1).") && t.endsWith("Eltern sehen nach der Stunde: „AB.pdf“." + REMIND), t);
   assert.equal(r.structuredContent.invalid_refs.length, 3);
   assert.deepEqual(r.structuredContent.unknown_refs, []);
   // ein korrekter Plan bleibt ohne Achtung
   const ok = await mcp("save_verlaufsplan", { lesson_id: l2.id, text: "- [[pdf:" + ab + "|Arbeitsblatt – Josef]]", base_version: 1 });
-  assert.equal(ok.content[0].text, "Verlaufsplan gespeichert (Version 2). Eltern sehen nach der Stunde: „AB.pdf“.");
+  assert.equal(ok.content[0].text, "Verlaufsplan gespeichert (Version 2). Eltern sehen nach der Stunde: „AB.pdf“." + REMIND);
 });
 
 test("F24: add_text_material in der Grundschule abgelehnt (mit Hinweis auf add_material_pdf / add_print_material); Gymnasium unverändert", async () => {
@@ -295,7 +297,7 @@ test("F20 (Kontrolle): nicht geschlossene Verweise und Verweise, die erst durch 
   assert.ok(!r.isError && r.structuredContent.invalid_refs.length === 1 && r.structuredContent.invalid_refs[0].startsWith("[[pdf:" + ab + "|Arbeits"), r.content[0].text);
   // eine Beschriftung mit „[[“ ist für den Verlaufsplan ein gültiger Verweis – keine Meldung
   r = await mcp("save_verlaufsplan", { lesson_id: l2.id, text: "- [[pdf:" + ab + "|siehe [[Bild]]", base_version: 2 });
-  assert.deepEqual([r.structuredContent.invalid_refs, r.content[0].text], [[], "Verlaufsplan gespeichert (Version 3). Eltern sehen nach der Stunde: „AB.pdf“."]);
+  assert.deepEqual([r.structuredContent.invalid_refs, r.content[0].text], [[], "Verlaufsplan gespeichert (Version 3). Eltern sehen nach der Stunde: „AB.pdf“." + REMIND]);
 });
 
 test("F13: Sitzungen der Grundschule lassen sich nicht aus einer Datei laden (kein Planungschat, keine Feibeitsblatt-Entwürfe); Gymnasium unverändert", async () => {

@@ -5,7 +5,7 @@ import { T, tapi, teacherBar, fbAutoConnect, fbUnlock, fbStore, fbForget, askTea
 import { subjectName, gradeInfo, formatCode, claudePresentationPrompt, PORTAL_RULES, portalForCopy, insertStop, removeStops, hasStop, isStopLine,
   fmtDay, classShort, gradeKey, isAnalogClass, ANALOG_RULE, isCourseClass, courseMembers, homeworkForPortal, PUBLIC_URL,
   lessonTimes, fmtClockBerlin, fmtDayBerlin, HOMEWORK_BEFORE_END_MIN, PRESENTATION_AFTER_END_MIN, slidesUpTo, subjectShort,
-  withAgeExpectation, looksLikeSolution, isGsLesson, portalVerbatim } from "./shared.js";
+  withAgeExpectation, looksLikeSolution, isGsLesson, portalVerbatim, TEACHER_SUMMARY_TITLE } from "./shared.js";
 import { extractUnitChange, stripUnitBlock, unitContext, claudeLessonPrompt, lessonChatName } from "./planning.js";
 import { claudeHandoff } from "./claude.js";
 import { leupoldView } from "./units.js";
@@ -1024,8 +1024,9 @@ export async function sessionPage(id) {
     flushPortal();
     claudeHandoff({ title: "Stunde mit Claude planen",
       intro: "Claude liest über den Connector diese Sitzung (" + (st.unit ? "Einheit und Stundenfrage, " : "") + "Materialien, Schulportal-Eintrag, bei Bedarf die Planungsgrundlagen), fragt nach Dauer und Wünschen und plant mit Ihnen im Dialog. " +
-        "Gespeichert wird nur, was Sie freigeben: Schulportal-Eintrag, Hausaufgabe, Materialien" + (analog ? "" : ", Feibeitsblatt-Entwurf") + (st.unit ? " und – nach Ihrer Zustimmung – eine geänderte Stundenfrage in der Einheit." : "."),
-      after: "Wenn Claude gespeichert hat, kommen Sie hierher zurück: Die Seite übernimmt Schulportal-Eintrag, Hausaufgabe, Materialien und Entwürfe beim Zurückkehren automatisch.",
+        "Gespeichert wird nur, was Sie freigeben: Schulportal-Eintrag, Hausaufgabe, Materialien" + (analog ? "" : ", Feibeitsblatt-Entwurf") + (st.unit ? " und – nach Ihrer Zustimmung – eine geänderte Stundenfrage in der Einheit." : ".") +
+        " Dazu schreibt Claude jedes Mal die „" + TEACHER_SUMMARY_TITLE + "“ (ganz oben auf dieser Seite).",
+      after: "Wenn Claude gespeichert hat, kommen Sie hierher zurück: Die Seite übernimmt Schulportal-Eintrag, Hausaufgabe, Materialien, Entwürfe und die Zusammenfassung beim Zurückkehren automatisch.",
       chatName: () => lessonChatName(ctx()),
       prompt: () => claudeLessonPrompt({ ...ctx(), messages: st.messages, previousStop: d.previousStop }) });
   };

@@ -1134,6 +1134,9 @@ export function planFingerprint(text) {
   for (let i = 0; i < s.length; i++) { x ^= s.charCodeAt(i); x = Math.imul(x, 0x01000193) >>> 0; }
   return "p1:" + x.toString(16).padStart(8, "0");
 }
+/* Fingerabdruck einer Zusammenfassung, die schon beim Herunterladen der Sitzungsdatei nicht mehr zur Planung passte – passt zu keiner Planung, der
+   Hinweis „danach geändert“ bleibt so nach dem Laden der Datei erhalten */
+export const PLAN_FINGERPRINT_STALE = "p1:veraltet";
 /* wurde die Planung nach der Zusammenfassung geändert? (plan = gespeicherter Fingerabdruck; ohne Zusammenfassung bzw. Fingerabdruck: nein) */
 export const summaryOutdated = (summary, plan, planText) => !!String(summary || "").trim() && typeof plan === "string" && !!plan && planFingerprint(planText) !== plan;
 /* „13.11.2026, 14:05 Uhr“ (Schulzeit Europe/Berlin) */
@@ -1143,18 +1146,23 @@ export const fmtStampBerlin = (ms) => new Date(ms).toLocaleDateString("de-DE", {
 export function teacherSummaryRules(mode, noFb = false) {
   const both = mode === "beide", gs = mode === true;
   const kids = both ? "Schüler:innen bzw. Kinder" : gs ? "Kinder" : "Schüler:innen", kidsDat = both ? "Schüler:innen bzw. Kindern" : gs ? "Kindern" : "Schüler:innen";
+  // Feibeitsblatt: den Code gibt es erst, wenn die Lehrkraft das Blatt angelegt hat (propose_feibeitsblatt ist nur ein Entwurf) – nie einen erfinden;
+  // Grundschule: der Verlaufsplan nutzt **, ~~, __ und Verweise [[pdf:…]] – in der Zusammenfassung stünden sie als Zeichen da
+  const fb = gs || noFb ? "" : " (bei einem Feibeitsblatt auch den Code, wenn es schon angelegt ist – erfinde keinen)";
+  const signs = gs ? "keine Zeichen wie im Verlaufsplan (**, ~~, __) und keine Verweise [[pdf:…]]" : both ? "keine Schulportal-Zeichen, keine Verweise [[pdf:…]]" : "keine Schulportal-Zeichen";
   return "Schreibe sie so, dass eine Lehrkraft, die nicht an der Planung beteiligt war, versteht, was in der Stunde passieren wird: " +
     "den Ablauf der Reihe nach mit ungefähren Minuten und Sozialformen, was die Lehrkraft jeweils tut und sagt, was die " + kids + " tun, " +
-    "die Materialien mit ihrem Titel" + (gs || noFb ? "" : " (ein Feibeitsblatt mit seinem Code)") + ", die erwarteten Ergebnisse, die Hausaufgabe und mögliche Stolperstellen. " +
-    "Form: schlichte, gut vorlesbare Sätze in kurzen Absätzen – kein Markdown, keine Schulportal-Zeichen, keine Tabellen, keine Aufzählungszeichen; etwa 120 bis 300 Wörter. " +
+    "die Materialien mit ihrem Titel" + fb + ", die erwarteten Ergebnisse, die Hausaufgabe und mögliche Stolperstellen. " +
+    "Form: schlichte, gut vorlesbare Sätze in kurzen Absätzen, Abkürzungen ausgeschrieben (z. B. „Minuten“ statt „Min.“, „Partnerarbeit“ statt „PA“) – kein Markdown, " + signs +
+    ", keine Tabellen, keine Aufzählungszeichen; etwa 120 bis 300 Wörter. " +
     "Fach, Jahrgang, Wochentag und Beginn setzt Unterricks automatisch darüber – wiederhole sie nicht. Nenne nie Namen von " + kidsDat + ".";
 }
 /* Prompt „Stunde mit Claude planen“: letzter Speicherschritt (gs = Grundschule, analog = Jg. 5/6 ohne Feibeitsblätter) und der Zusatz für den Rückfall
    ohne Connector – je genau einmal im Prompt; ohne sie ist der Prompt byte-gleich zum Stand vor Nachtrag 21 (Test in zwischenstopp.test.mjs) */
 export const summarySaveStep = (gs, analog = false) => (gs
-  ? "   - Zum Schluss speicherst du die „" + TEACHER_SUMMARY_TITLE + "“ mit `update_lesson` und `zusammenfassung_lehrkraft` (Unterricks zeigt sie ganz oben in der Sitzung, nur mir – nie den Eltern). "
-  : "   - Zum Schluss die „" + TEACHER_SUMMARY_TITLE + "“ → `update_lesson` mit `zusammenfassung_lehrkraft` (Unterricks zeigt sie ganz oben in der Sitzung, nur mir – nie den Schüler:innen). ") +
-  teacherSummaryRules(!!gs, !!analog) + " Überarbeiten wir die Planung später (z. B. nach einem Zwischenstopp), passe auch die Zusammenfassung an.";
+  ? "   - Zum Schluss speicherst du immer auch die „" + TEACHER_SUMMARY_TITLE + "“ mit `update_lesson` und `zusammenfassung_lehrkraft` – sobald ich etwas zum Speichern freigebe, auch wenn es nur ein Teil ist, und ohne eigene Rückfrage (Unterricks zeigt sie ganz oben in der Sitzung, nur mir – nie den Eltern). "
+  : "   - Zum Schluss immer auch die „" + TEACHER_SUMMARY_TITLE + "“ → `update_lesson` mit `zusammenfassung_lehrkraft` – sobald ich etwas zum Speichern freigebe, auch wenn es nur ein Teil ist, und ohne eigene Rückfrage (Unterricks zeigt sie ganz oben in der Sitzung, nur mir – nie den Schüler:innen). ") +
+  "Sie beschreibt die Stunde so, wie wir sie vereinbart haben. " + teacherSummaryRules(!!gs, !!analog) + " Überarbeiten wir die Planung später (z. B. nach einem Zwischenstopp), passe auch die Zusammenfassung an.";
 export const SUMMARY_FALLBACK = " – dazu die „" + TEACHER_SUMMARY_TITLE + "“ (schlichte Sätze, etwa 120 bis 300 Wörter, ohne Fach, Jahrgang und Uhrzeit), die ich in Unterricks selbst eintrage";
 /* Eingaben für einen Grundschulkurs prüfen (Browser und Worker); partial: nur die übergebenen Felder, current: bisheriger Stand.
    → {grade, classes, religion, subjectName, description[, schoolYear]}; wirft Error mit deutscher Meldung */

@@ -28,8 +28,8 @@ const INSTRUCTIONS = "Unterricks ist die Unterrichtsplattform der Lehrkraft (Fä
   "Planungsgrundlagen (Schulcurriculum, KCGO, E-Phasen-Curriculum, Abiturerlass je Kurs) liefert get_planning_basis. In den Jahrgängen 5 und 6 gibt es keine iPads: dort nur analoges, ausdruckbares Material. " +
   "Jede Unterrichtssitzung hat Fach, Klasse, Thema, Dauer, Ideen der Lehrkraft, einen Planungsverlauf (Chat), Materialien, Feibeitsblätter und einen Schulportal-Eintrag. " +
   "Lies vor dem Planen immer zuerst die Sitzung mit get_lesson. Speichere Ergebnisse nur, wenn die Lehrkraft das möchte. " +
-  "Legst du Unterrichtsinhalte einer Sitzung ab (nach Freigabe der Lehrkraft), schreibe immer auch die „" + TEACHER_SUMMARY_TITLE + "“ mit update_lesson (zusammenfassung_lehrkraft) – " +
-  "auch, wenn du die Planung später überarbeitest (z. B. nach einem Zwischenstopp); das gilt am Gymnasium und in der Grundschule. " +
+  "Legst du Unterrichtsinhalte einer Sitzung ab (nach Freigabe der Lehrkraft, auch wenn sie nur einen Teil freigibt), schreibe zum Schluss immer auch die „" + TEACHER_SUMMARY_TITLE + "“ mit update_lesson (zusammenfassung_lehrkraft) – " +
+  "ohne eigene Rückfrage und auch, wenn du die Planung später überarbeitest (z. B. nach einem Zwischenstopp); das gilt am Gymnasium und in der Grundschule, nicht für einen Vertretungsvorschlag. " +
   "Arbeitsblätter und alle anderen Materialien als Datei (für Schüler:innen, nur für die Lehrkraft oder zum Ausdrucken) gestaltest du selbst als HTML-Seite und legst sie mit add_material_pdf ab – Unterricks druckt sie unverändert als A4-PDF; add_text_material und add_print_material (Markdown) nur als Rückfall, wenn der PDF-Druck nicht funktioniert. " +
   "Ist die Lehrkraft krank, legst du mit save_substitute_plan einen Vertretungsvorschlag ab (mit Abgabe: Feibeitsblatt oder ein Escape-Room nach der Vorlage der Plattform mit Feibeitsblatt-Finale); die Lehrkraft prüft und bestätigt ihn in der Plattform. " +
   "Eine Zeile „⏸ Zwischenstopp“ im Schulportal-Eintrag ist eine interne Markierung der Lehrkraft: Bis dorthin wurde die Stunde geschafft, ab dort ist der Inhalt offen (sie wird beim Kopieren ins Schulportal entfernt). " +
@@ -90,7 +90,7 @@ const TOOLS = [
     description: "Ändert Titel, Thema, Dauer, Datum, Beginn (Uhrzeit), das Notizfeld „Ideen und Wünsche“ oder die Hausaufgabe (bis zur nächsten Sitzung; Schüler:innen sehen sie ab 15 Minuten vor dem Ende der Sitzung) einer Sitzung (nur übergebene Felder). " +
       "Mit zwischenstopp hältst du die Entscheidung der Lehrkraft zum offenen Teil der vorigen Sitzung fest (get_lesson, Abschnitt „Vorige Stunde nicht vollständig beendet“). " +
       "Mit zusammenfassung_lehrkraft speicherst du die „" + TEACHER_SUMMARY_TITLE + "“ (Gymnasium und Grundschule; Unterricks zeigt sie ganz oben in der Sitzung, nur der Lehrkraft) – " +
-      "immer, wenn du Unterrichtsinhalte der Sitzung ablegst, als letzten Speicherschritt, und erneut, wenn du die Planung später überarbeitest.",
+      "immer, wenn du Unterrichtsinhalte der Sitzung ablegst, als letzten Speicherschritt (auch wenn die Lehrkraft nur einen Teil freigibt, ohne eigene Rückfrage), und erneut, wenn du die Planung später überarbeitest – nicht für einen Vertretungsvorschlag.",
     inputSchema: { type: "object", properties: { lesson_id: ID_ARG, titel: { type: "string", maxLength: 200 }, thema: { type: "string", maxLength: 500 },
       dauer_minuten: { type: "integer", minimum: 5, maximum: 600 }, datum: { type: "string", pattern: "^\\d{4}-\\d{2}-\\d{2}$" },
       beginn: { type: "string", pattern: "^([01]\\d|2[0-3]):[0-5]\\d$", description: "Uhrzeit des Unterrichtsbeginns, z. B. 07:45" }, ideen: { type: "string", maxLength: 20000 },
@@ -217,7 +217,8 @@ const TOOLS = [
       begruendung: { type: "string", maxLength: 1000 } }, required: ["unit_id", "base_version", "termine"], additionalProperties: false } },
   { name: "save_substitute_plan", title: "Vertretungsstunde (Lehrkraft krank) vorschlagen", annotations: wr,
     description: "Legt für eine Sitzung, die wegen Krankheit der Lehrkraft ohne sie stattfindet, einen Vertretungsvorschlag ab. Die Lehrkraft prüft ihn in der Plattform; erst nach ihrer Bestätigung wird das Material ausgetauscht und den Schüler:innen der Vertretungshinweis gezeigt. " +
-      "Pflicht: Analyse (Kompetenz, Stundenfrage, Inhalte), chronologische Schritte für die Schüler:innen, Abgabe. Ab Jahrgang 7 ist eine Abgabe in der Plattform Pflicht: ein Feibeitsblatt (bei Lernprodukten mit einer Aufgabe der Antwortart \"foto\" für das Foto des Produkts) oder ein Escape-Room (escape_room) mit Feibeitsblatt-Finale; in den Jahrgängen 5/6 nur analoge Materialien. Die Plattform prüft einen Escape-Room streng und meldet fehlende oder widersprüchliche Angaben mit genauer Stelle zurück.",
+      "Pflicht: Analyse (Kompetenz, Stundenfrage, Inhalte), chronologische Schritte für die Schüler:innen, Abgabe. Ab Jahrgang 7 ist eine Abgabe in der Plattform Pflicht: ein Feibeitsblatt (bei Lernprodukten mit einer Aufgabe der Antwortart \"foto\" für das Foto des Produkts) oder ein Escape-Room (escape_room) mit Feibeitsblatt-Finale; in den Jahrgängen 5/6 nur analoge Materialien. Die Plattform prüft einen Escape-Room streng und meldet fehlende oder widersprüchliche Angaben mit genauer Stelle zurück. " +
+      "Die „" + TEACHER_SUMMARY_TITLE + "“ (zusammenfassung_lehrkraft) änderst du dabei nicht – sie beschreibt die ursprüngliche Planung.",
     inputSchema: { type: "object", properties: { lesson_id: ID_ARG,
       analyse: { type: "object", properties: { kompetenz: { type: "string" }, stundenfrage: { type: "string" }, inhalte: { type: "array", items: { type: "string" } } }, required: ["kompetenz", "stundenfrage", "inhalte"] },
       format: { type: "string", description: "z. B. Feibeitsblatt, Lernprodukt, Escape-Room, analog" }, bearbeitungszeit: { type: "integer", description: "Minuten (ca. 80 % der Stunde)" },
@@ -244,7 +245,7 @@ const toolError = (text) => ({ content: [{ type: "text", text }], isError: true 
 function summarySection(l, course, { substitute = false } = {}) {
   const gs = l.subject === GS_SUBJECT, t = String(l.teacher_summary || "").trim();
   const out = ["", "## " + TEACHER_SUMMARY_TITLE, "Kopfzeile (setzt Unterricks automatisch aus den aktuellen Sitzungsdaten): " + summaryHead({ subject: l.subject, klass: l.klass, date: l.lesson_date, startTime: l.start_time }, course)];
-  if (!t) return [...out, "(noch leer – schreibe sie mit update_lesson und zusammenfassung_lehrkraft)"];
+  if (!t) return [...out, "(noch leer – schreibe sie mit update_lesson und zusammenfassung_lehrkraft, sobald du Unterrichtsinhalte dieser Sitzung ablegst)"];
   out.push(t, "(Stand: " + (l.teacher_summary_at ? fmtStampBerlin(l.teacher_summary_at) : "unbekannt") + ")");
   if (substitute) out.push("Für diese Sitzung gilt die bestätigte Vertretungsstunde – die Zusammenfassung beschreibt die ursprüngliche Planung.");
   else if (summaryOutdated(t, l.teacher_summary_plan, l.portal)) out.push("Achtung: Der " + (gs ? "Verlaufsplan" : "Schulportal-Eintrag") + " wurde danach geändert – passe die Zusammenfassung mit update_lesson (zusammenfassung_lehrkraft) an, wenn du die Planung überarbeitest.");
@@ -458,9 +459,19 @@ async function summaryNote(c, l) {
   const words = t.split(/\s+/).filter(Boolean).length;
   const out = [TEACHER_SUMMARY_TITLE + " gespeichert (" + words + (words === 1 ? " Wort" : " Wörter") + ", beginnt mit „" + (t.length > 80 ? t.slice(0, 77).trimEnd() + " …" : t) + "“). " +
     "Unterricks setzt darüber automatisch: „" + summaryHead({ subject: l.subject, klass: l.klass, date: l.lesson_date, startTime: l.start_time }, course) + "“."];
-  if (/(\*\*|~~|__|`)|^\s*(#{1,6}\s|[-*•]\s|\d+[.)]\s|\|)/m.test(t)) out.push("Achtung: Die Zusammenfassung erscheint als schlichter Text – schreibe sie ohne Markdown, Schulportal-Zeichen, Aufzählungszeichen und Tabellen.");
+  if (/(\*\*|~~|__|`|\[\[pdf:)|^\s*(#{1,6}\s|[-*•]\s|\d+[.)]\s|\|)/m.test(t)) out.push("Achtung: Die Zusammenfassung erscheint als schlichter Text – schreibe sie ohne Markdown, Schulportal-Zeichen, Verweise [[pdf:…]], Aufzählungszeichen und Tabellen.");
   if (words > 400) out.push("Sie ist länger als vorgesehen (etwa 120 bis 300 Wörter) – kürze sie, wenn möglich.");
   return out.join(" ");
+}
+/* Erinnerung in der Antwort von save_schulportal_entry und save_verlaufsplan (Nachtrag 21): Fehlt die Zusammenfassung oder beschreibt sie eine frühere
+   Planung, sagt die Antwort es genau in dem Moment, in dem Claude die freigegebene Planung ablegt – stimmt sie (gleicher Fingerabdruck), bleibt die
+   Antwort wie bisher. Nicht während einer bestätigten Vertretung (die Zusammenfassung beschreibt dann die ursprüngliche Planung). */
+async function summaryReminder(db, l, planText) {
+  const t = String(l.teacher_summary || "").trim();
+  if (t && !summaryOutdated(t, l.teacher_summary_plan, planText)) return "";
+  if (l.subject !== GS_SUBJECT) { const s = await getSubstitute(db, l.id); if (s && s.status === "aktiv") return ""; }
+  return t ? " Die „" + TEACHER_SUMMARY_TITLE + "“ beschreibt noch die vorige Planung – passe sie zum Schluss mit update_lesson (zusammenfassung_lehrkraft) an."
+    : " Schreibe zum Schluss auch die „" + TEACHER_SUMMARY_TITLE + "“ mit update_lesson (zusammenfassung_lehrkraft) – sie fehlt in dieser Sitzung noch.";
 }
 async function callTool(c, name, a) {
   a = a && typeof a === "object" ? a : {};
@@ -649,11 +660,12 @@ async function callTool(c, name, a) {
       return toolText("Im Planungsverlauf der Sitzung gespeichert.");
     }
     case "save_schulportal_entry": {
-      if ((await getLesson(c.db, a.lesson_id)).subject === GS_SUBJECT) return toolError("In der Grundschule gibt es keinen Schulportal-Eintrag – speichere den Verlaufsplan mit save_verlaufsplan.");
+      const lx = await getLesson(c.db, a.lesson_id);
+      if (lx.subject === GS_SUBJECT) return toolError("In der Grundschule gibt es keinen Schulportal-Eintrag – speichere den Verlaufsplan mit save_verlaufsplan.");
       if (typeof a.text !== "string" || !a.text.trim()) return toolError("Der Eintrag ist leer.");
       try {
         const p = await savePortal(c.db, a.lesson_id, a.text, Number.isInteger(a.base_version) ? a.base_version : null, "claude", c.now);
-        return toolText("Schulportal-Eintrag gespeichert (Version " + p.version + ").", { version: p.version });
+        return toolText("Schulportal-Eintrag gespeichert (Version " + p.version + ")." + (await summaryReminder(c.db, lx, p.text)), { version: p.version });
       } catch (e) {
         if (e instanceof HttpError && e.code === "portal_conflict") return toolError("Der Eintrag wurde inzwischen geändert (aktuelle Version " + e.extra.current.version + "). Bitte get_lesson erneut aufrufen und die Änderungen der Lehrkraft berücksichtigen.");
         throw e;
@@ -759,7 +771,7 @@ async function callTool(c, name, a) {
         later.map((id) => { const f = byId.get(id); return "„" + f.name + "“ (Sitzung „" + (f.lesson_title || "") + "“, " + (f.lesson_date ? fmtDay(f.lesson_date) : "ohne Termin") + ")"; }).join(", ") +
         ". Für die Eltern nur Material dieser oder einer früheren Sitzung verweisen.");
       t.push("Eltern sehen nach der Stunde: " + parentsSee + ".");
-      return toolText(t.join(" "), { version: p.version, unknown_refs: unknown, invalid_refs: invalid, later_refs: later });
+      return toolText(t.join(" ") + (await summaryReminder(c.db, l, p.text)), { version: p.version, unknown_refs: unknown, invalid_refs: invalid, later_refs: later });
     }
     case "add_text_material": {
       const lx = await getLesson(c.db, a.lesson_id);
