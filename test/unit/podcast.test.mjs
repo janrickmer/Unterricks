@@ -338,6 +338,69 @@ test("Abspielen: signierter Link mit Range-Anfragen (206, 416, ganze Datei, Ende
   assert.equal((await call(gone, W.routePodcastLink, "/x", { method: "POST" }, p.id)).status, 404);
 });
 
+test("Löschfrist an den Tagen der Zeitumstellung: Beginn des übernächsten Tages in Berliner Ortszeit – Route und Aufräumen halten sich daran", async () => {
+  // Ende der Sommerzeit: Sonntag, 25.10.2026, 3:00 MESZ → 2:00 MEZ; Beginn: Sonntag, 28.03.2027, 2:00 MEZ → 3:00 MESZ
+  assert.equal(P.podcastDeleteAfter("2026-10-23"), Date.UTC(2026, 9, 24, 22, 0), "Fr 23.10. → So 25.10., 0:00 MESZ (vor der Umstellung)");
+  assert.equal(P.podcastDeleteAfter("2026-10-24"), Date.UTC(2026, 9, 25, 23, 0), "Sa 24.10. → Mo 26.10., 0:00 MEZ");
+  assert.equal(P.podcastDeleteAfter("2027-03-26"), Date.UTC(2027, 2, 27, 23, 0), "Fr 26.03. → So 28.03., 0:00 MEZ (vor der Umstellung)");
+  assert.equal(P.podcastDeleteAfter("2027-03-27"), Date.UTC(2027, 2, 28, 22, 0), "Sa 27.03. → Mo 29.03., 0:00 MESZ");
+  assert.equal(P.podcastDeleteAfter("2026-12-30"), Date.UTC(2026, 11, 31, 23, 0), "über den Jahreswechsel: Mi 30.12. → Fr 01.01.2027, 0:00 MEZ");
+  // Podcast für Freitag, 23.10.2026, hochgeladen am Donnerstag 20:00 MESZ
+  const c = await ctx(Date.UTC(2026, 9, 22, 18, 0));
+  const p = (await upload(c, "2026-10-23", wav(1))).data.podcast;
+  assert.equal(p.deleteAfter, Date.UTC(2026, 9, 24, 22, 0));
+  // Samstag, 23:59 MESZ: nicht mehr angeboten (der Tag ist vorbei), aber noch abspielbar und in R2
+  c.now = Date.UTC(2026, 9, 24, 21, 59);
+  let r = await call(c, W.routePodcastList, "/api/teacher/podcast"); await settle(c);
+  assert.deepEqual(r.data.podcasts, []);
+  const link = (await call(c, W.routePodcastLink, "/x", { method: "POST" }, p.id)).data.podcast.url;
+  assert.equal((await stream(c, link)).status, 200);
+  assert.ok(c.env.FILES.m.has("podcast/" + p.id));
+  // Sonntag, 0:00 MESZ: der (noch gültige) Link liefert nichts mehr, das Aufräumen löscht Zeile und Datei
+  c.now = Date.UTC(2026, 9, 24, 22, 0);
+  assert.equal((await stream(c, link)).status, 404);
+  r = await call(c, W.routePodcastList, "/api/teacher/podcast"); await settle(c);
+  assert.ok(!c.env.FILES.m.has("podcast/" + p.id));
+  assert.equal((await c.db.prepare("SELECT COUNT(*) AS n FROM podcasts").first()).n, 0);
+});
+
+test("Sicherheit: Link nur für seinen Podcast und seine Ablaufzeit, falsche Signatur ohne D1-Abfrage; Lehrkraft-Routen nur angemeldet; Rumpf erst nach den Prüfungen gelesen", async () => {
+  const c = await ctx(berlin(17, 10));
+  const a = (await upload(c, "2026-11-18", wav(1))).data.podcast, b = (await upload(c, "2026-11-19", M4A)).data.podcast;
+  const q = new URL("https://unterricks.test" + a.url).searchParams;
+  // Signatur von a gilt nicht für b; verlängerte Ablaufzeit; ohne e/s auch mit Anmeldung der Lehrkraft nicht
+  assert.equal((await stream(c, "/api/podcast/" + b.id + "?e=" + q.get("e") + "&s=" + encodeURIComponent(q.get("s")))).status, 403);
+  assert.equal((await stream(c, "/api/podcast/" + a.id + "?e=" + (Number(q.get("e")) + 86400e3) + "&s=" + encodeURIComponent(q.get("s")))).status, 403);
+  assert.equal((await stream(c, "/api/podcast/" + a.id, { Authorization: "Bearer " + TOKEN })).status, 403);
+  assert.equal((await stream(c, "/api/podcast/" + a.id + "?e=" + q.get("e"))).status, 403);
+  // eine falsche Signatur kostet keine D1-Abfrage, eine richtige genau eine
+  let n0 = c.db.counter.n;
+  await stream(c, a.url.replace(/s=[^&]+/, "s=AAAA"));
+  assert.equal(c.db.counter.n - n0, 0, "falsche Signatur: keine D1-Abfrage");
+  n0 = c.db.counter.n;
+  assert.equal((await stream(c, a.url, { Range: "bytes=0-3" })).status, 206);
+  assert.equal(c.db.counter.n - n0, 1, "gültiger Link: eine D1-Abfrage");
+  // alle Lehrkraft-Routen: ohne, mit fremdem und mit abgelaufenem Token 401
+  await c.db.prepare("INSERT INTO teacher_tokens(token_hash, device_hash, created_at, expires_at, last_used) VALUES(?1, 'd', 1, ?2, 1)").bind(await sha256Hex("abgelaufen"), c.now - 1).run();
+  for (const auth of [null, "Bearer schueler-oder-eltern", "Bearer abgelaufen"]) {
+    const rq = (m) => new Request("https://unterricks.test/api/teacher/podcast", { method: m, headers: auth ? { Authorization: auth } : {} });
+    for (const [fn, m, ...args] of [[W.routePodcastList, "GET"], [W.routePodcastPlan, "GET"], [W.routePodcastLink, "POST", a.id], [W.routePodcastDelete, "DELETE", a.id]])
+      await assert.rejects(fn({ ...c, request: rq(m), waitUntil: () => {} }, ...args), (e) => e.status === 401, fn.name + " " + auth);
+  }
+  // Hochladen: Anmeldung, Tag, Länge und Größe werden geprüft, bevor der Rumpf gelesen wird
+  const body = (auth, day, len) => new Request("https://unterricks.test/api/teacher/podcast?day=" + day, { method: "POST",
+    headers: { ...(auth ? { Authorization: "Bearer " + TOKEN } : {}), "Content-Type": "audio/wav", "Content-Length": len }, body: wav(1) });
+  for (const [rq, status] of [[body(false, "2026-11-20", "8044"), 401], [body(true, "2026-11-16", "8044"), 400], [body(true, "2026-11-20", "12.5"), 411], [body(true, "2026-11-20", "95000001"), 413]]) {
+    await assert.rejects(W.routePodcastUpload({ ...c, request: rq, waitUntil: () => {} }), (e) => e.status === status);
+    assert.equal(rq.bodyUsed, false, "Rumpf ungelesen bei " + status);
+  }
+  assert.ok([...c.env.FILES.m.keys()].every((k) => k === "podcast/" + a.id || k === "podcast/" + b.id), "nichts Neues in R2");
+  // Hochladen: wenige D1-Anweisungen (Anmeldung, Speicher-Prüfung, ein Batch mit 2 Anweisungen)
+  n0 = c.db.counter.n;
+  assert.equal((await upload(c, "2026-11-20", wav(1))).status, 200);
+  assert.ok(c.db.counter.n - n0 <= 5, "D1-Anweisungen beim Hochladen: " + (c.db.counter.n - n0));
+});
+
 test("Löschen von Hand; Zurücksetzen löscht alle Podcasts mit; nur angemeldet; Sicherheitskopf media-src in allen drei CSPs", async () => {
   const c = await ctx(berlin(17, 10));
   const p = (await upload(c, "2026-11-18", wav(1))).data.podcast;

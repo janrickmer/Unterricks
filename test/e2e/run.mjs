@@ -3121,7 +3121,21 @@ async function main() {
         await pit.getByRole("button", { name: "Pause" }).click();
         if (!(preq.length > 0 && preq.every((u) => u.startsWith(BASE + "/api/podcast/")))) console.log("    Anfragen:", JSON.stringify(preq.slice(0, 3)));
         ok(/^0:0[1-9] \/ 0:06$/.test(t) && preq.length > 0 && preq.every((u) => u.startsWith(BASE + "/api/podcast/")), "Podcast auf Pages: spielt vom Worker (" + t + ", " + preq.length + " Anfrage(n) an den Worker)");
-        await T("DELETE", "/api/teacher/podcast/" + podcastForPages.id);
+        // Hochladen von der Pages-Herkunft über denselben Weg wie das Ablagefeld (XMLHttpRequest an den Worker: Vorabanfrage wegen Authorization und
+        // Content-Type audio/wav, roher Rumpf): ersetzt den Podcast desselben Tages
+        const pu = await ptp.evaluate(async (day) => {
+          const m = await import("/podcast.js");
+          const n = 8000, b = new Uint8Array(44 + n).fill(128), v = new DataView(b.buffer), s = (o, x) => { for (let i = 0; i < x.length; i++) b[o + i] = x.charCodeAt(i); };
+          s(0, "RIFF"); v.setUint32(4, 36 + n, true); s(8, "WAVE"); s(12, "fmt "); v.setUint32(16, 16, true); v.setUint16(20, 1, true); v.setUint16(22, 1, true);
+          v.setUint32(24, 8000, true); v.setUint32(28, 8000, true); v.setUint16(32, 1, true); v.setUint16(34, 8, true); s(36, "data"); v.setUint32(40, n, true);
+          try { const r = await m.io.upload("/api/teacher/podcast?day=" + day, new File([b], "folge.wav", { type: "audio/wav" }), "audio/wav", () => {}).promise; return { ok: true, id: r.podcast.id, size: r.podcast.size, replaced: r.replaced }; }
+          catch (e) { return { ok: false, err: String((e && e.message) || e) }; }
+        }, podcastForPages.day);
+        const pl = (await T("GET", "/api/teacher/podcast")).data.podcasts.filter((p) => p.day === podcastForPages.day);
+        const oldSt = await fetch(BASE + podcastForPages.url).then(async (x) => { await x.arrayBuffer(); return x.status; });
+        ok(pu.ok && pu.size === 8044 && pu.replaced === 1 && pl.length === 1 && pl[0].id === pu.id && oldSt === 404,
+          "Podcast auf Pages hochgeladen (XMLHttpRequest mit Vorabanfrage an den Worker): ersetzt den bisherigen desselben Tages" + (pu.ok ? "" : " – " + pu.err));
+        await T("DELETE", "/api/teacher/podcast/" + (pu.ok ? pu.id : podcastForPages.id));
       }
       await ptp.goto(PAGES + "/#/lk/s/" + lessonId); await ptp.locator(".code-big").waitFor({ timeout: 20000 });
       ok(true, "Lehrkraft auf Pages: Anmeldung (mit Vorabanfrage) und Sitzung laden");

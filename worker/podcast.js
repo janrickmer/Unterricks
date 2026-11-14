@@ -105,8 +105,8 @@ export async function routePodcastUpload(c) {
   await requireTeacher(c);
   const day = new URL(c.request.url).searchParams.get("day") || "", today = berlinToday(c.now);
   if (!isIsoDate(day) || day < today || day > addDays(today, PODCAST_AHEAD_DAYS)) throw bad("Der Podcast gehört zu einem Unterrichtstag ab heute – bitte die Seite neu laden.");
-  const len = Number(c.request.headers.get("content-length"));
-  if (!Number.isFinite(len) || len <= 0) throw new HttpError(411, "length_required", "Die Dateigröße fehlt in der Anfrage.");
+  const len = Number(c.request.headers.get("content-length"));   // ohne Länge nimmt R2 den Rumpf nicht an (unbekannte Länge, z. B. „chunked“)
+  if (!Number.isSafeInteger(len) || len <= 0) throw new HttpError(411, "length_required", "Die Dateigröße fehlt in der Anfrage.");
   if (len > PODCAST_MAX_BYTES) throw new HttpError(413, "too_large", "Die Datei ist zu groß (höchstens " + PODCAST_MAX_BYTES / 1e6 + " MB). Bitten Sie Claude bzw. Gemini Notebook um eine kürzere Folge.");
   await checkStorage(c, len);
   const id = randomId(8), key = podcastKey(id);

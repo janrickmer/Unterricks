@@ -925,8 +925,9 @@ Lehrkraft zieht die Datei einmal auf das Ablagefeld (keine automatische Übergab
     noch Unterricht bevorsteht, entscheidet der Browser mit seiner Uhr. 7 D1-Anweisungen.
   - `POST /api/teacher/podcast?day=JJJJ-MM-TT` (roher Rumpf mit Content-Length, höchstens 95 MB; Tag ab heute bis 80 Tage voraus): Rumpf **ohne
     Zwischenspeicher direkt nach R2** (128 MB Arbeitsspeicher, 10 ms CPU), danach liest der Server 64 Bytes per Range und prüft sie (`audioKind`; keine
-    Audiodatei → Datei gelöscht, 415 `not_audio`); 411/413/400 mit deutscher Meldung; Batch `INSERT` + `DELETE … RETURNING r2_key` der älteren Folge
-    desselben Tages (ein Podcast je Tag), dann deren Datei löschen.
+    Audiodatei → Datei gelöscht, 415 `not_audio`); 411 (Länge fehlt oder ist keine ganze Zahl – ohne bekannte Länge nimmt R2 den Rumpf nicht
+    an), 413, 400 mit deutscher Meldung – Anmeldung, Tag, Länge, Größe und Speicher werden geprüft, bevor der Rumpf gelesen wird; Batch `INSERT` +
+    `DELETE … RETURNING r2_key` der älteren Folge desselben Tages (ein Podcast je Tag), dann deren Datei löschen.
   - `POST /api/teacher/podcast/<id>/link` (neuer signierter Link), `DELETE /api/teacher/podcast/<id>`.
   - `GET`/`HEAD /api/podcast/<id>?e=…&s=…` (ohne Anmeldung, HMAC-signiert `["podcast", id]`, 12 Stunden – ein `<audio>` sendet keinen
     Authorization-Kopf): **Range-Anfragen** (`bytes=a-b`, `a-`, `-n` → 206 mit `Content-Range`; unerfüllbar → 416 `bytes */size`; mehrere Bereiche
