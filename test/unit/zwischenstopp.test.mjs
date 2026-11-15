@@ -58,14 +58,24 @@ const withoutSummary = (p, gs, analog = false) => {
   assert.equal(p.split(S.SUMMARY_FALLBACK).length - 1, 1, "der Zusatz für den Rückfall steht genau einmal im Prompt");
   return p.replace(step, "").replace(S.SUMMARY_FALLBACK, "");
 };
-test("ohne Zwischenstopp: beide Prompts byte-gleich zum Stand vor S11 (Gymnasium: bis auf den Satz zu Links in Feibeitsblättern; beide bis auf die Zusammenfassung)", () => {
+// Nr. 27 (15.11.2026): der Grundschul-Prompt bekommt genau einen Abschnitt „Konzentrationsaufgabe“ (vor „## Vorgehen“) und genau einen Speicherschritt
+// (nach den Bildkarten) – ohne beide bleibt er byte-gleich; der Gymnasium-Prompt (auch Jg. 5/6) bleibt ganz ohne sie
+const withoutConc = (p, L) => {
+  const sec = "\n" + G.concPromptSection(), step = "\n" + G.concPromptStep(L);
+  assert.equal(p.split(sec).length - 1, 1, "der Abschnitt zur Konzentrationsaufgabe steht genau einmal im Prompt");
+  assert.equal(p.split(step).length - 1, 1, "der Speicherschritt zur Konzentrationsaufgabe steht genau einmal im Prompt");
+  assert.ok(p.indexOf(sec) < p.indexOf("\n## Vorgehen") && p.indexOf("`add_picture_cards`") < p.indexOf(step) && p.indexOf(step) < p.indexOf("`save_verlaufsplan`"), "Abschnitt vor dem Vorgehen, Schritt nach den Bildkarten und vor dem Verlaufsplan");
+  return p.replace(sec, "").replace(step, "");
+};
+test("ohne Zwischenstopp: beide Prompts byte-gleich zum Stand vor S11 (Gymnasium: bis auf den Satz zu Links in Feibeitsblättern; beide bis auf die Zusammenfassung; Grundschule bis auf die Konzentrationsaufgabe)", () => {
   const s = F.sekCtx(P.unitContext), g = F.gsCtx(P.unitContext);
   assert.equal(sha(withoutLinkRule(withoutSummary(P.claudeLessonPrompt(s), false))), BEFORE.sek);
   const sek6 = P.claudeLessonPrompt({ ...s, klass: "6B", unit: null, row: null, unitText: "", messages: [] }), gs = G.claudeGsLessonPrompt(g), gs0 = G.claudeGsLessonPrompt({ ...g, unit: null, row: null, unitText: "" });
   for (const p of [sek6, gs, gs0]) assert.ok(!p.includes(S.FB_LINK_RULE) && !p.includes("[Linktext](https://…)"));
+  for (const p of [P.claudeLessonPrompt(s), sek6]) assert.ok(!p.includes("Konzentrationsaufgabe"), "Gymnasium (auch Jg. 5/6) ohne Konzentrationsaufgabe");
   assert.equal(sha(withoutSummary(sek6, false, true)), BEFORE.sek6);
-  assert.equal(sha(withoutSummary(gs, true)), BEFORE.gs);
-  assert.equal(sha(withoutSummary(gs0, true)), BEFORE.gs0);
+  assert.equal(sha(withoutConc(withoutSummary(gs, true), g.lesson)), BEFORE.gs);
+  assert.equal(sha(withoutConc(withoutSummary(gs0, true), g.lesson)), BEFORE.gs0);
 });
 
 const PREV = { id: "abcdefabcdefabcd", title: "Was ist Macht?", date: "2026-11-10", portal: "**1) Einstieg**\n- Karikatur\n" + STOP + "\n**2) Partnerarbeit**\n- ~~M1~~ lesen", portalVersion: 4,

@@ -15,6 +15,7 @@ import { horizontalIssues, strayTexts } from "./mobile-audit.mjs";
 import { freeDaysE2E } from "./freedays.mjs";
 import { dialogsE2E } from "./dialogs.mjs";
 import { updateE2E } from "./update.mjs";
+import { CONC_HTML, CONC_HTML_LONG } from "./konzentration.mjs";
 
 const require = createRequire(import.meta.url);
 const { chromium, devices } = require("playwright");
@@ -2505,6 +2506,15 @@ async function main() {
         const gp = await tp.evaluate(() => navigator.clipboard.readText());
         ok(gp.includes("Nicht geschafft (nach dem Zwischenstopp):\n<<<\n**4) Rätsel (10 Min., Partnerarbeit)**") && gp.includes("„Rätsel Pyramide.pdf“ (file_id " + raeId + ")")
           && gp.includes("Frage mich, ob du es in diese Stunde einbauen sollst oder ob wir darauf verzichten."), "Prompt (Grundschule): offener Teil mit dem Rätsel und seiner file_id, Frage übernehmen oder verzichten");
+        { // Nachtrag 27: jede Grundschul-Sitzung mit Konzentrationsaufgabe – Zweck und Regeln im eigenen Abschnitt, Ablage (druck, 5x, beidseitig, sw) vor dem Verlaufsplan
+          const { CONC_WHY, CONC_RULES } = await import("../../public/gsplanning.js");
+          ok(gp.includes("\n## Konzentrationsaufgabe (gehört zu jeder Sitzung)\n" + CONC_WHY) && CONC_RULES.every((r) => gp.includes("\n- " + r)) && gp.indexOf("## Konzentrationsaufgabe") < gp.indexOf("## Vorgehen")
+            && gp.includes("Die Konzentrationsaufgabe speicherst du mit `add_material_pdf` (`bereich` \"druck\", `anzahl` 5, `beidseitig` true, `farbe` false, `titel` „Konzentrationsaufgabe – <Thema der Stunde>“")
+            && gp.includes("Dann steht sie nur auf meiner Druckliste („5x - beidseitig - sw - Konzentrationsaufgabe – ….pdf“), nie bei Eltern oder Kindern.")
+            && gp.indexOf("Die Konzentrationsaufgabe speicherst du") > gp.indexOf("`add_picture_cards`") && gp.indexOf("Die Konzentrationsaufgabe speicherst du") < gp.indexOf("Den Stundenverlauf speicherst du")
+            && ["Höchstens zwei DIN-A4-Seiten", "mindestens zwei Ausmalbilder", "Symbol einer roten Karte", "Erst nach der roten Karte eine weitere, altersgerechte Aufgabe"].every((x) => gp.includes(x)),
+          "Prompt (Grundschule): Konzentrationsaufgabe – Zweck, Aufbau (höchstens zwei Seiten, Ausmalbilder, rote Karte, Aufgabe) und Ablage (druck, 5x, beidseitig, sw) vor dem Verlaufsplan");
+        }
         await gm.getByRole("button", { name: "Schließen", exact: true }).getByText("Schließen").click();
         // Nachtrag 26 (Grundschule): erst Entscheidung + Verlaufsplan dieser Sitzung → Karte ganz weg; Verlaufsplan der vorigen Sitzung geändert → wieder da
         const psG = async () => (await T("GET", "/api/teacher/lessons/" + les3.id)).data.previousStop;
@@ -2931,6 +2941,19 @@ async function main() {
       await T("PATCH", "/api/teacher/files/" + kid.id, { copies: 22 });
       r = await tool("add_material_pdf", { lesson_id: gsL, bereich: "druck", titel: "Ausmalbild Schoepfung", html: "<h1>Ausmalbild</h1><p>Licht und Dunkel</p>", anzahl: 22, beidseitig: false, farbe: false });
       ok(!r.isError, "Grundschule (Religion 2ab): PDF der Kinder mit „Auch ausdrucken (22×)“ und eine von Claude gestaltete Druckvorlage");
+      // Nachtrag 27: Claude legt die Konzentrationsaufgabe der Sitzung ab (zwei Seiten: Ausmalbilder, rote Karte, Aufgabe) – gedruckt vom Chromium der Attrappe
+      const CONC_NAME = "5x - beidseitig - sw - Konzentrationsaufgabe – Die Schöpfung.pdf";
+      r = await tool("add_material_pdf", { lesson_id: gsL, bereich: "druck", titel: "Konzentrationsaufgabe – Die Schöpfung", html: CONC_HTML, anzahl: 5, beidseitig: true, farbe: false });
+      const concId = r.structuredContent && r.structuredContent.file_id;
+      ok(!r.isError && r.structuredContent.pages === 2 && r.structuredContent.konzentrationsaufgabe === true && r.structuredContent.zu_lang === false
+        && r.content[0].text.includes("gespeichert und als PDF gedruckt: 2 Seiten") && r.content[0].text.includes("in der Liste „Von der Lehrkraft auszudrucken“ als „" + CONC_NAME + "“ – nie für Eltern oder Kinder"),
+        "Konzentrationsaufgabe (Connector, bereich druck, anzahl 5, beidseitig): 2 Seiten, Druck-Name „" + CONC_NAME + "“ – " + (r.content ? r.content[0].text.slice(0, 120) : ""));
+      // mehr als zwei Seiten: gespeichert, aber gemeldet – dann wieder die zweiseitige Fassung
+      r = await tool("add_material_pdf", { lesson_id: gsL, titel: "Konzentrationsaufgabe – Die Schöpfung", html: CONC_HTML_LONG, file_id: concId });
+      ok(!r.isError && r.structuredContent.pages === 3 && r.structuredContent.zu_lang === true && r.content[0].text.includes("Achtung: Die Konzentrationsaufgabe hat 3 Seiten – sie soll auf höchstens 2 A4-Seiten passen"),
+        "Konzentrationsaufgabe mit drei Seiten: die Antwort meldet es (höchstens zwei A4-Seiten)");
+      r = await tool("add_material_pdf", { lesson_id: gsL, titel: "Konzentrationsaufgabe – Die Schöpfung", html: CONC_HTML, file_id: concId });
+      ok(!r.isError && r.structuredContent.pages === 2 && !r.content[0].text.includes("Achtung"), "… wieder zwei Seiten: kein Hinweis");
       const pn = await T("GET", "/api/teacher/print-next");
       const pnFiles = pn.data.sessions.flatMap((x) => x.files), ready = pnFiles.filter((f) => !(f.design && f.status !== "ready")).map((f) => f.printName);
       ok(pn.status === 200 && pn.data.candidate === cand && pn.data.date === cand && (await fetch(BASE + "/api/teacher/print-next")).status === 401,
@@ -2944,7 +2967,7 @@ async function main() {
       const gymNames = await gymG.locator(".pn-row .name").allTextContents(), gsNames = await gsG.locator(".pn-row .name").allTextContents();
       ok((await gymG.locator("h3").textContent()) === "07:50 PoWi 9D – Wählen ab 16?" && (await gsG.locator("h3").textContent()) === "09:40 Grundschule Religion 2ab – Die Schöpfung"
         && JSON.stringify(gymNames) === JSON.stringify(["27x - einseitig - sw - Wahlplakat.pdf", "14x - einseitig - sw - Kaertchen Wahlrecht.pdf"])
-        && JSON.stringify(gsNames) === JSON.stringify(["22x - beidseitig - sw - Schoepfung Arbeitsblatt.pdf", "22x - einseitig - sw - Ausmalbild Schoepfung.pdf"]),
+        && JSON.stringify(gsNames) === JSON.stringify(["22x - beidseitig - sw - Schoepfung Arbeitsblatt.pdf", "22x - einseitig - sw - Ausmalbild Schoepfung.pdf", CONC_NAME]),
         "je Sitzung eine Gruppe (Beginn, Fach/Klasse bzw. Grundschulkurs, Titel) mit den Druck-Namen: " + gymNames.concat(gsNames).join(" | "));
       // einzeln herunterladen (PDF über den signierten Link, Textmaterial als A4-PDF) – Name wie in der Sitzung
       let [dl] = await Promise.all([tp.waitForEvent("download", { timeout: 30000 }), gymG.getByRole("button", { name: "Herunterladen – 27x - einseitig - sw - Wahlplakat.pdf" }).click()]);
@@ -2966,7 +2989,7 @@ async function main() {
       // Chromium dieser Testumgebung (ohne UTF-8-Locale) speichert Namen mit Umlauten als „download“ – Dateien anderer Sitzungen dürfen so heißen
       const sameName = (n, want) => n === want || (n === "download" && /[^\x20-\x7e]/.test(want));
       ok(during === "true" && allNames.length === ready.length && allNames.every((n, i) => sameName(n, ready[i])) && ["27x - einseitig - sw - Wahlplakat.pdf", "14x - einseitig - sw - Kaertchen Wahlrecht.pdf",
-        "22x - beidseitig - sw - Schoepfung Arbeitsblatt.pdf", "22x - einseitig - sw - Ausmalbild Schoepfung.pdf"].every((n) => allNames.includes(n)) && !allNames.some((n) => /\.zip$/i.test(n)) && heads.every((x) => x === "%PDF-")
+        "22x - beidseitig - sw - Schoepfung Arbeitsblatt.pdf", "22x - einseitig - sw - Ausmalbild Schoepfung.pdf"].every((n) => allNames.includes(n)) && ready.includes(CONC_NAME) && !allNames.some((n) => /\.zip$/i.test(n)) && heads.every((x) => x === "%PDF-")
         && (await card.locator("#pn-status").textContent()).startsWith("Fertig: Alle " + ready.length + " Dateien sind einzeln heruntergeladen."),
         "„Alle Dateien herunterladen“: " + allNames.length + " einzelne PDF-Dateien nacheinander (keine ZIP-Datei), währenddessen gesperrt (" + during + "), Abschlussmeldung – " + allNames.join(" | "));
       await tp.screenshot({ ...SHOT, path: join(OUT, "druckauftraege-gymnasium.png") });
@@ -2999,6 +3022,60 @@ async function main() {
       await tp.goto(BASE + "/#/lk/s/" + gymL + "/druckliste");
       await tp.locator("#printcard .printrow").first().waitFor({ timeout: 15000 });
       ok(JSON.stringify(await tp.locator("#printcard .printrow .name").allTextContents()) === JSON.stringify(gymNames), "Gymnasium: Druckliste der Sitzung nennt dieselben Namen wie das Feld");
+
+      /* ---------- Nachtrag 27: Konzentrationsaufgabe – nur auf der Druckliste der Lehrkraft, nie in der Elternansicht; get_lesson und save_verlaufsplan ---------- */
+      step("Konzentrationsaufgabe (Grundschule): get_lesson, Verlaufsplan, Druckliste der Sitzung, Druckaufträge, nie für Eltern; zwei Seiten mit roter Karte");
+      let g = await tool("get_lesson", { lesson_id: gsL });
+      ok(g.content[0].text.includes("## Konzentrationsaufgabe (gehört zu jeder Sitzung der Grundschule; nur für die Lehrkraft)\n- file_id " + concId + ": „Konzentrationsaufgabe – Die Schöpfung.pdf“ (auf der Druckliste als „" + CONC_NAME + "“; 2 Seiten) → [[pdf:" + concId + "]]")
+        && !g.content[0].text.includes("Fehlt noch."), "get_lesson: Konzentrationsaufgabe vorhanden – Druck-Name und Seiten");
+      const gp0 = await tool("get_lesson", { lesson_id: gymL });
+      ok(!gp0.content[0].text.includes("Konzentrationsaufgabe"), "get_lesson am Gymnasium: kein Abschnitt zur Konzentrationsaufgabe");
+      const kidId = kid.id, CPLAN = "**1) Ankommen im Sitzkreis (5 Min.)**\n- Begrüßungslied\n**2) Erzählung: Die Schöpfung (15 Min., Sitzkreis)**\n- Konzentrationsaufgabe [[pdf:" + concId + "]] für Kinder, die beim Zuhören am Platz ausmalen\n" +
+        "**3) Arbeitsblatt (15 Min., Einzelarbeit)**\n- [[pdf:" + kidId + "]]";
+      g = await tool("save_verlaufsplan", { lesson_id: gsL, text: CPLAN.replace("- Konzentrationsaufgabe [[pdf:" + concId + "]] für Kinder, die beim Zuhören am Platz ausmalen\n", "") });
+      ok(!g.isError && g.content[0].text.includes("Die „Konzentrationsaufgabe“ steht noch nicht im Verlaufsplan – nenne sie in der ersten Plenumsphase als eigenen Stichpunkt ([[pdf:" + concId + "]])."),
+        "save_verlaufsplan ohne Verweis: die Antwort erinnert daran, sie im Verlaufsplan zu nennen");
+      g = await tool("save_verlaufsplan", { lesson_id: gsL, text: CPLAN });
+      ok(!g.isError && g.content[0].text.includes("Eltern sehen nach der Stunde: „Schoepfung Arbeitsblatt.pdf“.") && !g.content[0].text.includes("Konzentrationsaufgabe") && g.structuredContent.konzentrationsaufgabe === true,
+        "save_verlaufsplan mit Verweis: keine Erinnerung; Eltern sehen nur das Arbeitsblatt (" + g.content[0].text.slice(0, 160) + ")");
+      const pv = await T("GET", "/api/teacher/lessons/" + gsL + "/parents");
+      ok(pv.status === 200 && JSON.stringify((pv.data.files || []).map((f) => f.name)) === JSON.stringify(["Schoepfung Arbeitsblatt.pdf"]) && !JSON.stringify(pv.data).includes(concId) && !JSON.stringify(pv.data).includes("Konzentrationsaufgabe"),
+        "Elternansicht (Vorschau der Lehrkraft, wie die Nutzlast für Eltern): ohne die Konzentrationsaufgabe – auch wenn der Verlaufsplan sie nennt");
+      // Sitzungsseite: Druckliste mit 5x, beidseitig, schwarz-weiß; nicht im Materialkasten und nicht bei „Eltern sehen“; gelb verwiesen im Verlaufsplan; Hinweis bei „Stunde mit Claude planen“
+      await tp.goto(BASE + "/#/lk/s/" + gsL + "/druckliste");
+      const crow = tp.locator("#printcard .printrow", { hasText: CONC_NAME });
+      await crow.waitFor({ timeout: 15000 });
+      ok(await crow.locator("input.pcopies").inputValue() === "5" && await crow.locator("select").nth(0).inputValue() === "1" && await crow.locator("select").nth(1).inputValue() === "0"
+        && (await crow.locator(".meta").textContent()).includes("2 Seiten"), "Druckliste der Sitzung: „" + CONC_NAME + "“ – 5 Exemplare, beidseitig, schwarz-weiß, 2 Seiten");
+      await tp.locator("#gsplan a.pdfref").first().waitFor({ timeout: 15000 });
+      ok((await tp.locator("#gsplan a.pdfref").allTextContents()).some((t) => t.startsWith("Konzentrationsaufgabe – Die Schöpfung.pdf")) && !(await tp.locator("#gs-material").textContent()).includes("Konzentrationsaufgabe")
+        && !(await tp.locator("#gs-parents").textContent()).includes("Konzentrationsaufgabe") && (await tp.locator("#gs-parents").textContent()).includes("Schoepfung Arbeitsblatt.pdf"),
+        "Sitzungsseite: im Verlaufsplan gelb verwiesen, nicht im Materialkasten, nicht bei dem, was Eltern sehen");
+      ok((await tp.locator("#gs-claude p.small").first().textContent()).includes("gestaltet Arbeitsblätter, Bildkarten und die Konzentrationsaufgabe (5× auf Ihrer Druckliste, für Kinder, die beim Zuhören ausmalen)"),
+        "„Stunde mit Claude planen“ nennt die Konzentrationsaufgabe");
+      // Bildschirmfotos: Druckliste der Sitzung, Karte „Stunde mit Claude planen“ und das Feld auf der Startseite (Laptop, iPad hochkant, Handy; hell und dunkel)
+      const vp0 = tp.viewportSize();
+      const concShots = async (sel, name) => {
+        for (const [w, hh] of [[1366, 900], [820, 1180], [390, 844]]) for (const dark of [false, true]) {
+          await tp.setViewportSize({ width: w, height: hh }); await tp.emulateMedia({ colorScheme: dark ? "dark" : "light" }); await tp.waitForTimeout(250);
+          const el = tp.locator(sel).first(); await el.scrollIntoViewIfNeeded();
+          await el.screenshot({ ...SHOT, path: join(OUT, "konzentration-" + name + "-" + w + (dark ? "-dunkel" : "") + ".png") });
+          if (w < 400 && !dark) { const hi = await horizontalIssues(tp); ok(!hi.length, "„" + name + "“ am Handy (390 px): ohne seitliches Schieben" + (hi.length ? " – " + JSON.stringify(hi).slice(0, 200) : "")); }
+        }
+        await tp.emulateMedia({ colorScheme: "light" }); await tp.setViewportSize(vp0);
+      };
+      await concShots("#printcard", "druckliste");
+      await concShots("#gs-claude", "claude");
+      await tp.goto(BASE + "/#/lk");
+      const cpn = tp.locator(".printnext .pn-row", { hasText: CONC_NAME });
+      await cpn.waitFor({ timeout: 15000 });
+      await concShots(".printnext", "druckauftraege");
+      // die Datei selbst: zwei A4-Seiten (Ausmalbilder, rote Karte, Aufgabe) – gespeichert zum Ansehen
+      const [cdl] = await Promise.all([tp.waitForEvent("download", { timeout: 30000 }), tp.locator(".printnext").getByRole("button", { name: "Herunterladen – " + CONC_NAME }).click()]);
+      const cbuf = readFileSync(await cdl.path()); writeFileSync(join(OUT, "konzentrationsaufgabe.pdf"), cbuf);
+      const cdoc = await PDFDocument.load(cbuf), csz = cdoc.getPage(0).getSize();
+      ok(cdoc.getPageCount() === 2 && Math.abs(csz.width - 595.3) < 2 && Math.abs(csz.height - 841.9) < 2 && (cdl.suggestedFilename() === CONC_NAME || cdl.suggestedFilename() === "download"),
+        "Druckaufträge: „" + CONC_NAME + "“ herunterladen – 2 A4-Seiten (" + cdl.suggestedFilename() + ")");
     }
 
     /* ---------- Podcast für den kommenden Unterricht (Nachtrag 22) ---------- */

@@ -69,6 +69,7 @@ implementiert und im End-to-End-Test geprüft (Ausnahmen unten ausdrücklich gen
 | Unterrichtsfreie Tage (Nachtrag 24 vom 13.11.2026) | In den **Einstellungen** trägt die Lehrkraft unterrichtsfreie Tage ein – als **Zeitraum mit Bezeichnung** (Ferien, Pädagogischer Tag …); je Eintrag wird **gefragt**, ob er die **Grundschule, das Gymnasium oder beide Schulen** betrifft (Pflichtwahl). Der Wochenkalender zeigt sie blockiert, an ihnen gibt es für die Schule keine Termine, Claude plant drumherum. Rückfragen beantwortet: **nachfragen und verschieben** (vor dem Speichern die betroffenen Sitzungen nennen; auf Wunsch rücken sie und alle folgenden Stunden ihrer Einheit wie bei der Krankmeldung, danach Hinweis zum Überarbeiten mit Claude), **keine automatischen Feiertage**, die Rahmendaten der Einheit **bleiben zusätzlich** (für Ausfälle nur dieser Klasse), die Tage der Einstellungen stehen dort zur Ansicht; siehe 4r |
 | Hinweis zum Zwischenstopp erledigt (Nachtrag 26 vom 14.11.2026) | Die Karte „Hinweis: Die letzte Stunde wurde nicht vollständig beendet“ auf der **Sitzungsseite** (Gymnasium und Grundschule) verschwindet, sobald mit Claude **entschieden** wurde (übernehmen oder verzichten) **und danach** der Schulportal-Eintrag bzw. Verlaufsplan dieser Sitzung **gespeichert** wurde (Rückfragen beantwortet: Auslöser „Entscheidung + Speichern“, dieselbe Regel wie beim Podcast; danach **ganz verschwinden**, bei einem neuen offenen Teil – Zwischenstopp der vorigen Stunde verschoben oder ihr Eintrag geändert – wieder erscheinen; **nur die Sitzungsseite**, die Karte auf der Seite der Klasse bleibt). Siehe 4a |
 | Dialoge: Tastaturfokus (Nachtrag 25 vom 14.11.2026) | Auf die Frage „Soll ich das plattformweit beheben?“ (mit Tab gelangte man aus jedem Dialog auf die Seite dahinter): **„Ja, beheben“** – Tab und Umschalt+Tab bleiben im offenen Dialog, danach geht der Fokus zurück; mit Tests und E2E (Abschnitt 4s) |
+| Konzentrationsaufgabe (Nachtrag 27 vom 15.11.2026) | Jeder Prompt, mit dem eine **Sitzung der Grundschule** mit Claude geplant wird („Stunde mit Claude planen“, Schritt 5 der Überarbeitung einer Einheit), lässt Claude zusammen mit dem übrigen Material die **„Konzentrationsaufgabe“** gestalten – für Kinder, die ihre Aufmerksamkeit in Plenumsphasen nur bündeln können, wenn sie den Sitzkreis verlassen und beim Zuhören ausmalen: höchstens **zwei A4-Seiten**, zuerst **mindestens zwei Ausmalbilder** zum aktuellen Unterrichtsinhalt, dann das Symbol einer **roten Karte**, danach **eine weitere altersgerechte Aufgabe** zum Inhalt der Stunde. Rückfragen beantwortet: **beidseitig** drucken, Bereich **druck** – nur auf der Druckliste der Lehrkraft als „5x - beidseitig - sw - Konzentrationsaufgabe – <Thema>.pdf“, nie in der Elternansicht, nie für Kinder. Siehe 4u |
 
 ## 2. Gesamtarchitektur
 
@@ -1218,6 +1219,53 @@ Lücke hatte jedes Nachladen (Escape-Room, Eltern, Beamer, Präsentation, PDF-Ba
   vorbeigeht – sonst meldet `/version.json` dort bis zu 10 Minuten den alten Stand: kein Mischen, nur der Hinweis kommt dann als
   „ließ sich nicht laden“), ein echtes iPad mit tagelang offenem Tab, das Apple TV. Auf dem Beamergerät gibt es keinen Seitenwechsel, es
   lädt deshalb nie von selbst neu – auch nicht nach der Stunde; es bekommt einen neuen Stand erst, wenn es neu geöffnet wird.
+
+## 4u. Konzentrationsaufgabe in jeder Sitzung der Grundschule (Nachtrag der Lehrkraft vom 15.11.2026, Nachtrag 27)
+
+Wortlaut der Lehrkraft (gekürzt): „In jeder Klasse gibt es Kinder, die ihre Aufmerksamkeit nur bündeln können, wenn sie in Plenumsphasen den
+Sitzkreis verlassen und während des Zuhörens etwas ausmalen. […] Baue deswegen bei Unterricks ein, dass jeder Prompt für eine
+Grundschul-Unterrichtssitzung im Material für diese Kinder die sogenannte ‚Konzentrationsaufgabe‘ miterstellen lässt.“ – höchstens zwei
+A4-Seiten, zuerst mindestens zwei Ausmalbilder zum Unterrichtsinhalt, dann die rote Karte, danach eine weitere altersgerechte Aufgabe; nur
+für die Lehrkraft unter den Dateien zum Ausdrucken, **5x**; auf Rückfrage **beidseitig**, Bereich **druck**.
+
+- **Bausteine** (`public/gsplanning.js`, gemeinsam für Browser und Worker): `CONC_TITLE`, `CONC_PRINT` (5, beidseitig, schwarz-weiß),
+  `CONC_PAGES_MAX` (2), `CONC_WHY` (Zweck im Wortlaut der Lehrkraft), `CONC_RULES` (Aufbau: zwei A4-Seiten als feste Blöcke mit
+  `height: 272mm; overflow: hidden; break-after: page`, Überschrift „Konzentrationsaufgabe – <Thema der Stunde>“, Ausmalbilder als Inline-SVG
+  mit kräftigen schwarzen Konturen und weißen Flächen – keine grauen oder farbigen Füllungen, ohne Text verständlich –, rote Karte als
+  Inline-SVG mit abgerundeten Ecken, rot gefüllt mit dickem schwarzem Rand, damit sie auch schwarz-weiß gedruckt als Karte erkennbar ist,
+  `role="img"` und `aria-label="Rote Karte"`, kein Emoji; danach eine Aufgabe mit wenig Lesen: ankreuzen, verbinden, malen, ein Wort),
+  `isConcName` (erkennt die Datei am Namen, auch „Konzentrations-Aufgabe: …“), `concTitleOf` (einheitlich „Konzentrationsaufgabe – <Thema>“,
+  ohne Thema das der Sitzung), `concSection` (Abschnitt in `get_lesson`), `concMissingText`/`concUnplannedText` (Antwort von
+  `save_verlaufsplan`), `CONC_REVISION` (Überarbeitung).
+- **Prompts:** „Stunde mit Claude planen“ (Grundschule) bekommt genau einen Abschnitt „## Konzentrationsaufgabe (gehört zu jeder Sitzung)“
+  vor „## Vorgehen“ und genau einen Speicherschritt nach den Bildkarten und vor dem Verlaufsplan (`add_material_pdf` mit `bereich` "druck",
+  `anzahl` 5, `beidseitig` true, `farbe` false; im Verlaufsplan in der ersten Plenumsphase als eigener Stichpunkt, gelb verwiesen). Ohne diese
+  beiden Teile bleibt der Prompt byte-gleich (SHA-Test in `zwischenstopp.test.mjs` streicht genau sie und vergleicht mit dem Stand vor S11).
+  Die Überarbeitung einer Einheit (Grundschule) nennt sie am Ende von Schritt 5. Unverändert: Planung der Einheit (dort entsteht kein
+  Material einer Sitzung) und alle Prompts des Gymnasiums (auch Jg. 5/6 und Vertretung) – Unit-Test.
+- **Connector** (`worker/mcp.js`; die Anweisungen des Servers bleiben unverändert – manche Clients kürzen sie –, die Erinnerungen stehen in
+  Werkzeugbeschreibungen und Antworten): `get_lesson` einer Grundschul-Sitzung (nicht bei Ausfall-Einträgen) hat den Abschnitt
+  „Konzentrationsaufgabe“: fehlt sie, Zweck, Ablage und Aufbau; sonst file_id, Druck-Name, Seiten und Hinweise (falscher Bereich, mehr als
+  zwei Seiten, mehrere). `add_material_pdf` legt eine neue Konzentrationsaufgabe der Grundschule **immer** in den Bereich `print` mit 5x,
+  beidseitig, schwarz-weiß – auch wenn Claude aus Gewohnheit „schueler“ und die Schülerzahl schickt (die Antwort sagt es; die Lehrkraft kann
+  die Einstellung in der Druckliste ändern, beim Überarbeiten mit `file_id` bleibt sie). Ein Material der Kinder oder der Lehrkraft lässt
+  sich nicht in eine Konzentrationsaufgabe umbenennen (Eltern sähen es). Die Antwort nennt die Seitenzahl und meldet mehr als zwei Seiten
+  (`zu_lang` in `structuredContent`) – gespeichert wird trotzdem, Claude soll kürzen; eine zweite Konzentrationsaufgabe in derselben Sitzung
+  wird gemeldet (löschen kann nur die Lehrkraft). `save_verlaufsplan` erinnert, solange die Sitzung keine hat oder der Verlaufsplan sie nicht
+  nennt (vor der Erinnerung an die Zusammenfassung). Am Gymnasium ändert sich nichts.
+- **Nie für Eltern oder Kinder:** Der Bereich `print` erscheint in keiner Route der Eltern oder Schüler:innen – `parentFiles` liest nur PDFs
+  der Kinder und Bildkarten (auch wenn der Verlaufsplan die Konzentrationsaufgabe verweist), die Schüler-Routen nur `area='student'`.
+  Unit-Test und E2E (Vorschau der Elternansicht) prüfen das.
+- **Oberfläche:** keine neue Komponente – die Datei steht wie jede Druckvorlage in „Von der Lehrkraft auszudrucken“ und in den
+  „Druckaufträgen für den nächsten Arbeitstag“; die Karte „Stunde mit Claude planen“ der Grundschul-Sitzung nennt sie.
+- **Tests:** `test/unit/konzentration.test.mjs` (Bausteine, Prompts, `get_lesson`, `add_material_pdf` mit Drucker-Attrappe, `save_verlaufsplan`,
+  Elternansicht, Werkzeugbeschreibungen, Länge der Anweisungen), angepasst: `zwischenstopp.test.mjs` (SHA ohne die beiden Teile),
+  `gssession.test.mjs` und `tsummary.test.mjs` (Antworten von `save_verlaufsplan` mit der Erinnerung). E2E: Prompt der Grundschule, eine
+  zweiseitige Konzentrationsaufgabe (`test/e2e/konzentration.mjs`, vom Chromium der Drucker-Attrappe gedruckt), drei Seiten → Hinweis,
+  Druckliste der Sitzung (5 Exemplare, beidseitig, schwarz-weiß), Druckaufträge, Verlaufsplan, nicht in der Elternansicht; Bildschirmfotos
+  `test-results/konzentration-*.png`, die PDF als `test-results/konzentrationsaufgabe.pdf`.
+- **Nicht prüfbar hier:** ob Claude in claude.ai die Regeln einhält (Bildqualität der Ausmalbilder, wirklich zwei Seiten) – Unterricks meldet
+  nur die Seitenzahl.
 
 ## 4i. Druckliste „Von der Lehrkraft auszudrucken“ (Ergänzung vom 10.11.2026)
 

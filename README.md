@@ -401,6 +401,16 @@ der **Podcast für den kommenden Unterricht** (derselbe wie auf der Startseite �
   Nacherzählen), oder Sie laden eine PDF hoch (eine Seite = eine Karte). Die Erzähltexte prüfen und ändern Sie unter jeder Karte.
   Hochgeladene Bildkarten sehen Eltern erst, wenn Sie „Eltern dürfen diese Bildkarten sehen“ ankreuzen – Bildkarten von Verlagen dürfen
   meist nicht online weitergegeben werden. Die Bilder für die Elternansicht erstellt Ihr Browser, sobald Sie Unterricks öffnen.
+* **Konzentrationsaufgabe:** Zu jeder Sitzung, die Sie mit Claude planen („Stunde mit Claude planen“, auch wenn Claude beim Überarbeiten
+  einer Einheit eine Sitzung neu plant), gestaltet Claude zusammen mit dem übrigen Material die **„Konzentrationsaufgabe“** – für Kinder, die
+  ihre Aufmerksamkeit in Plenumsphasen nur bündeln können, wenn sie den Sitzkreis verlassen und beim Zuhören etwas ausmalen. Aufbau:
+  höchstens **zwei A4-Seiten**, zuerst **mindestens zwei Ausmalbilder** zum Inhalt der Stunde in ihrer Reihenfolge (z. B. Bilder zur
+  Geschichte, die Sie erzählen), dann das Symbol einer **roten Karte** und danach eine weitere, altersgerechte Aufgabe zum Inhalt der Stunde
+  (ankreuzen, verbinden, malen oder ein Wort). Claude stellt sie Ihnen mit dem übrigen Material vor; nach Ihrer Freigabe steht sie **nur** auf
+  Ihrer Druckliste „Von der Lehrkraft auszudrucken“ als **„5x - beidseitig - sw - Konzentrationsaufgabe – <Thema>.pdf“** und damit auch in den
+  Druckaufträgen für den nächsten Arbeitstag – nie in der Elternansicht und nie für die Kinder. Anzahl und Druckart ändern Sie dort wie bei
+  jeder Druckvorlage. Im Verlaufsplan nennt Claude sie in der ersten Plenumsphase (gelb markiert). Fehlt sie noch, erinnert Unterricks Claude
+  beim Lesen der Sitzung und beim Speichern des Verlaufsplans; hat sie mehr als zwei Seiten, sagt Unterricks es Claude beim Ablegen.
 * **Elternansicht:** **„Sitzungslink für Eltern kopieren“** legt einen geheimen, nicht erratbaren Link in die Zwischenablage (zum
   Weitergeben, z. B. per Elternbrief oder Messenger). Wer ihn hat, sieht diese Sitzung und alle vorherigen Sitzungen dieses Kurses im
   Schuljahr – jede erst, wenn sie laut Plan zu Ende ist (vorher „Diese Unterrichtssitzung hat noch nicht stattgefunden.“). Eltern sehen:

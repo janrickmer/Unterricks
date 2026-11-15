@@ -292,13 +292,15 @@ test("Erinnerung: save_schulportal_entry bzw. save_verlaufsplan nennen eine fehl
   // Grundschule
   const course = (await call(c, GS.routeGsCourseCreate, "POST", "/x", { grade: 2, classes: ["a"], religion: true, weekdays: [{ day: 1, minutes: 45, time: "09:50" }] })).data.course;
   const g = await L.createLesson(c.db, { subject: "gs", klass: course.id, title: "Josef", date: "2026-11-16", startTime: "09:50" }, c.now);
+  // Nachtrag 27: ohne Konzentrationsaufgabe sagt die Antwort es vor der Erinnerung an die Zusammenfassung (die bleibt zum Schluss)
+  const CONC = G.concMissingText("Josef");
   r = await tool(c, "save_verlaufsplan", { lesson_id: g.id, text: "**1) Sitzkreis (10 Min.)**\n- Lied" });
-  assert.ok(!r.isError && r.text.endsWith("Eltern sehen nach der Stunde: noch kein Material." + MISSING), r.text);
+  assert.ok(!r.isError && r.text.endsWith("Eltern sehen nach der Stunde: noch kein Material." + CONC + MISSING), r.text);
   await tool(c, "update_lesson", { lesson_id: g.id, zusammenfassung_lehrkraft: "Im Sitzkreis singen alle ein Lied." });
   r = await tool(c, "save_verlaufsplan", { lesson_id: g.id, text: "**1) Sitzkreis (10 Min.)**\n- Lied" });
-  assert.ok(r.text.endsWith("Eltern sehen nach der Stunde: noch kein Material."), r.text);
+  assert.ok(r.text.endsWith("Eltern sehen nach der Stunde: noch kein Material." + CONC), r.text);
   r = await tool(c, "save_verlaufsplan", { lesson_id: g.id, text: "**1) Sitzkreis (10 Min.)**\n- Lied\n**2) Malen (20 Min.)**" });
-  assert.ok(r.text.endsWith("Eltern sehen nach der Stunde: noch kein Material." + OLD), r.text);
+  assert.ok(r.text.endsWith("Eltern sehen nach der Stunde: noch kein Material." + CONC + OLD), r.text);
   // Verweise des Verlaufsplans in der Zusammenfassung: Hinweis zur Form
   r = await tool(c, "update_lesson", { lesson_id: g.id, zusammenfassung_lehrkraft: "Die Lehrkraft liest [[pdf:0123456789abcdef]] vor." });
   assert.ok(r.text.includes("Achtung: Die Zusammenfassung erscheint als schlichter Text – schreibe sie ohne Markdown, Schulportal-Zeichen, Verweise [[pdf:…]], Aufzählungszeichen und Tabellen."), r.text);

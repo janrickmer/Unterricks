@@ -8,7 +8,7 @@ import { render, go, onLeave } from "./app.js";
 import { tapi, teacherBar, markNav } from "./teacher.js";
 import { fmtDay, insertStop, removeStops, hasStop, isStopLine, parsePlanMarkup, parentMaterial, parentOpensAt, pdfRef, lessonTimes, fmtClockBerlin, TEACHER_SUMMARY_TITLE } from "./shared.js";
 import { unitContext } from "./planning.js";
-import { claudeGsLessonPrompt, gsChatName } from "./gsplanning.js";
+import { claudeGsLessonPrompt, gsChatName, CONC_TITLE, CONC_PRINT } from "./gsplanning.js";
 import { claudeHandoff } from "./claude.js";
 import { leupoldView } from "./units.js";
 import { paintPlanPreview, contextMenu, prevStopCard, stopNextHint, prevStopShown, prevStopAfterSave, keepFocusOn, removeKeepingView } from "./portalview.js";
@@ -318,14 +318,14 @@ export async function gsSessionPage(id, d) {
   const planWithClaude = () => {
     flushPlan();
     claudeHandoff({ title: "Stunde mit Claude planen",
-      intro: "Claude plant mit Ihnen die Stunde, gestaltet Arbeitsblätter und Bildkarten und speichert Verlaufsplan, Inhalt für die Eltern und Hausaufgabe direkt hier – " +
+      intro: "Claude plant mit Ihnen die Stunde, gestaltet Arbeitsblätter, Bildkarten und die " + CONC_TITLE + " (" + CONC_PRINT.copies + "× auf Ihrer Druckliste) und speichert Verlaufsplan, Inhalt für die Eltern und Hausaufgabe direkt hier – " +
         "dazu jedes Mal die „" + TEACHER_SUMMARY_TITLE + "“ (ganz oben auf dieser Seite, nur für Sie).",
       after: "Wenn Claude gespeichert hat, kommen Sie hierher zurück: Die Seite übernimmt Verlaufsplan, Inhalt für die Eltern, Hausaufgabe, Materialien und die Zusammenfassung beim Zurückkehren automatisch.",
       chatName: () => gsChatName(ctx()), prompt: () => claudeGsLessonPrompt(ctx()) });
   };
   const claudeCard = h("section", { class: "card claudeplan", id: "gs-claude" },
     h("div", { class: "section-title" }, h("h2", { text: "Stunde mit Claude planen" }), h("span", { class: "badge ok", text: "Hauptweg" })),
-    h("p", { class: "small", text: "Claude plant mit Ihnen die Stunde, gestaltet Arbeitsblätter und Bildkarten und speichert Verlaufsplan, Inhalt für die Eltern und Hausaufgabe direkt hier." }),
+    h("p", { class: "small", text: "Claude plant mit Ihnen die Stunde, gestaltet Arbeitsblätter, Bildkarten und die " + CONC_TITLE + " (" + CONC_PRINT.copies + "× auf Ihrer Druckliste, für Kinder, die beim Zuhören ausmalen) und speichert Verlaufsplan, Inhalt für die Eltern und Hausaufgabe direkt hier." }),
     h("button", { class: "btn primary big", type: "button", onclick: planWithClaude }, "Stunde mit Claude planen"));
 
   /* ======================= Bildkarten (cards.js) ======================= */

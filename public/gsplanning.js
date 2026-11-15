@@ -71,6 +71,74 @@ export const VERLAUFSPLAN_RULES = "Nummerierte, fette Phasen mit Minuten und Soz
   "Muss die Lehrkraft an einer Stelle auf Material zurückgreifen, das nur sie hat (bereich \"lehrkraft\", z. B. ein Vorlesetext, ein Erzähltext oder eine Lösung), steht diese Aufforderung als eigener Stichpunkt " +
   "in der passenden Phase und ist unterstrichen, z. B. „- __Lehrkraft liest [[pdf:<file_id>|Vorlesetext – Die Arche Noah]] vor.__“ – unterstrichen wird nur diese Aufforderung.";
 
+/* ---------- Konzentrationsaufgabe (Nachtrag 27 vom 15.11.2026) ----------
+ * Für Kinder, die ihre Aufmerksamkeit in Plenumsphasen nur bündeln können, wenn sie den Sitzkreis verlassen und beim Zuhören ausmalen: in jeder
+ * geplanten Sitzung der Grundschule, nur auf der Druckliste der Lehrkraft (Bereich „druck“, 5x, beidseitig, schwarz-weiß) – nie für Eltern oder Kinder.
+ * Prompt „Stunde mit Claude planen“, Überarbeitung der Einheit, get_lesson, add_material_pdf und save_verlaufsplan nutzen dieselben Bausteine. */
+export const CONC_TITLE = "Konzentrationsaufgabe";
+export const CONC_PRINT = { copies: 5, duplex: true, color: false };
+export const CONC_PAGES_MAX = 2;
+export const CONC_WHY = "In jeder Klasse gibt es Kinder, die ihre Aufmerksamkeit nur bündeln können, wenn sie in Plenumsphasen den Sitzkreis verlassen und während des Zuhörens etwas ausmalen. " +
+  "Was sie ausmalen, zeigt den Unterrichtsinhalt – so verknüpfen sie das Gehörte mit dem Bild und können der Stunde inhaltlich folgen.";
+export const CONC_RULES = [
+  "Höchstens zwei DIN-A4-Seiten im PDF (hochkant): @page { size: A4; margin: 12mm }; jede Seite ein Block mit height: 272mm, overflow: hidden und break-after: page (der letzte ohne) – nichts darf auf eine dritte Seite laufen.",
+  "Überschrift „Konzentrationsaufgabe – <Thema der Stunde>“, Kopf nur „Name:“ und „Datum:“.",
+  "Zuerst mindestens zwei Ausmalbilder, die den aktuellen Unterrichtsinhalt zeigen, in der Reihenfolge der Stunde (z. B. Bilder zur Geschichte, die die Lehrkraft erzählt): " +
+    "Inline-SVG mit kräftigen schwarzen Konturen und großen weißen Flächen zum Ausmalen, keine grauen oder farbigen Füllungen, kindgerecht und ohne Text verständlich.",
+  "Danach das Symbol einer roten Karte: Inline-SVG einer hochkanten Karte mit abgerundeten Ecken, rot gefüllt mit dickem schwarzem Rand (auch schwarz-weiß gedruckt als Karte erkennbar), " +
+    "mit role=\"img\" und aria-label=\"Rote Karte\" – kein Emoji.",
+  "Erst nach der roten Karte eine weitere, altersgerechte Aufgabe, die den Inhalt dieser Stunde abfragt – mit wenig Lesen (z. B. ankreuzen, verbinden, malen oder ein einzelnes Wort schreiben).",
+];
+// Speicherangaben (Prompt, get_lesson): Bereich, Anzahl, Druckart und Titel
+export const concSaveArgs = (topic) => "`add_material_pdf` (`bereich` \"druck\", `anzahl` " + CONC_PRINT.copies + ", `beidseitig` true, `farbe` false, `titel` „" + CONC_TITLE + " – <Thema der Stunde>“" +
+  (topic ? ", hier z. B. „" + CONC_TITLE + " – " + topic + "“" : "") + ")";
+// me: im Prompt spricht die Lehrkraft („meiner Druckliste“)
+export const concWhere = (me = false) => "Dann steht sie nur auf " + (me ? "meiner Druckliste" : "der Druckliste der Lehrkraft") + " („" + CONC_PRINT.copies + "x - beidseitig - sw - " + CONC_TITLE +
+  " – ….pdf“), nie bei Eltern oder Kindern.";
+// Name einer Datei (mit oder ohne .pdf) bzw. Titel: ist das die Konzentrationsaufgabe? (auch „Konzentrations-Aufgabe: …“)
+const CONC_RE = /^\s*konzentrations[\s-]*aufgabe(?![a-zäöüß])/i;
+export const isConcName = (name) => CONC_RE.test(typeof name === "string" ? name : "");
+// Titel einheitlich „Konzentrationsaufgabe – <Thema>“ (Name auf der Druckliste); ohne Thema das der Sitzung
+export function concTitleOf(raw, topic) {
+  const rest = String(raw == null ? "" : raw).replace(/\.pdf\s*$/i, "").replace(CONC_RE, "").replace(/^[\s\-–—:|,.]+/, "").replace(/\s+/g, " ").trim();
+  const t = rest || String(topic == null ? "" : topic).replace(/\s+/g, " ").trim();
+  return CONC_TITLE + (t ? " – " + t : "");
+}
+// Prompt „Stunde mit Claude planen“ (Grundschule): eigener Abschnitt vor „## Vorgehen“ und ein Speicherschritt nach den Bildkarten (vor dem Verlaufsplan)
+export const concPromptSection = () => ["", "## " + CONC_TITLE + " (gehört zu jeder Sitzung)",
+  CONC_WHY + " Gestalte deshalb zusammen mit dem übrigen Material dieser Sitzung die „" + CONC_TITLE + "“ für diese Kinder und stelle sie mir mit dem übrigen Material vor. " +
+  "Ich drucke sie " + CONC_PRINT.copies + "-mal beidseitig in Schwarz-Weiß aus; sie ist nur für mich. Hat die Sitzung schon eine (siehe `get_lesson`), passe sie an, statt eine zweite anzulegen.",
+  ...CONC_RULES.map((r) => "- " + r)].join("\n");
+export const concPromptStep = (L) => "   - Die " + CONC_TITLE + " speicherst du mit " + concSaveArgs(gstr((L && (L.topic || L.title)) || "").replace(/\s+/g, " ").trim().slice(0, 120)) + ". " + concWhere(true) +
+  " Im Verlaufsplan steht sie in der ersten Plenumsphase als eigener Stichpunkt, z. B. „- " + CONC_TITLE + " [[pdf:<file_id>]] für Kinder, die beim Zuhören am Platz ausmalen“.";
+// Überarbeitung der Einheit (Grundschule): plant Claude dabei eine Sitzung neu, gehört ihre Konzentrationsaufgabe dazu
+export const CONC_REVISION = " Planst du dabei eine Sitzung neu oder änderst ihren Inhalt, gehört auch ihre „" + CONC_TITLE + "“ dazu (für Kinder, die beim Zuhören ausmalen; nur auf meiner Druckliste) – " +
+  "ob es sie schon gibt, wie sie aufgebaut ist und wie du sie ablegst, sagt `get_lesson` dieser Sitzung.";
+// Antwort von save_verlaufsplan: fehlt die Konzentrationsaufgabe bzw. steht sie nicht im Verlaufsplan
+export const concMissingText = (topic) => " Die „" + CONC_TITLE + "“ fehlt in dieser Sitzung noch (für Kinder, die beim Zuhören ausmalen; Zweck und Aufbau siehe get_lesson) – " +
+  "gestalte sie mit der Lehrkraft und lege sie nach ihrer Freigabe mit " + concSaveArgs(topic) + " ab; nenne sie dann im Verlaufsplan.";
+export const concUnplannedText = (ids) => " Die „" + CONC_TITLE + "“ steht noch nicht im Verlaufsplan – nenne sie in der ersten Plenumsphase als eigenen Stichpunkt (" + ids.map((id) => "[[pdf:" + id + "]]").join(" oder ") + ").";
+const concPlural = (n) => n + (n === 1 ? " Seite" : " Seiten");
+/* Abschnitt „Konzentrationsaufgabe“ von get_lesson (Grundschule): gibt es sie schon (Druckliste, Seiten) – sonst Zweck, Aufbau und Ablage.
+ * files = Dateien der Sitzung (GS_CTX_FILES), topic = Thema bzw. Titel der Sitzung, printName = printFileName aus shared.js */
+export function concSection(files, topic, printName) {
+  const fs = (files || []).filter((f) => f && f.area !== "archive" && f.cards == null && isConcName(f.name));
+  const out = ["", "## " + CONC_TITLE + " (gehört zu jeder Sitzung der Grundschule; nur für die Lehrkraft)"];
+  if (!fs.length) return [...out, "Fehlt noch. " + CONC_WHY + " Gestalte sie zusammen mit dem übrigen Material dieser Sitzung, stelle sie der Lehrkraft vor und lege sie nach ihrer Freigabe mit " + concSaveArgs(topic) + " ab. " + concWhere(), "Aufbau:", ...CONC_RULES.map((r) => "- " + r)];
+  for (const f of fs) {
+    const st = f.status !== "ready" ? (f.render_error ? "Druck fehlgeschlagen: " + f.render_error : "wartet auf den Druck") : f.pages ? concPlural(f.pages) : "fertig";
+    const where = f.area === "print" ? "auf der Druckliste als „" + printName({ name: f.name, copies: f.print_copies, duplex: f.print_duplex !== 0, color: f.print_color === 1 }) + "“"
+      : "Achtung: liegt nicht auf der Druckliste, sondern " + (f.area === "student" ? "beim Material für die Kinder – Eltern sehen sie nach der Stunde" : "beim Material nur für die Lehrkraft") +
+        "; sie gehört nur auf die Druckliste – sag es der Lehrkraft";
+    out.push("- file_id " + f.id + ": „" + f.name + "“ (" + where + "; " + st + ") → [[pdf:" + f.id + "]]");
+    if (f.status === "ready" && f.pages > CONC_PAGES_MAX) out.push("  Achtung: " + concPlural(f.pages) + " – höchstens " + CONC_PAGES_MAX + " A4-Seiten" +
+      (f.designed ? "; kürze sie (add_material_pdf mit file_id " + f.id + ")." : " (von der Lehrkraft hochgeladen)."));
+  }
+  if (fs.length > 1) out.push("Es gibt " + fs.length + " Konzentrationsaufgaben – überarbeite die passende mit ihrer file_id, statt eine weitere anzulegen; überzählige löscht die Lehrkraft in der Sitzung.");
+  if (fs.some((f) => f.designed)) out.push("Ändert sich der Inhalt der Stunde, passe sie an (add_material_pdf mit ihrer file_id).");
+  return out;
+}
+
 const gstr = (v) => (typeof v === "string" ? v : v == null ? "" : String(v));
 const gclip = (s, n) => { s = gstr(s); return s.length > n ? s.slice(0, n) + " […gekürzt]" : s; };
 const gsArea = (a) => (a === "student" ? "für die Kinder" : a === "teacher" ? "nur für die Lehrkraft" : a === "print" ? "zum Ausdrucken" : a);
@@ -149,6 +217,7 @@ export function claudeGsLessonPrompt(ctx) {
     "## Gestaltungsregeln für Bildkarten (add_picture_cards)",
     CARD_DESIGN_RULES.map((r) => "- " + r).join("\n"),
     "- Bildkarten von Verlagen dürfen meist nicht online weitergegeben werden – gestalte die Karten selbst.",
+    concPromptSection(),
     "",
     "## Vorgehen",
     "0. Dieser Chat soll „" + chatName + "“ heißen. Beginne deine erste Antwort mit der Zeile „Chat-Name: " + chatName + "“ (umbenennen kann ich den Chat in claude.ai nur selbst).",
@@ -162,6 +231,7 @@ export function claudeGsLessonPrompt(ctx) {
       (n ? ", mit `anzahl` " + n + " (laut Kurseinstellungen) – dann steht es auch auf meiner Druckliste" : ", mit `anzahl` (frag mich nach der Zahl der Kinder) – dann steht es auch auf meiner Druckliste") +
       "; \"druck\" nur für Material, das Eltern nicht sehen sollen (Tafel- und Bodenbilder, Kärtchen); \"lehrkraft\" nur für mich. Merke dir die file_id jeder Datei.",
     "   - Erzählst du eine Geschichte mit Bildkarten, gestaltest du sie und legst sie mit `add_picture_cards` ab – mit einem gekürzten Erzähltext je Karte (zum Nacherzählen mit den Kindern zu Hause).",
+    concPromptStep(L),
     "   - Den Stundenverlauf speicherst du mit `save_verlaufsplan` (übergib `base_version` aus `get_lesson`): " + VERLAUFSPLAN_RULES + " Setze selbst keinen Zwischenstopp – den trage ich ein, wenn wir nicht fertig werden.",
     "   - Den „Inhalt der Unterrichtsstunde“ für die Eltern speicherst du mit `update_lesson` und `inhalt_eltern`: 2–3 elternverständliche Sätze, worum es ging und was die Kinder lernen sollten. Eine Hausaufgabe nur, wenn wir eine vereinbart haben (`hausaufgabe`, schlichter Text ohne Zeichen).",
     "   - Den ausgearbeiteten Stundenentwurf (Verlauf mit Minuten, Begründung, Erwartungen) speicherst du mit `save_planning_result`.",
@@ -222,7 +292,7 @@ export function claudeUnitRevisionPrompt(ctx) {
     "2. Schlage mir zwei oder drei Möglichkeiten vor, wie die Einheit trotz der " + (items.length || !freeItems.length ? "Ausfälle" : "wegfallenden Termine") + " ihre zentrale Lernaufgabe erreicht – z. B. Stunden zusammenlegen oder kürzen, eine Stunde ohne Termin streichen oder mit einer anderen zusammenführen, oder die Einheit verlängern (stimme ich zu, trägst du das mit `extend_unit` ein: Die Plattform setzt das Ende auf den nächsten Termin laut Stundenplan, gibt zuerst den Stunden ohne Termin einen Termin und legt ihre Sitzungen an – sofort in der Einheit sichtbar). Nenne zu jeder Möglichkeit kurz Vor- und Nachteile.",
     "3. Warte auf meine Entscheidung.",
     "4. Soll verlängert werden, rufe zuerst `extend_unit` auf (mit `base_version` aus `get_unit` und `termine` – so viele Termine, wie gebraucht werden, höchstens 3; neue Stunden nur, wenn wir welche vereinbart haben). Speichere dann die überarbeitete Einheit mit `save_unit_plan` (mit `base_version` aus `get_unit` bzw. aus der Antwort von `extend_unit`) und gib bei jeder Stunde, die bleibt, ihre `uid` an. Stunden, deren Sitzung schon geplant ist oder schon Inhalte hat, lässt du nicht weg (Inhalt und Stundenfrage darfst du ändern); nur Stunden ohne Sitzung oder mit „noch nicht geplant“ dürfen wegfallen. Die Termine verteilt die Plattform neu.",
-    "5. Passe betroffene Sitzungen nur nach meiner Zustimmung an (`save_verlaufsplan`, `update_lesson` mit `inhalt_eltern` und – für mich – `zusammenfassung_lehrkraft`, die „Zusammenfassung der Sitzung für die Lehrkraft“).",
+    "5. Passe betroffene Sitzungen nur nach meiner Zustimmung an (`save_verlaufsplan`, `update_lesson` mit `inhalt_eltern` und – für mich – `zusammenfassung_lehrkraft`, die „Zusammenfassung der Sitzung für die Lehrkraft“)." + CONC_REVISION,
     "",
     "Nenne nie Namen von Kindern.",
     "",

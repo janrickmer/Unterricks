@@ -17,7 +17,7 @@ import { shortImages } from "./render.js";
 import { ESCAPE_FORMAT_HINT, PART_TYPES } from "../public/escape-data.js";
 import { SUBJECTS, ALL_CLASSES, subjectName, gradeInfo, formatCode, lessonContext, chatTranscript, PORTAL_RULES, PORTAL_EXAMPLE, PORTAL_TEACHER_RULE, SYSTEM_PROMPT_ROLE, FEIBEITSBLATT_INFO, FB_LINK_HINT, classShort, fmtDay, materialDesignText, printFileName, GS_SUBJECT,
   STOP_LINE, hasStop, planRefs, pdfRef, PLAN_REF_RE, NOTES_FILE, TEACHER_SUMMARY_TITLE, TEACHER_SUMMARY_MAX, teacherSummaryRules, summaryHead, summaryOutdated, fmtStampBerlin, addDays, berlinToday } from "../public/shared.js";
-import { gsLessonContext, GS_MATERIAL_RULES, CARD_DESIGN_RULES, VERLAUFSPLAN_EXAMPLE, VERLAUFSPLAN_RULES } from "../public/gsplanning.js";
+import { gsLessonContext, GS_MATERIAL_RULES, CARD_DESIGN_RULES, VERLAUFSPLAN_EXAMPLE, VERLAUFSPLAN_RULES, CONC_TITLE, CONC_PRINT, CONC_PAGES_MAX, isConcName, concTitleOf, concSection, concMissingText, concUnplannedText } from "../public/gsplanning.js";
 import { saveCardSet, setCardTexts } from "./cards.js";
 import { parentFiles, refCounts } from "./parents.js";
 
@@ -112,7 +112,8 @@ const TOOLS = [
     description: "Nur für Sitzungen der Grundschule (statt des Schulportal-Eintrags): ersetzt den Verlaufsplan der Sitzung. Format: " + VERLAUFSPLAN_RULES + " " +
       "Lege das Material vorher an (add_material_pdf, Bildkarten mit add_picture_cards) und nimm seine file_id aus der Antwort oder aus get_lesson. " +
       "Eine Zeile „" + STOP_LINE + "“ setzt nur die Lehrkraft (bis dorthin wurde die Stunde geschafft): Eltern sehen nur das Material bis zum Zwischenstopp. Eine vorhandene Zeile „" + STOP_LINE + "“ lässt du unverändert an ihrer Stelle; setze selbst keine. " +
-      "Übergib base_version aus get_lesson, damit keine neuere Änderung der Lehrkraft überschrieben wird. " + SUMMARY_AFTER_SAVE + " Beispiel:\n" + VERLAUFSPLAN_EXAMPLE,
+      "Übergib base_version aus get_lesson, damit keine neuere Änderung der Lehrkraft überschrieben wird. " +
+      "Zu jeder Sitzung gehört die „" + CONC_TITLE + "“ (nur auf der Druckliste der Lehrkraft, siehe get_lesson): nenne sie in der ersten Plenumsphase als eigenen Stichpunkt. " + SUMMARY_AFTER_SAVE + " Beispiel:\n" + VERLAUFSPLAN_EXAMPLE,
     inputSchema: { type: "object", properties: { lesson_id: ID_ARG, text: { type: "string", maxLength: 30000 }, base_version: { type: "integer", minimum: 0 } }, required: ["lesson_id", "text"], additionalProperties: false } },
   { name: "add_material_pdf", title: "Material gestalten (PDF)", annotations: wr,
     description: "Legt ein von dir gestaltetes Material als PDF-Datei in der Sitzung ab: Arbeitsblätter, Texte und Quellen, Schaubilder, Tafelbilder, Kärtchen, Erwartungshorizonte – alles, was Schüler:innen oder die Lehrkraft als Datei bekommen. " +
@@ -122,7 +123,10 @@ const TOOLS = [
       "Mit file_id (aus get_lesson) ersetzt du die Gestaltung eines vorhandenen Materials – lies sie vorher mit get_material; eingebettete Bilder stehen dort als Platzhalter „data:unterricks-bild,n“ und bleiben erhalten, wenn du die Platzhalter stehen lässt. " +
       "Die Antwort nennt die Seitenzahl der gedruckten PDF oder die Meldung des Druckers. Ein Material = eine Datei (mehrere Materialien M1, M2 … für dieselbe Aufgabe dürfen in einer Datei stehen).\n\nGestaltungsregeln:\n" + materialDesignText() +
       "\n\nGrundschule: bereich \"schueler\" = Arbeitsblätter der Kinder (Eltern sehen sie nach der Stunde, wenn der Verlaufsplan sie vor einem Zwischenstopp nennt); gib dort anzahl an (und, wenn nötig, beidseitig und farbe), dann steht das Blatt auch auf der Druckliste. " +
-      "bereich \"druck\" nur für Material, das Eltern nicht sehen sollen (Tafel- und Bodenbilder, Kärtchen). Zusätzliche Gestaltungsregeln Grundschule (gehen vor):\n" + GS_MATERIAL_RULES.map((r) => "- " + r).join("\n"),
+      "bereich \"druck\" nur für Material, das Eltern nicht sehen sollen (Tafel- und Bodenbilder, Kärtchen). " +
+      "Zu jeder Sitzung der Grundschule gehört die „" + CONC_TITLE + "“ (Zweck und Aufbau siehe get_lesson; titel „" + CONC_TITLE + " – <Thema der Stunde>“): Unterricks legt sie immer nur auf die Druckliste der Lehrkraft (" +
+      CONC_PRINT.copies + "x, beidseitig, schwarz-weiß; nie für Eltern oder Kinder) und meldet, wenn sie mehr als " + CONC_PAGES_MAX + " Seiten hat. " +
+      "Zusätzliche Gestaltungsregeln Grundschule (gehen vor):\n" + GS_MATERIAL_RULES.map((r) => "- " + r).join("\n"),
     inputSchema: { type: "object", properties: { lesson_id: ID_ARG, bereich: { type: "string", enum: ["schueler", "lehrkraft", "druck"], description: "bei file_id nur angeben, wenn er sich ändert (schueler ↔ lehrkraft)" },
       titel: { type: "string", maxLength: 160, description: "Dateiname ohne Endung, z. B. „Arbeitsblatt – Gewaltenteilung“" }, html: { type: "string", maxLength: 1600000, description: "vollständige HTML-Seite mit <style>" },
       anzahl: { type: "integer", minimum: 1, maximum: 500, description: "nur bei bereich druck (Grundschule: auch bei schueler)" }, beidseitig: { type: "boolean", description: "nur bei bereich druck (Grundschule: auch bei schueler)" }, farbe: { type: "boolean", description: "nur bei bereich druck (Grundschule: auch bei schueler)" },
@@ -364,6 +368,8 @@ async function gsLessonDump(c, l) {
         (ok ? ":" : " – liegt nicht vor dieser Sitzung, deshalb sehen Eltern diese Dateien hier nicht:"), ...fs.map(gsFileLine));
     }
   }
+  // Konzentrationsaufgabe (Nachtrag 27): gibt es sie schon – sonst Zweck, Aufbau und Ablage (nicht bei einem Ausfall-Eintrag)
+  if (!l.cancelled) parts.push(...concSection(ctx.files, l.topic || l.title, printFileName));
   parts.push(...cardsSection(ctx.files));
   parts.push(...(await designedSection(db, l.id, (a) => (a === "student" ? "für die Kinder" : a === "teacher" ? "nur Lehrkraft" : "zum Ausdrucken"))));
   if (results.length) parts.push("", "## Gespeicherter Stundenentwurf (save_planning_result)", results[results.length - 1].content.slice(0, 20000));
@@ -733,24 +739,52 @@ async function callTool(c, name, a) {
     case "add_material_pdf": {
       const lx = await getLesson(c.db, a.lesson_id), gs = lx.subject === GS_SUBJECT;
       if (lx.cancelled) return toolError(NO_MATERIAL);
-      const area = { schueler: "student", lehrkraft: "teacher", druck: "print" }[a.bereich] || "";
-      if (!a.file_id && !area) return toolError("Bitte bereich angeben: schueler, lehrkraft oder druck.");
-      const f = await saveDesign(c, a.lesson_id, { area, title: a.titel, html: a.html, print: { copies: a.anzahl, duplex: a.beidseitig, color: a.farbe }, source: "claude", fileId: a.file_id || null, gsPrint: gs });
+      let area = { schueler: "student", lehrkraft: "teacher", druck: "print" }[a.bereich] || "";
+      if (!a.file_id && !area && !(gs && isConcName(a.titel))) return toolError("Bitte bereich angeben: schueler, lehrkraft oder druck.");
+      // Konzentrationsaufgabe der Grundschule (Nachtrag 27): immer nur auf der Druckliste der Lehrkraft – neu mit 5x, beidseitig, schwarz-weiß (die Lehrkraft
+      // kann das in der Sitzung ändern; beim Überarbeiten bleibt ihre Einstellung), Titel einheitlich „Konzentrationsaufgabe – <Thema>“
+      const topic = lx.topic || lx.title || "";
+      const old = gs && a.file_id ? await getFile(c.db, a.file_id).catch(() => null) : null;
+      const conc = gs && (isConcName(a.titel) || (!!old && old.lesson_id === lx.id && isConcName(old.name)));
+      if (conc && old && old.lesson_id === lx.id && old.html != null && old.area !== "print")
+        return toolError("Die " + CONC_TITLE + " gehört nur auf die Druckliste der Lehrkraft (nie für Eltern oder Kinder) – dieses Material liegt " + (old.area === "student" ? "beim Material für die Kinder" : "beim Material nur für die Lehrkraft") +
+          ". Lege sie neu an: add_material_pdf ohne file_id mit bereich \"druck\".");
+      let title = a.titel, print = { copies: a.anzahl, duplex: a.beidseitig, color: a.farbe }, concNote = "";
+      if (conc) {
+        title = a.titel ? concTitleOf(a.titel, topic) : a.titel;
+        if (a.file_id) { area = ""; print = {}; }
+        else {
+          const asked = (a.bereich && a.bereich !== "druck") || (a.anzahl != null && a.anzahl !== CONC_PRINT.copies) || a.beidseitig === false || a.farbe === true;
+          area = "print"; print = { ...CONC_PRINT };
+          if (asked) concNote = " (Die " + CONC_TITLE + " legt Unterricks immer so auf die Druckliste: " + CONC_PRINT.copies + "x, beidseitig, schwarz-weiß – die Lehrkraft kann das in der Sitzung ändern.)";
+        }
+      }
+      const f = await saveDesign(c, a.lesson_id, { area, title, html: a.html, print, source: "claude", fileId: a.file_id || null, gsPrint: gs });
       const pName = () => printFileName({ name: f.name, copies: f.print_copies, duplex: f.print_duplex !== 0, color: f.print_color === 1 });
       const where = gs && f.area === "student" ? "für die Kinder (Eltern sehen es nach der Stunde)" + (f.print_copies != null ? " und in der Liste „Von der Lehrkraft auszudrucken“ als „" + pName() + "“" : "")
-        : f.area === "student" ? "für die Schüler:innen" : f.area === "teacher" ? "nur für die Lehrkraft" : "in der Liste „Von der Lehrkraft auszudrucken“ als „" + pName() + "“";
-      const ref = gs ? " Verweis im Verlaufsplan: " + pdfRef(f.id) + "." : "";
+        : f.area === "student" ? "für die Schüler:innen" : f.area === "teacher" ? "nur für die Lehrkraft" : "in der Liste „Von der Lehrkraft auszudrucken“ als „" + pName() + "“" + (conc ? " – nie für Eltern oder Kinder" : "");
+      let ref = gs ? " Verweis im Verlaufsplan: " + pdfRef(f.id) + "." : "";
+      if (conc) {
+        // mehrere Konzentrationsaufgaben in einer Sitzung: sagen (löschen kann nur die Lehrkraft)
+        const all = ((await c.db.prepare("SELECT id, name FROM files WHERE lesson_id=?1 AND area<>'archive' AND cards IS NULL").bind(lx.id).all()).results || []).filter((x) => isConcName(x.name));
+        ref += concNote + (all.length > 1 ? " Achtung: Diese Sitzung hat jetzt " + all.length + " Konzentrationsaufgaben (" + all.map((x) => "file_id " + x.id).join(", ") +
+          ") – überarbeite künftig die vorhandene mit ihrer file_id; überzählige kann nur die Lehrkraft in der Sitzung löschen." : "");
+      }
+      const tooLong = (pages) => conc && pages > CONC_PAGES_MAX ? " Achtung: Die " + CONC_TITLE + " hat " + pages + " Seiten – sie soll auf höchstens " + CONC_PAGES_MAX +
+        " A4-Seiten passen (beidseitig gedruckt ein Blatt). Bitte kürzen und mit add_material_pdf (file_id " + f.id + ") erneut senden." : "";
       try {
         const r = await renderDesign(c, f, { waitMs: 30000 });
         const kb = Math.max(1, Math.round(r.bytes / 1024));
         return toolText("„" + r.file.name + "“ " + (a.file_id ? "überarbeitet" : "gespeichert") + " und als PDF gedruckt: " + (r.pages ? r.pages + (r.pages === 1 ? " Seite" : " Seiten") : "Seitenzahl unbekannt") + ", " + kb + " KB, " + where + "." +
-          (r.current ? "" : " (Inzwischen kam eine neuere Gestaltung an – Unterricks druckt sie nach.)") + " Ändern: add_material_pdf mit file_id " + f.id + "." + ref, { file_id: f.id, pages: r.pages || null, bytes: r.bytes, status: "gedruckt" });
+          (r.current ? "" : " (Inzwischen kam eine neuere Gestaltung an – Unterricks druckt sie nach.)") + tooLong(r.pages) + " Ändern: add_material_pdf mit file_id " + f.id + "." + ref,
+          { file_id: f.id, pages: r.pages || null, bytes: r.bytes, status: "gedruckt", ...(conc ? { konzentrationsaufgabe: true, zu_lang: r.pages > CONC_PAGES_MAX } : {}) });
       } catch (e) {
         const code = e && e.code ? String(e.code) : "";
         const later = code === "render_busy" || code === "render_quota" || code === "render_config";
         return toolText("„" + f.name + "“ ist " + (a.file_id ? "überarbeitet" : "gespeichert") + " (" + where + "), aber noch nicht als PDF gedruckt: " + (e && e.message ? e.message : "Fehler beim Druck") + " " +
           (later ? "Unterricks druckt es automatisch nach, sobald die Lehrkraft Unterricks öffnet; bis dahin sehen die Schüler:innen " + (a.file_id && f.status === "ready" ? "die bisherige Fassung." : "es noch nicht.")
-            : "Bitte die Gestaltung prüfen und mit add_material_pdf (file_id " + f.id + ") korrigiert erneut senden.") + ref, { file_id: f.id, status: later ? "wartet auf den Druck" : "Druckfehler", error: e && e.message ? e.message : null });
+            : "Bitte die Gestaltung prüfen und mit add_material_pdf (file_id " + f.id + ") korrigiert erneut senden.") + ref,
+          { file_id: f.id, status: later ? "wartet auf den Druck" : "Druckfehler", error: e && e.message ? e.message : null, ...(conc ? { konzentrationsaufgabe: true } : {}) });
       }
     }
     case "get_material": {
@@ -830,7 +864,10 @@ async function callTool(c, name, a) {
         later.map((id) => { const f = byId.get(id); return "„" + f.name + "“ (Sitzung „" + (f.lesson_title || "") + "“, " + (f.lesson_date ? fmtDay(f.lesson_date) : "ohne Termin") + ")"; }).join(", ") +
         ". Für die Eltern nur Material dieser oder einer früheren Sitzung verweisen.");
       t.push("Eltern sehen nach der Stunde: " + parentsSee + ".");
-      return toolText(t.join(" ") + (await summaryReminder(c.db, l, p.text)), { version: p.version, unknown_refs: unknown, invalid_refs: invalid, later_refs: later });
+      // Konzentrationsaufgabe (Nachtrag 27): fehlt sie oder steht sie nicht im Verlaufsplan, sagt es die Antwort (vor der Erinnerung an die Zusammenfassung)
+      const conc = files.filter((f) => f.lesson_id === l.id && isConcName(f.name)).map((f) => f.id);
+      const concText = l.cancelled ? "" : !conc.length ? concMissingText(l.topic || l.title || "") : !conc.some((id) => refs.includes(id)) ? concUnplannedText(conc) : "";
+      return toolText(t.join(" ") + concText + (await summaryReminder(c.db, l, p.text)), { version: p.version, unknown_refs: unknown, invalid_refs: invalid, later_refs: later, konzentrationsaufgabe: conc.length > 0 });
     }
     case "add_text_material": {
       const lx = await getLesson(c.db, a.lesson_id);
