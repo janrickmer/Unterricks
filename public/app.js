@@ -6,7 +6,7 @@ import { codeSlideDom } from "./codeslide.js";
 import { timerBand } from "./timerband.js";
 import { renderMarkdown } from "./markdown.js";
 import { slideViewer } from "./slideviewer.js";
-import { lazy, isModuleError, pageFailed, navCheckDue, navBlockers, beforeRoute, waitPage, holdReload, installUpdateChecks } from "./update.js";
+import { lazy, isModuleError, pageFailed, navCheckDue, navBlockers, beforeRoute, waitPage, holdReload, beforeReload, installUpdateChecks } from "./update.js";
 
 // Nie in fremden Seiten eingebettet anzeigen: Auf GitHub Pages fehlen die Schutz-Header (frame-ancestors gilt nicht als <meta>)
 if (window.top !== window.self) { document.documentElement.hidden = true; throw new Error("Unterricks lässt sich nicht in andere Seiten einbetten."); }
@@ -29,6 +29,8 @@ let authTimer = null, expiredNote = "";
 const beforeExpire = new Set();
 /* Seiten mit ungespeichertem Stand (Escape-Room) sichern ihn, bevor abgemeldet wird */
 export function onStudentExpire(fn) { beforeExpire.add(fn); onLeave(() => beforeExpire.delete(fn)); }
+// „Jetzt neu laden“ nach einem Update (update.js): dieselben Sicherungen wie vor der Abmeldung – im Escape-Room geht es nach dem Neuladen dort weiter
+beforeReload(() => { for (const fn of [...beforeExpire]) { try { fn(); } catch {} } });
 const onStudentPage = () => /^#\/schueler(\/|$)/.test(location.hash);
 function armAuth(leftMs) {
   if (Number.isFinite(leftMs)) store.set(AUTH_KEY, String(Date.now() + Math.max(0, leftMs)));

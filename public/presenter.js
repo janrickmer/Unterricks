@@ -1,5 +1,5 @@
 // presenter.js – Präsentation (PDF) in Folienbilder umwandeln und im Vollbild live für alle zeigen.
-import { lazy } from "./update.js";
+import { lazy, lazyWorker } from "./update.js";
 import { h, clear, api, apiUrl, wsUrl, toast, errToast, icon, store, rand, busy, openLayer, keepTab, trackWork } from "./ui.js";
 import { isValidCode, formatCode, slideTextLines, slideCodeBoxes, slideSessionCode, codeCover, coverFill, codeFontStyle, codeSlideLines, cleanCodeSlides, cleanSlideNotes, notesFor,
   nextSlideOf, nextSlideLabel, presenterKey, BEAMER_CHANNEL, normBeamerCode, PUBLIC_URL, beamerWindowNote,
@@ -76,7 +76,7 @@ function paintCode(ctx, b, text) {
 /* Seitenzahl einer PDF (Bildkarten: vor dem Hochladen prüfen, ob es höchstens 40 Karten sind und sich die PDF lesen lässt) */
 export async function pdfPageCount(file) {
   const lib = await pdfjs();
-  const doc = await lib.getDocument({ data: new Uint8Array(await file.arrayBuffer()), isEvalSupported: false }).promise;
+  const doc = await lazyWorker(lib.getDocument({ data: new Uint8Array(await file.arrayBuffer()), isEvalSupported: false }).promise);
   try { return doc.numPages; } finally { await doc.destroy(); }
 }
 /* PDF im Browser rendern (PDF.js) und jede Seite als JPEG hochladen. onProgress(i, n).
@@ -100,7 +100,7 @@ async function rasterize(file, fileId, token, onProgress, opt) {
   const swappedOn = [], missedOn = [], codeSlides = [];
   const lib = await pdfjs();
   const bytes = new Uint8Array(await file.arrayBuffer());
-  const open = (data) => lib.getDocument({ data, isEvalSupported: false, disableFontFace: false }).promise;
+  const open = (data) => lazyWorker(lib.getDocument({ data, isEvalSupported: false, disableFontFace: false }).promise);
   let doc = await open(bytes.slice());   // PDF.js übernimmt den Puffer – die Bytes bleiben für pdf-lib erhalten
   const n = doc.numPages;
   if (n > 300) { await doc.destroy(); throw new Error("Die Präsentation hat mehr als 300 Folien."); }

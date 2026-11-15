@@ -6,7 +6,7 @@
 import test, { after } from "node:test";
 import assert from "node:assert/strict";
 import { register } from "node:module";
-import { mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync, existsSync, statSync } from "node:fs";
+import { mkdtempSync, mkdirSync, readFileSync, readdirSync, rmSync, writeFileSync, existsSync, statSync } from "node:fs";
 import { join, posix, relative } from "node:path";
 import { tmpdir } from "node:os";
 import { fileURLToPath } from "node:url";
@@ -124,7 +124,19 @@ test("Build: Worker und GitHub Pages bekommen denselben Stand; jedes Modul liegt
     for (const f of files(out)) assert.ok(readFileSync(join(tmp, "w2", f)).equals(readFileSync(join(out, f))), f);
     // die Prüfung des Builds findet fehlende Dateien, Verweise aus dem Stand heraus und import(variable)
     writeFileSync(join(vdir, "kaputt.js"), 'import("./gibtsnicht.js"); import("/anderswo/x.js"); import(name);\n');
-    await assert.rejects(B.verifyVersioned(out, id), (e) => /kaputt\.js: \.\/gibtsnicht\.js .*\(fehlt\)/.test(e.message) && /\/anderswo\/x\.js .*nicht im Stand/.test(e.message) && /import\(\) ohne feste Adresse/.test(e.message));
+    // Prüfung S24: auch ein Verweis, den die Zerlegung als Text überspringt (import() in einer Vorlage), fällt auf; Kommentare zählen nicht
+    writeFileSync(join(vdir, "vorlage.js"), 'const t = `${(await import("/vendor/x.js")).y}`;\n// import("/vendor/nur-kommentar.js")\n');
+    await assert.rejects(B.verifyVersioned(out, id), (e) => /kaputt\.js: \.\/gibtsnicht\.js .*\(fehlt\)/.test(e.message) && /\/anderswo\/x\.js .*nicht im Stand/.test(e.message) && /import\(\) ohne feste Adresse/.test(e.message)
+      && /vorlage\.js: \/vendor\/x\.js \(Verweis ohne Stand\)/.test(e.message) && !/nur-kommentar/.test(e.message));
+    rmSync(join(vdir, "kaputt.js")); rmSync(join(vdir, "vorlage.js"));
+    assert.equal(await B.verifyVersioned(out, id) > 40, true, "ohne die kaputten Dateien wieder in Ordnung");
+    // Prüfung S24: der Stand hängt auch am Build-Skript (es bestimmt den Inhalt von /v/<Stand>/) – derselbe Quelltext mit geändertem Umbau bekommt
+    // einen anderen Stand, nie anderen Inhalt unter derselben Adresse
+    const altDir = join(tmp, "skript"); mkdirSync(altDir);
+    writeFileSync(join(altDir, "build.mjs"), readFileSync(join(ROOT, "scripts/build.mjs"), "utf8") + "\n// geänderter Umbau\n");
+    const alt = await import(join(altDir, "build.mjs"));
+    assert.equal(await B.buildId(join(ROOT, "public"), join(ROOT, "node_modules")), id);
+    assert.notEqual(await alt.buildId(join(ROOT, "public"), join(ROOT, "node_modules")), id);
   } finally { rmSync(tmp, { recursive: true, force: true }); }
 });
 
@@ -394,7 +406,7 @@ test("update.js: Nachladen gescheitert – Dialog „Unterricks wurde aktualisie
   assert.ok(!/Technische Angabe/.test(m[0].textContent), "bei einem Update ohne technische Angabe");
   UI.errToast(err); await D.sleep(20);
   assert.equal($$(".modal").length, 1, "errToast zeigt keinen zweiten Hinweis"); assert.equal($$("#toasts .toast").length, 0, "und keine technische Meldung");
-  button(m[0], "Jetzt neu laden").click(); assert.equal(s.reloads, 1); assert.equal($$(".modal").length, 1, "der Dialog bleibt bis zum Neuladen (z. B. Rückfrage des Browsers abgebrochen)");
+  button(m[0], "Jetzt neu laden").click(); await D.sleep(30); assert.equal(s.reloads, 1); assert.equal($$(".modal").length, 1, "der Dialog bleibt bis zum Neuladen (z. B. Rückfrage des Browsers abgebrochen)");
   button(m[0], "Abbrechen").click(); assert.equal($$(".modal").length, 0);
   // Schüler:in, Netzfehler (kein neuer Stand): du-Form, technische Angabe, „Neu laden“
   U = await loadUpdate(); s = setup(U, { versions: [ID_A], hash: "#/schueler/s/0123456789abcdef" });
@@ -437,6 +449,89 @@ test("update.js: Nachladen gescheitert – Dialog „Unterricks wurde aktualisie
   const pg = document.querySelector("main.loadfail");
   assert.equal(pg.querySelector("h1").textContent, U.LOAD_TEXT.title); assert.equal(pg.querySelectorAll("p")[0].textContent, U.LOAD_TEXT.sie);
   assert.match(pg.textContent, /Technische Angabe: Load failed/); assert.equal(s.reloads, 0);
+});
+
+test("update.js (Prüfung): „Jetzt neu laden“ von Hand sichert erst – Stand des Escape-Rooms ablegen, Speichern der Seite anstoßen und abwarten; bleibt etwas ungesichert, kein Neuladen, sondern ein Hinweis (am iPad fragt der Browser nicht nach)", async () => {
+  const cause = new TypeError("Failed to fetch dynamically imported module: /v/aaaaaaaaaaaa/sessionio.js");
+  const openDialog = async (U) => { await U.lazy(Promise.reject(cause)).catch(() => {}); await D.sleep(20); const m = $$(".modal"); assert.equal(m.length, 1); return m[0]; };
+  // Sicherungen der Seite (Escape-Room) laufen vor dem Neuladen
+  let U = await loadUpdate(), s = setup(U, { versions: [ID_B] });
+  const order = [];
+  const off = U.beforeReload(() => order.push("gesichert"));
+  U.io.reload = () => { order.push("neu geladen"); s.reloads++; };
+  let m = await openDialog(U);
+  button(m, "Jetzt neu laden").click(); await D.sleep(30);
+  assert.deepEqual(order, ["gesichert", "neu geladen"]); off();
+  button(m, "Abbrechen").click();
+  // die Rückfrage der Seite stößt das Speichern an (wie der Schulportal-Eintrag): erst nach dem Speichern neu laden
+  U = await loadUpdate(); s = setup(U, { versions: [ID_B] });
+  let dirty = true, saved = false;
+  const flushing = (e) => { if (dirty) { dirty = false; UI.trackWork(D.sleep(40).then(() => { saved = true; })); e.preventDefault(); } };
+  window.addEventListener("beforeunload", flushing);
+  m = await openDialog(U);
+  const btn = button(m, "Jetzt neu laden");
+  btn.click(); await D.sleep(2);
+  assert.equal(m.querySelector("[role=status]").textContent, U.RELOADING_TEXT); assert.equal(btn.getAttribute("aria-disabled"), "true");
+  btn.click();   // zweiter Klick währenddessen: nichts doppelt
+  await D.sleep(150);
+  assert.equal(saved, true); assert.equal(s.reloads, 1, "einmal – nach dem Speichern");
+  window.removeEventListener("beforeunload", flushing); button(m, "Abbrechen").click();
+  // „Abbrechen“, während noch gespeichert wird: danach nicht mehr neu laden
+  U = await loadUpdate(); s = setup(U, { versions: [ID_B] });
+  let fin; UI.trackWork(new Promise((x) => { fin = x; }));
+  m = await openDialog(U);
+  button(m, "Jetzt neu laden").click(); await D.sleep(2);
+  button(m, "Abbrechen").click(); fin(); await D.sleep(60);
+  assert.equal(s.reloads, 0, "abgebrochen: kein Neuladen"); assert.equal($$(".modal").length, 0);
+  // ungesichert, ohne dass gespeichert wird (z. B. Zusammenfassung in Bearbeitung): nicht neu laden, ruhiger Hinweis, Knopf wieder bedienbar
+  U = await loadUpdate(); s = setup(U, { versions: [ID_B] });
+  const editing = (e) => { e.preventDefault(); e.returnValue = ""; };
+  window.addEventListener("beforeunload", editing);
+  m = await openDialog(U);
+  const b2 = button(m, "Jetzt neu laden");
+  b2.focus(); b2.click(); await D.sleep(40);
+  assert.equal(s.reloads, 0); assert.equal(m.querySelector("[role=status]").textContent, U.UNSAVED_TEXT.sie);
+  assert.equal(b2.hasAttribute("aria-disabled"), false); assert.equal($$(".modal").length, 1, "der Dialog bleibt offen");
+  window.removeEventListener("beforeunload", editing);
+  b2.click(); await D.sleep(30); assert.equal(s.reloads, 1, "gespeichert: jetzt lädt der Knopf neu");
+  button(m, "Abbrechen").click();
+  // Arbeit läuft länger als die Wartezeit: nicht neu laden
+  U = await loadUpdate(); s = setup(U, { versions: [ID_B] });
+  let stop; const long = UI.trackWork(new Promise((x) => { stop = x; }));
+  U.io.sleep = async () => { s.now += 1000; await D.sleep(0); };
+  assert.equal(await U.reloadWhenSaved(), false); assert.equal(s.reloads, 0);
+  stop(); await long;
+  // Hinweisseite (Seitenwechsel, Netzfehler) und du-Form: derselbe Knopf
+  U = await loadUpdate(); s = setup(U, { versions: [ID_A], hash: "#/schueler/escape/0123456789abcdef" });
+  window.addEventListener("beforeunload", editing);
+  await U.pageFailed(new U.ModuleLoadError(cause), (node) => document.getElementById("app").replaceChildren(node));
+  const pg = document.querySelector("main.loadfail");
+  button(pg, "Neu laden").click(); await D.sleep(40);
+  assert.equal(s.reloads, 0); assert.equal(pg.querySelector("[role=status]").textContent, U.UNSAVED_TEXT.du);
+  window.removeEventListener("beforeunload", editing);
+  button(pg, "Neu laden").click(); await D.sleep(30); assert.equal(s.reloads, 1);
+  for (const [k, t] of Object.entries(U.UNSAVED_TEXT)) assert.ok(k === "sie" ? /Speichern Sie/.test(t) && !/\bdu\b/.test(t) : /Speichere/.test(t) && !/\bSie\b/.test(t), t);
+});
+
+test("update.js (Prüfung): pdf.js-Worker eines alten Stands fehlt nach dem Deploy („Setting up fake worker failed“) – wie ein gescheitertes Nachladen behandelt; andere PDF-Fehler bleiben; jedes getDocument geht über lazyWorker()", async () => {
+  const U = await loadUpdate(); const s = setup(U, { versions: [ID_B] });
+  const fake = new Error("Setting up fake worker failed: \"Failed to fetch dynamically imported module: https://x/v/aaaaaaaaaaaa/vendor/pdf.worker.min.mjs\".");
+  let err = null;
+  await U.lazyWorker(Promise.reject(fake)).catch((e) => { err = e; });
+  assert.ok(U.isModuleError(err) && err.cause === fake && err.message === U.LOAD_SHORT.sie, "ModuleLoadError ohne Technik");
+  await D.sleep(20);
+  const m = $$(".modal"); assert.equal(m.length, 1); assert.equal(m[0].querySelector("h2").textContent, U.UPDATE_TEXT.title);
+  button(m[0], "Abbrechen").click();
+  const broken = new Error("Invalid PDF structure.");
+  let other = null; await U.lazyWorker(Promise.reject(broken)).catch((e) => { other = e; });
+  assert.equal(other, broken, "eine beschädigte PDF meldet weiter ihren eigenen Fehler"); await D.sleep(20); assert.equal($$(".modal").length, 0);
+  assert.equal(await U.lazyWorker(Promise.resolve(7)), 7); assert.equal(s.reloads, 0);
+  const dir = join(ROOT, "public"), bad = [];
+  for (const f of readdirSync(dir).filter((x) => x.endsWith(".js"))) {
+    const src = readFileSync(join(dir, f), "utf8");
+    for (const x of src.matchAll(/\.getDocument\(/g)) if (!/lazyWorker\(\s*\w+$/.test(src.slice(Math.max(0, x.index - 30), x.index))) bad.push(f + ": " + src.slice(x.index - 30, x.index + 20));
+  }
+  assert.deepEqual(bad, []);
 });
 
 test("Texte: ruhig, Sie für Lehrkraft und Eltern, du für Schüler:innen, typografische Anführungszeichen, keine Technik", async () => {

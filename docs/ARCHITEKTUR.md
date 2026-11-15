@@ -1133,14 +1133,17 @@ werden: The requested module './portalview.js' does not provide an export named 
 Lücke hatte jedes Nachladen (Escape-Room, Eltern, Beamer, Präsentation, PDF-Bausteine, `/vendor/*` …). GitHub Pages hält zudem jede Datei
 10 Minuten (`Cache-Control: max-age=600`, auch `index.html`) und ignoriert Abfragen (`?v=…` liefert den neuen Inhalt).
 
-- **Stand je Build** (`scripts/build.mjs`): die ersten 12 Zeichen des SHA-256 über `public/` (Pfad, Länge, Inhalt) und die drei Bibliotheken –
+- **Stand je Build** (`scripts/build.mjs`): die ersten 12 Zeichen des SHA-256 über `public/` (Pfad, Länge, Inhalt), die drei Bibliotheken und
+  `scripts/build.mjs` selbst (es bestimmt, was in `/v/<Stand>/` steht – ein geänderter Umbau bekommt einen neuen Stand statt anderen Inhalts
+  unter derselben Adresse) –
   `dist/` (Worker) und `dist-pages/` (Pages) desselben Commits bekommen denselben Stand, ein zweiter Build ist byte-gleich. Alle Programmteile
   (`*.js` außer `boot.js`), `styles.css` und `vendor/` liegen in **`/v/<Stand>/`**; untereinander laden sie sich wie bisher relativ („./ui.js“)
   und bleiben so im Ordner ihres Stands. Absolute Verweise („/vendor/…“) schreibt der Build auf „/v/<Stand>/vendor/…“ um (`versionSpecifiers`:
   statisch, Seiteneffekt, `export … from`, `import()` mit fester Adresse – nie in Kommentaren oder Zeichenketten, genau einmal, mehrfach
   anwenden ändert nichts, sonst ändert sich am Code nichts); der PDF.js-Worker kommt per `new URL("./vendor/…", import.meta.url)` aus demselben
   Stand. Danach prüft der Build (`verifyVersioned`), dass jeder Verweis jedes Moduls genau einmal in den Stand auf eine vorhandene Datei zeigt
-  und es kein `import(variable)` gibt – sonst bricht er ab. `public/` bleibt unverändert (Unit-Tests lesen die Quellen; `npm run dev` baut erst).
+  und es kein `import(variable)` gibt, und – als Gegenprobe ohne Zerlegung – dass nirgends im Code (außer in Kommentaren) ein absoluter
+  Verweis ohne Stand steht, auch nicht in einer Vorlage `…${import("/x.js")}…`, die die Zerlegung als Text überspringt – sonst bricht er ab. `public/` bleibt unverändert (Unit-Tests lesen die Quellen; `npm run dev` baut erst).
 - **Warum ein Ordner je Stand und keine Abfrage `?v=`:** Nach einem Deploy gibt es den alten Ordner nicht mehr (Pages: 404, Worker: die Seite
   statt eines Moduls) – ein alter Tab bekommt unter einer alten Adresse nie neuen Code, sondern entweder dieselben alten Dateien aus einem
   Zwischenspeicher (in sich stimmig) oder einen sauberen Fehler. Mit `?v=` lieferte Pages unter der alten Adresse den neuen Inhalt, der dann
@@ -1189,8 +1192,16 @@ Lücke hatte jedes Nachladen (Escape-Room, Eltern, Beamer, Präsentation, PDF-Ba
   sicher ist –, sonst „Ein Teil von Unterricks ließ sich nicht laden“ mit „Neu laden“ und der technischen Angabe. Bei einer Aktion auf der Seite
   (Knopf) erscheint derselbe Hinweis als Dialog über `modal()` mit „Abbrechen“ – nie ein automatisches Neuladen, die Seite bleibt, wie sie ist
   (auch wo die Seite den Fehler nur in einer Statuszeile nennt oder still übergeht; `errToast` zeigt dafür keine zweite Meldung, nicht
-  abgefangene landen über `unhandledrejection` beim selben Dialog). „Jetzt neu laden“ ruft `location.reload()` – ungespeicherte Eingaben meldet
-  der Browser dann wie gewohnt.
+  abgefangene landen über `unhandledrejection` beim selben Dialog). Ebenso behandelt wird der **Worker von PDF.js**: Er kommt für jedes
+  Dokument neu aus dem Stand des Moduls; einem Tab, der PDF.js schon geladen hat, fehlt er nach einem Deploy („Setting up fake worker failed“) –
+  `lazyWorker(lib.getDocument(…).promise)` macht daraus denselben Hinweis, jeder andere PDF-Fehler bleibt, wie er ist.
+- **„Jetzt neu laden“ bzw. „Neu laden“ von Hand** (`reloadWhenSaved`, Prüfung S24 – vorher lud der Knopf sofort neu; am iPad fragt der Browser
+  dabei nie nach, eine Zusammenfassung in Bearbeitung oder der Stand im Escape-Room gingen verloren): erst sichern wie beim Seitenwechsel –
+  angemeldete Sicherungen laufen (`beforeReload`; `app.js` meldet dieselben wie vor der Abmeldung nach 90 Minuten an, der Escape-Room legt
+  seinen Stand im Browser ab und fragt nach dem Neuladen „Weiter im Escape-Room?“), die Rückfragen der Seiten (`beforeunload`) stoßen ihr
+  Speichern an (Schulportal-Eintrag, Verlaufsplan), laufende Arbeit wird abgewartet (höchstens 8 s; Statuszeile „Die Seite wird neu
+  geladen …“). Bleibt etwas ungesichert, ohne dass gespeichert wird (Zusammenfassung oder Notizen in Bearbeitung, Drucken läuft), lädt der
+  Knopf nicht neu, sondern sagt in der Statuszeile, dass erst gespeichert bzw. gewartet werden muss; Dialog und Fokus bleiben.
 - **Deploy** (`.github/workflows/deploy.yml`): unverändert `npm run build` im Worker-Job und `PAGES_API=… npm run build` im Pages-Job –
   derselbe Commit ergibt denselben Stand; beide Jobs geben ihn aus, der Pages-Job vergleicht ihn mit `version.json` des Workers (nur Hinweis).
   Zwischen Worker- und Pages-Deploy (einige Minuten) hat jede Herkunft weiter ihren eigenen, in sich stimmigen Stand.
@@ -1199,9 +1210,14 @@ Lücke hatte jedes Nachladen (Escape-Room, Eltern, Beamer, Präsentation, PDF-Ba
   Aufbau (derselbe Fehler wie gemeldet), Startseite → Deploy → Grundschul-Sitzung (neu geladen, keine Anfrage an den alten Stand), Deploy
   direkt nach einer Prüfung (sauberer 404, einmal neu geladen), veraltetes `index.html` (auch aus dem Zwischenspeicher des Browsers und von
   vor der Umstellung), Schleifenschutz, offener Dialog, laufende Präsentation, Live-Präsentation der Schüler:innen (Dialog in der du-Form),
-  am Worker mit Neustart von `wrangler dev` (eigener Port 8795). Mit `UPDATE_SHOTS=1` Bildschirmfotos in `test-results/update/`.
-- **Nicht prüfbar hier:** das echte CDN von GitHub Pages (ob ein Deploy dort sofort überall gilt), ein echtes iPad mit tagelang offenem Tab,
-  das Apple TV.
+  am Worker mit Neustart von `wrangler dev` (eigener Port 8795). Prüfung S24 dazu: „Jetzt neu laden“ mit ungespeicherter Zusammenfassung
+  (kein Neuladen, Hinweis; gespeichert, dann neu), Escape-Room (Stand abgelegt, nach dem Neuladen dort weiter), PDF.js-Worker am Worker nach
+  dem Deploy (Hinweis statt „Setting up fake worker failed“); Unit-Tests für `reloadWhenSaved`, `lazyWorker`, die Gegenprobe des Builds und den
+  Stand mit Build-Skript. Mit `UPDATE_SHOTS=1` Bildschirmfotos in `test-results/update/`.
+- **Nicht prüfbar hier:** das echte CDN von GitHub Pages (ob ein Deploy dort sofort überall gilt und ob `?t=` am Zwischenspeicher des CDN
+  vorbeigeht – sonst meldet `/version.json` dort bis zu 10 Minuten den alten Stand: kein Mischen, nur der Hinweis kommt dann als
+  „ließ sich nicht laden“), ein echtes iPad mit tagelang offenem Tab, das Apple TV. Auf dem Beamergerät gibt es keinen Seitenwechsel, es
+  lädt deshalb nie von selbst neu – auch nicht nach der Stunde; es bekommt einen neuen Stand erst, wenn es neu geöffnet wird.
 
 ## 4i. Druckliste „Von der Lehrkraft auszudrucken“ (Ergänzung vom 10.11.2026)
 

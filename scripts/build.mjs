@@ -39,10 +39,12 @@ async function filesOf(dir, base = dir) {
   return out.sort();
 }
 
-/* Stand: SHA-256 über alle Quelldateien (Pfad, Länge, Inhalt) und die Bibliotheken – unabhängig vom Ziel (Worker oder Pages) */
+/* Stand: SHA-256 über alle Quelldateien (Pfad, Länge, Inhalt), die Bibliotheken und dieses Skript (es bestimmt, was in /v/<Stand>/ steht – ändert
+   sich nur der Umbau, darf unter derselben Adresse kein anderer Inhalt liegen) – unabhängig vom Ziel (Worker oder Pages) */
 export async function buildId(src, nm) {
   const hash = createHash("sha256");
   const add = (name, bytes) => { hash.update(name + "\0" + bytes.length + "\0"); hash.update(bytes); };
+  add("scripts/build.mjs", await readFile(fileURLToPath(import.meta.url)));
   for (const f of await filesOf(src)) add("public/" + f, await readFile(join(src, f)));
   for (const [from, to] of VENDOR) add("vendor/" + to, await readFile(join(nm, from)));
   return hash.digest("hex").slice(0, 12);
@@ -64,7 +66,7 @@ export function moduleSpecifiers(code) {
 }
 /* Kommentare und den Inhalt von Zeichenketten (außer der Verweise selbst) durch Leerzeichen ersetzen – gleiche Länge, gleiche Positionen.
    Zeichenketten nach import/from bleiben stehen; alle übrigen werden geleert, damit „from "…"“ in einem Text nie als Verweis zählt. */
-function maskCode(code) {
+function maskCode(code, keepStrings = false) {   // keepStrings: nur Kommentare (und reguläre Ausdrücke) leeren – für die Prüfung des gebauten Stands
   let out = "", i = 0;
   const n = code.length;
   const keepNext = () => /(\bfrom|\bimport)\s*$/.test(out) || /\bimport\s*\(\s*$/.test(out);
@@ -75,7 +77,7 @@ function maskCode(code) {
     if (c === '"' || c === "'" || c === "`") {
       let j = i + 1;
       while (j < n && code[j] !== c) { if (code[j] === "\\") j++; if (c !== "`" && code[j] === "\n") break; j++; }
-      const stop = Math.min(n, j + 1), keep = c !== "`" && keepNext();
+      const stop = Math.min(n, j + 1), keep = keepStrings || (c !== "`" && keepNext());
       out += keep ? code.slice(i, stop) : c + code.slice(i + 1, stop - 1).replace(/[^\n]/g, " ") + (stop - 1 > i ? code[stop - 1] : "");
       i = stop; continue;
     }
@@ -127,6 +129,10 @@ export async function verifyVersioned(out, id) {
       const r = /^new URL\(\s*(["'])([^"'\n]*)\1\s*,\s*import\.meta\.url\s*\)/.exec(code.slice(m.index));
       if (r) targets.push(r[2]);
     }
+    // Gegenprobe ohne Zerlegung: kein absoluter Verweis außerhalb des Stands irgendwo im Quelltext (auch nicht in einer Vorlage `…${import("/x.js")}…`,
+    // die die Zerlegung als Text überspringt); Kommentare zählen nicht
+    for (const m of maskCode(code, true).matchAll(/\b(?:import\s*\(\s*|import\s*|from\s*)(["'`])(\/[^"'`\n]*)\1/g))
+      if (!m[2].startsWith("/v/" + id + "/") && !targets.includes(m[2])) problems.push(f + ": " + m[2] + " (Verweis ohne Stand)");
     for (const spec of targets) {
       if (!spec.startsWith("./") && !spec.startsWith("../") && !spec.startsWith("/")) { problems.push(f + ": " + spec + " (kein Pfad dieser Seite)"); continue; }
       if (spec.startsWith("//")) { problems.push(f + ": " + spec + " (andere Herkunft)"); continue; }

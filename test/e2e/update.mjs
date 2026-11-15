@@ -20,6 +20,7 @@ import { cpSync, mkdirSync, mkdtempSync, readFileSync, writeFileSync, existsSync
 import { join, extname } from "node:path";
 import { tmpdir } from "node:os";
 import { buildSite, VENDOR, BUILD_RE } from "../../scripts/build.mjs";
+import { PDFDocument } from "pdf-lib";
 
 const TYPES = { ".html": "text/html; charset=utf-8", ".js": "text/javascript", ".mjs": "text/javascript", ".css": "text/css", ".svg": "image/svg+xml", ".woff2": "font/woff2", ".json": "application/json" };
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
@@ -60,7 +61,7 @@ const seed = (p, store) => p.evaluate((s) => { for (const [k, v] of Object.entri
 const mark = (p) => p.evaluate(() => { window.__s24tab = 1; });
 const marked = (p) => p.evaluate(() => window.__s24tab === 1);
 
-export async function updateE2E({ browser, devices, ROOT, BASE, FB, PAGES, PAGES_PORT, tStore, studentCode, lessonId, gsLessonId, ok, watch, shots }) {
+export async function updateE2E({ browser, devices, ROOT, BASE, FB, PAGES, PAGES_PORT, tStore, studentCode, lessonId, gsLessonId, escLessonId = null, escCode = null, ok, watch, shots }) {
   const tmp = mkdtempSync(join(process.env.E2E_TMP || tmpdir(), "unterricks-update-"));
   const nm = join(ROOT, "node_modules");
   const srcA = join(tmp, "srcA"), srcB = join(tmp, "srcB");
@@ -290,6 +291,75 @@ export async function updateE2E({ browser, devices, ROOT, BASE, FB, PAGES, PAGES
       await p.context().close();
     }
 
+    /* ---------- 4b. Prüfung S24: „Jetzt neu laden“ von Hand sichert erst (am iPad fragt der Browser beim Neuladen nicht nach) ---------- */
+    {
+      // Lehrkraft: Zusammenfassung in Bearbeitung (ungespeichert) – der Knopf lädt nicht neu, sondern sagt es; gespeichert, dann neu laden
+      S.serve({ root: A.out });
+      const p = await teacherPage({ who: "Lehrkraft-ungespeichert" });
+      const loads = loadCounter(p);
+      const asked = []; p.on("dialog", (x) => { asked.push(x.type()); x.accept().catch(() => {}); });   // wie am iPad: Verlassen ohne Rückfrage
+      await p.evaluate((h) => { location.hash = h; }, "#/lk/s/" + lessonId); await p.locator(".code-big").waitFor({ timeout: 20000 });
+      await p.locator("#tsum-edit-btn").click();
+      await p.fill("#tsum-ta", "S24-Prüfung: noch nicht gespeichert");
+      S.serve({ root: B.out });
+      let d = await featureDialog(p);
+      await d.getByRole("button", { name: "Jetzt neu laden" }).click();
+      await d.locator("[role=status]", { hasText: "noch nicht neu geladen" }).waitFor({ timeout: 15000 });
+      const st = await d.locator("[role=status]").textContent(), focus = await p.evaluate(() => document.activeElement && document.activeElement.textContent);
+      ok(loads.n === 0 && asked.length === 0 && await marked(p) && st === "Die Seite wurde noch nicht neu geladen: Es gibt ungespeicherte Änderungen, oder es wird gerade etwas gespeichert, hochgeladen oder gedruckt. Speichern Sie bitte zuerst bzw. warten Sie, bis es fertig ist – danach können Sie die Seite neu laden."
+        && /Jetzt neu laden/.test(focus || ""),
+        "„Jetzt neu laden“ mit ungespeicherter Zusammenfassung: kein Neuladen (am iPad ginge der Text sonst verloren), ruhiger Hinweis im Dialog, Fokus bleibt auf dem Knopf");
+      await d.getByRole("button", { name: "Abbrechen" }).click(); await d.waitFor({ state: "detached" });
+      await p.locator("#tsum").getByRole("button", { name: "Speichern", exact: true }).click();
+      await p.locator("#tsum-text", { hasText: "S24-Prüfung: noch nicht gespeichert" }).waitFor({ timeout: 15000 });
+      d = await featureDialog(p);
+      await d.getByRole("button", { name: "Jetzt neu laden" }).click();
+      await p.locator(".code-big").waitFor({ timeout: 30000 }); await sleep(800);
+      await p.locator("#tsum-text", { hasText: "S24-Prüfung: noch nicht gespeichert" }).waitFor({ timeout: 15000 });
+      ok(loads.n === 1 && !(await marked(p)) && await metaBuild(p) === B.id, "gespeichert, dann „Jetzt neu laden“: dieselbe Sitzung in Stand B, die Zusammenfassung ist da");
+      // aufräumen: Zusammenfassung wieder leeren (spätere Schritte setzen sie selbst)
+      await p.locator("#tsum-edit-btn").click(); await p.fill("#tsum-ta", "");
+      await p.locator("#tsum").getByRole("button", { name: "Speichern", exact: true }).click();
+      await p.locator("#tsum .tsum-empty").waitFor({ state: "visible", timeout: 15000 });
+      await p.context().close();
+    }
+    if (escLessonId) {
+      // Schüler:in im Escape-Room (Stand nur im Arbeitsspeicher): ein Programmteil fehlt (Überblick-PDF braucht pdf-lib) → „Jetzt neu laden“ legt den Stand
+      // vorher ab wie vor der Abmeldung nach 90 Minuten – nach dem Neuladen geht es dort weiter
+      S.serve({ root: A.out });
+      const sc = await browser.newContext({ ...devices["iPad (gen 7)"] }); ctxs.push(sc);
+      const sp = await sc.newPage(); watch(sp, "Update-Escape-Room");
+      const sl = loadCounter(sp);
+      const asked = []; sp.on("dialog", (x) => { asked.push(x.type()); x.accept().catch(() => {}); });   // wie am iPad: Verlassen ohne Rückfrage
+      await sp.goto(PAGES + "/");
+      await sp.fill("#spw", "Feindt"); await sp.getByRole("button", { name: "Weiter" }).click();
+      await sp.waitForURL(/#\/schueler$/); await sp.locator(".tiles .tile").first().waitFor();
+      await sp.getByRole("button", { name: "Politik und Wirtschaft" }).click(); await sp.getByRole("button", { name: "Q2 GK", exact: true }).click();
+      await sp.getByRole("button", { name: "Speichern und weiter" }).click();
+      await sp.fill("#code", escCode); await sp.getByRole("button", { name: "Sitzung öffnen" }).click();
+      await sp.waitForURL(/#\/schueler\/s\//);
+      await sp.evaluate((h) => { location.hash = h; }, "#/schueler/escape/" + escLessonId);
+      await sp.locator(".er-title", { hasText: "Mission Gewaltenteilung" }).waitFor({ timeout: 20000 });
+      await sp.fill("#er-fn", "Carla"); await sp.fill("#er-ln", "Probe"); await sp.fill("#er-bd", "05052009");
+      await sp.getByRole("button", { name: "Weiter zum Auftrag" }).click();
+      await sp.locator(".er-title", { hasText: "Willkommen" }).waitFor({ timeout: 15000 });
+      const n0 = sl.n;
+      S.serve({ root: B.out });
+      // „Überblick als PDF herunterladen“ (pdf-lib, nachgeladen) – dieselbe Instanz von escape.js wie die der Seite
+      await sp.evaluate(async () => { const m = await import("/v/" + document.querySelector('meta[name="unterricks-build"]').content + "/escape.js"); m.overviewPdf({}, {}, {}, {}).catch(() => {}); });
+      const sd = sp.locator(".modal", { hasText: "Unterricks wurde aktualisiert" }); await sd.waitFor({ timeout: 20000 });
+      ok((await sd.textContent()).includes("Seit du diese Seite geöffnet hast") && sl.n === n0, "Escape-Room nach dem Deploy: der Überblick braucht einen fehlenden Programmteil – Dialog in der du-Form, kein Neuladen von selbst");
+      await sd.getByRole("button", { name: "Jetzt neu laden" }).click();
+      const back = sp.locator(".modal", { hasText: "Weiter im Escape-Room?" });
+      await back.waitFor({ timeout: 30000 });
+      ok(sl.n === n0 + 1 && asked.length === 0 && (await back.textContent()).includes("Stand von Carla P."), "„Jetzt neu laden“: Stand vorher im Browser abgelegt (keine Rückfrage beim Verlassen nötig), nach dem Neuladen die bekannte Frage „Weiter im Escape-Room?“");
+      await back.getByRole("button", { name: "Ja, weiter" }).click();
+      await sp.locator(".er-title", { hasText: "Willkommen" }).waitFor({ timeout: 15000 });
+      ok(await metaBuild(sp) === B.id && new URL(sp.url()).hash === "#/schueler/escape/" + escLessonId && !(await sp.evaluate((k) => localStorage.getItem(k), "u.esc." + escLessonId)),
+        "Escape-Room: nach dem Neuladen in Stand B genau dort weiter (Sicherung danach gelöscht)");
+      await sc.close();
+    }
+
     /* ---------- 5. laufende Präsentation (Lehrkraft) und Live-Präsentation (Schüler:in) ---------- */
     {
       S.serve({ root: A.out });
@@ -369,7 +439,21 @@ export async function updateE2E({ browser, devices, ROOT, BASE, FB, PAGES, PAGES
       const p = await c.newPage(); watch(p, "Update-Worker");
       const loads = loadCounter(p);
       await p.goto(W + "/#/"); await p.locator("#spw").waitFor({ timeout: 20000 }); await mark(p);
+      // Prüfung S24: pdf.js ist schon geladen (z. B. eine Präsentation umgewandelt) – nach dem Deploy fehlt der Worker des alten Stands
+      const pd = await PDFDocument.create(); pd.addPage([200, 200]); pd.addPage([200, 200]);
+      const pdfBytes = Array.from(await pd.save());
+      const pages = () => p.evaluate(async (bytes) => {
+        const m = await import("/v/" + document.querySelector('meta[name="unterricks-build"]').content + "/presenter.js");   // dieselbe Instanz wie die der Seite
+        try { return { n: await m.pdfPageCount(new File([new Uint8Array(bytes)], "x.pdf", { type: "application/pdf" })) }; }
+        catch (e) { return { moduleLoad: e && e.moduleLoad === true, message: String((e && e.message) || e) }; }
+      }, pdfBytes);
+      const before = await pages();
       await stopW(); await startW(WB.out);   // „Deploy“
+      const after = await pages();
+      const wd = p.locator(".modal", { hasText: "Unterricks wurde aktualisiert" }); await wd.waitFor({ timeout: 20000 });
+      ok(before.n === 2 && after.moduleLoad && !/worker|fetch|module/i.test(after.message) && (await wd.textContent()).includes("Seit du diese Seite geöffnet hast") && loads.n === 1,
+        "Worker: pdf.js schon geladen, nach dem Deploy fehlt sein Worker (alter Stand) – Hinweis „Unterricks wurde aktualisiert“ statt „Setting up fake worker failed …“ (" + after.message + ")");
+      await wd.getByRole("button", { name: "Abbrechen" }).click(); await wd.waitFor({ state: "detached" });
       await makeDue(p);
       await p.evaluate(() => { location.hash = "#/lehrkraft"; });
       await p.locator("#tu").waitFor({ timeout: 30000 }); await sleep(800);

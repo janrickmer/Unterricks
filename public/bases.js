@@ -2,7 +2,7 @@
 // per PDF.js im Browser – die KI arbeitet nur mit diesem Text; zusätzlich liegt die Original-PDF in Unterricks, damit die Lehrkraft sie
 // aus der Planung heraus öffnen kann), Abschnitte automatisch erkennen und korrigieren; Fach-Einstellungen. Ev. Religion: auch das
 // Schulcurriculum der Grundschule (Jahrgänge 1–4). Jede Planungsgrundlage öffnet sich über #/lk/grundlage/<id> in einem neuen Tab.
-import { lazy } from "./update.js";
+import { lazy, lazyWorker } from "./update.js";
 import { h, clear, toast, errToast, busy, modal, confirmDialog, fmtTime, fmtBytes, icon, pageHead, upload, apiUrl, stateLine } from "./ui.js";
 import { render, go } from "./app.js";
 import { T, tapi, teacherBar } from "./teacher.js";
@@ -18,7 +18,7 @@ function pdfjs() {
 /* Text je Seite (Index 0 = Seite 1) */
 export async function pdfTexts(file, onProgress) {
   const lib = await pdfjs();
-  const doc = await lib.getDocument({ data: new Uint8Array(await file.arrayBuffer()), isEvalSupported: false }).promise;
+  const doc = await lazyWorker(lib.getDocument({ data: new Uint8Array(await file.arrayBuffer()), isEvalSupported: false }).promise);
   const n = doc.numPages, out = [];
   try {
     for (let i = 1; i <= n; i++) {
@@ -34,7 +34,7 @@ export async function pdfTexts(file, onProgress) {
 const MAX_PAGES = 600, CHUNK_BYTES = 250000, CHUNK_PAGES = 60;
 const pdfPages = async (file) => {
   const lib = await pdfjs();
-  const doc = await lib.getDocument({ data: new Uint8Array(await file.arrayBuffer()), isEvalSupported: false }).promise;
+  const doc = await lazyWorker(lib.getDocument({ data: new Uint8Array(await file.arrayBuffer()), isEvalSupported: false }).promise);
   try { return doc.numPages; } finally { await doc.destroy(); }
 };
 

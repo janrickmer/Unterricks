@@ -3337,7 +3337,7 @@ async function main() {
     /* ---------- Nach einem Update (S24): nie alte und neue Programmteile mischen ---------- */
     step("Nach einem Update: ein offener Tab mischt nie zwei Stände – er lädt beim nächsten Seitenwechsel sicher neu (Nachbau von GitHub Pages und Worker)");
     await updateE2E({ browser, devices, ROOT, BASE, FB, PAGES, PAGES_PORT, tStore: await tp.evaluate(() => JSON.stringify(localStorage)), studentCode: lesson0.code, lessonId,
-      gsLessonId: parentLessonId, ok, watch, shots: process.env.UPDATE_SHOTS ? join(OUT, "update") : null });
+      gsLessonId: parentLessonId, escLessonId: l3.id, escCode: l3.code, ok, watch, shots: process.env.UPDATE_SHOTS ? join(OUT, "update") : null });
 
     /* ---------- Sitzung als Datei ---------- */
     step("Sitzung als Datei herunterladen und in einer anderen Sitzung laden (Daten angepasst)");

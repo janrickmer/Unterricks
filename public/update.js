@@ -39,6 +39,13 @@ export const LOAD_SHORT = { sie: "Ein Teil von Unterricks ließ sich nicht laden
 export const WAIT_TEXT = "Einen Moment bitte …";
 export const RELOADING_TEXT = "Die Seite wird neu geladen …";
 export const TECH_PREFIX = "Technische Angabe: ";
+// „Jetzt neu laden“ von Hand, aber auf der Seite ist noch etwas ungesichert (S24-Prüfung: am iPad fragt der Browser beim Neuladen nicht nach)
+export const UNSAVED_TEXT = {
+  sie: "Die Seite wurde noch nicht neu geladen: Es gibt ungespeicherte Änderungen, oder es wird gerade etwas gespeichert, hochgeladen oder gedruckt. " +
+    "Speichern Sie bitte zuerst bzw. warten Sie, bis es fertig ist – danach können Sie die Seite neu laden.",
+  du: "Die Seite wurde noch nicht neu geladen: Es gibt noch nicht gespeicherte Eingaben, oder es wird gerade etwas gespeichert oder hochgeladen. " +
+    "Speichere bitte zuerst bzw. warte, bis es fertig ist – danach kannst du die Seite neu laden.",
+};
 
 /* Stand dieses Moduls aus seiner Adresse (/v/<Stand>/update.js) – null ohne Stand */
 export function buildOf(url) {
@@ -162,6 +169,43 @@ async function navUpdate(pre) {
   return true;
 }
 
+/* ---------- Neu laden von Hand („Jetzt neu laden“ bzw. „Neu laden“ im Hinweis) ----------
+ * Prüfung S24: Der Knopf lud sofort neu – am iPad fragt der Browser dabei nie nach, ungespeicherte Eingaben (z. B. eine Zusammenfassung in Bearbeitung)
+ * und der Stand im Escape-Room gingen verloren, ein Speichern unterwegs brach ab. Jetzt wie beim Seitenwechsel: erst sichern, dann neu laden. */
+const savers = new Set();
+/* Eine Seite legt vor dem Neuladen von Hand ihren Stand ab, damit es danach dort weitergeht (Escape-Room – wie vor der Abmeldung nach 90 Minuten,
+   app.js); Rückgabe: abmelden */
+export function beforeReload(fn) { savers.add(fn); return () => { savers.delete(fn); }; }
+/* true = lädt neu; false = es bliebe etwas ungesichert (die eigene Rückfrage einer Seite beim Verlassen, ohne dass sie dabei speichert), das
+   Speichern dauert länger als ms oder das Neuladen ist nicht mehr gewünscht (wanted(): Dialog inzwischen mit „Abbrechen“ geschlossen). Die
+   Rückfragen der Seiten (beforeunload) stoßen dabei ihr Speichern an (Schulportal-Eintrag, Verlaufsplan); das zählt als laufende Arbeit (ui.js)
+   und wird abgewartet. */
+export async function reloadWhenSaved(ms = SETTLE_MS, wanted = () => true) {
+  for (const fn of [...savers]) { try { fn(); } catch {} }
+  const end = io.now() + ms;
+  for (;;) {
+    hasUnsaved();
+    await io.sleep(100);
+    const working = workPending();
+    if (!working && !hasUnsaved()) break;
+    if (!working || io.now() >= end) return false;
+  }
+  if (!wanted()) return false;
+  io.reload();
+  return true;
+}
+/* Knopf zum Neuladen in Dialog und Hinweisseite: solange gesichert wird, sagt die Statuszeile „Die Seite wird neu geladen …“; bleibt etwas ungesichert,
+   erklärt sie es (der Knopf bleibt bedienbar, der Fokus bleibt auf ihm) */
+async function reloadButton(btn, status, aud, wanted = () => btn.isConnected) {
+  if (btn.getAttribute("aria-disabled") === "true") return false;
+  btn.setAttribute("aria-disabled", "true");
+  status.textContent = RELOADING_TEXT;
+  let done = false;
+  try { done = await reloadWhenSaved(SETTLE_MS, wanted); }
+  finally { if (!done) { btn.removeAttribute("aria-disabled"); status.textContent = wanted() ? UNSAVED_TEXT[aud] : ""; } }
+  return done;
+}
+
 /* ---------- Gescheitertes Nachladen ---------- */
 export class ModuleLoadError extends Error {
   constructor(cause) {
@@ -178,6 +222,14 @@ export const lazy = (p) => Promise.resolve(p).catch((e) => {
   const err = isModuleError(e) ? e : new ModuleLoadError(e);
   setTimeout(() => { if (!err.reported) err.report(); }, 0);
   throw err;
+});
+/* pdf.js startet für jedes Dokument einen Worker aus dem Stand des Moduls (/v/<Stand>/vendor/pdf.worker.min.mjs). Einem alten Tab, der pdf.js schon
+   geladen hat, fehlt er nach einem Deploy – pdf.js meldet dann „Setting up fake worker failed: …“. Prüfung S24: wie ein gescheitertes Nachladen
+   behandeln (Hinweis „Unterricks wurde aktualisiert“ statt der technischen Meldung); jeder andere Fehler (z. B. eine beschädigte PDF) bleibt, wie er ist.
+   Aufruf: lazyWorker(lib.getDocument({ … }).promise) */
+export const lazyWorker = (p) => Promise.resolve(p).catch((e) => {
+  if (/Setting up fake worker failed/i.test(String((e && e.message) || e))) return lazy(Promise.reject(e));
+  throw e;
 });
 /* Liegt es an einem neuen Stand? ("update") – sonst Netz o. Ä. ("error") */
 export async function explain() {
@@ -198,9 +250,11 @@ export async function reportModuleError(e) {
   if (dialogUp) return;
   dialogUp = true;
   const aud = audienceOf(io.hash()), T = kind === "update" ? UPDATE_TEXT : LOAD_TEXT;
-  modal({ title: T.title, onClose: () => { dialogUp = false; },
-    body: (el) => el.append(...nn(h("p", { text: T[aud] }), kind === "update" ? null : techLine(e))),
-    actions: [{ label: "Abbrechen" }, { label: T.button, class: "primary", onClick: () => { io.reload(); return false; } }] });
+  const status = h("p", { class: "small", role: "status" });
+  let open = true;   // „Abbrechen“, während noch gesichert wird: danach nicht mehr neu laden
+  modal({ title: T.title, onClose: () => { open = false; dialogUp = false; },
+    body: (el) => el.append(...nn(h("p", { text: T[aud] }), kind === "update" ? null : techLine(e), status)),
+    actions: [{ label: "Abbrechen" }, { label: T.button, class: "primary", onClick: (ev) => { reloadButton(ev.currentTarget, status, aud, () => open); return false; } }] });
 }
 /* Seitenwechsel: Statt der Seite ein ruhiger Hinweis; liegt es an einem neuen Stand und ist der Moment sicher, einmal von selbst neu laden */
 export async function pageFailed(e, show) {
@@ -211,7 +265,7 @@ export async function pageFailed(e, show) {
   const aud = audienceOf(hash), T = kind === "update" ? UPDATE_TEXT : LOAD_TEXT;
   const status = h("p", { class: "small muted", role: "status" });
   show(h("main", { class: "narrow loadfail" }, h("section", { class: "card" }, h("h1", { text: T.title }), h("p", { text: T[aud] }),
-    h("p", null, h("button", { class: "btn primary", type: "button", onclick: () => io.reload() }, T.button)), status, kind === "update" ? null : techLine(e))));
+    h("p", null, h("button", { class: "btn primary", type: "button", onclick: (ev) => reloadButton(ev.currentTarget, status, aud) }, T.button)), status, kind === "update" ? null : techLine(e))));
   if (kind !== "update") return;
   const to = versionState.latest;
   if (!mayAutoReload(to)) return;

@@ -365,7 +365,9 @@ Feibeitsblatt braucht keine Änderung. Die Adressen stehen in `wrangler.jsonc` (
 * **Nach einem Update von Unterricks:** Ein Tab, der schon vorher offen war, merkt das beim nächsten Seitenwechsel (z. B. beim Klick auf
   eine Sitzung) und lädt sich dann an derselben Stelle neu – Sie müssen nichts tun. Solange ein Dialog offen ist, eine Präsentation läuft
   (auch am Beamergerät und im Live-Fenster der Schüler:innen) oder noch etwas gespeichert, hochgeladen oder heruntergeladen wird, lädt er
-  nicht von selbst neu; fehlt dann ein Programmteil, erscheint der Hinweis „Unterricks wurde aktualisiert“ mit „Jetzt neu laden“.
+  nicht von selbst neu; fehlt dann ein Programmteil, erscheint der Hinweis „Unterricks wurde aktualisiert“ mit „Jetzt neu laden“. Der Knopf
+  speichert vorher, was sich speichern lässt (im Escape-Room geht es danach an derselben Stelle weiter); gibt es noch ungespeicherte
+  Änderungen, z. B. eine Zusammenfassung in Bearbeitung, lädt er nicht neu, sondern bittet Sie, erst zu speichern.
 
 ## Grundschule
 
