@@ -23,6 +23,7 @@ import { printTodayE2E } from "./printtoday.mjs";
 import { storageE2E } from "./storage.mjs";
 import { selbstlernStopE2E } from "./selbstlernstop.mjs";
 import { phaseStopE2E } from "./phasestop.mjs";
+import { inClassE2E } from "./inclass.mjs";
 import { escapeFixture } from "./escape-fixture.mjs";
 
 const require = createRequire(import.meta.url);
@@ -496,9 +497,10 @@ async function main() {
     await tp.locator("#tsum-text p", { hasText: "verwechseln Bundesrat und Bundestag" }).waitFor({ timeout: 10000 });
     ok((await tp.locator("#tsum-text p").allTextContents()).length === 2 && (await tp.locator("#tsum-head").textContent()) === summaryHead(lnow) && (await tp.locator("#tsum-h").evaluate((e) => e.tagName)) === "H2"
       && (await tp.locator("#tsum-h").textContent()) === "Zusammenfassung der Sitzung für die Lehrkraft", "beim Zurückkehren: Karte „Zusammenfassung der Sitzung für die Lehrkraft“ mit Kopfzeile und zwei Absätzen");
-    ok(await tp.evaluate(() => { const t = document.querySelector("#tsum"), head = document.querySelector("main > header.pagehead");
-      return !!t && !!head && head.nextElementSibling === t && [...document.querySelectorAll("main section.card")][0] === t && !!(t.compareDocumentPosition(document.querySelector(".claudeplan")) & Node.DOCUMENT_POSITION_FOLLOWING); }),
-      "die Karte steht ganz oben – direkt unter dem Kopfband, vor allen anderen Karten");
+    // seit Nachtrag 35 steht zwischen Kopfband und Zusammenfassung nur der Knopf „Ich bin jetzt im Unterricht“ (#inclass-bar, dahinter der leere Platz #inclass)
+    ok(await tp.evaluate(() => { const t = document.querySelector("#tsum"), head = document.querySelector("main > header.pagehead"), bar = head && head.nextElementSibling;
+      return !!t && !!bar && bar.id === "inclass-bar" && bar.nextElementSibling.id === "inclass" && bar.nextElementSibling.nextElementSibling === t && [...document.querySelectorAll("main section.card")][0] === t && !!(t.compareDocumentPosition(document.querySelector(".claudeplan")) & Node.DOCUMENT_POSITION_FOLLOWING); }),
+      "die Karte steht ganz oben – direkt unter dem Kopfband (und dem Knopf „Ich bin jetzt im Unterricht“), vor allen anderen Karten");
     await tp.evaluate(() => window.scrollTo(0, 0)); await tp.screenshot({ ...SHOT, path: join(OUT, "lehrkraft-zusammenfassung.png") });
     // selbst bearbeiten
     await tp.locator("#tsum-edit-btn").click();
@@ -2622,7 +2624,8 @@ async function main() {
       await tp.goto(BASE + "/#/lk/s/" + les2.id);
       const plan = tp.locator("#gsplan");
       await plan.locator("a.pdfref").nth(2).waitFor({ timeout: 15000 });
-      ok(await tp.evaluate(() => { const t = document.querySelector("#tsum"); return !!t && document.querySelector("main > header.pagehead").nextElementSibling === t && !!(t.compareDocumentPosition(document.querySelector("#gsplan")) & Node.DOCUMENT_POSITION_FOLLOWING); })
+      ok(await tp.evaluate(() => { const t = document.querySelector("#tsum"), bar = document.querySelector("main > header.pagehead").nextElementSibling;   // dazwischen nur „Ich bin jetzt im Unterricht“ (Nachtrag 35)
+        return !!t && bar.id === "inclass-bar" && bar.nextElementSibling.nextElementSibling === t && !!(t.compareDocumentPosition(document.querySelector("#gsplan")) & Node.DOCUMENT_POSITION_FOLLOWING); })
         && (await tp.locator("#tsum-head").textContent()) === ghead && (await tp.locator("#tsum-text p").allTextContents()).length === 2 && (await tp.locator("#tsum-text").textContent()).includes("Traumdeutung des Pharaos"),
         "Grundschul-Sitzung: Zusammenfassung ganz oben (vor dem Verlaufsplan) mit Kopfzeile und Text");
       await tp.evaluate(() => window.scrollTo(0, 0)); await tp.screenshot({ ...SHOT, path: join(OUT, "grundschule-zusammenfassung.png") });
@@ -3278,6 +3281,11 @@ async function main() {
       /* ---------- Nachtrag 30: belegter Speicher in der Fußzeile der Lehrkraft ---------- */
       step("Speicher in der Fußzeile der Lehrkraft: „Speicher: n % belegt“ auf jeder Seite der Lehrkraft (knapperer Wert von Dateien und Datenbank), aufklappbar, Hinweis ab 80 %, rot ab 95 %, nie bei Schüler:innen, Eltern und am Beamer");
       await storageE2E({ browser, tp, sp, BASE, T, ok, OUT, SHOT, gymL, gsL, horizontalIssues, watch });
+
+      /* ---------- Nachtrag 35: „Ich bin jetzt im Unterricht“ – die Sitzung kompakt (Gymnasium und Grundschule) ---------- */
+      step("Ich bin jetzt im Unterricht (Nachtrag 35): Knopf ganz oben, kompakte Ansicht (Präsentation, Verlaufsplan mit grünem Pfeil zur Phase der Live-Präsentation, Material in zwei Spalten, Hausaufgabe), zweites Gerät steuert, Rückfall ohne WebSocket, Zwischenstopp von Hand und aus der Präsentation, Neuladen, Tastatur, iPad, Grundschule");
+      const sachIc = (await T("GET", "/api/teacher/gs/courses")).data.courses.find((c) => c.subjectName === "Sachunterricht" && c.grade === 3);
+      await inClassE2E({ browser, tp, BASE, T, token, ok, OUT, SHOT, gsCourse: sachIc && sachIc.id, horizontalIssues, devices, watch });
     }
 
     /* ---------- Podcast für den kommenden Unterricht (Nachtrag 22) ---------- */
@@ -3585,6 +3593,19 @@ async function main() {
         ok(u.startsWith(BASE + "/api/dl/") && res.status === 200 && res.headers.get("content-type") === "application/pdf" && /inline/.test(res.headers.get("content-disposition") || ""),
           "„PDF ansehen“ auf Pages: öffnet die PDF beim Worker (kein 404)");
         for (const pg of ptc.pages()) if (pg !== ptp) await pg.close().catch(() => {});
+      }
+      { // Nachtrag 35 auf Pages: „Präsentation als PDF-Datei herunterladen“ in der Ansicht für den Unterricht – der Browser beachtet das download-Attribut einer
+        // anderen Herkunft nicht; der Worker liefert die Datei als Anhang mit ihrem Namen, also wird sie wirklich heruntergeladen (nicht im Tab geöffnet)
+        const pf = (await T("GET", "/api/teacher/lessons/" + lessonId)).data.files.find((f) => f.area === "presentation" && f.status === "ready");
+        await ptp.getByRole("button", { name: "Ich bin jetzt im Unterricht", exact: true }).click();
+        const pb = ptp.locator("#ic-pres").getByRole("button", { name: /^Präsentation als PDF-Datei herunterladen/ });
+        await pb.waitFor({ timeout: 15000 });
+        const [pd] = await Promise.all([ptp.waitForEvent("download", { timeout: 30000 }), pb.click()]);
+        const pbytes = readFileSync(await pd.path());
+        ok(!!pf && (pd.suggestedFilename() === pf.name || (/[^\x20-\x7e]/.test(pf.name) && pd.suggestedFilename() === "download")) && pbytes.subarray(0, 5).toString() === "%PDF-" && pbytes.length === pf.size && ptp.url().startsWith(PAGES + "/"),
+          "Ansicht für den Unterricht auf Pages: „Präsentation als PDF-Datei herunterladen“ lädt die Datei vom Worker herunter („" + pd.suggestedFilename() + "“, " + pbytes.length + " Bytes), die Seite bleibt");
+        await ptp.locator("#inclass-back").click();
+        await ptp.locator(".code-big").waitFor({ timeout: 10000 });
       }
       { // Elternansicht auf Pages: Seite von Pages, Daten, Kartenbilder und PDF vom Worker
         const ectx = await browser.newContext({ ...devices["iPad (gen 7)"] }); const ep = await ectx.newPage(); watch(ep, "Pages-Eltern");

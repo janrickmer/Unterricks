@@ -339,6 +339,28 @@ gleich in `public/_headers`, im Worker und – für GitHub Pages – in `scripts
   Präsentationskarte legen Sie dann je Phase des Schulportal-Eintrags fest, bei welcher Folie sie beginnt (vorbelegt aus den Zeilen der PDF; auch
   zum Korrigieren); „Phasen aus der PDF übernehmen“ macht das rückgängig. Die Zuordnung kommt mit in „Sitzung als Datei“ und in die Sicherung.
   Den Zwischenstopp von Hand setzen und verschieben können Sie wie bisher; in der Grundschule (ohne Präsentation) ändert sich nichts.
+* **„Ich bin jetzt im Unterricht“ (Nachtrag 35):** Ganz oben in jeder Sitzung (über der Zusammenfassung) steht dieser Knopf. Er zeigt die Sitzung
+  kompakt für die Stunde selbst, in dieser Reihenfolge:
+  1. **Präsentation:** „Präsentation live starten“ (derselbe Präsentationsmodus wie „Ich bin im Unterricht und starte die Präsentation für alle.“ –
+     läuft sie schon, auch auf einem anderen Gerät, geht es an der laufenden Stelle weiter; „Bis hier gezeigt“ trägt den Zwischenstopp ein wie oben),
+     „Präsentation als PDF-Datei herunterladen“ (die PDF, wie Sie sie hochgeladen haben) und – gibt es Notizen – „Präsentation mit Anmerkungen
+     herunterladen“ (nur für Sie). Die Dateien werden wirklich heruntergeladen, auch über unterricks.janrickmer.de und am iPad. Daneben der Stand:
+     „LIVE · Folie 5 / 12 · 23 verbunden“ bzw. „Gerade nicht live.“
+  2. **Verlaufsplan** (der Schulportal-Eintrag als Vorschau mit dem Zwischenstopp-Feld): Ein **grüner Pfeil** am rechten Rand („jetzt“) zeigt auf die
+     Phase, in der die Live-Präsentation gerade ist – er folgt jeder Folie ohne Neuladen, auch wenn Sie an einem anderen Gerät oder in einem anderen
+     Tab blättern. Die Codefolie vor Folie 1 gehört zur Phase von Folie 1, eine Folie ohne Phase zur Phase der Folie davor. Läuft die Präsentation nicht
+     live oder tragen die Folien keine Phasen (siehe „Phasen der Folien“), gibt es keinen Pfeil; ein ruhiger Satz darüber sagt, warum. Einen
+     Zwischenstopp setzen Sie hier auch von Hand: Rechtsklick auf eine Zeile (am iPad: antippen) oder „Zwischenstopp eintragen …“ (per Tastatur).
+  3. **Material** als Tabelle: links **„Für Schüler:innen sichtbar“** (Feibeitsblätter mit „Code kopieren und Feibeitsblatt öffnen“ wie bei den
+     Schüler:innen, Material und Links für Schüler:innen, zuletzt die Notfall-Feibeitsblätter), rechts **„Nur für die Lehrkraft“** (Ihr Material,
+     Notfall-Feibeitsblätter für Lehrkräfte und alles von der Druckliste, markiert **„zum Ausdrucken“**, unter dem Namen der Druckliste). Jeder
+     Eintrag öffnet bzw. lädt wie in der vollständigen Ansicht. Am Handy stehen die Spalten untereinander, jede mit ihrer Überschrift.
+  4. **Hausaufgabe:** dasselbe Feld wie in der vollständigen Ansicht (gleiches Speichern, gleiche Hinweise, „Für das Schulportal kopieren“).
+
+  **„Vollständige Ansicht“** führt zurück. Umschalten verliert nichts (Hausaufgabe und Schulportal-Eintrag sind dieselben Felder) und beendet nie
+  eine laufende Präsentation. Die kompakte Ansicht bleibt beim Neuladen dieses Tabs erhalten und endet, wenn Sie die Sitzung verlassen. In einer
+  **Selbstlern-Phase** (und bei einer älteren, laufenden Vertretung) gibt es den Knopf nicht – Sie sind dann nicht im Unterricht; nach
+  „Wiederherstellen“ ist er wieder da.
 * **Arbeitsblätter und Material von Claude:** Claude gestaltet Arbeitsblätter, Texte, Schaubilder, Kärtchen und Erwartungshorizonte
   selbst als HTML-Seite und legt sie über den Connector ab (`add_material_pdf`); Unterricks druckt sie unverändert mit Chromium als
   A4-PDF (Cloudflare Browser Run, kostenlos bis 10 Minuten Browserzeit am Tag – das reicht für weit über hundert Seiten). Für
@@ -521,6 +543,11 @@ der **Podcast für den kommenden Unterricht** (derselbe wie auf der Startseite �
   – und Material nur für Sie; jede Datei sagt, ob Eltern sie sehen), die Druckliste (samt Bildkarten), **„Inhalt und Hausaufgabe (für die Eltern)“**
   (Claude formuliert den Inhalt in 2–3 Sätzen, Sie können ihn ändern) und ganz unten die Karte **„Elternansicht“**. Kein
   Schulportal-Eintrag, keine Präsentation, kein Sitzungscode.
+* **„Ich bin jetzt im Unterricht“ (wie am Gymnasium, Nachtrag 35):** ganz oben in der Sitzung; kompakt mit dem **Verlaufsplan** (PDF-Verweise
+  anklickbar, Zwischenstopp per „Zwischenstopp eintragen …“, Rechtsklick oder Antippen einer Zeile), dem **Material** als Tabelle – links „Für die
+  Kinder sichtbar“ (mit dem Hinweis, ob Eltern es sehen), rechts „Nur für die Lehrkraft“ samt allem, was Sie ausdrucken (Arbeitsblätter mit
+  „Auch ausdrucken“, Konzentrationsaufgabe, Bildkarten – markiert **„zum Ausdrucken“**) – und der **Hausaufgabe** (dasselbe Feld). Ohne Präsentation
+  und ohne Pfeil. „Vollständige Ansicht“ führt zurück.
 * **Bildkarten:** Claude gestaltet sie beim Planen selbst (eine Karte je Seite, mit einem gekürzten Erzähltext je Karte zum
   Nacherzählen), oder Sie laden eine PDF hoch (eine Seite = eine Karte). Die Erzähltexte prüfen und ändern Sie unter jeder Karte.
   Hochgeladene Bildkarten sehen Eltern erst, wenn Sie „Eltern dürfen diese Bildkarten sehen“ ankreuzen – Bildkarten von Verlagen dürfen

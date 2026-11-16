@@ -41,6 +41,7 @@ implementiert und im End-to-End-Test geprüft (Ausnahmen unten ausdrücklich gen
 | Beamer über ein zweites Gerät (Nachtrag 15 vom 13.11.2026) | Allein mit iPad + Apple TV nicht möglich (AirPlay spiegelt den ganzen Bildschirm; keine Presentation API in Safari; kein AirPlay eines im Browser erzeugten Videostroms). Entscheidung der Lehrkraft: ein **zweites Gerät am Beamer** (Schul-iPad, das an Apple TV spiegelt, oder PC/Laptop am Beamer) öffnet `#/beamer`, zeigt einen **Beamer-Code**; „**Beamer verbinden**“ in der Präsentation (auf allen Geräten, auch Touch) koppelt es über den Server – es zeigt nur die aktuelle Folie, das iPad der Lehrkraft weiter aktuelle + nächste Folie; „Beamer trennen“; siehe Abschnitt 4, Punkt 6 (Kabel/Stage Manager und AirPlay-Video ausdrücklich nicht gewählt) |
 | Notizen der Lehrkraft zu den Folien (Nachtrag 20 vom 13.11.2026) | Claude bettet laut Präsentations-Prompt zu jeder Folie Stichpunkte für die Lehrkraft **unsichtbar als Dateianhang** `unterricks-notizen.json` in die PDF ein (sonst JSON-Block im Chat zum Einfügen). Die Präsentationsansicht zeigt sie **unter der aktuellen Folie nur, wenn das Beamerbild getrennt läuft** (Beamerfenster bzw. Beamergerät verbunden) – ein einzeln gespiegeltes iPad zeigt wie bisher nur Folie und Vorschau. Rückfrage 1 (Knopf am iPad, der nur die Präsentation an Apple TV schickt): nicht zuverlässig umsetzbar (AirPlay spiegelt) → zusätzlich die **„Präsentation mit Anmerkungen“** (hinter jeder Folie eine Anmerkungsfolie) unter „Material nur für die Lehrkraft“. Rückfrage 2: Notizen in der Sitzung **ansehen und bearbeiten** – nie für Schüler:innen. Siehe 4o |
 | Zwischenstopp aus der Präsentation (Nachtrag 34 vom 16.11.2026) | Die Lehrkraft markiert am Ende der Stunde nur die **letzte gezeigte Folie**; der Zwischenstopp im Schulportal-Eintrag folgt **von selbst** (von Hand bleibt er möglich). Zuordnung Folie → Phase: Claude schreibt laut Präsentations-Prompt auf jede Folie **eine unsichtbare Textzeile „Unterricks-Phase: n“** (n = Nummer der Phase „**n) …**“; Textdarstellungsmodus 3 bzw. ≤ 2 pt in der Farbe des Hintergrunds), Unterricks liest sie beim Hochladen aus der Textebene (Antwort der Lehrkraft: „Claude schreibt die Phase in den Hintergrund jeder Folie … Überlege selbst.“). Letzte gezeigte Folie mitten in einer Phase: **„Vor diese Phase“** (die angefangene Phase gilt als nicht geschafft). Ohne Zeilen (ältere Präsentationen): Zuordnung von Hand („Phasen der Folien“). Siehe 4zd |
+| „Ich bin jetzt im Unterricht“ (Nachtrag 35 vom 16.11.2026) | Knopf **ganz oben** in jeder Sitzung (über der Zusammenfassung); er zeigt die Sitzung **kompakt**: 1. Präsentation (live starten – derselbe Start –, als PDF-Datei herunterladen, dazu die Präsentation mit Anmerkungen), 2. Verlaufsplan mit einem **grünen Pfeil** am rechten Rand an der Phase der Live-Präsentation (Phasen aus Nachtrag 34), 3. Material als Tabelle „Für Schüler:innen sichtbar“ / „Nur für die Lehrkraft“, 4. Hausaufgabe. Antworten: Material zum Ausdrucken in **Spalte 2, markiert „zum Ausdrucken“**; **auch Grundschule** (Verlaufsplan, Material samt Druckdateien und Bildkarten, Hausaufgabe – ohne Präsentation und Pfeil). Nicht in einer Selbstlern-Phase bzw. laufenden Vertretung. Siehe 4ze |
 | Links als Material (Ergänzung) | in **beiden Bereichen** (Schüler:innen / nur Lehrkraft) Links mit **Titel** und Internetadresse (nur http/https) |
 | Druckliste (Ergänzung) | Karte **„Von der Lehrkraft auszudrucken“** ganz unten: **nur PDF**, alles **A4** (andere Formate beim Hochladen umgerechnet, mit Hinweis), Name ursprünglich **„28x - beidseitig - sw - Name.pdf“**, seit Nachtrag 32 **„28x - sw - beidseitig - PoWi8 - Name.pdf“** (Abschnitt 4zb), einzeln oder **als ZIP**; Claude legt Vorlagen über den Connector ab (`add_print_material`), siehe 4i |
 | Zurücksetzen und Einheit als Datei (Ergänzung vom 11.11.2026) | Einstellungen: **„Alle Unterrichtsinhalte löschen und Unterricks zurücksetzen“** – erst das **Passwort**, dann das Angebot einer **Sicherung** (ZIP: 1. Fächer, 2. Einheiten mit Einheitsdatei, 3. Sitzungen chronologisch nummeriert, je als Sitzungsdatei), letzte Bestätigung, Löschen. Gelöscht: Einheiten und Sitzungen mit allem Zugehörigen; es bleiben Zugang, Planungsgrundlagen, Fach-Einstellungen, KI, Connector, Feibeitsblatt-Verbindung, Schülerpasswort, Schülergeräte; die Feibeitsblätter bleiben im Feibeitsblatt. Planungsseite einer Einheit: **„Einheit als Datei herunterladen“** und **„Einheit aus Datei laden“** (Planung + Sitzungen; die Sitzungen bekommen ihren Inhalt beim Anlegen), siehe 4l (Rückfragen beantwortet: Umfang, Feibeitsblätter behalten, Planung + Sitzungen, Sitzungsdatei im Ordner) |
@@ -149,6 +150,7 @@ implementiert und im End-to-End-Test geprüft (Ausnahmen unten ausdrücklich gen
 | | `public/app.js` | Router, Startseite, Schüleransicht |
 | | `public/teacher.js`, `public/session.js` | Lehrkräfteansicht (Fach → Klasse/Kurs → Einheiten), Sitzungsansicht |
 | | `public/materialbox.js` | Materialkasten einer Sitzung (Material für Schüler:innen und Lehrkräfte, Druckliste) – aus `session.js` ausgelagert |
+| | `public/inclassbar.js`, `public/inclass.js`, `public/inclasslib.js` | „Ich bin jetzt im Unterricht“ (Nachtrag 35): Knopf ganz oben und Umschalten (fest geladen, klein); kompakte Ansicht beider Schulformen mit Präsentation, Verlaufsplan samt grünem Pfeil, Material in zwei Spalten, Hausaufgabe (bei Bedarf über `lazy()` geladen); reine Helfer (Phase der Live-Folie, Spalten), siehe 4ze |
 | | `public/coursecard.js` | Karte „Kurseinstellungen“ auf der Klassen- bzw. Kursseite (Termine pro Woche, Schülerzahl) |
 | | `public/grundschule.js` | Bereich „Grundschule“ (Menüpunkt zwischen „Gymnasium“ und „Planungsgrundlagen“): Übersicht mit dem Wochenkalender beider Schulformen, den Kursen und „Neuen Kurs anlegen“ (Knopf im Kopf der Seite führt zum Formular; Jahrgang 1–4, Religion oder ein anderes Fach mit Namen); Kursseite (Einheiten, Kurseinstellungen, Fach/Klassen, Planungsgrundlagen); roter Kasten nach Ausfällen (`reviseBox`) |
 | | `public/gsplanning.js` | Prompts für Claude in der Grundschule (Einheit und Stunde planen, Einheit nach Ausfällen überarbeiten, Verlaufsplan-Regeln; nur analoges Material) |
@@ -1949,6 +1951,86 @@ Zuordnung „Claude schreibt die Phase in den Hintergrund jeder Folie und Unterr
   (Seite darunter aktualisiert und gespeichert, während die Präsentation offen ist); Aufheben, vollständig, von Hand verschoben bleibt, neue Markierung,
   fehlende Phase; ohne Phasen ruhiger Hinweis, Zuordnung von Hand per Tastatur, danach folgt der Zwischenstopp; Sitzungsdatei in eine dritte Sitzung
   geladen; Bildschirmfotos `phasen-*.png` (1366/1180/820/390, hell und dunkel).
+
+## 4ze. „Ich bin jetzt im Unterricht“ – die Sitzung kompakt (Nachtrag der Lehrkraft vom 16.11.2026, Nachtrag 35)
+
+Wortlaut: „Wenn ich eine Sitzung öffne, möchte ich ganz oben auf den Button "Ich bin jetzt im Unterricht" klicken. Wenn darauf geklickt wird, soll sich die
+Unterrichtssitzung in kompakterer Form öffnen: 1. Präsentation : Präsentation live starten, Präsentation als PDF-Datei herunterladen können. 2. Verlaufsplan:
+Verlaufsplan wird angezeigt. Ein grüner Pfeil am rechten Rand zeigt immer auf die Phase, in der wir gerade laut Live-Präsentation sind. 3. Material:
+Tabellarisch aufgelistet in Spalte Nr. 1 die Materialien, die für die Schüler sichtbar sind (auch Links zu den Feibeitsblättern) und Spalte Nr. 2 die
+Materialien, die nur die Lehrkraft sehen darf. 4. Hausaufgabenfeld“. Antworten: Material „von der Lehrkraft auszudrucken“ → Spalte 2, markiert „zum
+Ausdrucken“; Grundschule „Auch Grundschule“ – kompakt mit Verlaufsplan und Material (Druckdateien, Bildkarten), ohne Präsentation und ohne Pfeil.
+
+* **Aufbau – nichts doppelt:** `public/inclassbar.js` (klein, fest geladen) setzt den Knopf **direkt unter das Kopfband**, vor die Zusammenfassung
+  (Nachtrag 21). Ein Klick blendet die vollständige Ansicht nur **aus** (Klasse `ic-hide` an Zusammenfassung, Raster und „Sitzung als Datei“) – sie bleibt
+  im Dokument samt Eingaben, Zeitgebern (automatisches Speichern), Druckwarteschlange und Live-Verbindung des Präsentationsmodus. Die kompakte Ansicht
+  (`public/inclass.js`, **erst bei Bedarf** über `lazy(import("./inclass.js"))`, 4t) baut nichts nach, sondern bekommt von der Seite ihre Wege (`api`):
+  denselben Start der Präsentation (`startLive` in session.js – „Ich bin im Unterricht und starte die Präsentation für alle.“ ruft ihn ebenso auf; läuft
+  sie schon, setzt der Präsentationsmodus an der laufenden Stelle fort, `resume`), dasselbe Kontextmenü und Einfügen des Zwischenstopps (`stopMenu`,
+  `insertStopAt`, Grundschule `stopDialog`), dieselben Wege zum Öffnen bzw. Herunterladen (`materialBox().openActs` – signierte Links, Druck-Namen auch
+  dort, wo der Browser das download-Attribut nicht beachtet, Text als PDF, gestaltetes Material erst mit fertiger PDF) und **dasselbe Hausaufgabenfeld**:
+  Es wird für die Dauer der kompakten Ansicht an seinen Platz geliehen (`borrow` – Gymnasium die ganze Karte „Hausaufgabe bis zur nächsten Sitzung“ mit
+  Hinweisen und „Für das Schulportal kopieren“, Grundschule das Feld „Hausaufgabe (optional)“ in einer eigenen Karte) und danach zurückgestellt. So geht
+  beim Umschalten keine Eingabe verloren und keine laufende Präsentation endet. Neu zeichnet sich die kompakte Ansicht über Meldungen der Seite
+  (`icEmit("plan")` am Ende von `paintPreview` bzw. `paintPlan`, `icEmit("files")` aus `materialBox` (`onPaint`), `paintFb` und `paintPres`) – so folgt
+  sie auch dem Zwischenstopp aus „Bis hier gezeigt“ (setShown → `syncStop`, Nachtrag 34), Änderungen von Claude beim Zurückkehren in den Tab und dem
+  Drucken. Das Material baut sie nur neu, wenn sich sein Schlüssel ändert (`materialKey`), und stellt den Fokus wieder her, falls er dabei verloren ginge;
+  die Zustandszeile des Schulportal-Eintrags spiegelt sie (MutationObserver), z. B. „Nicht gespeichert: …“.
+* **Präsentation:** „Präsentation live starten“ (rot wie der bisherige Start), „Präsentation als PDF-Datei herunterladen“ (`POST …/files/:id/link {}` →
+  signierter Link mit `Content-Disposition: attachment` und dem Namen – lädt auch über GitHub Pages und am iPad wirklich herunter) und, wenn es eine
+  Anmerkungs-PDF gibt (Nachtrag 20), „Präsentation mit Anmerkungen herunterladen“. Darunter der Stand „LIVE · Folie 5 / 12 · 23 verbunden“ bzw. „Gerade
+  nicht live.“ – keine Live-Region (er ändert sich mit jeder Folie). Ohne Präsentation ein Satz, wo sie hochgeladen wird.
+* **Grüner Pfeil (nur Gymnasium):** `liveArrow` (rein, `public/inclasslib.js`): Phase der aktuellen Live-Folie über `slidePhasesOf` (von Hand vor PDF,
+  4zd) – Folie 0 (Codefolie vor Folie 1) wie Folie 1, eine Folie ohne Phase wie die nächste Folie davor mit Phase (`livePhase`) –, dann die Überschrift
+  „**n) …**“ über `portalPhases`. Ohne Pfeil sagt ein ruhiger Satz über dem Verlaufsplan, warum (`arrowText`: nicht live, andere Präsentation, Folien ohne
+  Phasen, Folie ohne Phase, Phase fehlt bzw. steht doppelt, keine nummerierten Phasen). Der Pfeil (`span.phasearrow`, Pfeilform mit „jetzt“,
+  `role="img"`, Name „Aktuelle Phase laut Live-Präsentation“) sitzt in der Zeile der Überschrift und rechts am Rand der Vorschau; die Zeile ist zart grün
+  hinterlegt. Er ist nicht fokussierbar, rückt nie den Fokus; die Seite rollt nur dann zur neuen Phase, wenn die Lehrkraft 12 s lang nichts getan hat
+  (Tippen, Klicken, Scrollen, Tasten), kein Dialog offen ist und kein Feld bearbeitet wird.
+* **Live-Stand:** wie bei den Schüler:innen – Ticket `POST …/live-ticket` (Rolle „teacher“; die Ansicht sendet nichts, sie hört nur zu), WebSocket mit
+  Wiederverbindung (1–15 s), beim Start einmal `GET …/live`; scheitert die Verbindung zweimal, fragt sie ersatzweise **höchstens alle 3 s**
+  (`LIVE_POLL_MS`, auch wenn Start, Rückfall und Rückkehr in den Tab kurz nacheinander fragen wollen). Nur solange die kompakte Ansicht offen und der Tab
+  sichtbar ist (`visibilitychange`); das Durable Object schickt jede Änderung an alle Verbindungen der Lehrkraft – der Pfeil folgt also auch, wenn ein
+  anderes Gerät oder ein anderer Tab blättert. Kosten: ein Ticket je Öffnen bzw. Wiederverbinden, keine D1-Abfrage je Folie; der Rückfall sind höchstens
+  20 Anfragen je Minute und Tab, nur ohne WebSocket.
+* **Verlaufsplan:** Gymnasium = Vorschau des Schulportal-Eintrags (`paintPortalPreview`) mit dem Zwischenstopp-Feld; Grundschule = `paintPlanPreview`
+  (PDF-Verweise gelb und anklickbar). Zwischenstopp von Hand wie in der vollständigen Ansicht: Rechtsklick auf eine Zeile, am iPad Antippen, per Tastatur
+  „Zwischenstopp eintragen …“ (Gymnasium: Auswahl der Zeile wie in der Grundschule, vorgewählt die Phase des Pfeils; Grundschule: ihr Dialog),
+  „Zwischenstopp entfernen“; danach derselbe Hinweis zur nächsten Sitzung (Nachtrag 13/26).
+* **Material** (`materialColumns`, rein): Spalte 1 „Für Schüler:innen sichtbar“ (Grundschule „Für die Kinder sichtbar“, mit dem Abzeichen, ob Eltern es
+  sehen) – Feibeitsblätter mit „Code kopieren und Feibeitsblatt öffnen“ wie bei den Schüler:innen (nicht das Finale eines Escape-Rooms, das sie nur über
+  den Tunnel erreichen), Material „Für Schüler:innen“ (Material einer Selbstlern-Phase nur, solange sie läuft – wie `worker/student.js`), zuletzt die
+  Notfall-Feibeitsblätter („Notfall-Feibeitsblatt“). Spalte 2 „Nur für die Lehrkraft“ – Material nur für Lehrkräfte (auch Notfall-Feibeitsblätter für
+  Lehrkräfte), Grundschule die Bildkarten, danach alles von der Druckliste in deren Reihenfolge, markiert **„zum Ausdrucken“** und unter dem Namen der
+  Druckliste (Grundschule auch Arbeitsblätter der Kinder mit „Auch ausdrucken“ – sie stehen dann in beiden Spalten –, Konzentrationsaufgabe, Bildkarten
+  „Bildkarten · zum Ausdrucken“). Nie: Archiv, die Präsentation und ihre Anmerkungs-PDF (beide unter 1.). Zwei Spalten mit je einer Überschrift (`h3`) und
+  einer Liste – keine Datentabelle, deren Zeilen nichts miteinander zu tun hätten; unter 720 px untereinander.
+* **Zustand:** je Tab `sessionStorage` `u.inclass` = ID der Sitzung: übersteht das Neuladen (auch nach einem Update, 4t), endet beim Verlassen der Sitzung
+  (`onLeave`, außer bei einem Neuaufbau derselben Sitzung) und mit „Vollständige Ansicht“; der Sprung zur Druckliste (`#/lk/s/<id>/druckliste`) zeigt immer
+  die vollständige Ansicht. Ohne nutzbaren `sessionStorage` (privater Modus) gilt sie nur bis zum Neuladen.
+* **Entscheidung Selbstlern-Phase und Vertretung:** In einer Selbstlern-Phase (Nachtrag 29) und bei einer älteren, laufenden Vertretung ist die Lehrkraft
+  nicht im Unterricht – es gibt den Knopf dann nicht; stellt Claude die Sitzung um, während die kompakte Ansicht offen ist, kehrt die Seite beim Zurückkehren
+  in den Tab zur vollständigen Ansicht zurück. Ein bloßer Vertretungsvorschlag ändert nichts. Ausfall-Einträge der Grundschule (Krankmeldung) haben keinen
+  Knopf und vergessen einen gemerkten Zustand.
+* **Fokus und Tastatur:** „Ich bin jetzt im Unterricht“ → Fokus auf „Vollständige Ansicht“ (an derselben Stelle), zurück → auf „Ich bin jetzt im Unterricht“;
+  endet der Präsentationsmodus, geht der Fokus auf „Präsentation live starten“, wenn er sonst verloren wäre. Alle Flächen ≥ 44 px.
+* **Bestehende Prüfungen geändert (Anforderung):** Die beiden E2E-Prüfungen „die Zusammenfassung steht direkt unter dem Kopfband“ (Gymnasium und
+  Grundschule) erlauben jetzt dazwischen genau den Knopf (`#inclass-bar`) und seinen leeren Platz (`#inclass`). Sonst keine Texte oder Prompts geändert;
+  die MCP-Anweisungen bleiben unverändert (Claude hat mit der Ansicht nichts zu tun).
+* **Tests:** `test/unit/inclass.test.mjs` (Phase der Live-Folie, Pfeil und Gründe, Texte, Material beider Schulformen, Schlüssel, Zustand je Tab, Knopf
+  und Umschalten mit der DOM-Nachbildung samt Selbstlern-Phase, Live-Verbindung mit Rückfall und Mindestabstand 3 s, Laden erst bei Bedarf). E2E
+  `test/e2e/inclass.mjs` (nach „Speicher in der Fußzeile“; eigene Sitzungen PoWi 9E und Sachunterricht 3c weit in der Vergangenheit, danach gelöscht):
+  Knopf ganz oben, per Tastatur geöffnet, Reihenfolge, Downloads (Präsentation byte-gleich, Anmerkungs-PDF, Druckvorlage unter dem Druck-Namen, Material),
+  Spalten samt Feibeitsblatt (Code kopiert, neuer Tab) und Markierungen, zweites Gerät blättert → Pfeil wandert ohne Neuladen (Codefolie, Folie ohne Phase,
+  nach „--> Nächste Stunde“), der Fokus bleibt; dritter Tab ohne WebSocket → Abfrage alle 3 s; Zwischenstopp per Rechtsklick und Tastatur, „Bis hier
+  gezeigt“ im selben Tab (setzt an der laufenden Stelle fort), Hausaufgabe gespeichert und in der vollständigen Ansicht, eben geänderter
+  Schulportal-Eintrag, Neuladen, Verlassen, iPad (Antippen öffnet das Menü), Grundschule (Spalten mit Bildkarten, Konzentrationsaufgabe und Arbeitsblatt
+  „zum Ausdrucken“, Dialog für den Zwischenstopp, Hausaufgabe); Bildschirmfotos `unterricht-kompakt-*.png` (1366/1180/820/390 hell und dunkel, iPad
+  hochkant, Grundschule). Im Schritt „GitHub Pages“: „Präsentation als PDF-Datei herunterladen“ lädt die Datei vom Worker herunter. Die Attrappe des
+  Feibeitsblatts (`test/e2e/mocks.mjs`) antwortet auf `GET …/sheets/:code/checklist` eines ihr unbekannten Blattes jetzt mit 404 – vorher stürzte sie ab
+  (und mit ihr der ganze Lauf), sobald die Sitzungsseite für ein nur in Unterricks verknüpftes Blatt das Notfall-Feibeitsblatt prüfte.
+* **Nicht prüfbar hier:** echtes iPad mit Safari (Download einer Datei mit `Content-Disposition: attachment` aus einem Tab, Antippen in der Vorschau), ein
+  echter Beamer bzw. das Apple TV, und ob der Pfeil im Unterrichtsalltag (Schul-WLAN, Ruhezustand des iPads) stets rechtzeitig folgt.
 
 ## 4i. Druckliste „Von der Lehrkraft auszudrucken“ (Ergänzung vom 10.11.2026)
 

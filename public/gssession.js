@@ -19,6 +19,8 @@ import { reviseBox } from "./grundschule.js";
 import { summaryCard } from "./tsummary.js";
 import { bringCard } from "./bringcard.js";
 import { freeDateMessage } from "./freedays.js";
+import { lazy } from "./update.js";
+import { inClassToggle, forgetInClass } from "./inclassbar.js";
 
 const isPdf = (f) => !!f && f.kind === "file" && f.mime === "application/pdf" && f.area !== "archive" && f.area !== "presentation";
 const NOT_YET = "„Diese Unterrichtssitzung hat noch nicht stattgefunden.“";
@@ -109,6 +111,9 @@ export async function gsSessionPage(id, d) {
 
   if (L().cancelled) return gsPlaceholderPage(id, d, main, course, coursePage);
   const reload = () => go("#/lk/s/" + id);
+  // „Ich bin jetzt im Unterricht“ (Nachtrag 35): die kompakte Ansicht (inclass.js) folgt dem Verlaufsplan („plan“) und dem Material („files“)
+  const icOn = { plan: new Set(), files: new Set() };
+  const icEmit = (k) => { for (const f of icOn[k]) { try { f(); } catch (e) { console.warn("Ansicht für den Unterricht:", e && e.message); } } };
 
   /* ======================= Kopf ======================= */
   const heading = h("h1", { text: L().title });
@@ -147,6 +152,7 @@ export async function gsSessionPage(id, d) {
     unstopBtn.classList.toggle("hidden", !hasStop(ta.value));
     paintStopNext(); paintParents(); paintSummaryHint();
     if (tsum) tsum.paintNote();
+    icEmit("plan");
   }
   // von außen (eine PDF ist gedruckt, Bildkarten fertig, eine Datei gelöscht oder umbenannt): neu zeichnen, ohne den Fokus eines Verweises
   // in der Vorschau zu verlieren – „(wird gedruckt …)“ verschwindet, sobald die PDF da ist
@@ -370,7 +376,7 @@ export async function gsSessionPage(id, d) {
   // ZIP-Datei der Druckliste (Prüfung von Nachtrag 31): vorher den Dateistand vom Server holen – Bildkarten, die Claude angelegt oder neu gestaltet hat, während
   // diese Seite offen war (z. B. neben dem Chat, ohne Wechsel des Tabs), kämen sonst nicht bzw. mit den alten Karten in die ZIP-Datei
   const beforeZip = async () => { syncFiles(await tapi("GET", "/api/teacher/lessons/" + id)); };
-  const box = materialBox({ lessonId: id, st, L, gs: true, fileBadge, printCopies: () => classSize, exclude: (f) => f.cards != null, onChange: () => repaintPlan(), onPrintChange: (f) => cardsBox.syncPrint(f.id), beforeZip,
+  const box = materialBox({ lessonId: id, st, L, gs: true, fileBadge, printCopies: () => classSize, exclude: (f) => f.cards != null, onChange: () => repaintPlan(), onPrintChange: (f) => cardsBox.syncPrint(f.id), beforeZip, onPaint: () => icEmit("files"),
     subtitle: course ? course.label : "Grundschule", groupLabel: "Grundschule - " + (course ? course.short : "Kurs"), course: printCourse(GS_SUBJECT, L().klass, course),
     labels: { student: "Material für die Kinder (Eltern sehen die PDF-Dateien nach der Stunde)", teacher: "Nur für Sie", toStudent: "Für die Kinder", toTeacher: "Nur für Sie",
       nowStudent: "Jetzt im Material für die Kinder.", nowTeacher: "Jetzt nur noch für Sie.", teacherHint: "Sehen weder Kinder noch Eltern",
@@ -386,11 +392,13 @@ export async function gsSessionPage(id, d) {
   const sumStop = h("p", { class: "small warnc hidden", id: "gs-summary-stop", text: "Die Stunde endet mit einem Zwischenstopp – passt der Inhalt noch?" });
   function paintSummaryHint() { sumStop.classList.toggle("hidden", !hasStop(ta.value)); }
   const sumF = autoField(sumTA, "parentSummary", "parentSummary", sumState), hwF = autoField(hwTA, "homework", "homework", hwState);
+  // das Feld „Hausaufgabe“ leiht sich die Ansicht für den Unterricht (Nachtrag 35) – dasselbe Element, dasselbe Speichern
+  const hwField = h("div", { class: "field", id: "gs-homework-field" }, h("div", { class: "row between" }, h("label", { for: "gs-homework" }, "Hausaufgabe (optional)"), hwState), hwTA,
+    h("p", { class: "hint", id: "gs-homework-h", text: "Erscheint bei den Eltern nur, wenn hier etwas steht." }));
   const contentCard = h("section", { class: "card", id: "gs-content" }, h("h2", { text: "Inhalt und Hausaufgabe (für die Eltern)" }),
     h("div", { class: "field" }, h("div", { class: "row between" }, h("label", { for: "gs-summary" }, "Inhalt der Unterrichtsstunde"), sumState), sumTA,
       h("p", { class: "hint", id: "gs-summary-h", text: "2–3 Sätze: worum es ging und was die Kinder lernen sollten. Claude formuliert ihn beim Planen; Sie können ihn hier ändern. Für Eltern sichtbar – bitte keine Namen von Kindern." }), sumStop),
-    h("div", { class: "field" }, h("div", { class: "row between" }, h("label", { for: "gs-homework" }, "Hausaufgabe (optional)"), hwState), hwTA,
-      h("p", { class: "hint", id: "gs-homework-h", text: "Erscheint bei den Eltern nur, wenn hier etwas steht." })));
+    hwField);
 
   /* ======================= Elternansicht (ganz unten) ======================= */
   const parentsWhen = h("p", { class: "small", role: "status" });
@@ -501,10 +509,18 @@ export async function gsSessionPage(id, d) {
   tsum = summaryCard({ id, L, course, planText: () => ta.value });
   // Gegenstände zum Mitbringen (Nachtrag 28): kompakte Karte unter den Sitzungsdaten
   const bring = bringCard({ id, L, course });
-  main.append(tsum.el, h("div", { class: "session-grid gs-session" },
+  const grid = h("div", { class: "session-grid gs-session" },
     h("div", { class: "stack gs-stack" }, planCard, prevEl, draftCard, unitCard, claudeCard, cardsBox.el, box.filesCard, box.printCard, contentCard, parentsCard),
-    h("aside", { class: "side" }, metaCard, bring.el, sickCard)));
+    h("aside", { class: "side" }, metaCard, bring.el, sickCard));
+  /* ======================= „Ich bin jetzt im Unterricht“ (Nachtrag 35): ganz oben, vor der Zusammenfassung ======================= */
+  // kompakt: Verlaufsplan (mit Zwischenstopp, PDF-Verweise anklickbar), Material samt Druckdateien und Bildkarten, Hausaufgabe – ohne Präsentation und Pfeil
+  const icApi = { kind: "gs", id, st, selbstlern: () => false, on: (k, fn) => { icOn[k].add(fn); return () => icOn[k].delete(fn); },
+    planText: () => ta.value, paintPlan: (b) => paintPlanPreview(b, ta.value, { fileOf, onPending }), planState,
+    stopMenu, stopDialog, dropStop, stopNext: () => stopNext, openActs: box.openActs, badge: fileBadge, homework: hwField, homeworkWrap: true };
+  const inClass = inClassToggle({ id, gs: true, full: () => [tsum.el, grid], mount: async () => (await lazy(import("./inclass.js"))).inClassView(icApi) });
+  main.append(...inClass.els, tsum.el, grid);
   setEditing(false);
+  inClass.restore();
   paintRevise();
 
   // Dateien (Material, Druckliste, Bildkarten) aus einer Antwort von GET /api/teacher/lessons/:id übernehmen – nur, was sich geändert hat → geändert?
@@ -613,6 +629,7 @@ function cancelDialog(id, done) {
 /* ---------- Ausfall-Eintrag (Krankmeldung): schlanke Seite – was passiert ist, roter Kasten, Elternansicht, löschen ---------- */
 async function gsPlaceholderPage(id, d, main, course, coursePage) {
   const L = () => d.lesson, l = d.lesson, unit = d.unit;
+  forgetInClass(id);   // ausgefallen: keine Ansicht für den Unterricht (Nachtrag 35)
   const item = unit && unit.revise ? unit.revise.items.find((x) => x.placeholderId === id) : null;
   main.classList.add("gs-placeholder");
   const heading = h("h1", { text: "Ausgefallen: " + (l.date ? longDay(l.date) : "ohne Termin") });

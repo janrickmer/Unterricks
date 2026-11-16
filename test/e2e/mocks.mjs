@@ -117,6 +117,7 @@ export async function startMockFeibeitsblatt(port, password, doorCode = "1104") 
     }
     if ((m = /^\/api\/teacher\/sheets\/([A-Z0-9]+)\/checklist$/.exec(p))) {
       const s = sheets.get(m[1]);
+      if (!s) return send(res, 404, { ok: false, error: "weg" });   // unbekanntes Blatt (z. B. nur in Unterricks verknüpft) – nie die Attrappe abstürzen lassen
       if (req.method === "POST") return send(res, 200, { ok: true, draft: { v: 1, ai: true, tasks: s.tasks.map((t, i) => ({ n: i + 1, points: ["Punkt A" + (i + 1)] })) }, final: null, generated: true });
       if (req.method === "PUT") { s.checklist = body; return send(res, 200, { ok: true, final: { v: 1, ...body }, updatedAt: Date.now() }); }
       if (req.method === "GET") return send(res, 200, { ok: true, checklist: s.checklist ? { draft: null, final: { v: 1, ...s.checklist }, updatedAt: Date.now() } : null, aiFeedback: true, aiReady: true });

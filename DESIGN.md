@@ -39,6 +39,8 @@ colors:
   frei-t: "#edf0f5"
   frei-s: "#dce2ec"
   frei-k: "#7d8aa2"
+  # Grüner Pfeil der Ansicht „Ich bin jetzt im Unterricht“ (Nachtrag 35): aktuelle Phase laut Live-Präsentation
+  pfeil: "#14794a"
   # Projektionsfläche des Live-Fensters (in beiden Modi gleich)
   stage: "#0b111e"
   stage-text: "#cfd8e6"
@@ -70,6 +72,7 @@ colors:
   frei-t-dark: "#182033"
   frei-s-dark: "#232d44"
   frei-k-dark: "#7987a3"
+  pfeil-dark: "#5fd39a"
   fach-text-dark: "#c9d3e6"
   blau-text-dark: "#8db0ff"
   violett-text-dark: "#bfa6ff"
@@ -622,10 +625,16 @@ Der Kopf jeder Seite: Fach, Kurs und Stand auf einen Blick.
 - **Platz:** vorn in der Hauptspalte (davor stehen nur Vertretung und voriger Zwischenstopp; über beiden Spalten nur die Zusammenfassung für die Lehrkraft). Das Backup bleibt erreichbar, drängt sich aber nicht vor – es ist eine normale Karte weiter unten.
 
 ### Zusammenfassung der Sitzung für die Lehrkraft (`.tsum`, `public/tsummary.js`, Nachtrag 21)
-- **Platz:** die erste Karte der Sitzung, direkt unter dem Kopfband über die volle Breite (vor Hauptspalte und Seitenleiste) – in beiden Schulformen.
+- **Platz:** die erste Karte der Sitzung, direkt unter dem Kopfband über die volle Breite (vor Hauptspalte und Seitenleiste; darüber steht nur der Knopf „Ich bin jetzt im Unterricht“, Nachtrag 35) – in beiden Schulformen.
 - **Stil:** normale Karte (`--surface`, kein Gelb – der Hauptweg bleibt die Markerfolie darunter). Kopfzeile `.tsum-head` (Fach · Jahrgang · Wochentag, Datum, Beginn) als Fläche in `--fach-t` mit Schrift `--text` in 700/.98rem, Radius 10px; darunter der Text `.tsum-text` gut lesbar in 1.04rem/1.62, höchstens 75ch breit, Absätze mit .65em Abstand (Zeilenumbrüche bleiben); „Stand: …“ in .86rem `--muted`.
 - **Hinweis:** „Die Planung wurde danach geändert …“ bzw. der Satz zur Vertretung als `.notice.warn` (Tinte mit Warnsymbol, keine Signalfarbe).
 - **Bearbeiten:** Knopf „Bearbeiten“ mit Stift-Symbol rechts im Kartenkopf (Zustand `stateLine()` daneben); das Textfeld wächst mit dem Text (bis gut zwei Drittel der Fensterhöhe), darunter Hinweis und Zeichenzähler, dann „Speichern“ (primär) und „Abbrechen“.
+
+### „Ich bin jetzt im Unterricht“ (`.inclass-bar`, `.inclass-view`, `public/inclassbar.js`, `public/inclass.js`, Nachtrag 35)
+- **Knopf:** direkt unter dem Kopfband, vor der Zusammenfassung – `.btn.primary.big` (Tinte, 54px) „Ich bin jetzt im Unterricht“, allein in der Zeile, kein Symbol. In der kompakten Ansicht steht an derselben Stelle „Vollständige Ansicht“ (`.btn` mit Pfeil nach links) und daneben in `--muted`/.9rem „Kompakte Ansicht für den Unterricht – …“. Die vollständige Ansicht wird nur ausgeblendet (`.ic-hide`), nie neu aufgebaut.
+- **Kompakt:** eine Spalte normaler Karten (Abstand 1.15rem), in dieser Reihenfolge: **Präsentation** (h2; Knopfzeile mit dem roten Live-Knopf `.btn.onair.big` und Play-Symbol „Präsentation live starten“, daneben `.btn` mit Download-Symbol „Präsentation als PDF-Datei herunterladen“ und gegebenenfalls „Präsentation mit Anmerkungen herunterladen“; darunter der Stand `.ic-live` mit dem Abzeichen „LIVE“ wie im Live-Fenster und „Folie 5 / 8 · 23 verbunden“ bzw. „Gerade nicht live.“ in `--muted`; dann ein Hinweis), **Verlaufsplan** (h2 mit „· Schulportal-Eintrag“ in .9rem/`--muted` am Gymnasium; rechts die gespiegelte Zustandszeile; darüber `.ic-arrowhint` in `--muted`, höchstens 75ch; die Vorschau wie `.portal-preview`, ohne Mindesthöhe; darunter „Zwischenstopp eintragen …“ mit Pause-Symbol und „Zwischenstopp entfernen“ als Geisterknopf, der Hinweis nach dem Setzen und die Bedienung als `.hint`), **Material**, **Hausaufgabe** (am Gymnasium die Karte der vollständigen Ansicht selbst).
+- **Grüner Pfeil** (`.phasearrow`, nur Gymnasium): eine Pfeilform nach links (`clip-path`, Spitze .85rem) in `--pfeil` (#14794a, dunkel #5fd39a) mit Pfeilsymbol und „jetzt“ in 800/.92rem in `--pfeil-ink` (weiß bzw. #0b111e – 5,4 : 1 bzw. > 10 : 1), 2rem hoch, rechts in der Vorschau (.45rem vom Rand) auf der Höhe der Überschrift der Phase; die Vorschau hält rechts 5.8rem frei (Handy 5.1rem), das Abdeckblatt reicht trotzdem bis zum Rand. Die Überschrift der Phase bekommt eine zarte Fläche `--gruen-t` (Radius 6px, auch auf dem Abdeckblatt in `--text`). Er gleitet beim Wechsel .35s von rechts herein (nur ohne `prefers-reduced-motion`); in erzwungenen Farben `Highlight`. Nie nur Farbe: Form, „jetzt“ und der Name „Aktuelle Phase laut Live-Präsentation“.
+- **Material:** zwei Spalten wie eine Tabelle in einem Rahmen (1px `--line`, Radius 12px): Kopf je Spalte als h3 auf `--surface-2` („Für Schüler:innen sichtbar“ bzw. „Für die Kinder sichtbar“ · „Nur für die Lehrkraft“), Trennlinie dazwischen; je Eintrag Dateisymbol (`.ficon`, „FB“ für Feibeitsblätter), Name in 700 (Druckdateien mit dem Namen der Druckliste), Markierungen als neutrale Abzeichen mit Kante `--line-ui` („zum Ausdrucken“ mit Drucker-Symbol, „Notfall-Feibeitsblatt“, „Bildkarten“; in der Grundschule zusätzlich „Eltern sehen sie“ wie im Materialkasten), Größe bzw. Stand in `--muted`, darunter die Knöpfe (alle ≥ 44px; Druckdateien wie in der Druckliste als Primärknopf). Unter 720px stehen die Spalten untereinander, die zweite mit einer 2px-Linie `--line-ui` und eigener Überschrift.
 
 ### Abdeckblatt am Zwischenstopp (`stopField()`, `.covered`)
 - **Reiter (`.stopfield`):** `--rot`, weiß, 700 in .9rem, Innenabstand .32rem .75rem, nur oben gerundet (8px), Pause-Symbol und „**Zwischenstopp** – bis hierher geschafft, ab hier weiterarbeiten“; er sitzt auf der Kante des Blatts.

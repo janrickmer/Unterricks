@@ -31,13 +31,15 @@ export function dropZone(label, hint, onFiles, accept, multiple = true) {
    beforeZip() (Grundschule, Prüfung von Nachtrag 31): holt vor dem Packen der ZIP-Datei den Dateistand vom Server – sonst fehlten Bildkarten, die Claude
    angelegt oder neu gestaltet hat, während die Seite offen war (z. B. neben dem Chat), ohne Hinweis.
    course (Nachtrag 32): Kurs im Namen der Druckdateien („Reli4“, printCourse) – Grundschule aus dem Kurs; ohne Angabe aus Fach und Klasse der Sitzung (Gymnasium).
-   Den Namen liefert der Server (printName); course gilt nur, wo er fehlt, und für das Beispiel im Hinweis. */
-export function materialBox({ lessonId: id, st, L, gs = false, labels = {}, exclude = null, fileBadge = null, printCopies = null, subtitle = null, groupLabel = null, onChange = null, onPrintChange = null, beforeZip = null, course = null }) {
+   Den Namen liefert der Server (printName); course gilt nur, wo er fehlt, und für das Beispiel im Hinweis.
+   onPaint() (Nachtrag 35): nach jedem Neuzeichnen der Listen bzw. einer Zeile – die kompakte Ansicht „Ich bin jetzt im Unterricht“ folgt dem Stand. */
+export function materialBox({ lessonId: id, st, L, gs = false, labels = {}, exclude = null, fileBadge = null, printCopies = null, subtitle = null, groupLabel = null, onChange = null, onPrintChange = null, beforeZip = null, course = null, onPaint = null }) {
   const lb = { student: "Für Schüler:innen zugänglich", teacher: "Nur für Lehrkräfte", toStudent: "Für Schüler:innen", toTeacher: "Nur für Lehrkraft",
     nowStudent: "Jetzt für Schüler:innen sichtbar.", nowTeacher: "Jetzt nur noch für Lehrkräfte.", teacherHint: "Wird Schüler:innen nie angezeigt", hint: null, ...labels };
   const shown = (f) => !exclude || !exclude(f);
   const changed = () => { if (onChange) onChange(); };
   const printChanged = (f) => { if (onPrintChange && f && f.cards) onPrintChange(f); };
+  const painted = () => { if (onPaint) onPaint(); };
   const isCards = (f) => gs && f.cards != null && f.area === "teacher";   // Bildkarten der Grundschule (nur auf der Druckliste, nie im Materialkasten)
   const textSub = () => subtitle || subjectName(L().subject) + " · " + L().klass;
   const pc = () => (course != null ? course : printCourse(L().subject, L().klass));
@@ -60,6 +62,7 @@ export function materialBox({ lessonId: id, st, L, gs = false, labels = {}, excl
     const row = f.area === "print" || isCards(f) ? printRow(f) : fileRow(f);
     el.replaceWith(row);
     if (had) (row.querySelector("button, input, select") || row).focus({ preventScroll: true });
+    painted();
   };
   const printNote = h("p", { class: "small muted hidden", role: "status" });
   const showBusy = (n) => {
@@ -146,6 +149,7 @@ export function materialBox({ lessonId: id, st, L, gs = false, labels = {}, excl
       const fs = st.files.filter((f) => f.area === area && shown(f));
       clear(lists[area]).append(...(fs.length ? fs.map(fileRow) : [h("p", { class: "muted small", text: "Noch nichts hochgeladen." })]));
     }
+    painted();
   }
   /* Link zu einer Internetseite: Titel und Adresse (neu anlegen, wenn f fehlt) */
   function editLink(f, area) {
@@ -354,6 +358,7 @@ export function materialBox({ lessonId: id, st, L, gs = false, labels = {}, excl
       const rest = fs.filter((f) => zipMissing.has(f.id));
       if (rest.length < zipMissing.size) { if (rest.length) setZipNote(rest); else { zipMissing.clear(); zipNote.textContent = ""; zipNote.classList.add("hidden"); } }
     }
+    painted();
   }
   const printHead = h("h2", { text: "Von der Lehrkraft auszudrucken" });
   const printCard = h("section", { class: "card printcard", id: "printcard" }, h("div", { class: "section-title" }, printHead),
@@ -366,5 +371,24 @@ export function materialBox({ lessonId: id, st, L, gs = false, labels = {}, excl
   paintPrint();
   // Schlüssel des Dateistands: neue, gelöschte, umbenannte und (von Claude) neu gestaltete oder inzwischen gedruckte Dateien
   const filesKey = (fs) => fs.map((f) => f.id + ":" + f.status + ":" + f.name + ":" + f.area + (f.design ? ":" + f.design.htmlAt + "/" + f.design.pdfAt + "/" + (f.design.error || "") : "") + (gs && f.print ? ":p" + f.print.copies + "/" + f.print.duplex + "/" + f.print.color : "")).join("|");
-  return { filesCard, printCard, paintFiles, paintPrint, repaintFile, filesKey };
+  /* Kompakte Ansicht „Ich bin jetzt im Unterricht“ (Nachtrag 35, inclass.js): dieselben Wege zum Öffnen bzw. Herunterladen wie in den Zeilen oben (signierte
+     Links, Druck-Namen auch wo der Browser das download-Attribut nicht beachtet, Text als PDF, gestaltetes Material erst mit fertiger PDF) – ohne Verschieben,
+     Umbenennen und Löschen. pr = Eintrag der Druckliste. → {acts: [Element], meta: Element | null (Stand der Gestaltung, folgt dem Drucken)} */
+  function openActs(f, pr = false) {
+    const des = designBits(f, pr ? nameOf(f) : f.name, pr);
+    if (des) return { acts: des.acts, meta: des.meta };
+    if (f.kind === "link") return { acts: [h("a", { class: "btn small", href: f.url, target: "_blank", rel: "noopener noreferrer" }, "Öffnen", h("span", { class: "sr-only", text: " (öffnet in neuem Tab)" }))], meta: null };
+    const run = (fn) => (e) => busy(e.currentTarget, async () => { try { await fn(); } catch (err) { errToast(err); } });
+    if (pr) return { acts: [h("button", { class: "btn small primary", type: "button", onclick: run(async () => {
+      if (f.kind === "text" || upCards(f)) downloadBlob(new Blob([await printBytes(f)], { type: "application/pdf" }), nameOf(f));
+      else { const r = await tapi("POST", "/api/teacher/files/" + f.id + "/link", { body: { print: true } }); downloadUrl(r.url, nameOf(f)); }
+    }) }, icon("download"), "Herunterladen")], meta: null };
+    if (f.kind === "text") return { acts: [h("button", { class: "btn small", type: "button", onclick: run(async () => {
+      const { markdownToPdf, pdfName } = await lazy(import("./pdfmaker.js")); downloadBlob(await markdownToPdf(f.name, f.text, { subtitle: textSub(), nameLine: f.area !== "teacher" }), pdfName(f.name));
+    }) }, icon("download"), "PDF")], meta: null };
+    return { acts: [h("button", { class: "btn small", type: "button", onclick: run(async () => {
+      const r = await tapi("POST", "/api/teacher/files/" + f.id + "/link", { body: isCards(f) ? { print: true } : {} }); downloadUrl(r.url, f.name);
+    }) }, icon("download"), "Herunterladen")], meta: null };
+  }
+  return { filesCard, printCard, paintFiles, paintPrint, repaintFile, filesKey, openActs };
 }

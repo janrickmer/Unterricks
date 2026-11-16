@@ -20,6 +20,7 @@ import { personLabel, personKey, cleanPhoto, PHOTO_TASKS_MAX, materialRuns, task
 import { summaryCard } from "./tsummary.js";
 import { bringCard } from "./bringcard.js";
 import { freeDateMessage } from "./freedays.js";
+import { inClassToggle } from "./inclassbar.js";
 
 const MODES = [["planning", "Planung"], ["ideas", "Ideen weiterentwickeln"], ["material", "Material erstellen"]];
 
@@ -67,6 +68,9 @@ export async function sessionPage(id) {
   const selbstNow = () => !!st.sub && st.sub.status === "selbstlern";
   const hwDueDate = () => (selbstNow() ? d.teacherNextDate || null : L().nextDate);
   const paintTimes = () => { for (const f of onTimes) f(); };
+  // „Ich bin jetzt im Unterricht“ (Nachtrag 35): die kompakte Ansicht (inclass.js) folgt dem Verlaufsplan („plan“) und dem Material samt Präsentation („files“)
+  const icOn = { plan: new Set(), files: new Set() };
+  const icEmit = (k) => { for (const f of icOn[k]) { try { f(); } catch (e) { console.warn("Ansicht für den Unterricht:", e && e.message); } } };
   clear(main).append(pageHead({ fach: L().subject, title: heading, sub: subline,
     crumbs: [["#/lk", "Fächer"], ["#/lk/f/" + L().subject, subjectName(L().subject)], ["#/lk/f/" + L().subject + "/" + L().klass, classShort(L().klass)],
       ...(st.unit ? [["#/lk/u/" + st.unit.id, st.unit.title || "Einheit"]] : []), L().title] }));
@@ -228,7 +232,7 @@ export async function sessionPage(id) {
   const presPromptBtn = h("button", { class: "btn big", type: "button" }, "Prompt für die Präsentation kopieren");
   const presPromptOut = h("div");
   const genPortalBtn = h("button", { class: "btn primary", type: "button" }, "Schulportal-Eintrag erstellen");
-  function paintPreview() { paintPortalPreview(preview, portalTA.value); updateStopBtns(); tsum.paintNote(); }
+  function paintPreview() { paintPortalPreview(preview, portalTA.value); updateStopBtns(); tsum.paintNote(); icEmit("plan"); }
   /* ---- Zwischenstopp: Rechtsklick auf eine Zeile (Textfeld oder Vorschau) → „Zwischenstopp einfügen“ (vor dieser Zeile) ---- */
   const stopBtn = h("button", { class: "btn", type: "button", title: "Vor der Zeile mit der Schreibmarke einfügen" }, icon("pause"), "Zwischenstopp einfügen");
   const unstopBtn = h("button", { class: "btn ghost hidden", type: "button" }, "Zwischenstopp entfernen");
@@ -423,7 +427,7 @@ export async function sessionPage(id) {
     presPromptBtn, presPromptOut);
 
   /* ======================= Materialien (materialbox.js) ======================= */
-  const { filesCard, printCard, paintFiles, paintPrint, filesKey } = materialBox({ lessonId: id, st, L });
+  const { filesCard, printCard, paintFiles, paintPrint, filesKey, openActs } = materialBox({ lessonId: id, st, L, onPaint: () => icEmit("files") });
 
   /* ======================= Präsentation ======================= */
   const presCard = h("section", { class: "card" });
@@ -599,7 +603,22 @@ export async function sessionPage(id) {
     box.addEventListener("toggle", () => { phaseUi.open = box.open; if (box.open && !body.contains(document.activeElement)) paint(); });
     return box;
   }
-  async function paintPres() {
+  // Präsentationsmodus starten – „Ich bin im Unterricht und starte die Präsentation für alle.“ und „Präsentation live starten“ der Ansicht für den Unterricht
+  // (Nachtrag 35) sind derselbe Start: neu → Codefolie (0) vor Folie 1; läuft diese Präsentation schon (auch auf einem anderen Gerät), geht es an der laufenden
+  // Stelle weiter; „Bis hier gezeigt“ markiert über setShown (samt Zwischenstopp, Nachtrag 34). focusAfter() = wohin der Fokus danach geht, wenn er verloren wäre
+  let liveState = null, refreshLive = async () => {};
+  async function startLive(focusAfter) {
+    const p = curPres(); if (!p) return;
+    try {
+      const { startPresenter } = await lazy(import("./presenter.js"));
+      const running = liveState && liveState.active && liveState.fileId === p.id;
+      await startPresenter({ lessonId: id, file: p, token: T.token, slides: st.slides, startSlide: running ? liveState.slide : 0, code: L().code, title: L().title,
+        onEnd: () => { const lost = !document.activeElement || document.activeElement === document.body; refreshLive(); paintPres();
+          if (lost) { const b = focusAfter ? focusAfter() : presCard.querySelector("button.onair.big"); if (b) b.focus({ preventScroll: true }); } }, shownUntil: shownOf(p), onMark: (n, onStep) => setShown(n >= p.pages ? null : n, onStep) });
+    } catch (e) { errToast(e); }
+  }
+  async function paintPres() { await paintPresCard(); icEmit("files"); }
+  async function paintPresCard() {
     const p = st.files.find((f) => f.area === "presentation");
     clear(presCard).append(h("div", { class: "section-title" }, h("h2", { text: "Präsentation für den Unterricht" })));
     const zone = dropZone(p ? "Andere Präsentation hochladen (ersetzt die bisherige)" : "PDF der Präsentation hier ablegen oder auswählen",
@@ -671,24 +690,14 @@ export async function sessionPage(id) {
     paintPresRel();
     const liveLine = h("div", { class: "small" });
     const startBtn = h("button", { class: "btn onair big", type: "button" }, "Ich bin im Unterricht und starte die Präsentation für alle.");
-    startBtn.addEventListener("click", async () => {
-      try {
-        const { startPresenter } = await lazy(import("./presenter.js"));
-        // neu starten → Codefolie (0) vor Folie 1; läuft diese Präsentation schon, geht es an der laufenden Stelle weiter
-        const running = liveState && liveState.active && liveState.fileId === p.id;
-        await startPresenter({ lessonId: id, file: p, token: T.token, slides: st.slides, startSlide: running ? liveState.slide : 0, code: L().code, title: L().title,
-          onEnd: () => { const lost = !document.activeElement || document.activeElement === document.body; refreshLive(); paintPres();
-            if (lost) { const b = presCard.querySelector("button.onair.big"); if (b) b.focus({ preventScroll: true }); } }, shownUntil: shown, onMark: (n, onStep) => setShown(n >= p.pages ? null : n, onStep) });
-      } catch (e) { errToast(e); }
-    });
-    let liveState = null;
-    async function refreshLive() {
+    startBtn.addEventListener("click", () => startLive());
+    refreshLive = async () => {
       try {
         const r = await tapi("GET", "/api/teacher/lessons/" + id + "/live"); liveState = r.live;
         clear(liveLine).append(liveState.active ? h("span", null, h("span", { class: "badge onair" }, h("span", { class: "dot" }), "LIVE"), " " + (liveState.view === "code" && (liveState.slide === 0 || liveState.codeShown) ? "Sitzungscode" : "Folie " + liveState.slide + " / " + liveState.pages) + " · " + liveState.students + " verbunden ",
           h("button", { class: "btn small danger", type: "button", onclick: async () => { try { await tapi("POST", "/api/teacher/lessons/" + id + "/live/stop"); refreshLive(); } catch (e) { errToast(e); } } }, "Für alle beenden")) : h("span", { class: "muted", text: "Gerade nicht live." }));
       } catch {}
-    }
+    };
     refreshLive();
     presCard.append(
       h("div", { class: "item" }, fileIcon(p.name, p.mime), h("div", { class: "main" }, h("div", { class: "name", text: p.name }), h("div", { class: "meta", text: p.pages + " Folien · " + fmtBytes(p.size) })),
@@ -846,6 +855,7 @@ export async function sessionPage(id) {
     if (analog) {
       clear(fbCard).append(...nn(h("h2", { text: "Feibeitsblatt" }), h("div", { class: "notice" }, "Jahrgang " + gradeKey(L().klass) + ": " + ANALOG_RULE),
         st.sheets.length ? h("p", { class: "small", text: "Verknüpfte Feibeitsblätter: " + st.sheets.map((x) => x.title + " (" + formatCode(x.code) + ")").join(", ") }) : null));
+      icEmit("files");
       return;
     }
     const lk = T.fbLink, checking = !fb.connected && lk.state === "checking";
@@ -920,6 +930,7 @@ export async function sessionPage(id) {
       linkBox,
       h("h3", { style: { marginTop: "1rem" }, text: "Entwürfe" }), drafts.length ? draftList : h("p", { class: "muted small", text: "Keine offenen Entwürfe. Die KI schlägt in der Planung bei passender Gelegenheit ein Feibeitsblatt vor; den Entwurf erzeugen Sie hier." }),
       h("div", { class: "row" }, h("div", { class: "grow" }, wish), genBtn)));
+    icEmit("files");   // Feibeitsblätter der Sitzung (Ansicht für den Unterricht)
   }
 
   // Links, die im Feibeitsblatt anklickbar werden (Nr. 17): Vorschau unter dem Feld, zum Prüfen in neuem Tab (wie bei den Schüler:innen)
@@ -1318,9 +1329,21 @@ export async function sessionPage(id) {
 
   // Gegenstände zum Mitbringen (Nachtrag 28): kompakte Karte unter den Sitzungsdaten
   const bring = bringCard({ id, L, absent: () => (st.sub && (st.sub.status === "selbstlern" || st.sub.status === "aktiv") ? st.sub.status : null) });
-  main.append(tsum.el, h("div", { class: "session-grid" },
+  const grid = h("div", { class: "session-grid" },
     h("div", { class: "stack" }, sub.main, prevEl, planCard, unitCard, chatCard, portalCard, hwCard, presPromptCard, filesCard, presCard, fbCard, printCard),
-    h("aside", { class: "side" }, codeCard, metaCard, bring.el, sub.side)), ioCard);
+    h("aside", { class: "side" }, codeCard, metaCard, bring.el, sub.side));
+  /* ======================= „Ich bin jetzt im Unterricht“ (Nachtrag 35): ganz oben, vor der Zusammenfassung ======================= */
+  // kompakte Ansicht (inclass.js, erst bei Bedarf geladen) mit den Wegen dieser Seite; nicht in einer Selbstlern-Phase oder laufenden Vertretung (die
+  // Lehrkraft ist dann nicht im Unterricht)
+  const icApi = { kind: "gym", id, st, selbstlern: selbstNow, on: (k, fn) => { icOn[k].add(fn); return () => icOn[k].delete(fn); },
+    planText: () => (portalTA ? portalTA.value : L().portal || ""), paintPlan: (box) => paintPortalPreview(box, portalTA ? portalTA.value : L().portal || ""), planState: portalState,
+    stopMenu: (line, x, y) => { if (!portalTA) showPortalEditor(); stopMenu(line, x, y); }, insertStop: (line) => { if (!portalTA) showPortalEditor(); insertStopAt(line); }, dropStop,
+    stopNext: () => stopNext, openActs, homework: hwCard, pres: curPres, annotated: (p) => st.files.find((f) => f.notesOf === p.id && f.area !== "archive") || null,
+    startLive: (focusAfter) => startLive(focusAfter) };
+  const inClass = inClassToggle({ id, full: () => [tsum.el, grid, ioCard], allowed: () => !(st.sub && (st.sub.status === "selbstlern" || st.sub.status === "aktiv")),
+    mount: async () => (await lazy(import("./inclass.js"))).inClassView(icApi) });
+  main.append(...inClass.els, tsum.el, grid, ioCard);
+  inClass.restore();
 
   // Hinweis zum Überarbeiten der Einheit nach dem Verschieben wegen unterrichtsfreier Tage (Nachtrag 24) – derselbe Kasten wie auf der Einheitsseite
   // und auf den Sitzungsseiten der Grundschule, direkt vor „Stunde mit Claude planen“; ohne offenen Hinweis gibt es ihn nicht (Seite wie bisher)
@@ -1352,7 +1375,7 @@ export async function sessionPage(id) {
       if (nextChanged && selbstNow()) paintDue();
       if (subKey(r.substitute) !== subKey(st.sub)) {
         const was = st.sub ? st.sub.status : null;
-        st.drafts = r.drafts; st.sub = r.substitute; st.sheets = r.sheets; sub.paint(); tsum.paintNote(); paintFb(); paintTimes(); bring.paintAbsent(); paintPrev();
+        st.drafts = r.drafts; st.sub = r.substitute; st.sheets = r.sheets; sub.paint(); tsum.paintNote(); paintFb(); paintTimes(); bring.paintAbsent(); paintPrev(); inClass.paint();
         if (r.substitute && r.substitute.status === "selbstlern") toast(was === "selbstlern" ? "Claude hat die Selbstlern-Phase überarbeitet." : "Claude hat die Sitzung in eine Selbstlern-Phase umgebaut – die Karte steht oben.", "ok", 6000);
       } else if (st.sub && st.sub.status === "selbstlern" && JSON.stringify(r.drafts.map((x) => x.id + x.status)) !== JSON.stringify(st.drafts.map((x) => x.id + x.status))) { st.drafts = r.drafts; sub.paint(); }
       if (r.unit && st.unit && r.unit.version !== st.unit.version) { st.unit = r.unit; paintUnit(); if (!reviseEl || !reviseEl.contains(document.activeElement)) paintRevise(); }

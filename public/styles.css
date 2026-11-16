@@ -28,6 +28,8 @@
   --timer-last: #ff9a45; --timer-last-ink: #13213b; --timer-over: #c8281e; --timer-over-ink: #fff; --timer-pause: #2b3550; --timer-pause-ink: #e8edf6;
   /* Unterrichtsfrei (Nachtrag 24): abgedeckte Folie – graublaue Schraffur aus zwei Tönen, Kante; Schrift --text darauf mindestens 11 : 1 */
   --frei-t: #edf0f5; --frei-s: #dce2ec; --frei-k: #7d8aa2;
+  /* Ansicht „Ich bin jetzt im Unterricht“ (Nachtrag 35): grüner Pfeil der aktuellen Phase; „jetzt“ darauf 5,4 : 1, der Pfeil auf --surface 5,4 : 1 */
+  --pfeil: #14794a; --pfeil-ink: #fff;
   /* Fach der Seite (ohne Fach: Marke) */
   --fach: var(--marke); --fach-t: var(--marke-t); --fach-text: var(--marke);
   /* Zustände als Text */
@@ -58,6 +60,7 @@
     --blau-t: #1a2a4f; --violett-t: #261d45; --kupfer-t: #3a2216; --marke-t: #1c2436; --gelb-t: #3a3214; --rot-t: #3d1a1a; --gruen-t: #12301f;
     --orange: #ff9a45; --orange-t: #37230f; --orange-ink: #13213b;
     --frei-t: #182033; --frei-s: #232d44; --frei-k: #7987a3;
+    --pfeil: #5fd39a; --pfeil-ink: #0b111e;
     --fach-text: #c9d3e6; --ok: #5fd39a; --warn: var(--text); --err: #ff8a80;
     --foil: color-mix(in srgb, var(--fach) 30%, #c8d0de); --foil-op: .72;
     --shadow: 0 1px 2px rgba(0, 0, 0, .35), 0 10px 24px -12px rgba(0, 0, 0, .65);
@@ -1509,3 +1512,49 @@ main.loadfail .card p { max-width: 62ch; }
 main.navwait p { opacity: 0; animation: navwait-zeigen .2s ease-out .5s forwards; }
 @keyframes navwait-zeigen { to { opacity: 1; } }
 @media (prefers-reduced-motion: reduce) { main.navwait p { animation-duration: .01s; } }
+
+/* ---------- „Ich bin jetzt im Unterricht“ (Nachtrag 35, public/inclassbar.js, public/inclass.js): kompakte Ansicht der Sitzung für die Stunde ---------- */
+.ic-hide { display: none !important; }   /* die vollständige Ansicht bleibt im Dokument (Eingaben, Zeitgeber, Präsentation), nur ausgeblendet */
+.inclass-bar { display: flex; flex-wrap: wrap; align-items: center; gap: .6rem 1rem; margin: 0 0 1.15rem; }
+.inclass-bar .inclass-lead { margin: 0; flex: 1 1 18rem; }
+.inclass { display: grid; grid-template-columns: minmax(0, 1fr); }
+.inclass-view { display: grid; grid-template-columns: minmax(0, 1fr); gap: 1.15rem; }
+.inclass-view .card + .card { margin-top: 0; }
+.inclass-view .btn.small { min-height: 44px; }   /* am iPad im Unterricht: jede Fläche mindestens 44 px */
+.ic-presacts { gap: .6rem; }
+.ic-live { margin: .75rem 0 .4rem; display: flex; align-items: center; gap: .45rem; flex-wrap: wrap; }
+.ic-sub { font-weight: 600; }
+.ic-arrowhint { margin: 0 0 .6rem; color: var(--muted); max-width: 75ch; }
+.portal-preview.ic-plan { min-height: 0; }
+.portal-preview.ic-arrowed { padding-right: 5.8rem; }   /* Gymnasium: rechts Platz für den Pfeil – das Abdeckblatt reicht trotzdem bis zum Rand */
+.portal-preview.ic-arrowed .covered { margin-right: -5.8rem; padding-right: 5.8rem; }
+.ic-plan .ic-now { background: var(--gruen-t); border-radius: 6px; margin-inline: -.45rem; padding-inline: .45rem; }
+.covered .ic-now { color: var(--text); }
+.phasearrow { position: absolute; right: .45rem; display: inline-flex; align-items: center; gap: .25rem; height: 2rem; margin-top: -.25rem; padding: 0 .7rem 0 1.1rem;
+  background: var(--pfeil); color: var(--pfeil-ink); font-size: .92rem; font-weight: 800; letter-spacing: .01em; line-height: 1;
+  clip-path: polygon(0 50%, .85rem 0, 100% 0, 100% 100%, .85rem 100%); border-radius: 0 7px 7px 0; pointer-events: none; }
+.phasearrow svg.ico { width: 1.05em; height: 1.05em; stroke-width: 2.6; }
+@media (prefers-reduced-motion: no-preference) { .phasearrow { animation: pfeil-kommt .35s var(--ease) both; } @keyframes pfeil-kommt { from { transform: translateX(.6rem); opacity: 0; } } }
+@media (forced-colors: active) { .phasearrow { background: Highlight; color: HighlightText; forced-color-adjust: none; } }
+.ic-stopacts { margin-top: .75rem; }
+/* Material: zwei Spalten wie eine Tabelle (je Spalte eine Überschrift – auch übereinander am Handy) */
+.ic-mat { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); border: 1px solid var(--line); border-radius: 12px; overflow: hidden; }
+.ic-col { min-width: 0; }
+.ic-col + .ic-col { border-left: 1px solid var(--line); }
+.ic-col > h3 { margin: 0; padding: .7rem .95rem; background: var(--surface-2); font-size: 1rem; border-bottom: 1px solid var(--line); }
+.ic-list { list-style: none; margin: 0; padding: 0; }
+.ic-item { display: grid; grid-template-columns: auto minmax(0, 1fr); gap: .35rem .75rem; align-items: start; padding: .75rem .95rem; }
+.ic-item + .ic-item { border-top: 1px solid var(--line); }
+.ic-item .ficon { grid-row: span 2; }
+.ic-name { font-weight: 700; overflow-wrap: anywhere; }
+.ic-meta { font-size: .88rem; color: var(--muted); overflow-wrap: anywhere; }
+.ic-tags { display: flex; flex-wrap: wrap; gap: .3rem; margin: .2rem 0; }
+.ic-tags .badge { background: var(--surface-2); color: var(--text); box-shadow: inset 0 0 0 1px var(--line-ui); }
+.ic-acts { grid-column: 2; display: flex; flex-wrap: wrap; gap: .4rem; }
+.ic-item .gs-badge { margin-top: .25rem; }
+.ic-empty { margin: 0; padding: .75rem .95rem; }
+@media (max-width: 720px) {
+  .ic-mat { grid-template-columns: minmax(0, 1fr); }
+  .ic-col + .ic-col { border-left: 0; border-top: 2px solid var(--line-ui); }
+}
+@media (max-width: 560px) { .portal-preview.ic-arrowed { padding-right: 5.1rem; } .portal-preview.ic-arrowed .covered { margin-right: -5.1rem; padding-right: 5.1rem; } .phasearrow { padding: 0 .55rem 0 1rem; } }
