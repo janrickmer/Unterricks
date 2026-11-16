@@ -506,12 +506,10 @@ export function codeSlideLines(lines, pageH) {
   const all = (lines || []).filter((l) => l && typeof l.text === "string");
   if (!all.some((l) => MARK_RE.test(l.text))) return null;
   // die unsichtbare Zeile „Unterricks-Phase: n“ (Nachtrag 34) gehört nie zur Überschrift – auch nicht als Stück einer umbrochenen Zeile
-  const phased = phaseMarkOf(all) !== null;
+  const own = stripPhaseLines(all.map((l) => l.text));
   const keep = [];
-  for (const l of all) {
-    const own = stripPhaseMarks(l.text);
-    if (phased && isPhaseFragment(own)) continue;
-    let t = unspace(own);
+  for (const [i, l] of all.entries()) {
+    let t = unspace(own[i]);
     if (MARK_RE.test(t)) {
       t = t.replace(new RegExp(MARK_SRC, "gi"), " ").replace(/^[\s:·|–—-]+|[\s:·|–—-]+$/g, "");
       if (t.split(/\s+/).filter((w) => /\p{L}/u.test(w)).length < 2 || explains(t)) continue;   // Marke allein bzw. mit Erklärsatz
@@ -544,19 +542,50 @@ export function codeSlideLines(lines, pageH) {
  * der Überschrift einer Codefolie (codeSlideLines) und nie für Schüler:innen; daraus folgt der Zwischenstopp im Schulportal-Eintrag (stopForShown). */
 export const PHASE_MARK = "Unterricks-Phase";
 export const PHASE_MAX = 99;
-const PHASE_WORD = "u\\s*n\\s*t\\s*e\\s*r\\s*r\\s*i\\s*c\\s*k\\s*s\\s*[-\\u2010\\u2011\\u2013\\u2014]?\\s*p\\s*h\\s*a\\s*s\\s*e\\s*[:\\uFF1A]?\\s*";
-const PHASE_RE = new RegExp(PHASE_WORD + "(\\d{1,2})(?!\\d)", "gi");
-// ein Stück der Zeile (umbrochen bzw. in mehreren Textstücken): „Unterricks-“, „Phase: 3“, „-Phase:“ …
-const PHASE_PART_RE = /^[\s\-\u2010\u2011\u2013\u2014:\uFF1A]*(?:u\s*n\s*t\s*e\s*r\s*r\s*i\s*c\s*k\s*s)?[\s\-\u2010\u2011\u2013\u2014]*(?:p\s*h\s*a\s*s\s*e)?[\s:\uFF1A]*\d{0,2}\s*$/i;
-const lineText = (l) => (typeof l === "string" ? l : l && typeof l.text === "string" ? l.text : "");
-/* Phase einer Folie aus ihren Zeilen (Strings oder {text}, Reihenfolge des PDF) → 1–99 | null; mehrere Zeilen → die erste gültige */
-export function phaseMarkOf(lines) {
-  const s = (Array.isArray(lines) ? lines : []).map(lineText).join(" ").normalize("NFKC");
-  for (const m of s.matchAll(PHASE_RE)) { const n = Number(m[1]); if (n >= 1 && n <= PHASE_MAX) return n; }
-  return null;
+// Wort (auch gesperrt gesetzt), Bindestrich und Doppelpunkt (beide auch fehlend bzw. als Gedankenstrich und in voller Breite), dann die Zahl – gesperrt
+// gesetzt auch „1 2“ (nur, wenn das Wort selbst gesperrt ist: sonst wäre „…: 1 2“ eher die Zeile und eine Seitenzahl daneben)
+const PHASE_DIG = "[0-9\\uFF10-\\uFF19]";
+const PHASE_RE = new RegExp("(u\\s*n\\s*t\\s*e\\s*r\\s*r\\s*i\\s*c\\s*k\\s*s)\\s*([-\\u2010\\u2011\\u2013\\u2014])?\\s*(p\\s*h\\s*a\\s*s\\s*e)\\s*([:\\uFF1A])?\\s*(" +
+  PHASE_DIG + "(?:\\s?" + PHASE_DIG + ")?)(?!" + PHASE_DIG + ")", "gi");
+const lineText = (l) => (typeof l === "string" ? l : l && typeof l.text === "string" ? l.text : l && typeof l.str === "string" ? l.str : "");
+/* Fundstellen der Zeile in einem Text → [{index, end, n, score}] (score = Bindestrich + Doppelpunkt: so schreibt Claude sie laut Prompt; sichtbarer Text wie
+   „… in Unterricks“ + „Phase 2: …“ hat keins von beiden) */
+function phaseMatches(s) {
+  const out = [];
+  for (const m of String(s).matchAll(PHASE_RE)) {
+    let d = m[5], end = m.index + m[0].length;
+    const spaced = /\p{L}\s+\p{L}/u.test(m[1]) || /\p{L}\s+\p{L}/u.test(m[3]);
+    if (/\s/.test(d) && !spaced) { end -= d.length - 1; d = d[0]; }
+    const n = Number(d.replace(/\s/g, "").replace(/[\uFF10-\uFF19]/g, (c) => String(c.charCodeAt(0) - 0xFF10)));
+    if (n >= 1 && n <= PHASE_MAX) out.push({ index: m.index, end, n, score: (m[2] ? 1 : 0) + (m[4] ? 1 : 0) });
+  }
+  return out;
 }
-export const stripPhaseMarks = (t) => String(t == null ? "" : t).replace(PHASE_RE, " ");
-const isPhaseFragment = (t) => /\S/.test(t) && PHASE_PART_RE.test(t);
+/* Phase einer Folie aus ihren Zeilen (Strings oder {text}, Reihenfolge des PDF) → 1–99 | null. items = die einzelnen Textstücke (PDF.js, {str} oder Strings):
+   zuerst gelten Textstücke und Zeilen für sich (dort steht die Zeile meist ganz – auch, wenn direkt dahinter Text mit einer Zahl beginnt), dann alle Zeilen
+   verbunden (über Zeilen umbrochen). Die Fundstelle mit Bindestrich und Doppelpunkt gewinnt; sonst die erste. */
+export function phaseMarkOf(lines, items = null) {
+  const texts = (Array.isArray(lines) ? lines : []).map(lineText);
+  let best = null;
+  for (const list of [(Array.isArray(items) ? items : []).map(lineText), texts, [texts.join(" ")]])
+    for (const s of list) for (const m of phaseMatches(s)) if (!best || m.score > best.score) best = m;
+  return best ? best.n : null;
+}
+export const stripPhaseMarks = (t) => { let s = String(t == null ? "" : t); for (const m of phaseMatches(s).reverse()) s = s.slice(0, m.index) + " " + s.slice(m.end); return s; };
+/* Zeilen ohne die Zeile „Unterricks-Phase: n“ (für die Überschrift einer Codefolie): steht sie in einer Zeile, fällt nur sie weg; nur wenn sie über mehrere
+   Zeilen umbrochen ist, die Stücke genau dieser Fundstelle – nie eine sichtbare Zeile wie „Phase 2“ der Überschrift */
+function stripPhaseLines(texts) {
+  let hit = false;
+  const own = texts.map((t) => { const s = stripPhaseMarks(t); if (s !== t) hit = true; return s; });
+  if (hit) return own;
+  const starts = [];
+  let joined = "";
+  texts.forEach((t, i) => { if (i) joined += " "; starts.push(joined.length); joined += t; });
+  let best = null;
+  for (const m of phaseMatches(joined)) if (!best || m.score > best.score) best = m;
+  if (!best) return texts;
+  return texts.map((t, i) => { const a = starts[i], lo = Math.max(a, best.index), hi = Math.min(a + t.length, best.end); return lo < hi ? t.slice(0, lo - a) + " " + t.slice(hi - a) : t; });
+}
 /* Phasen aller Folien aus fremden Daten (Browser → Server): genau pages Einträge, je eine Ganzzahl 1–99 oder null → Array; ohne eine einzige Phase
    null; ungültig (anderes Format, andere Länge, andere Werte) undefined */
 export function cleanSlidePhases(raw, pages) {
@@ -1023,8 +1052,10 @@ export function portalPhases(text) {
      | {complete: true, phase, manual}
      | {error: "nomarks" | "noheads" | "missing" | "twice", phase?}
    n = null (Markierung aufgehoben) → {remove: true, text, phase, label} (der von Unterricks eingetragene steht noch an seiner Stelle) | {keep: true, manual}
-   manual = es bleibt ein Zwischenstopp stehen, den Unterricks nicht entfernt. */
-export function stopForShown(portalText, slidePhases, n, prevAuto = null) {
+   manual = es bleibt ein Zwischenstopp stehen, den Unterricks nicht entfernt.
+   keepManual (nach dem Speichern von „Phasen der Folien“ bei schon markierter Folie – keine neue Markierung): einen Zwischenstopp, den die Lehrkraft selbst
+   gesetzt oder verschoben hat, nicht verschieben → {keep: true, manual: true}. */
+export function stopForShown(portalText, slidePhases, n, prevAuto = null, { keepManual = false } = {}) {
   const text = String(portalText == null ? "" : portalText), heads = portalPhases(text), P = Array.isArray(slidePhases) ? slidePhases : [];
   const headsOf = (k) => heads.filter((h) => h.n === k);
   const lines = splitLines(text);
@@ -1039,6 +1070,7 @@ export function stopForShown(portalText, slidePhases, n, prevAuto = null) {
   const auto = prevAuto && Number.isInteger(prevAuto.phase) && sitsBefore(prevAuto.phase) ? headsOf(prevAuto.phase)[0] : null;
   const gone = () => (auto ? { remove: true, text: removeStops(text), phase: auto.n, label: auto.label } : { manual: hasStop(text) });
   if (n === null || n === undefined) { const g = gone(); return g.remove ? g : { keep: true, manual: g.manual }; }
+  if (keepManual && !auto && hasStop(text)) return { keep: true, manual: true };
   if (!P.some((v) => Number.isInteger(v))) return { error: "nomarks" };
   if (!heads.length) return { error: "noheads" };
   let q = null, r = null;
@@ -1563,8 +1595,8 @@ export function claudePresentationPrompt(ctx, portalText, messages) {
     "",
     "## Materialfolien: " + (analog ? "Aufforderung und Titel des Materials (auf Papier)" : "Unterricks-Codefolie mit Aufforderung und Titel des Materials"),
     "Immer wenn die Schüler:innen laut Stundenverlauf mit einem Material arbeiten sollen (Feibeitsblatt, Arbeitsblatt, Text, Link o. Ä.), bekommt dieser Schritt eine Materialfolie. " +
-      (analog ? "In dieser Jahrgangsstufe haben die Schüler:innen im Unterricht keine iPads und bekommen das Material auf Papier – die Materialfolie ist deshalb eine gewöhnliche Folie (keine Unterricks-Codefolie) und zeigt nur:"
-        : "Das Material finden die Schüler:innen in Unterricks – die Materialfolie ist deshalb eine Unterricks-Codefolie (siehe oben) und enthält außer der Zeile „" + CODE_SLIDE_MARK + ": …“ nur:"),
+      (analog ? "In dieser Jahrgangsstufe haben die Schüler:innen im Unterricht keine iPads und bekommen das Material auf Papier – die Materialfolie ist deshalb eine gewöhnliche Folie (keine Unterricks-Codefolie) und zeigt (außer der unsichtbaren Zeile „" + PHASE_MARK + ": …“) nur:"
+        : "Das Material finden die Schüler:innen in Unterricks – die Materialfolie ist deshalb eine Unterricks-Codefolie (siehe oben) und enthält außer der Zeile „" + CODE_SLIDE_MARK + ": …“ und der unsichtbaren Zeile „" + PHASE_MARK + ": …“ nur:"),
     "- die Aufforderung, mit dem Material zu arbeiten, in ein bis zwei kurzen Sätzen an die Schüler:innen gerichtet (mit Sozialform und – wenn der Stundenverlauf sie nennt – den Aufgaben und der Zeit), " +
       "z. B. „Bearbeitet in Partnerarbeit die Aufgaben 1 bis 3.“;",
     "- den Titel des Materials groß und genau so, wie das Material in Unterricks heißt (siehe „Materialien und weitere Informationen“ unten; ohne Dateiendung wie „.pdf“), mit der Art davor, z. B. „" + exTitle + "“" +

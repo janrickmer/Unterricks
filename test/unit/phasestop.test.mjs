@@ -3,6 +3,7 @@
 // „vor diese Phase“), speichern am Server (…/ready, PUT …/phases, …/slides, fileOut; nie für Schüler:innen), Sitzungsdatei. Test-PDFs mit pdf-lib (frei erfunden).
 import test from "node:test";
 import assert from "node:assert/strict";
+import { readFileSync } from "node:fs";
 import { register } from "node:module";
 register("data:text/javascript," + encodeURIComponent('export async function resolve(s, c, n) { return s === "cloudflare:workers" ? { url: "data:text/javascript," + encodeURIComponent("export class DurableObject { constructor(ctx, env) { this.ctx = ctx; this.env = env; } }"), shortCircuit: true } : n(s, c); }'));
 const PL = await import("pdf-lib");
@@ -63,7 +64,7 @@ async function pdfLines(bytes, scale = 2) {
       const tx = pdfjs.Util.transform(vp.transform, it.transform), hgt = Math.hypot(tx[2], tx[3]);
       return { str: it.str, x: tx[4], base: tx[5], w: it.width * scale, h: hgt, eol: !!it.hasEOL };
     });
-    out.push({ lines: S.slideTextLines(items), h: vp.height });
+    out.push({ lines: S.slideTextLines(items), items, h: vp.height });
   }
   await doc.destroy();
   return out;
@@ -255,4 +256,91 @@ test("Sitzungsdatei: die Zuordnung der Lehrkraft (slidePhases) kommt mit – nur
   assert.deepEqual(d.files[0].slidePhases, [1, 1, null, null, 3, null]);
   assert.equal(d.files[1].slidePhases, undefined, "nur an der Präsentation");
   assert.equal(d.files[2].slidePhases, undefined, "ohne Phase kein Feld");
+});
+
+/* ---------- Prüfbefunde (S33 check) ---------- */
+test("Phase lesen (Prüfbefund): sichtbarer Text „… in Unterricks“ + „Phase 2: …“ gewinnt nicht gegen die echte Zeile; gesperrte zweistellige Zahl; Zahl direkt dahinter; Seitenzahl daneben", () => {
+  // die Fundstelle mit Bindestrich und Doppelpunkt gewinnt – auch wenn die sichtbare über zwei Zeilen davor steht
+  assert.equal(S.phaseMarkOf(["Öffnet das Material in Unterricks", "Phase 2: Partnerarbeit", "Unterricks-Phase: 3"]), 3);
+  assert.equal(S.phaseMarkOf(["Öffnet das Material in Unterricks", "Phase 2: Partnerarbeit", "Unterricks-", "Phase: 3"]), 3, "auch umbrochen");
+  // gesperrt gesetzt: auch die Zahl
+  assert.equal(S.phaseMarkOf(["U n t e r r i c k s - P h a s e : 1 2"]), 12);
+  assert.equal(S.phaseMarkOf(["U n t e r r i c k s - P h a s e :  1  2"]), 1, "Wortlücke (zwei Leerzeichen): nicht dieselbe Zahl");
+  // nicht gesperrt: „1 2“ ist die Zeile und eine Seitenzahl daneben
+  assert.equal(S.phaseMarkOf(["Unterricks-Phase: 1 2"]), 1);
+  assert.equal(S.phaseMarkOf(["Unterricks-Phase: 1 2025"]), 1);
+  // direkt dahinter Text, der mit einer Zahl beginnt (gleiche Grundlinie, ohne Abstand verbunden): die Textstücke einzeln gelten zuerst
+  assert.equal(S.phaseMarkOf(["Unterricks-Phase: 22025 Quelle: Statistik"]), null, "nur verbunden: nicht eindeutig");
+  assert.equal(S.phaseMarkOf(["Unterricks-Phase: 22025 Quelle: Statistik"], [{ str: "Unterricks-Phase: 2" }, { str: "2025 Quelle: Statistik" }]), 2);
+  assert.equal(S.phaseMarkOf([], ["Unterricks-Phase: 7"]), 7, "Textstücke als Strings");
+});
+
+test("Codefolie (Prüfbefund): eine sichtbare Zeile „Phase 2“ der Überschrift bleibt, wenn die Zeile „Unterricks-Phase“ ganz in einer Zeile steht; umbrochen fallen nur ihre Stücke weg", () => {
+  const head = [piece("Phase 2", 100, 200, 44), piece("Bearbeitet das Feibeitsblatt", 100, 300, 44), piece(S.CODE_SLIDE_LINE, 100, 1050, 16)];
+  assert.deepEqual(S.codeSlideLines(S.slideTextLines([...head, piece("Unterricks-Phase: 2", 4, 1078, 2)]), 1080), ["Phase 2", "Bearbeitet das Feibeitsblatt"]);
+  assert.deepEqual(S.codeSlideLines(S.slideTextLines(head), 1080), ["Phase 2", "Bearbeitet das Feibeitsblatt"], "ohne Zeile wie bisher");
+  // umbrochen: genau ihre Stücke, „Phase 2“ der Überschrift bleibt
+  assert.deepEqual(S.codeSlideLines(S.slideTextLines([...head, piece("Unterricks-", 100, 640, 44), piece("Phase: 3", 100, 700, 44)]), 1080), ["Phase 2", "Bearbeitet das Feibeitsblatt"]);
+  // „… in Unterricks“ + „Phase 2: …“ sichtbar, die echte Zeile winzig: die sichtbaren Zeilen bleiben vollständig
+  const vis = [piece("Öffnet das Material in Unterricks", 100, 200, 44), piece("Phase 2: Partnerarbeit", 100, 330, 44), piece(S.CODE_SLIDE_LINE, 100, 1050, 16), piece("Unterricks-Phase: 3", 4, 1078, 2)];
+  const lines = S.slideTextLines(vis);
+  assert.equal(S.phaseMarkOf(lines), 3);
+  assert.deepEqual(S.codeSlideLines(lines, 1080), ["Öffnet das Material in Unterricks", "Phase 2: Partnerarbeit"]);
+});
+
+test("echte PDF (Prüfbefund): Zeile mit Zeichenabstand (gesperrt, zweistellig) und Fußzeile, die mit einer Jahreszahl beginnt, auf derselben Grundlinie", async () => {
+  const d = await PDFDocument.create(), f = await d.embedFont(StandardFonts.Helvetica), bg = rgb(0.12, 0.2, 0.38);
+  const p1 = d.addPage([960, 540]);
+  p1.drawRectangle({ x: 0, y: 0, width: 960, height: 540, color: bg });
+  p1.pushOperators(PL.setCharacterSpacing(3)); p1.drawText("Unterricks-Phase: 12", { x: 4, y: 3, size: 6, font: f, color: bg }); p1.pushOperators(PL.setCharacterSpacing(0));
+  const p2 = d.addPage([960, 540]);
+  p2.drawRectangle({ x: 0, y: 0, width: 960, height: 540, color: bg });
+  const w = f.widthOfTextAtSize("Unterricks-Phase: 2", 6);
+  p2.drawText("Unterricks-Phase: 2", { x: 4, y: 3, size: 6, font: f, color: bg }); p2.drawText("2025 Quelle: Statistik", { x: 4 + w + 20, y: 3, size: 6, font: f, color: rgb(1, 1, 1) });
+  // ohne jeden Abstand dahinter (gegen den Prompt: „nie über anderem Inhalt“) verbindet PDF.js beides zu einem Textstück „…: 22025 …“ – dann bleibt die Folie
+  // ohne Phase (nie eine falsche); die Lehrkraft ordnet sie unter „Phasen der Folien“ zu
+  const p3 = d.addPage([960, 540]);
+  p3.drawText("Unterricks-Phase: 2", { x: 4, y: 3, size: 6, font: f }); p3.drawText("2025 Quelle: Statistik", { x: 4 + w, y: 3, size: 6, font: f });
+  const pages = await pdfLines(await d.save());
+  assert.equal(S.phaseMarkOf(pages[0].lines, pages[0].items), 12, JSON.stringify(pages[0].lines.map((l) => l.text)));
+  assert.equal(S.phaseMarkOf(pages[1].lines, pages[1].items), 2, JSON.stringify(pages[1].lines.map((l) => l.text)));
+  assert.equal(S.phaseMarkOf(pages[2].lines, pages[2].items), null, JSON.stringify(pages[2].items.map((i) => i.str)));
+});
+
+test("Zwischenstopp nach dem Speichern von „Phasen der Folien“ (Prüfbefund, keepManual): ohne Zwischenstopp bzw. mit dem eigenen eintragen, einen von Hand gesetzten stehen lassen", () => {
+  const P = [1, 1, 2, 2, 2, 3, null, 4];
+  // noch kein Zwischenstopp (z. B. vorher „Folien ohne Phasen“): eingetragen
+  assert.equal(stopBefore(S.stopForShown(PORTAL, P, 4, null, { keepManual: true }).text), "**2) Partnerarbeit**");
+  // der eigene steht noch an seiner Stelle: er folgt der neuen Zuordnung
+  const auto = S.stopForShown(PORTAL, P, 5), rec = { phase: auto.phase, until: 5 };
+  assert.equal(stopBefore(S.stopForShown(auto.text, [1, 1, 2, 2, 3, 3, 4, 4], 5, rec, { keepManual: true }).text), "**3) Sicherung**");
+  assert.equal(stopBefore(S.stopForShown(auto.text, [1, 1, 1, 2, 2, 2, 4, 4], 5, rec, { keepManual: true }).text), "**2) Partnerarbeit**");
+  // von Hand gesetzt (ohne Vermerk) bzw. verschoben: bleibt
+  const hand = S.insertStop(PORTAL, 0).text;
+  assert.deepEqual(S.stopForShown(hand, P, 4, null, { keepManual: true }), { keep: true, manual: true });
+  const moved = S.insertStop(auto.text, S.portalPhases(auto.text).find((x) => x.n === 2).line).text;
+  assert.deepEqual(S.stopForShown(moved, P, 4, rec, { keepManual: true }), { keep: true, manual: true });
+  // eine neue Markierung (ohne keepManual) verschiebt ihn weiterhin
+  assert.equal(stopBefore(S.stopForShown(hand, P, 4).text), "**2) Partnerarbeit**");
+});
+
+test("Server (Prüfbefund): Stand der Sitzung GET …/stamp – gleich dem aus GET …/lessons/:id, ändert sich mit Eintrag, Markierung und Phasen der Präsentation; vier Anweisungen; nur angemeldet", async () => {
+  const { c, l, fid } = await setup();
+  await ready(c, fid, { pages: 3, codeSlides: [], phases: [1, 2, null] });
+  const stamp = async () => (await call(c, L.routeLessonStamp, "GET", "/x", undefined, l.id)).data;
+  const full = async () => (await call(c, L.routeLessonGet, "GET", "/x", undefined, l.id)).data.stamp;
+  let s0 = await stamp();
+  assert.equal(typeof s0.stamp, "string"); assert.equal(s0.stamp, await full(), "derselbe Stand in beiden Antworten");
+  assert.equal(s0.portalVersion, 0);
+  const tick = async () => { c.now += 1000; };
+  await tick(); await call(c, L.routePortalPut, "PUT", "/x", { text: PORTAL, baseVersion: 0 }, l.id);
+  let s1 = await stamp();
+  assert.ok(s1.stamp !== s0.stamp && s1.portalVersion === 1 && s1.stamp === await full(), "Schulportal-Eintrag gespeichert");
+  await tick(); await phasesPut(c, fid, { auto: { phase: 2, until: 1 } });
+  const s2 = await stamp();
+  assert.ok(s2.stamp !== s1.stamp && s2.stamp === await full(), "Vermerk bzw. Phasen der Präsentation (updated_at der Datei)");
+  assert.equal((await stamp()).stamp, s2.stamp, "ohne Änderung gleich");
+  assert.equal((await callAs("falsch")(c, L.routeLessonStamp, "GET", "/x", undefined, l.id)).status, 401, "nur angemeldet");
+  assert.equal((await call(c, L.routeLessonStamp, "GET", "/x", undefined, "ffffffffffffffff")).status, 404);
+  assert.ok(/c\.db\.batch\(\[\s*c\.db\.prepare[^\]]*\]\)/.test(readFileSync(new URL("../../worker/lessons.js", import.meta.url), "utf8").slice(readFileSync(new URL("../../worker/lessons.js", import.meta.url), "utf8").indexOf("export async function routeLessonStamp"))), "ein Batch");
 });

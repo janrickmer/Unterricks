@@ -140,7 +140,7 @@ export async function inClassE2E({ browser, tp, BASE, T, token, ok, OUT, SHOT, g
   await next(7);
   ok(await waitArrow("4) Diskussion"), "Folie 7: „4) Diskussion“ (nach „--> Nächste Stunde“)");
   // Rückfall ohne WebSocket (dritter Tab): alle Verbindungen schlagen fehl – der Stand kommt über die Abfrage (höchstens alle 3 s)
-  const c3 = await browser.newContext({ viewport: { width: 1180, height: 820 } });
+  const c3 = await browser.newContext({ viewport: { width: 1180, height: 560 } });
   await c3.addInitScript((s) => { try { if (!sessionStorage.getItem("x")) { for (const [k, v] of Object.entries(JSON.parse(s))) localStorage.setItem(k, v); sessionStorage.setItem("x", "1"); } } catch {} }, tStore);
   const p3 = await c3.newPage(); watch(p3, "Lehrkraft (ohne WebSocket)");
   await p3.routeWebSocket(/\/api\/live\//, (ws) => ws.close({ code: 1011, reason: "Test: keine Verbindung" }));
@@ -148,6 +148,10 @@ export async function inClassE2E({ browser, tp, BASE, T, token, ok, OUT, SHOT, g
   await p3.goto(BASE + "/#/lk/s/" + A);
   await p3.getByRole("button", { name: INCLASS_LABEL, exact: true }).click();
   await p3.locator("#ic-plan .ic-now", { hasText: "4) Diskussion" }).waitFor({ timeout: 20000 });
+  await sleep(1200);
+  // Prüfbefund: das Öffnen zählt als Handlung – die Seite rollt nicht gleich danach von selbst zur Phase (der Knopf stünde sonst nicht mehr unter dem Finger)
+  const scr = await p3.evaluate(() => ({ y: window.scrollY, below: document.querySelector("#ic-plan .ic-now").getBoundingClientRect().top > window.innerHeight }));
+  ok(scr.y === 0 && scr.below, "nach dem Öffnen rollt die Seite nicht von selbst (die Phase liegt unterhalb, scrollY " + scr.y + ")");
   polls = [];   // ab jetzt fragt nur noch die Ansicht für den Unterricht (die vollständige Ansicht fragt nur beim Aufbau ihrer Karte)
   await p2.keyboard.press("ArrowLeft"); await p2.locator(".presenter .counter", { hasText: "6 / 8" }).waitFor({ timeout: 10000 });
   await p3.locator("#ic-plan .ic-now", { hasText: "3) Sicherung" }).waitFor({ timeout: 20000 });
@@ -169,20 +173,47 @@ export async function inClassE2E({ browser, tp, BASE, T, token, ok, OUT, SHOT, g
   const geo = await tp.evaluate(() => { const a = document.querySelector(".phasearrow").getBoundingClientRect(), b = document.querySelector("#ic-plan").getBoundingClientRect(); return { right: b.right - a.right, text: document.querySelector(".phasearrow .pa-t").textContent }; });
   ok(geo.right >= 0 && geo.right < 20 && geo.text === "jetzt", "Pfeil am rechten Rand des Verlaufsplans, Pfeilform mit „jetzt“ (nicht nur Farbe)");
 
+  /* ---- Prüfbefunde: ein anderes Gerät markiert („Bis hier gezeigt“) – die kompakte Ansicht folgt ohne Neuladen; ein veralteter Tab hebt die Markierung auf ---- */
+  await p3.getByRole("button", { name: FULL_LABEL }).click();   // dritter Tab: vollständige Ansicht (fragt nicht nach), ab jetzt veraltet
+  const stamps = []; tp.on("request", (q) => { if (/\/api\/teacher\/lessons\/[a-f0-9]+\/stamp$/.test(q.url())) stamps.push(Date.now()); });
+  await p3.locator("#shown-sel").waitFor({ timeout: 15000 });
+  await p2.locator(".presenter").getByRole("button", { name: /als letzte im Unterricht gezeigte Folie markieren/ }).click();
+  await p2.locator(".presenter .markstate", { hasText: "Bis Folie 5 markiert · Zwischenstopp vor „4) Diskussion“" }).waitFor({ timeout: 30000 });
+  ok(await savedStop(A, "**4) Diskussion**"), "zweites Gerät: „Bis hier gezeigt“ (Folie 5) trägt den Zwischenstopp vor „4) Diskussion“ ein");
+  const t0 = Date.now();
+  await tp.locator("#ic-plan .stopfield").waitFor({ timeout: 30000 });
+  ok(await tp.evaluate(() => { const t = document.querySelector("#ic-plan").innerText, s = t.indexOf("Zwischenstopp"); return s > t.indexOf("3) Sicherung") && s < t.indexOf("4) Diskussion"); }) && stamps.length >= 1,
+    "die kompakte Ansicht auf diesem Gerät zeigt ihn ohne Neuladen (Stand der Sitzung, nach " + Math.round((Date.now() - t0) / 1000) + " s)");
+  // der dritte Tab kennt weder Markierung noch Zwischenstopp – „Letzte Folie: alle Folien freigeben“ entfernt trotzdem genau den, den Unterricks eingetragen hat
+  await p3.evaluate(() => document.querySelectorAll(".toast").forEach((t) => t.remove()));
+  await p3.locator(".thumbs .thumb").last().click({ button: "right" });
+  await p3.locator(".ctxmenu").getByRole("menuitem", { name: "Letzte Folie: alle Folien freigeben" }).click();
+  await p3.locator(".toast", { hasText: "Den Zwischenstopp vor „4) Diskussion“, den Unterricks eingetragen hatte, hat es wieder entfernt." }).waitFor({ timeout: 30000 });
+  const pA = (await T("GET", "/api/teacher/lessons/" + A)).data.files.find((f) => f.area === "presentation");
+  ok(await savedStop(A, null) && pA.shownUntil === null && pA.phases.auto === null, "veralteter Tab hebt die Markierung auf: der automatische Zwischenstopp ist weg, kein Vermerk mehr (Stand des Servers statt des Tabs)");
+  // die kompakte Ansicht holt den neuen Stand beim Zurückkehren ins Fenster sofort (sonst spätestens nach 20 s)
+  const nStamps = stamps.length, tf = Date.now();
+  await tp.evaluate(() => window.dispatchEvent(new Event("focus")));
+  await tp.locator("#ic-plan .stopfield").waitFor({ state: "detached", timeout: 15000 });
+  ok(stamps.length > nStamps && stamps[nStamps] - tf < 3500, "… und die kompakte Ansicht hier zeigt ihn nicht mehr (Rückkehr ins Fenster: Stand nach " + Math.round((stamps[nStamps] - tf) / 100) / 10 + " s abgefragt)");
+
   /* ---- Zwischenstopp von Hand in der kompakten Ansicht: Kontextmenü und per Tastatur ---- */
   await noToasts();
   await tp.locator("#ic-plan p", { hasText: "2) Partnerarbeit" }).click({ button: "right" });
   await tp.locator(".ctxmenu").getByRole("menuitem", { name: "Zwischenstopp einfügen" }).click();
-  ok(await savedStop(A, "**2) Partnerarbeit**") && await tp.locator("#ic-plan .stopfield").count() === 1 && await vis("#ic-stop-next") && (await tp.locator("#ic-stop-next").textContent()).startsWith("Zwischenstopp gesetzt."),
-    "Rechtsklick auf eine Zeile → „Zwischenstopp einfügen“: gespeichert, das Feld steht in der Vorschau, dazu der Hinweis wie in der vollständigen Ansicht");
+  ok(await savedStop(A, "**2) Partnerarbeit**") && await tp.locator("#ic-plan .stopfield").count() === 1 && await vis("#ic-stop-next") && (await tp.locator("#ic-stop-next").textContent()).startsWith("Zwischenstopp gesetzt.") &&
+    await tp.locator(".modal", { hasText: "Der Eintrag wurde inzwischen geändert" }).count() === 0,
+    "Rechtsklick auf eine Zeile → „Zwischenstopp einfügen“: gespeichert (ohne Rückfrage zur Version – der Stand des anderen Geräts war schon da), das Feld steht in der Vorschau, dazu der Hinweis wie in der vollständigen Ansicht");
   await tp.locator("#ic-stop").focus(); await tp.keyboard.press("Enter");
   const dlg = tp.locator(".modal", { hasText: "Wo haben Sie aufgehört?" });
   await dlg.waitFor();
   await dlg.getByRole("radio", { name: "**3) Sicherung**".replace(/\*/g, "") }).check();
   await tp.keyboard.press("Enter");
   ok(await savedStop(A, "**3) Sicherung**") && (await portalOf(A)).split(STOP_LINE).length === 2, "per Tastatur „Zwischenstopp eintragen …“ → vor „3) Sicherung“ verschoben (nur einer)");
-  await tp.getByRole("button", { name: "Zwischenstopp entfernen" }).click();
-  ok(await savedStop(A, null), "„Zwischenstopp entfernen“ in der kompakten Ansicht");
+  // neu laden: der Hinweis „Zwischenstopp gesetzt“ ist weg; gleich setzt „Bis hier gezeigt“ den Zwischenstopp genau dorthin, wo er schon steht
+  await tp.reload();
+  await tp.locator("#inclass .inclass-view #ic-plan .stopfield").waitFor({ timeout: 15000 });
+  ok(!(await vis("#ic-stop-next")), "nach dem Neuladen (kompakt): Zwischenstopp vor „3) Sicherung“, ohne den Hinweis");
 
   /* ---- in diesem Tab live starten: derselbe Präsentationsmodus, an der laufenden Stelle; „Bis hier gezeigt“ → Zwischenstopp ---- */
   await pc.getByRole("button", { name: "Präsentation live starten" }).click();
@@ -192,12 +223,20 @@ export async function inClassE2E({ browser, tp, BASE, T, token, ok, OUT, SHOT, g
   await tp.keyboard.press("ArrowLeft"); await tp.locator(".presenter .counter", { hasText: "4 / 8" }).waitFor({ timeout: 10000 });
   await tp.locator(".presenter").getByRole("button", { name: /als letzte im Unterricht gezeigte Folie markieren/ }).click();
   await tp.locator(".presenter .markstate", { hasText: "Bis Folie 4 markiert · Zwischenstopp vor „3) Sicherung“" }).waitFor({ timeout: 30000 });
-  ok(await savedStop(A, "**3) Sicherung**") && await tp.locator("#ic-plan .stopfield").count() === 1, "„Bis hier gezeigt“ (Folie 4): Zwischenstopp vor „3) Sicherung“ – auch in der kompakten Ansicht darunter, gespeichert (Nachtrag 34)");
+  ok(await savedStop(A, "**3) Sicherung**") && await tp.locator("#ic-plan .stopfield").count() === 1 && await vis("#ic-stop-next") && (await tp.locator("#ic-stop-next").textContent()).startsWith("Zwischenstopp gesetzt."),
+    "„Bis hier gezeigt“ (Folie 4): Zwischenstopp vor „3) Sicherung“ – stand schon dort; auch in der kompakten Ansicht darunter mit dem Hinweis wie von Hand (Prüfbefund), gespeichert (Nachtrag 34)");
   await tp.evaluate(() => (document.fullscreenElement ? document.exitFullscreen() : null)).catch(() => {});
   await tp.locator(".presenter").getByRole("button", { name: "Schließen", exact: true }).click();
   await tp.locator(".presenter").waitFor({ state: "detached", timeout: 10000 });
   ok(await tp.evaluate(() => document.activeElement && document.activeElement.id === "ic-start") && await waitArrow("2) Partnerarbeit") && await vis("#ic-plan") && await hiddenFull(),
     "Präsentationsmodus geschlossen (Live läuft weiter): Fokus zurück auf „Präsentation live starten“, Pfeil bei Folie 4 → „2) Partnerarbeit“, weiter kompakt");
+  for (const [w, hh] of [[1366, 900], [390, 844]]) for (const dark of [false, true]) {
+    await tp.setViewportSize({ width: w, height: hh }); await tp.emulateMedia({ colorScheme: dark ? "dark" : "light" }); await sleep(150);
+    await tp.locator("#ic-plancard").screenshot({ ...SHOT, path: join(OUT, "unterricht-kompakt-hinweis-zwischenstopp-" + w + (dark ? "-dunkel" : "") + ".png") });
+  }
+  await tp.emulateMedia({ colorScheme: "light" }); await tp.setViewportSize(vp0);
+  await tp.getByRole("button", { name: "Zwischenstopp entfernen" }).click();
+  ok(await savedStop(A, null), "„Zwischenstopp entfernen“ in der kompakten Ansicht");
 
   /* ---- Hausaufgabe: dasselbe Feld, gleiches Speichern; Umschalten verliert nichts ---- */
   const hw = tp.locator("#inclass #hw");
@@ -248,6 +287,23 @@ export async function inClassE2E({ browser, tp, BASE, T, token, ok, OUT, SHOT, g
   await ic.close();
   await p2.locator(".presenter").getByRole("button", { name: "Präsentation für alle beenden" }).click().catch(() => {});
   await c2.close(); await c3.close();
+
+  /* ---- Prüfbefund: Präsentation, deren Folienbilder nicht fertig wurden – die kompakte Ansicht sagt es wie die vollständige ---- */
+  const N = await oneLesson("powi", "9E", "Folienbilder fehlen");
+  const np = await raw("POST", "/api/teacher/lessons/" + N + "/presentation?name=" + encodeURIComponent("Unfertig.pdf"), deck);
+  await tp.goto(BASE + "/#/lk/s/" + N);
+  await tp.getByRole("button", { name: INCLASS_LABEL, exact: true }).click();
+  await tp.locator("#ic-pres .notice", { hasText: "wurden noch nicht vollständig erzeugt" }).waitFor({ timeout: 15000 });
+  ok(np.file && np.file.status !== "ready" && await tp.locator("#ic-start").count() === 0 && (await tp.locator("#ic-arrow-hint").textContent()) === "Kein Pfeil: Die Folienbilder der Präsentation sind noch nicht fertig – laden Sie die PDF in der vollständigen Ansicht erneut hoch." &&
+    !/noch keine Präsentation hochgeladen|Präsentation live starten|null/.test(await tp.locator("#ic-pres").textContent()),
+    "Präsentation ohne fertige Folienbilder: kompakt der Hinweis zum erneuten Hochladen (nicht „keine Präsentation“), kein Start, ruhiger Grund statt Pfeil");
+  for (const [w, hh] of [[1366, 900], [1180, 820], [820, 1180], [390, 844]]) for (const dark of [false, true]) {
+    await tp.setViewportSize({ width: w, height: hh }); await tp.emulateMedia({ colorScheme: dark ? "dark" : "light" }); await sleep(150);
+    await tp.evaluate(() => window.scrollTo(0, 0));
+    await tp.screenshot({ ...SHOT, path: join(OUT, "unterricht-kompakt-unfertig-" + w + (dark ? "-dunkel" : "") + ".png") });
+  }
+  await tp.emulateMedia({ colorScheme: "light" }); await tp.setViewportSize(vp0);
+  await tp.locator("#inclass-back").click();
 
   /* ======================= Grundschule ======================= */
   const G = await oneLesson("gs", gsCourse, "Wasser im Alltag (kompakt)");

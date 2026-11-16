@@ -117,6 +117,7 @@ const ROUTES = [
   ["GET", "/api/teacher/lessons", L.routeLessonsList],
   ["POST", "/api/teacher/lessons", L.routeLessonCreate],
   ["GET", "/api/teacher/lessons/" + ID, L.routeLessonGet],
+  ["GET", "/api/teacher/lessons/" + ID + "/stamp", L.routeLessonStamp],   // Stand der Sitzung (Ansicht für den Unterricht, Nachtrag 35)
   ["PATCH", "/api/teacher/lessons/" + ID, L.routeLessonPatch],
   ["DELETE", "/api/teacher/lessons/" + ID, L.routeLessonDelete],
   ["PUT", "/api/teacher/lessons/" + ID + "/portal", L.routePortalPut],

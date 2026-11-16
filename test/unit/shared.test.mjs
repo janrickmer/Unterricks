@@ -151,7 +151,7 @@ test("Präsentations-Prompt: Materialfolien sind Unterricks-Codefolien mit Auffo
   const mat = p.slice(p.indexOf("## Materialfolien"), p.indexOf("## Zeitlos gestalten"));
   assert.ok(p.indexOf("## Folie 1: gestaltete Titelfolie") < p.indexOf("## Sitzungscode noch einmal zeigen") && p.indexOf("## Sitzungscode noch einmal zeigen") < p.indexOf("## Materialfolien") && p.indexOf("## Materialfolien") < p.indexOf("## Rahmendaten"));
   assert.ok(p.includes("## Materialfolien: Unterricks-Codefolie mit Aufforderung und Titel des Materials"));
-  for (const s of ["Feibeitsblatt, Arbeitsblatt", "die Materialfolie ist deshalb eine Unterricks-Codefolie (siehe oben) und enthält außer der Zeile „Unterricks-Codefolie: …“ nur:",
+  for (const s of ["Feibeitsblatt, Arbeitsblatt", "die Materialfolie ist deshalb eine Unterricks-Codefolie (siehe oben) und enthält außer der Zeile „Unterricks-Codefolie: …“ und der unsichtbaren Zeile „Unterricks-Phase: …“ nur:",
     "die Aufforderung, mit dem Material zu arbeiten", "den Titel des Materials", "genau so, wie das Material in Unterricks heißt", "„Feibeitsblatt: Die wehrhafte Demokratie“.",
     "Unterricks zeigt Aufforderung und Titel dann als Überschrift über dem Sitzungscode und dem QR-Code der aktuellen Sitzung.",
     "Inhalte des Materials", "auch nicht der Code eines Feibeitsblatts, auch wenn der Stundenverlauf ihn nennt", "neben dem Sitzungscode, den Unterricks auf der Codefolie zeigt", "Notfall-Feibeitsblätter"]) assert.ok(mat.includes(s), s);

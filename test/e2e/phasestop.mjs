@@ -131,7 +131,7 @@ export async function phaseStopE2E({ tp, BASE, T, ok, OUT, SHOT }) {
   await tp.setViewportSize({ width: 1440, height: 950 });
   await tp.getByRole("button", { name: "Präsentation für alle beenden" }).click();
   await tp.locator(".presenter").waitFor({ state: "detached", timeout: 10000 });
-  await tp.locator("#stop-sync", { hasText: "vor „4) Diskussion“" }).waitFor({ timeout: 10000 });
+  await tp.locator("#stop-sync:not(.hidden)", { hasText: "vor „4) Diskussion“" }).waitFor({ timeout: 10000 });
   ok(await tp.locator("#shown-sel").inputValue() === "6", "nach der Präsentation: Auswahl und Rückmeldung zeigen den Stand");
 
   /* ---------- Aufheben, Stunde geschafft, von Hand gesetzter Zwischenstopp bleibt ---------- */
@@ -181,15 +181,44 @@ export async function phaseStopE2E({ tp, BASE, T, ok, OUT, SHOT }) {
   ok(await box.locator("#phase-err").isVisible() && (await box.locator("#phase-err").textContent()).startsWith("Die Phase 3 beginnt bei Folie 2"), "Reihenfolge falsch: Hinweis, nichts gespeichert");
   await box.getByLabel("3) Sicherung – beginnt bei").selectOption("5");
   // Tastatur: Fokus auf dem Knopf, Enter speichert, der Fokus bleibt
+  await noToasts();
   await box.getByRole("button", { name: "Zuordnung speichern" }).focus();
   await tp.keyboard.press("Enter");
   await box.locator(".save-state", { hasText: "Gespeichert – Unterricks folgt jetzt Ihrer Zuordnung." }).waitFor({ timeout: 15000 });
   ok(await tp.evaluate(() => (document.activeElement || {}).textContent) === "Zuordnung speichern", "Speichern per Tastatur: der Fokus bleibt auf dem Knopf");
   const pB2 = await pres(B);
   ok(JSON.stringify(pB2.phases.hand) === JSON.stringify([1, 1, 2, 2, 3, 3, 4, 4]) && pB2.phases.pdf === null, "Zuordnung an der Präsentation gespeichert (je Folie)");
-  ok((await tp.locator("#shown-hint").textContent()).includes("Den Zwischenstopp im Schulportal-Eintrag trägt Unterricks dabei selbst ein") && await tp.locator("#stop-sync").count() === 0 &&
-    (await tp.locator(".thumbs .thumb").nth(3).getAttribute("aria-label")).startsWith("Folie 4 (Phase 2)") && (await box.locator("summary").textContent()).includes("von Ihnen zugeordnet, 8 von 8 Folien"),
-    "nach dem Speichern an Ort und Stelle angeglichen: Hinweis an der Auswahl, Namen der Vorschaubilder, Zusammenfassung; die ältere Rückmeldung ist weg");
+  // Prüfbefund: Folie 4 war schon markiert (die Auswahl derselben Folie löst nichts aus) – das Speichern trägt den Zwischenstopp selbst ein
+  await tp.locator(".toast", { hasText: "Zwischenstopp im Schulportal-Eintrag vor „3) Sicherung“ eingetragen." }).waitFor({ timeout: 30000 });
+  ok(await savedStop(B, "**3) Sicherung**") && stopBefore(await tp.inputValue("#portal")) === "**3) Sicherung**" && await tp.locator("#stop-next").isVisible(),
+    "Zuordnung gespeichert, Folie 4 schon markiert: der Zwischenstopp folgt sofort (vor „3) Sicherung“, gespeichert, mit dem Hinweis zur nächsten Sitzung) – ohne erneutes Markieren");
+  ok((await tp.locator("#shown-hint").textContent()).includes("Den Zwischenstopp im Schulportal-Eintrag trägt Unterricks dabei selbst ein") &&
+    (await tp.locator("#stop-sync").textContent()) === "Zwischenstopp im Schulportal-Eintrag vor „3) Sicherung“ eingetragen." &&
+    (await tp.locator(".thumbs .thumb").nth(3).getAttribute("aria-label")).startsWith("Folie 4 (Phase 2)") && (await box.locator("summary").textContent()).includes("von Ihnen zugeordnet, 8 von 8 Folien") &&
+    await tp.evaluate(() => (document.activeElement || {}).textContent) === "Zuordnung speichern",
+    "nach dem Speichern an Ort und Stelle angeglichen: Hinweis an der Auswahl, Rückmeldung zum Zwischenstopp, Namen der Vorschaubilder, Zusammenfassung; der Fokus bleibt");
+  for (const [w, scheme] of [[1366, "light"], [1180, "light"], [820, "light"], [390, "light"], [1366, "dark"], [1180, "dark"], [820, "dark"], [390, "dark"]]) {
+    await tp.setViewportSize({ width: w, height: w <= 420 ? 844 : w <= 820 ? 1180 : w === 1180 ? 820 : 900 });
+    await tp.emulateMedia({ colorScheme: scheme });
+    await tp.locator(".shownbox").scrollIntoViewIfNeeded();
+    await tp.screenshot({ ...SHOT, path: join(OUT, "phasen-nach-zuordnung-" + w + "-" + scheme + ".png") });
+  }
+  await tp.setViewportSize({ width: 1440, height: 950 }); await tp.emulateMedia({ colorScheme: null });
+  // ein von Hand verschobener Zwischenstopp bleibt, wenn die Zuordnung erneut gespeichert wird (keine neue Markierung)
+  await tp.locator(".portal-preview p", { hasText: "2) Partnerarbeit" }).click({ button: "right" });
+  await tp.locator(".ctxmenu").getByRole("menuitem", { name: "Zwischenstopp einfügen" }).click();
+  await savedStop(B, "**2) Partnerarbeit**");
+  await noToasts();
+  await box.getByLabel("4) Diskussion – beginnt bei").selectOption("8");
+  await box.getByRole("button", { name: "Zuordnung speichern" }).click();
+  await tp.locator(".toast", { hasText: "Ihr Zwischenstopp im Schulportal-Eintrag bleibt stehen – Sie haben ihn selbst gesetzt bzw. verschoben." }).waitFor({ timeout: 30000 });
+  await sleep(1000);
+  ok(stopBefore(await portalOf(B)) === "**2) Partnerarbeit**", "Zuordnung erneut gespeichert: der von Hand verschobene Zwischenstopp bleibt stehen");
+  await box.getByLabel("4) Diskussion – beginnt bei").selectOption("7");
+  await noToasts();
+  await box.getByRole("button", { name: "Zuordnung speichern" }).click();
+  await box.locator(".save-state", { hasText: "Gespeichert – Unterricks folgt jetzt Ihrer Zuordnung." }).waitFor({ timeout: 15000 });
+  await tp.locator(".toast", { hasText: "Ihr Zwischenstopp im Schulportal-Eintrag bleibt stehen" }).waitFor({ timeout: 30000 });
   for (const [w, scheme] of [[1366, "light"], [1180, "light"], [820, "light"], [390, "light"], [1366, "dark"], [1180, "dark"], [820, "dark"], [390, "dark"]]) {
     await tp.setViewportSize({ width: w, height: w <= 420 ? 844 : w <= 820 ? 1180 : w === 1180 ? 820 : 900 });
     await tp.emulateMedia({ colorScheme: scheme });
@@ -197,8 +226,8 @@ export async function phaseStopE2E({ tp, BASE, T, ok, OUT, SHOT }) {
     await tp.screenshot({ ...SHOT, path: join(OUT, "phasen-zuordnung-" + w + "-" + scheme + ".png") });
   }
   await tp.setViewportSize({ width: 1440, height: 950 }); await tp.emulateMedia({ colorScheme: null });
-  await mark("4", "Zwischenstopp im Schulportal-Eintrag vor „3) Sicherung“ eingetragen.");
-  ok(await savedStop(B, "**3) Sicherung**"), "B mit Zuordnung von Hand: der Zwischenstopp folgt der Markierung");
+  await mark("6", "Zwischenstopp im Schulportal-Eintrag vor „4) Diskussion“ eingetragen.");
+  ok(await savedStop(B, "**4) Diskussion**"), "B mit Zuordnung von Hand: eine neue Markierung (Folie 6) setzt den Zwischenstopp neu – vor „4) Diskussion“");
 
   /* ---------- Sitzungsdatei: die Zuordnung von Hand kommt mit (C) ---------- */
   const moved = await tp.evaluate(async ([bId, cId]) => {

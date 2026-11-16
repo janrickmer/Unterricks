@@ -225,3 +225,72 @@ test("inclass.js wird erst bei Bedarf geladen (lazy), die Seiten bleiben schlank
   // der Hinweis zum Pfeil und der Live-Stand ändern sich mit jeder Folie: keine Live-Region (würde bei jeder Folie vorlesen)
   assert.ok(!/ic-arrow-hint"[^)]*aria-live/.test(ic) && !/ic-live"[^)]*aria-live/.test(ic));
 });
+
+/* ---------- Prüfbefunde (S33 check) ---------- */
+test("liveFeed (Prüfbefund): stop() und begin(), während das Ticket noch unterwegs ist – nur eine Verbindung; eine verspätete öffnet nichts, eine verdrängte schließt sich und meldet nichts", async () => {
+  const sockets = [], tickets = [];
+  class FakeWS { constructor(u) { this.url = u; sockets.push(this); } send() {} close() { this.closed = true; } }
+  const net = { WebSocket: FakeWS, wsUrl: (u) => "ws://x" + u, tapi: (m) => (m === "POST" ? new Promise((r) => tickets.push(() => r({ url: "/api/live/x?t=" + tickets.length }))) : Promise.resolve({ live: null })) };
+  const got = [];
+  const feed = IC.liveFeed("0123456789abcdef", (m) => got.push(m), net);
+  feed.begin(); await D.sleep(5);
+  feed.stop(); feed.begin(); await D.sleep(5);   // App-Wechsel am iPad: kurz weg und wieder da
+  assert.equal(tickets.length, 2);
+  tickets[1](); await D.sleep(5);   // das neue Ticket zuerst
+  tickets[0](); await D.sleep(5);   // das alte kommt zu spät
+  assert.equal(sockets.length, 1, "nur die neue Verbindung wird geöffnet");
+  sockets[0].onopen(); sockets[0].onmessage({ data: JSON.stringify({ t: "state", active: true, slide: 2, pages: 8 }) });
+  assert.deepEqual(got.map((x) => x.slide), [2]);
+  feed.stop();
+  assert.equal(sockets[0].closed, true, "stop() schließt sie");
+  sockets[0].onmessage({ data: JSON.stringify({ t: "state", active: true, slide: 5, pages: 8 }) });
+  assert.deepEqual(got.map((x) => x.slide), [2], "nach stop() kommt nichts mehr an");
+  // zweiter Fall: das alte Ticket kommt zuerst – seine Verbindung wird gar nicht erst geöffnet
+  const s2 = [], t2 = [];
+  class WS2 { constructor() { s2.push(this); } send() {} close() { this.closed = true; } }
+  const f2 = IC.liveFeed("0123456789abcdef", () => {}, { WebSocket: WS2, wsUrl: (u) => u, tapi: (m) => (m === "POST" ? new Promise((r) => t2.push(() => r({ url: "/x" }))) : Promise.resolve({ live: null })) });
+  f2.begin(); await D.sleep(5); f2.stop(); f2.begin(); await D.sleep(5);
+  t2[0](); await D.sleep(5); t2[1](); await D.sleep(5);
+  assert.equal(s2.length, 1); f2.stop(); assert.equal(s2[0].closed, true);
+});
+
+test("stampWatch (Prüfbefund): fragt beim Start und dann im Takt; poke() sofort, kurz nach einer Abfrage erst nach 3 s (nie verworfen); stop() beendet; der Takt ist 20 s", async () => {
+  assert.equal(IL.STAMP_POLL_MS, 20000);
+  let n = 0;
+  const w = IC.stampWatch(async () => { n++; }, 200);
+  w.begin(); w.begin();
+  await D.sleep(20);
+  assert.equal(n, 1, "beim Start einmal (zweimal begin: einmal)");
+  await D.sleep(450);
+  assert.ok(n >= 2 && n <= 4, "im Takt: " + n);
+  w.stop(); const k = n; await D.sleep(450);
+  assert.equal(n, k, "nach stop() keine Abfrage mehr"); assert.equal(w.running(), false);
+  // Anstoß (Rückkehr ins Fenster, Präsentation beginnt/endet): kurz nach einer Abfrage wartet er, statt verloren zu gehen
+  let m = 0;
+  const w2 = IC.stampWatch(async () => { m++; }, 60000);
+  w2.begin(); await D.sleep(20);
+  w2.poke(); w2.poke(); await D.sleep(50);
+  assert.equal(m, 1, "direkt danach: noch nicht");
+  await D.sleep(3100);
+  assert.equal(m, 2, "nach 3 s genau einmal (zwei Anstöße zusammengefasst)");
+  w2.poke(); w2.stop(); await D.sleep(3200);
+  assert.equal(m, 2, "stop() verwirft einen wartenden Anstoß");
+  // ein Fehler beim Fragen hält das Beobachten nicht an
+  let e = 0; const w3 = IC.stampWatch(async () => { e++; throw new Error("Netz"); }, 100);
+  w3.begin(); await D.sleep(250); w3.stop(); assert.ok(e >= 2);
+});
+
+test("liveArrow (Prüfbefund): Präsentation ohne fertige Folienbilder – eigener Grund statt „keine Präsentation“", () => {
+  const r = IL.liveArrow({ live: live(3), pres: { ...pres(), status: "processing" }, portalText: PORTAL });
+  assert.deepEqual(r, { why: "notready" });
+  assert.equal(IL.arrowText(r), "Kein Pfeil: Die Folienbilder der Präsentation sind noch nicht fertig – laden Sie die PDF in der vollständigen Ansicht erneut hoch.");
+});
+
+test("Prüfbefunde im Quelltext: Öffnen zählt als Handlung (kein Rollen gleich danach), Hinweis nach automatischem Zwischenstopp auch ohne Textänderung, Vermerk des Servers beim Markieren, Stand der Sitzung", () => {
+  const ic = readFileSync(new URL("../../public/inclass.js", import.meta.url), "utf8"), ses = readFileSync(new URL("../../public/session.js", import.meta.url), "utf8");
+  assert.ok(/let arrowLine = null, lastUser = Date\.now\(\);/.test(ic), "lastUser beginnt beim Öffnen");
+  assert.ok(ses.includes('if (text !== portalTA.value) applyPortalText(text); else { updateStopBtns(); icEmit("plan"); }'), "auch ohne Textänderung folgt die kompakte Ansicht");
+  assert.ok(ses.includes("syncStop(p, n, (r.file && r.file.phases && r.file.phases.auto) || null)"), "prevAuto vom Server, nicht aus dem Zwischenspeicher des Tabs");
+  assert.ok(/pres: \(\) => st\.files\.find\(\(f\) => f\.area === "presentation"\) \|\| null/.test(ses), "auch eine Präsentation ohne fertige Folienbilder");
+  assert.ok(ses.includes('checkStamp: async () =>') && ses.includes('"/stamp"'), "Stand der Sitzung (…/stamp)");
+});

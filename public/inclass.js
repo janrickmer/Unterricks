@@ -9,14 +9,16 @@ import { h, clear, nn, toast, errToast, busy, modal, copyText, fmtBytes, fileIco
 import { T, tapi } from "./teacher.js";
 import { formatCode, hasStop, parsePortalMarkup, webUrlLabel } from "./shared.js";
 import { paintPortalPreview } from "./portalview.js";
-import { ARROW_NAME, LIVE_POLL_MS, PRINT_TAG, materialColumns, materialKey, liveArrow, arrowText, liveSlideText } from "./inclasslib.js";
+import { ARROW_NAME, LIVE_POLL_MS, STAMP_POLL_MS, PRINT_TAG, materialColumns, materialKey, liveArrow, arrowText, liveSlideText } from "./inclasslib.js";
 
 const SCROLL_QUIET_MS = 12000;   // so lange nach dem letzten Tippen, Klicken oder Scrollen der Lehrkraft rollt die Seite nie von selbst zur Phase
 
 /* Live-Stand für die Lehrkraft: WebSocket (Ticket der Rolle „teacher“ – sendet nichts, hört nur zu) mit Wiederverbindung; scheitert er zweimal, fragt sie
    ersatzweise alle LIVE_POLL_MS. begin()/stop() je nach Sichtbarkeit des Tabs. */
 export function liveFeed(lessonId, onState, net = { tapi, WebSocket: typeof WebSocket === "function" ? WebSocket : null, wsUrl }) {
-  let ws = null, closed = true, fails = 0, pollT = null, pingT = null, reT = null, got = 0, lastPoll = 0;
+  // gen: jeder Verbindungsversuch (und stop) zählt weiter – ein Versuch, dessen Ticket erst nach stop()/begin() ankommt, öffnet nichts mehr (sonst blieben
+  // nach kurzem Wegschalten zwei Verbindungen offen, eine davon nie geschlossen – Prüfbefund)
+  let ws = null, closed = true, fails = 0, pollT = null, reT = null, got = 0, lastPoll = 0, gen = 0;
   // nie öfter als alle LIVE_POLL_MS – auch nicht, wenn Start, Rückfall und Rückkehr in den Tab kurz nacheinander fragen wollen
   const poll = async () => {
     if (closed || Date.now() - lastPoll < LIVE_POLL_MS - 100) return;
@@ -25,23 +27,52 @@ export function liveFeed(lessonId, onState, net = { tapi, WebSocket: typeof WebS
     try { const r = await net.tapi("GET", "/api/teacher/lessons/" + lessonId + "/live"); if (!closed && n === got && r && r.live) onState(r.live); } catch {}
   };
   const startPoll = () => { if (!pollT && !closed) { poll(); pollT = setInterval(poll, LIVE_POLL_MS); } };
+  const end = (s) => { if (!s) return; clearInterval(s.uPing); try { s.close(); } catch {} };
   async function connect() {
     if (closed) return;
+    const my = ++gen;
     try {
       if (!net.WebSocket) throw new Error("kein WebSocket");
       const t = await net.tapi("POST", "/api/teacher/lessons/" + lessonId + "/live-ticket");
-      if (closed) return;
+      if (closed || my !== gen) return;
       const s = new net.WebSocket(net.wsUrl(t.url));
-      ws = s;
-      s.onopen = () => { fails = 0; clearInterval(pollT); pollT = null; clearInterval(pingT); pingT = setInterval(() => { try { s.send("ping"); } catch {} }, 25000); };
-      s.onmessage = (ev) => { if (ev.data === "pong") return; got++; try { const m = JSON.parse(ev.data); if (m && (m.t === "state" || m.t === "count")) onState(m); } catch {} };
-      s.onclose = () => { clearInterval(pingT); if (closed || ws !== s) return; fails++; if (fails >= 2) startPoll(); reT = setTimeout(connect, Math.min(15000, 1000 * 2 ** Math.min(fails, 4))); };
-    } catch { if (closed) return; fails++; startPoll(); reT = setTimeout(connect, 5000); }
+      const old = ws; ws = s;
+      end(old);
+      s.onopen = () => {
+        if (ws !== s) { end(s); return; }
+        fails = 0; clearInterval(pollT); pollT = null; s.uPing = setInterval(() => { try { s.send("ping"); } catch {} }, 25000);   // je Verbindung
+      };
+      s.onmessage = (ev) => { if (ws !== s || ev.data === "pong") return; got++; try { const m = JSON.parse(ev.data); if (m && (m.t === "state" || m.t === "count")) onState(m); } catch {} };
+      s.onclose = () => { clearInterval(s.uPing); if (closed || ws !== s) return; fails++; if (fails >= 2) startPoll(); reT = setTimeout(connect, Math.min(15000, 1000 * 2 ** Math.min(fails, 4))); };
+    } catch { if (closed || my !== gen) return; fails++; startPoll(); reT = setTimeout(connect, 5000); }
   }
   return {
     begin() { if (!closed) return; closed = false; fails = 0; poll(); connect(); },
-    stop() { closed = true; clearInterval(pollT); pollT = null; clearInterval(pingT); clearTimeout(reT); const s = ws; ws = null; try { if (s) s.close(); } catch {} },
+    stop() { closed = true; gen++; clearInterval(pollT); pollT = null; clearTimeout(reT); const s = ws; ws = null; end(s); },
     running: () => !closed,
+  };
+}
+
+/* Stand der Sitzung beobachten (Prüfbefund): Was ein anderes Gerät ändert – z. B. „Bis hier gezeigt“ samt Zwischenstopp auf dem iPad, während der Laptop diese
+   Ansicht zeigt –, kommt sonst erst beim nächsten Wechsel in den Tab an (und ein Zwischenstopp von Hand scheiterte dann an der Version). check() fragt den
+   kleinen Stand (…/stamp) und lädt die Sitzung bei einer Änderung neu; alle STAMP_POLL_MS, sofort beim Zurückkehren ins Fenster und wenn die Live-Präsentation
+   beginnt oder endet (poke, höchstens alle 3 s). Nur solange die Ansicht offen und der Tab sichtbar ist. */
+export function stampWatch(check, ms = STAMP_POLL_MS) {
+  let on = false, t = null, pokeT = null, last = 0, busyNow = false, again = false;
+  const tick = async () => {
+    if (!on) return;
+    if (busyNow) { again = true; return; }   // läuft schon: danach gleich noch einmal (nichts geht verloren)
+    busyNow = true; last = Date.now();
+    try { await check(); } catch {}
+    busyNow = false;
+    if (again && on) { again = false; tick(); }
+  };
+  return {
+    begin() { if (on) return; on = true; tick(); t = setInterval(tick, ms); },
+    stop() { on = false; again = false; clearInterval(t); t = null; clearTimeout(pokeT); pokeT = null; },
+    // sofort – höchstens alle 3 s; ein Anstoß kurz nach der letzten Abfrage wartet bis dahin (nie verworfen)
+    poke() { if (!on || pokeT) return; const wait = last + 3000 - Date.now(); if (wait <= 0) tick(); else pokeT = setTimeout(() => { pokeT = null; tick(); }, wait); },
+    running: () => on,
   };
 }
 
@@ -125,12 +156,13 @@ export function inClassView(api) {
     if (!p) { presCard.append(h("p", { class: "muted", text: "Für diese Sitzung ist noch keine Präsentation hochgeladen – das geht in der vollständigen Ansicht unter „Präsentation für den Unterricht“." })); startBtn = null; return; }
     const ready = p.status === "ready";
     startBtn = ready ? h("button", { class: "btn onair big", type: "button", id: "ic-start", onclick: () => api.startLive(() => startBtn) }, icon("play"), "Präsentation live starten") : null;
-    presCard.append(h("div", { class: "row ic-presacts" }, ...nn(startBtn, dl(p, "Präsentation als PDF-Datei herunterladen"),
+    presCard.append(...nn(h("div", { class: "row ic-presacts" }, ...nn(startBtn, dl(p, "Präsentation als PDF-Datei herunterladen"),
       a ? dl(a, "Präsentation mit Anmerkungen herunterladen", "ic-notes") : null)),
       ready ? liveLine : h("div", { class: "notice warn", text: "Die Folienbilder von „" + p.name + "“ wurden noch nicht vollständig erzeugt – live starten lässt sie sich erst nach erneutem Hochladen in der vollständigen Ansicht." }),
-      h("p", { class: "hint", text: "„Präsentation live starten“ öffnet denselben Präsentationsmodus wie in der vollständigen Ansicht; läuft die Präsentation schon – auch auf einem anderen Gerät –, geht es an der laufenden Stelle weiter. " +
+      // der Satz zum Live-Start nur, wenn es den Knopf gibt (Prüfbefund: sonst verwies er auf einen fehlenden Knopf)
+      ready ? h("p", { class: "hint", text: "„Präsentation live starten“ öffnet denselben Präsentationsmodus wie in der vollständigen Ansicht; läuft die Präsentation schon – auch auf einem anderen Gerät –, geht es an der laufenden Stelle weiter. " +
         "Am Ende der Stunde markieren Sie dort mit „Bis hier gezeigt“ die letzte gezeigte Folie – den Zwischenstopp im Verlaufsplan trägt Unterricks dann selbst ein." +
-        (a ? " Die Präsentation mit Anmerkungen (jede Folie mit Ihren Notizen) ist nur für Sie." : "") }));
+        (a ? " Die Präsentation mit Anmerkungen (jede Folie mit Ihren Notizen) ist nur für Sie." : "") }) : null));
     paintLive();
     // neu aufgebaut, während der Fokus darin war (z. B. andere Präsentation): nie auf der Seite verlieren
     if (had && (!document.activeElement || document.activeElement === document.body)) { const n = startBtn || presCard.querySelector("button"); if (n) n.focus({ preventScroll: true }); }
@@ -138,7 +170,8 @@ export function inClassView(api) {
   function paintLive() {
     if (!gym) return;
     const p = api.pres();
-    if (live && live.active && (!live.fileId || !p || live.fileId === p.id)) {
+    if (p && p.status !== "ready") clear(liveLine);
+    else if (live && live.active && (!live.fileId || !p || live.fileId === p.id)) {
       clear(liveLine).append(h("span", { class: "badge onair" }, h("span", { class: "dot" }), "LIVE"), " " + liveSlideText(live) + (Number.isInteger(live.students) ? " · " + live.students + " verbunden" : ""));
     } else clear(liveLine).append(h("span", { class: "muted", text: live === null ? "Der Stand der Live-Präsentation wird geladen …" : live.active ? "Live läuft gerade eine andere Präsentation." : "Gerade nicht live." }));
   }
@@ -152,7 +185,8 @@ export function inClassView(api) {
   const unstopBtn = h("button", { class: "btn ghost hidden", type: "button", id: "ic-unstop" }, "Zwischenstopp entfernen");
   const stopNext = h("p", { class: "hint stopnext hidden", id: "ic-stop-next" });
   const arrow = gym ? arrowEl() : null;
-  let arrowLine = null, lastUser = 0;
+  // das Öffnen (bzw. Wiederherstellen nach dem Neuladen) zählt als Handlung: die Seite rollt nicht gleich danach von selbst (Prüfbefund)
+  let arrowLine = null, lastUser = Date.now();
   const planCard = h("section", { class: "card ic-card ic-plancard", id: "ic-plancard", "aria-labelledby": "ic-plan-h" },
     h("div", { class: "section-title" }, h("h2", { id: "ic-plan-h" }, "Verlaufsplan", gym ? h("span", { class: "small muted ic-sub", text: " · Schulportal-Eintrag" }) : null), planState),
     gym ? arrowHint : null, emptyPlan, planBox,
@@ -275,21 +309,29 @@ export function inClassView(api) {
   paintPres(); paintPlan(); mirrorState(); paintMaterial();
   offs.push(api.on("plan", () => { paintPlan(); paintMaterial(); }), api.on("files", () => { paintPres(); paintMaterial(); paintArrow(false); }));
 
-  /* ---- Live-Verbindung: nur solange diese Ansicht offen und der Tab sichtbar ist ---- */
-  let feed = null, onVis = null;
+  /* ---- Live-Verbindung und Stand der Sitzung: nur solange diese Ansicht offen und der Tab sichtbar ist ---- */
+  let feed = null, onVis = null, onFocus = null;
+  const watch = api.checkStamp ? stampWatch(api.checkStamp) : null;
   if (gym) {
     feed = liveFeed(api.id, (m) => {
       if (m.t === "count") { if (live) { live.students = m.students; paintLive(); } return; }
+      const flip = !live || !!live.active !== !!m.active || live.fileId !== m.fileId;   // Präsentation beginnt bzw. endet: oft wurde gerade markiert
       live = m; paintLive(); paintArrow(true);
+      if (flip && watch) watch.poke();
     });
-    onVis = () => { if (document.visibilityState === "visible") feed.begin(); else feed.stop(); };
-    document.addEventListener("visibilitychange", onVis);
-    if (document.visibilityState !== "hidden") feed.begin();
   }
+  if (feed || watch) {
+    onVis = () => { const on = document.visibilityState === "visible"; for (const x of [feed, watch]) if (x) { if (on) x.begin(); else x.stop(); } };
+    document.addEventListener("visibilitychange", onVis);
+    if (document.visibilityState !== "hidden") { if (feed) feed.begin(); if (watch) watch.begin(); }
+  }
+  if (watch) { onFocus = () => watch.poke(); window.addEventListener("focus", onFocus); }
   return {
     el,
     destroy() {
       if (feed) feed.stop();
+      if (watch) watch.stop();
+      if (onFocus) window.removeEventListener("focus", onFocus);
       if (onVis) document.removeEventListener("visibilitychange", onVis);
       for (const ev of userActs) window.removeEventListener(ev, mark, { capture: true });
       for (const off of offs.splice(0)) { try { off(); } catch {} }

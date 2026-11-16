@@ -146,7 +146,7 @@ async function rasterize(file, fileId, token, onProgress, opt) {
     if (!cards) try {   // Platzhalterfolie für die Codefolie? (eigener Versuch: ein Fehler hier schaltet den Rückfall nicht ab)
       items = await pageItems(lib, page, vp);
       const lines = slideTextLines(items);
-      marks[i - 1] = phaseMarkOf(lines);   // Phase der Folie (Nachtrag 34): unsichtbare Zeile „Unterricks-Phase: n“
+      marks[i - 1] = phaseMarkOf(lines, items);   // Phase der Folie (Nachtrag 34): unsichtbare Zeile „Unterricks-Phase: n“ (Textstücke zuerst)
       const head = codeSlideLines(lines, canvas.height);
       if (head) { placeholder = true; codeSlides.push({ n: i, lines: head }); }
     } catch {}

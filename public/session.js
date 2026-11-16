@@ -456,6 +456,9 @@ export async function sessionPage(id) {
   // Freigabe für Schüler:innen (5 Minuten nach dem Ende der Sitzung) – bleibt stehen, wenn sich Beginn oder Dauer ändern
   const presRel = h("p", { class: "small presrel" });
   const curPres = () => st.files.find((f) => f.area === "presentation" && f.status === "ready") || null;
+  // was die Präsentationskarte zeigt (Datei, Markierung, Phasen, Notizen, Codefolien) – ändert es sich von außen, wird sie neu gezeichnet (doRefresh)
+  const presSig = (fs) => { const p = fs.find((f) => f.area === "presentation"); return p ? JSON.stringify([p.id, p.status, p.name, p.pages, p.shownUntil, p.phases, p.cleanNeeded, p.cleanReady, p.notes, p.notesRev, p.codeSlides]) : ""; };
+  let presPainted = null, lessonStamp = d.stamp || null;
   const shownOf = (p) => (p && p.shownUntil && p.shownUntil < p.pages ? p.shownUntil : null);
   function paintPresRel() {
     const p = curPres(), t = timesNow(), n = shownOf(p);
@@ -472,28 +475,48 @@ export async function sessionPage(id) {
   function setShown(n, onStep) {
     const run = shownChain.then(async () => {
       const p = curPres(); if (!p) return null;
-      const prevAuto = (p.phases && p.phases.auto) || null;
+      await freshPlan();
       const { markShown } = await lazy(import("./pdfcut.js"));
       const r = await markShown(p, n, T.token, onStep);
       Object.assign(p, r.file);
-      return (stopSync = await syncStop(p, n, prevAuto));
+      // wo Unterricks zuletzt selbst einen Zwischenstopp eingetragen hat: der Stand des Servers (ein anderes Gerät kann inzwischen markiert haben – Prüfbefund)
+      return (stopSync = await syncStop(p, n, (r.file && r.file.phases && r.file.phases.auto) || null));
     });
     shownChain = run.catch(() => {});
     return run;
+  }
+  // „Phasen der Folien“ gespeichert, die letzte gezeigte Folie ist schon markiert: den Zwischenstopp nach der neuen Zuordnung eintragen (die Auswahl derselben
+  // Folie löst kein neues Markieren aus) – einen von Hand gesetzten bzw. verschobenen lässt Unterricks dabei stehen (keine neue Markierung)
+  function resyncStop() {
+    const run = shownChain.then(async () => {
+      const p = curPres(), n = shownOf(p); if (!p || !n) return null;
+      await freshPlan();
+      return (stopSync = await syncStop(p, n, (p.phases && p.phases.auto) || null, { keepManual: true }));
+    });
+    shownChain = run.catch(() => {});
+    return run;
+  }
+  // Hat ein anderes Gerät den Schulportal-Eintrag inzwischen geändert (z. B. dort die letzte Folie markiert), erst dessen Stand übernehmen – sonst setzte
+  // Unterricks den Zwischenstopp in eine veraltete Fassung (Speichern scheiterte dann an der Version). Eine kleine Abfrage (…/stamp); eigene ungespeicherte
+  // Änderungen gelten (das Speichern prüft die Version)
+  async function freshPlan() {
+    if (portal.dirty) return;
+    try { const s = await tapi("GET", "/api/teacher/lessons/" + id + "/stamp"); if (s.portalVersion !== portal.version || s.stamp !== lessonStamp) await refreshLesson(); } catch {}
   }
   /* ---- Zwischenstopp aus der Präsentation (Nachtrag 34): die Phasen der Folien bestimmen, wo er im Schulportal-Eintrag steht (stopForShown) – gespeichert
    * wie beim Einfügen von Hand (applyPortalText, danach sofort gespeichert), mit demselben Hinweis zur nächsten Sitzung. Einen Zwischenstopp, den die
    * Lehrkraft selbst gesetzt oder verschoben hat, entfernt Unterricks nie; wo es selbst einen eingetragen hat, merkt sich der Server (phases.auto). ---- */
   let stopSync = null;   // letzte Rückmeldung – steht unter der Auswahl der letzten gezeigten Folie
   const q = (label) => "„" + label + "“";
-  async function syncStop(p, n, prevAuto) {
+  async function syncStop(p, n, prevAuto, opts) {
     const phases = slidePhasesOf(p);
     if (!phases && !prevAuto && n === null) return null;   // ohne Phasen hat Unterricks nie einen Zwischenstopp gesetzt
-    const res = stopForShown(portalTA ? portalTA.value : "", phases, n, prevAuto);
+    const res = stopForShown(portalTA ? portalTA.value : "", phases, n, prevAuto, opts);
     let auto = prevAuto, out = null;
     const put = (text, set) => {
       if (set) { stopJustSet = true; clear(stopNext).append(...stopNextHint(d.nextLesson)); }
-      if (text !== portalTA.value) applyPortalText(text); else updateStopBtns();
+      // derselbe Text (der Zwischenstopp stand schon dort): der Hinweis gilt trotzdem – auch in der Ansicht für den Unterricht (Prüfbefund)
+      if (text !== portalTA.value) applyPortalText(text); else { updateStopBtns(); icEmit("plan"); }
       flushPortal();
     };
     if (res.error) {
@@ -620,6 +643,7 @@ export async function sessionPage(id) {
   async function paintPres() { await paintPresCard(); icEmit("files"); }
   async function paintPresCard() {
     const p = st.files.find((f) => f.area === "presentation");
+    presPainted = presSig(st.files);
     clear(presCard).append(h("div", { class: "section-title" }, h("h2", { text: "Präsentation für den Unterricht" })));
     const zone = dropZone(p ? "Andere Präsentation hochladen (ersetzt die bisherige)" : "PDF der Präsentation hier ablegen oder auswählen",
       "Nur PDF – Claude liefert die Präsentation laut Prompt direkt als PDF (eigene PowerPoint-Dateien: „Datei → Exportieren → PDF“). Den Sitzungscode zeigt Unterricks live: vor Folie 1 und auf Platzhalterfolien mit der Zeile „Unterricks-Codefolie“. Steht in einer älteren Präsentation noch ein Code auf Folie 1, setzt Unterricks auf den Folien den Code dieser Sitzung ein.", (fs) => uploadPres(fs[0]), "application/pdf,.pdf", false);
@@ -676,16 +700,24 @@ export async function sessionPage(id) {
       (ph ? "Den Zwischenstopp im Schulportal-Eintrag trägt Unterricks dabei selbst ein: vor die erste Phase, die nicht vollständig gezeigt wurde (siehe „Phasen der Folien“)."
         : "Diese Präsentation trägt keine Phasen – den Zwischenstopp im Schulportal-Eintrag setzen Sie deshalb selbst, oder Sie ordnen die Folien unter „Phasen der Folien“ zu.");
     const shownHint = h("p", { class: "hint", id: "shown-hint", text: shownHintText(phases) });
-    const syncLine = stopSync ? h("p", { class: "small stopsync" + (stopSync.kind === "err" ? " warnc" : ""), id: "stop-sync", text: stopSync.text }) : null;
+    const syncLine = h("p", { class: "small stopsync", id: "stop-sync" });
+    const paintSync = () => { syncLine.classList.toggle("hidden", !stopSync); syncLine.classList.toggle("warnc", !!stopSync && stopSync.kind === "err"); syncLine.textContent = stopSync ? stopSync.text : ""; };
+    paintSync();
     const shownBox = h("div", { class: "shownbox" }, h("label", { for: "shown-sel" }, "Letzte im Unterricht gezeigte Folie"), h("div", { class: "row" }, shownSel, shownState),
       shownHint, syncLine);
-    // „Phasen der Folien“ gespeichert: Hinweis und Namen der Vorschaubilder an Ort und Stelle angleichen (nichts neu aufbauen – der Fokus bleibt im Feld); eine
-    // ältere Rückmeldung zum Zwischenstopp gilt dann nicht mehr
+    // „Phasen der Folien“ gespeichert: Hinweis und Namen der Vorschaubilder an Ort und Stelle angleichen (nichts neu aufbauen – der Fokus bleibt im Feld); ist
+    // die letzte gezeigte Folie schon markiert, folgt der Zwischenstopp der neuen Zuordnung (Prüfbefund: die Auswahl derselben Folie löst nichts aus), sonst
+    // gilt eine ältere Rückmeldung zum Zwischenstopp nicht mehr
     const phasesBox = phasesPanel(p, () => {
       const ph = slidePhasesOf(p);
       shownHint.textContent = shownHintText(ph);
       for (const fig of thumbs ? thumbs.querySelectorAll("figure.thumb") : []) fig.setAttribute("aria-label", thumbLabel(Number(fig.dataset.n), ph));
-      if (syncLine) { syncLine.remove(); stopSync = null; }
+      if (!shownOf(p)) { stopSync = null; paintSync(); return; }
+      stateLine(shownState, "Zwischenstopp nach der neuen Zuordnung …");
+      resyncStop().then((sy) => {
+        stateLine(shownState, ""); paintSync();
+        if (sy) toast(sy.text, sy.kind === "err" ? "err" : "ok", 12000);
+      }, (e) => { stateLine(shownState, ""); errToast(e); });
     });
     paintPresRel();
     const liveLine = h("div", { class: "small" });
@@ -1338,8 +1370,12 @@ export async function sessionPage(id) {
   const icApi = { kind: "gym", id, st, selbstlern: selbstNow, on: (k, fn) => { icOn[k].add(fn); return () => icOn[k].delete(fn); },
     planText: () => (portalTA ? portalTA.value : L().portal || ""), paintPlan: (box) => paintPortalPreview(box, portalTA ? portalTA.value : L().portal || ""), planState: portalState,
     stopMenu: (line, x, y) => { if (!portalTA) showPortalEditor(); stopMenu(line, x, y); }, insertStop: (line) => { if (!portalTA) showPortalEditor(); insertStopAt(line); }, dropStop,
-    stopNext: () => stopNext, openActs, homework: hwCard, pres: curPres, annotated: (p) => st.files.find((f) => f.notesOf === p.id && f.area !== "archive") || null,
-    startLive: (focusAfter) => startLive(focusAfter) };
+    stopNext: () => stopNext, openActs, homework: hwCard, annotated: (p) => st.files.find((f) => f.notesOf === p.id && f.area !== "archive") || null,
+    // auch eine Präsentation, deren Folienbilder noch fehlen (die kompakte Ansicht sagt es; live starten nur „ready“ – startLive nimmt curPres)
+    pres: () => st.files.find((f) => f.area === "presentation") || null,
+    startLive: (focusAfter) => startLive(focusAfter),
+    // Stand des Servers vergleichen (…/stamp) und bei einer Änderung die Sitzung neu laden (refreshLesson)
+    checkStamp: async () => { const s = await tapi("GET", "/api/teacher/lessons/" + id + "/stamp"); if (s.stamp !== lessonStamp) await refreshLesson(); } };
   const inClass = inClassToggle({ id, full: () => [tsum.el, grid, ioCard], allowed: () => !(st.sub && (st.sub.status === "selbstlern" || st.sub.status === "aktiv")),
     mount: async () => (await lazy(import("./inclass.js"))).inClassView(icApi) });
   main.append(...inClass.els, tsum.el, grid, ioCard);
@@ -1359,15 +1395,29 @@ export async function sessionPage(id) {
   };
   paintRevise();
 
-  // Änderungen von außen (z. B. Claude über den Connector) beim Zurückkehren übernehmen
-  const onVis = async () => {
-    if (document.visibilityState !== "visible") return;
-    loadStudentPw();
+  // Änderungen von außen (z. B. Claude über den Connector, ein anderes Gerät) übernehmen: beim Zurückkehren in den Tab (onVis) und – solange die Ansicht für
+  // den Unterricht offen ist – sobald sich der Stand des Servers ändert (…/stamp, Nachtrag 35: z. B. „Bis hier gezeigt“ auf dem iPad, während der Laptop die
+  // kompakte Ansicht zeigt). Nie zwei Abrufe gleichzeitig; kommt währenddessen noch einer dazu, folgt er danach.
+  let refreshing = null, refreshAgain = false;
+  function refreshLesson() {
+    if (refreshing) { refreshAgain = true; return refreshing; }
+    refreshing = (async () => { do { refreshAgain = false; await doRefresh(); } while (refreshAgain && main.isConnected); })().finally(() => { refreshing = null; });
+    return refreshing;
+  }
+  async function doRefresh() {
     try {
       const r = await tapi("GET", "/api/teacher/lessons/" + id);
+      if (!main.isConnected) return;
+      lessonStamp = r.stamp || null;
       if (r.messages.length !== st.messages.length && !sendBtn.disabled) { st.messages = r.messages; paintMsgs(); }
-      // neue, gelöschte, umbenannte und (von Claude) neu gestaltete oder inzwischen gedruckte Dateien
-      if (filesKey(r.files) !== filesKey(st.files)) { st.files = r.files; paintFiles(); paintPrint(); }
+      // neue, gelöschte, umbenannte und (von Claude) neu gestaltete oder inzwischen gedruckte Dateien – und Markierung bzw. Phasen der Präsentation (ein anderes
+      // Gerät); vorhandene Einträge werden aktualisiert, nicht ersetzt (offene Teile der Seite halten sie)
+      if (filesKey(r.files) !== filesKey(st.files) || presSig(r.files) !== presSig(st.files)) {
+        st.files = r.files.map((nf) => { const o = st.files.find((x) => x.id === nf.id); return o ? Object.assign(o, nf) : nf; });
+        paintFiles(); paintPrint();
+      }
+      // Präsentationskarte nur neu, wenn sie etwas anderes zeigt – nie unter dem Fokus und nie während des Hochladens
+      if (presSig(st.files) !== presPainted && !pendingPdf && !presCard.contains(document.activeElement)) { st.slides = null; paintPres(); }
       if (r.drafts.length !== st.drafts.length || r.sheets.length !== st.sheets.length) { st.drafts = r.drafts; st.sheets = r.sheets; paintFb(); ensureNotfall(st.sheets.filter((x) => !notfallFile(x.code)).map((x) => x.code)); }
       const subKey = (x) => (x ? x.status + ":" + x.updatedAt : "");
       const nextChanged = (r.teacherNextDate || null) !== (d.teacherNextDate || null);
@@ -1409,7 +1459,8 @@ export async function sessionPage(id) {
         else if (portalTA) { portalTA.value = r.lesson.portal; paintPreview(); setPresBtn(); setSaved("Aktualisiert (Version " + portal.version + (r.lesson.portalSource === "claude" ? ", von Claude" : "") + ")"); }
       }
     } catch {}
-  };
+  }
+  const onVis = () => { if (document.visibilityState !== "visible") return; loadStudentPw(); refreshLesson(); };
   document.addEventListener("visibilitychange", onVis);
   const beforeUnload = (e) => { if (portal.dirty) { flushPortal(); e.preventDefault(); e.returnValue = ""; } else if (notesDirtyNow()) { e.preventDefault(); e.returnValue = ""; } };
   window.addEventListener("beforeunload", beforeUnload);

@@ -42,6 +42,7 @@ implementiert und im End-to-End-Test geprüft (Ausnahmen unten ausdrücklich gen
 | Notizen der Lehrkraft zu den Folien (Nachtrag 20 vom 13.11.2026) | Claude bettet laut Präsentations-Prompt zu jeder Folie Stichpunkte für die Lehrkraft **unsichtbar als Dateianhang** `unterricks-notizen.json` in die PDF ein (sonst JSON-Block im Chat zum Einfügen). Die Präsentationsansicht zeigt sie **unter der aktuellen Folie nur, wenn das Beamerbild getrennt läuft** (Beamerfenster bzw. Beamergerät verbunden) – ein einzeln gespiegeltes iPad zeigt wie bisher nur Folie und Vorschau. Rückfrage 1 (Knopf am iPad, der nur die Präsentation an Apple TV schickt): nicht zuverlässig umsetzbar (AirPlay spiegelt) → zusätzlich die **„Präsentation mit Anmerkungen“** (hinter jeder Folie eine Anmerkungsfolie) unter „Material nur für die Lehrkraft“. Rückfrage 2: Notizen in der Sitzung **ansehen und bearbeiten** – nie für Schüler:innen. Siehe 4o |
 | Zwischenstopp aus der Präsentation (Nachtrag 34 vom 16.11.2026) | Die Lehrkraft markiert am Ende der Stunde nur die **letzte gezeigte Folie**; der Zwischenstopp im Schulportal-Eintrag folgt **von selbst** (von Hand bleibt er möglich). Zuordnung Folie → Phase: Claude schreibt laut Präsentations-Prompt auf jede Folie **eine unsichtbare Textzeile „Unterricks-Phase: n“** (n = Nummer der Phase „**n) …**“; Textdarstellungsmodus 3 bzw. ≤ 2 pt in der Farbe des Hintergrunds), Unterricks liest sie beim Hochladen aus der Textebene (Antwort der Lehrkraft: „Claude schreibt die Phase in den Hintergrund jeder Folie … Überlege selbst.“). Letzte gezeigte Folie mitten in einer Phase: **„Vor diese Phase“** (die angefangene Phase gilt als nicht geschafft). Ohne Zeilen (ältere Präsentationen): Zuordnung von Hand („Phasen der Folien“). Siehe 4zd |
 | „Ich bin jetzt im Unterricht“ (Nachtrag 35 vom 16.11.2026) | Knopf **ganz oben** in jeder Sitzung (über der Zusammenfassung); er zeigt die Sitzung **kompakt**: 1. Präsentation (live starten – derselbe Start –, als PDF-Datei herunterladen, dazu die Präsentation mit Anmerkungen), 2. Verlaufsplan mit einem **grünen Pfeil** am rechten Rand an der Phase der Live-Präsentation (Phasen aus Nachtrag 34), 3. Material als Tabelle „Für Schüler:innen sichtbar“ / „Nur für die Lehrkraft“, 4. Hausaufgabe. Antworten: Material zum Ausdrucken in **Spalte 2, markiert „zum Ausdrucken“**; **auch Grundschule** (Verlaufsplan, Material samt Druckdateien und Bildkarten, Hausaufgabe – ohne Präsentation und Pfeil). Nicht in einer Selbstlern-Phase bzw. laufenden Vertretung. Siehe 4ze |
+| Prüfung von Nachtrag 34/35 (16.11.2026) | Ein **anderes Gerät** ändert die Sitzung (z. B. „Bis hier gezeigt“ am iPad): Die kompakte Ansicht fragt den kleinen **Stand der Sitzung** (`GET …/lessons/:id/stamp`, vier D1-Anweisungen) alle 20 s, beim Zurückkehren ins Fenster und wenn die Live-Präsentation beginnt bzw. endet, und lädt die Sitzung nur bei einer Änderung neu; vor dem Markieren bzw. Aufheben holt jede Seite den neuesten Eintrag, und der Vermerk `auto` kommt immer vom Server. „Phasen der Folien“ gespeichert bei schon markierter Folie → Zwischenstopp sofort nach der neuen Zuordnung (ein von Hand gesetzter bleibt). Lesen der Zeile: Fundstelle mit Bindestrich und Doppelpunkt gewinnt, Textstücke zuerst; eine sichtbare Zeile „Phase 2“ bleibt in der Überschrift einer Codefolie. Siehe 4zd, 4ze |
 | Links als Material (Ergänzung) | in **beiden Bereichen** (Schüler:innen / nur Lehrkraft) Links mit **Titel** und Internetadresse (nur http/https) |
 | Druckliste (Ergänzung) | Karte **„Von der Lehrkraft auszudrucken“** ganz unten: **nur PDF**, alles **A4** (andere Formate beim Hochladen umgerechnet, mit Hinweis), Name ursprünglich **„28x - beidseitig - sw - Name.pdf“**, seit Nachtrag 32 **„28x - sw - beidseitig - PoWi8 - Name.pdf“** (Abschnitt 4zb), einzeln oder **als ZIP**; Claude legt Vorlagen über den Connector ab (`add_print_material`), siehe 4i |
 | Zurücksetzen und Einheit als Datei (Ergänzung vom 11.11.2026) | Einstellungen: **„Alle Unterrichtsinhalte löschen und Unterricks zurücksetzen“** – erst das **Passwort**, dann das Angebot einer **Sicherung** (ZIP: 1. Fächer, 2. Einheiten mit Einheitsdatei, 3. Sitzungen chronologisch nummeriert, je als Sitzungsdatei), letzte Bestätigung, Löschen. Gelöscht: Einheiten und Sitzungen mit allem Zugehörigen; es bleiben Zugang, Planungsgrundlagen, Fach-Einstellungen, KI, Connector, Feibeitsblatt-Verbindung, Schülerpasswort, Schülergeräte; die Feibeitsblätter bleiben im Feibeitsblatt. Planungsseite einer Einheit: **„Einheit als Datei herunterladen“** und **„Einheit aus Datei laden“** (Planung + Sitzungen; die Sitzungen bekommen ihren Inhalt beim Anlegen), siehe 4l (Rückfragen beantwortet: Umfang, Feibeitsblätter behalten, Planung + Sitzungen, Sitzungsdatei im Ordner) |
@@ -1903,12 +1904,20 @@ Zuordnung „Claude schreibt die Phase in den Hintergrund jeder Folie und Unterr
 * **Prompt** (`claudePresentationPrompt`, Abschnitt „## Phase jeder Folie: unsichtbar in der PDF“ vor den Notizen): drei kurze Absätze; die Regel der
   Codefolie („sonst keinen Text … weiterer Text würde Teil der Überschrift“) nennt die Zeile als einzige Ausnahme. Das Wort „Zwischenstopp“ steht nicht im
   Prompt (die interne Markierung bleibt draußen, bestehender Test). Übrige Texte unverändert (keine SHA-Prüfung des Präsentations-Prompts vorhanden;
-  die Wortlaut-Tests in `shared.test.mjs` blieben unverändert grün).
-* **Lesen** (`public/presenter.js` `rasterize`, `public/shared.js` `phaseMarkOf`): je Seite aus denselben Zeilen wie die Codefolie (`slideTextLines`) –
-  alle Zeilen der Seite verbunden, also auch über mehrere Textstücke bzw. Zeilen verteilt; Groß-/Kleinschreibung, gesperrt gesetzt, Leerraum, Gedanken-
-  statt Bindestrich, Vollbreiten-Doppelpunkt/-Ziffern (NFKC); nur 1–99, mehrere → die erste. `codeSlideLines` entfernt die Zeile (`stripPhaseMarks`) und –
-  hat die Seite eine Phase – jedes Bruchstück davon („Unterricks-“, „Phase: 3“), bevor die Überschrift entsteht; ohne Phase bleibt die Erkennung wie
-  bisher. Weitere aus Folien abgeleitete Texte für Schüler:innen gibt es nicht (Notizen kommen aus dem Anhang; Codes werden nur als Code übermalt).
+  die Wortlaut-Tests in `shared.test.mjs` blieben unverändert grün). **Prüfung:** Auch der Abschnitt „Materialfolien“ nennt die Zeile jetzt („enthält außer
+  der Zeile „Unterricks-Codefolie: …“ und der unsichtbaren Zeile „Unterricks-Phase: …“ nur:“, Jg. 5/6 „zeigt (außer der unsichtbaren Zeile …) nur:“) –
+  vorher widersprach er „auf Materialfolien … genau eine Zeile“; der Wortlaut-Test in `shared.test.mjs` ist dafür bewusst angepasst.
+* **Lesen** (`public/presenter.js` `rasterize`, `public/shared.js` `phaseMarkOf(lines, items)`): je Seite aus den Textstücken von PDF.js (`items`) und
+  denselben Zeilen wie die Codefolie (`slideTextLines`) – erst jedes Textstück und jede Zeile für sich, dann alle Zeilen verbunden (über Zeilen
+  umbrochen). Groß-/Kleinschreibung, gesperrt gesetzt (dann auch die Zahl: „1 2“ = 12; nicht gesperrt ist „…: 1 2“ die Zeile und z. B. eine Seitenzahl
+  daneben = 1), Leerraum, Gedanken- statt Bindestrich, Vollbreiten-Doppelpunkt und -Ziffern; nur 1–99. Unter mehreren Fundstellen **gewinnt die mit
+  Bindestrich und Doppelpunkt** (so schreibt Claude sie laut Prompt), sonst die erste – Prüfbefund: sichtbarer Text „… in Unterricks“ + „Phase 2: …“ in der
+  nächsten Zeile ergab vorher Phase 2 statt der echten Zeile. `codeSlideLines` entfernt aus der Überschrift nur die Fundstelle selbst: steht sie in einer
+  Zeile, nur dort (`stripPhaseMarks`); nur wenn sie über Zeilen umbrochen ist, genau ihre Stücke (`stripPhaseLines`) – eine sichtbare Zeile „Phase 2“
+  der Überschrift bleibt (Prüfbefund: vorher fiel sie als „Bruchstück“ weg). **Grenze:** Steht direkt hinter der Zeile ohne jeden Abstand Text, der mit
+  einer Ziffer beginnt („…: 2“ + „2025 Quelle“), verbindet PDF.js beides zu einem Textstück „…: 22025 …“ – dann bleibt die Folie ohne Phase (nie eine
+  falsche; Zuordnung unter „Phasen der Folien“); mit Abstand (der Prompt verlangt „nie über anderem Inhalt“) wird sie gelesen. Weitere aus Folien
+  abgeleitete Texte für Schüler:innen gibt es nicht (Notizen kommen aus dem Anhang; Codes werden nur als Code übermalt).
 * **Daten:** neue Spalte `files.slide_phases` (TEXT, additiv in `COLUMNS`; neue Datenbank 48 Schema-Anweisungen) = `{v:1, pdf, hand, auto}`
   (`slidePhasesData`): `pdf` je Folie die Phase aus der PDF (1–99 bzw. null), `hand` die Zuordnung der Lehrkraft (gilt vor `pdf`, `slidePhasesOf`),
   `auto` = wo Unterricks zuletzt selbst einen Zwischenstopp eingetragen hat (`{phase, until}`). `POST …/files/:id/ready` nimmt `phases` (PDF) und
@@ -1929,14 +1938,21 @@ Zuordnung „Claude schreibt die Phase in den Hintergrund jeder Folie und Unterr
   `onMark`): erst die Markierung wie bisher (gekürzte PDF), dann `syncStop` – Zwischenstopp über `applyPortalText` mit dem Hinweis nach dem Setzen
   (Nachtrag 13/26, `stopNextHint`) wie von Hand, sofort gespeichert (`flushPortal`), dann der Vermerk (`PUT …/phases {auto}`; scheitert er, gilt der
   Zwischenstopp beim Aufheben als von Hand gesetzt – sicher). Aufrufe laufen nacheinander (`shownChain`), damit eine zweite Markierung den eben
-  eingetragenen kennt. Rückmeldung: Toast (Sie-Form, nennt die Phase), Zeile `#stop-sync` unter der Auswahl (nicht live – der Toast ist es), in der
+  eingetragenen kennt. **Prüfung – zwei Geräte:** Der Vermerk `auto` kommt aus der Antwort des Servers auf die Markierung (`PUT/DELETE …/shown` liefert
+  `fileOut` samt `phases`), nicht aus dem Zwischenspeicher des Tabs; und vorher fragt `freshPlan` den Stand der Sitzung (`GET …/stamp`, 4ze) und lädt die
+  Sitzung neu, wenn ein anderes Gerät den Eintrag geändert hat (eigene ungespeicherte Änderungen gelten). So entfernt ein Tab, der seit dem Markieren am
+  iPad offen war, beim Aufheben genau den Zwischenstopp, den Unterricks eingetragen hat, statt ihn als „von Ihnen gesetzt“ stehen zu lassen. Rückmeldung: Toast (Sie-Form, nennt die Phase), Zeile `#stop-sync` unter der Auswahl (nicht live – der Toast ist es), in der
   Präsentation kurz neben „Bis hier gezeigt“ (`.markstate`, schon `aria-live="polite"`; die Seite darunter ist dann schon aktualisiert).
 * **„Phasen der Folien“** (`details#phases` in der Präsentationskarte, zugeklappt, Zusammenfassung mit dem Stand): je Phase des Schulportal-Eintrags
   ein Auswahlfeld „beginnt bei Folie …“ (≥ 44 px, Name „3) Partnerarbeit – beginnt bei“), vorbelegt aus `pdf` bzw. `hand` (erste Folie der Phase); daraus
   je Folie die Phase der letzten Phase, die bis dahin begonnen hat; Beginne müssen in der Reihenfolge des Eintrags steigen (sonst Hinweis, nichts
   gespeichert). Übersicht „Folie 1–2: Phase 1 · …“, „Zuordnung speichern“, „Phasen aus der PDF übernehmen“ (nur mit beidem). Baut sich nur beim
   Aufklappen neu (nie unter dem Fokus); nach dem Speichern werden Hinweis, Namen der Vorschaubilder und Zusammenfassung an Ort und Stelle angeglichen,
-  der Fokus bleibt auf dem Knopf (bzw. geht zu „Zuordnung speichern“, wenn der gedrückte verschwindet).
+  der Fokus bleibt auf dem Knopf (bzw. geht zu „Zuordnung speichern“, wenn der gedrückte verschwindet). **Prüfung:** Ist die letzte gezeigte Folie schon
+  markiert, trägt das Speichern den Zwischenstopp gleich nach der neuen Zuordnung ein (`resyncStop` über `shownChain`; Rückmeldung im Toast und in
+  `#stop-sync`, das jetzt immer da ist und nur ausgeblendet wird) – vorher versprach der Hinweis das, aber erst ein erneutes Markieren derselben Folie
+  hätte es getan, und das löst die Auswahl im Browser nicht aus. Dabei gilt `stopForShown(…, {keepManual: true})`: einen Zwischenstopp, den die Lehrkraft
+  selbst gesetzt oder verschoben hat, lässt Unterricks stehen (Speichern der Zuordnung ist keine neue Markierung).
 * **Wo die Zuordnung von Hand bleibt:** wie die Notizen (4o) in **„Sitzung als Datei“** und der **Sicherung** (`slidePhases` am Eintrag der Präsentation
   in `sitzung.json`, nur wenn vorhanden – ältere Dateien unverändert; beim Laden als `phasesHand` an `…/ready`), bei Vertretung/Selbstlern-Phase samt
   „Wiederherstellen“ (die Präsentation wird dabei nicht archiviert, die Spalte bleibt). Nicht beim **Übertragen** der archivierten Planung in eine andere
@@ -1950,7 +1966,10 @@ Zuordnung „Claude schreibt die Phase in den Hintergrund jeder Folie und Unterr
   Phasen gelesen, Codefolie ohne die Zeile, Folienbilder Punkt für Punkt gegen dieselben Folien ohne Zeile; Auswahl, Kontextmenü und „Bis hier gezeigt“
   (Seite darunter aktualisiert und gespeichert, während die Präsentation offen ist); Aufheben, vollständig, von Hand verschoben bleibt, neue Markierung,
   fehlende Phase; ohne Phasen ruhiger Hinweis, Zuordnung von Hand per Tastatur, danach folgt der Zwischenstopp; Sitzungsdatei in eine dritte Sitzung
-  geladen; Bildschirmfotos `phasen-*.png` (1366/1180/820/390, hell und dunkel).
+  geladen; Bildschirmfotos `phasen-*.png` (1366/1180/820/390, hell und dunkel). Prüfung (S33 check): Unit – Fundstelle mit Bindestrich/Doppelpunkt,
+  gesperrte zweistellige Zahl, Seitenzahl daneben, Textstücke zuerst, echte PDFs mit Zeichenabstand und Fußzeile auf derselben Grundlinie, „Phase 2“ in
+  der Überschrift bleibt, `keepManual`, `GET …/stamp`; E2E – Zuordnung speichern bei markierter Folie trägt ihn ein (ohne erneutes Markieren), ein von Hand
+  verschobener bleibt, Bildschirmfotos `phasen-nach-zuordnung-*.png`.
 
 ## 4ze. „Ich bin jetzt im Unterricht“ – die Sitzung kompakt (Nachtrag der Lehrkraft vom 16.11.2026, Nachtrag 35)
 
@@ -1986,17 +2005,35 @@ Ausdrucken“; Grundschule „Auch Grundschule“ – kompakt mit Verlaufsplan u
   Phasen, Folie ohne Phase, Phase fehlt bzw. steht doppelt, keine nummerierten Phasen). Der Pfeil (`span.phasearrow`, Pfeilform mit „jetzt“,
   `role="img"`, Name „Aktuelle Phase laut Live-Präsentation“) sitzt in der Zeile der Überschrift und rechts am Rand der Vorschau; die Zeile ist zart grün
   hinterlegt. Er ist nicht fokussierbar, rückt nie den Fokus; die Seite rollt nur dann zur neuen Phase, wenn die Lehrkraft 12 s lang nichts getan hat
-  (Tippen, Klicken, Scrollen, Tasten), kein Dialog offen ist und kein Feld bearbeitet wird.
+  (Tippen, Klicken, Scrollen, Tasten), kein Dialog offen ist und kein Feld bearbeitet wird. Das Öffnen bzw. Wiederherstellen der Ansicht zählt als Handlung
+  (Prüfbefund: vorher rollte die Seite 0,4 s nach dem Klick zur Phase – „Präsentation live starten“ rutschte unter dem Finger weg). Präsentation ohne fertige
+  Folienbilder: Hinweis wie in der vollständigen Ansicht („… erneut hochladen“), Download der PDF, kein Start und kein Satz dazu, Grund „Kein Pfeil: Die
+  Folienbilder … sind noch nicht fertig“ (vorher hieß es fälschlich „keine Präsentation“).
 * **Live-Stand:** wie bei den Schüler:innen – Ticket `POST …/live-ticket` (Rolle „teacher“; die Ansicht sendet nichts, sie hört nur zu), WebSocket mit
   Wiederverbindung (1–15 s), beim Start einmal `GET …/live`; scheitert die Verbindung zweimal, fragt sie ersatzweise **höchstens alle 3 s**
   (`LIVE_POLL_MS`, auch wenn Start, Rückfall und Rückkehr in den Tab kurz nacheinander fragen wollen). Nur solange die kompakte Ansicht offen und der Tab
   sichtbar ist (`visibilitychange`); das Durable Object schickt jede Änderung an alle Verbindungen der Lehrkraft – der Pfeil folgt also auch, wenn ein
   anderes Gerät oder ein anderer Tab blättert. Kosten: ein Ticket je Öffnen bzw. Wiederverbinden, keine D1-Abfrage je Folie; der Rückfall sind höchstens
-  20 Anfragen je Minute und Tab, nur ohne WebSocket.
+  20 Anfragen je Minute und Tab, nur ohne WebSocket. **Prüfung:** Jeder Verbindungsversuch trägt eine laufende Nummer (`gen`); kommt das Ticket erst nach
+  `stop()`/`begin()` an (kurzes Wegschalten am iPad), öffnet er nichts mehr, und eine verdrängte Verbindung wird geschlossen (vorher blieben zwei offen,
+  eine davon nie geschlossen); der Ping hängt an der einzelnen Verbindung.
+* **Stand der Sitzung (Prüfung):** Was ein anderes Gerät ändert – vor allem „Bis hier gezeigt“ samt Zwischenstopp am iPad, während der Laptop die
+  kompakte Ansicht zeigt –, kam vorher erst beim nächsten `visibilitychange` an; ein Zwischenstopp von Hand scheiterte dann an der Version (Dialog „Der
+  Eintrag wurde inzwischen geändert“ mitten im Unterricht). Jetzt fragt die kompakte Ansicht `GET /api/teacher/lessons/:id/stamp` (neu; ein Batch mit vier
+  Anweisungen: Version und `updated_at` der Sitzung, Zahl und jüngstes `updated_at` der Dateien – auch Markierung und Phasen der Präsentation –, Zahl der
+  Feibeitsblätter, Stand der Vertretung; `lessonStamp` in `worker/lessons.js`, `GET …/lessons/:id` liefert denselben Wert ohne zusätzliche Anweisung).
+  `stampWatch` (inclass.js): alle 20 s (`STAMP_POLL_MS`), sofort beim `focus` des Fensters und wenn die Live-Präsentation beginnt, endet oder wechselt;
+  ein Anstoß kurz nach einer Abfrage wartet bis 3 s danach (nie verworfen); nur solange die Ansicht offen und der Tab sichtbar ist. Unterscheidet sich der
+  Stand, lädt die Seite die Sitzung neu (`refreshLesson` in session.js = der bisherige Abgleich beim Zurückkehren in den Tab, nie zweimal gleichzeitig):
+  Eintrag (nur ohne eigene ungespeicherte Änderung), Dateien – vorhandene Einträge werden aktualisiert, nicht ersetzt –, und die Präsentationskarte,
+  wenn sie etwas anderes zeigt (nie unter dem Fokus, nie während des Hochladens). Kosten: etwa 135 kleine Anfragen je 45-Minuten-Stunde und offener
+  Ansicht, dazu ein vollständiger Abruf je Änderung. Die Grundschule (ohne Präsentation und Live-Stand) fragt nicht – dort ändert sich im Unterricht kaum
+  etwas von außen, beim Zurückkehren in den Tab gleicht sie sich wie bisher ab.
 * **Verlaufsplan:** Gymnasium = Vorschau des Schulportal-Eintrags (`paintPortalPreview`) mit dem Zwischenstopp-Feld; Grundschule = `paintPlanPreview`
   (PDF-Verweise gelb und anklickbar). Zwischenstopp von Hand wie in der vollständigen Ansicht: Rechtsklick auf eine Zeile, am iPad Antippen, per Tastatur
   „Zwischenstopp eintragen …“ (Gymnasium: Auswahl der Zeile wie in der Grundschule, vorgewählt die Phase des Pfeils; Grundschule: ihr Dialog),
-  „Zwischenstopp entfernen“; danach derselbe Hinweis zur nächsten Sitzung (Nachtrag 13/26).
+  „Zwischenstopp entfernen“; danach derselbe Hinweis zur nächsten Sitzung (Nachtrag 13/26) – auch, wenn „Bis hier gezeigt“ ihn genau dorthin setzt, wo er
+  schon stand (Prüfbefund: ohne Textänderung meldete die Seite der kompakten Ansicht nichts).
 * **Material** (`materialColumns`, rein): Spalte 1 „Für Schüler:innen sichtbar“ (Grundschule „Für die Kinder sichtbar“, mit dem Abzeichen, ob Eltern es
   sehen) – Feibeitsblätter mit „Code kopieren und Feibeitsblatt öffnen“ wie bei den Schüler:innen (nicht das Finale eines Escape-Rooms, das sie nur über
   den Tunnel erreichen), Material „Für Schüler:innen“ (Material einer Selbstlern-Phase nur, solange sie läuft – wie `worker/student.js`), zuletzt die
@@ -2028,7 +2065,12 @@ Ausdrucken“; Grundschule „Auch Grundschule“ – kompakt mit Verlaufsplan u
   „zum Ausdrucken“, Dialog für den Zwischenstopp, Hausaufgabe); Bildschirmfotos `unterricht-kompakt-*.png` (1366/1180/820/390 hell und dunkel, iPad
   hochkant, Grundschule). Im Schritt „GitHub Pages“: „Präsentation als PDF-Datei herunterladen“ lädt die Datei vom Worker herunter. Die Attrappe des
   Feibeitsblatts (`test/e2e/mocks.mjs`) antwortet auf `GET …/sheets/:code/checklist` eines ihr unbekannten Blattes jetzt mit 404 – vorher stürzte sie ab
-  (und mit ihr der ganze Lauf), sobald die Sitzungsseite für ein nur in Unterricks verknüpftes Blatt das Notfall-Feibeitsblatt prüfte.
+  (und mit ihr der ganze Lauf), sobald die Sitzungsseite für ein nur in Unterricks verknüpftes Blatt das Notfall-Feibeitsblatt prüfte. Prüfung (S33
+  check): Unit – Live-Verbindung bei Wegschalten während des Tickets, `stampWatch`, Grund „noch nicht fertig“; E2E – nach dem Öffnen rollt nichts (Phase
+  unterhalb), zweites Gerät markiert → Zwischenstopp hier ohne Neuladen (Abfrage `…/stamp` belegt), veralteter dritter Tab hebt auf → der automatische
+  verschwindet, Rückkehr ins Fenster fragt sofort, Zwischenstopp von Hand danach ohne Versionsdialog, „Bis hier gezeigt“ auf den schon vorhandenen
+  Zwischenstopp zeigt den Hinweis, Präsentation ohne fertige Folienbilder; Bildschirmfotos `unterricht-kompakt-unfertig-*.png`,
+  `unterricht-kompakt-hinweis-zwischenstopp-*.png`.
 * **Nicht prüfbar hier:** echtes iPad mit Safari (Download einer Datei mit `Content-Disposition: attachment` aus einem Tab, Antippen in der Vorschau), ein
   echter Beamer bzw. das Apple TV, und ob der Pfeil im Unterrichtsalltag (Schul-WLAN, Ruhezustand des iPads) stets rechtzeitig folgt.
 

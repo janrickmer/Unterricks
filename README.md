@@ -337,7 +337,11 @@ gleich in `public/_headers`, im Worker und – für GitHub Pages – in `scripts
   Steht die Phase nicht (mehr) im Eintrag (z. B. umnummeriert), ändert Unterricks nichts und sagt es. **Präsentationen ohne diese Zeile** (ältere
   oder eigene PowerPoint-Exporte): kein automatischer Zwischenstopp – das steht an der Auswahl der letzten Folie. Unter **„Phasen der Folien“** in der
   Präsentationskarte legen Sie dann je Phase des Schulportal-Eintrags fest, bei welcher Folie sie beginnt (vorbelegt aus den Zeilen der PDF; auch
-  zum Korrigieren); „Phasen aus der PDF übernehmen“ macht das rückgängig. Die Zuordnung kommt mit in „Sitzung als Datei“ und in die Sicherung.
+  zum Korrigieren); „Phasen aus der PDF übernehmen“ macht das rückgängig. Haben Sie die letzte Folie schon markiert, trägt Unterricks den
+  Zwischenstopp gleich beim Speichern der Zuordnung ein (einen, den Sie selbst gesetzt oder verschoben haben, lässt es dabei stehen). Die Zuordnung
+  kommt mit in „Sitzung als Datei“ und in die Sicherung. Phasen nach „--> Nächste Stunde“ zählen mit: Endet die Stunde wie geplant vor ihnen, steht
+  der Zwischenstopp vor der ersten von ihnen – so bleibt sichtbar, was noch offen ist. Haben Sie an einem anderen Gerät markiert, holt die Seite vor
+  dem Markieren bzw. Aufheben erst den neuesten Stand.
   Den Zwischenstopp von Hand setzen und verschieben können Sie wie bisher; in der Grundschule (ohne Präsentation) ändert sich nichts.
 * **„Ich bin jetzt im Unterricht“ (Nachtrag 35):** Ganz oben in jeder Sitzung (über der Zusammenfassung) steht dieser Knopf. Er zeigt die Sitzung
   kompakt für die Stunde selbst, in dieser Reihenfolge:
@@ -358,7 +362,9 @@ gleich in `public/_headers`, im Worker und – für GitHub Pages – in `scripts
   4. **Hausaufgabe:** dasselbe Feld wie in der vollständigen Ansicht (gleiches Speichern, gleiche Hinweise, „Für das Schulportal kopieren“).
 
   **„Vollständige Ansicht“** führt zurück. Umschalten verliert nichts (Hausaufgabe und Schulportal-Eintrag sind dieselben Felder) und beendet nie
-  eine laufende Präsentation. Die kompakte Ansicht bleibt beim Neuladen dieses Tabs erhalten und endet, wenn Sie die Sitzung verlassen. In einer
+  eine laufende Präsentation. Was ein anderes Gerät ändert (z. B. „Bis hier gezeigt“ am iPad, während der Laptop die kompakte Ansicht zeigt), steht
+  hier nach spätestens 20 Sekunden – sofort, wenn Sie ins Fenster zurückkehren oder die Präsentation beginnt bzw. endet. Gerade nach dem Öffnen rollt
+  die Seite nicht von selbst zur aktuellen Phase. Die kompakte Ansicht bleibt beim Neuladen dieses Tabs erhalten und endet, wenn Sie die Sitzung verlassen. In einer
   **Selbstlern-Phase** (und bei einer älteren, laufenden Vertretung) gibt es den Knopf nicht – Sie sind dann nicht im Unterricht; nach
   „Wiederherstellen“ ist er wieder da.
 * **Arbeitsblätter und Material von Claude:** Claude gestaltet Arbeitsblätter, Texte, Schaubilder, Kärtchen und Erwartungshorizonte

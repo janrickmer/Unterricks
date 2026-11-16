@@ -10,6 +10,7 @@ export const PRINT_TAG = "zum Ausdrucken";
 export const NOTFALL_TAG = "Notfall-Feibeitsblatt";
 export const CARDS_TAG = "Bildkarten";
 export const LIVE_POLL_MS = 3000;   // Rückfall ohne WebSocket: höchstens alle 3 Sekunden fragen
+export const STAMP_POLL_MS = 20000;   // Stand der Sitzung (Änderungen von einem anderen Gerät): alle 20 Sekunden eine kleine Abfrage
 
 /* Phase einer Live-Folie: phases = Phase je Folie (Index 0 = Folie 1; Zahl oder null), slide = aktuelle Folie (0 = Codefolie vor Folie 1 → wie Folie 1).
    Eine Folie ohne Phase gehört zur Phase der nächsten Folie davor, die eine hat; gibt es keine → null. */
@@ -22,9 +23,10 @@ export function livePhase(phases, slide) {
 
 /* Wohin zeigt der grüne Pfeil? live = Stand der Live-Präsentation (Nachricht des Servers für die Lehrkraft: active, slide, pages, fileId, view …),
    pres = die Präsentation der Sitzung (fileOut: id, phases), portalText = Schulportal-Eintrag (Phasen „**3) Partnerarbeit**“).
-   → {head: {n, line, title, label}, phase, slide, code} | {why: "nopres" | "idle" | "other" | "nomarks" | "nophase" | "noheads" | "missing" | "twice", phase?, slide?} */
+   → {head: {n, line, title, label}, phase, slide, code} | {why: "nopres" | "notready" | "idle" | "other" | "nomarks" | "nophase" | "noheads" | "missing" | "twice", phase?, slide?} */
 export function liveArrow({ live, pres, portalText }) {
   if (!pres || !pres.id) return { why: "nopres" };
+  if (pres.status && pres.status !== "ready") return { why: "notready" };
   if (!live || !live.active || !Number.isInteger(live.slide)) return { why: "idle" };
   if (live.fileId && live.fileId !== pres.id) return { why: "other" };
   const phases = slidePhasesOf(pres);
@@ -46,6 +48,7 @@ export function arrowText(r) {
   const why = r ? r.why : "idle";
   return "Kein Pfeil: " + ({
     nopres: "Zu dieser Sitzung gibt es keine Präsentation.",
+    notready: "Die Folienbilder der Präsentation sind noch nicht fertig – laden Sie die PDF in der vollständigen Ansicht erneut hoch.",
     idle: "Die Präsentation läuft gerade nicht live. Sobald sie läuft – auch auf einem anderen Gerät –, zeigt ein grüner Pfeil am rechten Rand die Phase, in der Sie gerade sind.",
     other: "Live läuft gerade eine andere Präsentation als die dieser Sitzung.",
     nomarks: "Die Folien dieser Präsentation tragen keine Phasen. In der vollständigen Ansicht können Sie sie unter „Phasen der Folien“ zuordnen.",

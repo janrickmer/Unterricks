@@ -312,11 +312,32 @@ export async function routeLessonGet(c, id) {
   // … deren aktueller Termin auch im Standardtext der Hausaufgabe (wie bei den Schüler:innen; ein eigener Text bleibt)
   const lo = lessonOut(l, { studentCount: (students.results[0] || {}).n || 0, nextDate, freeDay: fday ? { from: fday.from, to: fday.to, label: fday.label, scope: fday.scope } : null });
   if (sub && sub.status === "selbstlern" && lo.homework) lo.homework = selbstlernHomeworkNow(lo.homework, teacherNext.teacherNextDate);
-  return json({ ok: true, lesson: lo,
+  const fr = files.results || [];
+  return json({ ok: true, lesson: lo, stamp: lessonStamp(l, fr.length, Math.max(0, ...fr.map((f) => f.updated_at || 0)), (sheets.results || []).length, sub),
     previousStop, unit, course, substitute, ...teacherNext, ...gs, messages: messages.map(msgOut),
     nextLesson: next ? { id: next.id, title: next.title, date: next.lesson_date, planned: !!next.planned } : null,
     files: (files.results || []).map((f) => fileOut(f)), sheets: (sheets.results || []).map((s) => ({ code: s.code, title: s.title, kind: s.kind || "", createdAt: s.created_at })),
     drafts: (drafts.results || []).map(draftOut) });
+}
+
+/* Stand einer Sitzung (Nachtrag 35, Ansicht für den Unterricht): ändert sich mit dem Schulportal-Eintrag bzw. Verlaufsplan, den Sitzungsdaten (Hausaufgabe …),
+   jeder Datei (auch Markierung und Phasen der Präsentation – updated_at), den Feibeitsblättern und der Vertretung. GET …/lessons/:id liefert ihn mit, die
+   kleine Abfrage GET …/stamp (vier Anweisungen) nur ihn – ändert er sich, lädt die offene Seite die Sitzung neu. */
+export const lessonStamp = (l, nFiles, filesAt, nSheets, sub) =>
+  [l.portal_version || 0, l.updated_at || 0, nFiles || 0, filesAt || 0, nSheets || 0, sub ? sub.status + "@" + (sub.updated_at || 0) : "-"].join(".");
+export async function routeLessonStamp(c, id) {
+  await requireTeacher(c);
+  if (!isId(id)) throw new HttpError(404, "not_found", "Diese Sitzung gibt es nicht (mehr).");
+  const [l, f, s, sub] = await c.db.batch([
+    c.db.prepare("SELECT portal_version, updated_at FROM lessons WHERE id=?1").bind(id),
+    c.db.prepare("SELECT COUNT(*) AS n, MAX(updated_at) AS u FROM files WHERE lesson_id=?1").bind(id),
+    c.db.prepare("SELECT COUNT(*) AS n FROM fb_sheets WHERE lesson_id=?1").bind(id),
+    c.db.prepare("SELECT status, updated_at FROM substitutes WHERE lesson_id=?1").bind(id),
+  ]);
+  const row = (l.results || [])[0];
+  if (!row) throw new HttpError(404, "not_found", "Diese Sitzung gibt es nicht (mehr).");
+  const fr = (f.results || [])[0] || {};
+  return json({ ok: true, stamp: lessonStamp(row, fr.n, fr.u, ((s.results || [])[0] || {}).n, (sub.results || [])[0] || null), portalVersion: row.portal_version });
 }
 
 /* PDF-Dateien des Kurses aus anderen Sitzungen (eine Abfrage): die der vorigen Sitzung und alle, auf die der Verlaufsplan dieser oder der
