@@ -46,7 +46,9 @@ export async function printNamesE2E({ tp, BASE, T, token, ok, OUT, SHOT, cand, h
   // Sitzungsseite: Druckliste mit den neuen Namen, Hinweis mit Beispiel des Kurses, Auswahlfelder in der Reihenfolge des Namens
   await tp.goto(BASE + "/#/lk/s/" + sl + "/druckliste");
   const card = tp.locator("#printcard");
-  await card.locator(".printrow").nth(1).waitFor({ timeout: 20000 });
+  // auf die Zeilen DIESER Sitzung warten: steht die Seite vorher auf der Druckliste einer anderen Sitzung (voriger Schritt), ist deren #printcard einen
+  // Moment noch da (Wettlauf, sonst las der Schritt die Zeilen, während die Seite gerade umgebaut wurde)
+  await card.locator(".printrow .name", { hasText: NAME }).nth(1).waitFor({ timeout: 20000 });
   const names = await card.locator(".printrow .name").allTextContents();
   ok(JSON.stringify(names) === JSON.stringify([NAME, NAME]), "Druckliste der Sitzung: " + names.join(" | "));
   const hint = await card.locator("#print-name-hint").textContent();
