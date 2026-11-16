@@ -341,7 +341,7 @@ gleich in `public/_headers`, im Worker und – für GitHub Pages – in `scripts
   zum Korrigieren); „Phasen aus der PDF übernehmen“ macht das rückgängig. Haben Sie die letzte Folie schon markiert, trägt Unterricks den
   Zwischenstopp gleich beim Speichern der Zuordnung ein (einen, den Sie selbst gesetzt oder verschoben haben, lässt es dabei stehen). Die Zuordnung
   kommt mit in „Sitzung als Datei“ und in die Sicherung. Phasen nach „--> Nächste Stunde“ zählen mit: Endet die Stunde wie geplant vor ihnen, steht
-  der Zwischenstopp vor der ersten von ihnen – so bleibt sichtbar, was noch offen ist. Haben Sie an einem anderen Gerät markiert, holt die Seite vor
+  der Zwischenstopp vor der ersten von ihnen – so bleibt sichtbar, was noch offen ist (so von Ihnen am 16.11.2026 bestätigt). Haben Sie an einem anderen Gerät markiert, holt die Seite vor
   dem Markieren bzw. Aufheben erst den neuesten Stand.
   Den Zwischenstopp von Hand setzen und verschieben können Sie wie bisher; in der Grundschule (ohne Präsentation) ändert sich nichts.
 * **„Ich bin jetzt im Unterricht“ (Nachtrag 35):** Ganz oben in jeder Sitzung (über der Zusammenfassung) steht dieser Knopf. Er zeigt die Sitzung

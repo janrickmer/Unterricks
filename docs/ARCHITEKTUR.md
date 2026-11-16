@@ -1957,7 +1957,7 @@ Zuordnung „Claude schreibt die Phase in den Hintergrund jeder Folie und Unterr
 * **Regel** (`stopForShown(portalText, slidePhases, n, prevAuto)` in `public/shared.js` – rein und getestet, damit die kompakte Ansicht aus Nachtrag 35
   denselben Weg nutzt): Q = Phase der letzten zugeordneten Folie bis n (keine → vor die erste Phase des Eintrags). Gehört die erste zugeordnete Folie nach
   n auch zu Q, ist Q angefangen → Zwischenstopp **vor Q**; sonst vor die **nächste Phase des Eintrags nach Q** (Phasen ohne Folien gelten als nicht
-  geschafft, auch nach „--> Nächste Stunde“); gibt es keine mehr, ist die Stunde **vollständig** → kein Zwischenstopp. Phasen = nummerierte fette
+  geschafft, auch nach „--> Nächste Stunde“ – von der Lehrkraft am 16.11.2026 so bestätigt); gibt es keine mehr, ist die Stunde **vollständig** → kein Zwischenstopp. Phasen = nummerierte fette
   Überschriften („**3) …**“, auch „**3. …**“; `portalPhases`). Fehlt die Phase im Eintrag, steht sie doppelt, gibt es keine Überschriften oder keine
   Phasen, ändert sich nichts (`error`) – mit klarem Hinweis. Eingetragen wird mit `insertStop` (verschiebt einen vorhandenen – die letzte Handlung gilt).
 * **Aufheben / Stunde vollständig:** Entfernt wird ein Zwischenstopp nur, wenn der Server einen Vermerk `auto` hat **und** der (erste) Zwischenstopp noch
