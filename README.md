@@ -413,7 +413,11 @@ gleich in `public/_headers`, im Worker und – für GitHub Pages – in `scripts
   nicht die Präsentation der ursprünglichen Planung. **Erklär-Chatbot und KI-Begriffshilfe gibt es ab dem Beginn der Sitzung bis zum Beginn der
   nächsten Sitzung mit Ihnen** (die Stationen sind bis dahin Hausaufgabe; ist die nächste Sitzung noch nicht angelegt, bis 7 Tage nach dem Ende);
   nach der Abmeldung nach 90 Minuten geht es mit dem Passwort weiter, ein Gespräch beginnt dann neu. Den Schalter für die KI-Begriffshilfe in
-  den Sitzungsdaten gibt es weiter; der Erklär-Chatbot gehört zur Station. In Jahrgang 5/6 (auf Papier) bleibt die Ansicht wie bisher.
+  den Sitzungsdaten gibt es weiter; der Erklär-Chatbot gehört zur Station. In Jahrgang 5/6 (auf Papier) sehen die Schüler:innen den Hinweis und die
+  Stationen als Schritte, die Hausaufgabe und „Den Laufzettel und die Arbeitsblätter der Stationen bekommst du ausgedruckt.“ – ohne Live-Fenster.
+  In keiner Selbstlern-Phase sehen die Schüler:innen die Präsentation der ursprünglichen Planung. Auf der Sitzungsseite sagen auch Hausaufgabe
+  („für Schüler:innen von Anfang an sichtbar“, fällig zur nächsten Sitzung mit Ihnen) und Sitzungsdaten, was in der Selbstlern-Phase gilt. Fehlen Sie
+  mehrere Tage, nennt der vorgeschlagene Hausaufgaben-Text immer den aktuellen Termin der nächsten Sitzung mit Ihnen (ein eigener Text bleibt, wie er ist).
   **Datenschutz (für Schüler:innen und Eltern):** Beide KI-Chatbots nutzen dieselben kostenlosen KI-Dienste wie die KI-Begriffshilfe und dieselbe
   Einwilligung (einmal je Sitzung und Gerät, gilt für beide; jederzeit zurücknehmbar). An den KI-Dienst gehen nur der eingetippte Text, das Thema der
   Sitzung und beim Erklär-Chatbot der Auftrag der Station – nie Namen oder eine Kennung des Geräts; Unterricks speichert die Gespräche nicht. Wer

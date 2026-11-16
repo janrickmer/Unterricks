@@ -6,7 +6,7 @@ import { requireStudent } from "./auth.js";
 import { getFile, downloadUrl, studentSlideUrl, studentSlideExp, studentSlideLimit } from "./files.js";
 import { nextLessonDate, nextTeacherLesson } from "./lessons.js";
 import { getSubstitute, studentSubstitute } from "./substitute.js";
-import { SELBSTLERN, readSelbstlern, selbstlernAiWindow, selbstlernHelpPrompt, explainBotPrompt, explainSigText, EXPLAIN_BOT_LIMITS, EXPLAIN_FINISH_MESSAGE } from "../public/selbstlern.js";
+import { SELBSTLERN, readSelbstlern, selbstlernAiWindow, selbstlernHelpPrompt, explainBotPrompt, explainSigText, helpSigText, selbstlernHomeworkNow, EXPLAIN_BOT_LIMITS, EXPLAIN_FINISH_MESSAGE } from "../public/selbstlern.js";
 import { liveTicket, liveState } from "./live.js";
 import { normalizeCode, isValidCode, subjectName, classShort, isCourseClass, courseMembers, cleanWebUrl, lessonTimes, fmtClockBerlin, fmtDayBerlin, studentHelpPrompt, STUDENT_HELP_LIMITS, GS_SUBJECT, STUDENT_SLIDE_BLOCK,
   isAnalogClass } from "../public/shared.js";
@@ -89,10 +89,11 @@ export async function routeStudentLesson(c, lessonId) {
     c.db.prepare("SELECT code, title, kind FROM fb_sheets WHERE lesson_id=?1 ORDER BY created_at").bind(lessonId),
     c.db.prepare("SELECT id, name, pages, shown_until, cut_size FROM files WHERE lesson_id=?1 AND area='presentation' AND status='ready' LIMIT 1").bind(lessonId),
   ]);
-  const sd = selbstDigital(lesson);
-  // Selbstlern-Phase mit iPads: keine Präsentation der ursprünglichen Planung (die Stationen ersetzen den Unterricht mit der Lehrkraft)
-  const p = sd ? null : (pres.results || [])[0] || null, times = timesOf(lesson), unlockAt = times ? times.presentationAt : null;
-  const hw = homeworkShown(lesson, c.now) ? String(lesson.homework).trim() : "", selbst = lesson.sub_status === SELBSTLERN;
+  const sd = selbstDigital(lesson), selbst = lesson.sub_status === SELBSTLERN;
+  // Selbstlern-Phase (auch Jg. 5/6): keine Präsentation der ursprünglichen Planung – sie ist mit ihr archiviert, die Stationen ersetzen den Unterricht
+  // mit der Lehrkraft (Prüfbefund: in Jg. 5/6 wurde sie sonst nach der Sitzung freigegeben)
+  const p = selbst ? null : (pres.results || [])[0] || null, times = timesOf(lesson), unlockAt = times ? times.presentationAt : null;
+  const hw0 = homeworkShown(lesson, c.now) ? String(lesson.homework).trim() : "";
   // Selbstlern-Phase bzw. ältere Vertretung: die Ansicht der Stationen (Feibeitsblätter aus Entwürfen über ihren Code) – sonst keine Abfrage mehr
   const sub = lesson.sub_status === "aktiv" || selbst ? await getSubstitute(c.db, lessonId) : null;
   const drafts = selbst ? ((await c.db.prepare("SELECT id, status, sheet_code FROM fb_drafts WHERE lesson_id=?1").bind(lessonId).all()).results || []) : [];
@@ -100,6 +101,8 @@ export async function routeStudentLesson(c, lessonId) {
   const upTo = p && p.shown_until && p.shown_until < p.pages ? p.shown_until : null;
   // nächste Sitzung mit der Lehrkraft: Fälligkeit der Hausaufgabe und Ende der KI-Chatbots (eine Abfrage)
   const nextT = selbst ? await nextTeacherLesson(c.db, lesson) : null;
+  // der Standardtext der Hausaufgabe nennt immer den aktuellen Termin der nächsten Stunde mit der Lehrkraft
+  const hw = selbst && hw0 ? selbstlernHomeworkNow(hw0, nextT ? nextT.date : null) : hw0;
   const win = sd ? selbstWindow(lesson, nextT) : null;
   const hasBot = sd && !!shown.selbstlern && shown.selbstlern.stationen.some((x) => x.typ === "erklaer_chatbot");
   const aiOn = sd ? !!win && lesson.student_ai !== 0 && c.now <= win.end : !!times && lesson.student_ai !== 0 && c.now <= times.end;
@@ -133,7 +136,7 @@ export async function routeStudentFileLink(c, fileId) {
 // Präsentation frei? Erst 5 Minuten nach dem Ende der Sitzung (ohne Beginn oder Dauer nie) – für die PDF und für das Folienfenster
 async function releasedPresentation(c, lessonId, cols) {
   const { lesson } = await requireAccess(c, lessonId);
-  if (selbstDigital(lesson)) throw new HttpError(404, "not_found", "In dieser Selbstlern-Phase gibt es keine Präsentation aus dem Unterricht – die Stationen findest du im Ablaufplan.");
+  if (lesson.sub_status === SELBSTLERN) throw new HttpError(404, "not_found", "In dieser Selbstlern-Phase gibt es keine Präsentation aus dem Unterricht – die Stationen findest du im Ablaufplan.");
   const times = timesOf(lesson);
   if (!times) throw new HttpError(403, "not_yet", "Die Präsentation kannst du nach dem Unterricht selbst öffnen – deine Lehrkraft hat die Uhrzeit der Sitzung noch nicht eingetragen.");
   if (c.now < times.presentationAt) throw new HttpError(403, "not_yet", "Die Präsentation kannst du ab " + fmtClockBerlin(times.presentationAt) + " Uhr selbst öffnen (5 Minuten nach dem Unterricht).", { unlockAt: times.presentationAt });
@@ -193,8 +196,11 @@ export async function routeStudentAsk(c, lessonId) {
   if (ms) throw lockedError(ms, "Die KI-Begriffshilfe ist für diese Sitzung gerade ausgelastet. Bitte versuch es in " + fmtWait(ms) + " noch einmal.");
   await registerFail(c.db, devKey, LOCKS.askDevice, c.now);
   await registerFail(c.db, lesKey, LOCKS.askLesson, c.now);
-  const hist = (Array.isArray(body.history) ? body.history : []).slice(-STUDENT_HELP_LIMITS.history)
-    .map((x) => ({ q: cleanLine(x && x.q, STUDENT_HELP_LIMITS.question), a: cleanText(x && x.a, STUDENT_HELP_LIMITS.answer).trim() })).filter((x) => x.q && x.a);
+  let hist = (Array.isArray(body.history) ? body.history : []).slice(-STUDENT_HELP_LIMITS.history)
+    .map((x) => ({ q: cleanLine(x && x.q, STUDENT_HELP_LIMITS.question), a: cleanText(x && x.a, STUDENT_HELP_LIMITS.answer).trim(), sig: x && x.sig })).filter((x) => x.q && x.a);
+  // Selbstlern-Phase (ohne Aufsicht, bis zur nächsten Stunde mit der Lehrkraft): nur unterschriebene frühere Antworten zählen – wie beim Erklär-Chatbot
+  const secret = sd ? requireSecret(c.env) : null;
+  if (sd) { const okH = []; for (const x of hist) if (await hmacOk(secret, helpSigText(lessonId, x.q, x.a), x.sig)) okH.push(x); hist = okH; }
   const extra = await c.db.prepare("SELECT topic, portal FROM lessons WHERE id=?1").bind(lessonId).first();
   // Selbstlern-Phase: eigene Regeln (Verständnisfragen, keine Stationen oder Hausaufgaben erledigen) – aus gespeicherten Daten, nie aus dem Browser
   const sp = sd ? readSelbstlern((await getSubstitute(c.db, lessonId) || {}).proposal) : null;
@@ -204,8 +210,8 @@ export async function routeStudentAsk(c, lessonId) {
   let r;
   try { r = await callTask(c.env, c.db, "erklaeren", messages, { maxTokens: TASKS.erklaeren.maxTokens }); }
   catch { throw new HttpError(502, "ai_error", "Die KI-Begriffshilfe antwortet gerade nicht. Versuch es gleich noch einmal oder frag deine Lehrkraft."); }
-  const answer = cleanText(r && r.text, STUDENT_HELP_LIMITS.answer).trim();
-  return json({ ok: true, answer: answer || "Dazu kann ich gerade nichts sagen. Frag bitte deine Lehrkraft." });
+  const answer = cleanText(r && r.text, STUDENT_HELP_LIMITS.answer).trim() || "Dazu kann ich gerade nichts sagen. Frag bitte deine Lehrkraft.";
+  return json({ ok: true, answer, ...(sd ? { q, sig: await hmac(secret, helpSigText(lessonId, q, answer)) } : {}) });
 }
 
 /* Erklär-Chatbot einer Station (Selbstlern-Phase, Nachtrag 29 Teil B): die Schülerin bzw. der Schüler erklärt, der Chatbot fragt kritisch nach.

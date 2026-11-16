@@ -11,6 +11,7 @@ import { extractUnitChange, stripUnitBlock, unitContext, claudeLessonPrompt, les
 import { claudeHandoff } from "./claude.js";
 import { leupoldView } from "./units.js";
 import { substituteCards } from "./substitute.js";
+import { SELBSTLERN_HW_WHEN, selbstlernTimesText, SELBSTLERN_AI_LABEL, SELBSTLERN_AI_HINT } from "./selbstlern.js";
 import { paintPortalPreview, portalPreview, contextMenu, prevStopCard, stopNextHint, prevStopShown, prevStopAfterSave, keepFocusOn, removeKeepingView } from "./portalview.js";
 import { renderMarkdown } from "./markdown.js";
 import { materialBox, dropZone } from "./materialbox.js";
@@ -61,6 +62,10 @@ export async function sessionPage(id) {
   const sameDay = (ms) => fmtDayBerlin(ms) === fmtDayBerlin(timesNow() ? timesNow().start : ms);
   const whenText = (ms) => (sameDay(ms) ? "" : fmtDayBerlin(ms) + ", ") + fmtClockBerlin(ms) + " Uhr";
   const onTimes = [];   // Teile der Seite, die von Beginn/Dauer abhängen (Hausaufgabe, Präsentation, Sitzungsdaten)
+  // Selbstlern-Phase (Nachtrag 29): Hausaufgabe von Anfang an, fällig zur nächsten Sitzung MIT der Lehrkraft, keine Präsentation der ursprünglichen Planung,
+  // KI-Chatbots bis zur nächsten Sitzung mit ihr – die Hinweise auf dieser Seite sagen dasselbe wie die Karte „Selbstlern-Phase“ (Prüfbefund)
+  const selbstNow = () => !!st.sub && st.sub.status === "selbstlern";
+  const hwDueDate = () => (selbstNow() ? d.teacherNextDate || null : L().nextDate);
   const paintTimes = () => { for (const f of onTimes) f(); };
   clear(main).append(pageHead({ fach: L().subject, title: heading, sub: subline,
     crumbs: [["#/lk", "Fächer"], ["#/lk/f/" + L().subject, subjectName(L().subject)], ["#/lk/f/" + L().subject + "/" + L().klass, classShort(L().klass)],
@@ -356,7 +361,14 @@ export async function sessionPage(id) {
   /* ======================= Hausaufgabe ======================= */
   const hwTA = h("textarea", { id: "hw", rows: "3", value: L().homework || "", placeholder: "z. B. Lies M2 und beantworte Aufgabe 3 schriftlich." });
   const hwState = h("span", { class: "save-state" }), hwDue = h("p", { class: "small" }), hwWhen = h("p", { class: "small hwwhen" });
+  const hwHead = h("h2"), hwLabel = h("label", { for: "hw" }), hwHint = h("p", { class: "hint" });
   function paintDue() {
+    paintHwTexts();
+    if (selbstNow()) {
+      hwDue.textContent = hwDueDate() ? "Fällig zur nächsten Sitzung mit Ihnen am " + fmtDay(hwDueDate()) + " (die nächste Sitzung dieser Klasse, die keine Selbstlern-Phase ist)." : "Noch keine weitere Sitzung mit Ihnen angelegt – Schüler:innen sehen „bis zur nächsten Stunde mit deiner Lehrkraft“.";
+      clear(hwWhen).append(SELBSTLERN_HW_WHEN);
+      return;
+    }
     hwDue.textContent = L().nextDate ? "Fällig zur nächsten Sitzung am " + fmtDay(L().nextDate) + " (richtet sich nach dem Datum der nächsten Sitzung dieser Klasse)." : "Noch keine spätere Sitzung dieser Klasse angelegt – Schüler:innen sehen „bis zur nächsten Sitzung“.";
     const t = timesNow();
     clear(hwWhen).append(t ? "Schüler:innen sehen die Hausaufgabe ab " + whenText(t.homeworkAt) + " (" + HOMEWORK_BEFORE_END_MIN + " Minuten vor dem Ende der Sitzung)."
@@ -385,18 +397,26 @@ export async function sessionPage(id) {
     if (!pw) return toast("Das Schülerpasswort für den Hinweis ließ sich gerade nicht laden – es wurde nichts kopiert. Bitte versuchen Sie es gleich noch einmal.", "err", 8000);
     const v = portalVerbatim(pw);
     // nach dem Nachladen kann der Browser (v. a. Safari) das Kopieren ablehnen, weil der Klick zu lange her ist – dann genügt ein zweiter Klick
-    if (!(await copyText(homeworkForPortal(hwTA.value, L().code, L().nextDate, pw))))
+    if (!(await copyText(homeworkForPortal(hwTA.value, L().code, hwDueDate(), pw))))
       return late ? toast("Kopieren nicht möglich – bitte tippen Sie noch einmal auf „Für das Schulportal kopieren“.", "err", 6000) : toast("Bitte manuell kopieren.", "ok", 6000);
     toast((hwTA.value.trim() ? "Hausaufgabe kopiert" : "Keine Hausaufgabe eingetragen – nur der Hinweis auf die Sitzung kopiert") + " – im Schulportal in das Feld „Hausaufgabe“ einfügen." +
       (!v ? " Das Schülerpasswort enthält Zeichen, die das Schulportal als Formatierung liest (z. B. ~~ oder `) – deshalb fehlt der Satz mit dem Passwort. Bitte ergänzen Sie ihn im Schulportal selbst oder ändern Sie das Passwort in den Einstellungen."
         : v.style !== "i" ? " Das Schülerpasswort steht " + (v.style === "code" ? "als Quellcode" : "ohne Formatierung") + " statt kursiv, weil das Schulportal Zeichen darin sonst als Formatierung läse." : ""),
       v ? "ok" : "err", v && v.style === "i" ? 6000 : 12000);
   }
-  const hwCard = h("section", { class: "card homework" }, h("div", { class: "section-title" }, h("h2", { text: "Hausaufgabe bis zur nächsten Sitzung" }), hwState),
-    h("label", { for: "hw" }, "Hausaufgabe (für Schüler:innen sichtbar ab " + HOMEWORK_BEFORE_END_MIN + " Minuten vor dem Ende der Sitzung)"), hwTA, hwDue, hwWhen,
+  function paintHwTexts() {
+    const sl = selbstNow();
+    hwHead.textContent = sl ? "Hausaufgabe bis zur nächsten Sitzung mit Ihnen" : "Hausaufgabe bis zur nächsten Sitzung";
+    hwLabel.textContent = sl ? "Hausaufgabe (Selbstlern-Phase: für Schüler:innen von Anfang an sichtbar)" : "Hausaufgabe (für Schüler:innen sichtbar ab " + HOMEWORK_BEFORE_END_MIN + " Minuten vor dem Ende der Sitzung)";
+    hwHint.textContent = (sl ? "In der Selbstlern-Phase sehen die Schüler:innen sie von Anfang an unter dem Ablaufplan und in ihrer Sitzungsliste. "
+      : "Schüler:innen sehen sie ab " + HOMEWORK_BEFORE_END_MIN + " Minuten vor dem Ende der Sitzung direkt unter der Live-Präsentation und in ihrer Sitzungsliste. ") + "Schulportal-Zeichen (**fett**, ~~kursiv~~) sind erlaubt. " +
+      "Beim Kopieren für das Schulportal setzt Unterricks die fette Überschrift „Hausaufgabe zum …:“ (Datum der nächsten Sitzung" + (sl ? " mit Ihnen" : "") + ") davor, macht aus jeder Zeile einen Stichpunkt und ergänzt als letzten Stichpunkt „Unter " + PUBLIC_URL + " kannst du diese Sitzung mit dem Code " + formatCode(L().code) + " aufrufen … Das Passwort, das du am Anfang brauchst, um Unterricks zu öffnen, lautet …“ mit dem Schülerpasswort aus den Einstellungen – in Unterricks sehen die Schüler:innen diesen Hinweis nicht.";
+  }
+  paintHwTexts();
+  const hwCard = h("section", { class: "card homework" }, h("div", { class: "section-title" }, hwHead, hwState),
+    hwLabel, hwTA, hwDue, hwWhen,
     h("div", { class: "row" }, h("button", { class: "btn small", type: "button", onclick: copyHomework }, "Für das Schulportal kopieren")),
-    h("p", { class: "hint", text: "Schüler:innen sehen sie ab " + HOMEWORK_BEFORE_END_MIN + " Minuten vor dem Ende der Sitzung direkt unter der Live-Präsentation und in ihrer Sitzungsliste. Schulportal-Zeichen (**fett**, ~~kursiv~~) sind erlaubt. " +
-      "Beim Kopieren für das Schulportal setzt Unterricks die fette Überschrift „Hausaufgabe zum …:“ (Datum der nächsten Sitzung) davor, macht aus jeder Zeile einen Stichpunkt und ergänzt als letzten Stichpunkt „Unter " + PUBLIC_URL + " kannst du diese Sitzung mit dem Code " + formatCode(L().code) + " aufrufen … Das Passwort, das du am Anfang brauchst, um Unterricks zu öffnen, lautet …“ mit dem Schülerpasswort aus den Einstellungen – in Unterricks sehen die Schüler:innen diesen Hinweis nicht." }));
+    hwHint);
 
   const presPromptCard = h("section", { class: "card" }, h("div", { class: "section-title" }, h("h2", { text: "Präsentation mit Claude erstellen" })),
     h("p", { class: "small", text: "Erzeugt einen ausführlichen Prompt für Claude (claude.ai), der eine vollständige Präsentation für diese Stunde direkt als PDF anfordert – zum Hochladen hier in Unterricks, auf Grundlage des aktuellen Schulportal-Eintrags, der Materialien und Ihrer Planung. Die Präsentation wird zeitlos (ohne Datum, Klasse und Sitzungscode), damit sie in einer späteren Klasse desselben Jahrgangs wieder passt; Folie 1 ist eine Titelfolie. Den Sitzungscode und den QR-Code zu Unterricks zeigt Unterricks beim Start selbst vor Folie 1 – immer den der aktuellen Sitzung. " + (analog ? "Folien, auf denen die Schüler:innen mit Material arbeiten, zeigen nur die Aufforderung und den Titel des Materials (in Jahrgang 5/6 auf Papier)." : "Folien, auf denen die Schüler:innen mit Material aus Unterricks arbeiten, setzt Claude als Platzhalterfolien („Unterricks-Codefolie“) mit der Aufforderung und dem Titel des Materials – dort zeigt Unterricks live dieselbe Codefolie mit dieser Überschrift (Material auf Papier: nur Aufforderung und Titel).") }),
@@ -967,6 +987,7 @@ export async function sessionPage(id) {
   const fStart = h("input", { type: "time", step: "300", value: L().startTime || "", "aria-label": "Beginn der Sitzung (Uhrzeit)" });
   const timesLine = h("div", { class: "small timesline", "aria-live": "polite" });
   const paintTimesLine = () => {
+    if (selbstNow()) { clear(timesLine).append(h("span", { text: selbstlernTimesText(analog) })); return; }
     const t = timesNow();
     clear(timesLine).append(t
       ? h("span", null, "Für Schüler:innen: Hausaufgabe ab ", h("strong", { text: whenText(t.homeworkAt) }), " (" + HOMEWORK_BEFORE_END_MIN + " Minuten vor dem Ende), ganze Präsentation zum Selbstöffnen ab ",
@@ -980,8 +1001,15 @@ export async function sessionPage(id) {
     try { const r = await tapi("PATCH", "/api/teacher/lessons/" + id, { body: { studentAi: fAi.checked } }); L().studentAi = r.lesson.studentAi; stateLine(metaState, "Gespeichert", "ok"); }
     catch (e) { fAi.checked = !fAi.checked; errToast(e); }
   });
-  const aiRow = h("div", { class: "field" }, h("label", { class: "checkrow" }, fAi, h("span", { text: "KI-Begriffshilfe für Schüler:innen während der Stunde anbieten" })),
-    h("p", { class: "hint", id: "fai-hint", text: "Unter der Live-Präsentation erklärt eine kostenlose KI (Einstellungen → KI-Begriffshilfe) Fachbegriffe kurz und einfach – nur zwischen Beginn und Ende der Sitzung, nur nach Einwilligung der Schüler:innen; Unterricks speichert die Fragen nicht." }));
+  const aiLabel = h("span"), aiHint = h("p", { class: "hint", id: "fai-hint" });
+  // Selbstlern-Phase mit iPads: die KI-Begriffshilfe gilt bis zur nächsten Sitzung mit der Lehrkraft (Jg. 5/6 bleibt beim bisherigen Text)
+  const paintAiRow = () => {
+    const sl = selbstNow() && !analog;
+    aiLabel.textContent = sl ? SELBSTLERN_AI_LABEL : "KI-Begriffshilfe für Schüler:innen während der Stunde anbieten";
+    aiHint.textContent = sl ? SELBSTLERN_AI_HINT : "Unter der Live-Präsentation erklärt eine kostenlose KI (Einstellungen → KI-Begriffshilfe) Fachbegriffe kurz und einfach – nur zwischen Beginn und Ende der Sitzung, nur nach Einwilligung der Schüler:innen; Unterricks speichert die Fragen nicht.";
+  };
+  paintAiRow(); onTimes.push(paintAiRow);
+  const aiRow = h("div", { class: "field" }, h("label", { class: "checkrow" }, fAi, aiLabel), aiHint);
   fStart.addEventListener("change", async () => {
     const nv = fStart.value || null, ov = L().startTime || null;
     if (nv === ov) return;
@@ -1168,10 +1196,12 @@ export async function sessionPage(id) {
       if (filesKey(r.files) !== filesKey(st.files)) { st.files = r.files; paintFiles(); paintPrint(); }
       if (r.drafts.length !== st.drafts.length || r.sheets.length !== st.sheets.length) { st.drafts = r.drafts; st.sheets = r.sheets; paintFb(); ensureNotfall(st.sheets.filter((x) => !notfallFile(x.code)).map((x) => x.code)); }
       const subKey = (x) => (x ? x.status + ":" + x.updatedAt : "");
+      const nextChanged = (r.teacherNextDate || null) !== (d.teacherNextDate || null);
       d.teacherNextDate = r.teacherNextDate || null;
+      if (nextChanged && selbstNow()) paintDue();
       if (subKey(r.substitute) !== subKey(st.sub)) {
         const was = st.sub ? st.sub.status : null;
-        st.drafts = r.drafts; st.sub = r.substitute; st.sheets = r.sheets; sub.paint(); tsum.paintNote(); paintFb();
+        st.drafts = r.drafts; st.sub = r.substitute; st.sheets = r.sheets; sub.paint(); tsum.paintNote(); paintFb(); paintTimes();
         if (r.substitute && r.substitute.status === "selbstlern") toast(was === "selbstlern" ? "Claude hat die Selbstlern-Phase überarbeitet." : "Claude hat die Sitzung in eine Selbstlern-Phase umgebaut – die Karte steht oben.", "ok", 6000);
       } else if (st.sub && st.sub.status === "selbstlern" && JSON.stringify(r.drafts.map((x) => x.id + x.status)) !== JSON.stringify(st.drafts.map((x) => x.id + x.status))) { st.drafts = r.drafts; sub.paint(); }
       if (r.unit && st.unit && r.unit.version !== st.unit.version) { st.unit = r.unit; paintUnit(); if (!reviseEl || !reviseEl.contains(document.activeElement)) paintRevise(); }

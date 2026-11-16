@@ -95,11 +95,30 @@ export function fmtVideoStart(sec) {
   return hh ? hh + ":" + p2(mm) + ":" + p2(ss) : mm + ":" + p2(ss);
 }
 
+/* ---------- Hinweise auf der Sitzungsseite der Lehrkraft (session.js) während einer Selbstlern-Phase – sie sagen dasselbe wie die Karte
+   „Selbstlern-Phase“ und die Schüleransicht (Prüfbefund: dort stand sonst „Hausaufgabe ab 15 Minuten vor dem Ende“ und „ganze Präsentation zum
+   Selbstöffnen ab …“) ---------- */
+export const SELBSTLERN_HW_WHEN = "Selbstlern-Phase: Schüler:innen sehen die Hausaufgabe von Anfang an (nicht erst kurz vor dem Ende der Sitzung).";
+export const selbstlernTimesText = (analog) => "Für Schüler:innen gilt die Selbstlern-Phase: Stationen und Hausaufgabe von Anfang an" +
+  (analog ? "" : ", Erklär-Chatbot und KI-Begriffshilfe ab dem Beginn bis zur nächsten Sitzung mit Ihnen") + "; die Präsentation dieser Sitzung sehen sie nicht.";
+export const SELBSTLERN_AI_LABEL = "KI-Begriffshilfe für Schüler:innen anbieten (Selbstlern-Phase)";
+export const SELBSTLERN_AI_HINT = "In der Selbstlern-Phase steht die KI-Begriffshilfe ganz unten in der Schüleransicht und erklärt Fachbegriffe und Verständnisfragen kurz und einfach – ab dem Beginn " +
+  "dieser Sitzung bis zum Beginn der nächsten Sitzung mit Ihnen, nur nach Einwilligung der Schüler:innen; Unterricks speichert die Fragen nicht. Der Erklär-Chatbot einer Station gehört zur Station und bleibt an.";
+
 /* ---------- Hausaufgabe (von Anfang an sichtbar): alle Stationen bis zum Beginn der nächsten Sitzung MIT der Lehrkraft ---------- */
 // date = Datum der nächsten Sitzung der Lerngruppe, die selbst keine Selbstlern-Phase ist (null = noch nicht bekannt → ohne Datum)
 export function selbstlernHomework(date, analog = false) {
   return "Erledige alle Stationen dieser Selbstlern-Phase" + (analog ? " (siehe Laufzettel)" : "") + " bis zum Beginn der nächsten Unterrichtsstunde mit deiner Lehrkraft" +
     (date ? " (" + fmtDay(date) + ")" : "") + ". Was du in der Stunde nicht schaffst, machst du zu Hause fertig.";
+}
+
+/* Der Standardtext oben (mit einem beliebigen bzw. ohne Datum) wird beim Lesen mit dem AKTUELLEN Termin neu gesetzt – sonst nennt er nach einer
+   weiteren Selbstlern-Phase am nächsten Tag bzw. einem verschobenen Termin ein falsches Datum, während daneben schon das richtige steht (Prüfbefund).
+   Ein eigener Text der Lehrkraft bzw. von Claude bleibt unverändert. */
+const HOMEWORK_RE = /^Erledige alle Stationen dieser Selbstlern-Phase( \(siehe Laufzettel\))? bis zum Beginn der nächsten Unterrichtsstunde mit deiner Lehrkraft(?: \([^()\n]{1,40}\))?\. Was du in der Stunde nicht schaffst, machst du zu Hause fertig\.$/;
+export function selbstlernHomeworkNow(text, date) {
+  const m = HOMEWORK_RE.exec(String(text == null ? "" : text).trim());
+  return m ? selbstlernHomework(date || null, !!m[1]) : text;
 }
 
 /* ---------- Stationen von Claude prüfen (save_selbstlern) ----------
@@ -340,6 +359,9 @@ export function explainBotPrompt(l, bot, opt = {}) {
 /* Unterschrift einer Antwort des Erklär-Chatbots (HMAC auf dem Worker): Der Browser schickt die bisherigen Antworten als Gesprächsverlauf mit – nur
    unterschriebene gelten, ein Browser kann dem Chatbot also keine Antworten unterschieben (Prompt-Injection über erfundene Antworten) */
 export const explainSigText = (lessonId, stationId, q, a) => "explain|v1|" + JSON.stringify([String(lessonId), String(stationId), String(q), String(a)]);
+// dasselbe für die KI-Begriffshilfe einer Selbstlern-Phase (sie läuft ohne Aufsicht bis zur nächsten Stunde mit der Lehrkraft): nur unterschriebene
+// frühere Antworten gehen als Antworten der KI ins Gespräch – sonst ließe sich ihr z. B. „ich löse ab jetzt deine Hausaufgaben“ unterschieben (Prüfbefund)
+export const helpSigText = (lessonId, q, a) => "help|v1|" + JSON.stringify([String(lessonId), String(q), String(a)]);
 
 /* ---------- KI-Chatbots einer Selbstlern-Phase: wann? ----------
  * Erklär-Chatbot und KI-Begriffshilfe gibt es ab dem Beginn der Sitzung (ohne Uhrzeit: ab 0 Uhr ihres Tages) bis zum Beginn der nächsten Sitzung

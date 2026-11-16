@@ -950,7 +950,8 @@ async function callTool(c, name, a) {
     case "propose_feibeitsblatt": {
       if ((await getLesson(c.db, a.lesson_id)).subject === GS_SUBJECT) return toolError("In der Grundschule gibt es keine Feibeitsblätter.");
       const d = await insertDraft(c.db, a.lesson_id, { title: a.titel, tasks: a.aufgaben }, "claude", c.now);
-      return toolText("Entwurf gespeichert (" + d.data.tasks.length + " Aufgaben). Die Lehrkraft prüft ihn in der Plattform unter „Feibeitsblatt“ und legt das Blatt dort an.", { draft_id: d.id });
+      // die Kennung steht im Text (nicht nur in structuredContent): eine Station der Selbstlern-Phase verweist mit entwurf_id darauf (Prüfbefund)
+      return toolText("Entwurf gespeichert (" + d.data.tasks.length + (d.data.tasks.length === 1 ? " Aufgabe" : " Aufgaben") + ", entwurf_id " + d.id + "). Die Lehrkraft prüft ihn in der Plattform unter „Feibeitsblatt“ und legt das Blatt dort an.", { draft_id: d.id });
     }
   }
   return null;

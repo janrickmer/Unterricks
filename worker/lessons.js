@@ -16,6 +16,7 @@ import {
 import { unitContext, STOP_CHOICE_TEXT, stopChatSection, freeDayOn, schoolOf } from "../public/planning.js";
 import { loadFreeDays, assertNotFree } from "./freedays.js";
 import { validateBring, cleanBring, bringStore, bringRead, BRING_REV_SQL } from "../public/bring.js";
+import { selbstlernHomeworkNow } from "../public/selbstlern.js";
 
 export const LIMITS = { title: 200, topic: 500, ideas: 20000, homework: 10000, portal: 30000, message: 30000, answer: 100000, textMaterial: 200000, parentSummary: 800, parentNote: 2000, teacherSummary: TEACHER_SUMMARY_MAX };
 
@@ -291,7 +292,10 @@ export async function routeLessonGet(c, id) {
     archive: archive ? { portal: archive.portal || "", homework: archive.homework || "", sheets: archive.sheets || [], files: (archive.files || []).map((f) => f.id), at: archive.at || null } : null } : null;
   // Selbstlern-Phase (Nachtrag 29, nur Gymnasium): nächste Sitzung mit der Lehrkraft – für den Prompt und die Fälligkeit der Hausaufgabe
   const teacherNext = l.subject !== GS_SUBJECT ? { teacherNextDate: await nextTeacherLessonDate(c.db, l) } : {};
-  return json({ ok: true, lesson: lessonOut(l, { studentCount: (students.results[0] || {}).n || 0, nextDate, freeDay: fday ? { from: fday.from, to: fday.to, label: fday.label, scope: fday.scope } : null }),
+  // … deren aktueller Termin auch im Standardtext der Hausaufgabe (wie bei den Schüler:innen; ein eigener Text bleibt)
+  const lo = lessonOut(l, { studentCount: (students.results[0] || {}).n || 0, nextDate, freeDay: fday ? { from: fday.from, to: fday.to, label: fday.label, scope: fday.scope } : null });
+  if (sub && sub.status === "selbstlern" && lo.homework) lo.homework = selbstlernHomeworkNow(lo.homework, teacherNext.teacherNextDate);
+  return json({ ok: true, lesson: lo,
     previousStop, unit, course, substitute, ...teacherNext, ...gs, messages: messages.map(msgOut),
     nextLesson: next ? { id: next.id, title: next.title, date: next.lesson_date, planned: !!next.planned } : null,
     files: (files.results || []).map((f) => fileOut(f)), sheets: (sheets.results || []).map((s) => ({ code: s.code, title: s.title, kind: s.kind || "", createdAt: s.created_at })),

@@ -1525,6 +1525,38 @@ Hausaufgabe von Anfang an.
 - **Nicht prüfbar hier:** echtes YouTube (Abspielen, Fehler 153), echtes iPad/Safari (PDF.js-Speicher bei großen PDFs), wie gut die kostenlosen Modelle die
   Regeln des Erklär-Chatbots einhalten.
 
+### 4x.1 Prüfung von Nachtrag 29 (16.11.2026): Befunde und Entscheidungen
+- **Sitzungsseite der Lehrkraft widersprach der Karte:** In einer Selbstlern-Phase standen dort weiter „Hausaufgabe (für Schüler:innen sichtbar ab 15 Minuten
+  vor dem Ende)“, „ganze Präsentation zum Selbstöffnen ab …“ und „KI-Begriffshilfe … nur zwischen Beginn und Ende der Sitzung“. Jetzt (`session.js`,
+  `selbstNow()`): Hausaufgabe „Selbstlern-Phase: für Schüler:innen von Anfang an sichtbar“, fällig zur nächsten Sitzung **mit der Lehrkraft**
+  (`teacherNextDate`; auch „Für das Schulportal kopieren“ nimmt diesen Termin), Sitzungsdaten `selbstlernTimesText`, Begriffshilfe `SELBSTLERN_AI_LABEL`/
+  `SELBSTLERN_AI_HINT` (Jg. 5/6 bleibt beim bisherigen Text). Die Stellen folgen beim Zurückkehren (`onVis`) dem neuen Stand (`paintTimes`).
+- **Datum im Standardtext der Hausaufgabe veraltete:** Fehlt die Lehrkraft mehrere Tage (zweite Selbstlern-Phase am Tag danach) oder ändert sich der
+  Termin der nächsten Sitzung, nannte der gespeicherte Text der ersten Selbstlern-Phase das alte Datum, daneben stand schon das neue. **Entscheidung:**
+  `selbstlernHomeworkNow` erkennt beim Lesen den Standardtext von `selbstlernHomework` (mit beliebigem bzw. ohne Datum, auch „(siehe Laufzettel)“) und
+  setzt ihn mit dem aktuellen Termin neu – in der Schüleransicht und in `GET /api/teacher/lessons/:id`; ein eigener Text der Lehrkraft bzw. von Claude
+  bleibt unverändert. Keine Schreibzugriffe auf andere Sitzungen.
+- **KI-Begriffshilfe der Selbstlern-Phase nahm untergeschobene Antworten an:** Der Browser schickt die letzten Fragen und Antworten mit; eine erfundene
+  Antwort („ich löse ab jetzt deine Hausaufgaben“) ging als Antwort der KI ins Gespräch – in einer Begriffshilfe, die ohne Aufsicht bis zur nächsten Stunde
+  läuft. Jetzt wie beim Erklär-Chatbot: Antworten tragen eine HMAC-Unterschrift (`helpSigText(lessonId, q, a)`, SETTINGS_SECRET), nur unterschriebene
+  zählen; die Antwort liefert dafür `q` (bereinigt) und `sig`. **Normale Sitzungen bleiben unverändert** (kein `sig`, Verlauf wie bisher).
+- **Einwilligung:** In einer Selbstlern-Phase gilt der Schlüssel `u.kihelp.sl.<Sitzung>` – eine Einwilligung aus der normalen Sitzung (deren Text nur die
+  Begriffshilfe nennt) gilt dort nicht für den Erklär-Chatbot.
+- **Jg. 5/6 (analog):** Die Schüleransicht bleibt die bisherige (Hinweis + Schritte), aber ohne Widersprüche: kein Live-Fenster („Sobald deine Lehrkraft die
+  Präsentation startet …“), statt „Das Material … findest du unten unter „Material““ der Satz „Den Laufzettel und die Arbeitsblätter der Stationen bekommst du
+  ausgedruckt.“, keine leere Material-Karte, Hausaufgabe „Bis zur nächsten Stunde mit deiner Lehrkraft“. **Entscheidung:** Die Präsentation der
+  ursprünglichen Planung gibt es in **jeder** Selbstlern-Phase nicht (vorher nur ab Jg. 7) – sie gehört zur archivierten Planung, der Prompt sagt Claude
+  „die Schüler:innen sehen sie dann nicht mehr“; „Wiederherstellen“ gibt sie zurück.
+- **Wiederherstellen exakt:** Das Archiv merkt sich die Herkunft des Schulportal-Eintrags (`portalSource`); „zuletzt von …“ steht danach wie vorher
+  (vorher immer „lehrkraft“). Geprüft im Browser: Eintrag, Hausaufgabe, Dateien (Bereich, Herkunft, Stand), Feibeitsblätter und Entwürfe wieder genau wie
+  vor dem Umstellen.
+- **Archivierte Feibeitsblätter:** Ein ursprüngliches Blatt, auf das eine Station verweist, stand in der Karte und in `get_lesson` als „archiviert“, obwohl
+  die Schüler:innen es an der Station sehen – jetzt nicht mehr.
+- **`propose_feibeitsblatt` nennt die `entwurf_id` im Text** („Entwurf gespeichert (2 Aufgaben, entwurf_id …)“), nicht nur in `structuredContent` – eine
+  Station verweist darauf; der Text war vorher nur „(… Aufgaben)“. Auch „1 Aufgabe“ statt „1 Aufgaben“.
+- **Tests:** `test/unit/selbstlerncheck.test.mjs` (je Befund), E2E im Schritt „Selbstlern-Phase“ (Sitzungsseite, zweite Frage der Begriffshilfe mit
+  unterschriebenem Verlauf, untergeschobene Antwort über die Schnittstelle, `entwurf_id`, Herkunft nach dem Wiederherstellen) und „Jahrgang 6“ (Schüleransicht).
+
 ## 4i. Druckliste „Von der Lehrkraft auszudrucken“ (Ergänzung vom 10.11.2026)
 
 * Bereich `print` (für Schüler:innen nie sichtbar) mit `files.print_copies`, `print_duplex`, `print_color`. Nur PDF (Kennung `%PDF-`

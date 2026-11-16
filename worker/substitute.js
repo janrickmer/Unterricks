@@ -92,7 +92,7 @@ export async function saveSelbstlern(c, lessonId, raw) {
   const toArchive = files.filter((f) => ["student", "teacher", "print"].includes(f.area) && f.source !== SELBSTLERN && !f.notes_of && !keep.has(f.id) &&
     !(f.source === "notfall" && (keepCodes.has(f.fb_code) || (!first && !origCodes.has(f.fb_code)))));
   const toRestore = files.filter((f) => f.area === "archive" && archived.has(f.id) && (keep.has(f.id) || (f.source === "notfall" && keepCodes.has(f.fb_code))));
-  const archiveRec = first ? { portal: l.portal || "", homework: l.homework || "", files: [], sheets: origSheets, at: now } : { ...archive, files: [...(archive.files || [])] };
+  const archiveRec = first ? { portal: l.portal || "", portalSource: l.portal_source || "", homework: l.homework || "", files: [], sheets: origSheets, at: now } : { ...archive, files: [...(archive.files || [])] };
   archiveRec.files = archiveRec.files.filter((x) => !toRestore.some((f) => f.id === x.id)).concat(toArchive.map((f) => ({ id: f.id, area: f.area })));
 
   // gespeicherte Daten: Stationen mit Kennung (für den Erklär-Chatbot), Escape-Room samt Entwurf seines Finales
@@ -188,7 +188,9 @@ export function selbstlernLines(sub, files, drafts, sheets, nextDate) {
   if (p.hinweisAufsicht) out.push("Hinweis für die Aufsicht: " + p.hinweisAufsicht);
   out.push("Hausaufgabe (von Anfang an sichtbar) bis zur nächsten Sitzung mit der Lehrkraft" + (nextDate ? " am " + fmtDay(nextDate) : " (noch keine angelegt)") + ".");
   const arch = files.filter((f) => f.area === "archive");
-  out.push("Archivierte ursprüngliche Planung: " + [arch.length ? arch.map((f) => "„" + f.name + "“").join(", ") : "keine Dateien", (a.sheets || []).length ? "Feibeitsblätter " + a.sheets.map((s) => formatCode(s.code)).join(", ") : null,
+  // Feibeitsblätter der ursprünglichen Planung, auf die eine Station verweist, sind nicht archiviert (die Schüler:innen sehen sie dort)
+  const archSheets = (a.sheets || []).filter((x) => x && !p.stationen.some((s) => s.code === x.code));
+  out.push("Archivierte ursprüngliche Planung: " + [arch.length ? arch.map((f) => "„" + f.name + "“").join(", ") : "keine Dateien", archSheets.length ? "Feibeitsblätter " + archSheets.map((s) => formatCode(s.code)).join(", ") : null,
     a.homework ? "Hausaufgabe „" + String(a.homework).slice(0, 200) + "“" : null].filter(Boolean).join("; ") + (a.portal ? "\nUrsprünglicher Schulportal-Eintrag:\n" + String(a.portal).slice(0, 6000) : ""));
   out.push("Selbstlern-Material (source selbstlern) sehen die Schüler:innen nur, solange die Sitzung eine Selbstlern-Phase ist; „Wiederherstellen“ löscht es. Lege es mit add_material_pdf und selbstlern: true an.");
   return out;
@@ -261,7 +263,8 @@ async function restoreSelbstlern(c, lessonId, s) {
   stmts.push(db.prepare("UPDATE lessons SET homework=?2, updated_at=?3 WHERE id=?1").bind(lessonId, a.homework || "", c.now));
   stmts.push(db.prepare("DELETE FROM substitutes WHERE lesson_id=?1").bind(lessonId));
   await db.batch(stmts);
-  await savePortal(db, lessonId, a.portal || "", null, "lehrkraft", c.now);
+  // „zuletzt von …“ wie vorher (Prüfbefund: sonst stand nach dem Wiederherstellen immer „lehrkraft“ da)
+  await savePortal(db, lessonId, a.portal || "", null, ["lehrkraft", "claude", "ki"].includes(a.portalSource) ? a.portalSource : "lehrkraft", c.now);
   for (const code of removedSheets) await deleteNotfallFiles(c, lessonId, code);   // Notfall-Feibeitsblätter der Selbstlern-Phase gehören nicht mehr dazu
   return json({ ok: true, removedSheets, deletedFiles: (own.results || []).length });
 }

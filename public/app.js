@@ -239,7 +239,8 @@ async function studentRoom(lessonId) {
       sub.escape ? h("div", { class: "escbox" }, h("h3", { text: "Escape-Room: " + sub.escape.name }), sub.escape.untertitel ? h("p", { class: "small", text: sub.escape.untertitel }) : null,
         h("a", { class: "btn primary big", href: "#/schueler/escape/" + lessonId }, "Escape-Room starten"),
         h("p", { class: "hint", text: "Sechs Stationen: erst die Bibliothek lesen (Notizen machen!), dann das Rätsel lösen. Am Ende führt dich ein Tunnel ins Feibeitsblatt, wo du abgibst. Neu laden kostet deinen Fortschritt – speichere zwischendurch deinen Zwischenstand." })) : null,
-      h("p", { class: "hint", text: "Das Material zu den Schritten findest du unten unter „Material“." + (d.sheets.length ? " Die Abgabe machst du im Feibeitsblatt (Knopf „Code kopieren und Feibeitsblatt öffnen“)." : "") })));
+      h("p", { class: "hint", text: d.selbstlern && d.selbstlern.analog ? "Den Laufzettel und die Arbeitsblätter der Stationen bekommst du ausgedruckt."
+        : "Das Material zu den Schritten findest du unten unter „Material“." + (d.sheets.length ? " Die Abgabe machst du im Feibeitsblatt (Knopf „Code kopieren und Feibeitsblatt öffnen“)." : "") })));
   }
 
   const presRow = h("div", { class: "presrow" });
@@ -250,14 +251,15 @@ async function studentRoom(lessonId) {
     clear(hwBox);
     if (hw) hwBox.append(h("section", { class: "card homework", style: { marginBottom: "1rem" }, "aria-label": "Hausaufgabe" },
       h("h2", { text: "Deine Hausaufgabe" }),
-      h("p", { class: "due", text: selbst ? (hw.dueDate ? "Bis zur nächsten Stunde mit deiner Lehrkraft am " + fmtDay(hw.dueDate) + ":" : "Bis zur nächsten Stunde mit deiner Lehrkraft:")
+      h("p", { class: "due", text: d.selbstlern ? (hw.dueDate ? "Bis zur nächsten Stunde mit deiner Lehrkraft am " + fmtDay(hw.dueDate) + ":" : "Bis zur nächsten Stunde mit deiner Lehrkraft:")
         : hw.dueDate ? "Bis zur nächsten Sitzung am " + fmtDay(hw.dueDate) + ":" : "Bis zur nächsten Sitzung:" }),
       paintPortalPreview(h("div", { class: "hwtext" }), hw.text)));
   };
   paintHomework(d.homework);
   // KI-Begriffshilfe unter der Live-Präsentation: nur während der Stunde, nur nach Einwilligung; Fragen und Antworten nur im Arbeitsspeicher.
   // Selbstlern-Phase: ganz unten, ab dem Beginn der Sitzung bis zur nächsten Stunde mit der Lehrkraft; dieselbe Einwilligung gilt für den Erklär-Chatbot
-  const kiBox = h("div"), KI_KEY = "u.kihelp." + lessonId;
+  // Selbstlern-Phase: eigene Einwilligung (ihr Text nennt beide Chatbots) – eine Einwilligung aus der normalen Sitzung (nur Begriffshilfe) gilt dort nicht
+  const kiBox = h("div"), KI_KEY = "u.kihelp." + (selbst ? "sl." : "") + lessonId;
   let aiHelp = d.aiHelp, kiChat = [], kiCard = null, slv = null;
   const kiOpen = () => { const n = Date.now() + offset; return !!aiHelp && n >= aiHelp.start && n <= aiHelp.end; };
   const kiConsent = { ok: () => store.get(KI_KEY) === "1", ask: (opener, after) => askKiConsent(opener, after),
@@ -281,11 +283,15 @@ async function studentRoom(lessonId) {
       const form = h("form", { class: "row", onsubmit: async (e) => {
         e.preventDefault();
         const q = inp.value.trim(); if (q.length < 2 || btn.disabled) return;
-        const history = kiChat.filter((x) => x.a).slice(-3).map((x) => ({ q: x.q, a: x.a }));
+        // Selbstlern-Phase: frühere Antworten nur mit ihrer Unterschrift des Servers (sonst zählen sie dort nicht)
+        const history = selbst ? kiChat.filter((x) => x.a && x.sig).slice(-3).map((x) => ({ q: x.q, a: x.a, sig: x.sig })) : kiChat.filter((x) => x.a).slice(-3).map((x) => ({ q: x.q, a: x.a }));
         const item = { q }; kiChat.push(item); inp.value = ""; paintLog();
         btn.disabled = true;
-        try { item.a = (await sapi("POST", "/api/student/lessons/" + lessonId + "/ask", { body: { question: q, history, consent: true } })).answer; }
-        catch (err) { item.err = err.message; }
+        try {
+          const r = await sapi("POST", "/api/student/lessons/" + lessonId + "/ask", { body: { question: q, history, consent: true } });
+          item.a = r.answer;
+          if (selbst) { if (typeof r.q === "string" && r.q) item.q = r.q; item.sig = r.sig || null; }
+        } catch (err) { item.err = err.message; }
         btn.disabled = false; paintLog();
         // Selbstlern-Phase: nur zurück ins Feld, wenn die Person den Fokus nicht inzwischen woandershin gesetzt hat
         if (!selbst) inp.focus(); else { const a = document.activeElement; if (!a || a === document.body || a === btn || a === inp || !a.isConnected) inp.focus(); }
@@ -338,7 +344,8 @@ async function studentRoom(lessonId) {
     main.classList.add("slv-room");
     slv = SV.selbstlernView({ lessonId, d, sapi, now: () => Date.now() + offset, onLeave, consent: kiConsent, fileRow, sheetRow });
     main.append(...slv.sections, hwBox);
-  } else startLive();
+  } else if (d.selbstlern) main.append(presRow, kiBox, hwBox);   // Selbstlern-Phase in Jg. 5/6 (auf Papier): kein Live-Fenster – die Lehrkraft ist nicht da
+  else startLive();
 
   // 1) Live-Fenster ganz oben (nicht in einer Selbstlern-Phase: die Lehrkraft ist nicht da)
   function startLive() {
@@ -461,7 +468,8 @@ async function studentRoom(lessonId) {
     try {
       const r = await sapi("GET", "/api/student/lessons/" + lessonId);
       // Selbstlern-Phase inzwischen eingerichtet bzw. wiederhergestellt: die Seite neu aufbauen
-      if (!!(r.selbstlern && !r.selbstlern.analog) !== selbst) { if (location.hash === "#/schueler/s/" + lessonId) route(); return; }
+      const kind = (x) => (x.selbstlern ? (x.selbstlern.analog ? "a" : "d") : "n");
+      if (kind(r) !== kind(d)) { if (location.hash === "#/schueler/s/" + lessonId) route(); return; }
       pres = r.presentation; renderPres(); paintHomework(r.homework); aiHelp = r.aiHelp; paintKi(); if (slv) slv.update(r); pending.splice(0, pending.length, ...(r.changesAt || [])); plan();
     } catch {}
   };
@@ -481,9 +489,9 @@ async function studentRoom(lessonId) {
   for (const s of sheetsShown) mats.append(sheetRow(s));
   const notfallFiles = d.files.filter((f) => f.notfall), matFiles = d.files.filter((f) => !f.notfall && !inStation.has(f.id));
   mats.append(...matFiles.map(fileRow));
-  if (!sheetsShown.length && !matFiles.length && !selbst) mats.append(h("p", { class: "muted", text: "Deine Lehrkraft hat für diese Sitzung noch kein Material freigegeben." }));
+  if (!sheetsShown.length && !matFiles.length && !d.selbstlern) mats.append(h("p", { class: "muted", text: "Deine Lehrkraft hat für diese Sitzung noch kein Material freigegeben." }));
   const goodNotes = (selbst ? d.files.filter((f) => !f.notfall) : matFiles).some((f) => f.kind !== "link");
-  if (!selbst || sheetsShown.length || matFiles.length) main.append(h("section", { class: "card" }, h("h2", { text: selbst ? "Weiteres Material" : "Material" }), mats,
+  if (!d.selbstlern || sheetsShown.length || matFiles.length) main.append(h("section", { class: "card" }, h("h2", { text: selbst ? "Weiteres Material" : "Material" }), mats,
     goodNotes ? h("p", { class: "hint", text: "Tipp fürs iPad: Nach dem Herunterladen über „Teilen“ → „GoodNotes“ öffnen und dort bearbeiten." }) : null));
   // 3) Notfall-Feibeitsblätter (das analoge Arbeitsblatt zu jedem Feibeitsblatt): eigenes Kästchen weiter unten, nur für technische Probleme.
   // Zugeklappt (Wunsch der Lehrkraft vom 13.11.2026): beim Laden immer zu, nichts gemerkt – erst aufgeklappt erscheinen der rote Hinweis

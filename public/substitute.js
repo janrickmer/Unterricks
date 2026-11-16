@@ -83,6 +83,8 @@ export function substituteCards({ id, st, L, ctx, analog, reload, openDraft, flu
   function paintSelbstlern() {
     const s = st.sub, p = s.proposal || {}, d = readSelbstlern(p) || { stationen: [], material: [], einleitung: "", hausaufgabe: "", hinweisAufsicht: "", analog };
     const ar = s.archive || {}, archived = st.files.filter((f) => f.area === "archive");
+    // ursprüngliche Feibeitsblätter, auf die eine Station verweist, sind nicht archiviert (die Schüler:innen sehen sie an der Station)
+    const arSheets = (ar.sheets || []).filter((x) => x && !d.stationen.some((y) => y.code === x.code));
     const total = d.stationen.reduce((n, x) => n + (x.minuten || 0), 0), due = teacherNext();
     const own = st.files.filter((f) => f.source === SELBSTLERN && f.area !== "archive");
     const loose = own.filter((f) => !d.stationen.some((x) => x.fileId === f.id) && !d.material.includes(f.id));
@@ -107,7 +109,7 @@ export function substituteCards({ id, st, L, ctx, analog, reload, openDraft, flu
       d.hinweisAufsicht ? h("details", { class: "box" }, h("summary", null, "Hinweis für die Aufsicht"), h("p", { class: "small sl-note", text: d.hinweisAufsicht })) : null,
       h("h3", { text: "Ursprüngliche Planung (archiviert)" }),
       h("p", { class: "small", text: [archived.length ? archived.length + " Datei(en): " + archived.map((f) => f.name).join(", ") : "keine Dateien",
-        (ar.sheets || []).length ? "Feibeitsblätter: " + ar.sheets.map((x) => x.title + " (" + formatCode(x.code) + ")").join(", ") : null,
+        arSheets.length ? "Feibeitsblätter: " + arSheets.map((x) => x.title + " (" + formatCode(x.code) + ")").join(", ") : null,
         ar.homework ? "Hausaufgabe: " + ar.homework.slice(0, 120) : null].filter(Boolean).join(" · ") }),
       ar.portal ? h("details", { class: "box" }, h("summary", null, "Ursprünglicher Schulportal-Eintrag"), portalPreview(ar.portal)) : null,
       h("div", { class: "row sl-acts" },
