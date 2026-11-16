@@ -131,7 +131,9 @@ export function concSection(files, topic, printName) {
     const where = f.area === "print" ? "auf der Druckliste als „" + printName({ name: f.name, copies: f.print_copies, duplex: f.print_duplex !== 0, color: f.print_color === 1 }) + "“"
       : "Achtung: liegt nicht auf der Druckliste, sondern " + (f.area === "student" ? "beim Material für die Kinder – Eltern sehen sie nach der Stunde" : "beim Material nur für die Lehrkraft") +
         "; sie gehört nur auf die Druckliste – sag es der Lehrkraft";
-    out.push("- file_id " + f.id + ": „" + f.name + "“ (" + where + "; " + st + ") → [[pdf:" + f.id + "]]");
+    // Rückfall add_print_material (Text-Druckvorlage ohne Bilder): kein PDF – im Verlaufsplan nicht verweisbar
+    out.push("- file_id " + f.id + ": „" + f.name + "“ (" + where + "; " + st + ")" + (f.kind === "text" ? " – Druckvorlage als Text (Rückfall, ohne Ausmalbilder; im Verlaufsplan nicht verweisbar): " +
+      "gestalte sie mit add_material_pdf neu, sobald der PDF-Druck wieder geht" : " → [[pdf:" + f.id + "]]"));
     if (f.status === "ready" && f.pages > CONC_PAGES_MAX) out.push("  Achtung: " + concPlural(f.pages) + " – höchstens " + CONC_PAGES_MAX + " A4-Seiten" +
       (f.designed ? "; kürze sie (add_material_pdf mit file_id " + f.id + ")." : " (von der Lehrkraft hochgeladen)."));
   }

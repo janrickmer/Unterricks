@@ -1255,6 +1255,10 @@ für die Lehrkraft unter den Dateien zum Ausdrucken, **5x**; auf Rückfrage **be
   (`zu_lang` in `structuredContent`) – gespeichert wird trotzdem, Claude soll kürzen; eine zweite Konzentrationsaufgabe in derselben Sitzung
   wird gemeldet (löschen kann nur die Lehrkraft). `save_verlaufsplan` erinnert, solange die Sitzung keine hat oder der Verlaufsplan sie nicht
   nennt (vor der Erinnerung an die Zusammenfassung). Am Gymnasium ändert sich nichts.
+  Prüfung vom 16.11.2026: `add_picture_cards` lehnt den Titel „Konzentrationsaufgabe …“ ab (Bildkarten sehen Eltern nach der Stunde) und verweist
+  auf `add_material_pdf` (druck); der Rückfall `add_print_material` legt sie in der Grundschule ebenfalls mit 5x, beidseitig, schwarz-weiß und dem
+  einheitlichen Titel ab; `get_lesson` nennt so eine Text-Druckvorlage ohne `[[pdf:…]]`-Verweis (sie ist keine PDF und im Verlaufsplan nicht
+  verweisbar) und bittet, sie mit `add_material_pdf` neu zu gestalten, sobald der PDF-Druck wieder geht.
 - **Nie für Eltern oder Kinder:** Der Bereich `print` erscheint in keiner Route der Eltern oder Schüler:innen – `parentFiles` liest nur PDFs
   der Kinder und Bildkarten (auch wenn der Verlaufsplan die Konzentrationsaufgabe verweist), die Schüler-Routen nur `area='student'`.
   Unit-Test und E2E (Vorschau der Elternansicht) prüfen das.
@@ -1285,7 +1289,9 @@ Gegenstand gebraucht wird.“ Rückfrage beantwortet: **Claude + von Hand**, Gym
 - **Regel „höchstens zwei Sätze“** (`sentenceCount` in `public/bring.js`, gleich für Browser, Worker und Connector): Satzende ist „!“/„?“ bzw. ein
   Punkt (auch „…“) vor Leerraum und Großbuchstabe/Ziffer oder am Textende – nicht nach einer ein- oder zweistelligen Zahl („in der 3. Phase“),
   einem einzelnen Buchstaben („z. B.“, „S. 12“), Einzelbuchstaben-Abkürzungen („z.B.“) und gängigen Abkürzungen („ca.“, „Nr.“, „Mt.“, „Gen.“);
-  klein weiter („Std. vor“) ist nie ein Satzende; Text nach dem letzten Satzende zählt als Satz. Im Zweifel zählt die Regel eher zu wenig (Claude
+  klein weiter („Std. vor“) ist nie ein Satzende; folgt eine Zahl, endet der Satz nur nach einem Wort mit Ziffer („8B. 5 Kinder“) – sonst ist es fast
+  immer eine Abkürzung vor einer Nummer („1. Sam. 17“, „Aufg. 3“, „Kap. 2“; Prüfung vom 16.11.2026: solche Hinweise wurden als drei Sätze
+  abgewiesen); Text nach dem letzten Satzende zählt als Satz. Im Zweifel zählt die Regel eher zu wenig (Claude
   und die Lehrkraft sollen nicht an einer Abkürzung scheitern); dazu gilt die Länge. Eingaben (Sitzungsseite, Connector) werden mit Meldung
   abgelehnt (`validateBring`), fremde Daten (Sitzungsdatei, Spalte) still bereinigt und auf zwei Sätze gekürzt (`cleanBring`).
 - **Ändern** (`PATCH /api/teacher/lessons/<id>` mit `bring`): die ganze Liste. Die Sitzungsseite schickt `bringBase` (Stand, auf dem ihre
@@ -1303,7 +1309,9 @@ Gegenstand gebraucht wird.“ Rückfrage beantwortet: **Claude + von Hand**, Gym
   Prompts byte-gleich (SHA-Test in `zwischenstopp.test.mjs` streicht genau ihn). Andere Prompts (Einheit, Vertretung, Überarbeitung) unverändert.
 - **Startseite** (`public/printnext.js`): `GET /api/teacher/print-next` liefert je Sitzung des Zieltags zusätzlich `bring` (nur, wenn es
   Gegenstände gibt) – **dieselbe Anweisung** wie bisher (`DAY_SESSIONS_SQL` liest eine Spalte mehr, weiter ≤ 8 D1-Anweisungen), also derselbe Tag
-  wie die Druckaufträge samt unterrichtsfreien Tagen und ohne Ausfall-Einträge. `printNextCards()` gibt das Feld und den Kasten zurück; beide
+  wie die Druckaufträge samt unterrichtsfreien Tagen und ohne Ausfall-Einträge. Hat eine Sitzung des Gymnasiums eine **aktive Krankheitsvertretung**,
+  kommt die Lehrkraft nicht – ihre Gegenstände fehlen im Kasten (Prüfung vom 16.11.2026; in derselben Anweisung über den Schlüssel von
+  `substitutes`, die Druckaufträge der Sitzung bleiben wie bisher). `printNextCards()` gibt das Feld und den Kasten zurück; beide
   Startseiten setzen den Kasten **direkt unter** das Feld der Druckaufträge (das Feld selbst bleibt unverändert). Ohne Gegenstände ist der Kasten
   verborgen (auch ohne Unterricht und wenn die Druckaufträge nicht laden). **Entscheidung zum selben Gegenstand in mehreren Sitzungen:** ein
   Stichpunkt je Gegenstand (Name ohne Groß-/Kleinschreibung verglichen, z. B. „Beutel · 2 Stunden“), aufgeklappt **je Sitzung ein Eintrag**
@@ -1314,7 +1322,8 @@ Gegenstand gebraucht wird.“ Rückfrage beantwortet: **Claude + von Hand**, Gym
 - **Sitzungsseite** (`public/bringcard.js`, Gymnasium und Grundschule, rechte Spalte unter „Sitzungsdaten“): Liste mit Stift und Papierkorb
   (`aria-label` mit dem Gegenstand), „Gegenstand hinzufügen“ öffnet ein Formular (Gegenstand, „Wo und in welcher Lerngruppe? (höchstens zwei
   Sätze)“ mit Zähler); Fehler am Feld (`aria-invalid`, Fokus dorthin); Löschen und Verwerfen mit Rückfrage; Fokus nach Speichern/Abbrechen auf den
-  auslösenden Knopf (nur, wenn er sonst verloren wäre); beim Zurückkehren in den Tab übernimmt die Karte den Stand von Claude – nie in ein offenes
+  auslösenden Knopf, nach dem Löschen auf den nächsten (sonst vorigen) Gegenstand bzw. „Gegenstand hinzufügen“ – misslingt das Löschen, zurück auf
+  seinen Papierkorb (nur, wenn er sonst verloren wäre); beim Zurückkehren in den Tab übernimmt die Karte den Stand von Claude – nie in ein offenes
   Formular. Ab 10 Gegenständen ist „Gegenstand hinzufügen“ gesperrt (`aria-disabled`, mit Hinweis).
 - **Sitzungsdatei, Sicherung, Zurücksetzen:** `sitzung.json` enthält `lesson.bring` (nur, wenn es Gegenstände gibt – ältere Dateien bleiben gleich);
   beim Laden ersetzt die Liste der Datei die der Sitzung (ohne Liste in der Datei: leer), in den Hinweisen werden **Datumsangaben** (wie in den

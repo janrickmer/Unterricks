@@ -57,8 +57,9 @@ export function bringCard({ id, L, course = null }) {
     h("p", { class: "small muted bring-intro", text: BRING_INTRO }), list, empty, form, h("div", { class: "row bring-addrow" }, addBtn), full);
 
   const rowBtn = (key, cls) => Array.from(list.querySelectorAll("button." + cls)).find((b) => b.dataset.key === key) || null;
-  function paint() {
-    const xs = items(), a = document.activeElement, hadKey = a && list.contains(a) && a.dataset ? a.dataset.key : null, hadCls = a && a.classList ? (a.classList.contains("bring-del") ? "bring-del" : "bring-edit") : null;
+  // refocus false: der Aufrufer setzt den Fokus selbst (Löschen: auf den nächsten Gegenstand)
+  function paint(refocus = true) {
+    const xs = items(), a = document.activeElement, hadKey = refocus && a && list.contains(a) && a.dataset ? a.dataset.key : null, hadCls = a && a.classList ? (a.classList.contains("bring-del") ? "bring-del" : "bring-edit") : null;
     clear(list);
     for (const x of xs) {
       const key = bringKey(x.item);
@@ -155,12 +156,14 @@ export function bringCard({ id, L, course = null }) {
       stateLine(state, "„" + x.item + "“ gelöscht" + (r.merged ? " – die Liste war inzwischen geändert worden (z. B. von Claude)." : ""), "ok");
     } catch (e) { stateLine(state, e && e.message ? e.message : "Nicht gelöscht.", "err"); }
     finally { saving = false; }
-    flushPending(); paint();
-    // Fokus an den nächsten Gegenstand (sonst den vorigen bzw. „Gegenstand hinzufügen“) – nur, wenn er sonst verloren wäre
+    // paint(false): sonst gäbe paint den Fokus des gelöschten Knopfs schon an „Gegenstand hinzufügen“ (Prüfbefund) – er gehört an den nächsten Gegenstand
+    flushPending(); paint(false);
+    // Fokus an den nächsten Gegenstand (sonst den vorigen bzw. „Gegenstand hinzufügen“); nicht gelöscht: zurück auf seinen Papierkorb – nur, wenn er sonst
+    // verloren wäre
     const a = document.activeElement;
     if (!a || a === document.body || !a.isConnected) {
       const after = items(), next = after[Math.min(Math.max(i, 0), after.length - 1)];
-      ((next && rowBtn(bringKey(next.item), "bring-edit")) || addBtn).focus({ preventScroll: true });
+      (rowBtn(key, "bring-del") || (next && rowBtn(bringKey(next.item), "bring-edit")) || addBtn).focus({ preventScroll: true });
     }
   }
   addBtn.addEventListener("click", () => openForm({ kind: "add" }));

@@ -218,3 +218,34 @@ test("Werkzeuge und Anweisungen: Beschreibungen von add_material_pdf und save_ve
   const init = await mcp(undefined);
   assert.ok(!init.instructions.includes("Konzentration") && init.instructions.length <= 5724, "Anweisungen ohne neuen Text – höchstens so lang wie vor Nachtrag 27 (5724 Zeichen; jetzt " + init.instructions.length + ")");
 });
+
+/* ---------- Prüfbefunde (16.11.2026): weitere Wege, auf denen die Konzentrationsaufgabe bei Eltern landen oder anders auf der Druckliste stehen könnte ---------- */
+test("Prüfbefund: als Bildkarten abgelehnt (die sähen Eltern); Rückfall add_print_material ebenfalls 5x, beidseitig, sw; Text-Rückfall in get_lesson ohne [[pdf:]]", async () => {
+  const { c, l, sek, mcp } = await setup();
+  printerPages = 2;
+  // Bildkarten mit dem Titel der Konzentrationsaufgabe: nichts angelegt, Hinweis auf add_material_pdf (druck)
+  let r = await mcp("add_picture_cards", { lesson_id: l.id, titel: "Konzentrationsaufgabe – Josef (Ausmalbilder)", html: "<h1>x</h1>", erzaehltexte: ["Josef träumt."] });
+  assert.ok(r.isError && r.content[0].text.startsWith("Die Konzentrationsaufgabe legst du nicht als Bildkarten ab – Bildkarten sehen Eltern nach der Stunde") &&
+    r.content[0].text.includes("`add_material_pdf` (`bereich` \"druck\", `anzahl` 5, `beidseitig` true, `farbe` false"), r.content[0].text);
+  assert.equal((await c.db.prepare("SELECT COUNT(*) AS n FROM files WHERE lesson_id=?1").bind(l.id).first()).n, 0, "nichts gespeichert");
+  // andere Bildkarten bleiben möglich
+  r = await mcp("add_picture_cards", { lesson_id: l.id, titel: "Bildkarten – Josef", html: "<h1>x</h1>", erzaehltexte: ["Josef träumt."] });
+  assert.ok(!r.isError, r.content[0].text);
+  // Rückfall add_print_material: wie add_material_pdf immer 5x, beidseitig, sw; einheitlicher Titel; Abweichung gemeldet
+  r = await mcp("add_print_material", { lesson_id: l.id, titel: "Konzentrationsaufgabe Josef", markdown: "# Ausmalen", anzahl: 22, beidseitig: false });
+  const pf = await F.getFile(c.db, r.structuredContent.file_id);
+  assert.deepEqual([pf.area, pf.kind, pf.name, pf.print_copies, pf.print_duplex, pf.print_color], ["print", "text", "Konzentrationsaufgabe – Josef", 5, 1, 0]);
+  assert.equal(r.content[0].text, "Druckvorlage gespeichert: „5x - beidseitig - sw - Konzentrationsaufgabe – Josef.pdf“ (Liste „Von der Lehrkraft auszudrucken“ – nie für Eltern oder Kinder). " +
+    "(Die Konzentrationsaufgabe legt Unterricks immer so auf die Druckliste: 5x, beidseitig, schwarz-weiß – die Lehrkraft kann das in der Sitzung ändern.)");
+  // get_lesson: der Text-Rückfall ist da, aber nicht als [[pdf:]] verweisbar
+  const g = (await mcp("get_lesson", { lesson_id: l.id })).content[0].text;
+  assert.ok(g.includes("- file_id " + pf.id + ": „Konzentrationsaufgabe – Josef“ (auf der Druckliste als „5x - beidseitig - sw - Konzentrationsaufgabe – Josef.pdf“; fertig) – Druckvorlage als Text (Rückfall, ohne Ausmalbilder; im Verlaufsplan nicht verweisbar)") &&
+    !g.includes("[[pdf:" + pf.id + "]]"), g);
+  // Gymnasium: add_print_material unverändert
+  r = await mcp("add_print_material", { lesson_id: sek.id, titel: "Konzentrationsaufgabe", markdown: "# x", anzahl: 22, beidseitig: false });
+  assert.equal(r.content[0].text, "Druckvorlage gespeichert: „22x - einseitig - sw - Konzentrationsaufgabe.pdf“ (Liste „Von der Lehrkraft auszudrucken“).");
+  // Elternansicht: weder Druckvorlage noch Bildkarten-Versuch – nur die erlaubten Bildkarten, wenn der Verlaufsplan sie nennt
+  const les = await L.getLesson(c.db, l.id), course = (await GS.gsCourseMap(c.db)).get(les.klass);
+  const pv = await PA.parentView(c, { ...les, portal: "**1) Erzählung**\n- [[pdf:" + pf.id + "]]" }, course, { preview: true });
+  assert.ok(!(pv.files || []).length && !(pv.cards || []).some((x) => /konzentration/i.test(x.name)), JSON.stringify(pv));
+});

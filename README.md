@@ -200,7 +200,8 @@ Feibeitsblatt braucht keine Änderung. Die Adressen stehen in `wrangler.jsonc` (
 * **Für den nächsten Arbeitstag einpacken:** Braucht eine Sitzung desselben Tages etwas, das Sie von zu Hause oder aus dem Lehrerzimmer
   mitbringen müssen (z. B. eine Bibel oder einen Beutel), steht direkt unter den Druckaufträgen ein **roter Kasten** mit diesen Gegenständen
   als Stichpunkte – für beide Schulformen, für denselben Tag wie die Druckaufträge (auch mit unterrichtsfreien Tagen; Ausfall-Einträge zählen
-  nicht). Ein Klick (oder Enter) auf einen Gegenstand klappt in kleinerer Schrift auf, **an welcher Stelle und in welcher Lerngruppe** er
+  nicht; ist für eine Stunde des Gymnasiums eine Krankheitsvertretung aktiv, fehlen deren Gegenstände – Sie kommen ja nicht). Ein Klick (oder
+  Enter) auf einen Gegenstand klappt in kleinerer Schrift auf, **an welcher Stelle und in welcher Lerngruppe** er
   gebraucht wird; die Lerngruppe führt zur Sitzung. Brauchen mehrere Stunden denselben Gegenstand, steht er einmal da (z. B. „Beutel ·
   2 Stunden“), aufgeklappt mit je einem Eintrag pro Stunde. Ohne Gegenstände gibt es den Kasten nicht. Die Gegenstände trägt **Claude beim
   Planen** ein („Stunde mit Claude planen“, Gymnasium und Grundschule – je Gegenstand höchstens zwei Sätze: wo in der Stunde und in welcher
@@ -419,7 +420,8 @@ der **Podcast für den kommenden Unterricht** (derselbe wie auf der Startseite �
   Geschichte, die Sie erzählen), dann das Symbol einer **roten Karte** und danach eine weitere, altersgerechte Aufgabe zum Inhalt der Stunde
   (ankreuzen, verbinden, malen oder ein Wort). Claude stellt sie Ihnen mit dem übrigen Material vor; nach Ihrer Freigabe steht sie **nur** auf
   Ihrer Druckliste „Von der Lehrkraft auszudrucken“ als **„5x - beidseitig - sw - Konzentrationsaufgabe – <Thema>.pdf“** und damit auch in den
-  Druckaufträgen für den nächsten Arbeitstag – nie in der Elternansicht und nie für die Kinder. Anzahl und Druckart ändern Sie dort wie bei
+  Druckaufträgen für den nächsten Arbeitstag – nie in der Elternansicht und nie für die Kinder (als Bildkarten, die Eltern sehen, nimmt
+  Unterricks sie gar nicht erst an). Anzahl und Druckart ändern Sie dort wie bei
   jeder Druckvorlage. Im Verlaufsplan nennt Claude sie in der ersten Plenumsphase (gelb markiert). Fehlt sie noch, erinnert Unterricks Claude
   beim Lesen der Sitzung und beim Speichern des Verlaufsplans; hat sie mehr als zwei Seiten, sagt Unterricks es Claude beim Ablegen.
 * **Elternansicht:** **„Sitzungslink für Eltern kopieren“** legt einen geheimen, nicht erratbaren Link in die Zwischenablage (zum

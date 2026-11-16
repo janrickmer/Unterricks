@@ -3039,6 +3039,10 @@ async function main() {
       g = await tool("save_verlaufsplan", { lesson_id: gsL, text: CPLAN });
       ok(!g.isError && g.content[0].text.includes("Eltern sehen nach der Stunde: „Schoepfung Arbeitsblatt.pdf“.") && !g.content[0].text.includes("Konzentrationsaufgabe") && g.structuredContent.konzentrationsaufgabe === true,
         "save_verlaufsplan mit Verweis: keine Erinnerung; Eltern sehen nur das Arbeitsblatt (" + g.content[0].text.slice(0, 160) + ")");
+      // Prüfbefund: als Bildkarten (die Eltern sehen) lehnt der Connector sie ab – nichts angelegt
+      g = await tool("add_picture_cards", { lesson_id: gsL, titel: "Konzentrationsaufgabe – Die Schöpfung", html: CONC_HTML, erzaehltexte: ["Gott schafft das Licht."] });
+      ok(g.isError && g.content[0].text.startsWith("Die Konzentrationsaufgabe legst du nicht als Bildkarten ab") && !(await T("GET", "/api/teacher/lessons/" + gsL)).data.files.some((f) => f.cards && /konzentration/i.test(f.name)),
+        "add_picture_cards mit dem Titel der Konzentrationsaufgabe: abgelehnt (Bildkarten sähen Eltern), nichts angelegt");
       const pv = await T("GET", "/api/teacher/lessons/" + gsL + "/parents");
       ok(pv.status === 200 && JSON.stringify((pv.data.files || []).map((f) => f.name)) === JSON.stringify(["Schoepfung Arbeitsblatt.pdf"]) && !JSON.stringify(pv.data).includes(concId) && !JSON.stringify(pv.data).includes("Konzentrationsaufgabe"),
         "Elternansicht (Vorschau der Lehrkraft, wie die Nutzlast für Eltern): ohne die Konzentrationsaufgabe – auch wenn der Verlaufsplan sie nennt");

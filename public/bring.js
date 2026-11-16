@@ -21,7 +21,9 @@ const cut = (s, n) => { if (s.length <= n) return s; let k = n; const c = s.char
  * Robuste Regel für „höchstens zwei Sätze“: Satzende ist „!“ oder „?“ bzw. ein Punkt (auch „…“) vor Leerraum und einem Großbuchstaben, einer Ziffer oder
  * dem Textende – nicht nach einer ein- oder zweistelligen Zahl („in der 3. Phase“), einem einzelnen Buchstaben („z. B.“, „S. 12“), einer Abkürzung aus
  * Einzelbuchstaben („z.B.“, „d.h.“) oder einer gängigen Abkürzung („ca.“, „Nr.“, „Mt.“); ein Datum („am 10.11.2026.“) beendet den Satz; ein klein
- * geschriebenes Wort danach („Std. vor“) nie. Text nach dem letzten Satzende zählt als weiterer Satz. Im Zweifel
+ * geschriebenes Wort danach („Std. vor“) nie. Folgt eine Zahl, endet der Satz nur nach einem Wort mit Ziffer („8B. 5 Kinder“) – sonst ist es fast
+ * immer eine Abkürzung vor einer Nummer („1. Sam. 17“, „Aufg. 3“, „Kap. 2“; Prüfbefund: solche Hinweise wurden als drei Sätze abgewiesen). Text nach
+ * dem letzten Satzende zählt als weiterer Satz. Im Zweifel
  * zählt die Regel eher zu wenig als zu viel (sie soll Claude und die Lehrkraft nicht wegen einer Abkürzung abweisen); zusätzlich gilt die Länge. */
 const ABBR = new Set(["bzw", "ca", "evtl", "ggf", "usw", "vgl", "nr", "std", "jg", "kl", "kap", "abb", "tab", "bspw", "inkl", "insb", "sog", "dr", "hr", "fr", "min", "max",
   "mo", "di", "mi", "do", "sa", "so", "gen", "ex", "lk", "mt", "mk", "joh", "röm", "kor", "ps", "jes", "apg", "st", "ev", "kath", "rel", "ggü", "zzgl", "ff", "bd", "aufl", "hrsg"]);
@@ -39,6 +41,7 @@ export function sentenceEnds(text) {
     // das Wort davor (ohne Klammern und Anführungszeichen): „3“, „z“, „z.B“, „ca“ – kein Satzende; „2026“ (Datum), „8B“, „Erzählung“ – Satzende
     const w = ((s.slice(0, m.index).match(/(\S+)$/) || [])[1] || "").replace(/^[("„“»«'\[]+|[)"“”»«'\]]+$/g, "");
     if (/^\p{N}{1,2}$/u.test(w) || /^\p{L}$/u.test(w) || /^\p{L}(?:\.\p{L})+$/u.test(w) || ABBR.has(w.toLocaleLowerCase("de-DE"))) continue;
+    if (/^\p{N}/u.test(next) && !/\p{N}/u.test(w)) continue;   // „Sam. 17“, „Aufg. 3“: Abkürzung vor einer Nummer
     ends.push(end);
   }
   return ends;

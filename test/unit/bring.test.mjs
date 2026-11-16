@@ -431,3 +431,50 @@ test("Karte „Mitbringen“: inzwischen von Claude geändert (409) → dieselbe
   D.userClick(add);
   assert.ok(!f.visible(f.q("#bring-form")) && f.q("#bring-full").textContent === BC.BRING_FULL && document.activeElement === add);
 });
+
+/* ---------- Prüfbefunde (16.11.2026) ---------- */
+test("Prüfbefund: Abkürzung vor einer Nummer („1. Sam. 17“, „Aufg. 3“) beendet keinen Satz – solche Hinweise wurden als drei Sätze abgewiesen", () => {
+  const n = B.sentenceCount;
+  assert.equal(n("Zum Vorlesen von 1. Sam. 17 in Phase 2 im Kurs Religion 2ab. Danach im Sitzkreis herumgeben."), 2);
+  assert.equal(n("Für Aufg. 3 in der 9D. Danach einsammeln."), 2);
+  assert.equal(n("Kap. 2 und Abb. 4 im Einstieg der 8B. Röm. 8 lesen."), 2);
+  assert.equal(n("Klasse 8B. 5 Kinder lesen vor. Ende."), 3, "nach einem Wort mit Ziffer endet der Satz weiter");
+  assert.equal(n("Im Einstieg am 10.11.2026. 3 Kinder lesen vor."), 2, "Datum vor einer Zahl: Satzende");
+  assert.equal(n("Im Einstieg. 2 Exemplare reichen. Für die 9D."), 2, "im Zweifel zu wenig (ein Satz beginnt selten mit einer Ziffer)");
+  assert.deepEqual(B.validateBring([{ item: "Kinderbibel", note: "Zum Vorlesen von 1. Sam. 17 in Phase 2 im Kurs Religion 2ab. Danach im Sitzkreis herumgeben." }]).length, 1);
+  assert.equal(B.firstSentences("Für Aufg. 3 in der 9D. Danach einsammeln. Dritter Satz.", 2), "Für Aufg. 3 in der 9D. Danach einsammeln.");
+});
+
+test("Prüfbefund: Löschen in der Mitte der Liste – der Fokus geht an den nächsten Gegenstand (nicht an „Gegenstand hinzufügen“); misslungen: zurück auf den Papierkorb", async () => {
+  const start = [{ item: "Wahlurne", note: "" }, { item: "Beutel", note: "" }, { item: "Lautsprecher", note: "" }];
+  const srv = server(start, 1);
+  const m = mount({ bring: start, bringRev: 1 }, [srv.route]);
+  const del = (name) => [...m.card.el.querySelectorAll("button.bring-del")].find((b) => b.getAttribute("aria-label") === "„" + name + "“ löschen");
+  const yes = async () => { [...document.querySelector(".modal").querySelectorAll("button")].find((b) => b.textContent === "Löschen").click(); await D.sleep(15); };
+  D.userClick(del("Beutel")); await D.sleep(5); await yes();
+  assert.deepEqual(m.items(), ["Wahlurne", "Lautsprecher"]);
+  assert.equal(document.activeElement.getAttribute("aria-label"), "„Lautsprecher“ bearbeiten", "nächster Gegenstand");
+  D.userClick(del("Lautsprecher")); await D.sleep(5); await yes();
+  assert.equal(document.activeElement.getAttribute("aria-label"), "„Wahlurne“ bearbeiten", "letzter gelöscht: der vorige");
+  // Server lehnt ab: der Gegenstand bleibt, Fokus zurück auf seinen Papierkorb
+  m.calls.length = 0;
+  globalThis.__tapi = async () => { throw new ApiError("Keine Verbindung.", 0, { code: "network" }); };
+  D.userClick(del("Wahlurne")); await D.sleep(5); await yes();
+  assert.deepEqual(m.items(), ["Wahlurne"]);
+  assert.equal(document.activeElement.getAttribute("aria-label"), "„Wahlurne“ löschen");
+  assert.equal(m.q(".save-state").textContent, "Keine Verbindung.");
+});
+
+test("Prüfbefund: Gymnasium mit aktiver Krankheitsvertretung – die Lehrkraft kommt nicht, ihre Gegenstände stehen nicht im roten Kasten (dieselbe Anweisung)", async () => {
+  const c = await base();
+  const a = await L.createLesson(c.db, { subject: "evrel", klass: "8-K", title: "Schöpfung", date: "2026-11-18", startTime: "07:50" }, c.now);
+  const b = await L.createLesson(c.db, { subject: "powi", klass: "9D", title: "Wahlen", date: "2026-11-18", startTime: "09:40" }, c.now);
+  for (const id of [a.id, b.id]) await call(c, L.routeLessonPatch, "PATCH", "/x", { bring: [{ item: "Bibel", note: "" }] }, id);
+  c.db.raw.prepare("INSERT INTO substitutes(lesson_id, status, proposal, created_at, updated_at) VALUES(?, 'aktiv', '{}', ?, ?)").run(a.id, c.now, c.now);
+  c.db.raw.prepare("INSERT INTO substitutes(lesson_id, status, proposal, created_at, updated_at) VALUES(?, 'vorschlag', '{}', ?, ?)").run(b.id, c.now, c.now);
+  c.db.counter.n = 0;
+  const r = await call(c, routePrintNext, "GET", "/api/teacher/print-next");
+  assert.ok(c.db.counter.n <= 8, "D1-Anweisungen: " + c.db.counter.n);
+  assert.deepEqual(r.data.sessions.map((s) => [s.title, (s.bring || []).map((x) => x.item), "sub" in s]), [["Schöpfung", [], false], ["Wahlen", ["Bibel"], false]],
+    "aktive Vertretung: keine Gegenstände; nur ein Vorschlag: wie bisher");
+});

@@ -116,6 +116,9 @@ export async function bringE2E({ tp, BASE, T, tool, ok, OUT, SHOT, gymL, gsL, ho
   await tp.locator(".modal").getByRole("button", { name: "Löschen" }).click();
   await gcard.locator(".bring-item", { hasText: "Beutel" }).waitFor({ state: "detached", timeout: 10000 });
   ok(JSON.stringify(await gcard.locator(".bring-item").allTextContents()) === JSON.stringify(["Kinderbibel"]), "Grundschule: „Beutel“ gelöscht (mit Rückfrage)");
+  // Prüfbefund: nach dem Löschen geht der Fokus an den nächsten bzw. vorigen Gegenstand – nicht an „Gegenstand hinzufügen“
+  await tp.waitForFunction(() => document.activeElement && document.activeElement.getAttribute("aria-label") === "„Kinderbibel“ bearbeiten", null, { timeout: 5000 }).catch(() => {});
+  ok(await gcard.getByRole("button", { name: "„Kinderbibel“ bearbeiten" }).evaluate((el) => el === document.activeElement), "nach dem Löschen: Fokus auf dem vorigen Gegenstand („Kinderbibel“ bearbeiten)");
   await shots("sitzung-grundschule", "#bring");
   // Startseite folgt den Änderungen
   await tp.goto(BASE + "/#/lk");
@@ -132,6 +135,9 @@ export async function bringE2E({ tp, BASE, T, tool, ok, OUT, SHOT, gymL, gsL, ho
   await tp.locator(".modal").getByRole("button", { name: "Löschen" }).click();
   await gcard.locator(".bring-empty:visible").waitFor({ timeout: 10000 });
   ok(await gcard.getByRole("button", { name: "Gegenstand hinzufügen" }).evaluate((el) => el === document.activeElement), "letzter Gegenstand gelöscht: Fokus auf „Gegenstand hinzufügen“");
+  // Prüfbefund: eine Abkürzung vor einer Nummer („1. Sam. 17“) beendet keinen Satz – zwei Sätze werden angenommen
+  r = await tool("update_lesson", { lesson_id: gymL, mitbringen: [{ gegenstand: "Bibel", wofuer: "Zum Vorlesen von 1. Sam. 17 in Phase 2 der 9D. Danach herumgeben." }] });
+  ok(!r.isError && r.content[0].text.includes("Mitbringen (1 Gegenstand): Bibel"), "Connector: „1. Sam. 17 … Danach …“ gilt als zwei Sätze – " + r.content[0].text.slice(0, 100));
   r = await tool("update_lesson", { lesson_id: gymL, mitbringen: [] });
   ok(!r.isError && r.content[0].text.includes("Die Liste „Mitbringen“ ist leer."), "Connector: [] leert die Liste");
   await tp.goto(BASE + "/#/lk");

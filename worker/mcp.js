@@ -17,7 +17,7 @@ import { shortImages } from "./render.js";
 import { ESCAPE_FORMAT_HINT, PART_TYPES } from "../public/escape-data.js";
 import { SUBJECTS, ALL_CLASSES, subjectName, gradeInfo, formatCode, lessonContext, chatTranscript, PORTAL_RULES, PORTAL_EXAMPLE, PORTAL_TEACHER_RULE, SYSTEM_PROMPT_ROLE, FEIBEITSBLATT_INFO, FB_LINK_HINT, classShort, fmtDay, materialDesignText, printFileName, GS_SUBJECT,
   STOP_LINE, hasStop, planRefs, pdfRef, PLAN_REF_RE, NOTES_FILE, TEACHER_SUMMARY_TITLE, TEACHER_SUMMARY_MAX, teacherSummaryRules, summaryHead, summaryOutdated, fmtStampBerlin, addDays, berlinToday } from "../public/shared.js";
-import { gsLessonContext, GS_MATERIAL_RULES, CARD_DESIGN_RULES, VERLAUFSPLAN_EXAMPLE, VERLAUFSPLAN_RULES, CONC_TITLE, CONC_PRINT, CONC_PAGES_MAX, isConcName, concTitleOf, concSection, concMissingText, concUnplannedText } from "../public/gsplanning.js";
+import { gsLessonContext, GS_MATERIAL_RULES, CARD_DESIGN_RULES, VERLAUFSPLAN_EXAMPLE, VERLAUFSPLAN_RULES, CONC_TITLE, CONC_PRINT, CONC_PAGES_MAX, isConcName, concTitleOf, concSaveArgs, concSection, concMissingText, concUnplannedText } from "../public/gsplanning.js";
 import { saveCardSet, setCardTexts } from "./cards.js";
 import { parentFiles, refCounts } from "./parents.js";
 import { BRING_LIMITS, bringSection, bringRead } from "../public/bring.js";
@@ -812,6 +812,9 @@ async function callTool(c, name, a) {
       return toolText("# " + f.name + " (" + (f.area === "student" ? "für Schüler:innen" : f.area === "teacher" ? "nur für die Lehrkraft" : "zum Ausdrucken") + ", Sitzung " + f.lesson_id + ")\n\n" + shortImages(f.html), { file_id: f.id, lesson_id: f.lesson_id });
     }
     case "add_picture_cards": {
+      // Konzentrationsaufgabe (Nachtrag 27) nie als Bildkarten: die sehen Eltern nach der Stunde – sie gehört nur auf die Druckliste der Lehrkraft (Prüfbefund)
+      if (isConcName(a.titel)) return toolError("Die " + CONC_TITLE + " legst du nicht als Bildkarten ab – Bildkarten sehen Eltern nach der Stunde, die " + CONC_TITLE +
+        " gehört nur auf die Druckliste der Lehrkraft. Lege sie mit " + concSaveArgs("") + " ab.");
       const n = Array.isArray(a.erzaehltexte) ? a.erzaehltexte.length : 0;
       const f = await saveCardSet(c, a.lesson_id, { title: a.titel, html: a.html, texts: a.erzaehltexte, fileId: a.file_id || null, share: a.fuer_eltern });
       const ref = " Verweis: " + pdfRef(f.id) + ".", kept = cardData(f).texts.length;
@@ -897,10 +900,17 @@ async function callTool(c, name, a) {
       return toolText("Material „" + f.name + "“ gespeichert (" + (area === "student" ? "für Schüler:innen sichtbar" : "nur für die Lehrkraft") + ").", { file_id: f.id });
     }
     case "add_print_material": {
-      if ((await getLesson(c.db, a.lesson_id)).cancelled) return toolError(NO_MATERIAL);
-      const f = await insertPrintText(c.db, a.lesson_id, a.titel, a.markdown, { copies: a.anzahl, duplex: a.beidseitig !== false, color: a.farbe === true }, "claude", c.now);
+      const lx = await getLesson(c.db, a.lesson_id);
+      if (lx.cancelled) return toolError(NO_MATERIAL);
+      // Rückfall für die Konzentrationsaufgabe der Grundschule (Nachtrag 27): wie bei add_material_pdf immer 5x, beidseitig, schwarz-weiß und der einheitliche Titel (Prüfbefund)
+      const conc = lx.subject === GS_SUBJECT && isConcName(a.titel);
+      const print = conc ? { ...CONC_PRINT } : { copies: a.anzahl, duplex: a.beidseitig !== false, color: a.farbe === true };
+      const f = await insertPrintText(c.db, a.lesson_id, conc ? concTitleOf(a.titel, lx.topic || lx.title || "") : a.titel, a.markdown, print, "claude", c.now);
       const o = fileOut(f);
-      return toolText("Druckvorlage gespeichert: „" + o.printName + "“ (Liste „Von der Lehrkraft auszudrucken“).", { file_id: f.id, file_name: o.printName });
+      const asked = conc && ((a.anzahl != null && a.anzahl !== CONC_PRINT.copies) || a.beidseitig === false || a.farbe === true);
+      return toolText("Druckvorlage gespeichert: „" + o.printName + "“ (Liste „Von der Lehrkraft auszudrucken“" + (conc ? " – nie für Eltern oder Kinder" : "") + ")." +
+        (asked ? " (Die " + CONC_TITLE + " legt Unterricks immer so auf die Druckliste: " + CONC_PRINT.copies + "x, beidseitig, schwarz-weiß – die Lehrkraft kann das in der Sitzung ändern.)" : ""),
+        { file_id: f.id, file_name: o.printName });
     }
     case "propose_feibeitsblatt": {
       if ((await getLesson(c.db, a.lesson_id)).subject === GS_SUBJECT) return toolError("In der Grundschule gibt es keine Feibeitsblätter.");
