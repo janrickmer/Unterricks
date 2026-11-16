@@ -18,6 +18,7 @@ import { updateE2E } from "./update.mjs";
 import { CONC_HTML, CONC_HTML_LONG } from "./konzentration.mjs";
 import { bringE2E } from "./bring.mjs";
 import { storageE2E } from "./storage.mjs";
+import { selbstlernStopE2E } from "./selbstlernstop.mjs";
 import { escapeFixture } from "./escape-fixture.mjs";
 
 const require = createRequire(import.meta.url);
@@ -2048,6 +2049,10 @@ async function main() {
     ok(await sp.locator(".substitute.student").count() === 0 && !(await sp.locator("main").textContent()).includes("Präsentation – Verfahren des BVerfG"), "wiederhergestellt: ursprüngliche Planung wieder sichtbar, Selbstlern-Phase entfernt");
     ok(!(await T("GET", "/api/teacher/lessons/" + l2.id)).data.files.some((f) => f.id === presId) && !(await T("GET", "/api/teacher/lessons/" + l2.id)).data.substitute, "… auch das Material der Selbstlern-Phase ist gelöscht");
     ok((await T("GET", "/api/teacher/lessons/" + l2.id)).data.lesson.portalSource === l2Src, "… und der Schulportal-Eintrag steht wieder mit seiner Herkunft da (" + l2Src + ")");
+
+    /* ---------- Abschlussprüfung Nr. 27–30: Selbstlern-Phase und Zwischenstopp der vorigen Stunde, nächste Stunde mit der Lehrkraft, „Mitbringen“ ---------- */
+    step("Selbstlern-Phase nach einem Zwischenstopp: Prompt fragt nach dem offenen Teil, Hinweis erledigt nach Entscheidung + Umstellung, zurück nach „Wiederherstellen“; nächste Stunde mit der Lehrkraft kennt die Hausaufgabe; „Mitbringen“ und rechte Spalte");
+    await selbstlernStopE2E({ tp, BASE, T, tool, ok, OUT, SHOT });
 
     step("Selbstlern-Phase mit Escape-Room: streng geprüft, Vorschau, Finale anlegen, Schüler:in spielt alle 6 Stationen, Überblick-PDF, Tunnel ins Feibeitsblatt");
     const escRoom = escapeFixture();

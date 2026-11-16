@@ -11,7 +11,7 @@ import { extractUnitChange, stripUnitBlock, unitContext, claudeLessonPrompt, les
 import { claudeHandoff } from "./claude.js";
 import { leupoldView } from "./units.js";
 import { substituteCards } from "./substitute.js";
-import { SELBSTLERN_HW_WHEN, selbstlernTimesText, SELBSTLERN_AI_LABEL, SELBSTLERN_AI_HINT } from "./selbstlern.js";
+import { SELBSTLERN_HW_WHEN, selbstlernTimesText, SELBSTLERN_AI_LABEL, SELBSTLERN_AI_HINT, SELBSTLERN_BUTTON } from "./selbstlern.js";
 import { paintPortalPreview, portalPreview, contextMenu, prevStopCard, stopNextHint, prevStopShown, prevStopAfterSave, keepFocusOn, removeKeepingView } from "./portalview.js";
 import { renderMarkdown } from "./markdown.js";
 import { materialBox, dropZone } from "./materialbox.js";
@@ -1082,7 +1082,7 @@ export async function sessionPage(id) {
   // Hinweis auf den offenen Teil der vorigen Sitzung (Zwischenstopp) samt Stand der Entscheidung mit Claude – beim Zurückkehren neu (onVis)
   // (direkt vor „Stunde mit Claude planen“; ohne Zwischenstopp gibt es die Karte nicht, ebenso nicht mehr, wenn er erledigt ist – Nachtrag 26)
   let prevEl = null, prevHidden = false;
-  const prevCardOf = () => { const ps = d.previousStop; return prevStopShown(ps) && !prevHidden ? prevStopCard(ps, { gs: false, preview: portalPreview(ps.portal), unit: !!st.unit, onHide: () => { prevHidden = true; prevEl = null; },
+  const prevCardOf = () => { const ps = d.previousStop; return prevStopShown(ps) && !prevHidden ? prevStopCard(ps, { gs: false, preview: portalPreview(ps.portal), unit: !!st.unit, selbstlern: selbstNow() ? SELBSTLERN_BUTTON : null, onHide: () => { prevHidden = true; prevEl = null; },
     focusAfter: () => planCard.querySelector("h2") }) : null; };
   const paintPrev = () => {
     // nie unter dem Fokus neu aufbauen – fällt die Karte ganz weg (erledigt), geht der Fokus wie bei „Ausblenden“ auf „Stunde mit Claude planen“
@@ -1096,7 +1096,8 @@ export async function sessionPage(id) {
   function planSaved(at) { const ps = prevStopAfterSave(d.previousStop, at); if (ps) { d.previousStop = ps; paintPrev(); } }
   prevEl = prevCardOf();
   // Selbstlern-Phase (Nachtrag 29; ersetzt die Krankheitsvertretung) – Feibeitsblätter ihrer Stationen legt die Lehrkraft im bekannten Editor an
-  const sub = substituteCards({ id, st, L, ctx, analog, reload: () => sessionPage(id), openDraft: (dr, o) => editDraft(dr, o), flushPortal, teacherNext: () => d.teacherNextDate || null });
+  const sub = substituteCards({ id, st, L, ctx, analog, reload: () => sessionPage(id), openDraft: (dr, o) => editDraft(dr, o), flushPortal, teacherNext: () => d.teacherNextDate || null,
+    previousStop: () => d.previousStop || null });   // Zwischenstopp der vorigen Sitzung: auch der Selbstlern-Prompt fragt danach
 
   /* ======================= Sitzung als Datei (ganz unten): herunterladen und – in einer anderen Sitzung – wieder laden ======================= */
   async function exportSession(onStep) {
@@ -1166,7 +1167,7 @@ export async function sessionPage(id) {
     h("p", { class: "hint", text: "Beim Laden einer Datei bleiben Datum, Beginn und Dauer dieser Sitzung; Datumsangaben in den Texten passt Unterricks an diese Sitzung an. Notfall-Feibeitsblätter entstehen neu, sobald die Feibeitsblätter angelegt sind." }));
 
   // Gegenstände zum Mitbringen (Nachtrag 28): kompakte Karte unter den Sitzungsdaten
-  const bring = bringCard({ id, L });
+  const bring = bringCard({ id, L, absent: () => (st.sub && (st.sub.status === "selbstlern" || st.sub.status === "aktiv") ? st.sub.status : null) });
   main.append(tsum.el, h("div", { class: "session-grid" },
     h("div", { class: "stack" }, sub.main, prevEl, planCard, unitCard, chatCard, portalCard, hwCard, presPromptCard, filesCard, presCard, fbCard, printCard),
     h("aside", { class: "side" }, codeCard, metaCard, bring.el, sub.side)), ioCard);
@@ -1201,7 +1202,7 @@ export async function sessionPage(id) {
       if (nextChanged && selbstNow()) paintDue();
       if (subKey(r.substitute) !== subKey(st.sub)) {
         const was = st.sub ? st.sub.status : null;
-        st.drafts = r.drafts; st.sub = r.substitute; st.sheets = r.sheets; sub.paint(); tsum.paintNote(); paintFb(); paintTimes();
+        st.drafts = r.drafts; st.sub = r.substitute; st.sheets = r.sheets; sub.paint(); tsum.paintNote(); paintFb(); paintTimes(); bring.paintAbsent(); paintPrev();
         if (r.substitute && r.substitute.status === "selbstlern") toast(was === "selbstlern" ? "Claude hat die Selbstlern-Phase überarbeitet." : "Claude hat die Sitzung in eine Selbstlern-Phase umgebaut – die Karte steht oben.", "ok", 6000);
       } else if (st.sub && st.sub.status === "selbstlern" && JSON.stringify(r.drafts.map((x) => x.id + x.status)) !== JSON.stringify(st.drafts.map((x) => x.id + x.status))) { st.drafts = r.drafts; sub.paint(); }
       if (r.unit && st.unit && r.unit.version !== st.unit.version) { st.unit = r.unit; paintUnit(); if (!reviseEl || !reviseEl.contains(document.activeElement)) paintRevise(); }

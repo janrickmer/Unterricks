@@ -418,6 +418,13 @@ gleich in `public/_headers`, im Worker und – für GitHub Pages – in `scripts
   In keiner Selbstlern-Phase sehen die Schüler:innen die Präsentation der ursprünglichen Planung. Auf der Sitzungsseite sagen auch Hausaufgabe
   („für Schüler:innen von Anfang an sichtbar“, fällig zur nächsten Sitzung mit Ihnen) und Sitzungsdaten, was in der Selbstlern-Phase gilt. Fehlen Sie
   mehrere Tage, nennt der vorgeschlagene Hausaufgaben-Text immer den aktuellen Termin der nächsten Sitzung mit Ihnen (ein eigener Text bleibt, wie er ist).
+  **Zusammenspiel:** Endete die vorige Stunde mit einem **Zwischenstopp**, fragt Claude im Chat zur Selbstlern-Phase zuerst, ob der offene Teil
+  als Station in die Selbstlern-Phase kommt oder ob darauf verzichtet wird; nach dieser Entscheidung und dem Umstellen verschwindet der Hinweis
+  „Die letzte Stunde wurde nicht vollständig beendet“ wie nach einer normalen Planung (nach „Wiederherstellen“ gilt er für die ursprüngliche
+  Planung wieder). Planen Sie danach die **nächste Stunde mit Ihnen**, nennt `get_lesson` Claude die Selbstlern-Phase davor samt Stationen und der
+  jetzt fälligen Hausaufgabe – Claude fragt Sie, ob die Stunde mit einer kurzen Besprechung der Ergebnisse beginnt. Die Karte „Mitbringen“ einer
+  Selbstlern-Sitzung sagt, warum ihre Gegenstände nicht im roten Kasten der Startseite stehen. „Sitzung als Datei herunterladen“ enthält bei einer
+  Selbstlern-Phase ihre jetzige Fassung (der Hinweis danach sagt es); die ursprüngliche Planung steht in der großen Sicherung.
   **Datenschutz (für Schüler:innen und Eltern):** Beide KI-Chatbots nutzen dieselben kostenlosen KI-Dienste wie die KI-Begriffshilfe und dieselbe
   Einwilligung (einmal je Sitzung und Gerät, gilt für beide; jederzeit zurücknehmbar). An den KI-Dienst gehen nur der eingetippte Text, das Thema der
   Sitzung und beim Erklär-Chatbot der Auftrag der Station – nie Namen oder eine Kennung des Geräts; Unterricks speichert die Gespräche nicht. Wer

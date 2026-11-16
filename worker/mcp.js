@@ -10,8 +10,8 @@ import { getUnit, unitFull, applyPlan, updateRow, updateRows, extendUnit, ROWS_M
 import { loadFreeDays } from "./freedays.js";
 import { planningBasis } from "./bases.js";
 import { gsCourseMap, gsCourseOut, getGsCourse, planningBasisGs } from "./gs.js";
-import { getSubstitute, saveSelbstlern, selbstlernReply, selbstlernLines, OLD_TOOL_TEXT, isAbsent, GS_NO_SELBSTLERN } from "./substitute.js";
-import { SELBSTLERN, STATION_TYPES, SELBSTLERN_LIMITS } from "../public/selbstlern.js";
+import { getSubstitute, saveSelbstlern, selbstlernReply, selbstlernLines, selbstlernBeforeLines, OLD_TOOL_TEXT, isAbsent, GS_NO_SELBSTLERN } from "./substitute.js";
+import { SELBSTLERN, STATION_TYPES, SELBSTLERN_LIMITS, selbstlernHomeworkNow } from "../public/selbstlern.js";
 import { nextTeacherLessonDate } from "./lessons.js";
 import { paramsText, lessonSlots, WEEKDAYS, freeSlots, stopLessonLines, STOP_CHOICES, STOP_CHOICE_TEXT, normalizeParams, schoolOf, FREE_DAY_SCOPES, freeRangeText, schoolBreaks, freeBreakOf } from "../public/planning.js";
 import { insertTextMaterial, insertPrintText, saveDesign, renderDesign, getFile } from "./files.js";
@@ -282,13 +282,20 @@ async function lessonDump(db, l, now = Date.now()) {
   const ctx = await lessonCtx(db, l);
   const [msgs, drafts, prev, sub] = await Promise.all([chatMessages(db, l.id, 80), db.prepare("SELECT id, data, status, sheet_code FROM fb_drafts WHERE lesson_id=?1 ORDER BY created_at DESC LIMIT 10").bind(l.id).all(),
     previousLesson(db, l), getSubstitute(db, l.id)]);
+  // Selbstlern-Phase: Termin der nächsten Sitzung mit der Lehrkraft – der Standardtext der Hausaufgabe nennt ihn aktuell (wie Schüleransicht und
+  // Sitzungsseite; sonst stünde bei mehreren Tagen ohne Lehrkraft unter „Hausaufgabe aus dieser Sitzung“ ein älteres Datum als im Abschnitt unten)
+  const slNext = sub && sub.status === SELBSTLERN ? await nextTeacherLessonDate(db, l) : null;
+  if (sub && sub.status === SELBSTLERN && ctx.lesson) ctx.lesson.homework = selbstlernHomeworkNow(ctx.lesson.homework, slNext);
   // Zwischenstopp der vorigen Sitzung: Geschafft / Nicht geschafft, Stand der Entscheidung und die Regeln (Anforderung 13)
   const ps = await prevStopInfo(db, l, prev, ctx.unit);
+  // die Sitzung(en) direkt davor ohne Lehrkraft (Selbstlern-Phase): ihre Hausaufgabe ist jetzt fällig
+  const slBefore = await selbstlernBeforeLines(db, l, sub);
   const parts = [
     "# Sitzung " + l.id, lessonContext(ctx, { portal: false, materialText: true, materialMax: 20000 }),
     "Sitzungscode für Schüler:innen: " + formatCode(l.code),
     "", "## Schulportal-Eintrag (Version " + l.portal_version + (l.portal_source ? ", zuletzt von " + l.portal_source : "") + ")", l.portal || "(noch leer)",
     ...(ps ? stopLessonLines(ps, { gs: false, unitId: ctx.unit ? ctx.unit.id : null, unit: ctx.unit, now }) : []),
+    ...slBefore,
     ...summarySection(l, null, { substitute: !!sub && sub.status === "aktiv", selbstlern: !!sub && sub.status === SELBSTLERN }),
     ...bringSection(bringRead(l.bring).items),
     "", "## Planungsverlauf", chatTranscript(msgs, 60000) || "(leer)",
@@ -308,7 +315,7 @@ async function lessonDump(db, l, now = Date.now()) {
   if (sub) {
     const [fr, dr] = sub.status === SELBSTLERN ? await db.batch([db.prepare("SELECT id, name, area, kind, status FROM files WHERE lesson_id=?1 ORDER BY created_at").bind(l.id),
       db.prepare("SELECT id, status, sheet_code FROM fb_drafts WHERE lesson_id=?1").bind(l.id)]) : [{ results: [] }, { results: [] }];
-    parts.push(...selbstlernLines(sub, fr.results || [], dr.results || [], [], sub.status === SELBSTLERN ? await nextTeacherLessonDate(db, l) : null));
+    parts.push(...selbstlernLines(sub, fr.results || [], dr.results || [], [], slNext));
   }
   if (l.unit_id) parts.push("", "Unterrichtseinheit: " + l.unit_id + " (Details mit get_unit; Planungsgrundlagen mit get_planning_basis)");
   // unterrichtsfreie Tage (Nachtrag 24): verschoben, ohne Termin bzw. trotzdem an einem solchen Tag – ohne all das bleibt get_lesson wie bisher
@@ -763,8 +770,11 @@ async function callTool(c, name, a) {
       }
       const sumNote = a.zusammenfassung_lehrkraft !== undefined ? " " + (await summaryNote(c, l)) : "";
       const items = bringRead(l.bring).items;
+      // ohne Lehrkraft (Selbstlern-Phase bzw. ältere Vertretung) zeigt die Startseite sie nicht (printjobs.js) – das sagt die Antwort dann auch
+      const away = a.mitbringen !== undefined && items.length ? isAbsent(((await getSubstitute(c.db, l.id)) || {}).status) : false;
       const bringNote = a.mitbringen === undefined ? "" : items.length ? " Mitbringen (" + items.length + (items.length === 1 ? " Gegenstand" : " Gegenstände") + "): " + items.map((x) => x.item).join(", ") +
-        " – Unterricks zeigt sie der Lehrkraft am Vortag auf der Startseite („Für den nächsten Arbeitstag einpacken“)." : " Die Liste „Mitbringen“ ist leer.";
+        (away ? " – gespeichert; solange für diese Sitzung eine Selbstlern-Phase gilt (die Lehrkraft kommt nicht), zeigt Unterricks sie nicht auf der Startseite (nach „Wiederherstellen“ wieder)."
+          : " – Unterricks zeigt sie der Lehrkraft am Vortag auf der Startseite („Für den nächsten Arbeitstag einpacken“).") : " Die Liste „Mitbringen“ ist leer.";
       return toolText("Gespeichert." + stopNote + sumNote + bringNote, { lesson: lessonOut(l), ...(stopPrev ? { zwischenstopp: a.zwischenstopp } : {}) });
     }
     case "save_planning_result": {

@@ -238,6 +238,13 @@ export function claudeSelbstlernPrompt(ctx) {
   const L = ctx.lesson || {}, id = ctx.lessonId, analog = isAnalogClass(ctx.klass), minutes = L.durationMin || (ctx.row && ctx.row.minutes) || 45;
   const code = ctx.code ? formatCode(ctx.code) : "", n = Number.isInteger(ctx.classSize) ? ctx.classSize : null, chatName = selbstlernChatName(ctx);
   const hw = selbstlernHomework(ctx.teacherNextDate || null, analog);
+  // Zwischenstopp der vorigen Sitzung (Anforderung 13, Nachtrag 26), noch nicht erledigt: Claude klärt ihn in diesem Chat – save_selbstlern speichert die Planung
+  const ps = ctx.previousStop && !ctx.previousStop.settled ? ctx.previousStop : null, psTitle = ps ? line(ps.title, 120) || "(ohne Titel)" : "";
+  const stopLine = !ps ? "" : ps.decision
+    ? " Zum offenen Teil der vorigen Sitzung „" + psTitle + "“ (Zwischenstopp) habe ich schon entschieden – siehe Abschnitt „Vorige Stunde nicht vollständig beendet“ in `get_lesson`."
+    : " Die vorige Sitzung „" + psTitle + "“ wurde nicht vollständig beendet (Zwischenstopp; Abschnitt „Vorige Stunde nicht vollständig beendet“ in `get_lesson`): Erkläre mir auch kurz, " +
+      "was dort offen geblieben ist, und frage mich, ob es als Station in diese Selbstlern-Phase kommt (`zwischenstopp` \"uebernehmen\") oder nicht (\"verzichten\"). " +
+      "Halte meine Antwort mit `update_lesson` fest, bevor du die Ideen entwickelst; für die Einheit gelten die Regeln in `get_lesson`.";
   const methods = analog ? [
     "- Arbeitsblatt bzw. Station auf Papier (`material`): je Station ein Arbeitsblatt mit einem klaren Auftrag, Hilfen (z. B. Satzanfänge, ein Beispiel) und Platz zum Schreiben – `file_id` in der Station.",
     "- Arbeitsauftrag ohne eigenes Blatt (`aufgabe`), z. B. etwas ins Heft schreiben oder mit dem Sitznachbarn vergleichen.",
@@ -299,7 +306,7 @@ export function claudeSelbstlernPrompt(ctx) {
     "0. Dieser Chat soll „" + chatName + "“ heißen. Beginne deine erste Antwort mit der Zeile „Chat-Name: " + chatName + "“ (umbenennen kann ich den Chat in claude.ai nur selbst).",
     "1. Rufe zuerst mit dem Connector „Unterricks“ `get_lesson` mit der Sitzungs-ID " + id + " auf: Dort stehen Thema, Stundenfrage bzw. Stundenziel, der geplante Inhalt (Schulportal-Eintrag, Planungsverlauf, Zusammenfassung), alle vorhandenen Materialien und die Zeile der Unterrichtseinheit." +
       (ctx.unit && ctx.unit.id ? " Die ganze Einheit liefert `get_unit` mit der ID " + ctx.unit.id + "." : "") + " Vorgaben im Wortlaut (Schulcurriculum, KCGO) liefert `get_planning_basis`.",
-    "2. Nenne mir kurz die Lerninhalte und das Stundenziel der geplanten Sitzung (Stundenfrage, Kompetenz). Sie bleiben in der Selbstlern-Phase erhalten.",
+    "2. Nenne mir kurz die Lerninhalte und das Stundenziel der geplanten Sitzung (Stundenfrage, Kompetenz). Sie bleiben in der Selbstlern-Phase erhalten." + stopLine,
     "3. Entwickle mindestens drei verschiedene Ideen für eine Selbstlern-Sitzung, die vollständig ohne Lehrkraft funktioniert. Jede Idee " + (analog ? "besteht aus analogen Stationen" : "kombiniert die Methoden oben zu Stationen") +
       " in sinnvoller Reihenfolge – mit Minuten je Station, wie die Schüler:innen das Stundenziel erreichen und woran sie merken, dass sie es erreicht haben. Stelle mir die Ideen mit Vor- und Nachteilen vor und nenne deine Empfehlung. Warte auf meine Wahl.",
     "4. Passe die gewählte Idee nach meinen Wünschen an, bis ich ihr ausdrücklich zustimme. Vorher speicherst du nichts in Unterricks.",

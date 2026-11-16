@@ -145,8 +145,10 @@ export function prevStopCard(ps, opt) {
   const gs = !!opt.gs, d = ps.decision && STOP_CHOICE_TEXT[ps.decision.choice] ? ps.decision : null, id = opt.id || "prevstop";
   const sum = stopOpenSummary(ps.open != null ? ps.open : "", { gs, nameOf: opt.nameOf });
   const adjusts = !!(opt.unit || ps.row);
+  // Selbstlern-Phase (Nachtrag 29, opt.selbstlern = Text des Knopfs): Claude klärt den offenen Teil beim Überarbeiten der Selbstlern-Phase (Prompt und get_lesson fragen danach)
   const state = d ? "Entschieden am " + stopDecidedOn(d) + ": " + STOP_CHOICE_TEXT[d.choice]
-    : "Beim Planen mit Claude („Stunde mit Claude planen“) erklärt Claude, was offen geblieben ist, und fragt Sie, ob es in diese Stunde übernommen oder darauf verzichtet wird." +
+    : (opt.selbstlern ? "Beim Überarbeiten der Selbstlern-Phase mit Claude (Knopf „" + opt.selbstlern + "“) erklärt Claude, was offen geblieben ist, und fragt Sie, ob es als Station übernommen oder darauf verzichtet wird."
+      : "Beim Planen mit Claude („Stunde mit Claude planen“) erklärt Claude, was offen geblieben ist, und fragt Sie, ob es in diese Stunde übernommen oder darauf verzichtet wird.") +
       (adjusts ? " Danach passt Claude die Unterrichtseinheit an." : "");
   return h("section", { class: "card prevstop", id, role: "note", "aria-labelledby": id + "-h" },
     h("h2", { id: id + "-h", text: "Hinweis: Die letzte Stunde wurde nicht vollständig beendet" }),

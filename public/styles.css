@@ -1348,6 +1348,9 @@ img.sub-photo { max-width: 100%; max-height: 60vh; border-radius: 12px; border: 
 /* Klassenseite: mit der Karte „Kurseinstellungen“ ist die rechte Spalte oft höher als der Bildschirm – dann nicht kleben (sonst bliebe
    das Formular „Neue Unterrichtseinheit planen“ unter dem unteren Rand, bis man ans Seitenende scrollt) */
 .side:has(> .cs-card) { position: static; }
+/* Sitzung (Gymnasium): Sitzungscode, Sitzungsdaten, „Mitbringen“ (Nachtrag 28) und „Ohne Lehrkraft“ (Nachtrag 29) sind zusammen fast immer höher als der
+   Bildschirm (1366 × 900: ≈ 1970 px) – klebend blieben „Mitbringen“ und der Knopf zur Selbstlern-Phase bis zum Seitenende unsichtbar (Abschlussprüfung Nr. 27–30) */
+.side:has(> .bring) { position: static; }
 /* Sitzung der Grundschule: Verlaufsplan ganz oben, PDF-Namen wie mit Textmarker (dunkle Schrift auf Gelb, unterstrichen – in beiden Farbschemata ≈ 12:1) */
 .gsplan-view { min-height: 0; }
 .gsplan .portal-preview.gsplan-view:not(.hidden) { margin-top: .2rem; }

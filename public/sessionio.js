@@ -124,7 +124,12 @@ export async function buildSessionZip(detail, { fb = T.fb, onStep = () => {}, ho
     Object.assign(data.lesson, { parentSummary: L.parentSummary || "", parentNote: L.parentNote || "" });
     if (L.cancelled) data.source.cancelled = true;
   }
-  const sub = detail.substitute;
+  const sub = detail.substitute || detail.sub || null;   // Antwort von GET /api/teacher/lessons/:id (Sicherung) bzw. Zustand der Sitzungsseite (st.sub)
+  // normale Sitzungsdatei einer Sitzung ohne Lehrkraft (Abschlussprüfung Nr. 27–30): Sie enthält die Fassung, die gerade gilt – das sagt der Hinweis
+  if (!full && sub && (sub.status === "selbstlern" || sub.status === "aktiv")) notes.push((sub.status === "selbstlern"
+    ? "Diese Sitzung ist eine Selbstlern-Phase: Die Datei enthält ihre jetzige Fassung (Schulportal-Eintrag, Hausaufgabe und Material der Stationen) – ohne den Ablaufplan der Stationen und ohne die ursprüngliche Planung. "
+    : "Für diese Sitzung gilt eine ältere Vertretung: Die Datei enthält die Vertretungsstunde – ohne die ursprüngliche Planung. ") +
+    "Die ursprüngliche Planung kehrt mit „Wiederherstellen“ in der Sitzung zurück und steht in der großen Sicherung.");
   if (full && sub) {
     // Vertretung: der Plan selbst und – nach dem Bestätigen – die ursprüngliche Planung der Lehrkraft (Schulportal, Hausaufgabe, Feibeitsblätter, Material)
     data.substitute = { status: sub.status, proposal: sub.proposal || null, confirmedAt: sub.confirmedAt || null };

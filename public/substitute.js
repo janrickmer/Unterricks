@@ -13,7 +13,7 @@ import { portalPreview, paintPortalPreview } from "./portalview.js";
 import { SELBSTLERN, SELBSTLERN_BUTTON, SELBSTLERN_INTRO, SELBSTLERN_INTRO_ANALOG, readSelbstlern, stationLabel, claudeSelbstlernPrompt, selbstlernChatName,
   youtubeUrl, fmtVideoStart } from "./selbstlern.js";
 
-export function substituteCards({ id, st, L, ctx, analog, reload, openDraft, flushPortal, teacherNext = () => null }) {
+export function substituteCards({ id, st, L, ctx, analog, reload, openDraft, flushPortal, teacherNext = () => null, previousStop = () => null }) {
   const mainBox = h("div");
   const side = h("section", { class: "card sick selfside", "aria-labelledby": "sl-side-h" });
   const status = () => (st.sub ? st.sub.status : null);
@@ -30,7 +30,7 @@ export function substituteCards({ id, st, L, ctx, analog, reload, openDraft, flu
         (active ? " Die Sitzung ist schon eine Selbstlern-Phase – Claude überarbeitet sie mit Ihnen." : ""),
       after: "Wenn Claude die Sitzung mit „save_selbstlern“ umgestellt hat, kommen Sie hierher zurück: Die Karte „Selbstlern-Phase“ oben auf dieser Seite zeigt die Stationen. Feibeitsblätter aus dem Chat legen Sie dort bzw. unter „Feibeitsblatt“ an.",
       chatName: () => selbstlernChatName(ctx()),
-      prompt: () => claudeSelbstlernPrompt({ ...ctx(), teacherNextDate: teacherNext(), active: status() === SELBSTLERN }) });
+      prompt: () => claudeSelbstlernPrompt({ ...ctx(), previousStop: previousStop(), teacherNextDate: teacherNext(), active: status() === SELBSTLERN }) });
   }
 
   function paintSide() {

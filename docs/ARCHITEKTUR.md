@@ -73,6 +73,7 @@ implementiert und im End-to-End-Test geprüft (Ausnahmen unten ausdrücklich gen
 | Gegenstände zum Einpacken (Nachtrag 28 vom 15.11.2026) | Unter „Druckaufträge für den nächsten Arbeitstag“ auf **beiden Startseiten** ein **roter Kasten „Für den nächsten Arbeitstag einpacken“** mit den Gegenständen, die die Lehrkraft für die Sitzungen desselben Tages mitbringen muss (z. B. Bibel, Beutel), als **Stichpunktliste**; ein Klick auf einen Gegenstand klappt in **kleinerer Schrift** auf, **an welcher Stelle und in welcher Lerngruppe** er gebraucht wird (je Sitzung höchstens zwei Sätze). Rückfrage beantwortet: **Claude + von Hand** – Claude trägt sie beim Planen über den Connector ein (`update_lesson` mit `mitbringen`), die Lehrkraft ergänzt, ändert und löscht sie auf der Sitzungsseite (Karte „Mitbringen“); **Gymnasium und Grundschule**. Ohne Gegenstände kein Kasten. Siehe 4v |
 | Selbstlern-Phase statt Krankheitsvertretung (Nachtrag 29 vom 15.11.2026, Teil A) | Knopf **„Präsenz der Lehrkraft nicht möglich – Unterricht in Selbstlern-Phase umbauen“** (die Lehrkraft tippte einen Bindestrich; Unterricks setzt wie überall den Gedankenstrich), nur Gymnasium. Rückfragen beantwortet: **ersetzt die Krankheitsvertretung ganz** (Feibeitsblatt und Escape-Room können Stationen sein; ältere Vertretungen bleiben lesbar), **Jg. 5/6 analoge Selbstlern-Stationen** (Laufzettel, Arbeitsblätter, Lösungskontrolle auf der Druckliste; die Aufsicht teilt nur aus), **KI-Chatbots wie die KI-Begriffshilfe** (dieselben kostenlosen Dienste, dieselbe Einwilligung, ohne Namen), **YouTube eingebettet nach Klick** (youtube-nocookie.com, „Video in neuem Tab öffnen“), **Hausaufgabe von Anfang an sichtbar**. Claude entwickelt im Chat mindestens drei Ideen, speichert erst nach ausdrücklicher Zustimmung mit `save_selbstlern` (ein Schritt; die ursprüngliche Planung wird archiviert, „Wiederherstellen“ macht die Sitzung wieder normal) – Abschnitt 4w. **Teil B** (Schüleransicht, Erklär-Chatbot, Video nach Klick, KI-Begriffshilfe ganz unten; Chatbots ab Beginn der Sitzung bis zur nächsten Sitzung mit der Lehrkraft) – Abschnitt 4x |
 | Speicher in der Fußzeile (Nachtrag 30 vom 15.11.2026) | Ganz unten auf **jeder Seite der Lehrkraft** steht **„Speicher: n % belegt“** – Rückfrage beantwortet: **„knapperer Wert + Details“**: n ist der **höhere** der beiden Anteile – Dateien (R2, Grenze 9 GB) und Datenbank (D1, 500 MB im kostenlosen Plan); ein Klick bzw. Antippen klappt **beide Werte** auf („Dateien: 1,1 von 9 GB · Datenbank: 40 von 500 MB“). Ab 80 % ein Hinweis (Tinte mit Warnsymbol), ab 95 % rot mit „fast voll“; nie bei Schüler:innen, Eltern oder am Beamer – Abschnitt 4y |
+| Abschlussprüfung Nr. 27–30 (16.11.2026) | Zusammenspiel geprüft und abgerundet (Abschnitt 4z): `save_selbstlern` gilt als **Planung der Sitzung** (Nachtrag 26 – der Hinweis zum Zwischenstopp der vorigen Stunde verschwindet nach Entscheidung + Umstellung; „Wiederherstellen“ setzt den Stand der ursprünglichen Planung zurück); der **Selbstlern-Prompt** fragt nach dem offenen Teil der vorigen Stunde; `get_lesson` der **nächsten Stunde mit der Lehrkraft** nennt die Selbstlern-Phase(n) davor samt jetzt fälliger Hausaufgabe (und `get_lesson` der Selbstlern-Sitzung ihre Hausaufgabe mit dem aktuellen Termin); die Sitzungsdatei sagt, welche Fassung sie enthält; die Karte „Mitbringen“ einer Selbstlern-Sitzung sagt, warum ihre Gegenstände nicht im roten Kasten stehen; die rechte Spalte der Sitzung (Gymnasium) **klebt nicht mehr** (sonst blieben „Mitbringen“ und der Knopf zur Selbstlern-Phase bis zum Seitenende unsichtbar) |
 
 ## 2. Gesamtarchitektur
 
@@ -495,7 +496,7 @@ implementiert und im End-to-End-Test geprüft (Ausnahmen unten ausdrücklich gen
   tragen („Auch ausdrucken (22×)“, `print_copies` an der Schülerdatei) und stehen dann auf der Druckliste. Claude: `get_lesson` im
   Grundschul-Aufbau (Kurs, Kinder, Verlaufsplan, Elternfelder, PDFs des Kurses mit `file_id`, Bildkarten, Ausfälle – kein Sitzungscode),
   `save_verlaufsplan` (prüft die Verweise und sagt, was Eltern sehen), `update_lesson` mit `inhalt_eltern`, `add_material_pdf` mit `anzahl`;
-  `save_schulportal_entry`, `propose_feibeitsblatt` und `save_substitute_plan` lehnen Grundschul-Sitzungen ab. Die Regel zur unterstrichenen
+  `save_schulportal_entry`, `propose_feibeitsblatt` und `save_selbstlern` (früher `save_substitute_plan`) lehnen Grundschul-Sitzungen ab. Die Regel zur unterstrichenen
   Aufforderung an die Lehrkraft (Nachtrag Nr. 12) steht in `VERLAUFSPLAN_RULES` (`gsplanning.js`) und am Gymnasium als `PORTAL_TEACHER_RULE`
   (`shared.js`) in den Anweisungen des Connectors, bei `save_schulportal_entry`, im Prompt „Stunde mit Claude planen“ und im
   Schulportal-Teil der Vertretung; die kostenlose KI schreibt die Aufforderung in ‹…›, Unterricks macht daraus __…__.
@@ -1609,6 +1610,63 @@ beim Antippen beide Werte.
   `meta.size_after` wie D1. E2E-Schritt „Speicher in der Fußzeile der Lehrkraft“ (`test/e2e/storage.mjs`): echter Stand auf fünf Seiten beider
   Schulformen, Aufklappen mit Maus und Tastatur, 86 % und 96 % nur im Test (`page.route`) mit Farben hell und dunkel, keine Anzeige und keine Anfrage bei
   Schüler:innen, Eltern und am Beamergerät; Bildschirmfotos `test-results/speicher-*.png`.
+
+## 4z. Abschlussprüfung Nr. 27–30: Zusammenspiel (16.11.2026)
+
+Geprüft wurden die vier Texte der Lehrkraft (Nr. 27–30) und ihre Antworten Satz für Satz gegen Code, Prompts (so gelesen, wie Claude sie bekommt),
+Tests und Doku – und, wo sich die Funktionen berühren, gegen Zwischenstopp (Nr. 13/26), Druckaufträge (Nr. 14), Zusammenfassung (Nr. 21), Podcast
+(Nr. 22), unterrichtsfreie Tage (Nr. 24), Dialoge (Nr. 25), Stände nach einem Update (4t), KI-Begriffshilfe und die Regeln für Grundschule und Jg. 5/6.
+
+- **Selbstlern-Phase nach einem Zwischenstopp (Befund, behoben).** Endete die vorige Stunde mit „⏸ Zwischenstopp“ und wird die nächste Sitzung zur
+  Selbstlern-Phase, blieb der Hinweis „Die letzte Stunde wurde nicht vollständig beendet“ auf ihrer Seite **für immer** stehen: `save_selbstlern`
+  schrieb den neuen Schulportal-Eintrag mit `portal_source='selbstlern'`, aber ohne `plan_saved_at` – nach Nachtrag 26 zählt die Entscheidung nur mit
+  einer danach gespeicherten Planung. Jetzt setzt `save_selbstlern` (mit `schulportal`) `plan_saved_at` in derselben Anweisung; das Archiv merkt sich
+  den Stand der ursprünglichen Planung (`archive.planSavedAt` = `planSavedAt(l)`, also auch für ältere Zeilen ohne Spalte), „Wiederherstellen“ setzt
+  ihn zurück – die ursprüngliche Planung kennt den offenen Teil nicht, der Hinweis gilt dann wieder (die Entscheidung bleibt). Ältere Archive ohne
+  `planSavedAt`: Spalte unverändert. Keine zusätzliche D1-Anweisung.
+- **Selbstlern-Prompt und offener Teil.** `get_lesson` nannte den offenen Teil schon („So gehst du vor (auch wenn dein Prompt diesen Abschnitt nicht
+  enthält)“), der Prompt selbst nicht. Jetzt hängt Schritt 2 – nur solange der Hinweis nicht erledigt ist – einen Satz an: Claude erklärt, was offen
+  geblieben ist, fragt, ob es **als Station** in die Selbstlern-Phase kommt (`zwischenstopp` "uebernehmen") oder nicht ("verzichten"), und hält die
+  Antwort mit `update_lesson` fest, bevor die Ideen kommen (mit schon getroffener Entscheidung: „habe ich schon entschieden“). Ohne Zwischenstopp ist
+  der Prompt byte-gleich. Die Karte zum Zwischenstopp auf einer Selbstlern-Sitzung nennt statt „Stunde mit Claude planen“ den Weg über den Knopf zur
+  Selbstlern-Phase (normale Sitzungen unverändert).
+- **Nächste Stunde mit der Lehrkraft (Befund, behoben).** Die Hausaufgabe einer Selbstlern-Phase („alle Stationen bis zum Beginn der nächsten Sitzung
+  mit der Lehrkraft“) wird zu genau dieser Sitzung fällig – Claude wusste beim Planen davon nichts (lessonContext nennt die vorige Sitzung nur über
+  die Zeile der Einheit). `get_lesson` (Gymnasium) hat dafür den Abschnitt **„## Vorher ohne Lehrkraft: Selbstlern-Phase(n)“**: die Selbstlern-
+  Sitzungen direkt davor (zeitlich geordnet, bis zur ersten Sitzung mit Lehrkraft, höchstens 6) mit Titel, Datum, Sitzungs-ID, Stationen (Titel +
+  Methode) und ihrer Hausaufgabe (Standardtext mit dem Datum dieser Sitzung, `selbstlernHomeworkNow`), dazu: „Frage die Lehrkraft, ob diese Stunde
+  mit einer kurzen Besprechung bzw. Sicherung der Ergebnisse beginnen soll“. Nicht für Sitzungen, die selbst ohne Lehrkraft sind, nicht in der
+  Grundschule. Eine Abfrage mehr in get_lesson (`selbstlernBeforeLines`, worker/substitute.js); Prompts unverändert.
+- **„Mitbringen“ einer Selbstlern-Sitzung.** Der rote Kasten lässt ihre Gegenstände weg (S26-Prüfung, auch für Selbstlern); die Karte auf der
+  Sitzungsseite zeigte sie aber ohne Erklärung. Jetzt `#bring-absent` (`BRING_ABSENT`, bei einer älteren aktiven Vertretung `BRING_ABSENT_OLD`), folgt
+  dem Stand beim Zurückkehren in den Tab.
+- **Hausaufgabe in `get_lesson` einer Selbstlern-Sitzung (offen aus der S27-Prüfung, behoben).** Unter „Hausaufgabe aus dieser Sitzung“ stand der
+  gespeicherte Text – bei mehreren Tagen ohne Lehrkraft mit einem älteren Datum als im Abschnitt „Selbstlern-Phase“ darunter. Jetzt wie in der
+  Schüleransicht und auf der Sitzungsseite `selbstlernHomeworkNow` mit dem aktuellen Termin (eigener Text bleibt); der Termin wird einmal gelesen
+  und für beide Stellen benutzt (keine zusätzliche Abfrage).
+- **`update_lesson` mit `mitbringen` in einer Selbstlern-Phase:** Die Antwort sagte „Unterricks zeigt sie der Lehrkraft am Vortag auf der
+  Startseite“ – in der Selbstlern-Phase stimmt das nicht. Jetzt: gespeichert, aber nicht auf der Startseite, solange die Selbstlern-Phase gilt
+  (normale Sitzungen unverändert; eine Abfrage nur in diesem Fall).
+- **Sitzung als Datei einer Sitzung ohne Lehrkraft:** Die normale Sitzungsdatei enthält die Fassung, die gerade gilt (Schulportal-Eintrag,
+  Hausaufgabe und Material der Selbstlern-Phase – ohne Ablaufplan der Stationen, ohne die ursprüngliche Planung); bisher ohne jeden Hinweis. Jetzt
+  nennt der Hinweis nach dem Herunterladen beides und den Weg zur ursprünglichen Planung („Wiederherstellen“, große Sicherung); ebenso für eine
+  ältere aktive Vertretung. Die Sicherung (mit Archiv) bleibt, wie sie war. `buildSessionZip` liest dafür `detail.substitute` (Server) bzw.
+  `detail.sub` (Zustand der Sitzungsseite).
+- **Rechte Spalte der Sitzung (Befund, behoben).** Sitzungscode, Sitzungsdaten, „Mitbringen“ und „Ohne Lehrkraft“ sind zusammen ≈ 1970 px hoch
+  (1366 × 900); die Spalte klebte (`position: sticky; top: 78px`) – damit waren „Mitbringen“ und der Knopf „Präsenz der Lehrkraft nicht möglich – …“
+  erst am Seitenende (ab ≈ 3600 px Scrollweg) zu sehen. `.side:has(> .bring) { position: static }` (wie schon auf der Klassenseite mit
+  „Kurseinstellungen“ und in der Grundschule).
+- **Ohne Befund (Auswahl):** Konzentrationsaufgabe in jedem Prompt, der eine Grundschul-Sitzung plant (Stunde, Überarbeitung der Einheit; die
+  Einheitsplanung plant kein Sitzungsmaterial; Krankmeldung verschiebt nur), nie bei Eltern/Kindern; roter Kasten auf beiden Startseiten direkt
+  unter den Druckaufträgen, derselbe Tag; Selbstlern-Ausdrucke (Jg. 5/6) bleiben in den Druckaufträgen mit Abzeichen, archivierte ursprüngliche
+  Ausdrucke nicht (Bereich `archive`); Podcast ohne Selbstlern-Sitzungen; Speicheranzeige zählt neue Daten von selbst (R2-Summe über `files`, auch
+  Selbstlern-Material und Archiv; D1 über `size_after`); neue Dialoge über `modal()`/`confirmDialog()`; Nachladen nur über `lazy()`; MCP-Anweisungen
+  nicht länger (5646 Zeichen).
+- **Tests:** `test/unit/nr2730.test.mjs` (Hinweis erledigt/zurück, älteres Archiv, Prompt mit/ohne offenen Teil, get_lesson der nächsten Stunde,
+  „Mitbringen“-Hinweis, Karte zum Zwischenstopp, Hausaufgabe in get_lesson, Antwort von update_lesson, Hinweis der Sitzungsdatei); E2E-Schritt „Selbstlern-Phase nach einem Zwischenstopp …“ (`test/e2e/selbstlernstop.mjs`, eigener
+  Test-Kurs PoWi 9G in der Vergangenheit, danach gelöscht): Prompt, Entscheidung + `save_selbstlern` → Hinweis weg, „Mitbringen“-Hinweis, get_lesson
+  der nächsten Stunde, Antwort von update_lesson, Sitzungsdatei mit Hinweis, „Wiederherstellen“ → Hinweis zurück, rechte Spalte lässt den Knopf in
+  den sichtbaren Bereich scrollen.
 
 ## 4i. Druckliste „Von der Lehrkraft auszudrucken“ (Ergänzung vom 10.11.2026)
 

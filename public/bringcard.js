@@ -14,6 +14,9 @@ export const BRING_INTRO = "Gegenstände, die Sie für diese Stunde von zu Hause
   "Am Tag davor stehen sie auf der Startseite im roten Kasten „" + BRING_BOX_TITLE + "“.";
 export const BRING_EMPTY = "Nichts mitzubringen. Claude trägt Gegenstände beim Planen ein – oder Sie fügen sie selbst hinzu.";
 export const BRING_FULL = "Höchstens " + BRING_LIMITS.items + " Gegenstände je Sitzung.";
+// Selbstlern-Phase bzw. ältere, aktive Vertretung: die Lehrkraft kommt nicht – die Startseite zeigt die Gegenstände dann nicht (printjobs.js); hier steht es
+export const BRING_ABSENT = "Für diese Sitzung gilt eine Selbstlern-Phase: Sie sind nicht da – deshalb stehen diese Gegenstände nicht im roten Kasten der Startseite (nach „Wiederherstellen“ wieder).";
+export const BRING_ABSENT_OLD = "Für diese Sitzung gilt eine Vertretung: Sie sind nicht da – deshalb stehen diese Gegenstände nicht im roten Kasten der Startseite (nach dem Wiederherstellen wieder).";
 
 const afterDialog = () => new Promise((r) => setTimeout(r, 0));
 /* Lerngruppe im Beispiel des Hinweises: „in der 9D“, „im Kurs 8-K“, „im Q2-GK“, Grundschule „im Kurs Religion 2ab“ */
@@ -31,8 +34,9 @@ export function applyBringOp(list, op) {
   return xs;
 }
 
-/* id = Sitzung, L() = Sitzungsdaten (bring, bringRev – werden bei Änderungen mitgeführt), course = Grundschulkurs oder null */
-export function bringCard({ id, L, course = null }) {
+/* id = Sitzung, L() = Sitzungsdaten (bring, bringRev – werden bei Änderungen mitgeführt), course = Grundschulkurs oder null,
+   absent() = Stand der Sitzung ohne Lehrkraft ("selbstlern" | "aktiv" | null; Gymnasium) */
+export function bringCard({ id, L, course = null, absent = () => null }) {
   let mode = null, saving = false, pending = null;   // mode: null | {kind: "add"} | {kind: "edit", key, entry}
   const items = () => (Array.isArray(L().bring) ? L().bring : []), rev = () => (Number.isInteger(L().bringRev) ? L().bringRev : 0);
   const state = h("span", { class: "save-state", role: "status" });
@@ -52,9 +56,12 @@ export function bringCard({ id, L, course = null }) {
     h("div", { class: "field" }, h("label", { for: "bring-note" }, "Wo und in welcher Lerngruppe? (höchstens zwei Sätze)"), fNote,
       h("p", { class: "hint", id: "bring-note-h", text: "Zum Beispiel: „In Phase 2 (" + (course ? "Erzählung im Sitzkreis" : "Erarbeitung") + ") " + groupIn(L().klass, course) + ".“" }), h("p", { class: "hint" }, count)),
     err, h("div", { class: "row" }, saveBtn, cancelBtn));
+  const away = h("p", { class: "hint bring-absent hidden", id: "bring-absent" });
+  const paintAbsent = () => { const a = absent(); away.textContent = a === "selbstlern" ? BRING_ABSENT : a === "aktiv" ? BRING_ABSENT_OLD : ""; away.classList.toggle("hidden", !a); };
   const el = h("section", { class: "card bring", id: "bring", "aria-labelledby": "bring-h" },
     h("div", { class: "section-title" }, h("h2", { id: "bring-h" }, icon("bag"), h("span", { text: BRING_CARD_TITLE })), state),
-    h("p", { class: "small muted bring-intro", text: BRING_INTRO }), list, empty, form, h("div", { class: "row bring-addrow" }, addBtn), full);
+    h("p", { class: "small muted bring-intro", text: BRING_INTRO }), away, list, empty, form, h("div", { class: "row bring-addrow" }, addBtn), full);
+  paintAbsent();
 
   const rowBtn = (key, cls) => Array.from(list.querySelectorAll("button." + cls)).find((b) => b.dataset.key === key) || null;
   // refocus false: der Aufrufer setzt den Fokus selbst (Löschen: auf den nächsten Gegenstand)
@@ -182,7 +189,7 @@ export function bringCard({ id, L, course = null }) {
   onLeave(() => window.removeEventListener("beforeunload", beforeUnload));
   paint();
   return {
-    el, dirty,
+    el, dirty, paintAbsent,
     // Stand von außen (Claude über den Connector, beim Zurückkehren in den Tab): nie in ein offenes Formular – das übernimmt ihn erst danach
     update(l) {
       if (!l || !Array.isArray(l.bring)) return;

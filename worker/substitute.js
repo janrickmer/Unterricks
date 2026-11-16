@@ -9,10 +9,10 @@ import { HttpError, bad, json, readJson, randomId, isId, cleanText } from "./lib
 import { requireTeacher } from "./auth.js";
 import { requireAccess } from "./student.js";
 import { normalizeEscapeRoom } from "../public/escape-data.js";
-import { getLesson, savePortal, LIMITS, nextTeacherLessonDate } from "./lessons.js";
+import { getLesson, savePortal, LIMITS, nextTeacherLessonDate, planSavedAt } from "./lessons.js";
 import { fileKey, checkStorage, deleteNotfallFiles, deleteFileObjects } from "./files.js";
 import { isAnalogClass, subjectName, classShort, GS_SUBJECT, normalizeFbDraft, formatCode, fmtDay, TEACHER_SUMMARY_TITLE } from "../public/shared.js";
-import { SELBSTLERN, SELBSTLERN_INTRO, SELBSTLERN_INTRO_ANALOG, normalizeSelbstlern, readSelbstlern, stationLabel, selbstlernHomework, fmtVideoStart } from "../public/selbstlern.js";
+import { SELBSTLERN, SELBSTLERN_INTRO, SELBSTLERN_INTRO_ANALOG, normalizeSelbstlern, readSelbstlern, stationLabel, selbstlernHomework, selbstlernHomeworkNow, fmtVideoStart } from "../public/selbstlern.js";
 
 export const ESCAPE_ROOMS_AVAILABLE = true;   // Escape-Room-Vorlage der Plattform (public/escape.js, Finale im Feibeitsblatt)
 const parseJ = (s, d) => { try { const v = JSON.parse(s); return v ?? d; } catch { return d; } };
@@ -92,7 +92,9 @@ export async function saveSelbstlern(c, lessonId, raw) {
   const toArchive = files.filter((f) => ["student", "teacher", "print"].includes(f.area) && f.source !== SELBSTLERN && !f.notes_of && !keep.has(f.id) &&
     !(f.source === "notfall" && (keepCodes.has(f.fb_code) || (!first && !origCodes.has(f.fb_code)))));
   const toRestore = files.filter((f) => f.area === "archive" && archived.has(f.id) && (keep.has(f.id) || (f.source === "notfall" && keepCodes.has(f.fb_code))));
-  const archiveRec = first ? { portal: l.portal || "", portalSource: l.portal_source || "", homework: l.homework || "", files: [], sheets: origSheets, at: now } : { ...archive, files: [...(archive.files || [])] };
+  // planSavedAt: wann die ursprüngliche Planung gespeichert wurde (Nachtrag 26) – „Wiederherstellen“ setzt es zurück, damit ein Hinweis zum Zwischenstopp
+  // der vorigen Stunde, den erst die Selbstlern-Phase erledigt hat, für die wiederhergestellte Planung wieder gilt
+  const archiveRec = first ? { portal: l.portal || "", portalSource: l.portal_source || "", planSavedAt: planSavedAt(l), homework: l.homework || "", files: [], sheets: origSheets, at: now } : { ...archive, files: [...(archive.files || [])] };
   archiveRec.files = archiveRec.files.filter((x) => !toRestore.some((f) => f.id === x.id)).concat(toArchive.map((f) => ({ id: f.id, area: f.area })));
 
   // gespeicherte Daten: Stationen mit Kennung (für den Erklär-Chatbot), Escape-Room samt Entwurf seines Finales
@@ -122,7 +124,8 @@ export async function saveSelbstlern(c, lessonId, raw) {
       .bind(lessonId, code, o ? o.title : st.titel, now, o ? o.kind || "" : ""));
   }
   stmts.push(schulportal
-    ? db.prepare("UPDATE lessons SET homework=?2, portal=?3, portal_version=portal_version+1, portal_updated_at=?4, portal_source='selbstlern', updated_at=?4 WHERE id=?1").bind(lessonId, cleanText(hausaufgabe, LIMITS.homework), cleanText(schulportal, LIMITS.portal), now)
+    // der neue Eintrag ist die Planung dieser Sitzung (Nachtrag 26: plan_saved_at – mit einer Entscheidung zum Zwischenstopp der vorigen Stunde ist der Hinweis erledigt)
+    ? db.prepare("UPDATE lessons SET homework=?2, portal=?3, portal_version=portal_version+1, portal_updated_at=?4, portal_source='selbstlern', plan_saved_at=?4, updated_at=?4 WHERE id=?1").bind(lessonId, cleanText(hausaufgabe, LIMITS.homework), cleanText(schulportal, LIMITS.portal), now)
     : db.prepare("UPDATE lessons SET homework=?2, updated_at=?3 WHERE id=?1").bind(lessonId, cleanText(hausaufgabe, LIMITS.homework), now));
   stmts.push(db.prepare("INSERT INTO substitutes(lesson_id, status, proposal, archive, created_at, updated_at, confirmed_at) VALUES(?1, 'selbstlern', ?2, ?3, ?4, ?4, ?4) " +
     "ON CONFLICT(lesson_id) DO UPDATE SET status='selbstlern', proposal=excluded.proposal, archive=excluded.archive, updated_at=excluded.updated_at, " +
@@ -133,6 +136,30 @@ export async function saveSelbstlern(c, lessonId, raw) {
   await db.batch(stmts);
   for (const code of dropOwn) await deleteNotfallFiles(c, lessonId, code);
   return { first, stored, archiveRec, toArchive, toRestore, files, drafts, hausaufgabe, homeworkDate, analog, unlink: unlink.filter((x) => origCodes.has(x)), linked };
+}
+
+/* Die nächste Sitzung MIT der Lehrkraft nach einer oder mehreren Selbstlern-Phasen (Abschlussprüfung Nr. 27–30): Deren Hausaufgabe („alle Stationen bis zum
+   Beginn der nächsten Sitzung mit der Lehrkraft“) ist zu dieser Sitzung fällig – get_lesson nennt sie samt Stationen, damit Claude beim Planen fragt, ob die
+   Stunde mit einer kurzen Besprechung beginnt. Eine Abfrage (die Sitzungen direkt davor samt Stand); nichts, wenn diese Sitzung selbst ohne Lehrkraft ist,
+   in der Grundschule (keine Selbstlern-Phase) und ohne Datum. Reihenfolge wie previousLesson (Datum, angelegt). → Zeilen */
+export async function selbstlernBeforeLines(db, l, sub) {
+  if (!l || !l.lesson_date || l.subject === GS_SUBJECT || (sub && isAbsent(sub.status))) return [];
+  const r = await db.prepare("SELECT x.id, x.title, x.lesson_date, x.homework, s.status, s.proposal FROM lessons x LEFT JOIN substitutes s ON s.lesson_id=x.id " +
+    "WHERE x.subject=?1 AND x.klass=?2 AND x.id<>?3 AND x.lesson_date IS NOT NULL AND x.cancelled=0 AND (x.lesson_date < ?4 OR (x.lesson_date = ?4 AND x.created_at < ?5)) " +
+    "ORDER BY x.lesson_date DESC, x.created_at DESC LIMIT 6").bind(l.subject, l.klass, l.id, l.lesson_date, l.created_at).all();
+  const run = [];
+  for (const x of r.results || []) { if (x.status !== SELBSTLERN) break; run.unshift(x); }
+  if (!run.length) return [];
+  const out = ["", "## Vorher ohne Lehrkraft: Selbstlern-Phase" + (run.length > 1 ? "n" : ""),
+    (run.length > 1 ? "Die Sitzungen direkt vor dieser waren Selbstlern-Phasen" : "Die Sitzung direkt vor dieser war eine Selbstlern-Phase") + " (die Lehrkraft war nicht da). Ihre Hausaufgabe ist zu dieser Sitzung fällig:"];
+  for (const x of run) {
+    const p = readSelbstlern(x.proposal) || { stationen: [] };
+    out.push("- „" + (x.title || "(ohne Titel)") + "“ am " + fmtDay(x.lesson_date) + " (Sitzungs-ID " + x.id + "): Stationen " +
+      (p.stationen.length ? p.stationen.map((st) => st.nr + ". " + st.titel + " (" + stationLabel(st.typ) + ")").join("; ") : "(keine)") +
+      (x.homework ? " – Hausaufgabe: „" + String(selbstlernHomeworkNow(x.homework, l.lesson_date)).replace(/\s+/g, " ").slice(0, 400) + "“" : ""));
+  }
+  out.push("Frage die Lehrkraft, ob diese Stunde mit einer kurzen Besprechung bzw. Sicherung der Ergebnisse beginnen soll (offene Fragen, Ergebnisse vergleichen, Erledigtes prüfen); Einzelheiten zu den Stationen liefert `get_lesson` der Selbstlern-Sitzung.");
+  return out;
 }
 
 /* Antwort des Werkzeugs: was gespeichert und archiviert ist, was die Lehrkraft noch tun muss, Material ohne Station */
@@ -260,7 +287,10 @@ async function restoreSelbstlern(c, lessonId, s) {
   stmts.push(db.prepare("DELETE FROM fb_sheets WHERE lesson_id=?1").bind(lessonId));
   for (const sh of origSheets) stmts.push(db.prepare("INSERT INTO fb_sheets(lesson_id, code, title, created_at, kind) VALUES(?1, ?2, ?3, ?4, ?5) ON CONFLICT(lesson_id, code) DO NOTHING").bind(lessonId, sh.code, sh.title || "Feibeitsblatt", c.now, sh.kind || ""));
   if (draftIds.length) stmts.push(db.prepare("DELETE FROM fb_drafts WHERE lesson_id=?1 AND status='draft' AND id IN (SELECT value FROM json_each(?2))").bind(lessonId, JSON.stringify(draftIds)));
-  stmts.push(db.prepare("UPDATE lessons SET homework=?2, updated_at=?3 WHERE id=?1").bind(lessonId, a.homework || "", c.now));
+  // Stand der ursprünglichen Planung (Nachtrag 26, plan_saved_at) zurück – nur, wenn das Archiv ihn kennt (ältere Archive: Spalte unverändert)
+  const psa = Object.prototype.hasOwnProperty.call(a, "planSavedAt") ? (Number.isFinite(a.planSavedAt) ? a.planSavedAt : null) : undefined;
+  stmts.push(psa === undefined ? db.prepare("UPDATE lessons SET homework=?2, updated_at=?3 WHERE id=?1").bind(lessonId, a.homework || "", c.now)
+    : db.prepare("UPDATE lessons SET homework=?2, plan_saved_at=?4, updated_at=?3 WHERE id=?1").bind(lessonId, a.homework || "", c.now, psa));
   stmts.push(db.prepare("DELETE FROM substitutes WHERE lesson_id=?1").bind(lessonId));
   await db.batch(stmts);
   // „zuletzt von …“ wie vorher (Prüfbefund: sonst stand nach dem Wiederherstellen immer „lehrkraft“ da)
