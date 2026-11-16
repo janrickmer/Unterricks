@@ -17,6 +17,7 @@ import { dialogsE2E } from "./dialogs.mjs";
 import { updateE2E } from "./update.mjs";
 import { CONC_HTML, CONC_HTML_LONG } from "./konzentration.mjs";
 import { bringE2E } from "./bring.mjs";
+import { cardsPrintE2E } from "./cardsprint.mjs";
 import { storageE2E } from "./storage.mjs";
 import { selbstlernStopE2E } from "./selbstlernstop.mjs";
 import { escapeFixture } from "./escape-fixture.mjs";
@@ -3243,6 +3244,13 @@ async function main() {
       /* ---------- Nachtrag 28: Gegenstände zum Einpacken – roter Kasten unter den Druckaufträgen, Connector und Sitzungsseite ---------- */
       step("Für den nächsten Arbeitstag einpacken: Claude trägt Gegenstände ein (Gymnasium und Grundschule), roter Kasten unter den Druckaufträgen, Aufklappen, von Hand ändern, leer → kein Kasten");
       await bringE2E({ tp, BASE, T, tool, ok, OUT, SHOT, gymL, gsL, horizontalIssues });
+
+      /* ---------- Nachtrag 31: Bildkarten immer auf der Druckliste (1x, einseitig, farbig; abwählbar; nur neue) ---------- */
+      step("Bildkarten auf der Druckliste: von Claude gestaltet und hochgeladen, Druckliste der Sitzung, ZIP-Datei (alle Karten, A4 quer), Druckaufträge für den nächsten Arbeitstag, abwählen und wieder aufnehmen, noch nicht gedruckt, ältere Bildkarten, Erinnerung an Bildkarten");
+      {
+        const d1 = (sql) => execFileSync("npx", ["wrangler", "d1", "execute", "unterricks-db", "--local", "--persist-to", persist, "--command", sql], { cwd: ROOT, stdio: ["ignore", "pipe", "pipe"], env: { ...process.env, WRANGLER_SEND_METRICS: "false" } });
+        await cardsPrintE2E({ tp, BASE, T, tool, ok, OUT, SHOT, gsL, printer, d1, horizontalIssues });
+      }
 
       /* ---------- Nachtrag 30: belegter Speicher in der Fußzeile der Lehrkraft ---------- */
       step("Speicher in der Fußzeile der Lehrkraft: „Speicher: n % belegt“ auf jeder Seite der Lehrkraft (knapperer Wert von Dateien und Datenbank), aufklappbar, Hinweis ab 80 %, rot ab 95 %, nie bei Schüler:innen, Eltern und am Beamer");

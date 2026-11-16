@@ -5,9 +5,9 @@ import { lazy } from "./update.js";
 import { h, clear, toast, errToast, busy, modal, confirmDialog, fmtBytes, fmtTime, fileIcon, downloadUrl, downloadBlob, upload, apiUrl, nn, icon } from "./ui.js";
 import { onLeave } from "./app.js";
 import { T, tapi } from "./teacher.js";
-import { subjectName, formatCode, classShort, cleanWebUrl, webUrlLabel, printFileName, subjectShort } from "./shared.js";
+import { subjectName, formatCode, classShort, cleanWebUrl, webUrlLabel, printFileName, subjectShort, printReady, CARD_PRINT } from "./shared.js";
 import { renderMarkdown } from "./markdown.js";
-import { designState, printQueue } from "./designrender.js";
+import { designState, printDesignState, printQueue } from "./designrender.js";
 
 /* Ablagefläche für Dateien (Klick, Tastatur, Ziehen) */
 export function dropZone(label, hint, onFiles, accept, multiple = true) {
@@ -25,12 +25,16 @@ export function dropZone(label, hint, onFiles, accept, multiple = true) {
 /* Grundschule (gs: true): eigene Überschriften und Hinweise (labels), Dateien ausblenden (exclude, z. B. Bildkarten), ein Abzeichen je Datei
    (fileBadge(f) → Element, z. B. „Eltern sehen sie“), je PDF der Kinder „Auch ausdrucken (n×)“ (printCopies = Anzahl beim Einschalten) –
    solche PDFs stehen zusätzlich auf der Druckliste; subtitle/groupLabel für Text-PDFs und den Namen der ZIP-Datei; onChange() nach jeder Änderung
-   an den Dateien, die Name, Stand oder Bereich einer PDF betrifft (gedruckt, gelöscht, umbenannt, verschoben – z. B. für den Verlaufsplan). */
-export function materialBox({ lessonId: id, st, L, gs = false, labels = {}, exclude = null, fileBadge = null, printCopies = null, subtitle = null, groupLabel = null, onChange = null }) {
+   an den Dateien, die Name, Stand oder Bereich einer PDF betrifft (gedruckt, gelöscht, umbenannt, verschoben – z. B. für den Verlaufsplan).
+   Grundschule (Nachtrag 31): Bildkarten (f.cards) mit Druckangaben stehen auf der Druckliste – Anzahl, ein-/beidseitig und Farbe wie bei den anderen
+   Einträgen, „Nicht ausdrucken“ nimmt sie nur herunter (löscht nichts); onPrintChange(f) nach jeder Änderung ihrer Druckangaben (Karte „Bildkarten“). */
+export function materialBox({ lessonId: id, st, L, gs = false, labels = {}, exclude = null, fileBadge = null, printCopies = null, subtitle = null, groupLabel = null, onChange = null, onPrintChange = null }) {
   const lb = { student: "Für Schüler:innen zugänglich", teacher: "Nur für Lehrkräfte", toStudent: "Für Schüler:innen", toTeacher: "Nur für Lehrkraft",
     nowStudent: "Jetzt für Schüler:innen sichtbar.", nowTeacher: "Jetzt nur noch für Lehrkräfte.", teacherHint: "Wird Schüler:innen nie angezeigt", hint: null, ...labels };
   const shown = (f) => !exclude || !exclude(f);
   const changed = () => { if (onChange) onChange(); };
+  const printChanged = (f) => { if (onPrintChange && f && f.cards) onPrintChange(f); };
+  const isCards = (f) => gs && f.cards != null && f.area === "teacher";   // Bildkarten der Grundschule (nur auf der Druckliste, nie im Materialkasten)
   const textSub = () => subtitle || subjectName(L().subject) + " · " + L().klass;
   /* ======================= Materialien ======================= */
   const lists = { student: h("div", { class: "list" }), teacher: h("div", { class: "list" }) };
@@ -39,7 +43,7 @@ export function materialBox({ lessonId: id, st, L, gs = false, labels = {}, excl
   const rNotes = new Map(), rEls = new Map(), rowEls = new Map();   // Zwischenstand je Datei, die Stellen, die ihn zeigen, und die Zeilen
   const rq = printQueue();
   const designMeta = (f) => {
-    const d = designState(f), failed = rq.failed(f);
+    const d = printDesignState(f), failed = rq.failed(f);
     return rNotes.get(f.id) || (failed && d.need ? "Druck fehlgeschlagen: " + failed : rq.quota && d.need ? "Noch nicht gedruckt: " + rq.quota : d.text);
   };
   // nur die Zeile dieser Datei neu aufbauen (Fokus und Eingaben in den anderen Zeilen bleiben)
@@ -47,7 +51,7 @@ export function materialBox({ lessonId: id, st, L, gs = false, labels = {}, excl
     const f = st.files.find((x) => x.id === fid), el = rowEls.get(fid);
     if (!f || !el || !el.isConnected) { paintFiles(); paintPrint(); return; }
     const had = el.contains(document.activeElement);
-    const row = f.area === "print" ? printRow(f) : fileRow(f);
+    const row = f.area === "print" || isCards(f) ? printRow(f) : fileRow(f);
     el.replaceWith(row);
     if (had) (row.querySelector("button, input, select") || row).focus({ preventScroll: true });
   };
@@ -57,22 +61,23 @@ export function materialBox({ lessonId: id, st, L, gs = false, labels = {}, excl
     printNote.classList.toggle("hidden", !n);
   };
   onLeave(rq.on({
-    done: (nf) => { const f = st.files.find((x) => x.id === nf.id); if (!f) return; Object.assign(f, nf); if (!nf.design) delete f.design; repaintFile(f.id); changed(); },
+    done: (nf) => { const f = st.files.find((x) => x.id === nf.id); if (!f) return; Object.assign(f, nf); if (!nf.design) delete f.design; repaintFile(f.id); changed(); zipNoteDone(f); },
     note: (fid, t) => { if (t) rNotes.set(fid, t); else rNotes.delete(fid); const f = st.files.find((x) => x.id === fid); for (const el of rEls.get(fid) || []) if (el.isConnected && f) el.textContent = designMeta(f); },
     fail: (f0, e, quota) => { if (quota) { toast(e.message, "err", 9000); paintFiles(); paintPrint(); } else repaintFile(f0.id); },
     busy: showBusy,
   }));
   showBusy(rq.pending);
-  // Aktionen und Zeile „Stand“ für gestaltetes Material; null für alle anderen Dateien
+  // Aktionen und Zeile „Stand“ für gestaltetes Material; null für alle anderen Dateien. Bildkarten (Druckliste): Stand nach cardsPrintState (erst die PDF der
+  // aktuellen Gestaltung ist fertig), Download unter dem Namen der Druckliste (Link mit print: auch wo der Browser das download-Attribut nicht beachtet)
   function designBits(f, nameForDl) {
-    const d = designState(f);
+    const d = printDesignState(f);
     if (!d) return null;
     if (d.need) rq.add(f);
     const meta = h("span", { text: designMeta(f) });
     rEls.set(f.id, [...(rEls.get(f.id) || []).filter((x) => x.isConnected), meta]);
     const acts = [];
-    if (d.ok) acts.push(h("button", { class: "btn small" + (f.area === "print" ? " primary" : ""), type: "button", onclick: (e) => busy(e.currentTarget, async () => {
-      try { const r = await tapi("POST", "/api/teacher/files/" + f.id + "/link", { body: {} }); downloadUrl(r.url, nameForDl); } catch (err) { errToast(err); } }) }, icon("download"), "Herunterladen"));
+    if (d.ok) acts.push(h("button", { class: "btn small" + (f.area === "print" || isCards(f) ? " primary" : ""), type: "button", onclick: (e) => busy(e.currentTarget, async () => {
+      try { const r = await tapi("POST", "/api/teacher/files/" + f.id + "/link", { body: isCards(f) ? { print: true } : {} }); downloadUrl(r.url, nameForDl); } catch (err) { errToast(err); } }) }, icon("download"), "Herunterladen"));
     if (d.error || rq.failed(f) || (rq.quota && d.need)) acts.push(h("button", { class: "btn small", type: "button", onclick: () => { if (f.design) f.design = { ...f.design, error: null }; rq.again(f); repaintFile(f.id); } }, "Erneut drucken"));
     return { meta, acts, d, error: d.error || (!!rq.failed(f) && d.need) };
   }
@@ -190,7 +195,7 @@ export function materialBox({ lessonId: id, st, L, gs = false, labels = {}, excl
   /* ======================= Von der Lehrkraft auszudrucken (ganz unten) ======================= */
   // nur PDF, gedruckt wird nur A4 (andere Formate rechnet a4.js beim Hochladen um); Dateiname „28x - beidseitig - sw - Name.pdf“
   const printList = h("div", { class: "list" }), printProg = h("div", { class: "stack" });
-  const printFiles = () => st.files.filter((f) => f.area === "print" || (gs && f.area === "student" && f.print && shown(f)));
+  const printFiles = () => st.files.filter((f) => f.area === "print" || (gs && f.area === "student" && f.print && shown(f)) || (isCards(f) && f.print));
   const pdfLib = () => lazy(import("/vendor/pdf-lib.esm.min.js"));
   async function printBytes(f) {
     if (f.kind === "text") {
@@ -206,7 +211,7 @@ export function materialBox({ lessonId: id, st, L, gs = false, labels = {}, excl
     const p = f.print || { copies: 1, duplex: true, color: false };
     const nameEl = h("div", { class: "name", text: f.printName || f.name });
     const save = async (body) => {
-      try { const r = await tapi("PATCH", "/api/teacher/files/" + f.id, { body }); Object.assign(f, r.file); nameEl.textContent = f.printName; }
+      try { const r = await tapi("PATCH", "/api/teacher/files/" + f.id, { body }); Object.assign(f, r.file); nameEl.textContent = f.printName; printChanged(f); }
       catch (e) { errToast(e); paintPrint(); }
     };
     const copies = h("input", { type: "number", min: "1", max: "500", step: "1", value: String(p.copies), class: "pcopies", "aria-label": "Anzahl der Exemplare – " + f.name });
@@ -226,14 +231,24 @@ export function materialBox({ lessonId: id, st, L, gs = false, labels = {}, excl
       ...(des ? des.acts : [h("button", { class: "btn small primary", type: "button", onclick: (e) => busy(e.currentTarget, async () => {
         try {
           if (f.kind === "text") downloadBlob(new Blob([await printBytes(f)], { type: "application/pdf" }), f.printName);
-          else { const r = await tapi("POST", "/api/teacher/files/" + f.id + "/link", { body: {} }); downloadUrl(r.url, f.printName); }
+          else { const r = await tapi("POST", "/api/teacher/files/" + f.id + "/link", { body: isCards(f) ? { print: true } : {} }); downloadUrl(r.url, f.printName); }
         } catch (err) { errToast(err); }
       }) }, icon("download"), "Herunterladen")]),
-      h("button", { class: "btn small ghost", type: "button", "aria-label": "Umbenennen – " + f.name, onclick: async () => {
+      // Bildkarten: der Name gehört zum Kartensatz (Karte „Bildkarten“) – hier nur die Druckangaben
+      isCards(f) ? null : h("button", { class: "btn small ghost", type: "button", "aria-label": "Umbenennen – " + f.name, onclick: async () => {
         const n = prompt("Name der Druckvorlage (ohne Anzahl und Druckart):", f.name.replace(/\.pdf$/i, ""));
         if (!n || !n.trim()) return;
         await save({ name: n.trim() + (f.kind === "file" ? ".pdf" : "") }); paintPrint(); if (gs && f.area === "student") paintFiles(); changed();
       } }, icon("edit")),
+      // Bildkarten (Nachtrag 31): nur von der Druckliste nehmen – die Bildkarten, ihre Erzähltexte und die Elternansicht bleiben; Fokus danach auf die Überschrift
+      isCards(f) ? h("button", { class: "btn small ghost", type: "button", "aria-label": "Nicht ausdrucken – " + (f.printName || f.name), onclick: async (e) => {
+        const had = e.currentTarget;
+        try {
+          const r = await tapi("PATCH", "/api/teacher/files/" + f.id, { body: { copies: null } }); Object.assign(f, r.file); delete f.print; delete f.printName; paintPrint(); printChanged(f);
+          toast("„" + f.name + "“ steht nicht mehr auf der Druckliste – die Bildkarten selbst und die Elternansicht bleiben unverändert.", "ok", 6000);
+          if (!had.isConnected && (!document.activeElement || document.activeElement === document.body)) { printHead.setAttribute("tabindex", "-1"); printHead.focus({ preventScroll: true }); }
+        } catch (err) { errToast(err); }
+      } }, "Nicht ausdrucken") :
       f.area === "student" ? h("button", { class: "btn small ghost", type: "button", onclick: async () => {
         try { const r = await tapi("PATCH", "/api/teacher/files/" + f.id, { body: { copies: null } }); Object.assign(f, r.file); delete f.print; paintPrint(); paintFiles(); toast("„" + f.name + "“ steht nicht mehr auf der Druckliste (das Material für die Kinder bleibt).", "ok"); } catch (e) { errToast(e); }
       } }, "Nicht ausdrucken") :
@@ -243,8 +258,8 @@ export function materialBox({ lessonId: id, st, L, gs = false, labels = {}, excl
       } }, icon("trash")));
     const row = h("div", { class: "item printrow" + (des && des.error ? " design-err" : "") }, fileIcon(f.name, "application/pdf", "file"), h("div", { class: "main" }, nameEl,
       h("div", { class: "pset" }, h("label", { class: "small pcount" }, copies, h("span", { text: "Exemplare" })), duplex, color),
-      des ? h("div", { class: "meta" }, des.meta, (des.d.ok ? " · " + fmtBytes(f.size) : "") + (f.source === "vertretung" ? " · Vertretung" : f.source === "selbstlern" ? " · Selbstlern-Phase" : f.source === "uebernommen" ? " · übernommen" : ""))
-        : h("div", { class: "meta", text: (f.kind === "text" ? "Text (als A4-PDF)" : fmtBytes(f.size)) + (f.source === "claude" ? " · von Claude" : f.source === "uebernommen" ? " · übernommen" : "") })), acts);
+      des ? h("div", { class: "meta" }, des.meta, (isCards(f) ? " · Bildkarten" : "") + (des.d.ok ? " · " + fmtBytes(f.size) : "") + (f.source === "vertretung" ? " · Vertretung" : f.source === "selbstlern" ? " · Selbstlern-Phase" : f.source === "uebernommen" ? " · übernommen" : ""))
+        : h("div", { class: "meta", text: (isCards(f) ? "Bildkarten · " : "") + (f.kind === "text" ? "Text (als A4-PDF)" : fmtBytes(f.size)) + (f.source === "claude" ? " · von Claude" : f.source === "uebernommen" ? " · übernommen" : "") })), acts);
     rowEls.set(f.id, row);
     return row;
   }
@@ -267,29 +282,58 @@ export function materialBox({ lessonId: id, st, L, gs = false, labels = {}, excl
     }
   }
   const zipName = () => "Von der Lehrkraft auszudrucken - " + (groupLabel || subjectShort(L().subject) + " - " + classShort(L().klass)) + (L().date ? " - " + L().date : "") + ".zip";
+  /* Bildkarten, die (noch) nicht in der ZIP-Datei sind (Nachtrag 31): nie stillschweigend – die Zeile unter dem Knopf nennt sie mit dem Grund und bleibt stehen,
+     bis die ZIP-Datei neu gepackt wird; wird eine von ihnen inzwischen gedruckt, sagt sie, dass die ZIP-Datei jetzt vollständig wäre */
+  const zipNote = h("p", { class: "small warnc hidden", id: "print-zip-note", role: "status" }), zipMissing = new Set();
+  const cardWhy = (f) => { const d = printDesignState(f), failed = rq.failed(f);
+    return d && (d.error || (d.need && failed)) ? "der PDF-Druck hat nicht geklappt – bei der Datei „Erneut drucken“" : d && d.need && rq.quota ? "noch nicht gedruckt – " + rq.quota
+      : "wird gerade als PDF gedruckt – bitte gleich noch einmal herunterladen"; };
+  const cardsMissingText = (list) => "Nicht in der ZIP-Datei – " + (list.length === 1 ? "die Bildkarten " : "diese Bildkarten: ") +
+    list.map((f) => "„" + (f.printName || printFileName({ name: f.name, ...(f.print || CARD_PRINT) })) + "“ (" + cardWhy(f) + ")").join("; ") + ".";
+  function setZipNote(list) {
+    zipMissing.clear(); for (const f of list) zipMissing.add(f.id);
+    zipNote.textContent = list.length ? cardsMissingText(list) : ""; zipNote.classList.toggle("hidden", !list.length);
+  }
+  function zipNoteDone(f) {
+    if (!zipMissing.has(f.id) || !printReady(f)) return;
+    zipMissing.delete(f.id);
+    const rest = printFiles().filter((x) => zipMissing.has(x.id));
+    zipNote.textContent = rest.length ? cardsMissingText(rest) : "Die Bildkarten sind jetzt gedruckt – laden Sie die ZIP-Datei bitte noch einmal herunter, dann sind sie dabei.";
+  }
   const zipBtn = h("button", { class: "btn", type: "button", onclick: (e) => busy(e.currentTarget, async () => {
     try {
       const all = printFiles(); if (!all.length) return;
-      // gestaltete Vorlagen, die noch nicht gedruckt sind, fehlen in der ZIP-Datei (Hinweis)
-      const fs = all.filter((f) => !(f.design && f.status !== "ready")), wait = all.filter((f) => !fs.includes(f));
-      if (!fs.length) { toast("Die Vorlagen werden gerade noch als PDF gedruckt – bitte gleich noch einmal.", "err"); return; }
+      // gestaltete Vorlagen, die noch nicht gedruckt sind, fehlen in der ZIP-Datei (Hinweis); Bildkarten erst mit der PDF ihrer aktuellen Gestaltung (printReady)
+      const fs = all.filter(printReady), wait = all.filter((f) => !fs.includes(f) && !f.cards), cardsWait = all.filter((f) => !fs.includes(f) && f.cards);
+      for (const f of cardsWait) { const d = printDesignState(f); if (d && d.need) rq.add(f); }   // druckt sie (falls noch nicht unterwegs)
+      setZipNote(cardsWait);
+      if (!fs.length) { toast(cardsWait.length ? cardsMissingText(cardsWait) : "Die Vorlagen werden gerade noch als PDF gedruckt – bitte gleich noch einmal.", "err", cardsWait.length ? 9000 : 4200); return; }
       const entries = [];
       for (const f of fs) entries.push({ name: f.printName || printFileName({ name: f.name, ...(f.print || {}) }), data: await printBytes(f) });
       const { makeZip } = await lazy(import("./zip.js"));
       downloadBlob(new Blob([makeZip(entries)], { type: "application/zip" }), zipName());
+      const late = wait.length || cardsWait.length;
       toast((fs.length === 1 ? "Die Datei ist als ZIP-Datei heruntergeladen." : "Alle " + fs.length + " Dateien sind als eine ZIP-Datei heruntergeladen.") +
-        (wait.length ? " Noch nicht dabei (wird gerade als PDF gedruckt): " + wait.map((f) => "„" + f.name + "“").join(", ") + "." : ""), wait.length ? "" : "ok", wait.length ? 9000 : 4200);
+        (wait.length ? " Noch nicht dabei (wird gerade als PDF gedruckt): " + wait.map((f) => "„" + f.name + "“").join(", ") + "." : "") + (cardsWait.length ? " " + cardsMissingText(cardsWait) : ""),
+        late ? "" : "ok", late ? 9000 : 4200);
     } catch (err) { errToast(err); }
   }, "Packe die Dateien …") }, icon("download"), "Alle herunterladen (ZIP)");
   function paintPrint() {
     const fs = printFiles();
     clear(printList).append(...(fs.length ? fs.map(printRow) : [h("p", { class: "muted small", text: "Noch nichts zum Ausdrucken." })]));
     zipBtn.disabled = !fs.length;
+    // Hinweis zur ZIP-Datei: Bildkarten, die inzwischen nicht mehr auf der Liste stehen (heruntergenommen, gelöscht), nennt er nicht mehr
+    if (zipMissing.size) {
+      const rest = fs.filter((f) => zipMissing.has(f.id));
+      if (rest.length < zipMissing.size) { if (rest.length) setZipNote(rest); else { zipMissing.clear(); zipNote.textContent = ""; zipNote.classList.add("hidden"); } }
+    }
   }
-  const printCard = h("section", { class: "card printcard", id: "printcard" }, h("div", { class: "section-title" }, h("h2", { text: "Von der Lehrkraft auszudrucken" })),
+  const printHead = h("h2", { text: "Von der Lehrkraft auszudrucken" });
+  const printCard = h("section", { class: "card printcard", id: "printcard" }, h("div", { class: "section-title" }, printHead),
     h("p", { class: "small", text: "PDF-Dateien, die Sie vor der Stunde ausdrucken – z. B. Arbeitsblätter, Karten oder Schaubilder für die Tafel. Gedruckt wird nur A4: Andere Formate rechnet Unterricks beim Hochladen auf A4 um. Der Dateiname nennt Anzahl, beidseitig/einseitig und schwarz-weiß/Farbe." }),
+    lb.printHint ? h("p", { class: "small", id: "print-cards-hint", text: lb.printHint }) : null,
     dropZone("PDF-Dateien zum Ausdrucken hier ablegen oder auswählen", "Nur PDF · Farbe bitte nur, wenn sie unbedingt nötig ist", uploadPrint, "application/pdf,.pdf"),
-    printProg, printList, h("div", { class: "row", style: { marginTop: ".6rem" } }, zipBtn),
+    printProg, printList, h("div", { class: "row", style: { marginTop: ".6rem" } }, zipBtn), gs ? zipNote : null,
     h("p", { class: "hint", text: "Claude gestaltet über den Connector auch Druckvorlagen selbst (mit Vorschlag für Anzahl, beidseitig und Farbe); Unterricks druckt sie als PDF – Sie prüfen sie hier." }));
   paintPrint();
   // Schlüssel des Dateistands: neue, gelöschte, umbenannte und (von Claude) neu gestaltete oder inzwischen gedruckte Dateien

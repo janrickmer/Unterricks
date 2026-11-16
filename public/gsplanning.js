@@ -1,6 +1,6 @@
 // gsplanning.js – Prompts für Claude in der Grundschule (Wunsch der Lehrkraft vom 12.11.2026): Einheit planen. Gemeinsam für Browser und
 // Worker (keine DOM-Zugriffe). Die Kinder arbeiten nicht digital: nur analoges, ausdruckbares Material.
-import { fmtDay, SYSTEM_PROMPT_ROLE, UNIT_RULE_BASE, materialDesignText, summarySaveStep, SUMMARY_FALLBACK, berlinToday } from "./shared.js";
+import { fmtDay, SYSTEM_PROMPT_ROLE, UNIT_RULE_BASE, materialDesignText, summarySaveStep, SUMMARY_FALLBACK, berlinToday, CARD_PRINT, printFileName } from "./shared.js";
 import { lessonSlots, paramsText, freeSlots, normalizeParams, stopCarrySection, stopCarryStep, stopFallbackText, freeShiftText, freeDaysInRange, freeBreakOf, freeRowNote } from "./planning.js";
 import { bringSaveStep } from "./bring.js";
 
@@ -63,6 +63,40 @@ export const CARD_DESIGN_RULES = [
   "4–12 Karten in der Reihenfolge der Geschichte; Farbe erlaubt, aber kontrastreich.",
   "Zu jeder Karte genau ein Erzähltext (gleiche Reihenfolge): 2–4 kurze Sätze, mit denen Eltern die Geschichte mit ihrem Kind nacherzählen können; nie Namen von Kindern.",
 ];
+/* ---------- Bildkarten bei jeder Geschichte im Sitzkreis (Nachtrag 31 vom 16.11.2026: „Ja, immer Bildkarten“) ----------
+ * Erzählt die Lehrkraft im Sitzkreis eine Geschichte, gehören Bildkarten dazu; neue Bildkarten stehen von selbst auf ihrer Druckliste (CARD_PRINT: 1x, einseitig,
+ * farbig – „1x - einseitig - Farbe - <Titel>.pdf“). Prompt „Stunde mit Claude planen“, Überarbeitung der Einheit, get_lesson, add_picture_cards und
+ * save_verlaufsplan nutzen dieselben Bausteine. Die Konzentrationsaufgabe (Nachtrag 27) bleibt davon unberührt. */
+export const CARD_PRINT_TEXT = CARD_PRINT.copies + "x, einseitig, farbig";
+export const CARD_PRINT_NAME = printFileName({ name: "Titel", ...CARD_PRINT }).replace(/Titel\.pdf$/, "<Titel>.pdf");   // „1x - einseitig - Farbe - <Titel>.pdf“
+// me: im Prompt spricht die Lehrkraft („meiner Druckliste“)
+export const cardsWhere = (me = false) => "Neue Bildkarten stehen von selbst auf " + (me ? "meiner Druckliste" : "der Druckliste der Lehrkraft") + " („" + CARD_PRINT_NAME + "“: " + CARD_PRINT_TEXT + ").";
+export const CARDS_METHOD = "Erzählung mit Bildkarten";   // vorher „Erzählung (gern mit Bildkarten)“
+export const CARDS_ALWAYS = "Erzählst du im Sitzkreis eine Geschichte (frei erzählt oder vorgelesen), gehören immer Bildkarten dazu: Gestalte sie selbst und lege sie mit `add_picture_cards` ab. " + cardsWhere(true);
+export const cardsPromptStep = () => "   - Zu jeder Geschichte, die im Sitzkreis erzählt wird, gestaltest du Bildkarten und legst sie mit `add_picture_cards` ab – mit einem gekürzten Erzähltext je Karte " +
+  "(zum Nacherzählen mit den Kindern zu Hause); sie stehen dann von selbst auf meiner Druckliste (" + CARD_PRINT_TEXT + "). Im Verlaufsplan stehen sie in der Erzählphase ([[pdf:<file_id>]]).";
+// Überarbeitung der Einheit (Grundschule): plant Claude dabei eine Sitzung neu, gehören zu einer Geschichte im Sitzkreis Bildkarten
+export const CARDS_REVISION = " Erzählt eine neu geplante oder geänderte Stunde im Sitzkreis eine Geschichte, gehören Bildkarten dazu (`add_picture_cards`; sie stehen dann von selbst auf meiner Druckliste: " + CARD_PRINT_TEXT + ").";
+/* Erzählt der Verlaufsplan eine Geschichte? Bewusst großzügig (lieber einmal unnötig erinnern als eine Geschichte ohne Bildkarten): eine Zeile zählt, wenn sie
+   ein deutliches Wort für eine erzählte oder vorgelesene Geschichte enthält (Geschichte, Erzählung, vorlesen, Bilderbuch, Kamishibai, Märchen, Legende, Gleichnis,
+   Fabel, Kinderbibel, nacherzählen …) oder „erzähl…“ – außer die Kinder erzählen selbst von etwas (Erzählkreis, Erzählrunde, „Kinder erzählen von …“).
+   Ein Sitzkreis wird nicht verlangt: Geschichten werden in der Grundschule fast immer im Kreis erzählt, und „Sitzkreis“ steht oft nur in der Überschrift der Phase.
+   Verweise [[pdf:…]] zählen nur mit ihrer Beschriftung („[[pdf:…|Vorlesetext – Die Arche Noah]]“). → die erste passende Zeile (gekürzt, ohne Zeichen) oder null */
+const STORY_STRONG = /geschicht|erzählung|vorles|vorgeles|\bliest\b.*\bvor\b|\blese\b.*\bvor\b|bilderbuch|kamishibai|erzähltheater|märchen|legende|gleichnis|fabel|kinderbibel|nacherzähl/;
+const STORY_TELL = /erzähl/, STORY_KIDS = /erzählkreis|erzählrunde|erzählstein|kinder erzählen|erzählen (?:sie |die kinder |einander |sich )?(?:von|über)\b/;
+export function storyInPlan(text) {
+  const lines = String(text == null ? "" : text).replace(/\[\[pdf:[a-f0-9]{16}\|([^\]\n]*)\]\]/g, "$1").replace(/\[\[pdf:[^\]\n]*\]\]/g, "").split(/\r?\n/);
+  for (const raw of lines) {
+    const line = raw.replace(/\*\*|~~|__|--/g, "").replace(/^\s*-\s+/, "").replace(/\s+/g, " ").trim(), l = line.toLowerCase();
+    if (!l || l.startsWith("⏸")) continue;
+    if (STORY_STRONG.test(l) || (STORY_TELL.test(l) && !STORY_KIDS.test(l))) return line.length > 120 ? line.slice(0, 119) + "…" : line;
+  }
+  return null;
+}
+// Antwort von save_verlaufsplan und get_lesson: der Verlaufsplan erzählt eine Geschichte, aber die Sitzung hat keine Bildkarten
+export const cardsMissingText = (line) => " Der Verlaufsplan erzählt eine Geschichte („" + line + "“), aber diese Sitzung hat noch keine Bildkarten – zu jeder Geschichte im Sitzkreis " +
+  "gehören Bildkarten: gestalte sie mit der Lehrkraft, lege sie nach ihrer Freigabe mit add_picture_cards ab – sie stehen dann von selbst auf der Druckliste der Lehrkraft (" + CARD_PRINT_TEXT +
+  ") – und nenne sie in der Erzählphase ([[pdf:<file_id>]]). Wird in der Stunde keine Geschichte erzählt, gilt dieser Hinweis nicht.";
 export const VERLAUFSPLAN_EXAMPLE = "**1) Ankommen im Sitzkreis (5 Min.)**\n- Begrüßungslied, Kerze anzünden\n**2) Erzählung mit Bildkarten (15 Min., Sitzkreis)**\n" +
   "- [[pdf:<file_id>]] Karten der Reihe nach zeigen und frei erzählen\n- __Lehrkraft liest [[pdf:<file_id>|Vorlesetext – Josef und seine Brüder]] vor.__\n**3) Arbeitsblatt (15 Min., Einzelarbeit)**\n- [[pdf:<file_id>]]\n" +
   "**4) Abschluss (10 Min., Sitzkreis)**\n- Gesprächsrunde: Was hat Josef seinen Brüdern verziehen?";
@@ -205,7 +239,8 @@ export function claudeGsLessonPrompt(ctx) {
     "",
     "## Feste Vorgaben",
     "- Plane mit Minutenangaben je Phase, die zusammen die Dauer der Sitzung ergeben, und nenne die Sozialform.",
-    "- Grundschulgerechte Methoden: Sitzkreis, Erzählung (gern mit Bildkarten), Bodenbild, Bewegung, Gestalten; kurze Phasen mit Wechsel zwischen Ruhe und Aktivität.",
+    "- Grundschulgerechte Methoden: Sitzkreis, " + CARDS_METHOD + ", Bodenbild, Bewegung, Gestalten; kurze Phasen mit Wechsel zwischen Ruhe und Aktivität.",
+    "- " + CARDS_ALWAYS,
     unit ? "- " + UNIT_RULE_BASE + " Stimme ich einer geänderten Stundenfrage oder einem geänderten groben Ablauf zu, halte das mit `update_unit_row` in der Einheit fest." : null,
     "- " + GS_RULE,
     "- In der Grundschule gibt es keinen Schulportal-Eintrag, keine Präsentation, keine Feibeitsblätter und keinen Sitzungscode: Der Stundenverlauf steht im Verlaufsplan.",
@@ -233,7 +268,7 @@ export function claudeGsLessonPrompt(ctx) {
     "   - Arbeitsblätter und anderes Material gestaltest du als HTML-Seite und legst es mit `add_material_pdf` ab: `bereich` \"schueler\" für Material, mit dem die Kinder arbeiten (Eltern sehen es nach der Stunde)" +
       (n ? ", mit `anzahl` " + n + " (laut Kurseinstellungen) – dann steht es auch auf meiner Druckliste" : ", mit `anzahl` (frag mich nach der Zahl der Kinder) – dann steht es auch auf meiner Druckliste") +
       "; \"druck\" nur für Material, das Eltern nicht sehen sollen (Tafel- und Bodenbilder, Kärtchen); \"lehrkraft\" nur für mich. Merke dir die file_id jeder Datei.",
-    "   - Erzählst du eine Geschichte mit Bildkarten, gestaltest du sie und legst sie mit `add_picture_cards` ab – mit einem gekürzten Erzähltext je Karte (zum Nacherzählen mit den Kindern zu Hause).",
+    cardsPromptStep(),
     concPromptStep(L),
     "   - Den Stundenverlauf speicherst du mit `save_verlaufsplan` (übergib `base_version` aus `get_lesson`): " + VERLAUFSPLAN_RULES + " Setze selbst keinen Zwischenstopp – den trage ich ein, wenn wir nicht fertig werden.",
     "   - Den „Inhalt der Unterrichtsstunde“ für die Eltern speicherst du mit `update_lesson` und `inhalt_eltern`: 2–3 elternverständliche Sätze, worum es ging und was die Kinder lernen sollten. Eine Hausaufgabe nur, wenn wir eine vereinbart haben (`hausaufgabe`, schlichter Text ohne Zeichen).",
@@ -296,7 +331,7 @@ export function claudeUnitRevisionPrompt(ctx) {
     "2. Schlage mir zwei oder drei Möglichkeiten vor, wie die Einheit trotz der " + (items.length || !freeItems.length ? "Ausfälle" : "wegfallenden Termine") + " ihre zentrale Lernaufgabe erreicht – z. B. Stunden zusammenlegen oder kürzen, eine Stunde ohne Termin streichen oder mit einer anderen zusammenführen, oder die Einheit verlängern (stimme ich zu, trägst du das mit `extend_unit` ein: Die Plattform setzt das Ende auf den nächsten Termin laut Stundenplan, gibt zuerst den Stunden ohne Termin einen Termin und legt ihre Sitzungen an – sofort in der Einheit sichtbar). Nenne zu jeder Möglichkeit kurz Vor- und Nachteile.",
     "3. Warte auf meine Entscheidung.",
     "4. Soll verlängert werden, rufe zuerst `extend_unit` auf (mit `base_version` aus `get_unit` und `termine` – so viele Termine, wie gebraucht werden, höchstens 3; neue Stunden nur, wenn wir welche vereinbart haben). Speichere dann die überarbeitete Einheit mit `save_unit_plan` (mit `base_version` aus `get_unit` bzw. aus der Antwort von `extend_unit`) und gib bei jeder Stunde, die bleibt, ihre `uid` an. Stunden, deren Sitzung schon geplant ist oder schon Inhalte hat, lässt du nicht weg (Inhalt und Stundenfrage darfst du ändern); nur Stunden ohne Sitzung oder mit „noch nicht geplant“ dürfen wegfallen. Die Termine verteilt die Plattform neu.",
-    "5. Passe betroffene Sitzungen nur nach meiner Zustimmung an (`save_verlaufsplan`, `update_lesson` mit `inhalt_eltern` und – für mich – `zusammenfassung_lehrkraft`, die „Zusammenfassung der Sitzung für die Lehrkraft“)." + CONC_REVISION,
+    "5. Passe betroffene Sitzungen nur nach meiner Zustimmung an (`save_verlaufsplan`, `update_lesson` mit `inhalt_eltern` und – für mich – `zusammenfassung_lehrkraft`, die „Zusammenfassung der Sitzung für die Lehrkraft“)." + CONC_REVISION + CARDS_REVISION,
     "",
     "Nenne nie Namen von Kindern.",
     "",

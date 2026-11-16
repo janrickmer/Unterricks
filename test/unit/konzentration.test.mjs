@@ -72,7 +72,8 @@ test("Prompt „Stunde mit Claude planen“ (Grundschule): eigener Abschnitt mit
 test("Überarbeitung der Einheit (Grundschule): Schritt 5 nennt die Konzentrationsaufgabe; Gymnasium, Einheitsplanung und Selbstlern-Phase ohne sie", () => {
   const rev = G.claudeUnitRevisionPrompt({ unit: { id: "u".repeat(16), rows: [], plan: {}, params: {}, revise: { items: [] }, lessons: [] }, now: Date.parse("2026-11-02T10:00:00Z") });
   assert.equal(rev.split(G.CONC_REVISION).length - 1, 1);
-  assert.ok(rev.includes("„Zusammenfassung der Sitzung für die Lehrkraft“)." + G.CONC_REVISION + "\n"), "am Ende von Schritt 5");
+  // Nachtrag 31: danach folgt der Satz zu Bildkarten (CARDS_REVISION) – Schritt 5 endet jetzt mit ihm
+  assert.ok(rev.includes("„Zusammenfassung der Sitzung für die Lehrkraft“)." + G.CONC_REVISION + G.CARDS_REVISION + "\n"), "am Ende von Schritt 5");
   assert.ok(G.CONC_REVISION.includes("gehört auch ihre „Konzentrationsaufgabe“ dazu") && G.CONC_REVISION.includes("sagt `get_lesson` dieser Sitzung"));
   const s = FX.sekCtx(P.unitContext), u = { id: "u".repeat(16), subject: "powi", klass: "8B", rows: [], plan: {}, params: {}, revise: { items: [] }, lessons: [] };
   for (const [n, p] of [["Gymnasium", P.claudeLessonPrompt(s)], ["Jg. 6", P.claudeLessonPrompt({ ...s, klass: "6B", unit: null, row: null, unitText: "" })], ["Selbstlern-Phase", SL.claudeSelbstlernPrompt({ ...s, row: null })],
@@ -179,7 +180,8 @@ test("get_lesson, save_verlaufsplan und Elternansicht: fehlt → Erinnerung; vor
   const ab = (await mcp("add_material_pdf", { lesson_id: l.id, bereich: "schueler", titel: "Arbeitsblatt Josef", html: "<h1>AB</h1>", anzahl: 22 })).structuredContent.file_id;
   // Verlaufsplan ohne Konzentrationsaufgabe: Erinnerung (vor der an die Zusammenfassung)
   let r = await mcp("save_verlaufsplan", { lesson_id: l.id, text: "**1) Erzählung (15 Min., Sitzkreis)**\n**2) Arbeitsblatt (15 Min.)**\n- [[pdf:" + ab + "]]", base_version: 0 });
-  assert.ok(r.content[0].text.includes("Eltern sehen nach der Stunde: „Arbeitsblatt Josef.pdf“." + G.concMissingText("Josef in Ägypten") + " Schreibe zum Schluss auch die „"), r.content[0].text);
+  // Nachtrag 31: „Erzählung“ ohne Bildkarten → zusätzlich die Erinnerung an Bildkarten (zwischen Konzentrationsaufgabe und Zusammenfassung)
+  assert.ok(r.content[0].text.includes("Eltern sehen nach der Stunde: „Arbeitsblatt Josef.pdf“." + G.concMissingText("Josef in Ägypten") + G.cardsMissingText("1) Erzählung (15 Min., Sitzkreis)") + " Schreibe zum Schluss auch die „"), r.content[0].text);
   assert.equal(r.structuredContent.konzentrationsaufgabe, false);
   const cid = (await mcp("add_material_pdf", { lesson_id: l.id, bereich: "druck", titel: "Konzentrationsaufgabe – Josef in Ägypten", html: "<h1>x</h1>", anzahl: 5, beidseitig: true, farbe: false })).structuredContent.file_id;
   t = (await mcp("get_lesson", { lesson_id: l.id })).content[0].text;

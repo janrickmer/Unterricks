@@ -194,7 +194,7 @@ gleich in `public/_headers`, im Worker und – für GitHub Pages – in `scripts
   Podcast den „nächsten Schultag“.
   Nach Sitzung gruppiert (Beginn, Fach und Klasse bzw. Grundschulkurs, Titel – ein Klick öffnet die Sitzung) stehen alle Dateien genau
   so wie in deren Liste „Von der Lehrkraft auszudrucken“, z. B. „28x - beidseitig - sw - Arbeitsblatt.pdf“ (in der Grundschule auch
-  Arbeitsblätter der Kinder mit „Auch ausdrucken“). Jede Datei lässt sich einzeln herunterladen; **„Alle Dateien herunterladen“** lädt
+  Arbeitsblätter der Kinder mit „Auch ausdrucken“ und die Bildkarten der Sitzung, z. B. „1x - einseitig - Farbe - Bildkarten – Josef.pdf“). Jede Datei lässt sich einzeln herunterladen; **„Alle Dateien herunterladen“** lädt
   alle nacheinander als einzelne PDF-Dateien – bewusst keine ZIP-Datei – mit kurzer Pause dazwischen (Ihr Browser fragt beim ersten Mal
   womöglich, ob die Seite mehrere Dateien herunterladen darf). Von Claude gestaltete Vorlagen, die noch als PDF gedruckt werden, kommen
   erst danach dazu und werden genannt. Anzahl, Druckart und Namen ändern Sie in der Sitzung („In der Sitzung bearbeiten“ springt zu
@@ -470,13 +470,25 @@ der **Podcast für den kommenden Unterricht** (derselbe wie auf der Startseite �
   beim Planen mit Claude geht es wie am Gymnasium weiter (übernehmen oder verzichten, danach passt Claude die Einheit an – das Material
   aus dem offenen Teil verweist Claude weiter); ist entschieden und danach der Verlaufsplan dieser Sitzung gespeichert, verschwindet der Hinweis. Darunter der Stundenentwurf, die Einordnung in die Einheit, „Stunde mit Claude
   planen“, die **Bildkarten**, der **Materialkasten** (PDFs für die Kinder – mit „Auch ausdrucken (22×)“ zusätzlich auf der Druckliste
-  – und Material nur für Sie; jede Datei sagt, ob Eltern sie sehen), die Druckliste, **„Inhalt und Hausaufgabe (für die Eltern)“**
+  – und Material nur für Sie; jede Datei sagt, ob Eltern sie sehen), die Druckliste (samt Bildkarten), **„Inhalt und Hausaufgabe (für die Eltern)“**
   (Claude formuliert den Inhalt in 2–3 Sätzen, Sie können ihn ändern) und ganz unten die Karte **„Elternansicht“**. Kein
   Schulportal-Eintrag, keine Präsentation, kein Sitzungscode.
 * **Bildkarten:** Claude gestaltet sie beim Planen selbst (eine Karte je Seite, mit einem gekürzten Erzähltext je Karte zum
   Nacherzählen), oder Sie laden eine PDF hoch (eine Seite = eine Karte). Die Erzähltexte prüfen und ändern Sie unter jeder Karte.
   Hochgeladene Bildkarten sehen Eltern erst, wenn Sie „Eltern dürfen diese Bildkarten sehen“ ankreuzen – Bildkarten von Verlagen dürfen
   meist nicht online weitergegeben werden. Die Bilder für die Elternansicht erstellt Ihr Browser, sobald Sie Unterricks öffnen.
+  **Erzählen Sie im Sitzkreis eine Geschichte, gestaltet Claude immer Bildkarten dazu** (das steht so im Prompt „Stunde mit Claude planen“
+  und beim Überarbeiten einer Einheit; erzählt der Verlaufsplan eine Geschichte und fehlen Bildkarten, erinnert Unterricks Claude beim
+  Lesen der Sitzung und beim Speichern des Verlaufsplans).
+* **Bildkarten auf der Druckliste:** Neue Bildkarten – von Claude gestaltet oder von Ihnen hochgeladen – stehen von selbst auf Ihrer
+  Druckliste „Von der Lehrkraft auszudrucken“ als **„1x - einseitig - Farbe - <Titel>.pdf“** (1 Exemplar, einseitig, farbig) und damit
+  auch in den Druckaufträgen für den nächsten Arbeitstag und in der ZIP-Datei der Druckliste – immer die vollständige PDF mit allen Karten
+  (A4 quer, eine Karte je Seite) in ihrer aktuellen Gestaltung. Anzahl, beidseitig/einseitig und Farbe ändern Sie dort wie bei jeder
+  Druckvorlage; **„Nicht ausdrucken“** (in der Druckliste) bzw. der Schalter **„Auf der Druckliste …“** bei den Bildkarten nimmt sie
+  herunter und wieder auf – die Bildkarten, ihre Erzähltexte und die Elternansicht bleiben dabei unverändert. Gestaltet Claude Bildkarten
+  neu, bleibt Ihre Einstellung (auch „nicht auf der Liste“). Ist die PDF neu gestalteter Bildkarten noch nicht gedruckt (oder der Druck
+  ist fehlgeschlagen), sagt die Zeile das und bietet „Erneut drucken“ an; die ZIP-Datei nennt sie unter dem Knopf, statt sie stillschweigend
+  wegzulassen. Bildkarten, die vor dem 16.11.2026 angelegt wurden, stehen nicht auf der Liste – mit dem Schalter nehmen Sie sie bei Bedarf auf.
 * **Konzentrationsaufgabe:** Zu jeder Sitzung, die Sie mit Claude planen („Stunde mit Claude planen“, auch wenn Claude beim Überarbeiten
   einer Einheit eine Sitzung neu plant), gestaltet Claude zusammen mit dem übrigen Material die **„Konzentrationsaufgabe“** – für Kinder, die
   ihre Aufmerksamkeit in Plenumsphasen nur bündeln können, wenn sie den Sitzkreis verlassen und beim Zuhören etwas ausmalen. Aufbau:

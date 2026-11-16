@@ -3,11 +3,13 @@
 // weitergegeben werden) oder Claude gestaltet die Karten über den Connector (HTML → PDF wie add_material_pdf, saveCardSet). Gespeichert als
 // Datei der Lehrkraft (area teacher) mit files.cards = {v:1, texts, share, rev}; Schüler:innen sehen sie nie. Die Kartenbilder rendert der
 // Browser der Lehrkraft (PDF.js, presenter.js opt.cards) in slides – card_img_at merkt sich, aus welchem Stand der PDF sie stammen.
+// Druckliste (Nachtrag 31 vom 16.11.2026): neue Bildkarten – hochgeladen oder von Claude gestaltet – stehen mit CARD_PRINT (1x, einseitig, farbig) in
+// print_copies/print_duplex/print_color auf der Druckliste „Von der Lehrkraft auszudrucken“; ältere (vorher angelegte) bleiben ohne (nicht auf der Liste).
 import { HttpError, bad, json, readJson, randomId, cleanLine, cleanText, isId, requireSecret, signLink, checkLink } from "./lib.js";
 import { requireTeacher } from "./auth.js";
 import { getLesson, fileOut, cardData, cardVersion, MAX_CARD_TEXT } from "./lessons.js";
 import { getFile, fileKey, slideKey, uploadLength, checkStorage, mimeFor, MAX_FILE, MAX_CARDS, saveDesign } from "./files.js";
-import { GS_SUBJECT } from "../public/shared.js";
+import { GS_SUBJECT, CARD_PRINT } from "../public/shared.js";
 
 const STALE = "Die Bildkarten wurden inzwischen neu gestaltet – die Bilder werden neu erstellt.";
 const CONFLICT = "Die Erzähltexte wurden inzwischen geändert (z. B. von Claude) – bitte neu laden.";
@@ -59,8 +61,9 @@ export async function routeCardsUpload(c, lessonId) {
   const head = await c.env.FILES.get(key, { range: { offset: 0, length: 5 } });
   if (!head || (await head.text()) !== "%PDF-") { await c.env.FILES.delete(key); throw bad("Diese Datei ist keine PDF-Datei. Bitte die Bildkarten als PDF-Datei hochladen."); }
   const share = u.searchParams.get("share") === "1";
-  await c.db.prepare("INSERT INTO files(id, lesson_id, area, kind, name, mime, size, status, source, cards, created_at, updated_at) VALUES(?1, ?2, 'teacher', 'file', ?3, 'application/pdf', ?4, 'processing', 'upload', ?5, ?6, ?6)")
-    .bind(id, lessonId, name, len, JSON.stringify({ v: 1, texts: [], share, rev: 0 }), c.now).run();
+  await c.db.prepare("INSERT INTO files(id, lesson_id, area, kind, name, mime, size, status, source, cards, print_copies, print_duplex, print_color, created_at, updated_at) " +
+    "VALUES(?1, ?2, 'teacher', 'file', ?3, 'application/pdf', ?4, 'processing', 'upload', ?5, ?7, ?8, ?9, ?6, ?6)")
+    .bind(id, lessonId, name, len, JSON.stringify({ v: 1, texts: [], share, rev: 0 }), c.now, CARD_PRINT.copies, CARD_PRINT.duplex ? 1 : 0, CARD_PRINT.color ? 1 : 0).run();
   // während des Hochladens gelöscht (anderer Tab)? Dann die PDF nicht verwaist liegen lassen
   if (!(await c.db.prepare("SELECT 1 AS x FROM lessons WHERE id=?1").bind(lessonId).first())) {
     await c.env.FILES.delete(key); await c.db.prepare("DELETE FROM files WHERE id=?1").bind(id).run();
@@ -152,7 +155,8 @@ export async function routeCardImage(c, fileId, nRaw) {
 }
 
 /* Claude (Connector): Bildkarten gestalten bzw. ihre Gestaltung ersetzen (fileId) – Bereich „nur Lehrkraft“, mit Erzähltexten; share Standard: ja
-   (selbst gestaltete Karten). Gedruckt wird wie bei add_material_pdf (renderDesign im Aufrufer). */
+   (selbst gestaltete Karten). Gedruckt wird wie bei add_material_pdf (renderDesign im Aufrufer). Neue Bildkarten kommen mit CARD_PRINT auf die Druckliste;
+   beim Ersetzen bleibt die Druckeinstellung der Lehrkraft (auch „nicht auf der Liste“). */
 export async function saveCardSet(c, lessonId, { title, html, texts, fileId = null, share }) {
   await gsLessonFor(c.db, lessonId);
   const t = cleanCardTexts(texts, { min: 1 });
@@ -166,5 +170,5 @@ export async function saveCardSet(c, lessonId, { title, html, texts, fileId = nu
     const cur = cardData(f);
     cards = { v: 1, texts: t, share: typeof share === "boolean" ? share : cur.share, rev: cur.rev + 1 };
   } else cards = { v: 1, texts: t, share: share !== false, rev: 0 };
-  return saveDesign(c, lessonId, { area: "teacher", title: title || "Bildkarten", html, source: "claude", fileId, cards });
+  return saveDesign(c, lessonId, { area: "teacher", title: title || "Bildkarten", html, source: "claude", fileId, cards, ...(fileId ? {} : { print: CARD_PRINT, cardPrint: true }) });
 }

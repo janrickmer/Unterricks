@@ -77,6 +77,16 @@ const withoutBring = (p, gs) => {
     "Schritt an der richtigen Stelle");
   return p.replace(step, "");
 };
+// Nr. 31 (16.11.2026): im Grundschul-Prompt werden Bildkarten zur Pflicht – „Erzählung (gern mit Bildkarten)“ wird „Erzählung mit Bildkarten“, dahinter genau
+// eine Regel (CARDS_ALWAYS) und der Speicherschritt zu den Bildkarten ist neu formuliert (cardsPromptStep); zurückgetauscht ist der Prompt byte-gleich
+const OLD_CARDS_STEP = "   - Erzählst du eine Geschichte mit Bildkarten, gestaltest du sie und legst sie mit `add_picture_cards` ab – mit einem gekürzten Erzähltext je Karte (zum Nacherzählen mit den Kindern zu Hause).";
+const withoutCards = (p) => {
+  const rule = "\n- " + G.CARDS_ALWAYS, step = G.cardsPromptStep(), method = "Sitzkreis, " + G.CARDS_METHOD + ", Bodenbild";
+  for (const x of [rule, step, method]) assert.equal(p.split(x).length - 1, 1, "genau einmal im Prompt: " + x.slice(0, 60));
+  assert.ok(p.indexOf(method) < p.indexOf(rule) && p.indexOf(rule) < p.indexOf("\n## Gestaltungsregeln für Materialien") && p.indexOf(step) < p.indexOf("   - Den Stundenverlauf speicherst du"),
+    "Regel direkt nach den Methoden, Schritt vor dem Verlaufsplan");
+  return p.replace(rule, "").replace(step, OLD_CARDS_STEP).replace(method, "Sitzkreis, Erzählung (gern mit Bildkarten), Bodenbild");
+};
 test("ohne Zwischenstopp: beide Prompts byte-gleich zum Stand vor S11 (Gymnasium: bis auf den Satz zu Links in Feibeitsblättern; beide bis auf die Zusammenfassung und die Gegenstände zum Mitbringen; Grundschule bis auf die Konzentrationsaufgabe)", () => {
   const s = F.sekCtx(P.unitContext), g = F.gsCtx(P.unitContext);
   assert.equal(sha(withoutLinkRule(withoutSummary(withoutBring(P.claudeLessonPrompt(s), false), false))), BEFORE.sek);
@@ -84,8 +94,9 @@ test("ohne Zwischenstopp: beide Prompts byte-gleich zum Stand vor S11 (Gymnasium
   for (const p of [sek6, gs, gs0]) assert.ok(!p.includes(S.FB_LINK_RULE) && !p.includes("[Linktext](https://…)"));
   for (const p of [P.claudeLessonPrompt(s), sek6]) assert.ok(!p.includes("Konzentrationsaufgabe"), "Gymnasium (auch Jg. 5/6) ohne Konzentrationsaufgabe");
   assert.equal(sha(withoutSummary(withoutBring(sek6, false), false, true)), BEFORE.sek6);
-  assert.equal(sha(withoutConc(withoutSummary(withoutBring(gs, true), true), g.lesson)), BEFORE.gs);
-  assert.equal(sha(withoutConc(withoutSummary(withoutBring(gs0, true), true), g.lesson)), BEFORE.gs0);
+  assert.equal(sha(withoutCards(withoutConc(withoutSummary(withoutBring(gs, true), true), g.lesson))), BEFORE.gs);
+  assert.equal(sha(withoutCards(withoutConc(withoutSummary(withoutBring(gs0, true), true), g.lesson))), BEFORE.gs0);
+  for (const p of [P.claudeLessonPrompt(s), sek6]) assert.ok(!p.includes(G.CARDS_ALWAYS) && !p.includes("add_picture_cards"), "Gymnasium ohne Bildkarten");
 });
 
 const PREV = { id: "abcdefabcdefabcd", title: "Was ist Macht?", date: "2026-11-10", portal: "**1) Einstieg**\n- Karikatur\n" + STOP + "\n**2) Partnerarbeit**\n- ~~M1~~ lesen", portalVersion: 4,

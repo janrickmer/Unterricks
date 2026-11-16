@@ -165,8 +165,9 @@ test("print-next: Mitternacht in Berlin, Freitag → Montag, freier Tag überspr
   assert.deepEqual((await call(c, routeSchedule, "/api/teacher/schedule")).data.units.map((u) => u.klass), ["10C"]);
 });
 
-test("Auswahl der Druckliste: dieselbe Regel wie printFiles() in der Sitzung (Druckliste; Grundschule auch „Auch ausdrucken“, ohne Bildkarten)", () => {
-  assert.match(PRINT_FILES_SQL, /area='print' OR \(area='student' AND print_copies IS NOT NULL AND cards IS NULL AND lesson_id IN \(SELECT id FROM lessons WHERE lesson_date=\?1 AND cancelled=0 AND subject='gs'\)\)/);
+// Nachtrag 31 (16.11.2026): Bildkarten mit Druckangaben gehören dazu (vorher ausdrücklich „ohne Bildkarten“ – geändert, weil die Regel sich ändert)
+test("Auswahl der Druckliste: dieselbe Regel wie printFiles() in der Sitzung (Druckliste; Grundschule auch „Auch ausdrucken“ und Bildkarten mit Druckangaben)", () => {
+  assert.match(PRINT_FILES_SQL, /area='print' OR \(print_copies IS NOT NULL AND \(\(area='student' AND cards IS NULL\) OR \(area='teacher' AND cards IS NOT NULL\)\) AND lesson_id IN \(SELECT id FROM lessons WHERE lesson_date=\?1 AND cancelled=0 AND subject='gs'\)\)/);
   const cols = PRINT_FILES_SQL.slice("SELECT ".length, PRINT_FILES_SQL.indexOf(" FROM files")).split(", ").map((x) => x.trim());
   assert.ok(!cols.includes("text") && !cols.includes("html") && !cols.some((x) => x.includes("substr(")), "weder Text noch Claudes Gestaltung: " + cols.join(", "));
 });

@@ -6,7 +6,7 @@
 import { h, clear, nn, toast, errToast, modal, confirmDialog, copyText, fmtTime, icon, pageHead, stateLine } from "./ui.js";
 import { render, go, onLeave } from "./app.js";
 import { tapi, teacherBar, teacherFoot, markNav } from "./teacher.js";
-import { fmtDay, insertStop, removeStops, hasStop, isStopLine, parsePlanMarkup, parentMaterial, parentOpensAt, pdfRef, lessonTimes, fmtClockBerlin, TEACHER_SUMMARY_TITLE } from "./shared.js";
+import { fmtDay, insertStop, removeStops, hasStop, isStopLine, parsePlanMarkup, parentMaterial, parentOpensAt, pdfRef, lessonTimes, fmtClockBerlin, TEACHER_SUMMARY_TITLE, CARD_PRINT } from "./shared.js";
 import { unitContext } from "./planning.js";
 import { claudeGsLessonPrompt, gsChatName, CONC_TITLE, CONC_PRINT } from "./gsplanning.js";
 import { claudeHandoff } from "./claude.js";
@@ -340,7 +340,8 @@ export async function gsSessionPage(id, d) {
     ta.focus({ preventScroll: true }); ta.setSelectionRange(ta.value.length, ta.value.length);
     toast("Verweis auf die Bildkarten am Ende des Verlaufsplans eingefügt – schieben Sie ihn an die Stelle, an der Sie erzählen.", "ok", 6000);
   };
-  const cardsBox = cardsCard({ lessonId: id, st, insertRef: insertCardRef, onChange: () => repaintPlan() });
+  // Druckliste (Nachtrag 31): der Schalter „Auf der Druckliste“ der Karte und die Zeile der Druckliste zeigen denselben Stand
+  const cardsBox = cardsCard({ lessonId: id, st, insertRef: insertCardRef, onChange: () => repaintPlan(), onPrintChange: () => box.paintPrint() });
 
   /* ======================= Material und Druckliste (materialbox.js) ======================= */
   const badgeEls = new Map();   // Datei-ID → Abzeichen „Eltern sehen sie“ …
@@ -366,12 +367,13 @@ export async function gsSessionPage(id, d) {
     if (!parentsQueued) { parentsQueued = true; queueMicrotask(() => { parentsQueued = false; paintParents(); }); }
     return h("div", { class: "gs-badge" }, el);
   };
-  const box = materialBox({ lessonId: id, st, L, gs: true, fileBadge, printCopies: () => classSize, exclude: (f) => f.cards != null, onChange: () => repaintPlan(),
+  const box = materialBox({ lessonId: id, st, L, gs: true, fileBadge, printCopies: () => classSize, exclude: (f) => f.cards != null, onChange: () => repaintPlan(), onPrintChange: (f) => cardsBox.syncPrint(f.id),
     subtitle: course ? course.label : "Grundschule", groupLabel: "Grundschule - " + (course ? course.short : "Kurs"),
     labels: { student: "Material für die Kinder (Eltern sehen die PDF-Dateien nach der Stunde)", teacher: "Nur für Sie", toStudent: "Für die Kinder", toTeacher: "Nur für Sie",
       nowStudent: "Jetzt im Material für die Kinder.", nowTeacher: "Jetzt nur noch für Sie.", teacherHint: "Sehen weder Kinder noch Eltern",
       hint: "Arbeitsblätter gestaltet Claude über den Connector selbst; Unterricks druckt sie als PDF (A4) und legt sie hier ab. Textmaterial und Links erscheinen nicht in der Elternansicht – nur PDF-Dateien. " +
-        "Mit „Auch ausdrucken“ steht ein Arbeitsblatt zusätzlich auf der Druckliste." } });
+        "Mit „Auch ausdrucken“ steht ein Arbeitsblatt zusätzlich auf der Druckliste.",
+      printHint: "Neue Bildkarten (Karte „Bildkarten“ weiter oben) stehen hier von selbst – " + CARD_PRINT.copies + "×, einseitig, farbig. „Nicht ausdrucken“ nimmt sie nur von der Liste: Die Bildkarten, ihre Erzähltexte und die Elternansicht bleiben." } });
 
   /* ======================= Inhalt und Hausaufgabe (für die Eltern) ======================= */
   const autoField = (el, key, lessonKey, stateEl) => autoSave(id, L, el, key, lessonKey, stateEl, () => { if (lessonKey === "parentSummary") paintSummaryHint(); });

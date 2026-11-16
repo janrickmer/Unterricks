@@ -19,7 +19,8 @@ import { shortImages } from "./render.js";
 import { ESCAPE_FORMAT_HINT, PART_TYPES } from "../public/escape-data.js";
 import { SUBJECTS, ALL_CLASSES, subjectName, gradeInfo, formatCode, lessonContext, chatTranscript, PORTAL_RULES, PORTAL_EXAMPLE, PORTAL_TEACHER_RULE, SYSTEM_PROMPT_ROLE, FEIBEITSBLATT_INFO, FB_LINK_HINT, classShort, fmtDay, materialDesignText, printFileName, GS_SUBJECT,
   STOP_LINE, hasStop, planRefs, pdfRef, PLAN_REF_RE, NOTES_FILE, TEACHER_SUMMARY_TITLE, TEACHER_SUMMARY_MAX, teacherSummaryRules, summaryHead, summaryOutdated, fmtStampBerlin, addDays, berlinToday } from "../public/shared.js";
-import { gsLessonContext, GS_MATERIAL_RULES, CARD_DESIGN_RULES, VERLAUFSPLAN_EXAMPLE, VERLAUFSPLAN_RULES, CONC_TITLE, CONC_PRINT, CONC_PAGES_MAX, isConcName, concTitleOf, concSaveArgs, concSection, concMissingText, concUnplannedText } from "../public/gsplanning.js";
+import { gsLessonContext, GS_MATERIAL_RULES, CARD_DESIGN_RULES, VERLAUFSPLAN_EXAMPLE, VERLAUFSPLAN_RULES, CONC_TITLE, CONC_PRINT, CONC_PAGES_MAX, isConcName, concTitleOf, concSaveArgs, concSection, concMissingText, concUnplannedText,
+  storyInPlan, cardsMissingText, CARD_PRINT_TEXT } from "../public/gsplanning.js";
 import { saveCardSet, setCardTexts } from "./cards.js";
 import { parentFiles, refCounts } from "./parents.js";
 import { BRING_LIMITS, bringSection, bringRead } from "../public/bring.js";
@@ -148,7 +149,8 @@ const TOOLS = [
       "Eltern klicken sich nach der Stunde in der Elternansicht der Reihe nach durch die Karten und erzählen die Geschichte mit ihrem Kind nach; die Lehrkraft prüft und ändert die Texte. " +
       "fuer_eltern (Standard true): ob Eltern die Karten sehen dürfen. Die Antwort nennt die Seitenzahl und den Verweis [[pdf:<file_id>]] für den Verlaufsplan (save_verlaufsplan); mit file_id ersetzt du Gestaltung und Erzähltexte von Bildkarten, die du gestaltet hast " +
       "(Bildkarten, die die Lehrkraft hochgeladen hat, lassen sich nicht neu gestalten – ihre Erzähltexte änderst du mit set_picture_card_texts; eigene Karten legst du dann ohne file_id neu an). " +
-      "Bildkarten von Verlagen dürfen meist nicht online weitergegeben werden – gestalte die Karten selbst.\n\nGestaltungsregeln für Bildkarten (gehen vor):\n" + CARD_DESIGN_RULES.map((r) => "- " + r).join("\n") +
+      "Bildkarten von Verlagen dürfen meist nicht online weitergegeben werden – gestalte die Karten selbst. " +
+      "Zu jeder Geschichte im Sitzkreis gehören Bildkarten; neue stehen von selbst auf der Druckliste der Lehrkraft (" + CARD_PRINT_TEXT + ").\n\nGestaltungsregeln für Bildkarten (gehen vor):\n" + CARD_DESIGN_RULES.map((r) => "- " + r).join("\n") +
       "\n\nAllgemeine Gestaltungsregeln (soweit passend):\n" + materialDesignText(),
     inputSchema: { type: "object", properties: { lesson_id: ID_ARG, titel: { type: "string", maxLength: 160, description: "Dateiname ohne Endung, z. B. „Bildkarten – Josef und seine Brüder“" },
       html: { type: "string", maxLength: 1600000, description: "vollständige HTML-Seite mit <style>, jede Karte genau eine Seite (A4 quer)" },
@@ -416,7 +418,8 @@ async function gsLessonDump(c, l) {
   }
   // Konzentrationsaufgabe (Nachtrag 27): gibt es sie schon – sonst Zweck, Aufbau und Ablage (nicht bei einem Ausfall-Eintrag)
   if (!l.cancelled) parts.push(...concSection(ctx.files, l.topic || l.title, printFileName));
-  parts.push(...cardsSection(ctx.files));
+  // Bildkarten (Nachtrag 31): je Satz auch die Druckliste; ohne Bildkarten die Regel bzw. – erzählt der Verlaufsplan eine Geschichte – die Erinnerung
+  parts.push(...cardsSection(ctx.files, { plan: l.portal, cancelled: !!l.cancelled, refCards: others.some((f) => f.cards != null && refs.includes(f.id)) }));
   parts.push(...(await designedSection(db, l.id, (a) => (a === "student" ? "für die Kinder" : a === "teacher" ? "nur Lehrkraft" : "zum Ausdrucken"))));
   if (results.length) parts.push("", "## Gespeicherter Stundenentwurf (save_planning_result)", results[results.length - 1].content.slice(0, 20000));
   if (l.unit_id) parts.push("", "Unterrichtseinheit: " + l.unit_id + " (Details mit get_unit; Planungsgrundlagen mit get_planning_basis)");
@@ -437,10 +440,21 @@ function freeLessonLine(l, unit, now) {
     "Frage sie, ob die Sitzung einen anderen Termin bekommen soll; update_lesson nimmt als datum nur einen Tag mit Unterricht an."] : [];
 }
 
-/* Abschnitt „Bildkarten“ von get_lesson (Grundschule): Zahl der Karten, Stand der Bilder, Freigabe für Eltern und die Erzähltexte */
-function cardsSection(files) {
-  const sets = files.filter((f) => f.cards != null);
-  if (!sets.length) return [];
+/* Abschnitt „Bildkarten“ von get_lesson (Grundschule): Zahl der Karten, Stand der Bilder, Freigabe für Eltern, Druckliste und die Erzähltexte. Ohne Bildkarten
+   (Nachtrag 31): die Regel „zu jeder Geschichte im Sitzkreis Bildkarten“ bzw. – erzählt der Verlaufsplan eine Geschichte (storyInPlan) – die Erinnerung; nichts
+   bei einem Ausfall-Eintrag. refCards: der Verlaufsplan verweist auf Bildkarten einer anderen Sitzung. */
+const cardPrintLine = (f) => (f.print_copies != null ? "  Druckliste der Lehrkraft: „" + printFileName({ name: f.name, copies: f.print_copies, duplex: f.print_duplex !== 0, color: f.print_color === 1 }) + "“."
+  : "  Nicht auf der Druckliste der Lehrkraft (heruntergenommen oder vor dem 16.11.2026 angelegt) – nur sie nimmt die Bildkarten in der Sitzung wieder auf.");
+export function cardsSection(files, { plan = "", cancelled = false, refCards = false } = {}) {
+  const sets = files.filter((f) => f.cards != null && f.area !== "archive");
+  if (!sets.length) {
+    if (cancelled) return [];
+    const story = refCards ? null : storyInPlan(plan);
+    return ["", "## Bildkarten", refCards ? "Diese Sitzung hat keine eigenen Bildkarten; der Verlaufsplan verweist auf Bildkarten einer anderen Sitzung (sie stehen auf deren Druckliste)."
+      : story ? "Achtung:" + cardsMissingText(story)
+        : "Noch keine. Erzählst du in dieser Stunde im Sitzkreis eine Geschichte (frei erzählt oder vorgelesen), gehören immer Bildkarten dazu – gestalte sie mit add_picture_cards; " +
+          "neue Bildkarten stehen von selbst auf der Druckliste der Lehrkraft (" + CARD_PRINT_TEXT + ")."];
+  }
   const out = ["", "## Bildkarten (eine Seite = eine Karte; Erzähltexte ändern mit set_picture_card_texts, die Gestaltung deiner eigenen Karten mit add_picture_cards und file_id – hochgeladene Karten lassen sich nicht neu gestalten)"];
   for (const f of sets) {
     // neu gestaltet, aber noch nicht gedruckt: Bilder und Seitenzahl gehören zur alten Gestaltung – Eltern sehen die Karten erst mit den neuen Bildern (F00)
@@ -451,6 +465,7 @@ function cardsSection(files) {
       : current ? "Bilder bereit" : "Bilder werden erstellt, sobald die Lehrkraft Unterricks öffnet";
     out.push("- file_id " + f.id + ": „" + f.name + "“ (" + (f.designed ? "von dir gestaltet" : "von der Lehrkraft hochgeladen – die Bilder kannst du nicht sehen, die Gestaltung nicht ersetzen") + "; " + (n ? n + (n === 1 ? " Karte" : " Karten") + ", " : "") + state +
       "; Eltern sehen sie: " + (d.share ? "ja" : "nein") + ") → " + pdfRef(f.id));
+    out.push(cardPrintLine(f));
     if (n && d.texts.length !== n) out.push("  Achtung: " + n + (n === 1 ? " Karte" : " Karten") + ", aber " + d.texts.length + " Erzähltext" + (d.texts.length === 1 ? "" : "e") + ".");
     out.push(...(d.texts.length ? d.texts.map((t, i) => "  " + (i + 1) + ". " + (t || "(kein Erzähltext)")) : ["  (noch keine Erzähltexte)"]));
   }
@@ -865,23 +880,28 @@ async function callTool(c, name, a) {
       const ref = " Verweis: " + pdfRef(f.id) + ".", kept = cardData(f).texts.length;
       const share = cardData(f).share ? "" : " Eltern sehen sie nicht (fuer_eltern: false).";
       const verb = a.file_id ? "überarbeitet" : "gespeichert";
+      // Druckliste (Nachtrag 31): neue Bildkarten 1x, einseitig, farbig; beim Überarbeiten bleibt die Einstellung der Lehrkraft (auch „nicht auf der Liste“)
+      const pName = f.print_copies != null ? printFileName({ name: f.name, copies: f.print_copies, duplex: f.print_duplex !== 0, color: f.print_color === 1 }) : null;
+      const onList = pName ? " Sie stehen auf der Druckliste der Lehrkraft als „" + pName + "“" + (a.file_id ? " (ihre Druckeinstellung bleibt)." : " (" + CARD_PRINT_TEXT + ").")
+        : " Sie stehen nicht auf der Druckliste der Lehrkraft (heruntergenommen oder vor dem 16.11.2026 angelegt) – das bleibt so; nur sie nimmt sie in der Sitzung wieder auf.";
+      const pc = { druckliste: pName };
       try {
         const r = await renderDesign(c, f, { waitMs: 30000 });
         const pages = r.pages || null;
         const head = "Bildkarten „" + r.file.name + "“ " + verb + " und gedruckt: ";
-        if (!pages) return toolText(head + "Seitenzahl unbekannt, " + kept + " Erzähltexte." + ref + " Die Zahl der Karten prüft Unterricks beim Erstellen der Bilder; Abweichungen sieht die Lehrkraft auf der Sitzungsseite." + share,
-          { file_id: f.id, pages: null, texts: kept, status: "gedruckt" });
+        if (!pages) return toolText(head + "Seitenzahl unbekannt, " + kept + " Erzähltexte." + ref + " Die Zahl der Karten prüft Unterricks beim Erstellen der Bilder; Abweichungen sieht die Lehrkraft auf der Sitzungsseite." + share + onList,
+          { file_id: f.id, pages: null, texts: kept, status: "gedruckt", ...pc });
         if (pages !== kept) return toolText(head + pages + (pages === 1 ? " Seite" : " Seiten") + "." + ref + " Achtung: Die PDF hat " + pages + (pages === 1 ? " Seite" : " Seiten") + ", du hast " + kept + " Erzähltext" + (kept === 1 ? "" : "e") +
-          " geschickt – jede Karte muss genau eine Seite sein (break-after: page; overflow: hidden) und genau einen Text haben; bitte mit file_id " + f.id + " korrigieren." + share, { file_id: f.id, pages, texts: kept, status: "gedruckt", mismatch: true });
+          " geschickt – jede Karte muss genau eine Seite sein (break-after: page; overflow: hidden) und genau einen Text haben; bitte mit file_id " + f.id + " korrigieren." + share + onList, { file_id: f.id, pages, texts: kept, status: "gedruckt", mismatch: true, ...pc });
         return toolText(head + pages + (pages === 1 ? " Seite" : " Seiten") + " = " + pages + (pages === 1 ? " Karte" : " Karten") + ", " + kept + " Erzähltext" + (kept === 1 ? "" : "e") + "." + ref +
-          " Die Bilder für die Elternansicht erstellt Unterricks, sobald die Lehrkraft Unterricks öffnet." + (r.current ? "" : " (Inzwischen kam eine neuere Gestaltung an – Unterricks druckt sie nach.)") + share, { file_id: f.id, pages, texts: kept, status: "gedruckt" });
+          " Die Bilder für die Elternansicht erstellt Unterricks, sobald die Lehrkraft Unterricks öffnet." + (r.current ? "" : " (Inzwischen kam eine neuere Gestaltung an – Unterricks druckt sie nach.)") + share + onList, { file_id: f.id, pages, texts: kept, status: "gedruckt", ...pc });
       } catch (e) {
         const code = e && e.code ? String(e.code) : "";
         const later = code === "render_busy" || code === "render_quota" || code === "render_config";
         return toolText("Bildkarten „" + f.name + "“ " + verb + " (" + kept + " Erzähltexte), aber noch nicht als PDF gedruckt: " + (e && e.message ? e.message : "Fehler beim Druck") + " " +
           (later ? "Unterricks druckt sie automatisch nach, sobald die Lehrkraft Unterricks öffnet. Die Zahl der Karten prüft Unterricks nach dem Druck; Abweichungen sieht die Lehrkraft auf der Sitzungsseite."
-            : "Bitte die Gestaltung prüfen und mit add_picture_cards (file_id " + f.id + ") korrigiert erneut senden.") + ref + share,
-          { file_id: f.id, texts: kept, status: later ? "wartet auf den Druck" : "Druckfehler", error: e && e.message ? e.message : null, ...(n !== kept ? { sent: n } : {}) });
+            : "Bitte die Gestaltung prüfen und mit add_picture_cards (file_id " + f.id + ") korrigiert erneut senden.") + ref + share + onList,
+          { file_id: f.id, texts: kept, status: later ? "wartet auf den Druck" : "Druckfehler", error: e && e.message ? e.message : null, ...(n !== kept ? { sent: n } : {}), ...pc });
       }
     }
     case "set_picture_card_texts": {
@@ -901,7 +921,7 @@ async function callTool(c, name, a) {
       if (l.subject !== GS_SUBJECT) return toolError("Nur für Grundschul-Sitzungen – sonst save_schulportal_entry.");
       if (typeof a.text !== "string" || !a.text.trim()) return toolError("Der Verlaufsplan ist leer.");
       // Verweise prüfen (eine Abfrage): PDFs aus Sitzungen dieses Kurses – diese Sitzung zuerst, dann die früheren (neueste zuerst)
-      const fr = await c.db.prepare("SELECT f.id, f.lesson_id, f.name, l.title AS lesson_title, l.lesson_date, l.start_time AS lesson_start, l.created_at AS lesson_created " +
+      const fr = await c.db.prepare("SELECT f.id, f.lesson_id, f.name, (f.cards IS NOT NULL) AS is_cards, l.title AS lesson_title, l.lesson_date, l.start_time AS lesson_start, l.created_at AS lesson_created " +
         "FROM files f JOIN lessons l ON l.id = f.lesson_id WHERE l.subject='gs' AND l.klass=?1 AND f.kind='file' AND f.mime='application/pdf' AND f.area NOT IN ('archive','presentation') " +
         "ORDER BY (f.lesson_id=?2) DESC, l.lesson_date DESC, f.created_at LIMIT 500").bind(l.klass, l.id).all();
       const files = fr.results || [], byId = new Map(files.map((f) => [f.id, f]));
@@ -934,7 +954,11 @@ async function callTool(c, name, a) {
       // Konzentrationsaufgabe (Nachtrag 27): fehlt sie oder steht sie nicht im Verlaufsplan, sagt es die Antwort (vor der Erinnerung an die Zusammenfassung)
       const conc = files.filter((f) => f.lesson_id === l.id && isConcName(f.name)).map((f) => f.id);
       const concText = l.cancelled ? "" : !conc.length ? concMissingText(l.topic || l.title || "") : !conc.some((id) => refs.includes(id)) ? concUnplannedText(conc) : "";
-      return toolText(t.join(" ") + concText + (await summaryReminder(c.db, l, p.text)), { version: p.version, unknown_refs: unknown, invalid_refs: invalid, later_refs: later, konzentrationsaufgabe: conc.length > 0 });
+      // Bildkarten (Nachtrag 31): erzählt der Verlaufsplan eine Geschichte, die Sitzung hat aber keine Bildkarten (auch keine verwiesenen anderer Sitzungen) → Erinnerung;
+      // gespeichert wird trotzdem (die Erkennung ist bewusst großzügig, siehe storyInPlan)
+      const hasCards = files.some((f) => f.is_cards && (f.lesson_id === l.id || refs.includes(f.id))), story = l.cancelled || hasCards ? null : storyInPlan(p.text);
+      return toolText(t.join(" ") + concText + (story ? cardsMissingText(story) : "") + (await summaryReminder(c.db, l, p.text)),
+        { version: p.version, unknown_refs: unknown, invalid_refs: invalid, later_refs: later, konzentrationsaufgabe: conc.length > 0, ...(story ? { bildkarten_fehlen: true } : {}) });
     }
     case "add_text_material": {
       const lx = await getLesson(c.db, a.lesson_id);

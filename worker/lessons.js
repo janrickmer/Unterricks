@@ -33,6 +33,9 @@ export const lessonOut = (r, extra = {}) => ({
 });
 function bringOut(r) { const b = bringRead(r.bring); return { bring: b.items, bringRev: b.rev }; }
 export const printProps = (f) => ({ copies: f.print_copies || 1, duplex: f.print_duplex !== 0, color: f.print_color === 1 });
+/* steht die Datei auf der Druckliste „Von der Lehrkraft auszudrucken“? area print immer; Grundschule: PDFs der Kinder mit „Auch ausdrucken“ und Bildkarten
+   mit Druckangaben (Nachtrag 31 – Bildkarten bleiben Dateien der Lehrkraft, print_copies NULL = nicht auf der Liste) */
+export const onPrintList = (f) => f.area === "print" || (f.print_copies != null && (f.area === "student" || (f.area === "teacher" && f.cards != null)));
 export const codeSlidesOf = (f) => { try { return cleanCodeSlides(JSON.parse(f.code_slides || "[]"), f.pages || 0); } catch { return []; } };
 /* Spalten einer Dateiliste ohne Claudes Gestaltung (html bis 1,5 MB je Material – nur '' als Kennzeichen „gestaltet“) */
 export const FILE_COLS = "id, lesson_id, area, kind, name, mime, size, CASE WHEN kind IN ('text','link') THEN text END AS text, pages, status, source, created_at, updated_at, " +
@@ -67,7 +70,7 @@ export const fileOut = (f, withText = true) => ({
     // Notizen (nur Zahl und Stand) und die Fassung ohne Notizen für Schüler:innen (cleanNeeded: die hochgeladene PDF trägt Anhänge/Notizen)
     ...(() => { const ni = notesInfo(f); return { notes: ni.n, notesRev: ni.rev, cleanNeeded: f.clean_size != null, cleanReady: f.clean_size > 0 }; })() } : {}),
   ...(f.notes_of ? { notesOf: f.notes_of } : {}),
-  ...(f.area === "print" || (f.area === "student" && f.print_copies != null) ? { print: printProps(f), printName: printFileName({ name: f.name, ...printProps(f) }) } : {}),
+  ...(onPrintList(f) ? { print: printProps(f), printName: printFileName({ name: f.name, ...printProps(f) }) } : {}),
   createdAt: f.created_at, ...(withText && f.kind === "text" ? { text: f.text || "" } : {}), ...(f.kind === "link" ? { url: f.text || "" } : {}),
   // von Claude gestaltet (HTML → PDF): ob die PDF zur aktuellen Gestaltung passt und die letzte Meldung des Druckers
   // text = Klartext der Gestaltung (gekürzt) für die Prompts (z. B. Präsentation)

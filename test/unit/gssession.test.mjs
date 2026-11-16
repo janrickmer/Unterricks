@@ -18,6 +18,8 @@ const P = await import("../../public/gsplanning.js");
 // Nachtrag 27: davor sagt sie, dass die Konzentrationsaufgabe noch fehlt (Titel der Sitzung als Thema)
 const REMIND = " Schreibe zum Schluss auch die „Zusammenfassung der Sitzung für die Lehrkraft“ mit update_lesson (zusammenfassung_lehrkraft) – sie fehlt in dieser Sitzung noch.";
 const CONC_REMIND = (topic) => P.concMissingText(topic);
+// Nachtrag 31: erzählt der Verlaufsplan eine Geschichte („Erzählung“) und die Sitzung hat keine Bildkarten, erinnert die Antwort daran (deshalb hier ergänzt)
+const CARDS_REMIND = (line) => P.cardsMissingText(line);
 
 const TOKEN = "lehrkraft-token-123";
 async function ctx() {
@@ -180,7 +182,7 @@ test("Connector (Grundschule): get_lesson, save_verlaufsplan, update_lesson inha
   r = await mcp("get_lesson", { lesson_id: l2.id });
   assert.ok(r.content[0].text.includes("Eltern sehen nach der Stunde: „Bildkarten Josef.pdf“\n") && r.content[0].text.includes("hat die Lehrkraft gesetzt"), r.content[0].text);
   r = await mcp("save_verlaufsplan", { lesson_id: l2.id, text: "**1) Erzählung**\n- [[pdf:" + prevAb + "|Bildkarten]]\n**2) Arbeitsblatt**\n- [[pdf:" + abId + "]]", base_version: 2 });
-  assert.ok(!r.isError && r.content[0].text.endsWith("Eltern sehen nach der Stunde: „Bildkarten Josef.pdf“." + CONC_REMIND("Josef in Ägypten") + REMIND), r.content[0].text);   // das Arbeitsblatt ist noch nicht gedruckt
+  assert.ok(!r.isError && r.content[0].text.endsWith("Eltern sehen nach der Stunde: „Bildkarten Josef.pdf“." + CONC_REMIND("Josef in Ägypten") + CARDS_REMIND("1) Erzählung") + REMIND), r.content[0].text);   // das Arbeitsblatt ist noch nicht gedruckt
   // update_lesson inhalt_eltern
   r = await mcp("update_lesson", { lesson_id: l2.id, inhalt_eltern: "Wir haben gehört, wie Josef nach Ägypten kam." });
   assert.ok(!r.isError && r.structuredContent.lesson.parentSummary === "Wir haben gehört, wie Josef nach Ägypten kam.");
@@ -263,7 +265,7 @@ test("F20: ungültige Verweise ([[pdf:<file_id>]] aus dem Beispiel, Großbuchsta
   const r = await mcp("save_verlaufsplan", { lesson_id: l2.id, text: "**1) Erzählung**\n- [[pdf:<file_id>]]\n- [[pdf:ABCDEF0123456789]]\n- " + long + "\n- [[pdf:" + ab + "|Arbeitsblatt]]", base_version: 0 });
   const t = r.content[0].text;
   assert.ok(!r.isError && t.includes("Achtung: Diese Verweise sind ungültig und erscheinen nur als Text: [[pdf:<file_id>]], [[pdf:ABCDEF0123456789]], [[pdf:" + ab + "|xxx"), t);
-  assert.ok(t.includes("Gültige file_id: " + ab + " („AB.pdf“). Bitte korrigieren (save_verlaufsplan mit base_version 1).") && t.endsWith("Eltern sehen nach der Stunde: „AB.pdf“." + CONC_REMIND("Josef in Ägypten") + REMIND), t);
+  assert.ok(t.includes("Gültige file_id: " + ab + " („AB.pdf“). Bitte korrigieren (save_verlaufsplan mit base_version 1).") && t.endsWith("Eltern sehen nach der Stunde: „AB.pdf“." + CONC_REMIND("Josef in Ägypten") + CARDS_REMIND("1) Erzählung") + REMIND), t);
   assert.equal(r.structuredContent.invalid_refs.length, 3);
   assert.deepEqual(r.structuredContent.unknown_refs, []);
   // ein korrekter Plan bleibt ohne Achtung

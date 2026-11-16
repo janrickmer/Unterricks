@@ -140,7 +140,9 @@ test("Connector: add_picture_cards (gedruckt, Abweichung, nur Grundschule), set_
   let r = await mcp("add_picture_cards", { lesson_id: l.id, titel: "Bildkarten – Josef", html, erzaehltexte: ["Josef bekommt einen bunten Mantel.", "Die Brüder sind neidisch.", "Josef kommt nach Ägypten."] });
   assert.ok(!r.isError, JSON.stringify(r));
   const id = r.structuredContent.file_id;
-  assert.equal(r.content[0].text, "Bildkarten „Bildkarten – Josef.pdf“ gespeichert und gedruckt: 3 Seiten = 3 Karten, 3 Erzähltexte. Verweis: [[pdf:" + id + "]]. Die Bilder für die Elternansicht erstellt Unterricks, sobald die Lehrkraft Unterricks öffnet.");
+  // Nachtrag 31: die Antwort nennt zusätzlich die Druckliste (1x, einseitig, farbig) – Text deshalb ergänzt
+  assert.equal(r.content[0].text, "Bildkarten „Bildkarten – Josef.pdf“ gespeichert und gedruckt: 3 Seiten = 3 Karten, 3 Erzähltexte. Verweis: [[pdf:" + id + "]]. Die Bilder für die Elternansicht erstellt Unterricks, sobald die Lehrkraft Unterricks öffnet." +
+    " Sie stehen auf der Druckliste der Lehrkraft als „1x - einseitig - Farbe - Bildkarten – Josef.pdf“ (1x, einseitig, farbig).");
   let f = await F.getFile(c.db, id);
   assert.deepEqual([f.area, f.status, f.pages, JSON.parse(f.cards).share, JSON.parse(f.cards).rev], ["teacher", "ready", 3, true, 0]);
   // gedruckt, aber noch ohne Bilder → nachzuholen

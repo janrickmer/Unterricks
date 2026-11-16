@@ -1391,6 +1391,10 @@ img.sub-photo { max-width: 100%; max-height: 60vh; border-radius: 12px; border: 
 .cs-acts { gap: .45rem; margin-top: .55rem; }
 .cs-acts .btn, .cs-upload .btn { min-height: 44px; }
 .cardset .checkrow, .cs-upload .checkrow { min-height: 44px; align-items: center; margin-top: .35rem; }
+/* Bildkarten auf der Druckliste (Nachtrag 31): Schalter je Satz, darunter der Name auf der Liste bzw. was das Einschalten tut */
+.cs-print .cs-print-d { margin: .1rem 0 0 1.9rem; overflow-wrap: anywhere; }
+#print-cards-hint { margin-top: .35rem; }
+#print-zip-note { margin: .5rem 0 0; overflow-wrap: anywhere; }
 .cs-upload { margin-top: 1rem; border-top: 1px solid var(--line); padding-top: .8rem; }
 .cs-upload h3 { margin: 0 0 .5rem; }
 .cardview { margin: 0; display: grid; gap: .6rem; }

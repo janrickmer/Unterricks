@@ -3,8 +3,8 @@
 import { HttpError, bad, json, readJson, randomId, cleanLine, cleanText, isId, requireSecret, signLink, checkLink, contentDisposition, INLINE_SAFE } from "./lib.js";
 import { courseClassSize } from "./courses.js";
 import { requireTeacher } from "./auth.js";
-import { getLesson, fileOut, codeSlidesOf, LIMITS, printProps, cardVersion, notesData } from "./lessons.js";
-import { normalizeCode, isValidCode, cleanWebUrl, slidesUpTo, printFileName, cleanCopies, isAnalogClass, cleanCodeSlides, GS_SUBJECT, cleanSlideNotes, annotatedName } from "../public/shared.js";
+import { getLesson, fileOut, codeSlidesOf, LIMITS, printProps, onPrintList, cardVersion, notesData } from "./lessons.js";
+import { normalizeCode, isValidCode, cleanWebUrl, slidesUpTo, printFileName, cleanCopies, isAnalogClass, cleanCodeSlides, GS_SUBJECT, cleanSlideNotes, annotatedName, CARD_PRINT } from "../public/shared.js";
 import { cleanDesignHtml, renderPdf, htmlText, keepImages, shortImages, HTML_MAX, RenderError, renderUsage, printerConfigured } from "./render.js";
 
 export const MAX_FILE = 100 * 1024 * 1024;         // Grenze einer Anfrage im Cloudflare-Free-Plan
@@ -251,8 +251,10 @@ export function designHtml(raw) {
 }
 /* neu anlegen (fileId fehlt) oder die Gestaltung eines vorhandenen Materials dieser Sitzung ersetzen */
 /* gsPrint: Grundschule – ein Arbeitsblatt der Kinder (area student) mit Anzahl steht zusätzlich auf der Druckliste */
-/* cards: Bildkarten der Grundschule ({v, texts, share, rev}, nur über cards.js saveCardSet) – zwischen Bildkarten und anderem Material wird nie gewechselt */
-export async function saveDesign(c, lessonId, { area, title, html, print = {}, source = "claude", fileId = null, gsPrint = false, cards = null }) {
+/* cards: Bildkarten der Grundschule ({v, texts, share, rev}, nur über cards.js saveCardSet) – zwischen Bildkarten und anderem Material wird nie gewechselt;
+   cardPrint: neue Bildkarten mit den Druckangaben aus print auf die Druckliste (Nachtrag 31). Beim Ersetzen einer Gestaltung (fileId) bleiben die Druckangaben
+   von Bildkarten, wie die Lehrkraft sie eingestellt hat (auch „nicht auf der Liste“) – der Zweig für Druckangaben gilt nur für area print bzw. GS student. */
+export async function saveDesign(c, lessonId, { area, title, html, print = {}, source = "claude", fileId = null, gsPrint = false, cards = null, cardPrint = false }) {
   if (fileId) {
     const f = await getFile(c.db, fileId);
     if (f.lesson_id !== lessonId || f.html == null) throw bad("file_id gehört zu keinem gestalteten Material dieser Sitzung (siehe get_lesson).");
@@ -278,7 +280,8 @@ export async function saveDesign(c, lessonId, { area, title, html, print = {}, s
   }
   if (!DESIGN_AREAS.has(area)) throw bad("Bitte den Bereich wählen: für Schüler:innen, nur für die Lehrkraft oder zum Ausdrucken.");
   const h = designHtml(html), id = randomId(8);
-  const copies = area === "print" ? cleanCopies(print.copies) || (await defaultCopies(c.db, lessonId)) : gsPrint && area === "student" ? cleanCopies(print.copies) : null;
+  const copies = area === "print" ? cleanCopies(print.copies) || (await defaultCopies(c.db, lessonId)) : gsPrint && area === "student" ? cleanCopies(print.copies)
+    : cards && cardPrint ? cleanCopies(print.copies) || 1 : null;   // Bildkarten: nie die Schülerzahl, immer die übergebene Anzahl (1)
   const printed = area === "print" || !!copies;
   await c.db.prepare("INSERT INTO files(id, lesson_id, area, kind, name, mime, size, text, status, source, html, html_at, print_copies, print_duplex, print_color, cards, created_at, updated_at) " +
     "VALUES(?1, ?2, ?3, 'file', ?4, 'application/pdf', 0, ?5, 'pending', ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?8, ?8)")
@@ -391,13 +394,17 @@ export async function routeFilePatch(c, fileId) {
   if (body.copies !== undefined || body.duplex !== undefined || body.color !== undefined) {
     // Grundschule: PDFs der Kinder stehen mit einer Anzahl zusätzlich auf der Druckliste (copies: null nimmt sie wieder herunter)
     const gsStudent = f.area === "student" && f.kind === "file" && f.mime === "application/pdf" && (await c.db.prepare("SELECT subject FROM lessons WHERE id=?1").bind(f.lesson_id).first() || {}).subject === GS_SUBJECT;
-    if (f.area !== "print" && !gsStudent) throw bad("Anzahl, beidseitig und Farbe gibt es nur bei Dateien zum Ausdrucken.");
-    if (gsStudent && body.copies === null) sets.push("print_copies=NULL", "print_duplex=NULL", "print_color=NULL");
+    // Bildkarten (nur Grundschule, Nachtrag 31): ebenso – herunternehmen löscht nichts und ändert die Elternansicht nicht; wieder aufnehmen ohne Angaben = 1x, einseitig, farbig
+    const cardSet = f.cards != null && f.area === "teacher" && f.kind === "file";
+    if (f.area !== "print" && !gsStudent && !cardSet) throw bad("Anzahl, beidseitig und Farbe gibt es nur bei Dateien zum Ausdrucken.");
+    if ((gsStudent || cardSet) && body.copies === null) sets.push("print_copies=NULL", "print_duplex=NULL", "print_color=NULL");
     else {
       if (body.copies !== undefined) { const n = cleanCopies(body.copies); if (!n) throw bad("Bitte eine Anzahl zwischen 1 und 500 angeben."); args.push(n); sets.push("print_copies=?" + (args.length + 1)); }
-      if (gsStudent && body.copies === undefined && f.print_copies == null) throw bad("Bitte zuerst die Anzahl der Ausdrucke angeben.");
+      if ((gsStudent || cardSet) && body.copies === undefined && f.print_copies == null) throw bad("Bitte zuerst die Anzahl der Ausdrucke angeben.");
       if (body.duplex !== undefined) { args.push(body.duplex ? 1 : 0); sets.push("print_duplex=?" + (args.length + 1)); }
+      else if (cardSet && f.print_copies == null) sets.push("print_duplex=" + (CARD_PRINT.duplex ? 1 : 0));
       if (body.color !== undefined) { args.push(body.color ? 1 : 0); sets.push("print_color=?" + (args.length + 1)); }
+      else if (cardSet && f.print_copies == null) sets.push("print_color=" + (CARD_PRINT.color ? 1 : 0));
     }
   }
   if (body.url !== undefined) {
@@ -613,9 +620,11 @@ export async function studentSlideUrl(secret, fileId, n, exp, now = Date.now()) 
 }
 // so weit dürfen Schüler:innen nach der Freigabe (bei markierter letzter gezeigter Folie nur bis dorthin – wie die heruntergeladene PDF)
 export const studentSlideLimit = (f) => (f.shown_until && f.shown_until < f.pages ? f.shown_until : f.pages);
-// variant: "" = die Datei selbst, "cut" (bzw. true) = gekürzte Präsentation, "clean" = Präsentation ohne Notizen/Anhänge (Nachtrag 20)
+// variant: "" = die Datei selbst, "cut" (bzw. true) = gekürzte Präsentation, "clean" = Präsentation ohne Notizen/Anhänge (Nachtrag 20),
+// "pr" = dieselbe Datei unter ihrem Namen auf der Druckliste („1x - einseitig - Farbe - Bildkarten – ….pdf“, Nachtrag 31 – auch wo der Browser das
+// download-Attribut nicht beachtet, z. B. auf GitHub Pages)
 export async function downloadUrl(secret, f, inline, ttl = 10 * 60e3, now = Date.now(), variant = "") {
-  const disp = inline && INLINE_SAFE.test(f.mime) ? "i" : "a", p = variant === true ? "cut" : variant === "cut" || variant === "clean" ? variant : "";
+  const disp = inline && INLINE_SAFE.test(f.mime) ? "i" : "a", p = variant === true ? "cut" : variant === "cut" || variant === "clean" || variant === "pr" ? variant : "";
   const { e, s } = await signLink(secret, p ? ["dl", f.id, disp, p] : ["dl", f.id, disp], ttl, now);
   return "/api/dl/" + f.id + "?d=" + disp + (p ? "&p=" + p : "") + "&e=" + e + "&s=" + encodeURIComponent(s);
 }
@@ -626,13 +635,14 @@ export async function routeTeacherFileLink(c, fileId) {
   const f = await getFile(c.db, fileId);
   if (f.kind !== "file") throw bad(f.kind === "link" ? "Ein Link wird direkt geöffnet." : "Text-Material wird im Browser als PDF erzeugt.");
   const body = await readJson(c.request, 1000);
-  return json({ ok: true, url: await downloadUrl(requireSecret(c.env), f, !!body.inline, 10 * 60e3, c.now) });
+  // print: aus der Druckliste – Name wie dort (nur Dateien, die auf der Liste stehen; sonst wie bisher)
+  return json({ ok: true, url: await downloadUrl(requireSecret(c.env), f, !!body.inline, 10 * 60e3, c.now, body.print === true && onPrintList(f) ? "pr" : "") });
 }
 
 /* ---------- Ausliefern (signierte Links, ohne Anmeldung im Kopf der Anfrage) ---------- */
 export async function routeDownload(c, fileId) {
-  const u = new URL(c.request.url), d = u.searchParams.get("d") === "i" ? "i" : "a", pv = u.searchParams.get("p"), cut = pv === "cut", clean = pv === "clean";
-  if (!(await checkLink(requireSecret(c.env), cut || clean ? ["dl", fileId, d, pv] : ["dl", fileId, d], u.searchParams.get("e"), u.searchParams.get("s"), c.now)))
+  const u = new URL(c.request.url), d = u.searchParams.get("d") === "i" ? "i" : "a", pv = u.searchParams.get("p"), cut = pv === "cut", clean = pv === "clean", pr = pv === "pr";
+  if (!(await checkLink(requireSecret(c.env), cut || clean || pr ? ["dl", fileId, d, pv] : ["dl", fileId, d], u.searchParams.get("e"), u.searchParams.get("s"), c.now)))
     throw new HttpError(403, "link_expired", "Der Link ist abgelaufen. Bitte noch einmal auf „Herunterladen“ tippen.");
   const f = await getFile(c.db, fileId);
   if (cut && !(f.area === "presentation" && f.shown_until && f.cut_size)) throw new HttpError(404, "not_found", "Die gekürzte Präsentation gibt es nicht (mehr).");
@@ -642,7 +652,7 @@ export async function routeDownload(c, fileId) {
   const inline = d === "i" && INLINE_SAFE.test(f.mime);
   return new Response(obj.body, { headers: {
     "Content-Type": f.mime || "application/octet-stream", "Content-Length": String(obj.size),
-    "Content-Disposition": contentDisposition(cut ? cutName(f) : f.area === "print" ? printFileName({ name: f.name, ...printProps(f) }) : f.name, !inline),
+    "Content-Disposition": contentDisposition(cut ? cutName(f) : f.area === "print" || (pr && onPrintList(f)) ? printFileName({ name: f.name, ...printProps(f) }) : f.name, !inline),
     "Cache-Control": "private, max-age=300", "X-Content-Type-Options": "nosniff", "Content-Security-Policy": "sandbox; default-src 'none'; style-src 'unsafe-inline'; img-src data:",
     "Referrer-Policy": "no-referrer",
   } });

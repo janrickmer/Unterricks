@@ -11,8 +11,8 @@ import { lazy } from "./update.js";
 import { h, clear, icon, fileIcon, fmtBytes, errToast, downloadUrl, downloadBlob, apiUrl } from "./ui.js";
 import { onLeave } from "./app.js";
 import { tapi } from "./teacher.js";
-import { berlinToday, addDays, daysBetween, isIsoDate, isWeekend, printFileName, subjectShort, classShort } from "./shared.js";
-import { designState, printQueue } from "./designrender.js";
+import { berlinToday, addDays, daysBetween, isIsoDate, isWeekend, printFileName, subjectShort, classShort, printReady } from "./shared.js";
+import { printDesignState as designState, printQueue } from "./designrender.js";   // Bildkarten (Nachtrag 31): erst die PDF ihrer aktuellen Gestaltung zählt
 import { freeScopeText } from "./planning.js";
 import { packList, placeLabel, placeText, BRING_BOX_TITLE } from "./bring.js";
 
@@ -49,8 +49,9 @@ export function dayText(r) {
 }
 /* Name einer Datei wie in der Druckliste der Sitzung */
 export const printNameOf = (f) => f.printName || printFileName({ name: f.name, ...(f.print || {}) });
-/* „Alle Dateien herunterladen“: wie die ZIP-Datei der Sitzung ohne gestaltete Vorlagen, die noch nicht gedruckt sind (die werden genannt) */
-export const readyForAll = (f) => !(f.design && f.status !== "ready");
+/* „Alle Dateien herunterladen“: wie die ZIP-Datei der Sitzung ohne gestaltete Vorlagen, die noch nicht gedruckt sind (die werden genannt); Bildkarten erst mit der
+   PDF ihrer aktuellen Gestaltung (shared.js printReady) */
+export const readyForAll = printReady;
 /* Text der Abschlussmeldung von „Alle Dateien herunterladen“; wait = gestaltete Vorlagen, die gerade gedruckt werden, stuck = solche, deren
    PDF-Druck gescheitert bzw. heute nicht mehr möglich ist (sie druckt nichts von selbst – in der Sitzung „Erneut drucken“) */
 export function doneText(n, wait, failed, stopped = false, stuck = []) {
@@ -129,8 +130,8 @@ export function printNextCards(load = () => tapi("GET", "/api/teacher/print-next
     if (d && d.need) rq.add(f);   // wie in der Sitzung: ausstehende Gestaltungen druckt die gemeinsame Warteschlange des Tabs
     const name = printNameOf(f);
     const meta = h("div", { class: "meta" });
-    if (d) meta.append(designMeta(f), (d.ok ? " · " + fmtBytes(f.size) : "") + src(f, true));
-    else meta.textContent = (f.kind === "text" ? "Text (als A4-PDF)" : fmtBytes(f.size)) + src(f, false);
+    if (d) meta.append(designMeta(f), (f.cards ? " · Bildkarten" : "") + (d.ok ? " · " + fmtBytes(f.size) : "") + src(f, true));
+    else meta.textContent = (f.cards ? "Bildkarten · " : "") + (f.kind === "text" ? "Text (als A4-PDF)" : fmtBytes(f.size)) + src(f, false);
     const can = !d || d.ok;
     const btn = can ? h("button", { class: "btn pn-dl", type: "button", "aria-label": "Herunterladen – " + name,
       onclick: (e) => working(e.currentTarget, async () => { try { await downloadOne(f, s); } catch (err) { errToast(err); } }, "Lade …") }, icon("download"), "Herunterladen") : null;

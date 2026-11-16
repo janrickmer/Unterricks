@@ -7,12 +7,18 @@ import { onLeave } from "./app.js";
 import { T, tapi } from "./teacher.js";
 import { designState, printQueue } from "./designrender.js";
 import { cardViewer } from "./cardview.js";
+import { CARD_PRINT } from "./shared.js";
 
 export { cardViewer };   // Betrachter liegt in cardview.js (auch für die Elternansicht, ohne die Module der Lehrkraft)
 
 const CARD_TEXT_LABEL = (n) => "Erzähltext zu Karte " + n + " (für Eltern sichtbar – gekürzt zum Nacherzählen)";
 const PUBLISHER_HINT = "Bildkarten von Verlagen dürfen meist nicht online weitergegeben werden – zeigen Sie Eltern nur selbst erstellte oder ausdrücklich freigegebene Karten. Claude gestaltet Bildkarten beim Planen auch selbst.";
 const SHARE_LABEL = "Eltern dürfen diese Bildkarten sehen";
+// Druckliste (Nachtrag 31): neue Bildkarten stehen von selbst darauf (1×, einseitig, farbig); der Schalter nimmt sie herunter bzw. wieder auf
+const PRINT_LABEL = "Auf der Druckliste „Von der Lehrkraft auszudrucken“";
+const PRINT_ON = CARD_PRINT.copies + "×, einseitig, farbig";
+const printDesc = (f) => (f.print ? "Steht dort als „" + f.printName + "“ – Anzahl, einseitig/beidseitig und Farbe ändern Sie in der Druckliste weiter unten."
+  : "Steht nicht auf der Druckliste – eingeschaltet kommt sie dazu (" + PRINT_ON + "). Die Bildkarten selbst und die Elternansicht ändert das nicht.");
 const MAX_CARDS = 40;   // wie der Server (worker/files.js)
 
 /* ---------- Kartenbilder erstellen (Browser der Lehrkraft, PDF.js) – eine Warteschlange für den ganzen Tab ---------- */
@@ -74,8 +80,9 @@ export function rasterizePending(list) {
 
 /* ---------- Karte „Bildkarten“ der Grundschul-Sitzung ----------
    st.files = Dateien der Sitzung (Bildkarten mit f.cards); insertRef(id) fügt den Verweis in den Verlaufsplan ein; onChange() nach jeder Änderung
-   (z. B. für „Eltern sehen von dieser Sitzung …“). → {el, refresh(files)} */
-export function cardsCard({ lessonId, st, insertRef, onChange = () => {} }) {
+   (z. B. für „Eltern sehen von dieser Sitzung …“); onPrintChange(f) nach jeder Änderung an der Druckliste (Schalter, Hochladen, Löschen – Nachtrag 31).
+   → {el, refresh(files), keyOf, syncPrint(id)} */
+export function cardsCard({ lessonId, st, insertRef, onChange = () => {}, onPrintChange = () => {} }) {
   const el = h("section", { class: "card gs-cards", id: "gs-cards", "aria-labelledby": "gs-cards-h" });
   const sets = h("div", { class: "stack" });
   const data = new Map();   // Datei-ID → Antwort von GET …/cards
@@ -111,8 +118,8 @@ export function cardsCard({ lessonId, st, insertRef, onChange = () => {} }) {
       st.files.push(r.file);
       load(r.file.id);   // Stand (rev) gleich holen: Erzähltexte und Freigabe lassen sich schon speichern, während die Bilder entstehen
       upId = r.file.id;
-      stateLine(upState, "Hochgeladen – die Bilder der Karten werden erstellt …");
-      paint(); onChange();
+      stateLine(upState, "Hochgeladen – die Bilder der Karten werden erstellt …" + (r.file.print ? " Die Bildkarten stehen auf Ihrer Druckliste (" + PRINT_ON + ")." : ""));
+      paint(); onChange(); onPrintChange(r.file);
       queueCards({ id: r.file.id, version: r.file.cards.version }, { blob: file });
     } catch (e) { stateLine(upState, e.message, "err"); }
     finally { pickBtn.disabled = false; }
@@ -207,6 +214,22 @@ export function cardsCard({ lessonId, st, insertRef, onChange = () => {} }) {
         shareBox.checked = !shareBox.checked; errToast(e);
       }
     });
+    // Druckliste (Nachtrag 31): ein Schalter je Satz; während des Speicherns bleibt er bedienbar (aria-busy) – ein zweiter Klick wird zurückgenommen
+    const prBox = h("input", { type: "checkbox", id: "cs-print-" + f.id, class: "cs-print-box", checked: f.print ? true : null, "aria-describedby": "cs-print-d-" + f.id });
+    const prDesc = h("p", { class: "small muted cs-print-d", id: "cs-print-d-" + f.id, text: printDesc(f) });
+    let prBusy = false;
+    prBox.addEventListener("change", async () => {
+      if (prBusy) { prBox.checked = !prBox.checked; return; }
+      prBusy = true; prBox.setAttribute("aria-busy", "true");
+      const on = prBox.checked;
+      try {
+        const r = await tapi("PATCH", "/api/teacher/files/" + f.id, { body: on ? { copies: CARD_PRINT.copies, duplex: CARD_PRINT.duplex, color: CARD_PRINT.color } : { copies: null } });
+        Object.assign(f, r.file); if (!r.file.print) { delete f.print; delete f.printName; }
+        prBox.checked = !!f.print; prDesc.textContent = printDesc(f); onPrintChange(f);
+        toast(f.print ? "„" + f.name + "“ steht wieder auf der Druckliste (" + f.printName + ")." : "„" + f.name + "“ steht nicht mehr auf der Druckliste – die Bildkarten selbst und die Elternansicht bleiben unverändert.", "ok", 6000);
+      } catch (e) { prBox.checked = !on; errToast(e); }
+      prBusy = false; prBox.removeAttribute("aria-busy");
+    });
     const acts = h("div", { class: "row cs-acts" },
       h("a", { class: "btn small", id: "cs-pdf-" + f.id, href: "#/lk/datei/" + f.id, target: "_blank", rel: "noopener" }, "Als PDF ansehen", h("span", { class: "sr-only", text: " (öffnet in neuem Tab)" })),
       insertRef ? h("button", { class: "btn small", id: "cs-ins-" + f.id, type: "button", onclick: () => insertRef(f.id) }, icon("plus"), "In den Verlaufsplan einfügen") : null,
@@ -214,7 +237,7 @@ export function cardsCard({ lessonId, st, insertRef, onChange = () => {} }) {
       printFail(f, designState(f)) ? h("button", { class: "btn small", id: "cs-reprint-" + f.id, type: "button", onclick: () => { if (f.design) f.design = { ...f.design, error: null }; rq.again(f); paintSet(f.id); } }, "Erneut drucken") : null,
       h("button", { class: "btn small danger", id: "cs-del-" + f.id, type: "button", onclick: async () => {
         if (!(await confirmDialog("Bildkarten löschen", "„" + f.name + "“ mit allen Kartenbildern und Erzähltexten endgültig löschen? Ein Verweis im Verlaufsplan zeigt danach „PDF nicht gefunden“.", "Endgültig löschen", true))) return;
-        try { await tapi("DELETE", "/api/teacher/files/" + f.id); st.files = st.files.filter((x) => x.id !== f.id); data.delete(f.id); editing.delete(f.id); paint(); onChange(); toast("Bildkarten gelöscht.", "ok"); } catch (e) { errToast(e); }
+        try { await tapi("DELETE", "/api/teacher/files/" + f.id); st.files = st.files.filter((x) => x.id !== f.id); data.delete(f.id); editing.delete(f.id); paint(); onChange(); onPrintChange(f); toast("Bildkarten gelöscht.", "ok"); } catch (e) { errToast(e); }
       } }, "Löschen"));
     // Vorschau mit dem Betrachter der Elternansicht (beim Öffnen jeweils mit den aktuellen Texten)
     let preview = null;
@@ -230,7 +253,8 @@ export function cardsCard({ lessonId, st, insertRef, onChange = () => {} }) {
     }
     box.append(h("div", { class: "section-title" }, h("h3", { id: "cs-h-" + f.id, text: f.name }), h("span", { class: "save-state cs-save" })),
       h("p", { class: "small cs-state", role: "status", text: stateText(f, d) }), h("div", { class: "cs-warn" }), grid, ...(preview ? [preview] : []),
-      h("label", { class: "checkrow" }, shareBox, h("span", { text: SHARE_LABEL })), acts);
+      h("label", { class: "checkrow" }, shareBox, h("span", { text: SHARE_LABEL })),
+      h("div", { class: "cs-print" }, h("label", { class: "checkrow" }, prBox, h("span", { text: PRINT_LABEL })), prDesc), acts);
     paintWarn(f.id, box);
     return box;
   }
@@ -303,16 +327,24 @@ export function cardsCard({ lessonId, st, insertRef, onChange = () => {} }) {
 
   el.append(h("div", { class: "section-title" }, h("h2", { id: "gs-cards-h", text: "Bildkarten (Geschichte für die Elternansicht)" })),
     h("p", { class: "small", text: "Erzählen Sie eine Geschichte mit Bildkarten, klicken sich Eltern nach der Stunde in der Elternansicht der Reihe nach durch die Karten; darunter steht jeweils der gekürzte Erzähltext zum Nacherzählen mit den Kindern." }),
+    h("p", { class: "small", id: "gs-cards-print", text: "Neue Bildkarten stehen von selbst auf Ihrer Druckliste „Von der Lehrkraft auszudrucken“ (" + PRINT_ON + ") – mit dem Schalter je Satz nehmen Sie sie herunter oder wieder auf." }),
     sets,
     h("div", { class: "cs-upload" }, h("h3", { text: "Bildkarten hochladen" }),
       h("p", { class: "notice gelb small", text: PUBLISHER_HINT }),
       h("div", { class: "row" }, pickBtn, pick), h("label", { class: "checkrow" }, share, h("span", { text: SHARE_LABEL })), upState));
   paint();
   Promise.all(setsOf().map((f) => load(f.id))).then(() => { paint(); for (const f of setsOf()) ensure(f); });
-  const keyOf = (fs) => fs.filter(isSet).map((f) => f.id + ":" + f.status + ":" + f.cards.rev + ":" + f.cards.version + ":" + f.cards.current + ":" + f.cards.share + ":" + f.name).join("|");
+  const keyOf = (fs) => fs.filter(isSet).map((f) => f.id + ":" + f.status + ":" + f.cards.rev + ":" + f.cards.version + ":" + f.cards.current + ":" + f.cards.share + ":" + f.name +
+    ":" + (f.print ? f.print.copies + "/" + f.print.duplex + "/" + f.print.color : "-")).join("|");
   return {
     el,
     keyOf,
+    // Druckangaben aus der Druckliste übernommen (dort geändert bzw. „Nicht ausdrucken“): nur Schalter und Satz darunter – nie ein Neuaufbau unter dem Fokus
+    syncPrint(id) {
+      const f = fileOfSet(id), cb = el.querySelector("#cs-print-" + CSS.escape(id)), d = el.querySelector("#cs-print-d-" + CSS.escape(id));
+      if (!f || !cb || !d) return;
+      cb.checked = !!f.print; d.textContent = printDesc(f);
+    },
     // neue Dateiliste (Zurückkehren auf die Seite): nur geänderte Sätze neu laden, nie über ein Feld, das gerade bearbeitet wird
     refresh(oldFiles) {
       const before = new Map(oldFiles.filter(isSet).map((f) => [f.id, keyOf([f])]));

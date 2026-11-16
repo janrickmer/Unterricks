@@ -74,6 +74,7 @@ implementiert und im End-to-End-Test geprüft (Ausnahmen unten ausdrücklich gen
 | Selbstlern-Phase statt Krankheitsvertretung (Nachtrag 29 vom 15.11.2026, Teil A) | Knopf **„Präsenz der Lehrkraft nicht möglich – Unterricht in Selbstlern-Phase umbauen“** (die Lehrkraft tippte einen Bindestrich; Unterricks setzt wie überall den Gedankenstrich), nur Gymnasium. Rückfragen beantwortet: **ersetzt die Krankheitsvertretung ganz** (Feibeitsblatt und Escape-Room können Stationen sein; ältere Vertretungen bleiben lesbar), **Jg. 5/6 analoge Selbstlern-Stationen** (Laufzettel, Arbeitsblätter, Lösungskontrolle auf der Druckliste; die Aufsicht teilt nur aus), **KI-Chatbots wie die KI-Begriffshilfe** (dieselben kostenlosen Dienste, dieselbe Einwilligung, ohne Namen), **YouTube eingebettet nach Klick** (youtube-nocookie.com, „Video in neuem Tab öffnen“), **Hausaufgabe von Anfang an sichtbar**. Claude entwickelt im Chat mindestens drei Ideen, speichert erst nach ausdrücklicher Zustimmung mit `save_selbstlern` (ein Schritt; die ursprüngliche Planung wird archiviert, „Wiederherstellen“ macht die Sitzung wieder normal) – Abschnitt 4w. **Teil B** (Schüleransicht, Erklär-Chatbot, Video nach Klick, KI-Begriffshilfe ganz unten; Chatbots ab Beginn der Sitzung bis zur nächsten Sitzung mit der Lehrkraft) – Abschnitt 4x |
 | Speicher in der Fußzeile (Nachtrag 30 vom 15.11.2026) | Ganz unten auf **jeder Seite der Lehrkraft** steht **„Speicher: n % belegt“** – Rückfrage beantwortet: **„knapperer Wert + Details“**: n ist der **höhere** der beiden Anteile – Dateien (R2, Grenze 9 GB) und Datenbank (D1, 500 MB im kostenlosen Plan); ein Klick bzw. Antippen klappt **beide Werte** auf („Dateien: 1,1 von 9 GB · Datenbank: 40 von 500 MB“). Ab 80 % ein Hinweis (Tinte mit Warnsymbol), ab 95 % rot mit „fast voll“; nie bei Schüler:innen, Eltern oder am Beamer – Abschnitt 4y |
 | Abschlussprüfung Nr. 27–30 (16.11.2026) | Zusammenspiel geprüft und abgerundet (Abschnitt 4z): `save_selbstlern` gilt als **Planung der Sitzung** (Nachtrag 26 – der Hinweis zum Zwischenstopp der vorigen Stunde verschwindet nach Entscheidung + Umstellung; „Wiederherstellen“ setzt den Stand der ursprünglichen Planung zurück); der **Selbstlern-Prompt** fragt nach dem offenen Teil der vorigen Stunde; `get_lesson` der **nächsten Stunde mit der Lehrkraft** nennt die Selbstlern-Phase(n) davor samt jetzt fälliger Hausaufgabe (und `get_lesson` der Selbstlern-Sitzung ihre Hausaufgabe mit dem aktuellen Termin); die Sitzungsdatei sagt, welche Fassung sie enthält; die Karte „Mitbringen“ einer Selbstlern-Sitzung sagt, warum ihre Gegenstände nicht im roten Kasten stehen; die rechte Spalte der Sitzung (Gymnasium) **klebt nicht mehr** (sonst blieben „Mitbringen“ und der Knopf zur Selbstlern-Phase bis zum Seitenende unsichtbar) |
+| Bildkarten auf der Druckliste (Nachtrag 31 vom 16.11.2026) | Wird in der Grundschule im Sitzkreis eine Geschichte erzählt, gehören die Bildkarten **immer zu den Dateien, die die Lehrkraft für die Sitzung ausdruckt**. Rückfragen beantwortet: Druckeinstellung **„1x - einseitig - farbig“** (Druckliste „1x - einseitig - Farbe - <Titel>.pdf“ – die Schreibweise „Farbe“ ist die bestehende von `printFileName`, wie bei jeder Datei der Druckliste) und **„stelle einfach sicher, dass das auch wirklich in den Druckdateien ist. Das hat bisher nicht geklappt.“** (Ursachen und Abhilfe in 4za); **„Ja, abwählbar“** (je Sitzung von der Druckliste nehmen und wieder aufnehmen – Bildkarten und Elternansicht bleiben); **„Ja, immer Bildkarten“** (Claude gestaltet zu jeder Geschichte im Sitzkreis Bildkarten; Prompt und Rückmeldungen des Connectors erinnern daran); **„Nur neue Bildkarten“** (keine Nachrüstung – ältere Bildkarten bleiben herunter, die Lehrkraft kann sie von Hand aufnehmen). Siehe 4za |
 
 ## 2. Gesamtarchitektur
 
@@ -131,7 +132,7 @@ implementiert und im End-to-End-Test geprüft (Ausnahmen unten ausdrücklich gen
 | | `worker/courses.js` | Kurseinstellungen aller Kurse (Stundenplan, Schülerzahl): lesen, speichern, Standard für neue Einheiten und Ausdrucke |
 | | `worker/gs.js` | Grundschulkurse (Jahrgang, Klassen a–c, Fach, Beschreibung, Schuljahr): anlegen, ändern, löschen; Planungsgrundlagen eines Kurses; Krankmeldung (Stunden verschieben, Ausfall-Eintrag, rückgängig) |
 | | `worker/parents.js` | Elternansicht der Grundschule: geheimer Link je Sitzung (nur Hash + verschlüsselte Kopie in D1), öffentliche Routen `/api/eltern/*` (Zeitsperre bis zum Ende der Sitzung, Material bis zum Zwischenstopp, vorherige Sitzungen des Schuljahres, PDF-Links, Sperre je IP), Vorschau der Lehrkraft |
-| | `worker/cards.js` | Bildkarten der Grundschule: PDF hochladen (eine Seite = eine Karte), Kartenbilder mit Stand der PDF, Erzähltexte und Freigabe für Eltern, signierte Bilder (`/api/card/…`), von Claude gestaltete Bildkarten |
+| | `worker/cards.js` | Bildkarten der Grundschule: PDF hochladen (eine Seite = eine Karte), Kartenbilder mit Stand der PDF, Erzähltexte und Freigabe für Eltern, signierte Bilder (`/api/card/…`), von Claude gestaltete Bildkarten; neue Bildkarten mit `CARD_PRINT` auf der Druckliste (4za) |
 | | `public/weekcal.js` | Wochenkalender auf der Startseite der Lehrkraft (Raster bzw. Liste je Tag; unterrichtsfreie Tage als schraffiertes Band) |
 | | `worker/freedays.js`, `public/freedays.js` | Unterrichtsfreie Tage (Nachtrag 24): Liste, Vorschau der betroffenen Sitzungen, Speichern mit Verschieben, Löschen, Prüfung eines Datums; Karte in den Einstellungen mit Rückfrage, siehe 4r |
 | | `worker/printjobs.js`, `public/printnext.js` | Druckaufträge für den nächsten Arbeitstag (`GET /api/teacher/print-next`; Feld ganz oben auf beiden Startseiten) und darunter der rote Kasten „Für den nächsten Arbeitstag einpacken“ (Nachtrag 28), siehe 4n und 4v |
@@ -151,7 +152,7 @@ implementiert und im End-to-End-Test geprüft (Ausnahmen unten ausdrücklich gen
 | | `public/gssession.js` | Sitzungsseite der Grundschule: Verlaufsplan ganz oben (PDF-Namen gelb markiert als Links in einen neuen Tab, Zwischenstopp per Dialog und Kontextmenü), Materialkasten mit dem Hinweis, was Eltern sehen, Druckliste, Inhalt und Hausaufgabe für die Eltern, Karte „Elternansicht“, Karte „Krankheit“ (Stunden verschieben) und Seite eines Ausfall-Eintrags – kein Schulportal-Eintrag, keine Präsentation, kein Sitzungscode |
 | | `public/parents.js` | Elternansicht (`#/eltern/<Token>`): eigene Kopfzeile, Hinweis der Lehrkraft (rot), Bildkarten, Inhalt, Hausaufgabe, Material, vorherige Sitzungen – speichert nichts im Browser, lädt keine Module der Lehrkraft; `parentViewDom` auch für die Vorschau (`grundschule.js`, `#/lk/eltern/<id>`) |
 | | `public/cardview.js` | Betrachter der Bildkarten (Durchklicken, Erzähltext darunter) – eigenes Modul für Lehrkraft und Eltern |
-| | `public/cards.js` | Bildkarten: Betrachter (aus `cardview.js`), Karte „Bildkarten“ der Grundschul-Sitzung (Erzähltexte, Freigabe, Hochladen), Kartenbilder im Browser erstellen (PDF.js, nacheinander) |
+| | `public/cards.js` | Bildkarten: Betrachter (aus `cardview.js`), Karte „Bildkarten“ der Grundschul-Sitzung (Erzähltexte, Freigabe, Schalter „Auf der Druckliste“, Hochladen), Kartenbilder im Browser erstellen (PDF.js, nacheinander) |
 | | `public/units.js`, `public/bases.js` | Seite der Unterrichtseinheit (Leupold-Schema, Tabelle), Planungsgrundlagen |
 | | `public/substitute.js`, `public/claude.js` | Selbstlern-Phase in der Sitzung (Knopf, Karte, Wiederherstellen; ältere Vertretungen lesbar); Übergabe an Claude (Modell/Aufwand) |
 | | `public/selbstlernview.js` | Schüleransicht einer Selbstlern-Phase (Nachtrag 29 Teil B, bei Bedarf über `lazy()` geladen): Erklärung, Ablaufplan, Folienfenster aus der PDF (PDF.js), Feibeitsblatt, Video nach Klick, Erklär-Chatbot, Abhaken auf dem Gerät |
@@ -544,6 +545,7 @@ implementiert und im End-to-End-Test geprüft (Ausnahmen unten ausdrücklich gen
   Element, sonst auf der Überschrift des Satzes bzw. – nach dem Löschen – auf „Bildkarten“. Druckaufträge anderer Materialien der Sitzung (dieselbe
   Warteschlange) bauen die Karte nicht mehr neu auf. Ein frisch hochgeladener (oder noch nicht geladener) Satz holt seinen Stand (`rev`) vor dem
   ersten Speichern – Erzähltexte und Freigabe lassen sich speichern, während die Bilder entstehen oder nachdem das scheiterte.
+  Seit Nachtrag 31 (16.11.2026) stehen neue Bildkarten mit 1x, einseitig, farbig auf der Druckliste der Lehrkraft – Abschnitt 4za.
 
 * **Grundschule: Elternansicht (Ergänzung vom 12.11.2026).** Auf der Sitzungsseite kopiert „Sitzungslink für Eltern kopieren“ einen geheimen
   Link `…#/eltern/<Token>` (192 Bit, `randomToken(24)`); in D1 stehen nur `lessons.parent_hash` (SHA-256 von `eltern|v1|<Token>`, zum
@@ -1668,6 +1670,77 @@ Tests und Doku – und, wo sich die Funktionen berühren, gegen Zwischenstopp (N
   der nächsten Stunde, Antwort von update_lesson, Sitzungsdatei mit Hinweis, „Wiederherstellen“ → Hinweis zurück, rechte Spalte lässt den Knopf in
   den sichtbaren Bereich scrollen.
 
+## 4za. Bildkarten auf der Druckliste (Nachtrag der Lehrkraft vom 16.11.2026, Nachtrag 31)
+
+„Wenn es in der Grundschule zum Erzählen einer Geschichte im Sitzkreis kommt, sollen ja Bildkarten in den Sitzkreis gelegt werden. Diese
+Bildkarten müssen unbedingt immer zu den Dateien gehören, die die Lehrkraft ausdrucken muss für die Sitzung.“ – „1x - einseitig - farbig und stelle
+einfach sicher, dass das auch wirklich in den Druckdateien ist. Das hat bisher nicht geklappt.“ – „Ja, abwählbar“ – „Ja, immer Bildkarten“ – „Nur
+neue Bildkarten“.
+
+- **Warum es bisher nicht klappte (Stand 8a1416d):** (1) Bildkarten waren Dateien der Lehrkraft (`area 'teacher'`, `files.cards`) **ohne
+  Druckangaben** – `routeCardsUpload` und `saveCardSet` → `saveDesign` (dort Anzahl nur für `print` bzw. GS-`student`) legten `print_copies` nie an.
+  (2) `printFiles()` der Sitzung (`public/materialbox.js`) nahm nur `print` und GS-`student` mit „Auch ausdrucken“; die GS-Sitzung blendet Bildkarten
+  im Materialkasten zusätzlich ganz aus (`exclude`) – sie standen nur in der Karte „Bildkarten“ („Als PDF ansehen“). (3) Die ZIP-Datei der Druckliste
+  baut aus `printFiles()`. (4) `PRINT_FILES_SQL` („Druckaufträge für den nächsten Arbeitstag“) schloss sie ausdrücklich aus („ohne Bildkarten“).
+  (5) `fileOut` lieferte `print`/`printName` und der Download den Druck-Namen nur für `print` bzw. GS-`student`. (6) Claude hatte keinen Weg, Bildkarten
+  auf die Druckliste zu legen (`add_picture_cards` ohne Druckangaben, „Bereich „nur Lehrkraft“: die Lehrkraft zeigt sie im Sitzkreis“), und der Prompt
+  machte Bildkarten freiwillig („Erzählung (gern mit Bildkarten)“). (7) Die ZIP-Datei nahm gestaltetes Material mit `status 'ready'` – bei neu
+  gestalteten Bildkarten wäre die alte PDF (alte Karten) mitgekommen. Der Nachdruck ausstehender Gestaltungen über die Startseite
+  (`GET /api/teacher/render` → `printPending`) schloss Bildkarten dagegen nicht aus – unverändert.
+- **Datenmodell (keine Schemaänderung):** Bildkarten bleiben Dateien der Lehrkraft mit `files.cards`; „auf der Druckliste“ = `print_copies IS NOT NULL`
+  (wie „Auch ausdrucken“ bei PDFs der Kinder). `CARD_PRINT = {copies: 1, duplex: false, color: true}` (`public/shared.js`). Neue Bildkarten bekommen es
+  beim Anlegen: `routeCardsUpload` (eine Anweisung wie bisher) und `saveCardSet` ohne `file_id` (`saveDesign(…, {print: CARD_PRINT, cardPrint: true})`
+  – nie die Schülerzahl oder die zuletzt verwendete Anzahl). Mit `file_id` (neu gestaltet) bleiben die Druckangaben unberührt (der Zweig für
+  Druckangaben in `saveDesign` gilt nur für `print` bzw. GS-`student`) – auch „nicht auf der Liste“. **Keine Nachrüstung** älterer Bildkarten.
+- **Server:** `onPrintList(f)` (`worker/lessons.js`) = `print` ODER `print_copies` bei GS-`student` bzw. bei Bildkarten (`teacher` + `cards`); `fileOut`
+  liefert dann `print`/`printName`. `PATCH /api/teacher/files/<id>` nimmt `copies`/`duplex`/`color` auch für Bildkarten: `copies: null` nimmt sie
+  herunter (alle drei Spalten NULL; `cards`, Freigabe und Erzähltexte unverändert), Wiederaufnahme mit Anzahl setzt fehlende Druckart auf einseitig
+  und farbig; ohne Anzahl bei heruntergenommenen → 400 wie bei „Auch ausdrucken“; der Bereich bleibt gesperrt. `PRINT_FILES_SQL` nimmt zusätzlich
+  `area='teacher' AND cards IS NOT NULL AND print_copies IS NOT NULL` (nur Grundschule, nie Ausfall-Einträge, ohne `html` – `PRINT_COLS`; der Index
+  `lessons_day` bleibt im Plan). Download-Name: `POST …/files/<id>/link` mit `{print: true}` signiert die Variante `p=pr` (nur für Dateien auf der Liste);
+  `routeDownload` nennt die Datei dann mit `printFileName` – auch dort, wo der Browser das `download`-Attribut nicht beachtet (GitHub Pages).
+  Ohne `print` (z. B. „Als PDF ansehen“) bleibt der Name der Bildkarten. Gymnasium unverändert (dort gibt es keine Bildkarten; der neue Zweig greift nur
+  bei `cards`). Keine zusätzliche D1-Anweisung je Anfrage.
+- **Oberfläche:** Druckliste der GS-Sitzung (`materialBox`, `isCards`): Bildkarten mit Druckangaben als gewöhnliche Zeile (Anzahl, ein-/beidseitig,
+  Farbe; Herunterladen über den Link mit `print`), statt „Löschen“ **„Nicht ausdrucken“** (Fokus danach auf „Von der Lehrkraft auszudrucken“, wenn er
+  sonst verloren wäre), ohne Umbenennen (der Name gehört zum Kartensatz); Hinweis `#print-cards-hint` über der Liste (`labels.printHint`, nur GS).
+  Gestaltete Bildkarten zählen erst mit der PDF ihrer **aktuellen** Gestaltung (`cardsPrintState`/`printDesignState` in `designrender.js`,
+  `printReady` in `shared.js`): bis dahin kein Download, „wird als PDF gedruckt …“ bzw. „Druck fehlgeschlagen: … – die neue Gestaltung der
+  Bildkarten ist noch nicht gedruckt.“ mit „Erneut drucken“; die gemeinsame Druck-Warteschlange druckt sie. **ZIP-Datei:** fehlende Bildkarten nennt
+  `#print-zip-note` (`role="status"`, nur GS) mit Grund („wird gerade als PDF gedruckt – bitte gleich noch einmal herunterladen“, „der PDF-Druck hat
+  nicht geklappt – bei der Datei „Erneut drucken““, „noch nicht gedruckt – <Tageskontingent>“) und meldet, sobald sie gedruckt sind; für anderes
+  Material bleibt die ZIP-Meldung wie bisher. Karte „Bildkarten“: je Satz der Schalter **„Auf der Druckliste „Von der Lehrkraft auszudrucken““**
+  (`#cs-print-<id>`, Satz darunter mit dem Druck-Namen bzw. „Steht nicht auf der Druckliste – eingeschaltet kommt sie dazu (1×, einseitig,
+  farbig) …“; bleibt bedienbar, `aria-busy` während des Speicherns) und ein Satz unter der Einleitung; Druckliste und Schalter halten sich gegenseitig
+  auf Stand (`onPrintChange`, `syncPrint` – ohne Neuaufbau unter dem Fokus). „Druckaufträge für den nächsten Arbeitstag“ (`printnext.js`): dieselbe
+  Bereitschaft (`readyForAll = printReady`, Stand `printDesignState`), Zeile mit „Bildkarten“, Download als Blob unter dem Druck-Namen.
+- **Connector und Prompts:** `add_picture_cards` – ein Satz in der Beschreibung („Zu jeder Geschichte im Sitzkreis gehören Bildkarten; neue stehen
+  von selbst auf der Druckliste der Lehrkraft (1x, einseitig, farbig).“), die Antwort nennt den Druck-Namen bzw. „ihre Druckeinstellung bleibt“ /
+  „stehen nicht auf der Druckliste … – das bleibt so“ (`druckliste` im `structuredContent`). `get_lesson`: im Abschnitt „## Bildkarten“ je Satz
+  „Druckliste der Lehrkraft: „…““ bzw. „Nicht auf der Druckliste …“; ohne Bildkarten die Regel (Ausfall-Eintrag: kein Abschnitt) bzw. die Erinnerung.
+  `save_verlaufsplan`: erzählt der Verlaufsplan eine Geschichte und hat die Sitzung keine Bildkarten (auch keine verwiesenen einer anderen Sitzung),
+  hängt die Antwort `cardsMissingText` an (`bildkarten_fehlen: true`) – gespeichert wird immer. **Erkennung** `storyInPlan` (`public/gsplanning.js`),
+  bewusst großzügig (lieber einmal unnötig erinnern): eine Zeile mit Geschichte, Erzählung, vorlesen/„liest … vor“, Bilderbuch, Kamishibai,
+  Erzähltheater, Märchen, Legende, Gleichnis, Fabel, Kinderbibel, nacherzählen oder „erzähl…“ – außer die Kinder erzählen selbst (Erzählkreis,
+  Erzählrunde, „Kinder erzählen von …“); Beschriftungen von PDF-Verweisen zählen mit; „Sitzkreis“ wird nicht verlangt (steht oft nur in der Überschrift
+  der Phase). Die Erinnerung endet mit „Wird in der Stunde keine Geschichte erzählt, gilt dieser Hinweis nicht.“ Prompt „Stunde mit Claude planen“
+  (Grundschule): „Erzählung mit Bildkarten“ statt „Erzählung (gern mit Bildkarten)“, Regel `CARDS_ALWAYS` unter „Feste Vorgaben“, Speicherschritt
+  `cardsPromptStep()` (ersetzt „Erzählst du eine Geschichte mit Bildkarten, …“); Überarbeitung der Einheit: `CARDS_REVISION` am Ende von Schritt 5 (nach
+  der Konzentrationsaufgabe). Die Einheitsplanung plant kein Sitzungsmaterial – unverändert; die Konzentrationsaufgabe (4u) unverändert. Die
+  MCP-Anweisungen bleiben byte-gleich (5646 Zeichen).
+- **Sitzungsdatei und Sicherung:** `buildSessionZip` übernimmt `print` aus `fileOut` – Bildkarten auf der Druckliste tragen in `sitzung.json` neben
+  `cards` jetzt `print` (wie Dateien der Druckliste und GS-PDFs mit „Auch ausdrucken“); „Lies mich.txt“ der Sicherung nennt es. Einlesen in die
+  Grundschule gibt es weiterhin nicht (4l).
+- **Lehrkraft-only:** Druckangaben gehören zu Routen der Lehrkraft; die Elternansicht (`parentView`) liest Bildkarten wie bisher (Freigabe, Texte,
+  Bilder) – ohne Druckangaben, „Nicht ausdrucken“ ändert sie nicht; Schüler-Routen sehen nur `area='student'`.
+- **Tests:** `test/unit/cardsprint.test.mjs` (Druck-Name, `printReady`/`cardsPrintState`, `storyInPlan` mit Gegenbeispielen, Prompts samt Gymnasium/
+  Einheitsplanung/Selbstlern ohne, Hochladen und `add_picture_cards` mit/ohne `file_id`, PATCH ab/auf, `PRINT_FILES_SQL` mit älteren/heruntergenommenen/
+  Ausfall/Gymnasium, Link-Variante, Elternansicht unverändert, get_lesson/save_verlaufsplan samt Verweis auf fremde Bildkarten, MCP-Anweisungen per
+  SHA, Sitzungsseite und ZIP-Hinweis im Browser-Ersatz, Sitzungsdatei); geänderte Erwartungen: `printjobs.test.mjs` (Regel der Druckliste),
+  `cards.test.mjs` (Antwort von add_picture_cards), `gssession.test.mjs`/`konzentration.test.mjs` (Erinnerung bei „Erzählung“, Schritt 5 der
+  Überarbeitung), `zwischenstopp.test.mjs` (`withoutCards`: der GS-Prompt ist ohne die drei Stellen byte-gleich). E2E `test/e2e/cardsprint.mjs`
+  (Schritt „Bildkarten auf der Druckliste“ in der GS-Sitzung am nächsten Arbeitstag, mit Bildschirmfotos `bildkarten-druck-*.png`).
+
 ## 4i. Druckliste „Von der Lehrkraft auszudrucken“ (Ergänzung vom 10.11.2026)
 
 * Bereich `print` (für Schüler:innen nie sichtbar) mit `files.print_copies`, `print_duplex`, `print_color`. Nur PDF (Kennung `%PDF-`
@@ -1689,7 +1762,8 @@ Tests und Doku – und, wo sich die Funktionen berühren, gegen Zwischenstopp (N
   Einheiten wie der Wochenkalender – `scheduleUnit` in `worker/units.js`: nur unterrichtete Klassen bzw. bestehende Grundschulkurse,
   beide Schulformen). Gelesen werden nur Einheiten, deren Zeitraum das Suchfenster berührt (`json_extract` auf `params`). Die
   Druckaufträge sind dieselbe Auswahl wie `printFiles()` der Sitzung (`public/materialbox.js`): alles im Bereich `print`, in der
-  Grundschule zusätzlich PDFs der Kinder mit „Auch ausdrucken“ (`print_copies`, ohne Bildkarten); nie Archiv oder Präsentation.
+  Grundschule zusätzlich PDFs der Kinder mit „Auch ausdrucken“ (`print_copies`) und – seit Nachtrag 31 – Bildkarten mit Druckangaben (4za); nie
+  Archiv oder Präsentation.
   Antwort `{today, candidate, date (null = nichts gefunden), sessions: [{id, subject, klass, title, date, startTime, school, label,
   subtitle, course?, files}], freeDays?}` (`freeDays` nur, wenn unterrichtsfreie Einträge im übersprungenen Zeitraum liegen – `skippedFreeDays`),
   Sitzungen nach Beginn (ohne Uhrzeit zuletzt), dann Klasse bzw. Kurs, Dateien in der Reihenfolge der

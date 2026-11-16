@@ -1,7 +1,7 @@
 // printjobs.js – „Druckaufträge für den nächsten Arbeitstag“ (Anforderung 14, Feld ganz oben auf beiden Startseiten der Lehrkraft):
 // der nächste Tag mit Unterricht (Europe/Berlin; Mo–Do der folgende Tag, Fr/Sa/So der Montag; ist dort laut Stundenplan kein Unterricht –
 // Ferien, Feiertag, ausgefallener Termin –, der nächste Tag mit Unterricht) und je Sitzung dieses Tages die Dateien ihrer Druckliste
-// „Von der Lehrkraft auszudrucken“ – beide Schulformen, dieselbe Auswahl wie printFiles() in public/materialbox.js.
+// „Von der Lehrkraft auszudrucken“ – beide Schulformen, dieselbe Auswahl wie printFiles() in public/materialbox.js (Grundschule samt Bildkarten, Nachtrag 31).
 import { json } from "./lib.js";
 import { requireTeacher } from "./auth.js";
 import { fileOut } from "./lessons.js";
@@ -18,10 +18,11 @@ import { bringRead } from "../public/bring.js";
 const PRINT_COLS = "id, lesson_id, area, kind, name, mime, size, pages, status, source, created_at, fb_code, fb_sig, print_copies, print_duplex, print_color, " +
   "html_at, pdf_at, render_error, CASE WHEN html IS NULL THEN NULL ELSE '' END AS html, '' AS design_text, cards, card_pages, card_img_at";
 /* Druckliste der Sitzungen eines Tages (?1 = Datum; Ausfall-Einträge der Grundschule zählen nie): alles im Bereich „print“, in der Grundschule
-   zusätzlich PDFs der Kinder mit „Auch ausdrucken“ (print_copies) – ohne Bildkarten, wie in der Sitzung; Reihenfolge wie dort (created_at) */
+   zusätzlich PDFs der Kinder mit „Auch ausdrucken“ (print_copies) und – seit Nachtrag 31 – Bildkarten mit Druckangaben (Dateien der Lehrkraft mit cards
+   und print_copies; heruntergenommene und ältere ohne print_copies nicht), wie in der Sitzung; Reihenfolge wie dort (created_at). Ohne html (PRINT_COLS). */
 const DAY_LESSONS = "SELECT id FROM lessons WHERE lesson_date=?1 AND cancelled=0";
-export const PRINT_FILES_SQL = "SELECT " + PRINT_COLS + " FROM files WHERE lesson_id IN (" + DAY_LESSONS + ") AND (area='print' OR (area='student' AND print_copies IS NOT NULL " +
-  "AND cards IS NULL AND lesson_id IN (" + DAY_LESSONS + " AND subject='" + GS_SUBJECT + "'))) ORDER BY created_at";
+export const PRINT_FILES_SQL = "SELECT " + PRINT_COLS + " FROM files WHERE lesson_id IN (" + DAY_LESSONS + ") AND (area='print' OR (print_copies IS NOT NULL " +
+  "AND ((area='student' AND cards IS NULL) OR (area='teacher' AND cards IS NOT NULL)) AND lesson_id IN (" + DAY_LESSONS + " AND subject='" + GS_SUBJECT + "'))) ORDER BY created_at";
 
 // erster Tag mit einer (nicht ausgefallenen) Sitzung im Suchfenster und die Sitzungen des Zieltags – beide über den Index lessons_day
 export const FIRST_DAY_SQL = "SELECT MIN(lesson_date) AS d FROM lessons WHERE lesson_date >= ?1 AND lesson_date <= ?2 AND cancelled=0";

@@ -161,6 +161,13 @@ export const PRINT_LIMITS = { copies: 500, name: 160 };
 export const printBase = (name) => String(name == null ? "" : name).replace(/\.pdf$/i, "").replace(/[\\/:*?"<>|\u0000-\u001f]+/g, " ").replace(/\s+/g, " ").trim().replace(/[.\s-]+$/, "").slice(0, PRINT_LIMITS.name) || "Druckvorlage";
 export const printFileName = (p) => (Number(p.copies) || 1) + "x - " + (p.duplex ? "beidseitig" : "einseitig") + " - " + (p.color ? "Farbe" : "sw") + " - " + printBase(p.name) + ".pdf";
 export const cleanCopies = (v) => { const n = Number(v); return Number.isInteger(n) && n >= 1 && n <= PRINT_LIMITS.copies ? n : null; };
+/* Bildkarten der Grundschule (Nachtrag 31 vom 16.11.2026): neue Bildkarten stehen von selbst auf der Druckliste – 1x, einseitig, farbig („1x - einseitig - Farbe -
+   <Titel>.pdf“); die Lehrkraft kann sie herunternehmen (print_copies NULL) und wieder aufnehmen. Ältere Bildkarten bleiben, wie sie sind (nicht auf der Liste). */
+export const CARD_PRINT = { copies: 1, duplex: false, color: true };
+/* Eine Datei der Druckliste ist fertig zum Herunterladen (ZIP, „Alle Dateien herunterladen“): gestaltetes Material erst mit gedruckter PDF – Bildkarten erst
+   mit der PDF ihrer AKTUELLEN Gestaltung (die bisherige zeigt alte Karten); hochgeladene Bildkarten haben ihre PDF sofort (status processing heißt nur: die
+   Kartenbilder für die Eltern entstehen noch) */
+export const printReady = (f) => (f && f.cards ? !f.design || (f.status === "ready" && !f.design.outdated) : !(f && f.design && f.status !== "ready"));
 /* „Folie 1–12“ bzw. „Folie 1“ (Präsentation bis zur letzten gezeigten Folie) */
 export const slidesUpTo = (n) => (n === 1 ? "Folie 1" : "Folie 1–" + n);
 // Folienfenster der Schüler:innen nach der Sitzung (Nachtrag 19): so viele Folienlinks liefert der Server je Anfrage (je Folie ein HMAC)

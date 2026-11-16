@@ -14,6 +14,17 @@ export function designState(f) {
   return { need: false, ok: true, text: "PDF, von Claude gestaltet" + (f.pages ? " · " + f.pages + (f.pages === 1 ? " Seite" : " Seiten") : "") };
 }
 
+/* Bildkarten auf der Druckliste (Nachtrag 31): wie designState, aber eine bisherige PDF gilt nicht als fertig – sie zeigt die Karten der alten Gestaltung.
+   Erst die PDF der aktuellen Gestaltung lässt sich aus der Druckliste herunterladen (ok); hochgeladene Bildkarten (ohne Gestaltung) → null */
+export function cardsPrintState(f) {
+  const d = designState(f);
+  if (!d || !f.cards || !f.design.outdated || f.status !== "ready") return d;
+  return d.error ? { ...d, ok: false, text: "Druck fehlgeschlagen: " + String(f.design.error).replace(/[.\s]+$/, "") + " – die neue Gestaltung der Bildkarten ist noch nicht gedruckt." }
+    : { ...d, ok: false, text: "neue Gestaltung der Bildkarten wird als PDF gedruckt …" };
+}
+/* Stand für die Druckliste: Bildkarten wie cardsPrintState, alles andere wie designState */
+export const printDesignState = (f) => (f && f.cards ? cardsPrintState(f) : designState(f));
+
 /* Warteschlange: add(f) druckt f (einmal je Datei und Stand). Rückmeldungen: onDone(file) mit der neuen Zeile, onNote(id, text|null) für
    Zwischenstände, onFail(f, err, quota), onBusy(n) mit der Zahl offener Aufträge. Bei „ausgelastet“ (429) wartet sie die vom Server
    genannte Zeit; beim Tageskontingent hört sie auf. Ein Fehlschlag bleibt gemerkt (failed(f) → Meldung), bis again(f) es neu versucht –
