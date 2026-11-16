@@ -155,6 +155,21 @@ async function main() {
   let wlog = ""; wd.stdout.on("data", (d) => (wlog += d)); wd.stderr.on("data", (d) => (wlog += d));
   for (let i = 0; i < 60; i++) { try { if ((await fetch(BASE + "/api/health")).ok) break; } catch {} await sleep(1000); }
   const browser = await chromium.launch();
+  // Nie fremde Dienste: Anfragen an YouTube/Google (Video einer Selbstlern-Phase) gehen in jedem Kontext an eine Attrappe bzw. werden blockiert und
+  // aufgezeichnet (auch aus iframes) – nur der Player von youtube-nocookie.com bekommt eine kleine Ersatzseite
+  const ytReqs = [];
+  const YT_RE = /^https?:\/\/([a-z0-9-]+\.)*(youtube(-nocookie)?\.com|youtu\.be|google(apis|video|usercontent)?\.com|gstatic\.com|ytimg\.com|ggpht\.com|doubleclick\.net)(:\d+)?(\/|$)/i;
+  const newContext = browser.newContext.bind(browser);
+  browser.newContext = async (o) => {
+    const ctx = await newContext(o);
+    await ctx.route(YT_RE, async (route) => {
+      const rq = route.request(), u = rq.url();
+      ytReqs.push({ url: u, headers: await rq.allHeaders().catch(() => ({})) });
+      if (/^https:\/\/www\.youtube-nocookie\.com\/embed\/[A-Za-z0-9_-]{11}\?/.test(u)) return route.fulfill({ status: 200, contentType: "text/html", body: "<!doctype html><title>Attrappe</title><p>YouTube-Attrappe (Test)</p>" });
+      return route.abort();
+    });
+    return ctx;
+  };
   const printer = await startMockPrinter(PRINT_PORT, browser);
   const pageErrors = [];
   const watch = (p, who) => { p.on("pageerror", (e) => pageErrors.push(who + ": " + e.message)); };
@@ -1566,6 +1581,8 @@ async function main() {
       "KI-Begriffshilfe antwortet; an die KI gehen nur Regeln, Fach, Lerngruppe, Thema und die Frage");
     ok((await SA("POST", "/api/student/lessons/" + lessonId + "/ask", { question: "Was ist das?" })).status === 400, "ohne Einwilligung beantwortet der Server nichts");
     await sp.locator(".kihelp").screenshot({ ...SHOT, path: join(OUT, "schueler-ki-begriffshilfe.png") });
+    ok(await sp.locator(".slv-intro, .slv-plan").count() === 0 && await sp.locator(".live").count() === 1 && await sp.locator(".modal").count() === 0 && !/null|undefined/.test(await sp.locator(".kihelp").textContent()),
+      "normale Sitzung: Ansicht wie bisher (Live-Fenster, Begriffshilfe darunter, keine Selbstlern-Ansicht)");
     await tp.locator(".homework").getByRole("button", { name: "Für das Schulportal kopieren" }).click();
     await tp.locator(".toast", { hasText: "Hausaufgabe kopiert – im Schulportal" }).waitFor({ timeout: 10000 });
     const hwCopy = await tp.evaluate(() => navigator.clipboard.readText());
@@ -1899,17 +1916,106 @@ async function main() {
     const tSub = (await T("GET", "/api/teacher/lessons/" + l2.id)).data;
     ok(tSub.files.some((f) => f.area === "archive" && f.name === "Original-Arbeitsblatt") && tSub.lesson.portal.startsWith("**1) Selbstlern-Phase**") && tSub.substitute.status === "selbstlern",
       "ursprüngliche Planung archiviert, Schulportal-Eintrag der Selbstlern-Phase");
-    // Schüler:innen: bisherige Ansicht zeigt Hinweis und Stationen (die eigene Ansicht folgt in Teil B), Hausaufgabe von Anfang an, nur Selbstlern-Material
+    // Schüler:innen (Teil B): eigene Ansicht – Erklärung, Ablaufplan, Folienfenster, Feibeitsblatt, Video nach Klick, Erklär-Chatbot, Hausaufgabe, Begriffshilfe ganz unten.
+    // Die Sitzung läuft dafür gerade (Beginn vor 10 Minuten): Chatbots ab dem Beginn bis zur nächsten Stunde mit der Lehrkraft
+    const l2Was = (await T("GET", "/api/teacher/lessons/" + l2.id)).data.lesson, slNow = berlinAt(Date.now() - 10 * 60e3);
+    ok((await T("PATCH", "/api/teacher/lessons/" + l2.id, { date: slNow.date, startTime: slNow.time })).status === 200, "Selbstlern-Sitzung für den Test: läuft seit 10 Minuten");
     slv = (await SA("GET", "/api/student/lessons/" + l2.id)).data;
     ok(slv.selbstlern && slv.selbstlern.stationen.length === 4 && slv.selbstlern.stationen[2].code === subSheet.code && slv.homework && slv.homework.text.startsWith("Erledige alle Stationen") &&
       !JSON.stringify(slv).includes("prüft Gesetze am Grundgesetz") && !JSON.stringify(slv).includes("ruhige Arbeitsatmosphäre"), "Schülerdaten: Stationen, Hausaufgabe von Anfang an – nie die Kriterien des Chatbots");
+    ok(slv.presentation === null && slv.explain && slv.explain.start <= Date.now() && slv.explain.end > Date.now() && slv.aiHelp && slv.aiHelp.selbstlern === true,
+      "Schülerdaten: keine Präsentation der ursprünglichen Planung; Erklär-Chatbot und Begriffshilfe ab Beginn bis zur nächsten Stunde mit der Lehrkraft");
+    const cspMsgs = [], onCsp = (m) => { if (/Content.Security.Policy|Refused to (frame|load|connect)/i.test(m.text())) cspMsgs.push(m.text()); };
+    sp.on("console", onCsp);
+    const ytBefore = ytReqs.length;
     await sp.goto(BASE + "/#/schueler/s/" + l2.id);
-    const sbox = sp.locator(".substitute.student");
-    await sbox.waitFor({ timeout: 10000 });
+    await sp.locator(".slv-plan").waitFor({ timeout: 15000 });
     const sTxt = await sp.locator("main").textContent();
-    ok(sTxt.includes("Deine Lehrkraft kann zu dieser Sitzung nicht da sein.") && (await sbox.locator(".sub-steps > li").count()) === 4 && sTxt.includes("Deine Hausaufgabe"), "Schüler:innen: Hinweis, Stationen und Hausaufgabe ganz oben");
-    ok(sTxt.includes("Präsentation – Verfahren des BVerfG") && sTxt.includes("Selbstlern: Verfahren des BVerfG") && !sTxt.includes("Original-Arbeitsblatt"), "… mit dem Material der Selbstlern-Phase (ursprüngliches Material ausgeblendet)");
-    await sp.screenshot({ ...SHOT, path: join(OUT, "schueler-selbstlern-vorlaeufig.png"), fullPage: true });
+    const slOrder = await sp.evaluate(() => [...document.querySelectorAll("main > *")].map((x) => x.matches(".pagehead") ? "kopf" : x.matches(".slv-intro") ? "erklaerung" : x.matches(".slv-plan") ? "ablauf"
+      : x.querySelector(".homework") ? "hausaufgabe" : x.querySelector(".kihelp") ? "begriffshilfe" : x.matches(".card") ? "karte:" + (x.querySelector("h2") || {}).textContent : x.textContent ? "?" : "").filter(Boolean));
+    // dazwischen dürfen „Weiteres Material“ und die Notfall-Feibeitsblätter stehen (das Notfall-Feibeitsblatt des Stationsblatts entsteht im Browser der Lehrkraft)
+    ok(JSON.stringify(slOrder.filter((x) => !/^karte:(Weiteres Material|Notfall-Feibeitsblätter)/.test(x))) === JSON.stringify(["kopf", "erklaerung", "ablauf", "hausaufgabe", "begriffshilfe"]),
+      "Schüleransicht: oben die Erklärung, dann der Ablaufplan, die Hausaufgabe, ganz unten die KI-Begriffshilfe (" + slOrder.join(", ") + ")");
+    ok(sTxt.includes("Heute: Selbstlern-Unterricht") && sTxt.includes("Deine Lehrkraft kann zu dieser Sitzung nicht da sein. Deshalb gibt es heute einen Selbstlern-Unterricht") && sTxt.includes("Am Ende kannst du erklären"),
+      "Erklärung ganz oben (du-Form) samt Satz von Claude");
+    ok(JSON.stringify(await sp.locator("ol.slv-stations > li h3").allTextContents()) === JSON.stringify(["Station 1: Präsentation durchklicken", "Station 2: Erklärvideo", "Station 3: Feibeitsblatt", "Station 4: Dem Chatbot erklären"]),
+      "Ablaufplan: die Stationen als nummerierte Liste in der richtigen Reihenfolge");
+    ok(await sp.locator(".live").count() === 0 && await sp.locator(".substitute.student").count() === 0 && sTxt.includes("Deine Hausaufgabe") && sTxt.includes("Bis zur nächsten Stunde mit deiner Lehrkraft") &&
+      sTxt.includes("Erledige alle Stationen dieser Selbstlern-Phase"), "kein Live-Fenster; Hausaufgabe von Anfang an sichtbar");
+    await sp.locator("#slv-st-1 .sv-frame > img:not([hidden])").waitFor({ timeout: 20000 });
+    const sTxt2 = await sp.locator("main").textContent();
+    ok(sTxt2.includes("Präsentation – Verfahren des BVerfG") && sTxt2.includes("Selbstlern: Verfahren des BVerfG") && !sTxt2.includes("Original-Arbeitsblatt"), "… mit dem Material der Selbstlern-Phase (ursprüngliches Material ausgeblendet)");
+    ok(/^Folie 1 von \d+$/.test(await sp.locator("#slv-st-1 .sv-count").textContent()) && await sp.locator("#slv-st-1").getByRole("button", { name: "Präsentation herunterladen" }).count() === 1,
+      "Station 1: die selbst erklärende Präsentation im Folienfenster (Folien aus der PDF im Browser), herunterladbar");
+    ok(await sp.locator("#slv-st-3").getByRole("button", { name: "Code kopieren und Feibeitsblatt öffnen" }).count() === 1 && (await sp.locator("#slv-st-3").textContent()).includes(subSheet.code.slice(0, 3) + "-" + subSheet.code.slice(3)),
+      "Station 3: Feibeitsblatt mit Code und „Code kopieren und Feibeitsblatt öffnen“");
+    // Video: vorher nur der Platzhalter – keine Anfrage an YouTube; nach dem Klick genau eine an youtube-nocookie.com (Attrappe), Referer nur die Herkunft
+    const vtxt = await sp.locator("#slv-st-2").textContent();
+    ok(await sp.locator("#slv-st-2 iframe").count() === 0 && vtxt.includes("Erst nach diesem Klick wird das Video von YouTube (Google) geladen. Dabei erhält Google unter anderem deine IP-Adresse") && ytReqs.length === ytBefore &&
+      await sp.locator("#slv-st-2 a.yt-open").getAttribute("href") === "https://www.youtube.com/watch?v=Fk1u8VKrJGA&t=30s", "Station 2: Video nur als Platzhalter mit Hinweis – vor dem Klick keine Anfrage an YouTube");
+    await sp.screenshot({ ...SHOT, path: join(OUT, "schueler-selbstlern.png"), fullPage: true });
+    await sp.locator("#slv-st-2").getByRole("button", { name: /^Video von YouTube laden/ }).click();
+    await sp.locator("#slv-st-2 .yt-frame iframe").waitFor();
+    for (let i = 0; i < 40 && ytReqs.length === ytBefore; i++) await sleep(100);
+    await sleep(800);
+    const ytNew = ytReqs.slice(ytBefore);
+    ok(ytNew.length === 1 && ytNew[0].url === "https://www.youtube-nocookie.com/embed/Fk1u8VKrJGA?autoplay=1&start=30" && (ytNew[0].headers.referer === undefined || ytNew[0].headers.referer === BASE + "/"),
+      "nach dem Klick genau eine Anfrage an youtube-nocookie.com (Attrappe), höchstens mit der Herkunft als Referer: " + ytNew.map((x) => x.url + " " + (x.headers.referer || "")).join(" | "));
+    ok(await sp.locator("#slv-st-2 iframe").getAttribute("sandbox") === "allow-scripts allow-same-origin allow-presentation allow-popups allow-popups-to-escape-sandbox" && cspMsgs.length === 0,
+      "iframe in der Sandbox, keine Meldung der CSP" + (cspMsgs.length ? ": " + cspMsgs[0] : ""));
+    // Erklär-Chatbot: Einwilligung (gilt auch für die Begriffshilfe), dann erklärt die Schülerin, der Chatbot fragt nach
+    await sp.locator("#slv-st-4").getByRole("button", { name: "Erklär-Chatbot nutzen" }).click();
+    const kcm = sp.locator(".modal", { hasText: "KI-Chatbots nutzen?" });
+    await kcm.waitFor();
+    ok((await kcm.textContent()).includes("Erklär-Chatbot") && (await kcm.textContent()).includes("KI-Begriffshilfe") && (await kcm.textContent()).includes("Dein Name wird nicht übertragen") &&
+      (await kcm.textContent()).includes("in dein Heft schreibst"), "Einwilligung: beide KI-Chatbots, ohne Namen, Weg ohne KI");
+    await kcm.locator("#ki-ok").check(); await kcm.getByRole("button", { name: "Einwilligen und starten" }).click();
+    await sp.waitForFunction(() => document.activeElement && document.activeElement.id === "slv-bot-4", null, { timeout: 5000 }).then(() => ok(true, "nach der Einwilligung steht der Fokus im Eingabefeld des Chatbots"), () => ok(false, "nach der Einwilligung steht der Fokus im Eingabefeld des Chatbots"));
+    let botCalls = ai.calls.length;
+    await sp.locator("#slv-bot-4").fill("Bei einer Normenkontrolle prüft das Bundesverfassungsgericht, ob ein Gesetz zum Grundgesetz passt.");
+    await sp.locator("#slv-st-4").getByRole("button", { name: "Senden", exact: true }).click();
+    await sp.locator("#slv-st-4 .kiq .a", { hasText: "Mock-Rückfrage" }).waitFor({ timeout: 20000 });
+    const bc = ai.calls[ai.calls.length - 1], bsys = bc.messages[0].content;
+    ok(ai.calls.length === botCalls + 1 && bsys.startsWith("Du bist der Erklär-Chatbot") && bsys.includes("prüft Gesetze am Grundgesetz") && bsys.includes("Die Schüler:innen sind etwa 17 bis 18 Jahre alt.") &&
+      bc.messages.length === 2 && bc.messages[1].content.startsWith("Bei einer Normenkontrolle prüft") && !JSON.stringify(bc).includes(stoken) && /\?/.test(await sp.locator("#slv-st-4 .kiq .a").first().textContent()),
+      "Erklär-Chatbot fragt nach (Mock-KI); System-Prompt vom Worker aus der gespeicherten Station samt Altersstufe – keine Kennung des Geräts");
+    await sp.locator("#slv-bot-4").fill("Weil sonst eine Mehrheit Gesetze gegen das Grundgesetz beschließen könnte.");
+    await sp.locator("#slv-st-4").getByRole("button", { name: "Senden", exact: true }).click();
+    await sp.locator("#slv-st-4 .kiq .a", { hasText: "Mock-Rückfrage" }).nth(1).waitFor({ timeout: 20000 });
+    ok(JSON.stringify(ai.calls[ai.calls.length - 1].messages.map((m) => m.role)) === JSON.stringify(["system", "user", "assistant", "user"]), "zweite Nachricht mit dem (unterschriebenen) Verlauf");
+    await sp.locator("#slv-st-4").screenshot({ ...SHOT, path: join(OUT, "schueler-selbstlern-chatbot.png") });
+    await sp.locator("#slv-st-4").getByRole("button", { name: "Gespräch beenden und Rückmeldung bekommen" }).click();
+    await sp.locator("#slv-st-4 .kiq .a", { hasText: "Mock-Rückmeldung" }).waitFor({ timeout: 20000 });
+    ok(await sp.locator("#slv-st-4").getByRole("button", { name: "Neues Gespräch beginnen" }).isVisible() && await sp.locator("#slv-bot-4").isDisabled(), "Gespräch beendet: kurze Rückmeldung, „Neues Gespräch beginnen“");
+    // KI-Begriffshilfe ganz unten (dieselbe Einwilligung): Prompt der Selbstlern-Phase
+    await sp.locator("#ki-q").fill("Was ist eine Verfassungsbeschwerde?"); await sp.locator(".kihelp").getByRole("button", { name: "Fragen" }).click();
+    await sp.locator(".kihelp .kiq .a", { hasText: "Normenkontrolle heißt" }).waitFor({ timeout: 20000 });
+    const hsys2 = ai.calls[ai.calls.length - 1].messages[0].content;
+    ok(hsys2.includes("in einer Selbstlern-Phase") && hsys2.includes("Erledige keine Stationen und keine Hausaufgabe") && hsys2.includes("Die Schüler:innen sind etwa 17 bis 18 Jahre alt.") && (await sp.locator(".kihelp").textContent()).includes("bis zum Beginn der nächsten Stunde mit deiner Lehrkraft"),
+      "KI-Begriffshilfe ganz unten: Prompt der Selbstlern-Phase (Altersstufe, keine Stationen oder Hausaufgaben erledigen), bis zur nächsten Stunde mit der Lehrkraft");
+    // abhaken: nur auf diesem Gerät; nach dem Neuladen bleibt der Haken, das Video nicht (keine Zustimmung gespeichert)
+    await sp.locator("#slv-st-1-done").check();
+    ok((await sp.locator(".slv-progress").textContent()) === "1 von 4 Stationen erledigt" && (await sp.evaluate((k) => localStorage.getItem(k), "u.sl." + l2.id)).includes(slv.selbstlern.stationen[0].id), "Station abgehakt (nur auf dem Gerät gespeichert)");
+    await sp.reload(); await sp.locator(".slv-plan").waitFor();
+    await sleep(800);
+    ok(await sp.locator("#slv-st-1-done").isChecked() && await sp.locator("#slv-st-2 iframe").count() === 0 && ytReqs.length === ytBefore + 1, "nach dem Neuladen: Haken bleibt, Video wieder nur Platzhalter (nichts an YouTube)");
+    sp.off("console", onCsp);
+    // Schüler:innen-Ansicht der Selbstlern-Phase auf iPad (hochkant) und Handy, hell und dunkel: nur senkrecht scrollen
+    {
+      const slStore = await sp.evaluate(() => JSON.stringify(localStorage));
+      for (const [dev, dark] of [["iPad (gen 7)", false], ["iPad (gen 7)", true], ["iPhone 13", false], ["iPhone 13", true]]) {
+        const x = await browser.newContext({ ...devices[dev], ...(dark ? { colorScheme: "dark" } : {}) });
+        await x.addInitScript((st) => { if (!sessionStorage.getItem("sl")) { for (const [k, v] of Object.entries(JSON.parse(st))) localStorage.setItem(k, v); sessionStorage.setItem("sl", "1"); } }, slStore);
+        const xp = await x.newPage(); watch(xp, "Selbstlern " + dev);
+        await xp.goto(BASE + "/#/schueler/s/" + l2.id); await xp.locator(".slv-plan").waitFor({ timeout: 15000 });
+        await xp.locator("#slv-st-1 .sv-frame > img:not([hidden])").waitFor({ timeout: 20000 }).catch(() => {});
+        const hi = await horizontalIssues(xp);
+        ok(hi.issues.length === 0, dev + (dark ? " (dunkel)" : "") + ": Selbstlern-Phase der Schüler:innen nur senkrecht scrollbar" + (hi.issues.length ? " " + JSON.stringify(hi.issues.slice(0, 2)) : ""));
+        await xp.screenshot({ ...SHOT, path: join(OUT, "schueler-selbstlern-" + (dev.startsWith("iPad") ? "ipad" : "handy") + (dark ? "-dunkel" : "") + ".png"), fullPage: true });
+        await x.close();
+      }
+    }
+    await T("PATCH", "/api/teacher/lessons/" + l2.id, { date: l2Was.date, startTime: l2Was.startTime });
     await slCard.getByRole("button", { name: "Ursprüngliche Planung in eine andere Sitzung übernehmen" }).click();
     await tp.locator(".modal", { hasText: "Ursprüngliche Planung übernehmen" }).getByRole("button", { name: "Übernehmen" }).click();
     await tp.locator(".toast", { hasText: "übernommen" }).waitFor({ timeout: 10000 });
@@ -3702,7 +3808,8 @@ async function main() {
         ["Ausfall-Eintrag", "#/lk/s/" + noahPh.id], ["Elternansicht (Vorschau)", "#/lk/eltern/" + parentLessonId], ["Elternansicht des Ausfall-Eintrags (Vorschau)", "#/lk/eltern/" + noahPh.id]];
       T_PAGES.push(...GS_PAGES.filter(([label]) => !T_PAGES.some((x) => x[0] === label)));
       const P_PAGES = [["Elternansicht", "#/eltern/" + parentToken]];
-      const S_PAGES = [["Sitzungsliste", "#/schueler"], ["Sitzung (Schüler:in)", "#/schueler/s/" + lessonId], ["Vertretung (Schüler:in)", "#/schueler/s/" + l2.id], ["Escape-Room", "#/schueler/escape/" + l3.id]];
+      const S_PAGES = [["Sitzungsliste", "#/schueler"], ["Sitzung (Schüler:in)", "#/schueler/s/" + lessonId], ["Vertretung (Schüler:in)", "#/schueler/s/" + l2.id], ["Escape-Room", "#/schueler/escape/" + l3.id],
+        ["Selbstlern-Phase mit Escape-Room (Schüler:in)", "#/schueler/s/" + l3.id]];
       for (const dev of ["iPhone SE", "iPhone 13", "iPad (gen 7)"]) {
         await audit(dev, "Startseite", null, "#/");
         await audit(dev, "Fach und Klasse wählen", null, "#/", async (p) => { await p.fill("#spw", "Feindt"); await p.getByRole("button", { name: "Weiter" }).click(); await p.locator(".tiles .tile").first().waitFor(); await p.getByRole("button", { name: "Politik und Wirtschaft" }).click(); await p.locator(".class-btn").first().waitFor(); });
@@ -3731,6 +3838,7 @@ async function main() {
       await TT("PATCH", "/api/teacher/lessons/" + lessonId, { date: w.date, startTime: w.time });
       // Grundschule und Elternansicht auch im dunklen Farbschema (Handy und iPad)
       for (const dev of ["iPhone SE", "iPad (gen 7)"]) {
+        await audit(dev, "Selbstlern-Phase mit Escape-Room (Schüler:in)", sStore, "#/schueler/s/" + l3.id, null, true);
         for (const [label, hash] of GS_PAGES) await audit(dev, label, tStore, hash, null, true);
         for (const [label, hash] of P_PAGES) await audit(dev, label, null, hash, null, true);
       }

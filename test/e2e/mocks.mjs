@@ -33,6 +33,11 @@ export function startMockAI(port) {
         { text: "Erkläre zwei Aufgaben des Bundesverfassungsgerichts.", material: "Das BVerfG wacht über das **Grundgesetz**.", ki_auftrag: "Erwartet: Normenkontrolle, Verfassungsbeschwerde.", antwort: "text" },
         { text: "Sammle Pro und Contra.", ki_auftrag: "Je zwei Argumente.", antwort: { tabelle: ["Pro", "Contra"], zeilen: 3 } },
       ] }) + "\n```";
+    } else if (sys.includes("Du bist der Erklär-Chatbot")) {
+      // Erklär-Chatbot einer Selbstlern-Phase: Rückfrage – bzw. beim Beenden eine kurze Rückmeldung (der Satz steht im System-Prompt des Workers)
+      const last = body.messages[body.messages.length - 1].content;
+      text = sys.includes("Jetzt beendet die Person das Gespräch") ? "Gut erklärt hast du, dass das Gericht Gesetze am Grundgesetz prüft. Schau dir noch einmal an, wer eine Normenkontrolle beantragen darf. (Mock-Rückmeldung)"
+        : "Das klingt schon gut. Warum ist es wichtig, dass ein Gericht Gesetze prüfen darf? (Mock-Rückfrage auf: " + last.slice(0, 30) + ")";
     } else if (sys.includes("Du bist die KI-Begriffshilfe")) {
       text = "Normenkontrolle heißt: Das Gericht prüft, ob ein Gesetz zum Grundgesetz passt. (Mock-Antwort auf: " + body.messages[body.messages.length - 1].content.slice(0, 40) + ")";
     } else if (/Stundenfrage ändern/.test(body.messages[body.messages.length - 1].content)) {

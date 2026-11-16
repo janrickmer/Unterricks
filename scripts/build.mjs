@@ -179,7 +179,7 @@ export async function buildSite({ out, src = join(ROOT, "public"), nm = join(ROO
     const fb = (fbApi || "https://feibeitsblatt.feindt.workers.dev").replace(/\/+$/, "");
     const wss = pagesApi.replace(/^http/, "ws");
     const csp = ["default-src 'self'", "script-src 'self'", "style-src 'self' 'unsafe-inline'", "img-src 'self' data: blob: " + pagesApi, "font-src 'self'", "media-src 'self' " + pagesApi,
-      "connect-src 'self' " + pagesApi + " " + wss + " " + fb, "worker-src 'self' blob:", "frame-src 'none'", "object-src 'none'", "base-uri 'none'", "form-action 'self'"].join("; ");
+      "connect-src 'self' " + pagesApi + " " + wss + " " + fb, "worker-src 'self' blob:", "frame-src https://www.youtube-nocookie.com", "object-src 'none'", "base-uri 'none'", "form-action 'self'"].join("; ");
     html = html.replace('<meta charset="utf-8">', '<meta charset="utf-8">\n  <meta http-equiv="Content-Security-Policy" content="' + csp + '">\n  <meta name="unterricks-api" content="' + pagesApi + '">');
   }
   await writeFile(join(out, "index.html"), html);

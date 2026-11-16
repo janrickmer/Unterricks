@@ -191,6 +191,7 @@ const ROUTES = [
   ["POST", "/api/student/lessons/" + ID + "/presentation-link", S.routeStudentPresentationLink],
   ["POST", "/api/student/lessons/" + ID + "/presentation-slides", S.routeStudentPresentationSlides],
   ["POST", "/api/student/lessons/" + ID + "/ask", S.routeStudentAsk],
+  ["POST", "/api/student/lessons/" + ID + "/explain", S.routeStudentExplain],
   ["POST", "/api/student/lessons/" + ID + "/live-ticket", S.routeStudentLiveTicket],
   ["GET", "/api/student/lessons/" + ID + "/live", S.routeStudentLiveState],
   // Ausliefern über signierte Links und Live-Verbindung
@@ -239,6 +240,9 @@ function withHeaders(res, extra) {
   return new Response(res.body, { status: res.status, statusText: res.statusText, headers: h });
 }
 
+/* Eingebettete Videos einer Selbstlern-Phase (Nachtrag 29 Teil B): nur der Player von youtube-nocookie.com, erst nach dem Klick der Schüler:innen –
+   gleich in public/_headers und in der <meta>-CSP für GitHub Pages (scripts/build.mjs); test/unit/selbstlernview.test.mjs vergleicht alle drei */
+const FRAME_SRC = "https://www.youtube-nocookie.com";
 function securityHeaders(res, request, env) {
   const h = new Headers(res.headers);
   h.set("X-Content-Type-Options", "nosniff");
@@ -249,7 +253,7 @@ function securityHeaders(res, request, env) {
     const host = new URL(request.url).host;
     h.set("Content-Security-Policy", [
       "default-src 'self'", "script-src 'self'", "style-src 'self' 'unsafe-inline'", "img-src 'self' data: blob:", "font-src 'self'", "media-src 'self'",
-      "connect-src 'self' wss://" + host + " ws://" + host + " " + fbApi(env), "worker-src 'self' blob:", "frame-src 'none'",
+      "connect-src 'self' wss://" + host + " ws://" + host + " " + fbApi(env), "worker-src 'self' blob:", "frame-src " + FRAME_SRC,
       "object-src 'none'", "base-uri 'none'", "form-action 'self'", "frame-ancestors 'none'",
     ].join("; "));
     h.set("Cache-Control", "no-cache");

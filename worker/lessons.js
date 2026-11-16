@@ -371,10 +371,15 @@ export async function nextLessonDate(db, l) {
 /* Nächste Sitzung derselben Lerngruppe MIT der Lehrkraft (Selbstlern-Phase, Nachtrag 29): wie nextLessonDate, aber ohne Sitzungen, in denen sie nicht
    unterrichtet (Selbstlern-Phase oder ältere, bestätigte Vertretung) – bis dorthin sind die Stationen Hausaufgabe; unbekannt → null */
 export async function nextTeacherLessonDate(db, l) {
+  const n = await nextTeacherLesson(db, l);
+  return n ? n.date : null;
+}
+/* … samt Beginn (Uhrzeit oder null): bis dahin gibt es in einer Selbstlern-Phase Erklär-Chatbot und KI-Begriffshilfe (Teil B, selbstlernAiWindow) */
+export async function nextTeacherLesson(db, l) {
   if (!l.lesson_date) return null;
-  const r = await db.prepare("SELECT x.lesson_date FROM lessons x WHERE x.subject=?1 AND x.klass=?2 AND x.id<>?3 AND x.lesson_date > ?4 AND x.cancelled=0 " +
-    "AND NOT EXISTS (SELECT 1 FROM substitutes s WHERE s.lesson_id=x.id AND s.status IN ('aktiv','selbstlern')) ORDER BY x.lesson_date LIMIT 1").bind(l.subject, l.klass, l.id, l.lesson_date).first();
-  return r ? r.lesson_date : null;
+  const r = await db.prepare("SELECT x.lesson_date, x.start_time FROM lessons x WHERE x.subject=?1 AND x.klass=?2 AND x.id<>?3 AND x.lesson_date > ?4 AND x.cancelled=0 " +
+    "AND NOT EXISTS (SELECT 1 FROM substitutes s WHERE s.lesson_id=x.id AND s.status IN ('aktiv','selbstlern')) ORDER BY x.lesson_date, x.start_time LIMIT 1").bind(l.subject, l.klass, l.id, l.lesson_date).first();
+  return r ? { date: r.lesson_date, startTime: r.start_time || null } : null;
 }
 
 /* Ändern. Folgende Sitzungen werden nie mitverschoben (Entscheidung der Lehrkraft: bei Krankheit gibt es stattdessen die

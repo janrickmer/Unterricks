@@ -50,7 +50,8 @@ Stunden bei Krankheit (siehe [Grundschule](#grundschule)).
    Datenschutzhinweis; das sollte vor dem Einsatz mit Schüler:innen ergänzt werden.
 
 Feibeitsblatt braucht keine Änderung. Die Adressen stehen in `wrangler.jsonc` (`FEIBEITSBLATT_API`, `FEIBEITSBLATT_URL`) und in
-`public/_headers` (CSP, `connect-src`).
+`public/_headers` (CSP, `connect-src`). Eingebettet werden darf nur der Videoplayer von `https://www.youtube-nocookie.com` (CSP `frame-src`,
+gleich in `public/_headers`, im Worker und – für GitHub Pages – in `scripts/build.mjs`; ein Unit-Test vergleicht alle drei).
 
 ## Bedienung in Kürze
 
@@ -343,8 +344,9 @@ Feibeitsblatt braucht keine Änderung. Die Adressen stehen in `wrangler.jsonc` (
   * Gelöscht wird erst nach einer letzten Bestätigung mit Kästchen. Dort lässt sich die Sicherung auch erneut herunterladen. Hat sich
     seit der Sicherung etwas geändert (z. B. über Claude), löscht Unterricks nichts und bittet, neu zu sichern.
 * **KI-Begriffshilfe:** Während der Stunde können Schüler:innen unter der Live-Präsentation Fachbegriffe kurz und einfach erklären
-  lassen – nur nach ihrer Einwilligung, mit der kostenlosen KI; in den Sitzungsdaten abschaltbar. Bitte vor dem Einsatz prüfen, ob
-  das an Ihrer Schule zulässig ist (siehe docs/ARCHITEKTUR.md, 4k).
+  lassen – nur nach ihrer Einwilligung, mit der kostenlosen KI; in den Sitzungsdaten abschaltbar. In einer Selbstlern-Phase steht sie ganz
+  unten und gibt es bis zur nächsten Sitzung mit Ihnen (siehe „Ohne Lehrkraft: Selbstlern-Phase“). Bitte vor dem Einsatz prüfen, ob
+  das an Ihrer Schule zulässig ist (siehe docs/ARCHITEKTUR.md, 4k und 4x) – das gilt ebenso für den Erklär-Chatbot und eingebettete YouTube-Videos.
 * **Feibeitsblatt-Entwürfe:** Je Aufgabe steht ein **„Auftrag an die KI“** – keine Musterlösung, sondern die Anweisung an die
   korrigierende KI des Feibeitsblatts, worauf sie beim Lesen der Antwort achten soll, damit ihre Rückmeldung zeigt, was schon gut ist und
   was verbessert werden sollte. Unterricks ergänzt jeden Auftrag um die **altersgemäße Erwartung** der Lerngruppe (z. B. „Jahrgangsstufe
@@ -397,9 +399,27 @@ Feibeitsblatt braucht keine Änderung. Die Adressen stehen in `wrangler.jsonc` (
   Die Selbstlern-Phase lässt sich mit Claude jederzeit überarbeiten (derselbe Knopf). **Jahrgang 5/6** (keine iPads): derselbe Knopf, aber
   **analoge Stationen** – Laufzettel, Arbeitsblätter je Station und eine Lösungskontrolle auf Ihrer Druckliste (Anzahl = Schülerzahl);
   die Aufsicht teilt nur aus. Die Druckaufträge für den nächsten Arbeitstag kennzeichnen solche Sitzungen mit „Selbstlern-Phase –
-  Ausdrucke für die Aufsicht“. Was die Schüler:innen in der Sitzung sehen (Stationen, Video nach Klick, Erklär-Chatbot, KI-Begriffshilfe
-  ganz unten), baut Teil B; bis dahin zeigt die bisherige Ansicht den Hinweis, die Stationen und die Hausaufgabe. Ältere
-  Vertretungsvorschläge bleiben lesbar (verwerfen), ältere aktive Vertretungen lassen sich wie bisher wiederherstellen.
+  Ausdrucke für die Aufsicht“. Ältere Vertretungsvorschläge bleiben lesbar (verwerfen), ältere aktive Vertretungen lassen sich wie bisher
+  wiederherstellen.
+  **Das sehen die Schüler:innen (ab Jahrgang 7, mit iPads):** Ganz oben die Erklärung, dass Sie zu dieser Sitzung nicht da sein können und es
+  deshalb einen Selbstlern-Unterricht gibt (samt dem Satz von Claude), darunter den **Ablaufplan** – die Stationen nummeriert in der richtigen
+  Reihenfolge, je mit Arbeitsauftrag, Minuten und ihrem Element: die **Präsentation** zum Durchklicken im Folienfenster (die Folien entstehen auf
+  dem iPad aus der PDF, „Präsentation herunterladen“ darunter), das **Feibeitsblatt** mit „Code kopieren und Feibeitsblatt öffnen“, der
+  **Erklär-Chatbot** (die Schüler:innen erklären, der Chatbot fragt nach – eine Rückfrage auf einmal, kurz und in der Sprache des Jahrgangs; „Gespräch
+  beenden und Rückmeldung bekommen“ liefert eine kurze Rückmeldung, was gut erklärt war und was sie sich noch einmal ansehen sollten), das
+  **YouTube-Video** (erst nach einem Klick eingebettet, siehe unten) und der Escape-Room. Jede Station lässt sich abhaken – das merkt sich nur das
+  Gerät. Darunter die **Hausaufgabe** (von Anfang an), weiteres Material und **ganz unten die KI-Begriffshilfe** für Fachbegriffe und
+  Verständnisfragen (kurz, in der Sprache der Altersgruppe; sie erledigt keine Stationen und keine Hausaufgaben). Es gibt kein Live-Fenster und
+  nicht die Präsentation der ursprünglichen Planung. **Erklär-Chatbot und KI-Begriffshilfe gibt es ab dem Beginn der Sitzung bis zum Beginn der
+  nächsten Sitzung mit Ihnen** (die Stationen sind bis dahin Hausaufgabe; ist die nächste Sitzung noch nicht angelegt, bis 7 Tage nach dem Ende);
+  nach der Abmeldung nach 90 Minuten geht es mit dem Passwort weiter, ein Gespräch beginnt dann neu. Den Schalter für die KI-Begriffshilfe in
+  den Sitzungsdaten gibt es weiter; der Erklär-Chatbot gehört zur Station. In Jahrgang 5/6 (auf Papier) bleibt die Ansicht wie bisher.
+  **Datenschutz (für Schüler:innen und Eltern):** Beide KI-Chatbots nutzen dieselben kostenlosen KI-Dienste wie die KI-Begriffshilfe und dieselbe
+  Einwilligung (einmal je Sitzung und Gerät, gilt für beide; jederzeit zurücknehmbar). An den KI-Dienst gehen nur der eingetippte Text, das Thema der
+  Sitzung und beim Erklär-Chatbot der Auftrag der Station – nie Namen oder eine Kennung des Geräts; Unterricks speichert die Gespräche nicht. Wer
+  keine KI nutzen möchte, schreibt die Erklärung ins Heft. Ein **YouTube-Video** lädt die Seite erst nach dem Klick auf „Video von YouTube laden“
+  (über youtube-nocookie.com, ohne Vorschaubild); dabei erhält Google unter anderem die IP-Adresse und kann Cookies setzen, Daten können in die USA
+  gelangen – so steht es auch über dem Knopf. Die Zustimmung zum Video speichert Unterricks nicht. „Video in neuem Tab öffnen“ öffnet YouTube direkt.
 * **Nach einem Update von Unterricks:** Ein Tab, der schon vorher offen war, merkt das beim nächsten Seitenwechsel (z. B. beim Klick auf
   eine Sitzung) und lädt sich dann an derselben Stelle neu – Sie müssen nichts tun. Solange ein Dialog offen ist, eine Präsentation läuft
   (auch am Beamergerät und im Live-Fenster der Schüler:innen) oder noch etwas gespeichert, hochgeladen oder heruntergeladen wird, lädt er

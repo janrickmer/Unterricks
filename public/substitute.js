@@ -96,6 +96,10 @@ export function substituteCards({ id, st, L, ctx, analog, reload, openDraft, flu
         h("div", { class: "row between sl-head" }, h("strong", { text: x.titel }), h("span", { class: "row" }, h("span", { class: "badge sl-typ", text: stationLabel(x.typ) }), x.minuten ? h("span", { class: "badge", text: "ca. " + x.minuten + " min" }) : null)),
         renderMarkdown(x.anleitung || ""), stationRef(x, p)))),
       d.material.length ? h("p", { class: "small" }, h("strong", { text: "Weiteres Material: " }), d.material.map((fid) => { const f = fileOf(fid); return f ? "„" + f.name + "“" : "(fehlt)"; }).join(", ")) : null,
+      // KI-Chatbots der Schüleransicht (Teil B): wann es sie gibt – damit die Lehrkraft es weiß
+      !d.analog ? h("p", { class: "small sl-ai" }, h("strong", { text: "KI-Chatbots für die Schüler:innen: " }), (d.stationen.some((x) => x.typ === "erklaer_chatbot") ? "der Erklär-Chatbot der Station und " : "") +
+        "ganz unten die KI-Begriffshilfe – nur nach Einwilligung der Schüler:innen, ab dem Beginn dieser Sitzung bis zum Beginn der nächsten Sitzung mit Ihnen (ohne angelegte nächste Sitzung bis 7 Tage nach dem Ende). " +
+        "Die KI-Begriffshilfe lässt sich in den Sitzungsdaten ausschalten; der Erklär-Chatbot gehört zur Station.") : null,
       loose.length ? h("p", { class: "small warnc", text: "Material der Selbstlern-Phase ohne Station (die Schüler:innen sehen es trotzdem): " + loose.map((f) => "„" + f.name + "“").join(", ") + " – brauchen Sie es nicht, löschen Sie es unten im Material." }) : null,
       h("h3", { text: "Hausaufgabe (für die Schüler:innen von Anfang an sichtbar)" }),
       h("div", { class: "sl-hw" }, h("p", { class: "small due", text: due ? "Bis zur nächsten Sitzung mit Ihnen am " + fmtDay(due) + ":" : "Bis zur nächsten Sitzung mit Ihnen (noch keine angelegt):" }),

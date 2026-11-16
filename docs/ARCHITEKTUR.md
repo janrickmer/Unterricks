@@ -71,7 +71,7 @@ implementiert und im End-to-End-Test geprüft (Ausnahmen unten ausdrücklich gen
 | Dialoge: Tastaturfokus (Nachtrag 25 vom 14.11.2026) | Auf die Frage „Soll ich das plattformweit beheben?“ (mit Tab gelangte man aus jedem Dialog auf die Seite dahinter): **„Ja, beheben“** – Tab und Umschalt+Tab bleiben im offenen Dialog, danach geht der Fokus zurück; mit Tests und E2E (Abschnitt 4s) |
 | Konzentrationsaufgabe (Nachtrag 27 vom 15.11.2026) | Jeder Prompt, mit dem eine **Sitzung der Grundschule** mit Claude geplant wird („Stunde mit Claude planen“, Schritt 5 der Überarbeitung einer Einheit), lässt Claude zusammen mit dem übrigen Material die **„Konzentrationsaufgabe“** gestalten – für Kinder, die ihre Aufmerksamkeit in Plenumsphasen nur bündeln können, wenn sie den Sitzkreis verlassen und beim Zuhören ausmalen: höchstens **zwei A4-Seiten**, zuerst **mindestens zwei Ausmalbilder** zum aktuellen Unterrichtsinhalt, dann das Symbol einer **roten Karte**, danach **eine weitere altersgerechte Aufgabe** zum Inhalt der Stunde. Rückfragen beantwortet: **beidseitig** drucken, Bereich **druck** – nur auf der Druckliste der Lehrkraft als „5x - beidseitig - sw - Konzentrationsaufgabe – <Thema>.pdf“, nie in der Elternansicht, nie für Kinder. Siehe 4u |
 | Gegenstände zum Einpacken (Nachtrag 28 vom 15.11.2026) | Unter „Druckaufträge für den nächsten Arbeitstag“ auf **beiden Startseiten** ein **roter Kasten „Für den nächsten Arbeitstag einpacken“** mit den Gegenständen, die die Lehrkraft für die Sitzungen desselben Tages mitbringen muss (z. B. Bibel, Beutel), als **Stichpunktliste**; ein Klick auf einen Gegenstand klappt in **kleinerer Schrift** auf, **an welcher Stelle und in welcher Lerngruppe** er gebraucht wird (je Sitzung höchstens zwei Sätze). Rückfrage beantwortet: **Claude + von Hand** – Claude trägt sie beim Planen über den Connector ein (`update_lesson` mit `mitbringen`), die Lehrkraft ergänzt, ändert und löscht sie auf der Sitzungsseite (Karte „Mitbringen“); **Gymnasium und Grundschule**. Ohne Gegenstände kein Kasten. Siehe 4v |
-| Selbstlern-Phase statt Krankheitsvertretung (Nachtrag 29 vom 15.11.2026, Teil A) | Knopf **„Präsenz der Lehrkraft nicht möglich – Unterricht in Selbstlern-Phase umbauen“** (die Lehrkraft tippte einen Bindestrich; Unterricks setzt wie überall den Gedankenstrich), nur Gymnasium. Rückfragen beantwortet: **ersetzt die Krankheitsvertretung ganz** (Feibeitsblatt und Escape-Room können Stationen sein; ältere Vertretungen bleiben lesbar), **Jg. 5/6 analoge Selbstlern-Stationen** (Laufzettel, Arbeitsblätter, Lösungskontrolle auf der Druckliste; die Aufsicht teilt nur aus), **KI-Chatbots wie die KI-Begriffshilfe** (dieselben kostenlosen Dienste, dieselbe Einwilligung, ohne Namen), **YouTube eingebettet nach Klick** (youtube-nocookie.com, „Video in neuem Tab öffnen“), **Hausaufgabe von Anfang an sichtbar**. Claude entwickelt im Chat mindestens drei Ideen, speichert erst nach ausdrücklicher Zustimmung mit `save_selbstlern` (ein Schritt; die ursprüngliche Planung wird archiviert, „Wiederherstellen“ macht die Sitzung wieder normal) – Abschnitt 4w. Teil B (Schüleransicht, Erklär-Chatbot, Video, Begriffshilfe ganz unten) folgt |
+| Selbstlern-Phase statt Krankheitsvertretung (Nachtrag 29 vom 15.11.2026, Teil A) | Knopf **„Präsenz der Lehrkraft nicht möglich – Unterricht in Selbstlern-Phase umbauen“** (die Lehrkraft tippte einen Bindestrich; Unterricks setzt wie überall den Gedankenstrich), nur Gymnasium. Rückfragen beantwortet: **ersetzt die Krankheitsvertretung ganz** (Feibeitsblatt und Escape-Room können Stationen sein; ältere Vertretungen bleiben lesbar), **Jg. 5/6 analoge Selbstlern-Stationen** (Laufzettel, Arbeitsblätter, Lösungskontrolle auf der Druckliste; die Aufsicht teilt nur aus), **KI-Chatbots wie die KI-Begriffshilfe** (dieselben kostenlosen Dienste, dieselbe Einwilligung, ohne Namen), **YouTube eingebettet nach Klick** (youtube-nocookie.com, „Video in neuem Tab öffnen“), **Hausaufgabe von Anfang an sichtbar**. Claude entwickelt im Chat mindestens drei Ideen, speichert erst nach ausdrücklicher Zustimmung mit `save_selbstlern` (ein Schritt; die ursprüngliche Planung wird archiviert, „Wiederherstellen“ macht die Sitzung wieder normal) – Abschnitt 4w. **Teil B** (Schüleransicht, Erklär-Chatbot, Video nach Klick, KI-Begriffshilfe ganz unten; Chatbots ab Beginn der Sitzung bis zur nächsten Sitzung mit der Lehrkraft) – Abschnitt 4x |
 
 ## 2. Gesamtarchitektur
 
@@ -151,6 +151,7 @@ implementiert und im End-to-End-Test geprüft (Ausnahmen unten ausdrücklich gen
 | | `public/cards.js` | Bildkarten: Betrachter (aus `cardview.js`), Karte „Bildkarten“ der Grundschul-Sitzung (Erzähltexte, Freigabe, Hochladen), Kartenbilder im Browser erstellen (PDF.js, nacheinander) |
 | | `public/units.js`, `public/bases.js` | Seite der Unterrichtseinheit (Leupold-Schema, Tabelle), Planungsgrundlagen |
 | | `public/substitute.js`, `public/claude.js` | Selbstlern-Phase in der Sitzung (Knopf, Karte, Wiederherstellen; ältere Vertretungen lesbar); Übergabe an Claude (Modell/Aufwand) |
+| | `public/selbstlernview.js` | Schüleransicht einer Selbstlern-Phase (Nachtrag 29 Teil B, bei Bedarf über `lazy()` geladen): Erklärung, Ablaufplan, Folienfenster aus der PDF (PDF.js), Feibeitsblatt, Video nach Klick, Erklär-Chatbot, Abhaken auf dem Gerät |
 | | `public/escape.js`, `public/escape-data.js` | Escape-Room-Vorlage (Oberfläche, Überblick-PDF); Prüfen/Bewerten, Zwischenstand, Feibeitsblatt-Datensatz |
 | | `public/fbclient.js` | Feibeitsblatt-Client (Schlüsselableitung, Anlegen, Entschlüsseln) |
 | | `public/fblink.js` | gespeicherte Feibeitsblatt-Verbindung (Schlüssel aus dem Unterricks-Passwort, IndexedDB) |
@@ -1444,6 +1445,85 @@ Antworten auf die Rückfragen: siehe Tabelle in Abschnitt 1a. **Teil A** (dieser
   mit Escape-Room“ (alle sechs Stationen, Überblick-PDF, Tunnel), Jg. 6 analog, Grundschule ohne; Escape-Fixture in `test/e2e/escape-fixture.mjs`.
 - **Nicht prüfbar hier:** ob Claude in claude.ai wirklich drei unterschiedliche Ideen entwickelt, auf die Zustimmung wartet und die zu löschenden
   Dateien richtig benennt; echtes YouTube und echtes iPad/Safari.
+
+## 4x. Selbstlern-Phase – Schüleransicht (Nachtrag 29 – Teil B, 15.11.2026)
+
+Wortlaut (gekürzt, siehe 4w): „Für eine solche Sitzung ändert sich die Schüleransicht. Ganz oben wird erläutert, dass die Lehrkraft … nicht da sein kann und
+deswegen ein Selbstlern-Unterricht bereitgestellt wird. Darunter befindet sich ein Ablaufplan mit den Stationen in der richtigen Reihenfolge … Ganz unten
+soll ein KI-Chatbot bereitstehen, den die Schüler nutzen können, um Fachbegriffe erklärt zu bekommen und Verständnisfragen zu stellen – … auf dem
+sprachlichen Niveau der Altersgruppe … nicht zu ausführlich.“ Antworten: KI-Chatbots wie die KI-Begriffshilfe, YouTube eingebettet nach Klick,
+Hausaufgabe von Anfang an.
+
+- **Wer sie bekommt:** Selbstlern-Phasen ab Jahrgang 7 (iPads). `app.js` lädt dafür `public/selbstlernview.js` über `lazy()` (Stände, 4t); scheitert das
+  Laden an einem neuen Stand, erscheint der bekannte Hinweis „Neu laden“. **Jahrgang 5/6** (analog, `isAnalogClass`) behält die bisherige Ansicht (Hinweis
+  und Schritte), die Selbstlern-Phase steht dort auf Papier.
+- **Aufbau** (Reihenfolge fest, E2E prüft sie): Kopf der Sitzung → Karte „Heute: Selbstlern-Unterricht“ (`SELBSTLERN_INTRO` + `einleitung` von Claude) →
+  „Ablaufplan“ (Anzahl, Minuten, Hinweis zum Abhaken, Fortschritt als `role="status"`; `ol` mit je Station: Nummer (aria-hidden), h3 „Station n: Titel“
+  (die Nummer für Screenreader im Text), Methode und Minuten, Arbeitsauftrag (Markdown), Element, „Station n erledigt“) → Hausaufgabe (von Anfang an,
+  „Bis zur nächsten Stunde mit deiner Lehrkraft am …“) → „Weiteres Material“ (nur, was keine Station hat; Feibeitsblätter und Dateien der Stationen stehen
+  dort) → Notfall-Feibeitsblätter wie bisher → **ganz unten die KI-Begriffshilfe**. **Kein Live-Fenster und keine Präsentation der ursprünglichen
+  Planung** (Entscheidung: die Lehrkraft ist nicht da, die ursprüngliche Planung ist archiviert; der Worker liefert `presentation: null`, Link und Folien
+  der Präsentation antworten 404). Wird die Sitzung umgestellt bzw. wiederhergestellt, baut sich die Seite beim nächsten Abgleich neu auf.
+- **Elemente je Methode:** *Präsentation* → das Folienfenster der Schüleransicht (`slideViewer`, Nachtrag 19) mit den neuen, rückwärtskompatiblen Angaben
+  `title`, `headTag`, `headId`, `cls`, `downloadText`, `block`; die Folien rendert der Browser mit PDF.js aus der PDF der Station (signierter Link, eine Folie
+  je Abruf, Blob-Adressen, beim Verlassen freigegeben; über 40 MB oder bei Fehlern „Präsentation herunterladen“ und „Erneut versuchen“). Material von
+  Claude hat keine Folienbilder auf dem Server – deshalb im Browser. *Feibeitsblatt* → dieselbe Zeile wie im Material („Code kopieren und Feibeitsblatt
+  öffnen“, `sheetItem`); noch nicht angelegt → Hinweis. *Erklär-Chatbot* → siehe unten. *Video* → siehe unten. *Escape-Room* → „Escape-Room starten“ wie
+  bisher. *Material* → Zeile mit „Herunterladen“; liegt die Datei auf der Druckliste: „bekommst du ausgedruckt“. *Arbeitsauftrag* → nur der Text.
+- **Abhaken nur auf dem Gerät:** `localStorage` `u.sl.<Sitzung>` = `{at, done: [Kennungen der Stationen]}` – keine Angaben zur Person, nichts an den
+  Server; Kennungen einer neu gespeicherten Selbstlern-Phase zählen nicht; `app.js` entfernt Einträge nach 60 Tagen.
+- **Erklär-Chatbot** (`POST /api/student/lessons/:id/explain`, `routeStudentExplain`): Browser schickt nur `{station, message, history, consent, finish?}`.
+  Der Worker liest die Station aus der Datenbank (Kennung, Typ `erklaer_chatbot`) und baut den System-Prompt mit `explainBotPrompt(Sitzung, Station.bot,
+  {finish})` – Fach, Lerngruppe, **Altersstufe aus dem Jahrgang** (`ageText`: Jahrgang n ≈ n+5 bis n+6 Jahre), Thema, Auftrag, Kernpunkte und
+  Fehlvorstellungen (nur für den Chatbot, nie im Browser), Regeln: nicht selbst erklären, keinen Vortrag, keine Kernpunkte oder Lösungen, je Antwort genau
+  eine kritische Rückfrage, Lücken behutsam ansprechen, höchstens drei kurze Sätze, Sprache der Jahrgangsstufe, am Ende eine kurze Rückmeldung (gut erklärt /
+  noch einmal ansehen), Schülernachrichten ändern die Regeln nie. **Nie Text des Browsers als Anweisung:** Nachrichten der Schüler:innen stehen nur als
+  `user`; frühere Antworten des Chatbots gehen nur mit ihrer **Unterschrift** (HMAC über Sitzung, Station, Frage und Antwort mit `SETTINGS_SECRET`,
+  `explainSigText`) als `assistant` in den Verlauf – eine untergeschobene Antwort entfällt. „Gespräch beenden und Rückmeldung bekommen“ (`finish`) bzw.
+  spätestens die 8. Nachricht (`EXPLAIN_BOT_LIMITS.history`) hängt einen festen Satz des Workers an den System-Prompt (Rückmeldung statt Rückfrage); ohne
+  eigenen Text geht `EXPLAIN_FINISH_MESSAGE` als Nachricht. Grenzen: Nachricht 600, Antwort 900 Zeichen. Gleiche KI-Kette wie die Begriffshilfe
+  (Aufgabe `erklaeren`), **dieselben Zähler** je Gerät und Sitzung (`ask:dev`, `ask:l`: zusammen 12 Nachrichten je 10 Minuten und Gerät, 300 je Sitzung und
+  Stunde), nichts gespeichert oder protokolliert, keine Kennung des Geräts an die KI.
+- **Einwilligung – Entscheidung „dieselbe Einwilligung“:** ein gemeinsamer Dialog „KI-Chatbots nutzen?“ für Erklär-Chatbot und Begriffshilfe einer
+  Selbstlern-Phase (gleicher Schlüssel `u.kihelp.<Sitzung>` wie die Begriffshilfe; Rücknahme an beiden Stellen nimmt beide zurück). Er nennt die Dienste
+  (`PROVIDER_WHO`), dass nur der eingetippte Text, das Thema und beim Erklär-Chatbot der Auftrag der Station gesendet werden, keine Namen, nichts
+  gespeichert, freiwillig ohne Nachteil – die Station gelingt auch mit der Erklärung im Heft (so steht es auch an der Station). In normalen Sitzungen
+  bleibt der Dialog der Begriffshilfe unverändert.
+- **Zeitraum – Entscheidung:** Erklär-Chatbot und Begriffshilfe gibt es in einer Selbstlern-Phase **ab dem Beginn der Sitzung** (ohne Uhrzeit ab 0 Uhr ihres
+  Tages) **bis zum Beginn der nächsten Sitzung mit der Lehrkraft** (`selbstlernAiWindow`, `nextTeacherLesson` mit Datum und Uhrzeit; ohne Uhrzeit ab 0 Uhr
+  jenes Tages) – die Stationen sind bis dahin Hausaufgabe. Ist die nächste Sitzung noch nicht angelegt: bis 7 Tage nach dem Ende
+  (`SELBSTLERN_AI_FALLBACK_DAYS`); ohne Datum keine. Vorher bzw. danach sagt die Station, ab wann bzw. dass es den Chatbot nicht mehr gibt (Heft als Weg).
+  Die Abmeldung nach 90 Minuten bleibt: mit dem Passwort geht es weiter, ein laufendes Gespräch beginnt neu (nur im Arbeitsspeicher). `changesAt` enthält
+  Beginn und Ende, die Seite aktualisiert sich dann. Der Schalter „KI-Begriffshilfe … anbieten“ der Sitzung gilt nur für die Begriffshilfe; der
+  Erklär-Chatbot gehört zur Station, die die Lehrkraft freigegeben hat (die Karte der Lehrkraft nennt beides).
+- **KI-Begriffshilfe in der Selbstlern-Phase:** ganz unten, Prompt `selbstlernHelpPrompt` (in `public/selbstlern.js`; `studentHelpPrompt` normaler
+  Sitzungen bleibt byte-gleich, Unit-Test): Fachbegriffe und Verständnisfragen zum Thema, höchstens vier kurze Sätze, Sprache der Altersgruppe, die
+  Stationen nur mit Titel und Methode zur Orientierung, **erledigt keine Stationen und keine Hausaufgabe** (auch keine Erklärung für den Erklär-Chatbot).
+- **YouTube** (Muster des Feibeitsblatts, dort geprüft): Platzhalter mit Titel, Startzeit, `YT_CONSENT` (wörtlich), „Video von YouTube laden“
+  (`aria-describedby` auf den Hinweis) und „Video in neuem Tab öffnen“ (`youtubeUrl`, `noopener noreferrer`); erst der Klick hängt das `iframe` ein:
+  `youtubeEmbedUrl` (youtube-nocookie.com, nur aus der geprüften Kennung, `cleanVideo`), `referrerpolicy="strict-origin-when-cross-origin"` (die Seite
+  sendet sonst keinen Referer, YouTube verweigerte eingebettete Player – nur die Herkunft, nie Pfad oder Code), `allow="autoplay; encrypted-media;
+  picture-in-picture; fullscreen"`, `allowfullscreen`, `sandbox="allow-scripts allow-same-origin allow-presentation allow-popups
+  allow-popups-to-escape-sandbox"`; kein Vorschaubild, kein oEmbed, kein preconnect, keine IFrame-API. Die Zustimmung wird **nicht gespeichert** (nach dem
+  Neuladen wieder Platzhalter; beim Verlassen der Seite verschwindet das iframe). **CSP `frame-src https://www.youtube-nocookie.com`** in `public/_headers`,
+  im Worker (`securityHeaders`) und in der `<meta>`-CSP für GitHub Pages (`scripts/build.mjs`) – sonst nichts von YouTube oder Google (`img-src` ohne
+  YouTube); ein Unit-Test baut die Pages-Fassung und vergleicht alle drei.
+- **Barrierefreiheit:** Überschriften h1 → h2 (Erklärung, Ablaufplan, Hausaufgabe, Material, Begriffshilfe) → h3 (Stationen) → h4 (Folienfenster);
+  Chatverlauf `role="log"`, `aria-live="polite"` mit „Du:“/„Chatbot:“ sichtbar; Fokus nach der Einwilligung ins Eingabefeld und nach einer Antwort zurück –
+  nur, wenn er nicht inzwischen woanders steht; alle Knöpfe ≥ 44 px; iPad hochkant und Handy ohne seitliches Scrollen (E2E, hell und dunkel).
+- **Datenschutz (zu prüfen vor dem Einsatz, wie 4k):** Die Hinweise an die Schüler:innen stehen im Einwilligungsdialog und über dem Video; README fasst
+  sie für Lehrkraft und Eltern zusammen. Unterricks hat weiter keinen eigenen Datenschutzhinweis; ob die Einwilligung von Schüler:innen unter 16 Jahren
+  trägt, ob die Nutzungsbedingungen der KI-Dienste und von YouTube die Nutzung durch Minderjährige erlauben und ob die Schule bzw. das Land das zulässt,
+  ist nicht geprüft.
+- **Tests:** `test/unit/selbstlernview.test.mjs` (Zeitraum, Altersstufe, Prompts, Route samt Einwilligung, Station, Zeitraum, Unterschrift, Beenden,
+  Längen, gemeinsame Zähler, normale Sitzung unverändert, CSP in allen drei Stellen, YouTube-Kennung, Ansicht im nachgebildeten DOM). Der System-Prompt
+  des Erklär-Chatbots aus Teil A ist dafür ergänzt (Altersstufe, „keinen Vortrag“, behutsam auf Lücken hinweisen, Rückmeldung zum Schluss); die Sätze, die
+  `selbstlern.test.mjs` prüft, bleiben. E2E (Schritt
+  „Selbstlern-Phase“): Erklärung, Reihenfolge, Folienfenster, Feibeitsblatt, Video ohne Anfrage vor dem Klick und genau eine an die Attrappe von
+  youtube-nocookie.com danach, Erklär-Chatbot mit der Mock-KI (Rückfrage, Verlauf, Rückmeldung), Begriffshilfe ganz unten, Abhaken, iPad/Handy hell und
+  dunkel; alle Kontexte des E2E leiten YouTube- und Google-Hosts auf eine Attrappe bzw. blockieren sie.
+- **Nicht prüfbar hier:** echtes YouTube (Abspielen, Fehler 153), echtes iPad/Safari (PDF.js-Speicher bei großen PDFs), wie gut die kostenlosen Modelle die
+  Regeln des Erklär-Chatbots einhalten.
 
 ## 4i. Druckliste „Von der Lehrkraft auszudrucken“ (Ergänzung vom 10.11.2026)
 

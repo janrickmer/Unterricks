@@ -903,6 +903,73 @@ img.sub-photo { max-width: 100%; max-height: 60vh; border-radius: 12px; border: 
 .sl-acts { margin-top: .9rem; flex-wrap: wrap; }
 .sl-acts .btn, .selfside .btn.sickbtn { min-height: 44px; }
 .badge.pn-sl { margin-left: .4rem; white-space: normal; background: var(--gelb-t); color: var(--text); box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--gelb-kante) 60%, transparent); vertical-align: .1em; }
+/* Selbstlern-Phase – Schüleransicht (Nachtrag 29 Teil B): Erklärung oben, Ablaufplan mit nummerierten Stationen (abhaken), Element je Station,
+   Video erst nach dem Klick (Platzhalter wie im Feibeitsblatt), Erklär-Chatbot. Alle Knöpfe mindestens 44 px hoch (iPad). */
+.slv-room .btn.small { min-height: 44px; }
+.card.slv-intro { background: var(--fach-t); border: 1px solid color-mix(in srgb, var(--fach) 30%, var(--line)); box-shadow: inset 5px 0 0 var(--fach), var(--shadow); margin-bottom: 1.15rem; }
+.slv-intro h2 { margin-bottom: .45rem; }
+.slv-lead { font-size: 1.08rem; font-weight: 600; margin: 0; }
+.slv-einl { margin: .55rem 0 0; }
+.card.slv-plan { margin-bottom: 1.15rem; }
+.slv-planhead { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: .4rem .8rem; }
+.slv-planhead h2 { margin: 0; }
+.slv-planhint { margin: .35rem 0 0; }
+.slv-progress { margin: .55rem 0 .8rem; font-weight: 700; }
+.slv-stations { list-style: none; margin: 0; padding: 0; display: grid; grid-template-columns: minmax(0, 1fr); gap: .85rem; }
+.slv-station { border: 1px solid var(--line-ui); border-radius: var(--radius-s); padding: .9rem 1rem 1rem; background: var(--surface); }
+.slv-station.done { border-color: color-mix(in srgb, var(--gruen) 70%, var(--line)); background: color-mix(in srgb, var(--gruen-t) 55%, var(--surface)); }
+.slv-head { display: flex; align-items: flex-start; gap: .75rem; }
+.slv-num { flex: none; display: grid; place-items: center; width: 2.3rem; height: 2.3rem; border-radius: 50%; background: var(--fach); color: #fff; font-weight: 800; font-size: 1.1rem; font-variant-numeric: tabular-nums; }
+.slv-station.done .slv-num { background: var(--gruen); }
+.slv-titles { flex: 1 1 auto; min-width: 0; }
+.slv-titles h3 { margin: .2rem 0 .35rem; overflow-wrap: anywhere; }
+.slv-meta { display: flex; flex-wrap: wrap; gap: .3rem; }
+.badge.slv-typ { background: var(--fach-t); color: var(--fach-text); box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--fach) 28%, transparent); }
+.slv-task { margin: .7rem 0 0; }
+.slv-task > :last-child { margin-bottom: 0; }
+.slv-el { margin: .8rem 0 0; }
+.slv-el.list { border: 1px solid var(--line); border-radius: var(--radius-s); padding: 0 .4rem; }
+.slv-note { margin: .8rem 0 0; padding: .55rem .75rem; border-radius: var(--radius-s); background: var(--surface-2); font-size: .95rem; }
+.slv-done { display: inline-flex; align-items: center; gap: .55rem; min-height: 44px; margin: .85rem 0 0; padding: .3rem .8rem .3rem .55rem; border-radius: var(--radius-s); border: 1px dashed var(--line-ui); font-size: 1rem; }
+.slv-done input { margin: 0; width: 1.35rem; height: 1.35rem; }
+.slv-done:hover { background: var(--surface-2); }
+.slv-station.done .slv-done { border-style: solid; border-color: color-mix(in srgb, var(--gruen) 70%, var(--line)); }
+.slv-loading { display: flex; align-items: center; gap: .55rem; margin: 0; color: var(--muted); }
+.slv-loading .spin { width: 1.1em; height: 1.1em; border: 2px solid currentColor; border-right-color: transparent; border-radius: 50%; animation: spin .8s linear infinite; }
+.slv-slides h4 { margin: 0; font-size: 1rem; overflow-wrap: anywhere; }
+.slv-slides .sv-stage { margin-top: .5rem; }
+.slv-dlmsg { margin: .4rem 0 0; } .slv-dlmsg:empty { margin: 0; }
+/* YouTube-Video: Platzhalter mit Einwilligungstext, erst nach dem Klick der Player von youtube-nocookie.com (kein Vorschaubild) */
+.slv-video { max-width: 640px; }
+.yt-ph { display: flex; flex-direction: column; align-items: flex-start; gap: .55rem; padding: .8rem 1rem .9rem; background: var(--surface-2); border: 1px solid var(--line); border-radius: var(--radius-s); }
+.yt-ph p { margin: 0; }
+.yt-title { font-weight: 700; overflow-wrap: anywhere; }
+.yt-title::before { content: "▶\00a0" / ""; color: var(--fach-text); }
+.yt-note { font-size: .92rem; }
+.yt-acts { display: flex; flex-wrap: wrap; align-items: center; gap: .5rem 1rem; }
+.yt-open { display: inline-flex; align-items: center; min-height: 44px; font-size: .95rem; overflow-wrap: anywhere; }
+.yt-open::after { content: "\00a0↗" / ""; font-size: .8em; color: var(--muted); }
+.yt-frame { position: relative; width: 100%; aspect-ratio: 16 / 9; background: #000; border-radius: var(--radius-s); overflow: hidden; }
+.yt-frame iframe { position: absolute; inset: 0; width: 100%; height: 100%; border: 0; }
+.yt-after { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: .2rem 1rem; margin: .4rem 0 0; font-size: .95rem; }
+.yt-after .yt-title { margin: 0; }
+/* Erklär-Chatbot */
+.slv-bot { padding: .85rem .95rem; background: var(--paper); border: 1px solid var(--line); border-radius: var(--radius-s); }
+.slv-explain { margin: 0 0 .55rem; }
+.slv-bot > p:last-child { margin-bottom: 0; }
+.slv-botintro { margin: 0 0 .4rem; font-size: .95rem; color: var(--muted); }
+.slv-chat .kiq .q { font-weight: 600; white-space: pre-wrap; }
+.slv-chat .who { display: block; font-size: .78rem; font-weight: 700; letter-spacing: .02em; text-transform: uppercase; color: var(--muted); }
+.slv-chat .kiq .a { background: var(--surface); }
+.slv-botform { margin: .4rem 0 0; }
+.slv-botform label { margin: .3rem 0 .3rem; }
+.slv-botform textarea { min-height: 5.5rem; }
+.slv-botacts { margin-top: .55rem; }
+.slv-botacts .btn { white-space: normal; text-align: left; }
+.slv-botacts .btn[hidden] { display: none; }
+.slv-botdone { margin: .55rem 0 0; font-weight: 700; } .slv-botdone:empty { margin: 0; }
+.slv-room .kihelp { margin-top: 1.15rem; }
+@media (max-width: 520px) { .slv-station { padding: .8rem .8rem .9rem; } .slv-head { gap: .6rem; } .slv-num { width: 2rem; height: 2rem; font-size: 1rem; } .slv-botacts .btn { width: 100%; justify-content: center; text-align: center; } }
 
 /* ---------- Escape-Room (Gestaltung wie die Escape-Rooms der Lehrkraft: hell, seriös; Petrol/Ocker; dunkle Arena) ---------- */
 .escbox { border: 1px solid var(--line-ui); background: var(--paper); border-radius: var(--radius-s); padding: .7rem .9rem; margin: .6rem 0; }

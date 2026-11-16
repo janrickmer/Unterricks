@@ -22,10 +22,12 @@ export const slideCount = (n, total) => "Folie " + n + " von " + total;
 const SWIPE_PX = 40, LOADING_DELAY_MS = 250, EXP_MARGIN_MS = 60e3;
 
 /* o: { total, cut, fetchSlides(from, to) → { total, slides: [{ n, url, w, h }], exp }, download() → Promise, now() (Uhr des Servers),
-        image() → neues Bild (Tests), onStale() (Freigabe, Markierung oder Präsentation hat sich geändert: Seite neu laden) }
+        image() → neues Bild (Tests), onStale() (Freigabe, Markierung oder Präsentation hat sich geändert: Seite neu laden),
+        – für die Präsentation einer Station der Selbstlern-Phase (Nachtrag 29 Teil B, Folien aus der PDF im Browser): title, headTag, headId,
+        cls (Klassen des Fensters), downloadText, block (Folien je Abruf) – ohne diese Angaben wie bisher }
    Rückgabe: { el, n, total, go(k), update({ total, cut }) (Markierung geändert – Fenster, Fokus und Vollbild bleiben), focus(), destroy() } */
 export function slideViewer(o) {
-  const B = STUDENT_SLIDE_BLOCK, now = o.now || (() => Date.now()), makeImage = o.image || (() => new Image());
+  const B = Number.isInteger(o.block) && o.block >= 1 ? o.block : STUDENT_SLIDE_BLOCK, now = o.now || (() => Date.now()), makeImage = o.image || (() => new Image());
   let total = Math.max(1, Number(o.total) || 1), n = 1, seq = 0, alive = true, staleSaid = false, loadT = null, ratioSet = false, fallback = false;
   const blocks = new Map(), warm = new Map();   // Block → { p, exp, map }, vorgeladene Bilder (Verweis hält sie im Speicher)
 
@@ -47,11 +49,12 @@ export function slideViewer(o) {
   const live = h("span", { class: "sr-only", role: "status" });
   // aria-live="off": die Seite (#app) ist eine Live-Region – Zähler und Bild sollen nicht doppelt angesagt werden (das macht live)
   const stage = h("div", { class: "sv-stage", "aria-live": "off" }, frame, bar, h("span", { class: "sr-only", id: keysId, text: SV_TEXT.keys }));
-  const dl = h("button", { class: "btn primary sv-dl", type: "button" }, icon("download"), SV_TEXT.download);
+  const dl = h("button", { class: "btn primary sv-dl", type: "button" }, icon("download"), o.downloadText || SV_TEXT.download);
   const dlMsg = h("p", { class: "sv-dlmsg small", role: "status" });
-  const head = h("h2", { id: "sv-h", text: SV_TEXT.title });
+  const headId = o.headId || "sv-h";
+  const head = h(o.headTag || "h2", { id: headId, text: o.title || SV_TEXT.title });
   const cutEl = h("p", { class: "muted small sv-cut", text: SV_TEXT.cut });
-  const el = h("section", { class: "card slideview", "aria-labelledby": "sv-h" }, head, o.cut ? cutEl : null,
+  const el = h("section", { class: o.cls || "card slideview", "aria-labelledby": headId }, head, o.cut ? cutEl : null,
     stage, live, h("div", { class: "sv-dlrow" }, dl, fsBtn), dlMsg);
   const setCut = (on) => { if (on && !cutEl.isConnected) head.after(cutEl); else if (!on) cutEl.remove(); };
 
