@@ -9,6 +9,7 @@ register(stubs);
 const D = installDom({ hash: "#/lk/s/x" });
 const S = await import("../../public/shared.js");
 const P = await import("../../public/planning.js");
+const SL = await import("../../public/selbstlern.js");
 const G = await import("../../public/gsplanning.js");
 const SF = await import("../../public/sessionfile.js");
 const { ApiError } = await import("../../public/ui.js");
@@ -82,8 +83,10 @@ test("Prompts: „Stunde mit Claude planen“ (Gymnasium, Jg. 5/6, Grundschule) 
   }
   const rev = G.claudeUnitRevisionPrompt({ unit: { id: "u".repeat(16), rows: [], plan: {}, params: {}, revise: { items: [] }, lessons: [] }, now: Date.parse("2026-11-02T10:00:00Z") });
   assert.ok(rev.includes("`update_lesson` mit `inhalt_eltern` und – für mich – `zusammenfassung_lehrkraft`"));
-  const sub = P.claudeSubstitutePrompt({ ...sek, row: null }), pres = S.claudePresentationPrompt(sek, "**1) Einstieg**", []);
-  for (const p of [sub, pres]) assert.ok(!p.includes("zusammenfassung_lehrkraft") && !p.includes(S.TEACHER_SUMMARY_TITLE));
+  // Selbstlern-Phase (Nachtrag 29, statt Vertretung): die Zusammenfassung beschreibt die ursprüngliche Planung – nur der Hinweis, sie nicht zu ändern
+  const sub = SL.claudeSelbstlernPrompt({ ...sek, row: null }), pres = S.claudePresentationPrompt(sek, "**1) Einstieg**", []);
+  assert.ok(!sub.includes("zusammenfassung_lehrkraft") && sub.includes("Die „" + S.TEACHER_SUMMARY_TITLE + "“ änderst du dabei nicht – sie beschreibt die ursprüngliche Planung."));
+  assert.ok(!pres.includes("zusammenfassung_lehrkraft") && !pres.includes(S.TEACHER_SUMMARY_TITLE));
 });
 
 /* ---------- Worker, Connector ---------- */
@@ -120,10 +123,10 @@ test("Connector: Werkzeugschema, Beschreibungen und Anweisungen nennen die Zusam
   for (const n of ["save_schulportal_entry", "save_verlaufsplan"]) assert.ok(by(n).description.includes("Schreibe danach auch die „" + S.TEACHER_SUMMARY_TITLE + "“ mit update_lesson (zusammenfassung_lehrkraft)"), n);
   const init = await mcp(c, "initialize", { protocolVersion: "2025-06-18", capabilities: {}, clientInfo: { name: "t", version: "1" } });
   assert.ok(init.instructions.includes("Legst du Unterrichtsinhalte einer Sitzung ab (nach Freigabe der Lehrkraft, auch wenn sie nur einen Teil freigibt), schreibe zum Schluss immer auch die „" + S.TEACHER_SUMMARY_TITLE +
-    "“ mit update_lesson (zusammenfassung_lehrkraft) – ohne eigene Rückfrage und auch, wenn du die Planung später überarbeitest (z. B. nach einem Zwischenstopp); das gilt am Gymnasium und in der Grundschule, nicht für einen Vertretungsvorschlag."));
-  assert.ok(by("update_lesson").description.includes("(auch wenn die Lehrkraft nur einen Teil freigibt, ohne eigene Rückfrage)") && by("update_lesson").description.includes("nicht für einen Vertretungsvorschlag"));
-  // Vertretung: die Zusammenfassung beschreibt die ursprüngliche Planung – Claude ändert sie dabei nicht
-  assert.ok(by("save_substitute_plan").description.endsWith("Die „" + S.TEACHER_SUMMARY_TITLE + "“ (zusammenfassung_lehrkraft) änderst du dabei nicht – sie beschreibt die ursprüngliche Planung."));
+    "“ mit update_lesson (zusammenfassung_lehrkraft) – ohne eigene Rückfrage und auch, wenn du die Planung später überarbeitest (z. B. nach einem Zwischenstopp); das gilt am Gymnasium und in der Grundschule, nicht für eine Selbstlern-Phase."));
+  assert.ok(by("update_lesson").description.includes("(auch wenn die Lehrkraft nur einen Teil freigibt, ohne eigene Rückfrage)") && by("update_lesson").description.includes("nicht für eine Selbstlern-Phase"));
+  // Selbstlern-Phase (Nachtrag 29, statt Vertretung): die Zusammenfassung beschreibt die ursprüngliche Planung – Claude ändert sie dabei nicht
+  assert.ok(by("save_selbstlern").description.endsWith("Die „" + S.TEACHER_SUMMARY_TITLE + "“ (zusammenfassung_lehrkraft) änderst du dabei nicht – sie beschreibt die ursprüngliche Planung."));
 });
 
 test("Gymnasium: update_lesson speichert (Zeitpunkt, Fingerabdruck), meldet Kopfzeile und Form, leer löscht, zu lang abgelehnt; get_lesson-Abschnitt mit Hinweisen", async () => {

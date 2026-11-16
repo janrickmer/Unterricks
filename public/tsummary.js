@@ -11,12 +11,13 @@ import { summaryHead, summaryOutdated, fmtStampBerlin, TEACHER_SUMMARY_TITLE, TE
 export const SUMMARY_EMPTY = "Noch keine Zusammenfassung. Claude schreibt sie, wenn Sie die Planung im Chat ablegen lassen – oder Sie tragen sie selbst ein.";
 export const SUMMARY_STALE = "Die Planung wurde danach geändert – die Zusammenfassung ist vielleicht nicht mehr aktuell.";
 export const SUMMARY_SUBSTITUTE = "Für diese Sitzung gilt die bestätigte Vertretungsstunde – die Zusammenfassung beschreibt die ursprüngliche Planung.";
+export const SUMMARY_SELBSTLERN = "Für diese Sitzung gilt die Selbstlern-Phase – die Zusammenfassung beschreibt die ursprüngliche Planung.";
 /* Text in Absätze (Leerzeile = neuer Absatz; einzelne Zeilenumbrüche bleiben über white-space: pre-line) */
 export const summaryParagraphs = (text) => String(text || "").replace(/\r\n?/g, "\n").trim().split(/\n[ \t]*\n\s*/).map((p) => p.trim()).filter(Boolean);
 
 /* id = Sitzung, L() = Sitzungsdaten (wird bei Änderungen mitgeführt), course = Grundschulkurs (gsCourseOut) oder null, planText() = aktueller
-   Schulportal-Eintrag bzw. Verlaufsplan (auch ungespeichert im Editor), substituteActive() = bestätigte Vertretung (Gymnasium) */
-export function summaryCard({ id, L, course = null, planText = () => L().portal || "", substituteActive = () => false }) {
+   Schulportal-Eintrag bzw. Verlaufsplan (auch ungespeichert im Editor), substituteActive() = bestätigte (ältere) Vertretung, selbstlernActive() = Selbstlern-Phase (Gymnasium) */
+export function summaryCard({ id, L, course = null, planText = () => L().portal || "", substituteActive = () => false, selbstlernActive = () => false }) {
   let editing = false, saving = false, pending = null;
   const state = h("span", { class: "save-state", role: "status" });
   const editBtn = h("button", { class: "btn", type: "button", id: "tsum-edit-btn", "aria-expanded": "false", "aria-controls": "tsum-edit", "aria-describedby": "tsum-h" }, icon("edit"), h("span", { text: "Bearbeiten" }));
@@ -43,7 +44,7 @@ export function summaryCard({ id, L, course = null, planText = () => L().portal 
   const paintHead = () => { const t = summaryHead({ subject: L().subject, klass: L().klass, date: L().date, startTime: L().startTime }, course); if (head.textContent !== t) head.textContent = t; };
   function paintNote() {
     const t = text().trim();
-    const msg = !t ? "" : substituteActive() ? SUMMARY_SUBSTITUTE : summaryOutdated(t, L().teacherSummaryPlan, planText()) ? SUMMARY_STALE : "";
+    const msg = !t ? "" : selbstlernActive() ? SUMMARY_SELBSTLERN : substituteActive() ? SUMMARY_SUBSTITUTE : summaryOutdated(t, L().teacherSummaryPlan, planText()) ? SUMMARY_STALE : "";
     if (note.textContent !== msg) { note.textContent = ""; if (msg) note.append(msg); }
     note.classList.toggle("hidden", !msg);
   }

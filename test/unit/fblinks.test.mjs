@@ -200,8 +200,9 @@ test("Claude: Prompts und Werkzeugbeschreibungen nennen die Schreibweise der Lin
   const t = (n) => tools.find((x) => x.name === n);
   const pf = t("propose_feibeitsblatt"), task = pf.inputSchema.properties.aufgaben.items.properties;
   assert.ok(pf.description.includes(S.FB_LINK_RULE) && task.text.description.includes(S.FB_LINK_HINT) && task.material.description.includes(S.FB_LINK_HINT));
-  const sub = t("save_substitute_plan").inputSchema.properties.feibeitsblatt.properties.aufgaben.items.properties;
-  assert.ok(sub.text.description.includes(S.FB_LINK_HINT) && sub.material.description.includes(S.FB_LINK_HINT));
+  // Selbstlern-Phase (Nachtrag 29, ersetzt die Vertretung): Feibeitsblätter entstehen dort über propose_feibeitsblatt – der Prompt nennt die Regel
+  assert.ok(!t("save_substitute_plan") && t("save_selbstlern"));
+  assert.ok((await import("../../public/selbstlern.js")).claudeSelbstlernPrompt({ lessonId: "a".repeat(16), subject: "powi", klass: "8B", lesson: { title: "x" } }).includes(S.FB_LINK_RULE));
 });
 
 // Gegen den echten Validator des Feibeitsblatts – nur, wenn sein Quelltext daneben liegt (../feibeitsblatt oder FEIBEITSBLATT_DIR); nur gelesen

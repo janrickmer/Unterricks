@@ -224,7 +224,7 @@ export async function saveDesign(c, lessonId, { area, title, html, print = {}, s
     const f = await getFile(c.db, fileId);
     if (f.lesson_id !== lessonId || f.html == null) throw bad("file_id gehört zu keinem gestalteten Material dieser Sitzung (siehe get_lesson).");
     if ((f.cards != null) !== !!cards) throw bad(f.cards != null ? "Diese file_id gehört zu Bildkarten – ändere sie mit add_picture_cards." : "Diese file_id gehört zu keinen Bildkarten – ein Material lässt sich nicht in Bildkarten umwandeln (bitte neu anlegen).");
-    if (f.area === "archive") throw bad("Dieses Material gehört zur archivierten Planung (Krankheitsvertretung) und lässt sich nicht mehr ändern.");
+    if (f.area === "archive") throw bad("Dieses Material gehört zur archivierten ursprünglichen Planung (Selbstlern-Phase bzw. Vertretung) und lässt sich erst nach „Wiederherstellen“ in der Sitzung wieder ändern.");
     if (area && area !== f.area && (area === "print" || f.area === "print")) throw bad("Ein Material lässt sich nicht zwischen Druckliste und Material der Sitzung verschieben – bitte neu anlegen.");
     const h = designHtml(keepImages(html, f.html)), at = Math.max(c.now, (f.pdf_at || 0) + 1, (f.html_at || 0) + 1);
     const sets = ["html=?2", "html_at=?3", "text=?4", "render_error=NULL", "updated_at=?5"], args = [fileId, h, at, htmlText(h), c.now];

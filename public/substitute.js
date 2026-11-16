@@ -1,152 +1,157 @@
-// substitute.js – Krankheitsvertretung in der Sitzungsansicht: Knopf „Lehrkraft ist zu dieser Sitzung krank – Alternative entwickeln“
-// (Claude in claude.ai über den Connector; Modell und Aufwand werden vorher erfragt), Prüfung des Vorschlags, Bestätigen (die
-// ursprüngliche Planung wird archiviert, die Sitzung umgestellt), Wiederherstellen und Übernahme der Planung in eine andere Sitzung.
-import { h, clear, toast, errToast, busy, modal, confirmDialog, fmtTime, store, nn, apiUrl, downloadBlob } from "./ui.js";
-import { T, tapi } from "./teacher.js";
+// substitute.js – Selbstlern-Phase in der Sitzungsansicht des Gymnasiums (Nachtrag 29 der Lehrkraft vom 15.11.2026; ersetzt die Krankheitsvertretung):
+// Knopf „Präsenz der Lehrkraft nicht möglich – Unterricht in Selbstlern-Phase umbauen“ (Claude in claude.ai über den Connector; Modell und Aufwand werden
+// vorher erfragt), Karte „Selbstlern-Phase“ mit Stationen, Vorschau dessen, was die Schüler:innen oben sehen, Hausaufgabe, archivierter Planung,
+// „Wiederherstellen“ und Übernahme der ursprünglichen Planung in eine andere Sitzung. Ältere Vertretungen bleiben lesbar (Vorschlag: nur verwerfen;
+// aktiv: wiederherstellen und übernehmen wie bisher).
+import { h, clear, toast, errToast, busy, modal, confirmDialog, fmtTime, nn } from "./ui.js";
+import { tapi } from "./teacher.js";
 import { go } from "./app.js";
 import { formatCode, fmtDay } from "./shared.js";
-import { claudeSubstitutePrompt, SUBSTITUTE_SHARE } from "./planning.js";
 import { claudeHandoff } from "./claude.js";
 import { renderMarkdown } from "./markdown.js";
-import { portalPreview } from "./portalview.js";
+import { portalPreview, paintPortalPreview } from "./portalview.js";
+import { SELBSTLERN, SELBSTLERN_BUTTON, SELBSTLERN_INTRO, SELBSTLERN_INTRO_ANALOG, readSelbstlern, stationLabel, claudeSelbstlernPrompt, selbstlernChatName,
+  youtubeUrl, fmtVideoStart } from "./selbstlern.js";
 
-const memo = {
-  get(k) { try { return JSON.parse(store.get(k) || "null"); } catch { return null; } },
-  set(k, v) { store.set(k, JSON.stringify(v)); }, del(k) { store.del(k); },
-};
-
-export function substituteCards({ id, st, L, ctx, fb, analog, reload, openDraft, flushPortal }) {
+export function substituteCards({ id, st, L, ctx, analog, reload, openDraft, flushPortal, teacherNext = () => null }) {
   const mainBox = h("div");
-  const side = h("section", { class: "card sick" });
-  const minutes = () => L().durationMin || (ctx().row && ctx().row.minutes) || 45;
-  const work = () => Math.round(minutes() * SUBSTITUTE_SHARE);
+  const side = h("section", { class: "card sick selfside", "aria-labelledby": "sl-side-h" });
+  const status = () => (st.sub ? st.sub.status : null);
 
   function start() {
-    if (st.sub && st.sub.status === "aktiv") { toast("Für diese Sitzung ist bereits eine Vertretung aktiv.", "err"); mainBox.scrollIntoView({ behavior: "smooth", block: "start" }); return; }
+    if (status() === "aktiv") { toast("Für diese Sitzung ist noch eine ältere Vertretung aktiv – stellen Sie oben zuerst die ursprüngliche Planung wieder her.", "err", 7000); mainBox.scrollIntoView({ behavior: "smooth", block: "start" }); return; }
     flushPortal();
-    claudeHandoff({ title: "Lehrkraft ist krank – Vertretungsstunde mit Claude entwickeln",
-      intro: "Claude untersucht die geplante Stunde (fachdidaktische Kompetenz, Stundenfrage, Lerninhalte) und entwickelt daraus eine Stunde, die die Schüler:innen ohne Sie bearbeiten: ca. " + work() + " Minuten Bearbeitungszeit (80 % von " + minutes() + " Minuten)" +
-        (analog ? ", mit ausdruckbarem Material (Jahrgang 5/6, keine iPads)." : ", mit Abgabe in der Plattform – z. B. ein Escape-Room nach dem bekannten Aufbau mit Feibeitsblatt-Finale oder ein Feibeitsblatt (bei einem Lernprodukt mit Foto-Abgabe)."),
-      after: "Wenn Claude den Vorschlag mit „save_substitute_plan“ gespeichert hat, kommen Sie hierher zurück: Der Vorschlag erscheint oben auf dieser Seite. Erst wenn Sie ihn bestätigen, wird der Inhalt der Sitzung ausgetauscht.",
-      prompt: () => claudeSubstitutePrompt({ ...ctx(), escape: !analog }) });
+    const active = status() === SELBSTLERN;
+    claudeHandoff({ title: "Selbstlern-Phase mit Claude entwickeln",
+      intro: "Claude liest die geplante Sitzung, behält Lerninhalte und Stundenziel und entwickelt mit Ihnen mindestens drei Ideen für eine Selbstlern-Sitzung, die vollständig ohne Lehrkraft funktioniert" +
+        (analog ? " – in Jahrgang 5/6 als analoge Stationen auf Papier (Laufzettel, Arbeitsblätter, Lösungskontrolle auf Ihrer Druckliste; die Aufsicht teilt nur aus)."
+          : " – als Stationen, z. B. eine selbst erklärende Präsentation, ein Feibeitsblatt, ein KI-Chatbot, dem die Schüler:innen etwas erklären, oder ein YouTube-Video, das Sie freigeben.") +
+        " Erst nach Ihrer ausdrücklichen Zustimmung im Chat baut Claude die Sitzung über den Connector um; muss vorher Material von Hand gelöscht werden, sagt Claude Ihnen genau, welches." +
+        (active ? " Die Sitzung ist schon eine Selbstlern-Phase – Claude überarbeitet sie mit Ihnen." : ""),
+      after: "Wenn Claude die Sitzung mit „save_selbstlern“ umgestellt hat, kommen Sie hierher zurück: Die Karte „Selbstlern-Phase“ oben auf dieser Seite zeigt die Stationen. Feibeitsblätter aus dem Chat legen Sie dort bzw. unter „Feibeitsblatt“ an.",
+      chatName: () => selbstlernChatName(ctx()),
+      prompt: () => claudeSelbstlernPrompt({ ...ctx(), teacherNextDate: teacherNext(), active: status() === SELBSTLERN }) });
   }
 
   function paintSide() {
     const s = st.sub;
-    clear(side).append(...nn(h("h2", { text: "Krankheit" }),
-      s && s.status === "aktiv" ? h("p", { class: "small" }, h("span", { class: "badge ink", text: "Vertretung aktiv" }), " seit " + fmtTime(s.confirmedAt || s.updatedAt))
-        : s && s.status === "vorschlag" ? h("p", { class: "small" }, h("span", { class: "badge", text: "Vorschlag liegt vor" }), " – bitte oben prüfen.") : null,
-      h("button", { class: "btn sickbtn", type: "button", onclick: start }, "Lehrkraft ist zu dieser Sitzung krank – Alternative entwickeln"),
-      h("p", { class: "hint", text: "Claude (Ihr Pro-Abo in claude.ai, über den Connector) entwickelt eine Vertretungsstunde aus dieser Planung. Sie prüfen und bestätigen sie hier; die ursprüngliche Planung wird archiviert und bleibt wiederherstellbar." })));
+    clear(side).append(...nn(h("h2", { id: "sl-side-h", text: "Ohne Lehrkraft" }),
+      s && s.status === SELBSTLERN ? h("p", { class: "small" }, h("span", { class: "badge ink", text: "Selbstlern-Phase aktiv" }), " seit " + fmtTime(s.confirmedAt || s.updatedAt))
+        : s && s.status === "aktiv" ? h("p", { class: "small" }, h("span", { class: "badge ink", text: "Ältere Vertretung aktiv" }), " seit " + fmtTime(s.confirmedAt || s.updatedAt))
+          : s && s.status === "vorschlag" ? h("p", { class: "small" }, h("span", { class: "badge", text: "Älterer Vertretungsvorschlag" }), " – siehe oben.") : null,
+      h("button", { class: "btn sickbtn", type: "button", onclick: start }, SELBSTLERN_BUTTON),
+      h("p", { class: "hint", text: "Claude (Ihr Pro-Abo in claude.ai, über den Connector) entwickelt mit Ihnen mindestens drei Ideen für eine Selbstlern-Phase, die ohne Lehrkraft funktioniert, und baut die Sitzung erst nach Ihrer Zustimmung um. Die ursprüngliche Planung wird archiviert und lässt sich wiederherstellen." })));
   }
 
+  /* ======================= Selbstlern-Phase ======================= */
+  const fileOf = (fid) => st.files.find((f) => f.id === fid) || null;
+  const draftOf = (did) => st.drafts.find((d) => d.id === did) || null;
+  const sheetOf = (code) => st.sheets.find((s) => s.code === code) || null;
+  const fileState = (f) => (!f ? h("span", { class: "warnc", text: "Datei fehlt (gelöscht?) – bitte mit Claude überarbeiten." })
+    : f.area === "archive" ? h("span", { class: "warnc", text: "„" + f.name + "“ liegt im Archiv – die Schüler:innen sehen es nicht." })
+      : h("span", null, "„" + f.name + "“", f.area === "print" ? h("span", { class: "muted", text: " – auf Ihrer Druckliste" }) : null, f.status !== "ready" ? h("span", { class: "muted", text: " – wird noch gedruckt" }) : null));
+  const draftButton = (dr, label) => h("button", { class: "btn small", type: "button", onclick: () => openDraft(dr, { onSaved: () => paint(), onCreated: () => paint() }) }, label);
+  function stationRef(s, p) {
+    if (s.typ === "praesentation" || s.typ === "material") return h("p", { class: "sl-ref small" }, h("strong", { text: "Datei: " }), fileState(fileOf(s.fileId)));
+    if (s.typ === "feibeitsblatt") {
+      if (s.code) { const sh = sheetOf(s.code); return h("p", { class: "sl-ref small" }, h("strong", { text: "Feibeitsblatt: " }), (sh ? "„" + sh.title + "“, " : "") + "Code " + formatCode(s.code)); }
+      const dr = draftOf(s.draftId);
+      if (dr && dr.status === "created" && dr.sheetCode) return h("p", { class: "sl-ref small" }, h("strong", { text: "Feibeitsblatt: " }), "„" + ((dr.data && dr.data.title) || "Feibeitsblatt") + "“, Code " + formatCode(dr.sheetCode));
+      if (!dr) return h("p", { class: "sl-ref small warnc", text: "Der Feibeitsblatt-Entwurf fehlt – bitte mit Claude überarbeiten." });
+      return h("div", { class: "sl-ref sl-todo" }, h("p", { class: "small", text: "Feibeitsblatt „" + ((dr.data && dr.data.title) || "Entwurf") + "“ ist noch nicht angelegt – die Schüler:innen können diese Station erst bearbeiten, wenn Sie es anlegen." }),
+        draftButton(dr, "Feibeitsblatt prüfen und anlegen"));
+    }
+    if (s.typ === "video" && s.video) return h("p", { class: "sl-ref small" }, h("strong", { text: "YouTube-Video" + (s.video.start ? " ab " + fmtVideoStart(s.video.start) : "") + ": " }),
+      h("a", { href: youtubeUrl(s.video), target: "_blank", rel: "noopener noreferrer" }, "auf YouTube ansehen", h("span", { class: "sr-only", text: " (öffnet in neuem Tab)" })),
+      h("span", { class: "muted", text: " – die Schüler:innen laden es erst mit einem Klick (youtube-nocookie.com)." }));
+    if (s.typ === "erklaer_chatbot" && s.bot) return h("div", { class: "sl-ref" }, h("p", { class: "small" }, h("strong", { text: "Die Schüler:innen erklären dem Chatbot: " }), s.bot.erklaeren),
+      h("details", { class: "box small" }, h("summary", null, "Woran der Chatbot eine gute Erklärung erkennt (nur für Sie)"),
+        h("p", { class: "lp-cap", text: "Kernpunkte" }), h("ul", null, s.bot.kernpunkte.map((x) => h("li", { text: x }))),
+        s.bot.fehlvorstellungen.length ? h("p", { class: "lp-cap", text: "Fehlvorstellungen, nach denen er fragt" }) : null,
+        s.bot.fehlvorstellungen.length ? h("ul", null, s.bot.fehlvorstellungen.map((x) => h("li", { text: x }))) : null));
+    if (s.typ === "escape_room") {
+      const room = p.escape_room, dr = draftOf(p.escapeDraftId);
+      if (!room) return null;
+      const made = dr && dr.status === "created" && dr.sheetCode;
+      return h("div", { class: "sl-ref escbox" }, h("div", { class: "row between" }, h("strong", { text: "Escape-Room „" + room.name + "“" }), h("span", { class: "badge mono", text: "Lösungswort " + room.wort })),
+        h("p", { class: "small", text: made ? "Finale-Feibeitsblatt angelegt (Code " + formatCode(dr.sheetCode) + ")." : "Das Finale-Feibeitsblatt ist noch nicht angelegt – erst dann führt der Tunnel am Ende ins Feibeitsblatt." }),
+        h("div", { class: "row" }, h("button", { class: "btn small", type: "button", onclick: () => go("#/lk/escape/" + id) }, "Escape-Room ansehen (Vorschau)"),
+          !made && dr ? draftButton(dr, "Finale-Feibeitsblatt prüfen und anlegen") : null));
+    }
+    return null;
+  }
+  function paintSelbstlern() {
+    const s = st.sub, p = s.proposal || {}, d = readSelbstlern(p) || { stationen: [], material: [], einleitung: "", hausaufgabe: "", hinweisAufsicht: "", analog };
+    const ar = s.archive || {}, archived = st.files.filter((f) => f.area === "archive");
+    const total = d.stationen.reduce((n, x) => n + (x.minuten || 0), 0), due = teacherNext();
+    const own = st.files.filter((f) => f.source === SELBSTLERN && f.area !== "archive");
+    const loose = own.filter((f) => !d.stationen.some((x) => x.fileId === f.id) && !d.material.includes(f.id));
+    clear(mainBox).append(h("section", { class: "card substitute selbstlern", "aria-labelledby": "sl-h" },
+      h("div", { class: "section-title" }, h("h2", { id: "sl-h", text: "Selbstlern-Phase" }), h("span", { class: "badge ink", text: "seit " + fmtTime(s.confirmedAt || s.updatedAt) })),
+      h("p", { class: "small", text: "Sie sind zu dieser Sitzung nicht da: Die Schüler:innen arbeiten die Stationen selbstständig ab. Die ursprüngliche Planung ist archiviert – mit „Wiederherstellen“ wird die Sitzung wieder eine normale Sitzung." }),
+      h("h3", { text: "Das sehen die Schüler:innen ganz oben" }),
+      h("div", { class: "notice sl-intro" }, h("p", { text: d.analog ? SELBSTLERN_INTRO_ANALOG : SELBSTLERN_INTRO }), d.einleitung ? h("p", { text: d.einleitung }) : null),
+      h("h3", { text: "Ablaufplan: " + d.stationen.length + (d.stationen.length === 1 ? " Station" : " Stationen") + (total ? " (ca. " + total + " Minuten)" : "") }),
+      h("ol", { class: "sub-steps sl-stations" }, d.stationen.map((x) => h("li", null,
+        h("div", { class: "row between sl-head" }, h("strong", { text: x.titel }), h("span", { class: "row" }, h("span", { class: "badge sl-typ", text: stationLabel(x.typ) }), x.minuten ? h("span", { class: "badge", text: "ca. " + x.minuten + " min" }) : null)),
+        renderMarkdown(x.anleitung || ""), stationRef(x, p)))),
+      d.material.length ? h("p", { class: "small" }, h("strong", { text: "Weiteres Material: " }), d.material.map((fid) => { const f = fileOf(fid); return f ? "„" + f.name + "“" : "(fehlt)"; }).join(", ")) : null,
+      loose.length ? h("p", { class: "small warnc", text: "Material der Selbstlern-Phase ohne Station (die Schüler:innen sehen es trotzdem): " + loose.map((f) => "„" + f.name + "“").join(", ") + " – brauchen Sie es nicht, löschen Sie es unten im Material." }) : null,
+      h("h3", { text: "Hausaufgabe (für die Schüler:innen von Anfang an sichtbar)" }),
+      h("div", { class: "sl-hw" }, h("p", { class: "small due", text: due ? "Bis zur nächsten Sitzung mit Ihnen am " + fmtDay(due) + ":" : "Bis zur nächsten Sitzung mit Ihnen (noch keine angelegt):" }),
+        paintPortalPreview(h("div", { class: "hwtext" }), L().homework || d.hausaufgabe || "")),
+      d.hinweisAufsicht ? h("details", { class: "box" }, h("summary", null, "Hinweis für die Aufsicht"), h("p", { class: "small sl-note", text: d.hinweisAufsicht })) : null,
+      h("h3", { text: "Ursprüngliche Planung (archiviert)" }),
+      h("p", { class: "small", text: [archived.length ? archived.length + " Datei(en): " + archived.map((f) => f.name).join(", ") : "keine Dateien",
+        (ar.sheets || []).length ? "Feibeitsblätter: " + ar.sheets.map((x) => x.title + " (" + formatCode(x.code) + ")").join(", ") : null,
+        ar.homework ? "Hausaufgabe: " + ar.homework.slice(0, 120) : null].filter(Boolean).join(" · ") }),
+      ar.portal ? h("details", { class: "box" }, h("summary", null, "Ursprünglicher Schulportal-Eintrag"), portalPreview(ar.portal)) : null,
+      h("div", { class: "row sl-acts" },
+        h("button", { class: "btn", type: "button", onclick: (e) => transfer(e.currentTarget) }, "Ursprüngliche Planung in eine andere Sitzung übernehmen"),
+        h("button", { class: "btn danger", type: "button", onclick: (e) => restore(e.currentTarget) }, "Wiederherstellen – zurück zur normalen Sitzung"))));
+  }
+
+  /* ======================= ältere Vertretungen (nur lesen, verwerfen, wiederherstellen) ======================= */
   const list = (arr) => h("ul", null, arr.map((x) => h("li", { text: x })));
   function stepsNode(p) {
     return h("ol", { class: "sub-steps" }, (p.schritte || []).map((x) => h("li", null,
       h("div", { class: "row between" }, h("strong", { text: x.titel }), h("span", { class: "row" }, x.minuten ? h("span", { class: "badge", text: "ca. " + x.minuten + " min" }) : null, x.abgabe ? h("span", { class: "badge ink", text: "Abgabe" }) : null)),
       renderMarkdown(x.anleitung || ""))));
   }
-  function materialsNode(mats) {
-    if (!mats || !mats.length) return h("p", { class: "muted small", text: "Kein zusätzliches Material." });
-    const where = (m) => (m.bereich === "teacher" ? "nur für Lehrkräfte" : m.bereich === "print" ? "von Ihnen auszudrucken" + (m.druck && m.druck.anzahl ? " (" + m.druck.anzahl + "×)" : "") : "für Schüler:innen");
-    // gestaltet (HTML): Unterricks druckt die PDF nach dem Bestätigen; die Vorschau druckt sie einmal zur Ansicht (wird nicht gespeichert)
-    const preview = (i, m) => async (e) => busy(e.currentTarget, async () => {
-      try {
-        const res = await fetch(apiUrl("/api/teacher/lessons/" + id + "/substitute/preview"), { method: "POST", headers: { Authorization: "Bearer " + T.token, "Content-Type": "application/json" }, body: JSON.stringify({ index: i }), credentials: "omit" });
-        if (!res.ok) { let d = null; try { d = await res.json(); } catch {} throw new Error((d && d.error) || "Die Vorschau ließ sich nicht erstellen (Fehler " + res.status + ")."); }
-        downloadBlob(await res.blob(), (m.titel || "Material") + " (Vorschau).pdf");
-      } catch (err) { errToast(err); }
-    }, "Wird gedruckt …");
-    return h("div", { class: "list" }, mats.map((m, i) => h("div", { class: "item" }, h("div", { class: "main" }, h("div", { class: "name", text: m.titel }),
-      h("div", { class: "meta", text: where(m) + (m.html ? " · von Claude gestaltet, PDF entsteht beim Bestätigen" : " · einfache PDF (Text)") })),
-      h("div", { class: "acts" }, m.html ? h("button", { class: "btn small", type: "button", onclick: preview(i, m) }, "Vorschau als PDF")
-        : h("button", { class: "btn small", type: "button", onclick: () => modal({ title: m.titel, wide: true, body: (el) => el.append(renderMarkdown(m.markdown)) }) }, "Ansehen")))));
-  }
-
-  // Escape-Room im Vorschlag bzw. in der aktiven Vertretung: Stationen, Lösungswort, Vorschau
   function escapeNode(p, active) {
     const r = p.escape_room;
-    if (!r) return null;
+    if (!r || !Array.isArray(r.stationen)) return null;
     return h("div", { class: "escbox" }, h("div", { class: "row between" }, h("strong", { text: "Escape-Room „" + r.name + "“" }), h("span", { class: "badge mono", text: "Lösungswort " + r.wort })),
-      h("ol", { class: "small" }, r.stationen.map((x) => h("li", { text: x.titel + " – " + x.raetsel.teile.length + " Rätselteil" + (x.raetsel.teile.length === 1 ? "" : "e") + " (" + x.raetsel.teile.map((t) => t.typ).join(", ") + ")" }))),
-      h("p", { class: "small muted", text: "Finale: Feibeitsblatt „" + r.feibeitsblatt.titel + "“ mit " + r.feibeitsblatt.aufgaben.length + " Aufgabe(n)" + (active ? (p.escapeSheet ? " (Code " + formatCode(p.escapeSheet) + ")." : ".") : " – wird beim Bestätigen angelegt.") }),
+      h("ol", { class: "small" }, r.stationen.map((x) => h("li", { text: x.titel }))),
+      h("p", { class: "small muted", text: "Finale: Feibeitsblatt „" + ((r.feibeitsblatt || {}).titel || "") + "“" + (active && p.escapeSheet ? " (Code " + formatCode(p.escapeSheet) + ")." : ".") }),
       h("button", { class: "btn small", type: "button", onclick: () => go("#/lk/escape/" + id) }, "Escape-Room ansehen (Vorschau)"));
   }
-
-  function paintProposal() {
+  function paintOldProposal() {
     const s = st.sub, p = s.proposal || {}, a = p.analyse || {};
-    const dr = p.draftId ? st.drafts.find((x) => x.id === p.draftId) : null;
-    const total = (p.schritte || []).reduce((n, x) => n + (x.minuten || 0), 0);
-    const fbBox = h("div");
-    if (dr && dr.data) {
-      const photo = dr.data.tasks.filter((t) => t.answer && t.answer.type === "photo").length;
-      fbBox.append(h("div", { class: "item" }, h("div", { class: "ficon fb", "aria-hidden": "true", text: "FB" }),
-        h("div", { class: "main" }, h("div", { class: "name", text: dr.data.title }), h("div", { class: "meta", text: dr.data.tasks.length + " Aufgabe" + (dr.data.tasks.length === 1 ? "" : "n") + (photo ? " · davon " + photo + " mit Foto-Abgabe" : "") + (dr.status === "created" ? " · bereits angelegt (" + formatCode(dr.sheetCode) + ")" : " · wird beim Bestätigen angelegt") })),
-        h("div", { class: "acts" }, h("button", { class: "btn small", type: "button", onclick: () => openDraft(dr, { onSaved: paint }) }, "Prüfen/bearbeiten"))));
-    } else if (p.draftId) fbBox.append(h("p", { class: "warnc small", text: "Der Feibeitsblatt-Entwurf dieses Vorschlags fehlt. Bitte einen neuen Vorschlag mit Claude entwickeln." }));
-    else if (!analog) fbBox.append(h("p", { class: "warnc small", text: "Dieser Vorschlag enthält kein Feibeitsblatt." }));
-    else fbBox.append(h("p", { class: "small muted", text: "Jahrgang 5/6: Abgabe auf Papier (kein Feibeitsblatt)." }));
-
-    const confirmBtn = h("button", { class: "btn primary", type: "button" }, "Bestätigen: Sitzung auf Vertretung umstellen");
-    confirmBtn.addEventListener("click", () => confirmProposal(confirmBtn, dr));
-    clear(mainBox).append(h("section", { class: "card substitute", "aria-label": "Vertretungsvorschlag" },
-      h("div", { class: "section-title" }, h("h2", { text: "Vertretungsvorschlag prüfen" }), h("span", { class: "badge", text: "noch nicht bestätigt" })),
-      h("p", { class: "small", text: "Claude hat den Vorschlag am " + fmtTime(s.updatedAt) + " gespeichert. Erst wenn Sie bestätigen, wird die ursprüngliche Planung archiviert und die Sitzung für die Schüler:innen auf die Vertretung umgestellt." }),
-      h("h3", { text: "Analyse der geplanten Stunde" }),
+    clear(mainBox).append(h("section", { class: "card substitute", "aria-labelledby": "sub-old-h" },
+      h("div", { class: "section-title" }, h("h2", { id: "sub-old-h", text: "Älterer Vertretungsvorschlag" }), h("span", { class: "badge", text: "nicht bestätigt" })),
+      h("p", { class: "small", text: "Claude hat diesen Vorschlag am " + fmtTime(s.updatedAt) + " gespeichert. Vertretungsvorschläge lassen sich nicht mehr bestätigen: Kann die Lehrkraft nicht da sein, baut Unterricks die Sitzung jetzt in eine Selbstlern-Phase um („" + SELBSTLERN_BUTTON + "“). Die Sitzung ist unverändert." }),
       h("div", { class: "meta-grid" },
         h("div", null, h("div", { class: "lp-cap", text: "Fachdidaktische Kompetenz" }), h("div", { class: "small", text: a.kompetenz || "–" })),
         h("div", null, h("div", { class: "lp-cap", text: "Stundenfrage" }), h("div", { class: "small", text: a.stundenfrage || "–" })),
         h("div", { class: "full" }, h("div", { class: "lp-cap", text: "Lerninhalte" }), (a.inhalte || []).length ? list(a.inhalte) : h("div", { class: "small muted", text: "–" }))),
-      h("p", { class: "small" }, h("strong", { text: "Format: " }), p.format || "–", " · ", h("strong", { text: "Bearbeitungszeit: " }),
-        (p.bearbeitungszeit || total || "?") + " Minuten", " (Ziel: ca. " + work() + " Minuten = 80 % von " + minutes() + ")"),
-      h("h3", { text: "Das sehen die Schüler:innen" }),
-      h("div", { class: "notice" }, p.hinweis || ""), stepsNode(p),
-      p.abgabe ? h("p", { class: "small" }, h("strong", { text: "Abgabe: " }), p.abgabe) : null,
-      h("h3", { text: "Material" }), materialsNode(p.materialien),
-      p.escape_room ? h("h3", { text: "Escape-Room" }) : null, escapeNode(p, false),
-      h("h3", { text: p.escape_room ? "Finale im Feibeitsblatt" : "Feibeitsblatt" }), fbBox,
-      p.schulportal ? h("details", { class: "box" }, h("summary", null, "Schulportal-Eintrag der Vertretung"), portalPreview(p.schulportal)) : null,
-      p.vertretung ? h("details", { class: "box" }, h("summary", null, "Hinweise für die Vertretungslehrkraft"), renderMarkdown(p.vertretung)) : null,
-      h("div", { class: "row between", style: { marginTop: ".8rem" } },
-        h("div", { class: "row" }, h("button", { class: "btn", type: "button", onclick: start }, "Neuen Vorschlag mit Claude entwickeln"),
-          h("button", { class: "btn ghost danger", type: "button", onclick: discard }, "Verwerfen")), confirmBtn)));
-  }
-
-  async function confirmProposal(btn, dr) {
-    const p = st.sub.proposal || {};
-    if (p.draftId && !dr) { toast("Der Feibeitsblatt-Entwurf der Vertretung fehlt – bitte einen neuen Vorschlag mit Claude entwickeln.", "err"); return; }
-    // ein bereits angelegtes Blatt (z. B. nach einem abgebrochenen Versuch) wiederverwenden statt doppelt anzulegen
-    const key = "u.subsheet." + (p.draftId || "");
-    let sheet = dr && dr.status === "created" && dr.sheetCode ? { code: dr.sheetCode, title: dr.data.title } : p.draftId ? memo.get(key) : null;
-    if (dr && !sheet && !fb.connected) {
-      toast("Bitte zuerst unten im Abschnitt „Feibeitsblatt“ verbinden (Türcode und Passwort) – das Feibeitsblatt der Vertretung wird beim Bestätigen angelegt.", "err", 8000);
-      const fbc = document.querySelector("#fbcard"); if (fbc) fbc.scrollIntoView({ behavior: "smooth", block: "start" });
-      return;
-    }
-    if (!(await confirmDialog("Vertretung bestätigen", "Die ursprüngliche Planung (Schulportal-Eintrag, Hausaufgabe, Material und Feibeitsblätter) wird archiviert – Sie können sie später wiederherstellen oder in eine andere Sitzung übernehmen. Die Schüler:innen sehen danach den Hinweis auf Ihre Abwesenheit und die Anleitung." +
-      (dr && !sheet ? " Das Feibeitsblatt der Vertretung wird jetzt im Feibeitsblatt angelegt (danach nicht mehr änderbar)." : ""), "Bestätigen und umstellen"))) return;
-    await busy(btn, async () => {
-      try {
-        if (dr && !sheet) { const r = await fb.createSheet(dr.data, { klass: L().klass }); sheet = { code: r.code, title: r.title }; memo.set(key, sheet); }
-        await tapi("POST", "/api/teacher/lessons/" + id + "/substitute/confirm", { body: { sheet } });
-        memo.del(key);
-        toast("Vertretung aktiv – die Schüler:innen sehen jetzt den Hinweis und die Anleitung.", "ok", 6000);
-        reload();
-      } catch (e) { errToast(e); }
-    }, "Stelle um …");
+      h("h3", { text: "Anleitung des Vorschlags" }), p.hinweis ? h("div", { class: "notice" }, p.hinweis) : null, stepsNode(p),
+      (p.materialien || []).length ? h("p", { class: "small" }, h("strong", { text: "Material: " }), p.materialien.map((m) => m.titel).join(", ")) : null,
+      escapeNode(p, false),
+      p.schulportal ? h("details", { class: "box" }, h("summary", null, "Schulportal-Eintrag des Vorschlags"), portalPreview(p.schulportal)) : null,
+      h("div", { class: "row", style: { marginTop: ".8rem" } }, h("button", { class: "btn ghost danger", type: "button", onclick: discard }, "Vorschlag verwerfen"))));
   }
   async function discard() {
-    if (!(await confirmDialog("Vorschlag verwerfen", "Den Vertretungsvorschlag (und seinen Feibeitsblatt-Entwurf) löschen? Die Sitzung bleibt unverändert.", "Verwerfen", true))) return;
+    if (!(await confirmDialog("Vorschlag verwerfen", "Den älteren Vertretungsvorschlag (und seinen Feibeitsblatt-Entwurf) löschen? Die Sitzung bleibt unverändert.", "Verwerfen", true))) return;
     const draftId = ((st.sub || {}).proposal || {}).draftId;
     try { await tapi("POST", "/api/teacher/lessons/" + id + "/substitute/discard"); st.sub = null; st.drafts = st.drafts.filter((x) => x.id !== draftId); paint(); toast("Vorschlag verworfen.", "ok"); }
     catch (e) { errToast(e); }
   }
-
-  function paintActive() {
+  function paintOldActive() {
     const s = st.sub, p = s.proposal || {}, ar = s.archive || {};
     const archived = st.files.filter((f) => f.area === "archive");
-    clear(mainBox).append(h("section", { class: "card substitute active", "aria-label": "Vertretung aktiv" },
-      h("div", { class: "section-title" }, h("h2", { text: "Vertretung aktiv" }), h("span", { class: "badge ink", text: "seit " + fmtTime(s.confirmedAt || s.updatedAt) })),
+    clear(mainBox).append(h("section", { class: "card substitute active", "aria-labelledby": "sub-act-h" },
+      h("div", { class: "section-title" }, h("h2", { id: "sub-act-h", text: "Vertretung aktiv" }), h("span", { class: "badge ink", text: "seit " + fmtTime(s.confirmedAt || s.updatedAt) })),
       h("p", { class: "small", text: "Die Schüler:innen sehen in dieser Sitzung den Hinweis auf Ihre Abwesenheit und die Anleitung mit " + (p.schritte || []).length + " Schritten. Material, Schulportal-Eintrag und Feibeitsblatt sind ausgetauscht (unten in den Abschnitten der Sitzung)." }),
       h("details", { class: "box" }, h("summary", null, "Anleitung für die Schüler:innen"), h("div", { class: "notice" }, p.hinweis || ""), stepsNode(p), p.abgabe ? h("p", { class: "small" }, h("strong", { text: "Abgabe: " }), p.abgabe) : null),
       escapeNode(p, true),
@@ -159,11 +164,24 @@ export function substituteCards({ id, st, L, ctx, fb, analog, reload, openDraft,
         h("button", { class: "btn", type: "button", onclick: (e) => transfer(e.currentTarget) }, "Ursprüngliche Planung in eine andere Sitzung übernehmen"),
         h("button", { class: "btn danger", type: "button", onclick: (e) => restore(e.currentTarget) }, "Ursprüngliche Planung wiederherstellen"))));
   }
+
+  /* ======================= Wiederherstellen und Übernehmen (Selbstlern-Phase und ältere Vertretung) ======================= */
   async function restore(btn) {
-    if (!(await confirmDialog("Ursprüngliche Planung wiederherstellen", "Das Vertretungsmaterial wird gelöscht, die archivierte Planung (Schulportal-Eintrag, Hausaufgabe, Material, Feibeitsblätter) kehrt in diese Sitzung zurück. Das Feibeitsblatt der Vertretung bleibt im Feibeitsblatt erhalten (mit seinen Abgaben), wird aber aus der Sitzung entfernt.", "Wiederherstellen", true))) return;
+    const sl = status() === SELBSTLERN;
+    const own = st.files.filter((f) => f.source === SELBSTLERN);
+    const text = sl
+      ? "Die Sitzung wird wieder eine normale Sitzung: Die archivierte Planung (Schulportal-Eintrag, Hausaufgabe, Material und Feibeitsblätter) kehrt zurück. " +
+        (own.length ? "Das Material der Selbstlern-Phase wird gelöscht (" + own.map((f) => "„" + f.name + "“").join(", ") + "). " : "") +
+        "Feibeitsblätter der Selbstlern-Phase bleiben im Feibeitsblatt erhalten (mit ihren Abgaben), werden aber aus der Sitzung entfernt."
+      : "Das Vertretungsmaterial wird gelöscht, die archivierte Planung (Schulportal-Eintrag, Hausaufgabe, Material, Feibeitsblätter) kehrt in diese Sitzung zurück. Das Feibeitsblatt der Vertretung bleibt im Feibeitsblatt erhalten (mit seinen Abgaben), wird aber aus der Sitzung entfernt.";
+    if (!(await confirmDialog(sl ? "Zurück zur normalen Sitzung?" : "Ursprüngliche Planung wiederherstellen", text, "Wiederherstellen", true))) return;
     await busy(btn, async () => {
-      try { const r = await tapi("POST", "/api/teacher/lessons/" + id + "/substitute/restore"); toast("Ursprüngliche Planung wiederhergestellt" + (r.removedSheets && r.removedSheets.length ? " – Feibeitsblatt der Vertretung: " + r.removedSheets.map(formatCode).join(", ") + " (im Feibeitsblatt weiterhin abrufbar)." : "."), "ok", 7000); reload(); }
-      catch (e) { errToast(e); }
+      try {
+        const r = await tapi("POST", "/api/teacher/lessons/" + id + "/substitute/restore");
+        toast((sl ? "Wiederhergestellt – die Sitzung ist wieder eine normale Sitzung" : "Ursprüngliche Planung wiederhergestellt") +
+          (r.removedSheets && r.removedSheets.length ? " (Feibeitsblätter " + r.removedSheets.map(formatCode).join(", ") + " im Feibeitsblatt weiterhin abrufbar)." : "."), "ok", 7000);
+        reload();
+      } catch (e) { errToast(e); }
     });
   }
   async function transfer(btn) {
@@ -195,8 +213,9 @@ export function substituteCards({ id, st, L, ctx, fb, analog, reload, openDraft,
     paintSide();
     const s = st.sub;
     if (!s) clear(mainBox);
-    else if (s.status === "vorschlag") paintProposal();
-    else if (s.status === "aktiv") paintActive();
+    else if (s.status === SELBSTLERN) paintSelbstlern();
+    else if (s.status === "vorschlag") paintOldProposal();
+    else if (s.status === "aktiv") paintOldActive();
   }
   paint();
   return { main: mainBox, side, paint };

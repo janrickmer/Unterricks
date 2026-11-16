@@ -68,7 +68,8 @@ export async function sessionPage(id) {
 
   /* ======================= Zusammenfassung der Sitzung für die Lehrkraft (Nachtrag 21): ganz oben, vor allem anderen ======================= */
   // Kopfzeile aus den aktuellen Daten (folgt Datum und Beginn), Hinweis bei geänderter Planung (auch ungespeichert im Editor) bzw. bestätigter Vertretung
-  const tsum = summaryCard({ id, L, planText: () => (portalTA ? portalTA.value : L().portal || ""), substituteActive: () => !!st.sub && st.sub.status === "aktiv" });
+  const tsum = summaryCard({ id, L, planText: () => (portalTA ? portalTA.value : L().portal || ""), substituteActive: () => !!st.sub && st.sub.status === "aktiv",
+    selbstlernActive: () => !!st.sub && st.sub.status === "selbstlern" });
   onTimes.push(tsum.paintHead);
 
   /* ======================= Unterrichtseinheit ======================= */
@@ -815,26 +816,26 @@ export async function sessionPage(id) {
       const r = await tapi("PUT", "/api/teacher/fb-drafts/" + dr.id, { body: { data } });
       Object.assign(dr, r.draft); return r.draft;
     };
-    modal({ title: opt.substitute ? "Feibeitsblatt der Vertretung prüfen" : "Feibeitsblatt prüfen und anlegen", wide: true, onClose: opt.onClose, body: (el) => el.append(...nn(
-      opt.substitute ? h("div", { class: "notice" }, "Dieses Feibeitsblatt wird beim Bestätigen der Vertretung angelegt. Hier können Sie es vorher bearbeiten.")
-        : fb.connected ? null : h("div", { class: "notice warn" }, "Zum Anlegen bitte zuerst im Abschnitt „Feibeitsblatt“ verbinden (Türcode und Passwort). Speichern geht auch ohne."),
+    modal({ title: "Feibeitsblatt prüfen und anlegen", wide: true, onClose: opt.onClose, body: (el) => el.append(...nn(
+      fb.connected ? null : h("div", { class: "notice warn" }, "Zum Anlegen bitte zuerst im Abschnitt „Feibeitsblatt“ verbinden (Türcode und Passwort). Speichern geht auch ohne."),
       h("div", { class: "field", style: { marginTop: ".6rem" } }, h("label", null, "Titel"), title), tasksBox,
       h("button", { class: "btn small", type: "button", style: { marginTop: ".7rem" }, onclick: () => { data.tasks.push({ text: "", material: "", solution: "", answer: { type: "text" } }); paintTasks(); } }, "+ Aufgabe"))),
       actions: [
         { label: "Schließen" },
-        { label: "Entwurf speichern", class: opt.substitute ? "primary" : "", onClick: async () => { try { await save(); paintFb(); if (opt.onSaved) opt.onSaved(); toast("Entwurf gespeichert.", "ok"); } catch (e) { errToast(e); return false; } } },
-        ...(opt.substitute ? [] : [{ label: "Feibeitsblatt jetzt anlegen", class: "primary", onClick: async (e) => {
+        { label: "Entwurf speichern", onClick: async () => { try { await save(); paintFb(); if (opt.onSaved) opt.onSaved(); toast("Entwurf gespeichert.", "ok"); } catch (e) { errToast(e); return false; } } },
+        { label: "Feibeitsblatt jetzt anlegen", class: "primary", onClick: async (e) => {
           if (!fb.connected) { toast("Bitte zuerst mit Feibeitsblatt verbinden.", "err"); return false; }
           if (!(await confirmDialog("Feibeitsblatt anlegen", "Das Blatt wird jetzt im Feibeitsblatt angelegt und erhält einen Code. Feibeitsblätter lassen sich danach nicht mehr ändern (nur neu anlegen).", "Anlegen"))) return false;
           try {
             const d2 = await save();
             const r = await fb.createSheet(d2.data, { klass: L().klass });
             await tapi("POST", "/api/teacher/fb-drafts/" + dr.id + "/created", { body: { code: r.code, title: r.title } });
-            dr.status = "created"; st.sheets.push({ code: r.code, title: r.title, createdAt: Date.now() }); paintFb();
+            dr.status = "created"; dr.sheetCode = r.code; st.sheets.push({ code: r.code, title: r.title, createdAt: Date.now() }); paintFb();
+            if (opt.onCreated) opt.onCreated(r);
             ensureNotfall([r.code]);
             afterCreate(r);
           } catch (err) { errToast(err); return false; }
-        } }]),
+        } },
       ] });
   }
 
@@ -1066,7 +1067,8 @@ export async function sessionPage(id) {
   // die Planung dieser Sitzung ist auf der Seite gespeichert (Eintrag, „Mit KI neu erstellen“): nach einer Entscheidung ist der Hinweis erledigt (Nachtrag 26)
   function planSaved(at) { const ps = prevStopAfterSave(d.previousStop, at); if (ps) { d.previousStop = ps; paintPrev(); } }
   prevEl = prevCardOf();
-  const sub = substituteCards({ id, st, L, ctx, fb, analog, reload: () => sessionPage(id), openDraft: (dr, o) => editDraft(dr, { substitute: true, ...o }), flushPortal });
+  // Selbstlern-Phase (Nachtrag 29; ersetzt die Krankheitsvertretung) – Feibeitsblätter ihrer Stationen legt die Lehrkraft im bekannten Editor an
+  const sub = substituteCards({ id, st, L, ctx, analog, reload: () => sessionPage(id), openDraft: (dr, o) => editDraft(dr, o), flushPortal, teacherNext: () => d.teacherNextDate || null });
 
   /* ======================= Sitzung als Datei (ganz unten): herunterladen und – in einer anderen Sitzung – wieder laden ======================= */
   async function exportSession(onStep) {
@@ -1166,7 +1168,12 @@ export async function sessionPage(id) {
       if (filesKey(r.files) !== filesKey(st.files)) { st.files = r.files; paintFiles(); paintPrint(); }
       if (r.drafts.length !== st.drafts.length || r.sheets.length !== st.sheets.length) { st.drafts = r.drafts; st.sheets = r.sheets; paintFb(); ensureNotfall(st.sheets.filter((x) => !notfallFile(x.code)).map((x) => x.code)); }
       const subKey = (x) => (x ? x.status + ":" + x.updatedAt : "");
-      if (subKey(r.substitute) !== subKey(st.sub)) { st.drafts = r.drafts; st.sub = r.substitute; sub.paint(); tsum.paintNote(); if (r.substitute && r.substitute.status === "vorschlag") toast("Claude hat einen Vertretungsvorschlag gespeichert – bitte prüfen.", "ok", 6000); }
+      d.teacherNextDate = r.teacherNextDate || null;
+      if (subKey(r.substitute) !== subKey(st.sub)) {
+        const was = st.sub ? st.sub.status : null;
+        st.drafts = r.drafts; st.sub = r.substitute; st.sheets = r.sheets; sub.paint(); tsum.paintNote(); paintFb();
+        if (r.substitute && r.substitute.status === "selbstlern") toast(was === "selbstlern" ? "Claude hat die Selbstlern-Phase überarbeitet." : "Claude hat die Sitzung in eine Selbstlern-Phase umgebaut – die Karte steht oben.", "ok", 6000);
+      } else if (st.sub && st.sub.status === "selbstlern" && JSON.stringify(r.drafts.map((x) => x.id + x.status)) !== JSON.stringify(st.drafts.map((x) => x.id + x.status))) { st.drafts = r.drafts; sub.paint(); }
       if (r.unit && st.unit && r.unit.version !== st.unit.version) { st.unit = r.unit; paintUnit(); if (!reviseEl || !reviseEl.contains(document.activeElement)) paintRevise(); }
       // Zwischenstopp der vorigen Sitzung: inzwischen gesetzt, verschoben oder (mit Claude) entschieden – auch der Prompt nimmt dann den neuen Stand
       if (JSON.stringify(r.previousStop || null) !== JSON.stringify(d.previousStop || null)) { d.previousStop = r.previousStop; paintPrev(); }

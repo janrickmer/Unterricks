@@ -289,8 +289,10 @@ export async function routeLessonGet(c, id) {
   if (sub) { try { proposal = JSON.parse(sub.proposal); } catch {} try { archive = sub.archive ? JSON.parse(sub.archive) : null; } catch {} }
   const substitute = sub ? { status: sub.status, proposal, createdAt: sub.created_at, updatedAt: sub.updated_at, confirmedAt: sub.confirmed_at ?? null,
     archive: archive ? { portal: archive.portal || "", homework: archive.homework || "", sheets: archive.sheets || [], files: (archive.files || []).map((f) => f.id), at: archive.at || null } : null } : null;
+  // Selbstlern-Phase (Nachtrag 29, nur Gymnasium): nächste Sitzung mit der Lehrkraft – für den Prompt und die Fälligkeit der Hausaufgabe
+  const teacherNext = l.subject !== GS_SUBJECT ? { teacherNextDate: await nextTeacherLessonDate(c.db, l) } : {};
   return json({ ok: true, lesson: lessonOut(l, { studentCount: (students.results[0] || {}).n || 0, nextDate, freeDay: fday ? { from: fday.from, to: fday.to, label: fday.label, scope: fday.scope } : null }),
-    previousStop, unit, course, substitute, ...gs, messages: messages.map(msgOut),
+    previousStop, unit, course, substitute, ...teacherNext, ...gs, messages: messages.map(msgOut),
     nextLesson: next ? { id: next.id, title: next.title, date: next.lesson_date, planned: !!next.planned } : null,
     files: (files.results || []).map((f) => fileOut(f)), sheets: (sheets.results || []).map((s) => ({ code: s.code, title: s.title, kind: s.kind || "", createdAt: s.created_at })),
     drafts: (drafts.results || []).map(draftOut) });
@@ -364,6 +366,14 @@ export async function nextLessonDate(db, l) {
   if (!l.lesson_date) return null;
   const r = await db.prepare("SELECT lesson_date FROM lessons WHERE subject=?1 AND klass=?2 AND id<>?3 AND lesson_date > ?4 AND cancelled=0 ORDER BY lesson_date LIMIT 1")
     .bind(l.subject, l.klass, l.id, l.lesson_date).first();
+  return r ? r.lesson_date : null;
+}
+/* Nächste Sitzung derselben Lerngruppe MIT der Lehrkraft (Selbstlern-Phase, Nachtrag 29): wie nextLessonDate, aber ohne Sitzungen, in denen sie nicht
+   unterrichtet (Selbstlern-Phase oder ältere, bestätigte Vertretung) – bis dorthin sind die Stationen Hausaufgabe; unbekannt → null */
+export async function nextTeacherLessonDate(db, l) {
+  if (!l.lesson_date) return null;
+  const r = await db.prepare("SELECT x.lesson_date FROM lessons x WHERE x.subject=?1 AND x.klass=?2 AND x.id<>?3 AND x.lesson_date > ?4 AND x.cancelled=0 " +
+    "AND NOT EXISTS (SELECT 1 FROM substitutes s WHERE s.lesson_id=x.id AND s.status IN ('aktiv','selbstlern')) ORDER BY x.lesson_date LIMIT 1").bind(l.subject, l.klass, l.id, l.lesson_date).first();
   return r ? r.lesson_date : null;
 }
 
@@ -669,9 +679,13 @@ export async function routeDraftCreated(c, draftId) {
   const body = await readJson(c.request, 10000);
   const d = await getDraft(c.db, draftId), code = normalizeCode(body.code);
   if (!isValidCode(code)) throw bad("Ungültiger Feibeitsblatt-Code.");
+  // Finale eines Escape-Rooms (Selbstlern-Phase): als solches verknüpft – Schüler:innen erreichen es nur über den Tunnel, kein Notfall-Feibeitsblatt
+  let esc = false; try { const x = JSON.parse(d.data); esc = !!(x && x.escape && x.escape.id); } catch {}
   await c.db.batch([
     c.db.prepare("UPDATE fb_drafts SET status='created', sheet_code=?2, updated_at=?3 WHERE id=?1").bind(draftId, code, c.now),
-    c.db.prepare("INSERT INTO fb_sheets(lesson_id, code, title, created_at) VALUES(?1, ?2, ?3, ?4) ON CONFLICT(lesson_id, code) DO UPDATE SET title=excluded.title")
+    esc ? c.db.prepare("INSERT INTO fb_sheets(lesson_id, code, title, created_at, kind) VALUES(?1, ?2, ?3, ?4, 'escape') ON CONFLICT(lesson_id, code) DO UPDATE SET title=excluded.title, kind='escape'")
+      .bind(d.lesson_id, code, cleanLine(body.title, 200) || "Feibeitsblatt", c.now)
+      : c.db.prepare("INSERT INTO fb_sheets(lesson_id, code, title, created_at) VALUES(?1, ?2, ?3, ?4) ON CONFLICT(lesson_id, code) DO UPDATE SET title=excluded.title")
       .bind(d.lesson_id, code, cleanLine(body.title, 200) || "Feibeitsblatt", c.now),
   ]);
   return json({ ok: true });

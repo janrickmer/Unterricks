@@ -167,7 +167,8 @@ Feibeitsblatt braucht keine Änderung. Die Adressen stehen in `wrangler.jsonc` (
   die Schüler:innen tun, Materialien mit Titel, ein schon angelegtes Feibeitsblatt mit Code, erwartete Ergebnisse, Hausaufgabe, Stolperstellen;
   schlichte, gut vorlesbare Sätze ohne Abkürzungen, etwa 120–300 Wörter, ohne Namen von Schüler:innen). Connector: `update_lesson` mit
   `zusammenfassung_lehrkraft` (höchstens 4000 Zeichen, leer = löschen); fehlt sie oder beschreibt sie eine frühere Planung, erinnert die Antwort
-  von `save_schulportal_entry` bzw. `save_verlaufsplan` daran; beim Vertretungsvorschlag bleibt sie, wie sie ist. `get_lesson` zeigt sie im
+  von `save_schulportal_entry` bzw. `save_verlaufsplan` daran; beim Umbau in eine Selbstlern-Phase bleibt sie, wie sie ist (sie beschreibt dann
+  die ursprüngliche Planung). `get_lesson` zeigt sie im
   Abschnitt „Zusammenfassung der Sitzung für die Lehrkraft“. Sie steht in der Sitzung **ganz oben** (Gymnasium und
   Grundschule) in der Karte „Zusammenfassung der Sitzung für die Lehrkraft“. Die erste Zeile setzt Unterricks **automatisch** aus den
   aktuellen Sitzungsdaten – Fach, Jahrgang, Wochentag mit Datum und Beginn, z. B. „Politik und Wirtschaft · Jahrgang 8 (Klasse 8b) ·
@@ -200,7 +201,8 @@ Feibeitsblatt braucht keine Änderung. Die Adressen stehen in `wrangler.jsonc` (
 * **Für den nächsten Arbeitstag einpacken:** Braucht eine Sitzung desselben Tages etwas, das Sie von zu Hause oder aus dem Lehrerzimmer
   mitbringen müssen (z. B. eine Bibel oder einen Beutel), steht direkt unter den Druckaufträgen ein **roter Kasten** mit diesen Gegenständen
   als Stichpunkte – für beide Schulformen, für denselben Tag wie die Druckaufträge (auch mit unterrichtsfreien Tagen; Ausfall-Einträge zählen
-  nicht; ist für eine Stunde des Gymnasiums eine Krankheitsvertretung aktiv, fehlen deren Gegenstände – Sie kommen ja nicht). Ein Klick (oder
+  nicht; ist eine Stunde des Gymnasiums eine Selbstlern-Phase (oder gilt dort noch eine ältere Vertretung), fehlen deren Gegenstände – Sie
+  kommen ja nicht). Ein Klick (oder
   Enter) auf einen Gegenstand klappt in kleinerer Schrift auf, **an welcher Stelle und in welcher Lerngruppe** er
   gebraucht wird; die Lerngruppe führt zur Sitzung. Brauchen mehrere Stunden denselben Gegenstand, steht er einmal da (z. B. „Beutel ·
   2 Stunden“), aufgeklappt mit je einem Eintrag pro Stunde. Ohne Gegenstände gibt es den Kasten nicht. Die Gegenstände trägt **Claude beim
@@ -246,7 +248,8 @@ Feibeitsblatt braucht keine Änderung. Die Adressen stehen in `wrangler.jsonc` (
   1. Klick auf den Knopf: Steht heute noch Unterricht bevor (eine Sitzung, deren Beginn später ist als jetzt; eine Sitzung ohne
      eingetragenen Beginn zählt bis 18 Uhr), fragt Unterricks „Für welchen Unterricht ist der Podcast gedacht?“ – „Heute, …“ oder
      „Nächster Schultag, …“. Sonst gilt gleich der nächste Schultag (wie bei den Druckaufträgen: Freitag bis Sonntag der Montag, Ferien und
-     Ausfälle laut Stundenplan übersprungen). Sitzungen mit bestätigter Vertretung gehören nicht dazu.
+     Ausfälle laut Stundenplan übersprungen). Selbstlern-Phasen (und ältere, bestätigte Vertretungen) gehören nicht dazu – die Karte nennt sie
+     mit „Selbstlern-Phase – nicht im Podcast“.
   2. Die Karte nennt die Sitzungen des Tages mit ihrer Kopfzeile (Fach, Jahrgang, Wochentag, Datum, Beginn). Grundlage ist die
      **„Zusammenfassung der Sitzung für die Lehrkraft“**; fehlt sie, nimmt Unterricks **Thema und Schulportal-Eintrag** (Grundschule:
      **Verlaufsplan**) – ohne Schulportal-Zeichen und ohne die Zeile „⏸ Zwischenstopp“ – und sagt vorher, für welche Sitzungen das gilt.
@@ -306,7 +309,7 @@ Feibeitsblatt braucht keine Änderung. Die Adressen stehen in `wrangler.jsonc` (
   Schüler:innen, nur für Sie oder in die Druckliste. Schüler:innen sehen ein Material, sobald seine PDF gedruckt ist; in der Sitzung
   steht dann „PDF, von Claude gestaltet · 2 Seiten“. Ist der Drucker gerade ausgelastet, druckt Unterricks nach, sobald Sie die
   Sitzung oder die Startseite öffnen („wartet auf den PDF-Drucker …“; der Tab kann dabei weiterarbeiten); meldet er einen Fehler, steht dort „Druck fehlgeschlagen“ mit „Erneut drucken“ – Claude kann die
-  Gestaltung dann mit derselben Datei überarbeiten. Bei einer Krankheitsvertretung gibt es vor dem Bestätigen „Vorschau als PDF“. Der
+  Gestaltung dann mit derselben Datei überarbeiten. Der
   Chat mit kostenloser KI bleibt der Rückfall: „Als Material übernehmen“ setzt daraus eine einfache PDF ohne eigene Gestaltung.
   Nach dem Ausrollen prüft `https://<Worker-Adresse>/api/health/pdf` den Druck (höchstens einmal je Stunde; `?pdf=1` zeigt die
   Testseite).
@@ -370,10 +373,33 @@ Feibeitsblatt braucht keine Änderung. Die Adressen stehen in `wrangler.jsonc` (
   Politik und Wirtschaft bleibt im Klassenverband, die Qualifikationsphase bei GK/LK.
   Ist das Claude-Kontingent erschöpft, plant der Chat **„Backup: Planung mit kostenloser KI“** in derselben Sitzung weiter
   (Groq, danach automatisch Workers AI); „Schulportal-Eintrag erstellen“ baut dann auf diesem Verlauf auf.
-  Bei Krankheit: „Lehrkraft ist zu dieser Sitzung krank – Alternative entwickeln“ → Claude entwickelt die Vertretung (z. B. einen
-  Escape-Room nach dem bekannten Aufbau mit Feibeitsblatt-Finale) → Vorschau ansehen, prüfen und bestätigen (die ursprüngliche
-  Planung wird archiviert und bleibt wiederherstellbar). Für das Anlegen des Feibeitsblatts beim Bestätigen muss die Sitzung mit
-  dem Feibeitsblatt verbunden sein (Türcode + Passwort im Abschnitt „Feibeitsblatt“).
+* **Ohne Lehrkraft: Selbstlern-Phase** (ersetzt seit dem 15.11.2026 die Krankheitsvertretung, nur Gymnasium): Können Sie zu einer Sitzung
+  nicht da sein, klicken Sie in der Sitzung (Karte „Ohne Lehrkraft“) auf **„Präsenz der Lehrkraft nicht möglich – Unterricht in
+  Selbstlern-Phase umbauen“**. Wie bei „Stunde mit Claude planen“ wählen Sie Sprachmodell und Aufwand, kopieren den Prompt und öffnen
+  claude.ai. Claude liest die Sitzung (`get_lesson`: Thema, Stundenfrage, geplanter Inhalt, Material, Zeile der Einheit), behält
+  Lerninhalte und Stundenziel und stellt Ihnen **mindestens drei Ideen** für eine Selbstlern-Sitzung vor, die ganz ohne Lehrkraft
+  funktioniert – als Stationen in einer festen Reihenfolge: eine **selbst durchklickbare, erklärende Präsentation**, ein
+  **Feibeitsblatt**, ein **KI-Chatbot, dem die Schüler:innen erklären, was sie erarbeitet haben** (er fragt kritisch nach), ein
+  **YouTube-Video** (nur ein Video, dessen Link Sie Claude geben – Claude erfindet keine), ein **Escape-Room** nach dem bekannten
+  Aufbau, Material oder ein einfacher Arbeitsauftrag. Erst wenn Sie einer Idee **ausdrücklich zustimmen**, legt Claude das Material an und
+  stellt die Sitzung mit `save_selbstlern` in einem Schritt um. Muss vorher Material von Hand gelöscht werden (der Connector kann nichts
+  löschen), nennt Claude Ihnen im Chat genau welche Dateien (Titel und Bereich) und wartet auf Ihre Bestätigung.
+  Beim Umstellen wird die **ursprüngliche Planung archiviert** (Schulportal-Eintrag, Hausaufgabe, Material und Feibeitsblätter, auf
+  die keine Station verweist – für die Schüler:innen unsichtbar). Claude schreibt den **Schulportal-Eintrag** für die Selbstlern-Phase neu
+  (die Schüler:innen öffnen die Sitzung mit dem Code), und die **Hausaufgabe** lautet: alle Stationen bis zum Beginn der nächsten Stunde
+  **mit Ihnen** erledigen (mit Datum, wenn diese Sitzung schon angelegt ist; Selbstlern-Phasen dazwischen zählen nicht) – die
+  Schüler:innen sehen sie **von Anfang an**, nicht erst 15 Minuten vor dem Ende. Die Karte **„Selbstlern-Phase“** oben in der Sitzung zeigt,
+  was die Schüler:innen ganz oben lesen, den Ablaufplan mit allen Stationen (Material, Video-Link, was dem Chatbot erklärt wird und – nur
+  für Sie – woran er eine gute Erklärung erkennt), die Hausaufgabe, einen Hinweis für die Aufsicht und die archivierte Planung.
+  Feibeitsblätter der Stationen legen Sie dort mit „Feibeitsblatt prüfen und anlegen“ an (beim Escape-Room das Finale). Mit
+  **„Wiederherstellen – zurück zur normalen Sitzung“** kehrt die ursprüngliche Planung zurück; das Material der Selbstlern-Phase wird
+  dabei gelöscht (der Dialog nennt es). „Ursprüngliche Planung in eine andere Sitzung übernehmen“ kopiert sie z. B. in die nächste Stunde.
+  Die Selbstlern-Phase lässt sich mit Claude jederzeit überarbeiten (derselbe Knopf). **Jahrgang 5/6** (keine iPads): derselbe Knopf, aber
+  **analoge Stationen** – Laufzettel, Arbeitsblätter je Station und eine Lösungskontrolle auf Ihrer Druckliste (Anzahl = Schülerzahl);
+  die Aufsicht teilt nur aus. Die Druckaufträge für den nächsten Arbeitstag kennzeichnen solche Sitzungen mit „Selbstlern-Phase –
+  Ausdrucke für die Aufsicht“. Was die Schüler:innen in der Sitzung sehen (Stationen, Video nach Klick, Erklär-Chatbot, KI-Begriffshilfe
+  ganz unten), baut Teil B; bis dahin zeigt die bisherige Ansicht den Hinweis, die Stationen und die Hausaufgabe. Ältere
+  Vertretungsvorschläge bleiben lesbar (verwerfen), ältere aktive Vertretungen lassen sich wie bisher wiederherstellen.
 * **Nach einem Update von Unterricks:** Ein Tab, der schon vorher offen war, merkt das beim nächsten Seitenwechsel (z. B. beim Klick auf
   eine Sitzung) und lädt sich dann an derselben Stelle neu – Sie müssen nichts tun. Solange ein Dialog offen ist, eine Präsentation läuft
   (auch am Beamergerät und im Live-Fenster der Schüler:innen) oder noch etwas gespeichert, hochgeladen oder heruntergeladen wird, lädt er
@@ -441,7 +467,7 @@ der **Podcast für den kommenden Unterricht** (derselbe wie auf der Startseite �
   Sitzungen steht dann ein **roter Kasten** „Die Einheit muss wegen der Ausfälle überarbeitet werden“ mit **„Einheit mit Claude
   überarbeiten“** (kopiert den passenden Prompt; Claude passt die Einheit mit `save_unit_plan` an und verteilt die Termine neu),
   „Erledigt – Hinweis entfernen“ und – solange die Einheit seither nicht geändert wurde – „Krankmeldung rückgängig machen“.
-  Vertretungsmaterial entsteht in der Grundschule nicht.
+  Eine Selbstlern-Phase (früher Vertretungsmaterial) gibt es in der Grundschule nicht.
 
 ## Entwicklung
 

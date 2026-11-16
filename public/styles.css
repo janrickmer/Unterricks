@@ -871,7 +871,7 @@ div.basetext { white-space: pre-wrap; overflow-wrap: anywhere; max-width: 72ch; 
 a.baselink { overflow-wrap: anywhere; }
 .gs-basis { margin-top: 1.2rem; }
 .gs-basis h3 { margin: 0 0 .5rem; }
-/* Krankheitsvertretung */
+/* Selbstlern-Phase (früher Krankheitsvertretung): Knopf an der Seite, ältere Vertretungen */
 .btn.sickbtn { width: 100%; white-space: normal; text-align: left; justify-content: flex-start; font-weight: 800; }
 .substitute { background: var(--surface); border: 2px solid var(--ink); }
 @media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) .substitute { border-color: var(--line-ui); } }
@@ -882,6 +882,27 @@ a.baselink { overflow-wrap: anywhere; }
 .sub-steps .md { font-size: .97rem; margin-top: .2rem; }
 .substitute.student { margin-bottom: 1.1rem; background: var(--gelb-t); border: 1px solid color-mix(in srgb, var(--gelb-kante) 55%, var(--line)); }
 img.sub-photo { max-width: 100%; max-height: 60vh; border-radius: 12px; border: 1px solid var(--line); display: block; }
+/* Selbstlern-Phase (Nachtrag 29; ersetzt die Krankheitsvertretung): Karte oben in der Sitzung, Stationen mit ihren Verweisen */
+.substitute.selbstlern { border: 2px solid var(--fach); }
+.selbstlern .sl-intro p { margin: 0; } .selbstlern .sl-intro p + p { margin-top: .4rem; }
+.sl-stations > li { padding: .55rem 0 .75rem; border-bottom: 1px solid var(--line); }
+.sl-stations > li:last-child { border-bottom: 0; }
+.sl-head { align-items: flex-start; gap: .5rem; }
+.sl-head > strong { flex: 1 1 14rem; min-width: 0; overflow-wrap: anywhere; }
+.sl-head .row { flex-wrap: wrap; gap: .3rem; }
+.badge.sl-typ { background: var(--fach-t); color: var(--fach-text); box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--fach) 28%, transparent); }
+.sl-ref { margin: .45rem 0 0; padding: .5rem .7rem; border-radius: var(--radius-s); background: var(--surface-2); font-size: .92rem; overflow-wrap: anywhere; }
+.sl-ref.escbox { background: var(--paper); }
+.sl-ref .btn { min-height: 44px; margin-top: .35rem; }
+.sl-ref details.box { margin-top: .4rem; padding-top: .4rem; }
+.sl-ref ul { margin: .2rem 0 .4rem; padding-left: 1.2rem; }
+.sl-todo { background: var(--gelb-t); box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--gelb-kante) 55%, transparent); }
+.sl-todo p { margin: 0; }
+.sl-hw .due { margin: 0 0 .25rem; font-weight: 700; }
+.sl-note { white-space: pre-wrap; }
+.sl-acts { margin-top: .9rem; flex-wrap: wrap; }
+.sl-acts .btn, .selfside .btn.sickbtn { min-height: 44px; }
+.badge.pn-sl { margin-left: .4rem; white-space: normal; background: var(--gelb-t); color: var(--text); box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--gelb-kante) 60%, transparent); vertical-align: .1em; }
 
 /* ---------- Escape-Room (Gestaltung wie die Escape-Rooms der Lehrkraft: hell, seriös; Petrol/Ocker; dunkle Arena) ---------- */
 .escbox { border: 1px solid var(--line-ui); background: var(--paper); border-radius: var(--radius-s); padding: .7rem .9rem; margin: .6rem 0; }

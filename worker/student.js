@@ -4,8 +4,9 @@ import { HttpError, bad, json, readJson, isId, requireSecret, sha256Hex, LOCKS, 
 import { callTask, taskProviders, TASKS } from "./ai.js";
 import { requireStudent } from "./auth.js";
 import { getFile, downloadUrl, studentSlideUrl, studentSlideExp, studentSlideLimit } from "./files.js";
-import { nextLessonDate } from "./lessons.js";
-import { getSubstitute, substituteForStudents } from "./substitute.js";
+import { nextLessonDate, nextTeacherLessonDate } from "./lessons.js";
+import { getSubstitute, studentSubstitute } from "./substitute.js";
+import { SELBSTLERN } from "../public/selbstlern.js";
 import { liveTicket, liveState } from "./live.js";
 import { normalizeCode, isValidCode, subjectName, classShort, isCourseClass, courseMembers, cleanWebUrl, lessonTimes, fmtClockBerlin, studentHelpPrompt, STUDENT_HELP_LIMITS, GS_SUBJECT, STUDENT_SLIDE_BLOCK } from "../public/shared.js";
 import { loadSubjectConfigs } from "./bases.js";
@@ -13,8 +14,11 @@ import { loadSubjectConfigs } from "./bases.js";
 /* Zeitpunkte der Sitzung (Vorgabe der Lehrkraft vom 10.11.2026): die Hausaufgabe erst ab 15 Minuten vor dem Ende, die ganze Präsentation
    erst 5 Minuten nach dem Ende – berechnet aus Datum, Beginn (Uhrzeit) und Dauer; ohne Beginn oder Dauer bleibt beides verborgen. */
 const timesOf = (l) => lessonTimes({ date: l.lesson_date, startTime: l.start_time, durationMin: l.duration_min });
-const homeworkShown = (l, now) => { const t = timesOf(l); return !!t && now >= t.homeworkAt && !!String(l.homework || "").trim(); };
-const LESSON_COLS = "l.id, l.subject, l.klass, l.title, l.lesson_date, l.start_time, l.duration_min, l.homework, l.student_ai";
+// Selbstlern-Phase (Nachtrag 29): die Hausaufgabe – alle Stationen bis zur nächsten Sitzung mit der Lehrkraft – sehen die Schüler:innen von Anfang an
+const homeworkShown = (l, now) => { if (!String(l.homework || "").trim()) return false; if (l.sub_status === SELBSTLERN) return true; const t = timesOf(l); return !!t && now >= t.homeworkAt; };
+const LESSON_COLS = "l.id, l.subject, l.klass, l.title, l.lesson_date, l.start_time, l.duration_min, l.homework, l.student_ai, (SELECT s.status FROM substitutes s WHERE s.lesson_id=l.id) AS sub_status";
+// Material der Selbstlern-Phase (source 'selbstlern') sehen Schüler:innen nur, solange die Sitzung eine Selbstlern-Phase ist (vorher legt Claude es an, „Wiederherstellen“ löscht es)
+const SELBSTLERN_FILE_OK = "(source IS NOT 'selbstlern' OR EXISTS (SELECT 1 FROM substitutes s WHERE s.lesson_id=files.lesson_id AND s.status='selbstlern'))";
 const lessonCard = (l, joinedAt, now) => ({ id: l.id, subject: l.subject, subjectName: subjectName(l.subject), klass: l.klass, title: l.title, date: l.lesson_date || null, joinedAt,
   hasHomework: homeworkShown(l, now) });
 
@@ -68,24 +72,28 @@ export async function requireAccess(c, lessonId) {
 export async function routeStudentLesson(c, lessonId) {
   const { lesson, joinedAt } = await requireAccess(c, lessonId);
   const [files, sheets, pres] = await c.db.batch([
-    c.db.prepare("SELECT id, kind, name, mime, size, CASE WHEN kind IN ('text','link') THEN text END AS text, source, created_at FROM files WHERE lesson_id=?1 AND area='student' AND status='ready' ORDER BY created_at").bind(lessonId),
+    c.db.prepare("SELECT id, kind, name, mime, size, CASE WHEN kind IN ('text','link') THEN text END AS text, source, created_at FROM files WHERE lesson_id=?1 AND area='student' AND status='ready' AND " + SELBSTLERN_FILE_OK + " ORDER BY created_at").bind(lessonId),
     c.db.prepare("SELECT code, title, kind FROM fb_sheets WHERE lesson_id=?1 ORDER BY created_at").bind(lessonId),
     c.db.prepare("SELECT id, name, pages, shown_until, cut_size FROM files WHERE lesson_id=?1 AND area='presentation' AND status='ready' LIMIT 1").bind(lessonId),
   ]);
   const p = (pres.results || [])[0] || null, times = timesOf(lesson), unlockAt = times ? times.presentationAt : null;
-  const hw = homeworkShown(lesson, c.now) ? String(lesson.homework).trim() : "";
+  const hw = homeworkShown(lesson, c.now) ? String(lesson.homework).trim() : "", selbst = lesson.sub_status === SELBSTLERN;
+  // Selbstlern-Phase bzw. ältere Vertretung: die Ansicht der Stationen (Feibeitsblätter aus Entwürfen über ihren Code) – sonst keine Abfrage mehr
+  const sub = lesson.sub_status === "aktiv" || selbst ? await getSubstitute(c.db, lessonId) : null;
+  const drafts = selbst ? ((await c.db.prepare("SELECT id, status, sheet_code FROM fb_drafts WHERE lesson_id=?1").bind(lessonId).all()).results || []) : [];
+  const shown = studentSubstitute(sub, drafts);
   const upTo = p && p.shown_until && p.shown_until < p.pages ? p.shown_until : null;
   return json({ ok: true, authLeftMs: c.authLeftMs, lesson: lessonCard(lesson, joinedAt, c.now),
     files: (files.results || []).map((f) => ({ id: f.id, kind: f.kind, name: f.name, mime: f.mime, size: f.size, createdAt: f.created_at, ...(f.kind === "text" ? { text: f.text || "" } : {}),
       ...(f.kind === "link" ? { url: cleanWebUrl(f.text) || "" } : {}), ...(f.source === "notfall" ? { notfall: true } : {}) })),
     sheets: (sheets.results || []).filter((s) => s.kind !== "escape").map((s) => ({ code: s.code, title: s.title })),   // Escape-Finale nur über den Tunnel
     presentation: p ? { name: p.name, pages: p.pages, unlockAt, unlocked: unlockAt !== null && c.now >= unlockAt, upTo } : null,
-    homework: hw ? { text: hw, dueDate: await nextLessonDate(c.db, lesson) } : null,
+    homework: hw ? { text: hw, dueDate: selbst ? await nextTeacherLessonDate(c.db, lesson) : await nextLessonDate(c.db, lesson) } : null,
     // wann sich die Ansicht ändert (Begriffshilfe beginnt/endet, Hausaufgabe erscheint, Präsentation wird frei) – unabhängig davon, ob es eine Hausaufgabe gibt
     changesAt: times ? [times.start, times.end + 1000, times.homeworkAt, times.presentationAt].filter((t) => t > c.now) : [],
     // KI-Begriffshilfe: nur zwischen Beginn und Ende der Stunde; die Dienste stehen im Einwilligungstext
     aiHelp: times && lesson.student_ai !== 0 && c.now <= times.end ? { start: times.start, end: times.end, providers: await taskProviders(c.db, "erklaeren") } : null,
-    substitute: substituteForStudents(await getSubstitute(c.db, lessonId)),
+    substitute: shown.substitute, ...(shown.selbstlern ? { selbstlern: shown.selbstlern } : {}),
     feibeitsblattUrl: c.env.FEIBEITSBLATT_URL || "https://feibeitsblatt.janrickmer.de/",
     now: c.now });
 }
@@ -94,7 +102,8 @@ export async function routeStudentFileLink(c, fileId) {
   await requireStudent(c);
   const f = await getFile(c.db, fileId);
   if (f.area !== "student" || f.kind !== "file" || f.status !== "ready") throw new HttpError(404, "not_found", "Datei nicht gefunden.");
-  await requireAccess(c, f.lesson_id);
+  const { lesson } = await requireAccess(c, f.lesson_id);
+  if (f.source === SELBSTLERN && lesson.sub_status !== SELBSTLERN) throw new HttpError(404, "not_found", "Datei nicht gefunden.");
   return json({ ok: true, url: await downloadUrl(requireSecret(c.env), f, false, 10 * 60e3, c.now) });
 }
 

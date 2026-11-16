@@ -1,9 +1,8 @@
-// planning.js – Unterrichtseinheiten (Leupold-Schema + Ablaufplan), Terminberechnung, Krankheitsvertretung, Claude-Prompts.
+// planning.js – Unterrichtseinheiten (Leupold-Schema + Ablaufplan), Terminberechnung, Claude-Prompts (Selbstlern-Phase: public/selbstlern.js).
 // Gemeinsam für Browser und Worker (keine DOM-Zugriffe).
 import { subjectName, gradeInfo, classShort, isAnalogClass, ANALOG_RULE, fmtDay, addDays, isIsoDate, isClockTime, PORTAL_RULES, PORTAL_EXAMPLE, PORTAL_TEACHER_RULE, FEIBEITSBLATT_INFO, materialDesignText,
   SYSTEM_PROMPT_ROLE, UNIT_RULE_BASE, STOP_LINE, lessonContext, teacherWishes, groupShort, subjectShort, isValidSubject, isValidClass, clockMinutes, minutesClock, mondayOf, isWeekend,
   GS_SUBJECT, isGsCourseId, parentOpensAt, berlinToday, stopParts, STOP_CHOICE_TEXT, STOP_CHOICES, stopDecidedOn, summarySaveStep, SUMMARY_FALLBACK, daysBetween } from "./shared.js";
-import { ESCAPE_FORMAT_HINT } from "./escape-data.js";
 import { bringSaveStep } from "./bring.js";
 export { UNIT_RULE } from "./shared.js";
 
@@ -740,7 +739,6 @@ export function claudeLessonPrompt(ctx) {
   ].filter((l) => l !== null).join("\n").replace(/\n{3,}/g, "\n\n");
 }
 
-/* ---------- Krankheitsvertretung ---------- */
 /* ---------- Nach dem Verschieben wegen unterrichtsfreier Tage (Nachtrag 24): Texte und Prompt fürs Gymnasium ----------
  * Einträge aus unit.revise.items mit kind "free" ({label, from, to, …}). Die Grundschule nutzt den roten Kasten und ihren Prompt (gsplanning.js). */
 const freeItemText = (x) => x.label + ": " + fmtDay(x.from || x.date) + ((x.to || x.date) !== (x.from || x.date) ? "–" + fmtDay(x.to || x.date) : "");
@@ -794,62 +792,4 @@ export function claudeGymRevisionPrompt(ctx) {
   ].filter((l) => l !== null).join("\n").replace(/\n{3,}/g, "\n\n");
 }
 
-export const SUBSTITUTE_SHARE = 0.8;   // Vorgabe: ca. 80 % der Unterrichtszeit für die Bearbeitung
-export const DEFAULT_SUBSTITUTE_NOTICE = "Deine Lehrkraft kann heute nicht persönlich im Unterricht sein. Bitte bearbeite die folgenden Vertretungsaufgaben selbstständig der Reihe nach.";
-export function claudeSubstitutePrompt(ctx) {
-  const L = ctx.lesson || {}, minutes = L.durationMin || (ctx.row && ctx.row.minutes) || 45, work = Math.round(minutes * SUBSTITUTE_SHARE);
-  const analog = isAnalogClass(ctx.klass);
-  const formats = analog
-    ? ["- " + ANALOG_RULE, "- Abgabe: ein ausgefülltes Arbeitsblatt (oder ein kleines Lernprodukt auf Papier), das die Vertretungslehrkraft einsammelt."]
-    : ["- Kreative Selbstlern-Formate sind ausdrücklich erwünscht, z. B. ein Escape-Room" + (ctx.escape ? " (nach der Vorlage der Plattform – Inhalt im Feld `escape_room`, Finale ist automatisch ein Feibeitsblatt)" : " (zurzeit noch nicht über die Plattform verfügbar)") + ", ein Feibeitsblatt (" + FEIBEITSBLATT_INFO + ") oder ein Lernprodukt.",
-      "- Entscheidest du dich für ein Lernprodukt (z. B. ein Plakat), führt ein Feibeitsblatt die Schüler:innen durch den Planungsprozess des Lernprodukts und enthält eine Aufgabe mit der Antwortart „Foto“ (`antwort: \"foto\"`), in der sie ein Foto ihres Lernprodukts abgeben. Fotos gehen nie an die KI (kein `ki_auftrag`); höchstens 3 Foto-Aufgaben je Feibeitsblatt.",
-      "- Jede Vertretungsstunde enthält eine Abgabe in der Plattform: " + (ctx.escape ? "ein Feibeitsblatt, ein Escape-Room mit Feibeitsblatt-Finale oder ein Feibeitsblatt mit Foto-Abgabe." : "ein Feibeitsblatt (bei einem Lernprodukt mit Foto-Abgabe)."),
-      ...(ctx.escape ? ["- Wählst du einen Escape-Room, liefere ihn vollständig im Feld `escape_room` (statt `feibeitsblatt`). Die Plattform hostet ihn in ihrer Vorlage. " + ESCAPE_FORMAT_HINT.replace(/\n/g, " ") +
-        " Plane ihn so, dass er mit dem Finale in die Bearbeitungszeit passt (ca. 5–8 Minuten je Station). In der Anleitung für die Schüler:innen: Escape-Room in der Sitzung mit „Escape-Room starten“ öffnen, Stationen der Reihe nach bearbeiten (Notizen machen), am Ende durch den Tunnel ins Feibeitsblatt und dort abgeben."] : [])];
-  return [
-    "Ich bin krank und kann die folgende Unterrichtsstunde nicht selbst halten. Entwickle eine Vertretungsstunde, die die Schüler:innen ohne mich bearbeiten können. Arbeite gründlich und fachlich korrekt.",
-    "",
-    "## Die geplante Stunde",
-    "- Fach: " + subjectName(ctx.subject),
-    "- Klasse/Kurs: " + classShort(ctx.klass) + " – " + gradeInfo(ctx.klass).text,
-    "- Sitzung: " + (L.title || "") + (L.date ? " am " + fmtDay(L.date) : "") + " (Sitzungs-ID " + ctx.lessonId + ")",
-    "- Geplante Dauer: " + minutes + " Minuten → Bearbeitungszeit für die Schüler:innen: ca. " + work + " Minuten (80 %; der Rest geht für Organisation und Abgabe drauf).",
-    ctx.unitText ? "\n" + ctx.unitText : "",
-    "",
-    "## Vorgehen",
-    "1. Rufe mit dem Connector „Unterricks“ `get_lesson` mit der Sitzungs-ID " + ctx.lessonId + " auf: Dort stehen die eigentliche Planung, der Schulportal-Eintrag, die Materialien und die Unterrichtseinheit.",
-    "2. Untersuche die eigentlich geplante Stunde: Welche fachdidaktische Kompetenz sollte erreicht werden? Welche Stundenfrage sollte am Ende beantwortet werden? Welche Lerninhalte sollten vermittelt werden?",
-    "3. Entwickle mit diesen Antworten sowie Fach und Jahrgangsstufe etwas, das die Schüler:innen in der Vertretungsstunde ohne Lehrkraft bearbeiten können (ca. " + work + " Minuten).",
-    ...formats,
-    "4. Schreibe eine klare, chronologische Anleitung für die Schüler:innen: nummerierte Schritte mit Minutenangabe, was genau zu tun ist, welches Material, und wann bzw. wie abgegeben wird.",
-    "5. Formuliere alle Materialien vollständig aus und gestalte sie als HTML-Seiten (Feld `materialien` mit `html`; Unterricks druckt sie nach meiner Bestätigung als A4-PDF – Material, das die Vertretungslehrkraft austeilen muss, mit `bereich` \"druck\" und `anzahl`). Gestaltungsregeln:\n" + materialDesignText("   - ") + "\n   Dazu einen Schulportal-Eintrag für die Vertretungsstunde (Schulportal-Zeichen: " + PORTAL_RULES.join("; ") + "; Aufbau wie in diesem Beispiel:\n" + PORTAL_EXAMPLE + "\n" + PORTAL_TEACHER_RULE + ") und kurze Hinweise für die Vertretungslehrkraft.",
-    "6. Fasse mir den Vorschlag kurz zusammen und speichere ihn mit `save_substitute_plan` für die Sitzung " + ctx.lessonId + ". Ich prüfe ihn in der Plattform; erst wenn ich ihn bestätige, tauscht die Plattform das Material aus und zeigt den Schüler:innen den Vertretungshinweis.",
-  ].filter((l) => l !== "").join("\n");
-}
-export function normalizeSubstitute(raw) {
-  const p = raw && typeof raw === "object" ? raw : {};
-  const a = p.analyse && typeof p.analyse === "object" ? p.analyse : {};
-  const fb = p.feibeitsblatt && typeof p.feibeitsblatt === "object" && Array.isArray(p.feibeitsblatt.aufgaben || p.feibeitsblatt.tasks) ? p.feibeitsblatt : null;
-  return {
-    analyse: { kompetenz: str(a.kompetenz, 1500).trim(), stundenfrage: str(a.stundenfrage, 400).trim(), inhalte: (Array.isArray(a.inhalte) ? a.inhalte : str(a.inhalte).split("\n")).map((x) => str(x, 400).trim()).filter(Boolean).slice(0, 15) },
-    format: str(p.format, 80).trim(),
-    bearbeitungszeit: Number.isInteger(Number(p.bearbeitungszeit)) ? Number(p.bearbeitungszeit) : null,
-    hinweis: str(p.hinweis_schueler || p.hinweis, 1000).trim() || DEFAULT_SUBSTITUTE_NOTICE,
-    schritte: (Array.isArray(p.schritte) ? p.schritte : []).slice(0, 20).map((x, i) => ({
-      titel: str(x && x.titel, 160).trim() || "Schritt " + (i + 1), anleitung: str(x && x.anleitung, 3000).trim(),
-      minuten: Number.isInteger(Number(x && x.minuten)) ? Number(x.minuten) : null, abgabe: !!(x && x.abgabe) })).filter((x) => x.anleitung || x.titel),
-    abgabe: str(p.abgabe, 1000).trim(),
-    schulportal: str(p.schulportal, 30000).trim(),
-    // gestaltet (html → PDF nach der Bestätigung) oder als Rückfall Markdown; „druck“ nur gestaltet (Liste „Von der Lehrkraft auszudrucken“)
-    materialien: (Array.isArray(p.materialien) ? p.materialien : []).slice(0, 12).map((m) => {
-      const html = str(m && m.html, 1600000).trim(), b = m && (m.bereich === "lehrkraft" || m.bereich === "teacher") ? "teacher" : m && (m.bereich === "druck" || m.bereich === "print") && html ? "print" : "student";
-      const o = { titel: str(m && m.titel, 200).trim() || "Material", bereich: b, markdown: html ? "" : str(m && m.markdown, 200000).trim() };
-      if (html) o.html = html;
-      if (b === "print") o.druck = { anzahl: Number.isInteger(m.anzahl) && m.anzahl >= 1 && m.anzahl <= 500 ? m.anzahl : null, beidseitig: m.beidseitig !== false, farbe: m.farbe === true };
-      return o;
-    }).filter((m) => m.html || m.markdown),
-    feibeitsblatt: fb,
-    escape_room: p.escape_room && typeof p.escape_room === "object" ? p.escape_room : null,
-    vertretung: str(p.hinweise_vertretung || p.vertretung, 4000).trim(),
-  };
-}
+/* Die Krankheitsvertretung (claudeSubstitutePrompt, normalizeSubstitute) ersetzt seit Nachtrag 29 die Selbstlern-Phase: public/selbstlern.js */

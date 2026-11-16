@@ -1,7 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import { normalizeParams, computeSlots, lessonSlots, normalizePlan, normalizeRows, assignDates, extractUnitChange, stripUnitBlock, unitContext,
-  claudeUnitPrompt, claudeSubstitutePrompt, claudeLessonPrompt, lessonChatName, normalizeSubstitute, SUBSTITUTE_SHARE } from "../../public/planning.js";
+  claudeUnitPrompt, claudeLessonPrompt, lessonChatName } from "../../public/planning.js";
 import { SYSTEM_PROMPT_ROLE, UNIT_RULE_BASE, ANALOG_RULE, PORTAL_EXAMPLE } from "../../public/shared.js";
 import { detectKcgo, detectErlass, detectCurriculum, detectECurriculum, parseRanges, formatRanges, pageText, wantedSections, missingFor,
   detectGsCurriculum, detectSections, wantedGsSections, missingForGs, gsReligionCourseIn, BASE_KINDS } from "../../public/bases-detect.js";
@@ -67,15 +67,7 @@ test("Prompt Einheitenplanung: Planungsgrundlage (PoWi), drei Lernaufgaben, Leup
   assert.ok(!e.includes("Konfliktanalyse") && e.includes("Es fehlen noch: Schulcurriculum Ethik für Jahrgang 7"));
 });
 
-test("Prompt Krankheitsvertretung: Analysefragen, 80 % der Zeit, Abgabe; Jahrgang 5/6 analog", () => {
-  const ctx = { lessonId: "0123456789abcdef", subject: "powi", klass: "9B", lesson: { title: "Wahlen", durationMin: 90, date: "2026-11-12" }, unitText: "Unterrichtseinheit: Demokratie" };
-  const p = claudeSubstitutePrompt(ctx);
-  assert.equal(SUBSTITUTE_SHARE, 0.8);
-  for (const s of ["Welche fachdidaktische Kompetenz", "Welche Stundenfrage", "Welche Lerninhalte", "ca. 72 Minuten", "get_lesson", "save_substitute_plan", "Feibeitsblatt", "„Foto“", "chronologische Anleitung", "Unterrichtseinheit: Demokratie"]) assert.ok(p.includes(s), s);
-  assert.ok(p.includes("zurzeit noch nicht über die Plattform verfügbar"), "Escape-Room ehrlich als nicht verfügbar gekennzeichnet");
-  const a = claudeSubstitutePrompt({ ...ctx, klass: "6A" });
-  assert.ok(a.includes("keine iPads") && !a.includes("z. B. ein Escape-Room") && !a.includes("Antwortart „Foto“"));
-});
+// Die Krankheitsvertretung (Prompt und Vorschlag) ersetzt seit Nachtrag 29 die Selbstlern-Phase – Tests in test/unit/selbstlern.test.mjs
 
 test("Prompt „Stunde mit Claude planen“: feste Rolle, Sitzung, Einheit, Vorgehen mit dem Connector, Speichern nur auf Wunsch", () => {
   const unit = { id: "fedcba9876543210", title: "Gewaltenteilung", plan: { lernaufgabe: "Positionspapier schreiben", schritte: [{ titel: "Problem erschließen", beschreibung: "Karikatur" }] },
@@ -112,18 +104,6 @@ test("Chat-Name: Jahrgang bzw. E-Phase/Q-Kurs, Fach kurz, Stunde in der Einheit,
   assert.equal(lessonChatName({ klass: "E-K", subject: "ethik", lesson: { title: "" } }), "E-Phase - Ethik");
   assert.equal(lessonChatName({ klass: "Q3-LK", subject: "powi", unit, row: { uid: "zz" }, lesson: { title: "Europa" } }), "Q3 LK - PoWi - Europa", "Zeile nicht in der Einheit: keine Nummer");
   assert.ok(lessonChatName({ klass: "8A", subject: "powi", lesson: { title: "x".repeat(300) } }).length <= 110, "langer Titel gekürzt");
-});
-
-test("Vertretungsvorschlag normalisieren", () => {
-  const p = normalizeSubstitute({ analyse: { kompetenz: "Urteilen", stundenfrage: "Soll …?", inhalte: "A\nB" }, schritte: [{ titel: "Lesen", anleitung: "Lies M1", minuten: "10" }, { anleitung: "" }],
-    materialien: [{ titel: "M1", bereich: "schueler", markdown: "# M1" }, { titel: "Lösung", bereich: "lehrkraft", markdown: "x" }, { titel: "leer", markdown: "" }], feibeitsblatt: { titel: "FB", aufgaben: [{ text: "A" }] } });
-  assert.deepEqual(p.analyse.inhalte, ["A", "B"]);
-  assert.equal(p.schritte.length, 2);
-  assert.equal(p.schritte[0].minuten, 10);
-  assert.equal(p.schritte[1].titel, "Schritt 2");
-  assert.deepEqual(p.materialien.map((m) => m.bereich), ["student", "teacher"]);
-  assert.match(p.hinweis, /nicht persönlich im Unterricht/);
-  assert.equal(p.feibeitsblatt.titel, "FB");
 });
 
 /* ---------- Planungsgrundlagen ---------- */

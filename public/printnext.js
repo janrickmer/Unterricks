@@ -156,7 +156,9 @@ export function printNextCards(load = () => tapi("GET", "/api/teacher/print-next
       h("h3", { id: "pn-g-" + s.id }, h("a", { href: "#/lk/s/" + s.id },
         s.startTime ? h("span", { class: "pn-time", text: s.startTime }) : null, s.startTime ? " " : null,
         h("span", { class: "ftag", dataset: { fach: s.subject }, text: gs ? "Grundschule" : subjectShort(s.subject) }), " ",
-        h("strong", { text: gs ? (s.course ? s.course.short : "") : classShort(s.klass) }), s.title ? h("span", { class: "pn-t", text: " – " + s.title }) : null)),
+        h("strong", { text: gs ? (s.course ? s.course.short : "") : classShort(s.klass) }), s.title ? h("span", { class: "pn-t", text: " – " + s.title }) : null),
+        // Selbstlern-Phase (Nachtrag 29): Sie sind nicht da – die Ausdrucke gehen an die Aufsicht
+        s.selbstlern ? h("span", { class: "badge pn-sl", text: "Selbstlern-Phase – Ausdrucke für die Aufsicht" }) : null),
       h("a", { class: "btn ghost pn-edit", href: "#/lk/s/" + s.id + "/druckliste", "aria-label": "Druckliste von „" + (s.title || s.label) + "“ (" + (gs ? "Grundschule " : "") + s.label + ") in der Sitzung bearbeiten" },
         icon("edit"), "In der Sitzung bearbeiten"));
   };

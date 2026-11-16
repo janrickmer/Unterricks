@@ -11,6 +11,7 @@ const D = installDom({ hash: "#/lk" });
 const B = await import("../../public/bring.js");
 const S = await import("../../public/shared.js");
 const P = await import("../../public/planning.js");
+const SL = await import("../../public/selbstlern.js");
 const G = await import("../../public/gsplanning.js");
 const SF = await import("../../public/sessionfile.js");
 const IO = await import("../../public/sessionio.js");
@@ -96,7 +97,7 @@ test("Prompts beider Schulformen: genau ein Speicherschritt mitbringen; get_less
     assert.equal(p.split(B.bringSaveStep(gs)).length - 1, 1);
     assert.ok(p.includes("`update_lesson` ") && p.includes("`mitbringen`") && p.includes("in höchstens zwei Sätzen, an welcher Stelle der Stunde (Phase) und in welcher Lerngruppe"));
   }
-  for (const p of [G.claudeGsUnitPrompt ? G.claudeGsUnitPrompt({ ...g, unit: { rows: [] } }) : "", P.claudeSubstitutePrompt({ ...s, row: null })]) assert.ok(!p.includes("mitbringen"), "andere Prompts unverändert");
+  for (const p of [G.claudeGsUnitPrompt ? G.claudeGsUnitPrompt({ ...g, unit: { rows: [] } }) : "", SL.claudeSelbstlernPrompt({ ...s, row: null })]) assert.ok(!p.includes("mitbringen"), "andere Prompts unverändert (auch die Selbstlern-Phase – die Lehrkraft ist nicht da)");
   assert.deepEqual(B.bringSection([]).slice(0, 2), ["", "## Mitbringen (Gegenstände, die die Lehrkraft für diese Stunde mitbringen muss)"]);
   assert.ok(B.bringSection([]).join("\n").includes("trage es nach ihrer Freigabe mit update_lesson und mitbringen ein"));
   assert.deepEqual(B.bringSection([{ item: "Bibel", note: "Phase 2." }, { item: "Beutel", note: "" }]).slice(2, 4), ["- Bibel: Phase 2.", "- Beutel (ohne Hinweis)"]);

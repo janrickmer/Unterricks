@@ -148,7 +148,7 @@ export function podcastCard(load = () => tapi("GET", "/api/teacher/podcast")) {
       root.append(h("h3", { class: "pc-sub", text: "Sitzungen dieses Tages" }), h("ol", { class: "pc-sessions" }, all.map((s) => {
         const u = kindOf.get(s.id), kind = u ? u.kind : "substitute";
         const badge = kind === "summary" ? h("span", { class: "badge ok", text: "Zusammenfassung" }) : kind === "fallback" ? h("span", { class: "badge", text: "Ersatz aus der Planung" })
-          : kind === "empty" ? h("span", { class: "badge", text: "noch nicht geplant" }) : h("span", { class: "badge ink", text: "Vertretung – nicht im Podcast" });
+          : kind === "empty" ? h("span", { class: "badge", text: "noch nicht geplant" }) : h("span", { class: "badge ink", text: s.selbstlern ? "Selbstlern-Phase – nicht im Podcast" : "Vertretung – nicht im Podcast" });
         const notes = [s.summaryOutdated && kind === "summary" ? "Die Zusammenfassung beschreibt eine frühere Planung – bei Bedarf in der Sitzung anpassen." : null,
           u && u.carry ? CARRY_NOTE[u.carry] : null, u && u.cut ? "Für den Podcast gekürzt." : null].filter(Boolean);
         return h("li", null, h("a", { href: "#/lk/s/" + s.id, class: "pc-sl" }, s.head, s.title ? h("span", { class: "pc-st", text: " – " + s.title }) : null), " ", badge,
@@ -162,7 +162,7 @@ export function podcastCard(load = () => tapi("GET", "/api/teacher/podcast")) {
       }
       if (empty.length) root.append(h("p", { class: "pc-note", text: "Noch nichts geplant: " + empty.map((u) => when(u.s)).join(", ") + " – der Podcast nennt für " + (empty.length === 1 ? "diese Stunde" : "diese Stunden") + " nur das Thema." }));
       if (!used.length || used.every((u) => u.kind === "empty")) {
-        root.append(h("p", { class: "pc-empty", text: used.length ? "Für diesen Tag ist noch nichts geplant. Der Podcast entsteht aus den Zusammenfassungen der Sitzungen – planen Sie die Stunden zuerst." : "An diesem Tag gilt für alle Sitzungen eine bestätigte Vertretung – es gibt nichts für einen Podcast." }),
+        root.append(h("p", { class: "pc-empty", text: used.length ? "Für diesen Tag ist noch nichts geplant. Der Podcast entsteht aus den Zusammenfassungen der Sitzungen – planen Sie die Stunden zuerst." : (all.every((x) => x.selbstlern) ? "An diesem Tag sind alle Sitzungen Selbstlern-Phasen ohne Sie – es gibt nichts für einen Podcast." : "An diesem Tag gilt für alle Sitzungen eine bestätigte Vertretung – es gibt nichts für einen Podcast.") }),
           h("div", { class: "row pc-foot" }, cancel));
         return head;
       }

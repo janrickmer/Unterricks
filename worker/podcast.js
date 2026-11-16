@@ -16,8 +16,8 @@ const COLS = "id, day, r2_key, mime, size, created_at, delete_after";
 const EXT = { "audio/mp4": "m4a", "audio/wav": "wav", "audio/mpeg": "mp3", "audio/aac": "aac", "audio/ogg": "ogg", "audio/webm": "webm" };
 const GONE = "Diesen Podcast gibt es nicht mehr.";
 
-/* Sitzungen von heute und vom nächsten Schultag (?1, ?2) – ohne Ausfall-Einträge; sub = Stand einer Vertretung ('aktiv' = bestätigt: die Lehrkraft
-   unterrichtet sie nicht); prev = die vorige Sitzung desselben Kurses (wie previousLesson in worker/lessons.js) als JSON {id, date, portal, v} – für den
+/* Sitzungen von heute und vom nächsten Schultag (?1, ?2) – ohne Ausfall-Einträge; sub = Stand einer Vertretung ('aktiv' = bestätigt bzw. 'selbstlern' =
+   Selbstlern-Phase: die Lehrkraft unterrichtet sie nicht); prev = die vorige Sitzung desselben Kurses (wie previousLesson in worker/lessons.js) als JSON {id, date, portal, v} – für den
    offenen Teil nach einem Zwischenstopp (Anforderung 13), in derselben Anweisung */
 export const PODCAST_SESSIONS_SQL = "SELECT id, subject, klass, title, topic, lesson_date, start_time, duration_min, portal, portal_updated_at, teacher_summary, teacher_summary_plan, " +
   "teacher_summary_at, stop_decision, (SELECT status FROM substitutes WHERE lesson_id=lessons.id) AS sub, " +
@@ -105,12 +105,13 @@ export async function routePodcastPlan(c) {
   const [ls, fs] = await c.db.batch([c.db.prepare(PODCAST_SESSIONS_SQL).bind(today, other), c.db.prepare(PODCAST_FILES_SQL).bind(today, other)]);
   const names = Object.fromEntries((fs.results || []).map((f) => [f.id, f.name]));
   const sessions = (ls.results || []).map((l) => {
-    const isGs = l.subject === GS_SUBJECT, course = isGs ? gs.get(l.klass) || null : null, sum = String(l.teacher_summary || "").trim(), sub = l.sub === "aktiv";
+    // Selbstlern-Phase (Nachtrag 29) wie eine bestätigte Vertretung: die Lehrkraft unterrichtet die Sitzung nicht – nicht im Podcast
+    const isGs = l.subject === GS_SUBJECT, course = isGs ? gs.get(l.klass) || null : null, sum = String(l.teacher_summary || "").trim(), sub = l.sub === "aktiv" || l.sub === "selbstlern";
     const one = { subject: l.subject, klass: l.klass, date: l.lesson_date, startTime: l.start_time || null };
     const out = { id: l.id, ...one, title: l.title || "", topic: l.topic || "", durationMin: l.duration_min ?? null, school: isGs ? "gs" : "gym",
       label: isGs ? (course ? course.short : "Grundschule") : subjectShort(l.subject) + " " + classShort(l.klass), head: summaryHead(one, course),
       summary: sub ? "" : sum, summaryOutdated: !sub && summaryOutdated(sum, l.teacher_summary_plan, l.portal), fallback: sub || sum ? "" : planPlain(l.portal, isGs, names),
-      ...(sub ? { substitute: true } : {}) };
+      ...(sub ? { substitute: true } : {}), ...(l.sub === "selbstlern" ? { selbstlern: true } : {}) };
     const carry = sub ? null : carryOf(l, isGs, names);
     return carry ? { ...out, carry } : out;
   }).sort(sessionOrder);

@@ -26,7 +26,7 @@ export const PRINT_FILES_SQL = "SELECT " + PRINT_COLS + " FROM files WHERE lesso
 // erster Tag mit einer (nicht ausgefallenen) Sitzung im Suchfenster und die Sitzungen des Zieltags – beide über den Index lessons_day
 export const FIRST_DAY_SQL = "SELECT MIN(lesson_date) AS d FROM lessons WHERE lesson_date >= ?1 AND lesson_date <= ?2 AND cancelled=0";
 // … samt den Gegenständen, die die Lehrkraft mitbringen muss (Nachtrag 28: roter Kasten „Für den nächsten Arbeitstag einpacken“ – dieselbe Anweisung) und
-// ob eine Krankheitsvertretung aktiv ist (Gymnasium: dann kommt die Lehrkraft nicht und packt nichts ein – Prüfbefund; Suche über den Schlüssel von substitutes)
+// ob eine Krankheitsvertretung bzw. Selbstlern-Phase aktiv ist (Gymnasium: dann kommt die Lehrkraft nicht und packt nichts ein – Prüfbefund; Suche über den Schlüssel von substitutes)
 export const DAY_SESSIONS_SQL = "SELECT id, subject, klass, title, lesson_date, start_time, duration_min, bring, (SELECT status FROM substitutes WHERE lesson_id=lessons.id) AS sub " +
   "FROM lessons WHERE lesson_date=?1 AND cancelled=0";
 
@@ -77,11 +77,14 @@ export async function routePrintNext(c) {
   const byLesson = new Map();
   for (const f of fs.results || []) { if (!byLesson.has(f.lesson_id)) byLesson.set(f.lesson_id, []); byLesson.get(f.lesson_id).push(fileOut(f, false)); }
   const sessions = (ls.results || []).map((l) => {
-    const isGs = l.subject === GS_SUBJECT, course = isGs ? gs.get(l.klass) || null : null, bring = l.sub === "aktiv" ? [] : bringRead(l.bring).items;
+    // Selbstlern-Phase (Nachtrag 29) wie eine aktive Vertretung: die Lehrkraft kommt nicht, packt also nichts ein – ihre Ausdrucke (z. B. analoge Stationen
+    // in Jg. 5/6) bleiben auf der Liste und tragen den Hinweis „Selbstlern-Phase“ (für die Aufsicht)
+    const isGs = l.subject === GS_SUBJECT, course = isGs ? gs.get(l.klass) || null : null, bring = l.sub === "aktiv" || l.sub === "selbstlern" ? [] : bringRead(l.bring).items;
     return { id: l.id, subject: l.subject, klass: l.klass, title: l.title || "", date: l.lesson_date, startTime: l.start_time || null, durationMin: l.duration_min ?? null,
       school: isGs ? "gs" : "gym", label: isGs ? (course ? course.short : "Grundschule") : subjectShort(l.subject) + " " + classShort(l.klass),
       subtitle: isGs ? (course ? course.label : "Grundschule") : subjectName(l.subject) + " · " + classShort(l.klass),
-      ...(course ? { course: { id: course.id, short: course.short, label: course.label } } : {}), files: byLesson.get(l.id) || [], ...(bring.length ? { bring } : {}) };
+      ...(course ? { course: { id: course.id, short: course.short, label: course.label } } : {}), files: byLesson.get(l.id) || [], ...(bring.length ? { bring } : {}),
+      ...(l.sub === "selbstlern" ? { selbstlern: true } : {}) };
   }).sort(sessionOrder);
   return json({ ok: true, today, candidate, date, sessions, ...(skipped.length ? { freeDays: skipped } : {}) });
 }

@@ -130,7 +130,7 @@ export async function buildSessionZip(detail, { fb = T.fb, onStep = () => {}, ho
     data.substitute = { status: sub.status, proposal: sub.proposal || null, confirmedAt: sub.confirmedAt || null };
     if (sub.archive) {
       data.archive = { portal: sub.archive.portal || "", homework: sub.archive.homework || "", sheets: sub.archive.sheets || [], files: archived, at: sub.archive.at || null };
-      notes.push("Diese Sitzung wurde vertreten: Die ursprüngliche Planung (Schulportal-Eintrag, Hausaufgabe, Feibeitsblätter, Material) steht in dieser Datei unter „archive“ in sitzung.json und im Ordner „archiv/“.");
+      notes.push((sub.status === "selbstlern" ? "Diese Sitzung ist eine Selbstlern-Phase" : "Diese Sitzung wurde vertreten") + ": Die ursprüngliche Planung (Schulportal-Eintrag, Hausaufgabe, Feibeitsblätter, Material) steht in dieser Datei unter „archive“ in sitzung.json und im Ordner „archiv/“.");
     }
   }
   entries.unshift({ name: SESSION_FILE.json, data: te.encode(JSON.stringify(data, null, 1)) });

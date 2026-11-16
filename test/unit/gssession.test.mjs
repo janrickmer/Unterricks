@@ -212,7 +212,7 @@ test("Anforderung 12: unterstrichene Aufforderung an die Lehrkraft – Verlaufsp
   assert.ok(S.PORTAL_TEACHER_RULE.includes("„- __Lehrkraft liest den Vorlesetext ~~Die Arche Noah~~ vor.__“") && !S.PORTAL_EXAMPLE.includes("__"));
   const lesson = { lessonId: "0123456789abcdef", subject: "ethik", klass: "7-K", lesson: { title: "Was ist gerecht?", durationMin: 45 }, materials: [], sheets: [], portal: "", unitText: "", messages: [] };
   assert.ok(Pl.claudeLessonPrompt(lesson).includes(S.PORTAL_TEACHER_RULE));
-  assert.ok(Pl.claudeSubstitutePrompt({ ...lesson, klass: "8B" }).includes(S.PORTAL_TEACHER_RULE));
+  assert.ok((await import("../../public/selbstlern.js")).claudeSelbstlernPrompt({ ...lesson, klass: "8B" }).includes(S.PORTAL_TEACHER_RULE));   // Selbstlern-Phase (Nachtrag 29) statt Vertretung
   const c = await ctx(), mcp = await mcpOf(c);
   const tools = (await mcp(null)).tools;
   assert.ok(tools.find((t) => t.name === "save_schulportal_entry").description.includes(S.PORTAL_TEACHER_RULE));

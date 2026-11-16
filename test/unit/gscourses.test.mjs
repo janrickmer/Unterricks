@@ -160,16 +160,13 @@ test("Sitzungslisten: ohne Fach nur das Gymnasium; Kurs bzw. school=gs nur die G
   assert.equal((await call(c, L.routeLessonsList, "GET", "/api/teacher/lessons?subject=powi")).data.lessons.length, 1);
 });
 
-test("Schutz: kein Vertretungsmaterial, kein Schülerzugang und kein Notfall-Feibeitsblatt in der Grundschule", async () => {
+test("Schutz: keine Selbstlern-Phase, kein Schülerzugang und kein Notfall-Feibeitsblatt in der Grundschule", async () => {
   const c = await ctx();
   const k = (await create(c, REL)).data.course;
   await c.db.prepare("INSERT INTO lessons(id, subject, klass, title, code, created_at, updated_at) VALUES('aaaaaaaaaaaaaaaa', 'gs', ?1, 'Josef', 'GSK123', 1, 1)").bind(k.id).run();
-  await assert.rejects(SUB.saveProposal(c.db, "aaaaaaaaaaaaaaaa", { analyse: {}, schritte: [{ titel: "a", anleitung: "b" }], abgabe: "x" }, c.now),
-    (e) => e.status === 400 && e.message === "In der Grundschule gibt es keine Vertretungsstunde – bei Krankheit verschiebt Unterricks die Stunden.");
-  for (const fn of [SUB.routeSubstituteConfirm, SUB.routeSubstitutePreview]) {
-    const r = await call(c, fn, "POST", "/x", {}, "aaaaaaaaaaaaaaaa");
-    assert.equal(r.status, 400); assert.equal(r.data.code, "not_gs");
-  }
+  // Selbstlern-Phase (Nachtrag 29, ersetzt die Vertretung): nie in der Grundschule
+  await assert.rejects(SUB.saveSelbstlern(c, "aaaaaaaaaaaaaaaa", { stationen: [{ titel: "a", typ: "aufgabe", anleitung: "b" }], schulportal: "x" }),
+    (e) => e.status === 400 && e.code === "not_gs" && e.message === SUB.GS_NO_SELBSTLERN);
   // Schüler:in mit dem Code der Grundschul-Sitzung: wie ein unbekannter Code (404, Fehlversuch gezählt)
   await c.db.prepare("INSERT INTO student_devices(id, token_hash, klass, subject, created_at, last_seen, auth_until) VALUES('dev1', ?1, '8A', 'powi', 1, ?2, ?3)").bind(await sha256Hex("stud"), c.now, c.now + 3600e3).run();
   const req = new Request("https://unterricks.test/api/student/join", { method: "POST", headers: { Authorization: "Bearer stud", "Content-Type": "application/json" }, body: JSON.stringify({ code: "GSK123" }) });
@@ -250,7 +247,7 @@ test("Connector: list_gs_courses, Filter kurs/fach gs, get_unit und get_planning
   const gsl = (await c.db.prepare("SELECT id FROM lessons WHERE subject='gs'").first()).id;
   for (const [name, args, msg] of [["save_schulportal_entry", { text: "**1) x**" }, "In der Grundschule gibt es keinen Schulportal-Eintrag – speichere den Verlaufsplan mit save_verlaufsplan."],
     ["propose_feibeitsblatt", { titel: "x", aufgaben: [{ text: "a" }] }, "In der Grundschule gibt es keine Feibeitsblätter."],
-    ["save_substitute_plan", { analyse: { kompetenz: "a", stundenfrage: "b", inhalte: [] }, schritte: [{ titel: "a", anleitung: "b" }], abgabe: "x" }, "In der Grundschule gibt es keine Vertretungsstunde – bei Krankheit verschiebt Unterricks die Stunden; danach überarbeitest du die Einheit."]]) {
+    ["save_selbstlern", { stationen: [{ titel: "a", typ: "aufgabe", anleitung: "b" }], schulportal: "x" }, "In der Grundschule gibt es keine Selbstlern-Phase – bei Krankheit verschiebt Unterricks die Stunden; danach überarbeitest du die Einheit."]]) {
     r = await mcp(name, { lesson_id: gsl, ...args });
     assert.equal(r.isError, true, name); assert.equal(r.content[0].text, msg);
   }

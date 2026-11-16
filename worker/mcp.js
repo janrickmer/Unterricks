@@ -10,7 +10,9 @@ import { getUnit, unitFull, applyPlan, updateRow, updateRows, extendUnit, ROWS_M
 import { loadFreeDays } from "./freedays.js";
 import { planningBasis } from "./bases.js";
 import { gsCourseMap, gsCourseOut, getGsCourse, planningBasisGs } from "./gs.js";
-import { saveProposal, getSubstitute } from "./substitute.js";
+import { getSubstitute, saveSelbstlern, selbstlernReply, selbstlernLines, OLD_TOOL_TEXT, isAbsent, GS_NO_SELBSTLERN } from "./substitute.js";
+import { SELBSTLERN, STATION_TYPES, SELBSTLERN_LIMITS } from "../public/selbstlern.js";
+import { nextTeacherLessonDate } from "./lessons.js";
 import { paramsText, lessonSlots, WEEKDAYS, freeSlots, stopLessonLines, STOP_CHOICES, STOP_CHOICE_TEXT, normalizeParams, schoolOf, FREE_DAY_SCOPES, freeRangeText, schoolBreaks, freeBreakOf } from "../public/planning.js";
 import { insertTextMaterial, insertPrintText, saveDesign, renderDesign, getFile } from "./files.js";
 import { shortImages } from "./render.js";
@@ -31,13 +33,13 @@ const INSTRUCTIONS = "Unterricks ist die Unterrichtsplattform der Lehrkraft (Fä
   "Jede Unterrichtssitzung hat Fach, Klasse, Thema, Dauer, Ideen der Lehrkraft, einen Planungsverlauf (Chat), Materialien, Feibeitsblätter und einen Schulportal-Eintrag. " +
   "Lies vor dem Planen immer zuerst die Sitzung mit get_lesson. Speichere Ergebnisse nur, wenn die Lehrkraft das möchte. " +
   "Legst du Unterrichtsinhalte einer Sitzung ab (nach Freigabe der Lehrkraft, auch wenn sie nur einen Teil freigibt), schreibe zum Schluss immer auch die „" + TEACHER_SUMMARY_TITLE + "“ mit update_lesson (zusammenfassung_lehrkraft) – " +
-  "ohne eigene Rückfrage und auch, wenn du die Planung später überarbeitest (z. B. nach einem Zwischenstopp); das gilt am Gymnasium und in der Grundschule, nicht für einen Vertretungsvorschlag. " +
+  "ohne eigene Rückfrage und auch, wenn du die Planung später überarbeitest (z. B. nach einem Zwischenstopp); das gilt am Gymnasium und in der Grundschule, nicht für eine Selbstlern-Phase. " +
   "Arbeitsblätter und alle anderen Materialien als Datei (für Schüler:innen, nur für die Lehrkraft oder zum Ausdrucken) gestaltest du selbst als HTML-Seite und legst sie mit add_material_pdf ab – Unterricks druckt sie unverändert als A4-PDF; add_text_material und add_print_material (Markdown) nur als Rückfall, wenn der PDF-Druck nicht funktioniert. " +
-  "Ist die Lehrkraft krank, legst du mit save_substitute_plan einen Vertretungsvorschlag ab (mit Abgabe: Feibeitsblatt oder ein Escape-Room nach der Vorlage der Plattform mit Feibeitsblatt-Finale); die Lehrkraft prüft und bestätigt ihn in der Plattform. " +
+  "Kann die Lehrkraft nicht da sein, baust du die Sitzung erst nach ihrer ausdrücklichen Zustimmung mit save_selbstlern in eine Selbstlern-Phase um (Ablauf im Prompt der Plattform). " +
   "Eine Zeile „⏸ Zwischenstopp“ im Schulportal-Eintrag ist eine interne Markierung der Lehrkraft: Bis dorthin wurde die Stunde geschafft, ab dort ist der Inhalt offen (sie wird beim Kopieren ins Schulportal entfernt). " +
   "Der Schulportal-Eintrag verwendet die Schulportal-Zeichen (" + PORTAL_RULES.join("; ") + ") und folgt dieser Vorlage:\n" + PORTAL_EXAMPLE + "\n" + PORTAL_TEACHER_RULE + "\n\n" +
   "Grundschule: Die Lehrkraft unterrichtet außerdem an einer Grundschule in Hessen. Dort gibt es Kurse (Kennung gs…, Liste mit list_gs_courses) der Jahrgänge 1–4 mit einer bis drei Klassen (a–c), Fach meist Religion, sonst ein frei benanntes Fach mit optionaler Beschreibung des Kursziels; ihre Einheiten und Sitzungen haben das Fach „gs“. " +
-  "Die Kinder arbeiten nicht digital: nur ausdruckbares, analoges Material. Grundschul-Sitzungen haben keinen Schulportal-Eintrag, keine Präsentation, keine Feibeitsblätter, keinen Sitzungscode und keine Vertretungsstunde. " +
+  "Die Kinder arbeiten nicht digital: nur ausdruckbares, analoges Material. Grundschul-Sitzungen haben keinen Schulportal-Eintrag, keine Präsentation, keine Feibeitsblätter, keinen Sitzungscode und keine Selbstlern-Phase. " +
   "Stattdessen speicherst du mit save_verlaufsplan den Verlaufsplan (Phasen mit Minuten und Sozialform); jede PDF-Datei steht genau an der Stelle, an der sie benutzt wird, als [[pdf:<file_id>]] – lege das Material vorher an (add_material_pdf, Bildkarten mit add_picture_cards und einem gekürzten Erzähltext je Karte). " +
   "Muss die Lehrkraft dabei auf Material zurückgreifen, das nur sie hat (z. B. ein Vorlesetext), steht diese Aufforderung als eigener, unterstrichener Stichpunkt in der Phase: „- __Lehrkraft liest [[pdf:<file_id>|Vorlesetext – Die Arche Noah]] vor.__“. " +
   "Material der Grundschule legst du immer mit add_material_pdf ab (ist der Drucker ausgelastet, druckt Unterricks es später nach); add_text_material gibt es dort nicht, Rückfall nur für Druckvorlagen ist add_print_material. " +
@@ -92,7 +94,7 @@ const TOOLS = [
     description: "Ändert Titel, Thema, Dauer, Datum, Beginn (Uhrzeit), das Notizfeld „Ideen und Wünsche“ oder die Hausaufgabe (bis zur nächsten Sitzung; Schüler:innen sehen sie ab 15 Minuten vor dem Ende der Sitzung) einer Sitzung (nur übergebene Felder). Ein Datum an einem unterrichtsfreien Tag der Schule (Einstellungen der Lehrkraft) lehnt die Plattform ab. " +
       "Mit zwischenstopp hältst du die Entscheidung der Lehrkraft zum offenen Teil der vorigen Sitzung fest (get_lesson, Abschnitt „Vorige Stunde nicht vollständig beendet“). " +
       "Mit zusammenfassung_lehrkraft speicherst du die „" + TEACHER_SUMMARY_TITLE + "“ (Gymnasium und Grundschule; Unterricks zeigt sie ganz oben in der Sitzung, nur der Lehrkraft) – " +
-      "immer, wenn du Unterrichtsinhalte der Sitzung ablegst, als letzten Speicherschritt (auch wenn die Lehrkraft nur einen Teil freigibt, ohne eigene Rückfrage), und erneut, wenn du die Planung später überarbeitest – nicht für einen Vertretungsvorschlag. " +
+      "immer, wenn du Unterrichtsinhalte der Sitzung ablegst, als letzten Speicherschritt (auch wenn die Lehrkraft nur einen Teil freigibt, ohne eigene Rückfrage), und erneut, wenn du die Planung später überarbeitest – nicht für eine Selbstlern-Phase. " +
       "Mit mitbringen hältst du fest, welche Gegenstände die Lehrkraft für die Stunde mitbringen muss (Gymnasium und Grundschule; Unterricks zeigt sie ihr am Vortag auf der Startseite).",
     inputSchema: { type: "object", properties: { lesson_id: ID_ARG, titel: { type: "string", maxLength: 200 }, thema: { type: "string", maxLength: 500 },
       dauer_minuten: { type: "integer", minimum: 5, maximum: 600 }, datum: { type: "string", pattern: "^\\d{4}-\\d{2}-\\d{2}$" },
@@ -137,7 +139,8 @@ const TOOLS = [
     inputSchema: { type: "object", properties: { lesson_id: ID_ARG, bereich: { type: "string", enum: ["schueler", "lehrkraft", "druck"], description: "bei file_id nur angeben, wenn er sich ändert (schueler ↔ lehrkraft)" },
       titel: { type: "string", maxLength: 160, description: "Dateiname ohne Endung, z. B. „Arbeitsblatt – Gewaltenteilung“" }, html: { type: "string", maxLength: 1600000, description: "vollständige HTML-Seite mit <style>" },
       anzahl: { type: "integer", minimum: 1, maximum: 500, description: "nur bei bereich druck (Grundschule: auch bei schueler)" }, beidseitig: { type: "boolean", description: "nur bei bereich druck (Grundschule: auch bei schueler)" }, farbe: { type: "boolean", description: "nur bei bereich druck (Grundschule: auch bei schueler)" },
-      file_id: { type: "string", pattern: "^[a-f0-9]{16}$", description: "Gestaltung eines vorhandenen Materials ersetzen" } },
+      file_id: { type: "string", pattern: "^[a-f0-9]{16}$", description: "Gestaltung eines vorhandenen Materials ersetzen" },
+      selbstlern: { type: "boolean", description: "nur Gymnasium: Material einer Selbstlern-Phase (save_selbstlern) – die Schüler:innen sehen es erst nach dem Umstellen, „Wiederherstellen“ löscht es" } },
       required: ["lesson_id", "titel", "html"], additionalProperties: false } },
   { name: "add_picture_cards", title: "Bildkarten gestalten (Grundschule)", annotations: wr,
     description: "Nur für Sitzungen der Grundschule: Legt Bildkarten zu einer Geschichte (z. B. einer biblischen Geschichte) als PDF ab – eine Seite = eine Karte. Du gestaltest sie als HTML-Seite; " +
@@ -228,39 +231,50 @@ const TOOLS = [
         stundenfrage: { type: "string", maxLength: 400 }, ablauf: { type: "array", items: { type: "string", maxLength: 400 }, maxItems: 15 }, schritt: { type: "integer", minimum: 0, maximum: 14, description: "Nummer des Lernschritts ab 0" } },
         required: ["stundenfrage", "ablauf"], additionalProperties: false } },
       begruendung: { type: "string", maxLength: 1000 } }, required: ["unit_id", "base_version", "termine"], additionalProperties: false } },
-  { name: "save_substitute_plan", title: "Vertretungsstunde (Lehrkraft krank) vorschlagen", annotations: wr,
-    description: "Legt für eine Sitzung, die wegen Krankheit der Lehrkraft ohne sie stattfindet, einen Vertretungsvorschlag ab. Die Lehrkraft prüft ihn in der Plattform; erst nach ihrer Bestätigung wird das Material ausgetauscht und den Schüler:innen der Vertretungshinweis gezeigt. " +
-      "Pflicht: Analyse (Kompetenz, Stundenfrage, Inhalte), chronologische Schritte für die Schüler:innen, Abgabe. Ab Jahrgang 7 ist eine Abgabe in der Plattform Pflicht: ein Feibeitsblatt (bei Lernprodukten mit einer Aufgabe der Antwortart \"foto\" für das Foto des Produkts) oder ein Escape-Room (escape_room) mit Feibeitsblatt-Finale; in den Jahrgängen 5/6 nur analoge Materialien. Die Plattform prüft einen Escape-Room streng und meldet fehlende oder widersprüchliche Angaben mit genauer Stelle zurück. " +
+  { name: "save_selbstlern", title: "Sitzung in eine Selbstlern-Phase umbauen", annotations: { ...wr, destructiveHint: true },
+    description: "Nur Gymnasium und erst nach der ausdrücklichen Zustimmung der Lehrkraft im Chat: stellt eine Sitzung, zu der die Lehrkraft nicht da sein kann, in einem Schritt auf eine Selbstlern-Phase um, die ohne Lehrkraft funktioniert. " +
+      "Unterricks archiviert dabei die ursprüngliche Planung (Schulportal-Eintrag, Hausaufgabe, Material und Feibeitsblätter, auf die keine Station verweist) – für die Schüler:innen unsichtbar; die Lehrkraft holt sie in der Sitzung mit „Wiederherstellen“ zurück. Löschen kann der Connector nichts: " +
+      "Muss etwas von Hand gelöscht werden, nennst du der Lehrkraft vorher genau die Dateien (Titel und Bereich) und wartest auf ihre Bestätigung. " +
+      "Die Schüler:innen sehen oben eine Erklärung (einleitung ergänzt sie), darunter die stationen in dieser Reihenfolge und von Anfang an die hausaufgabe: alle Stationen bis zum Beginn der nächsten Sitzung mit der Lehrkraft (get_lesson nennt den Termin; ohne hausaufgabe setzt Unterricks diesen Satz selbst). " +
+      "Lege Material vorher mit add_material_pdf und selbstlern: true an (die Schüler:innen sehen es erst nach dem Umstellen), Feibeitsblatt-Entwürfe mit propose_feibeitsblatt. Den Erklär-Chatbot baut Unterricks aus erklaeren, kernpunkte und fehlvorstellungen – schreib keinen Prompt für ihn. " +
+      "Jahrgang 5/6: nur analoge Stationen (material auf der Druckliste, aufgabe), Laufzettel und Lösungskontrolle in material. Erneut aufgerufen ersetzt es die Selbstlern-Phase (das Archiv bleibt). " +
       "Die „" + TEACHER_SUMMARY_TITLE + "“ (zusammenfassung_lehrkraft) änderst du dabei nicht – sie beschreibt die ursprüngliche Planung.",
     inputSchema: { type: "object", properties: { lesson_id: ID_ARG,
-      analyse: { type: "object", properties: { kompetenz: { type: "string" }, stundenfrage: { type: "string" }, inhalte: { type: "array", items: { type: "string" } } }, required: ["kompetenz", "stundenfrage", "inhalte"] },
-      format: { type: "string", description: "z. B. Feibeitsblatt, Lernprodukt, Escape-Room, analog" }, bearbeitungszeit: { type: "integer", description: "Minuten (ca. 80 % der Stunde)" },
-      hinweis_schueler: { type: "string", maxLength: 1000, description: "Hinweis für die Schüler:innen, dass die Lehrkraft nicht da ist" },
-      schritte: { type: "array", minItems: 1, maxItems: 20, items: { type: "object", properties: { titel: { type: "string" }, anleitung: { type: "string" }, minuten: { type: "integer" }, abgabe: { type: "boolean" } }, required: ["titel", "anleitung"] } },
-      abgabe: { type: "string", description: "Was wird wie abgegeben?" }, schulportal: { type: "string", description: "Schulportal-Eintrag der Vertretungsstunde (Schulportal-Zeichen)" },
-      materialien: { type: "array", maxItems: 12, description: "Materialien der Vertretung: gestaltet als HTML-Seite (html, Gestaltungsregeln wie bei add_material_pdf – Unterricks druckt sie nach der Bestätigung als PDF; zusammen höchstens 1,5 MB) oder nur als Rückfall in Markdown (markdown)",
-        items: { type: "object", properties: { titel: { type: "string" }, bereich: { type: "string", enum: ["schueler", "lehrkraft", "druck"], description: "druck = Liste „Von der Lehrkraft auszudrucken“ (nur mit html)" },
-          html: { type: "string", description: "vollständige HTML-Seite mit <style>" }, markdown: { type: "string", description: "Rückfall ohne eigene Gestaltung" },
-          anzahl: { type: "integer", minimum: 1, maximum: 500 }, beidseitig: { type: "boolean" }, farbe: { type: "boolean" } }, required: ["titel", "bereich"] } },
-      feibeitsblatt: { type: "object", properties: { titel: { type: "string" }, aufgaben: { type: "array", items: { type: "object", properties: { text: { type: "string", description: "Aufgabenstellung. " + FB_LINK_HINT + "." },
-        material: { type: "string", description: "optionaler Materialtext (**fett** möglich). " + FB_LINK_HINT + "." }, ki_auftrag: { type: "string" },
-        antwort: { description: "\"text\", \"foto\" (Foto z. B. eines Lernprodukts; nie an die KI, ohne ki_auftrag; höchstens 3 je Blatt) oder Tabelle {tabelle: [...], zeilen}" } }, required: ["text"] } } }, required: ["titel", "aufgaben"] },
-      escape_room: ESCAPE_ROOM,
-      hinweise_vertretung: { type: "string", description: "kurze Hinweise für die Vertretungslehrkraft" } },
-      required: ["lesson_id", "analyse", "schritte", "abgabe"], additionalProperties: false } },
+      einleitung: { type: "string", maxLength: SELBSTLERN_LIMITS.intro, description: "optional: ein eigener Satz unter der Erklärung von Unterricks (z. B. zum Ziel der Stunde)" },
+      stationen: { type: "array", minItems: 1, maxItems: SELBSTLERN_LIMITS.stations, description: "die Stationen in der Reihenfolge der Bearbeitung", items: { type: "object", properties: {
+        titel: { type: "string", maxLength: SELBSTLERN_LIMITS.title },
+        typ: { type: "string", enum: Object.keys(STATION_TYPES), description: "praesentation (selbst durchklickbare, erklärende Präsentation als PDF: file_id), feibeitsblatt (entwurf_id oder feibeitsblatt_code), " +
+          "erklaer_chatbot (die Schüler:innen erklären dem Chatbot, was sie erarbeitet haben; er fragt kritisch nach: erklaeren, kernpunkte, fehlvorstellungen), video (video_url), escape_room (escape_room, höchstens einer), " +
+          "material (Arbeitsblatt, Text: file_id), aufgabe (Arbeitsauftrag ohne Material). Jg. 5/6 nur material und aufgabe." },
+        anleitung: { type: "string", maxLength: SELBSTLERN_LIMITS.instruction, description: "Arbeitsauftrag für die Schüler:innen in der Du-Form: was genau zu tun ist, wo das Material liegt, woran sie merken, dass sie fertig sind" },
+        minuten: { type: "integer", minimum: 1, maximum: SELBSTLERN_LIMITS.minutes, description: "ungefähre Bearbeitungszeit" },
+        file_id: { type: "string", pattern: "^[a-f0-9]{16}$", description: "praesentation, material: Datei dieser Sitzung (add_material_pdf mit selbstlern: true oder vorhandenes Material aus get_lesson)" },
+        entwurf_id: { type: "string", pattern: "^[a-f0-9]{16}$", description: "feibeitsblatt: Entwurf aus propose_feibeitsblatt (die Lehrkraft legt das Blatt in Unterricks an)" },
+        feibeitsblatt_code: { type: "string", maxLength: 9, description: "feibeitsblatt: Code eines schon angelegten Blattes, z. B. AEH-4VY – nie erfinden" },
+        video_url: { type: "string", maxLength: 2000, description: "video: Link zu einem YouTube-Video (youtube.com, youtu.be), das die Lehrkraft kennt und freigibt – nie erfinden; gespeichert werden nur Kennung und Startzeit" },
+        erklaeren: { type: "string", maxLength: SELBSTLERN_LIMITS.explain, description: "erklaer_chatbot: was die Schüler:innen dem Chatbot erklären (Du-Form, das sehen sie)" },
+        kernpunkte: { type: "array", maxItems: SELBSTLERN_LIMITS.points, items: { type: "string", maxLength: SELBSTLERN_LIMITS.point }, description: "erklaer_chatbot: Kernpunkte einer guten Erklärung (nur für den Chatbot, er verrät sie nicht)" },
+        fehlvorstellungen: { type: "array", maxItems: SELBSTLERN_LIMITS.misconceptions, items: { type: "string", maxLength: SELBSTLERN_LIMITS.point }, description: "erklaer_chatbot: typische Fehlvorstellungen, nach denen er fragt (nur für den Chatbot)" },
+        escape_room: ESCAPE_ROOM }, required: ["titel", "typ", "anleitung"], additionalProperties: false } },
+      schulportal: { type: "string", maxLength: SELBSTLERN_LIMITS.portal, description: "neuer Schulportal-Eintrag der Selbstlern-Phase (Schulportal-Zeichen; die Schüler:innen öffnen die Sitzung mit ihrem Code) – Pflicht beim ersten Umstellen, danach nur, wenn er sich ändert" },
+      hausaufgabe: { type: "string", maxLength: SELBSTLERN_LIMITS.homework, description: "Hausaufgabe: alle Stationen bis zum Beginn der nächsten Sitzung mit der Lehrkraft (Schulportal-Zeichen erlaubt); leer = der Satz von Unterricks mit diesem Termin" },
+      material: { type: "array", maxItems: SELBSTLERN_LIMITS.material, items: { type: "string", pattern: "^[a-f0-9]{16}$" }, description: "file_id weiterer Dateien der Selbstlern-Phase ohne eigene Station (z. B. Laufzettel, Lösungen) – sie bleiben sichtbar" },
+      hinweis_aufsicht: { type: "string", maxLength: SELBSTLERN_LIMITS.note, description: "kurz, was die Aufsicht tun soll (z. B. austeilen, Lösungsblatt auslegen) – nur für die Lehrkraft" } },
+      required: ["lesson_id", "stationen"], additionalProperties: false } },
 ];
 
 const toolText = (text, structured) => ({ content: [{ type: "text", text }], ...(structured ? { structuredContent: structured } : {}) });
 const toolError = (text) => ({ content: [{ type: "text", text }], isError: true });
 
 /* Abschnitt „Zusammenfassung der Sitzung für die Lehrkraft“ von get_lesson (Nachtrag 21): Kopfzeile wie in der Sitzung (aus den aktuellen Daten), Text,
-   Stand und – wurde die Planung danach geändert bzw. gilt eine Vertretung – ein Hinweis. course = Grundschulkurs (gsCourseOut) oder null */
-function summarySection(l, course, { substitute = false } = {}) {
+   Stand und – wurde die Planung danach geändert bzw. gilt eine Selbstlern-Phase oder ältere Vertretung – ein Hinweis. course = Grundschulkurs (gsCourseOut) oder null */
+function summarySection(l, course, { substitute = false, selbstlern = false } = {}) {
   const gs = l.subject === GS_SUBJECT, t = String(l.teacher_summary || "").trim();
   const out = ["", "## " + TEACHER_SUMMARY_TITLE, "Kopfzeile (setzt Unterricks automatisch aus den aktuellen Sitzungsdaten): " + summaryHead({ subject: l.subject, klass: l.klass, date: l.lesson_date, startTime: l.start_time }, course)];
   if (!t) return [...out, "(noch leer – schreibe sie mit update_lesson und zusammenfassung_lehrkraft, sobald du Unterrichtsinhalte dieser Sitzung ablegst)"];
   out.push(t, "(Stand: " + (l.teacher_summary_at ? fmtStampBerlin(l.teacher_summary_at) : "unbekannt") + ")");
-  if (substitute) out.push("Für diese Sitzung gilt die bestätigte Vertretungsstunde – die Zusammenfassung beschreibt die ursprüngliche Planung.");
+  if (selbstlern) out.push("Für diese Sitzung gilt die Selbstlern-Phase – die Zusammenfassung beschreibt die ursprüngliche Planung.");
+  else if (substitute) out.push("Für diese Sitzung gilt die bestätigte Vertretungsstunde – die Zusammenfassung beschreibt die ursprüngliche Planung.");
   else if (summaryOutdated(t, l.teacher_summary_plan, l.portal)) out.push("Achtung: Der " + (gs ? "Verlaufsplan" : "Schulportal-Eintrag") + " wurde danach geändert – passe die Zusammenfassung mit update_lesson (zusammenfassung_lehrkraft) an, wenn du die Planung überarbeitest.");
   return out;
 }
@@ -275,7 +289,7 @@ async function lessonDump(db, l, now = Date.now()) {
     "Sitzungscode für Schüler:innen: " + formatCode(l.code),
     "", "## Schulportal-Eintrag (Version " + l.portal_version + (l.portal_source ? ", zuletzt von " + l.portal_source : "") + ")", l.portal || "(noch leer)",
     ...(ps ? stopLessonLines(ps, { gs: false, unitId: ctx.unit ? ctx.unit.id : null, unit: ctx.unit, now }) : []),
-    ...summarySection(l, null, { substitute: !!sub && sub.status === "aktiv" }),
+    ...summarySection(l, null, { substitute: !!sub && sub.status === "aktiv", selbstlern: !!sub && sub.status === SELBSTLERN }),
     ...bringSection(bringRead(l.bring).items),
     "", "## Planungsverlauf", chatTranscript(msgs, 60000) || "(leer)",
   ];
@@ -289,7 +303,13 @@ async function lessonDump(db, l, now = Date.now()) {
   const pn = await db.prepare("SELECT pages, CASE WHEN json_valid(notes) THEN json_array_length(notes, '$.slides') ELSE 0 END AS n FROM files WHERE lesson_id=?1 AND area='presentation' AND status='ready' LIMIT 1").bind(l.id).first();
   if (pn && pn.n > 0) parts.push("", "## Notizen der Lehrkraft zur Präsentation", "Zu " + pn.n + " von " + pn.pages + " Folien gibt es Notizen (nur für die Lehrkraft: in ihrer Präsentationsansicht und in der „Präsentation mit Anmerkungen“ unter „Material nur für die Lehrkraft“). " +
     "Neue Notizen gehören als Dateianhang " + NOTES_FILE + " in eine neue PDF der Präsentation.");
-  if (sub) parts.push("", "## Krankheitsvertretung", "Status: " + sub.status + (sub.status === "aktiv" ? " (die ursprüngliche Planung ist archiviert)" : " (Vorschlag liegt der Lehrkraft vor)"));
+  // Selbstlern-Phase (Nachtrag 29): Stationen, Hausaufgabe, Archiv – bzw. eine ältere Vertretung; dazu alle übrigen Dateien mit file_id (Stationen, Hinweis zum Löschen)
+  parts.push(...(await otherFilesSection(db, l.id)));
+  if (sub) {
+    const [fr, dr] = sub.status === SELBSTLERN ? await db.batch([db.prepare("SELECT id, name, area, kind, status FROM files WHERE lesson_id=?1 ORDER BY created_at").bind(l.id),
+      db.prepare("SELECT id, status, sheet_code FROM fb_drafts WHERE lesson_id=?1").bind(l.id)]) : [{ results: [] }, { results: [] }];
+    parts.push(...selbstlernLines(sub, fr.results || [], dr.results || [], [], sub.status === SELBSTLERN ? await nextTeacherLessonDate(db, l) : null));
+  }
   if (l.unit_id) parts.push("", "Unterrichtseinheit: " + l.unit_id + " (Details mit get_unit; Planungsgrundlagen mit get_planning_basis)");
   // unterrichtsfreie Tage (Nachtrag 24): verschoben, ohne Termin bzw. trotzdem an einem solchen Tag – ohne all das bleibt get_lesson wie bisher
   const rv = ctx.unit && ctx.unit.revise, moved = rv ? rv.items.filter((x) => x.kind === "free") : [];
@@ -304,14 +324,24 @@ async function lessonDump(db, l, now = Date.now()) {
 /* Abschnitt „Gestaltete Materialien“ von get_lesson (Gymnasium und Grundschule; areaText = Bezeichnung des Bereichs) */
 async function designedSection(db, lessonId, areaText) {
   // Bildkarten (Grundschule) stehen in einem eigenen Abschnitt (ändern mit add_picture_cards)
-  const des = await db.prepare("SELECT id, area, name, status, pages, html_at, pdf_at, render_error FROM files WHERE lesson_id=?1 AND html IS NOT NULL AND area<>'archive' AND cards IS NULL ORDER BY created_at").bind(lessonId).all();
+  const des = await db.prepare("SELECT id, area, name, status, pages, html_at, pdf_at, render_error, source FROM files WHERE lesson_id=?1 AND html IS NOT NULL AND area<>'archive' AND cards IS NULL ORDER BY created_at").bind(lessonId).all();
   if (!(des.results || []).length) return [];
   const out = ["", "## Gestaltete Materialien (HTML → PDF; lesen mit get_material, ändern mit add_material_pdf und file_id)"];
   for (const f of des.results) {
     const state = f.render_error && (!f.pdf_at || f.html_at > f.pdf_at) ? "Druck fehlgeschlagen: " + f.render_error : f.status !== "ready" ? "wartet auf den Druck" : f.html_at > f.pdf_at ? "gedruckt, neue Gestaltung wartet auf den Druck" : "gedruckt" + (f.pages ? ", " + f.pages + (f.pages === 1 ? " Seite" : " Seiten") : "");
-    out.push("- file_id " + f.id + ": „" + f.name + "“ (" + areaText(f.area) + "; " + state + ")");
+    out.push("- file_id " + f.id + ": „" + f.name + "“ (" + areaText(f.area) + "; " + state + (f.source === SELBSTLERN ? "; Material der Selbstlern-Phase" : "") + ")");
   }
   return out;
+}
+/* get_lesson (Gymnasium): die übrigen Dateien der Sitzung mit file_id – hochgeladen, Text, Link, Notfall-Feibeitsblatt, Präsentation (Selbstlern-Phase,
+   Nachtrag 29: Claude verweist in Stationen darauf bzw. nennt der Lehrkraft genau, was sie von Hand löschen soll); ohne solche Dateien kein Abschnitt */
+async function otherFilesSection(db, lessonId) {
+  const r = await db.prepare("SELECT id, area, kind, name, source FROM files WHERE lesson_id=?1 AND html IS NULL AND cards IS NULL AND notes_of IS NULL AND area IN ('student','teacher','print','presentation') ORDER BY created_at").bind(lessonId).all();
+  const list = r.results || [];
+  if (!list.length) return [];
+  const area = { student: "für Schüler:innen", teacher: "nur Lehrkraft", print: "Druckliste", presentation: "Präsentation der Sitzung" };
+  const kind = (f) => (f.source === "notfall" ? "Notfall-Feibeitsblatt" : f.kind === "text" ? "Text" : f.kind === "link" ? "Link" : "Datei");
+  return ["", "## Weitere Dateien der Sitzung (file_id)", ...list.map((f) => "- file_id " + f.id + ": „" + f.name + "“ (" + area[f.area] + "; " + kind(f) + ")")];
 }
 
 /* get_lesson einer Grundschul-Sitzung: Kurs statt Klasse, Verlaufsplan statt Schulportal-Eintrag, Inhalt und Hinweis für die Eltern, die PDF-Dateien
@@ -518,11 +548,11 @@ async function summaryNote(c, l) {
 }
 /* Erinnerung in der Antwort von save_schulportal_entry und save_verlaufsplan (Nachtrag 21): Fehlt die Zusammenfassung oder beschreibt sie eine frühere
    Planung, sagt die Antwort es genau in dem Moment, in dem Claude die freigegebene Planung ablegt – stimmt sie (gleicher Fingerabdruck), bleibt die
-   Antwort wie bisher. Nicht während einer bestätigten Vertretung (die Zusammenfassung beschreibt dann die ursprüngliche Planung). */
+   Antwort wie bisher. Nicht während einer Selbstlern-Phase bzw. bestätigten Vertretung (die Zusammenfassung beschreibt dann die ursprüngliche Planung). */
 async function summaryReminder(db, l, planText) {
   const t = String(l.teacher_summary || "").trim();
   if (t && !summaryOutdated(t, l.teacher_summary_plan, planText)) return "";
-  if (l.subject !== GS_SUBJECT) { const s = await getSubstitute(db, l.id); if (s && s.status === "aktiv") return ""; }
+  if (l.subject !== GS_SUBJECT) { const s = await getSubstitute(db, l.id); if (s && isAbsent(s.status)) return ""; }
   return t ? " Die „" + TEACHER_SUMMARY_TITLE + "“ beschreibt noch die vorige Planung – passe sie zum Schluss mit update_lesson (zusammenfassung_lehrkraft) an."
     : " Schreibe zum Schluss auch die „" + TEACHER_SUMMARY_TITLE + "“ mit update_lesson (zusammenfassung_lehrkraft) – sie fehlt in dieser Sitzung noch.";
 }
@@ -679,12 +709,16 @@ async function callTool(c, name, a) {
       t.push("Die Lehrkraft sieht die Änderung sofort in der Einheit. Für update_unit_row gilt jetzt base_version " + r.version + ".");
       return toolText(t.join(" "), { version: r.version, end: r.end, rows: r.rows, free: r.free });
     }
-    case "save_substitute_plan": {
-      if ((await getLesson(c.db, a.lesson_id)).subject === GS_SUBJECT) return toolError("In der Grundschule gibt es keine Vertretungsstunde – bei Krankheit verschiebt Unterricks die Stunden; danach überarbeitest du die Einheit.");
-      const p = await saveProposal(c.db, a.lesson_id, a, c.now);
-      return toolText("Vertretungsvorschlag gespeichert (" + p.schritte.length + " Schritte" + (p.escape_room ? ", Escape-Room „" + p.escape_room.name + "“ mit Lösungswort " + p.escape_room.wort + " und Feibeitsblatt-Finale" : p.draftId ? ", Feibeitsblatt-Entwurf" : "") +
-        "). Die Lehrkraft prüft und bestätigt ihn in der Plattform" + (p.escape_room ? " (mit Vorschau des Escape-Rooms)." : "."));
+    case "save_selbstlern": {
+      // Selbstlern-Phase (Nachtrag 29): erst nach der ausdrücklichen Zustimmung der Lehrkraft im Chat (Prompt der Plattform); Fehler als genaue Liste
+      if ((await getLesson(c.db, a.lesson_id)).subject === GS_SUBJECT) return toolError(GS_NO_SELBSTLERN);
+      let r;
+      try { r = await saveSelbstlern(c, a.lesson_id, a); }
+      catch (e) { if (e instanceof HttpError && e.status < 500) return toolError(e.message); throw e; }
+      return toolText(selbstlernReply(r), { lesson_id: a.lesson_id, stationen: r.stored.stationen.length, archiviert: r.toArchive.length, erstes_umstellen: r.first, hausaufgabe_bis: r.homeworkDate || null });
     }
+    // ältere Chats: die Krankheitsvertretung gibt es nicht mehr (Werkzeug entfernt) – klare Meldung statt „unbekanntes Werkzeug“
+    case "save_substitute_plan": return toolError(OLD_TOOL_TEXT);
     case "update_lesson": {
       // Ausfall-Eintrag (Grundschule): dort ändert nur die Lehrkraft ihren Hinweis für die Eltern – den kann der Connector nicht setzen (F22)
       const l0 = await getLesson(c.db, a.lesson_id);
@@ -778,7 +812,8 @@ async function callTool(c, name, a) {
           if (asked) concNote = " (Die " + CONC_TITLE + " legt Unterricks immer so auf die Druckliste: " + CONC_PRINT.copies + "x, beidseitig, schwarz-weiß – die Lehrkraft kann das in der Sitzung ändern.)";
         }
       }
-      const f = await saveDesign(c, a.lesson_id, { area, title, html: a.html, print, source: "claude", fileId: a.file_id || null, gsPrint: gs });
+      // Material einer Selbstlern-Phase (Nachtrag 29, nur Gymnasium): Schüler:innen sehen es erst nach dem Umstellen, „Wiederherstellen“ löscht es (beim Überarbeiten bleibt die Herkunft)
+      const f = await saveDesign(c, a.lesson_id, { area, title, html: a.html, print, source: a.selbstlern === true && !gs ? SELBSTLERN : "claude", fileId: a.file_id || null, gsPrint: gs });
       const pName = () => printFileName({ name: f.name, copies: f.print_copies, duplex: f.print_duplex !== 0, color: f.print_color === 1 });
       const where = gs && f.area === "student" ? "für die Kinder (Eltern sehen es nach der Stunde)" + (f.print_copies != null ? " und in der Liste „Von der Lehrkraft auszudrucken“ als „" + pName() + "“" : "")
         : f.area === "student" ? "für die Schüler:innen" : f.area === "teacher" ? "nur für die Lehrkraft" : "in der Liste „Von der Lehrkraft auszudrucken“ als „" + pName() + "“" + (conc ? " – nie für Eltern oder Kinder" : "");
@@ -945,7 +980,8 @@ async function handleRpc(c, msg) {
     case "ping": return done({});
     case "tools/list": return done({ tools: TOOLS, ...(modern ? { ttlMs: 600000, cacheScope: "private" } : {}) });
     case "tools/call": {
-      if (!TOOLS.some((t) => t.name === params.name)) return rpcError(msg.id, -32602, "Unbekanntes Werkzeug: " + String(params.name).slice(0, 60));
+      // entfernte Werkzeuge (ältere Chats): eine verständliche Meldung statt „unbekannt“ – save_substitute_plan seit der Selbstlern-Phase (Nachtrag 29)
+      if (!TOOLS.some((t) => t.name === params.name) && params.name !== "save_substitute_plan") return rpcError(msg.id, -32602, "Unbekanntes Werkzeug: " + String(params.name).slice(0, 60));
       try { return done(await callTool(c, params.name, params.arguments)); }
       catch (e) { return done(toolError(e instanceof HttpError || e instanceof Error ? e.message : "Fehler")); }
     }

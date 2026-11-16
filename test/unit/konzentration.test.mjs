@@ -16,6 +16,7 @@ const { sha256Hex } = await import("../../worker/lib.js");
 const { setSetting } = await import("../../worker/db.js");
 const S = await import("../../public/shared.js");
 const P = await import("../../public/planning.js");
+const SL = await import("../../public/selbstlern.js");
 const G = await import("../../public/gsplanning.js");
 const FX = await import("./stop-fixtures.mjs");
 
@@ -68,13 +69,13 @@ test("Prompt „Stunde mit Claude planen“ (Grundschule): eigener Abschnitt mit
   assert.equal(ps.split("## Konzentrationsaufgabe").length - 1, 1); assert.equal(ps.split("Die Konzentrationsaufgabe speicherst du").length - 1, 1);
 });
 
-test("Überarbeitung der Einheit (Grundschule): Schritt 5 nennt die Konzentrationsaufgabe; Gymnasium, Einheitsplanung und Vertretung ohne sie", () => {
+test("Überarbeitung der Einheit (Grundschule): Schritt 5 nennt die Konzentrationsaufgabe; Gymnasium, Einheitsplanung und Selbstlern-Phase ohne sie", () => {
   const rev = G.claudeUnitRevisionPrompt({ unit: { id: "u".repeat(16), rows: [], plan: {}, params: {}, revise: { items: [] }, lessons: [] }, now: Date.parse("2026-11-02T10:00:00Z") });
   assert.equal(rev.split(G.CONC_REVISION).length - 1, 1);
   assert.ok(rev.includes("„Zusammenfassung der Sitzung für die Lehrkraft“)." + G.CONC_REVISION + "\n"), "am Ende von Schritt 5");
   assert.ok(G.CONC_REVISION.includes("gehört auch ihre „Konzentrationsaufgabe“ dazu") && G.CONC_REVISION.includes("sagt `get_lesson` dieser Sitzung"));
   const s = FX.sekCtx(P.unitContext), u = { id: "u".repeat(16), subject: "powi", klass: "8B", rows: [], plan: {}, params: {}, revise: { items: [] }, lessons: [] };
-  for (const [n, p] of [["Gymnasium", P.claudeLessonPrompt(s)], ["Jg. 6", P.claudeLessonPrompt({ ...s, klass: "6B", unit: null, row: null, unitText: "" })], ["Vertretung", P.claudeSubstitutePrompt({ ...s, row: null })],
+  for (const [n, p] of [["Gymnasium", P.claudeLessonPrompt(s)], ["Jg. 6", P.claudeLessonPrompt({ ...s, klass: "6B", unit: null, row: null, unitText: "" })], ["Selbstlern-Phase", SL.claudeSelbstlernPrompt({ ...s, row: null })],
     ["Einheit Gymnasium", P.claudeUnitPrompt({ unitId: u.id, subject: "powi", klass: "8B", params: {}, slots: [], bases: [], missing: [] })], ["Überarbeitung Gymnasium", P.claudeGymRevisionPrompt({ unit: u, now: Date.now() })],
     ["Einheit Grundschule", G.claudeGsUnitPrompt({ unitId: u.id, course: { subjectName: "Religion" }, params: {}, slots: [] })]]) assert.ok(!/Konzentrationsaufgabe/.test(p), n);
 });

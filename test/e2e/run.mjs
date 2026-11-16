@@ -17,6 +17,7 @@ import { dialogsE2E } from "./dialogs.mjs";
 import { updateE2E } from "./update.mjs";
 import { CONC_HTML, CONC_HTML_LONG } from "./konzentration.mjs";
 import { bringE2E } from "./bring.mjs";
+import { escapeFixture } from "./escape-fixture.mjs";
 
 const require = createRequire(import.meta.url);
 const { chromium, devices } = require("playwright");
@@ -56,30 +57,6 @@ async function textPdf(pages) {
   const d = await PDFDocument.create(), f = await d.embedFont(StandardFonts.Helvetica);
   for (const lines of pages) { const p = d.addPage([595, 842]); lines.forEach((l, i) => p.drawText(l, { x: 50, y: 780 - i * 22, size: 12, font: f })); }
   return Buffer.from(await d.save());
-}
-// Escape-Room wie ihn Claude liefert (alle sieben Rätseltypen) – für den Durchlauf im Test
-function escapeFixture() {
-  const sec = (k) => ({ ueberschrift: "Thema " + k, text: "Sachtext zum Thema " + k + ". Die Gewaltenteilung verteilt Macht auf Legislative, Exekutive und Judikative." });
-  const station = (i, teile) => ({ titel: "Station" + i + " Prüfung", ort: "Saal " + i, bibliothek: { einleitung: "Lies genau.", abschnitte: [sec(1), sec(2), sec(3)] },
-    raetsel: { auftrag: "Löse das Rätsel " + i + ".", teile, erfolg: "Raum " + i + " ist geschafft." }, erlaeuterung: "Erläuterung zu Station " + i + ": Die Lösung ergibt sich aus Abschnitt 1." });
-  return { name: "Mission Gewaltenteilung", titel: "Mission Gewaltenteilung", untertitel: "Rette die Verfassung von Karlsruhe.", loesungswort: "GERICH",
-    rahmen: { sprecher: "Präsidentin des Gerichts", auftrag: "Das Archiv wurde durcheinandergebracht. Hilf uns!", rolle: "Du bist die neue Archivarin." },
-    stationen: [
-      station(1, [{ typ: "einfachwahl", frage: "Wer beschließt Gesetze?", optionen: [{ text: "Der Bundestag", richtig: true }, { text: "Das Bundesverfassungsgericht" }, { text: "Die Bundesregierung" }], abschnitt: 1, anfang: "Der Bu", loesung: "Der Bundestag" },
-        { typ: "koerbe", frage: "Sortiere die Organe.", koerbe: [{ name: "Legislative", anfang: "Leg" }, { name: "Judikative", anfang: "Jud" }], karten: [{ text: "Bundestag", korb: 1, abschnitt: 1 }, { text: "Bundesrat", korb: 1 }, { text: "Amtsgericht", korb: 2 }, { text: "Verfassungsgericht", korb: 2 }] }]),
-      station(2, [{ typ: "zuordnung", frage: "Ordne zu.", optionen: ["prüft Gesetze", "beschließt Gesetze", "führt Gesetze aus"], zeilen: [{ text: "Das BVerfG", antwort: "prüft Gesetze", abschnitt: 2 }, { text: "Der Bundestag", antwort: "beschließt Gesetze" }, { text: "Die Verwaltung", antwort: "führt Gesetze aus" }] },
-        { typ: "mehrfachwahl", frage: "Welche Aussagen stimmen?", optionen: [{ text: "Gerichte sind unabhängig.", richtig: true }, { text: "Richter sind weisungsgebunden.", erklaerung: "Nein, sie sind unabhängig." }, { text: "Gesetze binden die Verwaltung.", richtig: true }], abschnitt: 2 }]),
-      station(3, [{ typ: "luecken", frage: "Ergänze.", text: "Die [[1]] ist die gesetzgebende Gewalt, die [[2]] die rechtsprechende.", luecken: [{ nr: 1, loesungen: ["Legislative"], abschnitt: 1 }, { nr: 2, loesungen: ["Judikative", "Rechtsprechung"], abschnitt: 1 }] },
-        { typ: "zahl", frage: "Wie viele Richter:innen hat das BVerfG?", einheit: "Richter:innen", min: 16, max: 16, woerter: ["sechzehn"], abschnitt: 3, hinweis: "Zwei Senate zu je acht.", loesung: "16" }]),
-      station(4, [{ typ: "luecken", frage: "Wähle aus.", text: "Das Grundgesetz trat [[1]] in Kraft.", luecken: [{ nr: 1, loesungen: ["1949"], abschnitt: 2 }], wortbank: ["1949", "1919", "1990"] },
-        { typ: "einfachwahl", frage: "Wo sitzt das BVerfG?", optionen: [{ text: "Karlsruhe", richtig: true }, { text: "Berlin" }], abschnitt: 3, anfang: "Ka" }]),
-      station(5, [{ typ: "koerbe", frage: "Verfahren oder Organ?", koerbe: [{ name: "Verfahren" }, { name: "Organ" }], karten: [{ text: "Normenkontrolle", korb: 1 }, { text: "Verfassungsbeschwerde", korb: 1 }, { text: "Bundesrat", korb: 2 }, { text: "Bundespräsident", korb: 2 }] },
-        { typ: "zuordnung", frage: "Wer klagt?", optionen: ["Bürger:in", "Landesregierung"], zeilen: [{ text: "Verfassungsbeschwerde", antwort: "Bürger:in" }, { text: "Abstrakte Normenkontrolle", antwort: "Landesregierung" }] }]),
-      station(6, [{ typ: "mehrfachwahl", frage: "Was schützt die Demokratie?", optionen: [{ text: "Gewaltenteilung", richtig: true }, { text: "Machtkonzentration" }, { text: "Grundrechte", richtig: true }] },
-        { typ: "schlussstein", frage: "Wie lautet das Lösungswort?", loesungen: ["GERICH", "Gericht"], hinweis1: "Sieh dir die Buchstaben an.", hinweis2: "Es beginnt mit G.", loesung: "GERICH" }]),
-    ],
-    finale: { ueberschrift: "Das Archiv ist gerettet", text: "Du hast alle Räume gelöst.", warum: "GERICH steht für das Gericht, das die Verfassung hütet.", rueckblick: ["Gewaltenteilung", "Organe", "Verfahren", "Grundgesetz", "Karlsruhe", "Schutz"], schluss: "Weiter zum Finale!" },
-    feibeitsblatt: { titel: "Finale: Mission Gewaltenteilung", aufgaben: [{ text: "Beurteile, ob das BVerfG zu mächtig ist.", ki_auftrag: "Pro/Contra, eigenes Urteil" }] } };
 }
 // holder = Nummer einer Unterricks-Codefolie (Platzhalter wie laut Prompt: Aufforderung, Materialtitel, die feste Zeile und eine kleine Fußzeile)
 async function pdf(pages, label, oldCode, holder) {
@@ -1282,7 +1259,7 @@ async function main() {
     r = await rpc({ jsonrpc: "2.0", id: 3, method: "tools/list", params: { _meta: { ...meta, "io.modelcontextprotocol/protocolVersion": "1999-01-01" } } });
     ok(r.data.error && r.data.error.code === -32022, "unbekannte Version → UnsupportedProtocolVersion");
     r = await rpc({ jsonrpc: "2.0", id: 4, method: "tools/list", params: { _meta: meta } });
-    ok(["get_lesson", "save_schulportal_entry", "add_text_material", "propose_feibeitsblatt", "list_units", "get_unit", "get_planning_basis", "save_unit_plan", "update_unit_row", "save_substitute_plan"].every((n) => r.data.result.tools.some((t) => t.name === n)), "Werkzeuge gelistet");
+    ok(["get_lesson", "save_schulportal_entry", "add_text_material", "propose_feibeitsblatt", "list_units", "get_unit", "get_planning_basis", "save_unit_plan", "update_unit_row", "save_selbstlern"].every((n) => r.data.result.tools.some((t) => t.name === n)) && !r.data.result.tools.some((t) => t.name === "save_substitute_plan"), "Werkzeuge gelistet (save_selbstlern statt der Vertretung)");
     ok(!r.data.result.tools.some((t) => t.name === "create_lesson"), "keine Sitzungen am Plan vorbei (kein create_lesson)");
     r = await rpc({ jsonrpc: "2.0", id: 5, method: "tools/call", params: { name: "get_lesson", arguments: { lesson_id: lessonId }, _meta: meta } });
     const dump = r.data.result.content[0].text;
@@ -1844,102 +1821,133 @@ async function main() {
     unit = (await T("GET", "/api/teacher/units/" + unitId)).data.unit;
     ok(unit.rows[2].date === addDays(l3.date, 1) && unit.rows[1].date === l2.date && (await T("GET", "/api/teacher/lessons/" + byRow(3).id)).data.lesson.date === byRow(3).date, "nur diese Sitzung geändert, Datum steht auch in der Einheit");
 
-    /* ---------- Krankheit: Vertretung ---------- */
-    step("Krankheit: Vertretungsstunde mit Claude, prüfen, bestätigen, Schüleransicht, übernehmen, wiederherstellen");
+    /* ---------- Präsenz der Lehrkraft nicht möglich: Selbstlern-Phase (Nachtrag 29, ersetzt die Krankheitsvertretung) ---------- */
+    step("Selbstlern-Phase: Prompt mit Modell/Aufwand, Claude legt Material an und stellt nach Freigabe um, Lehrkraft-Karte, Feibeitsblatt anlegen, Schüleransicht, übernehmen, wiederherstellen");
     await T("POST", "/api/teacher/lessons/" + l2.id + "/texts", { area: "student", title: "Original-Arbeitsblatt", text: "# Original\nText", source: "chat" });
     await tp.goto(BASE + "/#/lk/s/" + l2.id);
-    await tp.getByRole("button", { name: "Lehrkraft ist zu dieser Sitzung krank – Alternative entwickeln" }).click();
+    const slBtn = tp.getByRole("button", { name: "Präsenz der Lehrkraft nicht möglich – Unterricht in Selbstlern-Phase umbauen" });
+    await slBtn.waitFor();
+    ok(await tp.getByRole("button", { name: "Lehrkraft ist zu dieser Sitzung krank – Alternative entwickeln" }).count() === 0, "Knopf heißt jetzt „Präsenz der Lehrkraft nicht möglich – Unterricht in Selbstlern-Phase umbauen“ (mit Gedankenstrich)");
+    await tp.locator(".selfside").screenshot({ ...SHOT, path: join(OUT, "lehrkraft-selbstlern-knopf.png") });
+    await slBtn.click();
     const hm = tp.locator(".modal", { hasText: "Welches Sprachmodell?" });
     await hm.waitFor();
-    ok(await hm.getByLabel(/Claude Opus/).isChecked() && await hm.getByText("Mit welchem Aufwand?").isVisible(), "fragt vorher Sprachmodell und Aufwand ab (Vorgabe: Opus, gründlich)");
+    ok(await hm.getByLabel(/Claude Opus/).isChecked() && await hm.getByText("Mit welchem Aufwand?").isVisible() && (await hm.textContent()).includes("Selbstlern-Phase mit Claude entwickeln") &&
+      (await hm.textContent()).includes("mindestens drei Ideen") && (await hm.textContent()).includes("Erst nach Ihrer ausdrücklichen Zustimmung"), "Dialog: Modell und Aufwand (Vorgabe: Opus, gründlich), mindestens drei Ideen, erst nach Zustimmung");
+    await tp.screenshot({ ...SHOT, path: join(OUT, "lehrkraft-selbstlern-prompt.png"), fullPage: true });
     await hm.getByLabel(/^Maximal/).check();
     await hm.getByRole("button", { name: "Prompt kopieren" }).click();
-    const subPrompt = await tp.evaluate(() => navigator.clipboard.readText());
-    ok(["Welche fachdidaktische Kompetenz", "Welche Stundenfrage", "Welche Lerninhalte", "ca. 72 Minuten", l2.id, "save_substitute_plan", "chronologische Anleitung"].every((x) => subPrompt.includes(x)), "Prompt: Analyse der geplanten Stunde, 80 % der Zeit, Abgabe, Anleitung");
+    const slPrompt = await tp.evaluate(() => navigator.clipboard.readText());
+    ok(["mindestens drei verschiedene Ideen", "`get_lesson` mit der Sitzungs-ID " + l2.id, "Lerninhalte und Stundenziel der Sitzung bleiben erhalten", "bis ich ihr ausdrücklich zustimme. Vorher speicherst du nichts",
+      "Der Connector kann nichts löschen", "(Titel und Bereich: für Schüler:innen, nur für die Lehrkraft, Druckliste oder Präsentation)", "(`erklaer_chatbot`)", "Erfinde nie eine Video-Adresse", "(`praesentation`)",
+      "`save_selbstlern` um (Sitzungs-ID " + l2.id + ")", "~~" + l2.code.slice(0, 3) + "-" + l2.code.slice(3) + "~~"].every((x) => slPrompt.includes(x)), "Prompt: Sitzung lesen, Ziel behalten, mindestens drei Ideen, Freigabe, Hinweis zum Löschen, Methoden, Schulportal mit Code");
     await hm.getByRole("button", { name: "Schließen", exact: true }).getByText("Schließen").click();
     ok(await tp.evaluate(() => localStorage.getItem("u.claude.effort")) === "max", "Wahl von Modell/Aufwand wird gemerkt");
-    const plan = { lesson_id: l2.id, analyse: { kompetenz: "Urteilskompetenz: die Rolle des BVerfG beurteilen", stundenfrage: "Wie arbeitet das Bundesverfassungsgericht?", inhalte: ["Verfahrensarten", "Normenkontrolle"] },
-      format: "Feibeitsblatt", bearbeitungszeit: 70, hinweis_schueler: "Eure Lehrkraft ist heute krank. Arbeitet bitte selbstständig.",
-      schritte: [{ titel: "Material lesen", anleitung: "Lies **M1** gründlich.", minuten: 20 }, { titel: "Feibeitsblatt bearbeiten", anleitung: "Öffne das Feibeitsblatt und bearbeite die Aufgabe.", minuten: 50, abgabe: true }],
-      abgabe: "Feibeitsblatt bis zum Ende der Stunde abgeben", schulportal: "**1) Vertretung**\n- Selbstlernphase mit Feibeitsblatt", materialien: [{ titel: "M1 Verfahren des BVerfG", bereich: "schueler", markdown: "# M1\nNormenkontrolle …" }, { titel: "M2 Schaubild Normenkontrolle", bereich: "schueler", html: SHEET_HTML }],
-      hinweise_vertretung: "Bitte für eine ruhige Arbeitsatmosphäre sorgen." };
-    r = await tool("save_substitute_plan", plan);
-    ok(r.isError && /braucht eine Abgabe/.test(r.content[0].text), "ohne Abgabe (Feibeitsblatt) lehnt die Plattform den Vorschlag ab");
-    r = await tool("save_substitute_plan", { ...plan, feibeitsblatt: { titel: "Vertretung: Verfahren des BVerfG", aufgaben: [{ text: "Erkläre die Normenkontrolle.", ki_auftrag: "abstrakt und konkret unterscheiden" },
-      { text: "Fotografiere dein Schaubild zu den Verfahren.", antwort: "foto", ki_auftrag: "darf nicht an die KI" }] } });
-    ok(!r.isError, "Claude legt den Vertretungsvorschlag ab (save_substitute_plan), mit Foto-Aufgabe für das Lernprodukt");
-    await tp.evaluate(() => document.dispatchEvent(new Event("visibilitychange")));
-    const prop = tp.locator(".substitute", { hasText: "Vertretungsvorschlag prüfen" });
-    await prop.waitFor({ timeout: 10000 });
-    const propTxt = await prop.textContent();
-    ok(propTxt.includes("Urteilskompetenz") && propTxt.includes("Material lesen") && propTxt.includes("Vertretung: Verfahren des BVerfG") && propTxt.includes("Ziel: ca. 72 Minuten"), "Vorschlag mit Analyse, Anleitung, Material und Feibeitsblatt zur Prüfung");
-    const m2 = prop.locator(".item", { hasText: "M2 Schaubild Normenkontrolle" });
-    ok((await m2.textContent()).includes("von Claude gestaltet, PDF entsteht beim Bestätigen"), "gestaltetes Vertretungsmaterial: PDF entsteht beim Bestätigen");
-    dlp = tp.waitForEvent("download");
-    await m2.getByRole("button", { name: "Vorschau als PDF" }).click();
-    ok(readFileSync(await (await dlp).path()).toString("latin1").startsWith("%PDF-"), "… „Vorschau als PDF“ druckt es zur Ansicht");
+    // Claude (simuliert über den Connector): Material der Selbstlern-Phase, Feibeitsblatt-Entwurf, dann – nach der Freigabe im Chat – umstellen
+    r = await tool("add_material_pdf", { lesson_id: l2.id, bereich: "schueler", titel: "Präsentation – Verfahren des BVerfG", html: SHEET_HTML, selbstlern: true });
+    const presId = r.structuredContent.file_id;
+    ok(!r.isError && /^[a-f0-9]{16}$/.test(presId), "Claude legt die selbst erklärende Präsentation an (add_material_pdf, selbstlern: true)");
     await SA("POST", "/api/student/join", { code: l2.code });
-    const before = (await SA("GET", "/api/student/lessons/" + l2.id)).data;
-    ok(!before.substitute && before.files.some((f) => f.name === "Original-Arbeitsblatt") && !(await tp.locator(".item", { hasText: "Anleitung zur Vertretungsstunde" }).count()), "vor der Bestätigung ändert sich nichts (auch nicht für Schüler:innen)");
-    await tp.screenshot({ ...SHOT, path: join(OUT, "lehrkraft-vertretung-vorschlag.png"), fullPage: true });
+    let slv = (await SA("GET", "/api/student/lessons/" + l2.id)).data;
+    ok(!slv.files.some((f) => f.id === presId) && slv.files.some((f) => f.name === "Original-Arbeitsblatt") && !slv.substitute, "vor dem Umstellen sehen die Schüler:innen nichts davon");
+    r = await tool("propose_feibeitsblatt", { lesson_id: l2.id, titel: "Selbstlern: Verfahren des BVerfG", aufgaben: [{ text: "Erkläre die Normenkontrolle.", ki_auftrag: "abstrakt und konkret unterscheiden" },
+      { text: "Fotografiere dein Schaubild zu den Verfahren.", antwort: "foto" }] });
+    const slDraft = r.structuredContent.draft_id;
+    const slArgs = { lesson_id: l2.id, einleitung: "Am Ende kannst du erklären, wie das Bundesverfassungsgericht arbeitet.", hinweis_aufsicht: "Bitte nur für eine ruhige Arbeitsatmosphäre sorgen.",
+      schulportal: "**1) Selbstlern-Phase**\n- Öffne die Sitzung in ~~Unterricks~~ mit dem Code ~~" + l2.code.slice(0, 3) + "-" + l2.code.slice(3) + "~~ und bearbeite die Stationen der Reihe nach.",
+      stationen: [{ titel: "Präsentation durchklicken", typ: "praesentation", anleitung: "Klicke dich durch die Präsentation und beantworte die Kontrollfragen.", minuten: 20, file_id: presId },
+        { titel: "Erklärvideo", typ: "video", anleitung: "Schau dir das Video an.", minuten: 10, video_url: "https://www.youtube.com/watch?v=Fk1u8VKrJGA&t=30s" },
+        { titel: "Feibeitsblatt", typ: "feibeitsblatt", anleitung: "Bearbeite das Feibeitsblatt und gib ab.", minuten: 30, entwurf_id: slDraft },
+        { titel: "Dem Chatbot erklären", typ: "erklaer_chatbot", anleitung: "Erkläre dem Chatbot die Normenkontrolle.", minuten: 15, erklaeren: "Erkläre, was eine Normenkontrolle ist.",
+          kernpunkte: ["prüft Gesetze am Grundgesetz", "abstrakt und konkret"], fehlvorstellungen: ["Das BVerfG macht Gesetze."] }] };
+    r = await tool("save_selbstlern", { ...slArgs, schulportal: undefined, stationen: [{ titel: "Video", typ: "video", anleitung: "x", video_url: "https://vimeo.com/123" }] });
+    ok(r.isError && r.content[0].text.includes("schulportal: Beim Umstellen") && r.content[0].text.includes("Station 1 („Video“): video_url") && r.content[0].text.includes("Erfinde nie eine Video-Adresse"),
+      "unvollständig: genaue deutsche Fehlerliste, nichts gespeichert");
+    r = await tool("save_selbstlern", slArgs);
+    ok(!r.isError && r.content[0].text.startsWith("Selbstlern-Phase gespeichert – die Sitzung ist umgestellt: 4 Stationen") && r.content[0].text.includes("„Original-Arbeitsblatt“") &&
+      r.content[0].text.includes("Feibeitsblatt-Entwurf in Unterricks prüfen und anlegen"), "Claude stellt nach der Freigabe in einem Schritt um (save_selbstlern): Archiv, Hinweise an Claude");
+    const gl = (await tool("get_lesson", { lesson_id: l2.id })).content[0].text;
+    ok(gl.includes("## Selbstlern-Phase (aktiv seit") && gl.includes("Kernpunkte: prüft Gesetze am Grundgesetz | abstrakt und konkret") && gl.includes("YouTube-Video Fk1u8VKrJGA ab 0:30"), "get_lesson zeigt die Selbstlern-Phase");
+    await tp.evaluate(() => document.dispatchEvent(new Event("visibilitychange")));
+    const slCard = tp.locator(".substitute.selbstlern");
+    await slCard.waitFor({ timeout: 15000 });
+    const slTxt = await slCard.textContent();
+    ok(["Das sehen die Schüler:innen ganz oben", "Deine Lehrkraft kann zu dieser Sitzung nicht da sein.", "Am Ende kannst du erklären", "Ablaufplan: 4 Stationen (ca. 75 Minuten)", "Präsentation zum Durchklicken",
+      "Präsentation – Verfahren des BVerfG.pdf", "YouTube-Video ab 0:30", "Dem KI-Chatbot erklären", "Hausaufgabe (für die Schüler:innen von Anfang an sichtbar)", "Ursprüngliche Planung (archiviert)",
+      "Original-Arbeitsblatt"].every((x) => slTxt.includes(x)), "Lehrkraft: Karte „Selbstlern-Phase“ mit Vorschau, Stationen, Verweisen, Hausaufgabe und Archiv");
+    ok(await tp.locator(".tsum-note", { hasText: "Für diese Sitzung gilt die Selbstlern-Phase" }).count() + (await tp.locator(".tsum-empty").count()) >= 1, "Zusammenfassung: Hinweis bzw. leer");
     await tp.locator("#fbcard .badge.ok", { hasText: "verbunden" }).first().waitFor({ timeout: 20000 });   // gespeicherte Verbindung (automatisch)
+    await slCard.screenshot({ ...SHOT, path: join(OUT, "lehrkraft-selbstlern-karte.png") });
     const sheetsBefore = fbm.sheets.size;
-    await prop.getByRole("button", { name: "Bestätigen: Sitzung auf Vertretung umstellen" }).click();
-    await tp.locator(".modal").getByRole("button", { name: "Bestätigen und umstellen" }).click();
-    await tp.locator(".substitute.active").waitFor({ timeout: 20000 });
-    const subSheet = [...fbm.sheets.values()].find((x) => x.title === "Vertretung: Verfahren des BVerfG");
-    ok(fbm.sheets.size === sheetsBefore + 1 && subSheet, "Feibeitsblatt der Vertretung angelegt");
-    ok(subSheet && subSheet.tasks[1].answer && subSheet.tasks[1].answer.type === "photo" && subSheet.tasks[1].solution === "" && subSheet.tasks[0].solution.includes("abstrakt") && subSheet.tasks[0].solution.split("Altersgemäße Erwartung (Q2, Grundkurs)").length === 2, "Foto-Aufgabe als Antwortart „Foto“ angelegt – ohne Auftrag an die KI");
+    await slCard.getByRole("button", { name: "Feibeitsblatt prüfen und anlegen" }).click();
+    await tp.locator(".modal").getByRole("button", { name: "Feibeitsblatt jetzt anlegen" }).click();
+    await tp.locator(".modal", { hasText: "erhält einen Code" }).getByRole("button", { name: "Anlegen", exact: true }).click();
+    await tp.locator(".modal", { hasText: "Feibeitsblatt angelegt" }).waitFor({ timeout: 20000 });
+    await tp.keyboard.press("Escape");
+    const subSheet = [...fbm.sheets.values()].find((x) => x.title === "Selbstlern: Verfahren des BVerfG");
+    ok(fbm.sheets.size === sheetsBefore + 1 && subSheet && subSheet.tasks[1].answer && subSheet.tasks[1].answer.type === "photo" && subSheet.tasks[1].solution === "",
+      "Feibeitsblatt der Selbstlern-Phase im bekannten Editor angelegt (mit Foto-Aufgabe, ohne Auftrag an die KI)");
+    await slCard.locator(".sl-ref", { hasText: "Code " + subSheet.code.slice(0, 3) + "-" + subSheet.code.slice(3) }).waitFor({ timeout: 10000 });
+    ok(await slCard.getByRole("button", { name: "Feibeitsblatt prüfen und anlegen" }).count() === 0, "Karte zeigt danach den Code der Station");
     const jpeg = "data:image/jpeg;base64," + (await tp.screenshot({ type: "jpeg", quality: 40, clip: { x: 0, y: 0, width: 48, height: 32 } })).toString("base64");
     await fbm.addSubmission(subSheet.code, { vorname: "Lea", nachname: "Sc", geburtsdatum: "--03-04", klasse: "Q2GK" }, ["Die Normenkontrolle prüft Gesetze.", ""], [null, jpeg]);
-    await tp.locator("#fbcard .item", { hasText: "Vertretung: Verfahren des BVerfG" }).getByRole("button", { name: "Abgaben ansehen" }).click();
+    await tp.locator("#fbcard .item", { hasText: "Selbstlern: Verfahren des BVerfG" }).getByRole("button", { name: "Abgaben ansehen" }).click();
     await tp.locator(".modal .sub", { hasText: "Lea Sc" }).waitFor({ timeout: 20000 });
     ok(await tp.locator(".modal img.sub-photo").count() === 1 && (await tp.locator(".modal img.sub-photo").getAttribute("src")).startsWith("data:image/jpeg;base64,/9j/"), "Abgaben: Foto der Schülerin wird angezeigt (geprüftes JPEG)");
     await tp.locator(".modal .sub").first().screenshot({ ...SHOT, path: join(OUT, "lehrkraft-abgabe-foto.png") });
     await tp.keyboard.press("Escape");
     const tSub = (await T("GET", "/api/teacher/lessons/" + l2.id)).data;
-    ok(tSub.files.some((f) => f.area === "archive" && f.name === "Original-Arbeitsblatt") && tSub.files.some((f) => f.area === "student" && f.name === "Anleitung zur Vertretungsstunde") &&
-      tSub.files.some((f) => f.area === "teacher" && f.name === "Hinweise für die Vertretungslehrkraft") && tSub.lesson.portal.startsWith("**1) Vertretung**"), "ursprüngliche Planung archiviert, Material und Schulportal-Eintrag ausgetauscht");
+    ok(tSub.files.some((f) => f.area === "archive" && f.name === "Original-Arbeitsblatt") && tSub.lesson.portal.startsWith("**1) Selbstlern-Phase**") && tSub.substitute.status === "selbstlern",
+      "ursprüngliche Planung archiviert, Schulportal-Eintrag der Selbstlern-Phase");
+    // Schüler:innen: bisherige Ansicht zeigt Hinweis und Stationen (die eigene Ansicht folgt in Teil B), Hausaufgabe von Anfang an, nur Selbstlern-Material
+    slv = (await SA("GET", "/api/student/lessons/" + l2.id)).data;
+    ok(slv.selbstlern && slv.selbstlern.stationen.length === 4 && slv.selbstlern.stationen[2].code === subSheet.code && slv.homework && slv.homework.text.startsWith("Erledige alle Stationen") &&
+      !JSON.stringify(slv).includes("prüft Gesetze am Grundgesetz") && !JSON.stringify(slv).includes("ruhige Arbeitsatmosphäre"), "Schülerdaten: Stationen, Hausaufgabe von Anfang an – nie die Kriterien des Chatbots");
     await sp.goto(BASE + "/#/schueler/s/" + l2.id);
     const sbox = sp.locator(".substitute.student");
     await sbox.waitFor({ timeout: 10000 });
     const sTxt = await sp.locator("main").textContent();
-    ok(sTxt.includes("Heute ohne deine Lehrkraft") && sTxt.includes("Eure Lehrkraft ist heute krank.") && (await sbox.locator(".sub-steps > li").count()) === 2, "Schüler:innen: Hinweis auf die Abwesenheit und chronologische Anleitung ganz oben");
-    ok(sTxt.includes("Anleitung zur Vertretungsstunde") && sTxt.includes("M1 Verfahren des BVerfG") && sTxt.includes("Vertretung: Verfahren des BVerfG") && !sTxt.includes("Original-Arbeitsblatt"), "… mit dem Vertretungsmaterial und Feibeitsblatt (ursprüngliches Material ausgeblendet)");
-    await tp.locator("#app .item", { hasText: "M2 Schaubild Normenkontrolle.pdf" }).locator(".meta", { hasText: "PDF, von Claude gestaltet" }).waitFor({ timeout: 30000 });
-    ok((await SA("GET", "/api/student/lessons/" + l2.id)).data.files.some((f) => f.name === "M2 Schaubild Normenkontrolle.pdf"), "gestaltetes Vertretungsmaterial: nach dem Bestätigen gedruckt und für Schüler:innen sichtbar");
-    await sp.screenshot({ ...SHOT, path: join(OUT, "schueler-vertretung.png"), fullPage: true });
-    await tp.locator(".substitute.active").getByRole("button", { name: "Ursprüngliche Planung in eine andere Sitzung übernehmen" }).click();
+    ok(sTxt.includes("Deine Lehrkraft kann zu dieser Sitzung nicht da sein.") && (await sbox.locator(".sub-steps > li").count()) === 4 && sTxt.includes("Deine Hausaufgabe"), "Schüler:innen: Hinweis, Stationen und Hausaufgabe ganz oben");
+    ok(sTxt.includes("Präsentation – Verfahren des BVerfG") && sTxt.includes("Selbstlern: Verfahren des BVerfG") && !sTxt.includes("Original-Arbeitsblatt"), "… mit dem Material der Selbstlern-Phase (ursprüngliches Material ausgeblendet)");
+    await sp.screenshot({ ...SHOT, path: join(OUT, "schueler-selbstlern-vorlaeufig.png"), fullPage: true });
+    await slCard.getByRole("button", { name: "Ursprüngliche Planung in eine andere Sitzung übernehmen" }).click();
     await tp.locator(".modal", { hasText: "Ursprüngliche Planung übernehmen" }).getByRole("button", { name: "Übernehmen" }).click();
     await tp.locator(".toast", { hasText: "übernommen" }).waitFor({ timeout: 10000 });
     ok((await T("GET", "/api/teacher/lessons/" + l3.id)).data.files.some((f) => f.name === "Original-Arbeitsblatt"), "ursprüngliche Planung in die nächste Sitzung übernommen");
-    await tp.locator(".substitute.active").getByRole("button", { name: "Ursprüngliche Planung wiederherstellen" }).click();
-    await tp.locator(".modal").getByRole("button", { name: "Wiederherstellen" }).click();
-    await tp.locator(".toast", { hasText: "wiederhergestellt" }).waitFor({ timeout: 20000 });
+    await slCard.getByRole("button", { name: "Wiederherstellen – zurück zur normalen Sitzung" }).click();
+    const rdlg = tp.locator(".modal", { hasText: "Zurück zur normalen Sitzung?" });
+    await rdlg.waitFor();
+    ok((await rdlg.textContent()).includes("Das Material der Selbstlern-Phase wird gelöscht („Präsentation – Verfahren des BVerfG.pdf“)"), "Rückfrage nennt das Material, das gelöscht wird");
+    await tp.screenshot({ ...SHOT, path: join(OUT, "lehrkraft-selbstlern-wiederherstellen.png"), fullPage: true });
+    await rdlg.getByRole("button", { name: "Wiederherstellen" }).click();
+    await tp.locator(".toast", { hasText: "Wiederhergestellt" }).waitFor({ timeout: 20000 });
     await sp.reload(); await sp.locator(".item", { hasText: "Original-Arbeitsblatt" }).waitFor({ timeout: 10000 });
-    ok(await sp.locator(".substitute.student").count() === 0 && !(await sp.locator("main").textContent()).includes("Anleitung zur Vertretungsstunde"), "wiederhergestellt: ursprüngliche Planung wieder sichtbar, Vertretung entfernt");
-    ok(!(await T("GET", "/api/teacher/lessons/" + l2.id)).data.files.some((f) => f.name === "M2 Schaubild Normenkontrolle.pdf"), "… auch das gestaltete Vertretungsmaterial ist entfernt");
+    ok(await sp.locator(".substitute.student").count() === 0 && !(await sp.locator("main").textContent()).includes("Präsentation – Verfahren des BVerfG"), "wiederhergestellt: ursprüngliche Planung wieder sichtbar, Selbstlern-Phase entfernt");
+    ok(!(await T("GET", "/api/teacher/lessons/" + l2.id)).data.files.some((f) => f.id === presId) && !(await T("GET", "/api/teacher/lessons/" + l2.id)).data.substitute, "… auch das Material der Selbstlern-Phase ist gelöscht");
 
-    step("Krankheit mit Escape-Room: Vorschau, Bestätigen, Schüler:in spielt alle 6 Stationen, Überblick-PDF, Tunnel ins Feibeitsblatt");
+    step("Selbstlern-Phase mit Escape-Room: streng geprüft, Vorschau, Finale anlegen, Schüler:in spielt alle 6 Stationen, Überblick-PDF, Tunnel ins Feibeitsblatt");
     const escRoom = escapeFixture();
-    r = await tool("save_substitute_plan", { ...plan, lesson_id: l3.id, format: "Escape-Room", escape_room: { ...escRoom, stationen: escRoom.stationen.slice(0, 5) } });
+    const escStation = (room) => ({ titel: "Escape-Room", typ: "escape_room", anleitung: "Öffne den Escape-Room in der Sitzung, löse die sechs Stationen und gib im Finale ab.", minuten: 60, escape_room: room });
+    r = await tool("save_selbstlern", { lesson_id: l3.id, schulportal: "**1) Escape-Room**", stationen: [escStation({ ...escRoom, stationen: escRoom.stationen.slice(0, 5) })] });
     ok(r.isError && /genau 6 Stationen/.test(r.content[0].text), "unvollständiger Escape-Room wird mit genauer Fehlerliste abgelehnt");
-    r = await tool("save_substitute_plan", { ...plan, lesson_id: l3.id, format: "Escape-Room", schritte: [{ titel: "Escape-Room starten", anleitung: "Öffne den Escape-Room in der Sitzung.", minuten: 60, abgabe: true }], abgabe: "Finale im Feibeitsblatt abgeben", escape_room: escRoom });
-    ok(!r.isError && r.content[0].text.includes("Lösungswort GERICH"), "Claude legt Vertretung mit Escape-Room ab");
+    r = await tool("save_selbstlern", { lesson_id: l3.id, schulportal: "**1) Escape-Room**", stationen: [escStation(escRoom)] });
+    ok(!r.isError && r.content[0].text.includes("Lösungswort GERICH"), "Claude stellt mit einem Escape-Room als Station um");
     await tp.goto(BASE + "/#/lk/s/" + l3.id);
-    const eprop = tp.locator(".substitute", { hasText: "Vertretungsvorschlag prüfen" });
-    await eprop.waitFor({ timeout: 10000 });
-    ok((await eprop.textContent()).includes("Escape-Room „Mission Gewaltenteilung“") && (await eprop.locator(".escbox ol li").count()) === 6, "Vorschlag zeigt den Escape-Room mit 6 Stationen");
-    await eprop.getByRole("button", { name: "Escape-Room ansehen (Vorschau)" }).click();
+    const ebox = tp.locator(".substitute.selbstlern .escbox");
+    await ebox.waitFor({ timeout: 10000 });
+    ok((await ebox.textContent()).includes("Escape-Room „Mission Gewaltenteilung“") && (await ebox.textContent()).includes("noch nicht angelegt"), "Karte zeigt den Escape-Room, Finale noch nicht angelegt");
+    await ebox.getByRole("button", { name: "Escape-Room ansehen (Vorschau)" }).click();
     await tp.locator(".er .er-title", { hasText: "Mission Gewaltenteilung" }).waitFor({ timeout: 10000 });
     await tp.locator(".er-previewnav").getByRole("button", { name: "Finale" }).click();
     ok(await tp.locator(".er-gate").isDisabled() && (await tp.locator(".er-gate").textContent()).includes("Vorschau"), "Vorschau der Lehrkraft: alle Stationen ansehen, Tunnel gesperrt");
     await tp.screenshot({ ...SHOT, path: join(OUT, "lehrkraft-escape-vorschau.png"), fullPage: true });
     await tp.getByRole("button", { name: "Vorschau schließen" }).click();
     await tp.locator("#fbcard .badge.ok", { hasText: "verbunden" }).first().waitFor({ timeout: 20000 });
-    await tp.locator(".substitute", { hasText: "Vertretungsvorschlag prüfen" }).getByRole("button", { name: "Bestätigen: Sitzung auf Vertretung umstellen" }).click();
-    await tp.locator(".modal").getByRole("button", { name: "Bestätigen und umstellen" }).click();
-    await tp.locator(".substitute.active").waitFor({ timeout: 20000 });
+    await tp.locator(".substitute.selbstlern .escbox").getByRole("button", { name: "Finale-Feibeitsblatt prüfen und anlegen" }).click();
+    await tp.locator(".modal").getByRole("button", { name: "Feibeitsblatt jetzt anlegen" }).click();
+    await tp.locator(".modal", { hasText: "erhält einen Code" }).getByRole("button", { name: "Anlegen", exact: true }).click();
+    await tp.locator(".modal", { hasText: "Feibeitsblatt angelegt" }).waitFor({ timeout: 20000 });
+    await tp.keyboard.press("Escape");
     const escSheet = [...fbm.sheets.values()].find((x) => x.title === "Finale: Mission Gewaltenteilung");
     ok(escSheet && escSheet.escape && /^unterricks-[a-f0-9]{8}-[a-f0-9]{6}$/.test(escSheet.escape.id) && escSheet.escape.name === "Mission Gewaltenteilung", "Finale-Feibeitsblatt mit Escape-Kennung angelegt");
     await sleep(1500);
@@ -2032,14 +2040,20 @@ async function main() {
     const u6 = (await T("POST", "/api/teacher/units", { subject: "powi", klass: "6A", title: "Kinderrechte", params: { start: today, end: addDays(today, 6), weekdays: [1, 2, 3, 4, 5].map((day) => ({ day, minutes: 45 })) } })).data.unit;
     await T("PATCH", "/api/teacher/units/" + u6.id, { plan: { lernaufgabe: "Plakat zu Kinderrechten", schritte: [{ titel: "Rechte kennen", beschreibung: "Bilder deuten" }] }, rows: [{ stundenfrage: "Welche Rechte haben Kinder?", ablauf: ["Bilder"] }], assignDates: true });
     const l6 = (await T("POST", "/api/teacher/units/" + u6.id + "/sessions")).data.unit.lessons[0];
-    r = await tool("save_substitute_plan", { ...plan, lesson_id: l6.id, feibeitsblatt: { titel: "x", aufgaben: [{ text: "y" }] } });
-    ok(r.isError && /Jahrgängen 5 und 6/.test(r.content[0].text), "Vertretung in Jg. 6 mit Feibeitsblatt abgelehnt");
-    r = await tool("save_substitute_plan", { ...plan, lesson_id: l6.id, abgabe: "Arbeitsblatt bei der Vertretungslehrkraft abgeben" });
-    ok(!r.isError, "analoge Vertretung (ausdruckbares Material) möglich");
+    // Selbstlern-Phase in Jg. 6: nur analoge Stationen (Laufzettel, Arbeitsblätter, Lösungskontrolle auf der Druckliste)
+    r = await tool("save_selbstlern", { lesson_id: l6.id, schulportal: "**1) Selbstlern-Phase**", stationen: [{ titel: "Feibeitsblatt", typ: "feibeitsblatt", anleitung: "x", feibeitsblatt_code: "AEH-4VY" }] });
+    ok(r.isError && /Jahrgängen 5 und 6 gibt es keine iPads/.test(r.content[0].text), "Selbstlern-Phase in Jg. 6 mit Feibeitsblatt abgelehnt");
+    const lauf = (await tool("add_material_pdf", { lesson_id: l6.id, bereich: "druck", titel: "Laufzettel – Kinderrechte", html: SHEET_HTML, anzahl: 24, selbstlern: true })).structuredContent.file_id;
+    const st1 = (await tool("add_material_pdf", { lesson_id: l6.id, bereich: "druck", titel: "Station 1 – Kinderrechte", html: SHEET_HTML, anzahl: 24, selbstlern: true })).structuredContent.file_id;
+    r = await tool("save_selbstlern", { lesson_id: l6.id, schulportal: "**1) Selbstlern-Phase**\n- Laufzettel der Reihe nach bearbeiten", material: [lauf], hinweis_aufsicht: "Laufzettel und Station 1 austeilen.",
+      stationen: [{ titel: "Station 1: Bilder deuten", typ: "material", anleitung: "Bearbeite das Arbeitsblatt Station 1.", minuten: 20, file_id: st1 }, { titel: "Station 2: Heft", typ: "aufgabe", anleitung: "Schreibe drei Kinderrechte in dein Heft.", minuten: 15 }] });
+    ok(!r.isError && (await T("GET", "/api/teacher/lessons/" + l6.id)).data.lesson.homework.includes("(siehe Laufzettel)"), "analoge Selbstlern-Phase (Material auf der Druckliste) möglich");
     await tp.goto(BASE + "/#/lk/s/" + l6.id);
     await tp.locator("#fbcard").waitFor();
     ok((await tp.locator("#fbcard").textContent()).includes("keine iPads") && await tp.locator("#fbcard").getByRole("button", { name: "Verbinden" }).count() === 0, "Sitzungsansicht Jg. 6: kein Feibeitsblatt, Hinweis auf analoges Material");
-    ok((await tp.locator(".substitute").textContent()).includes("Abgabe auf Papier"), "Vertretungsvorschlag Jg. 6 ohne Feibeitsblatt");
+    const sl6 = await tp.locator(".substitute.selbstlern").textContent();
+    ok(sl6.includes("Du bekommst einen Laufzettel") && sl6.includes("Weiteres Material: „Laufzettel – Kinderrechte.pdf“") && sl6.includes("Hinweis für die Aufsicht"), "Selbstlern-Phase Jg. 6: Laufzettel, analoge Stationen, Hinweis für die Aufsicht");
+    await tp.screenshot({ ...SHOT, path: join(OUT, "lehrkraft-selbstlern-jg6.png"), fullPage: true });
     const l6sys = ai.calls.length;
     await tp.fill("#chatin", "Bitte ein Arbeitsblatt."); await tp.keyboard.press("Enter");
     await tp.locator(".msg.assistant", { hasText: "Ihre Nachricht war: Bitte ein Arbeitsblatt" }).waitFor({ timeout: 20000 });
@@ -2368,8 +2382,8 @@ async function main() {
         "4 Sitzungen der Grundschule (08:00, 45 Minuten); die Sitzungsliste des Gymnasiums enthält sie nicht");
       ok((await SA("POST", "/api/student/join", { code: gsLessons[0].code })).status === 404, "Schüler:innen: der Code einer Grundschul-Sitzung gilt als unbekannt (404)");
       ok((await tool("propose_feibeitsblatt", { lesson_id: gsLessons[0].id, titel: "x", aufgaben: [{ text: "a" }] })).isError === true
-        && (await tool("save_substitute_plan", { lesson_id: gsLessons[0].id, analyse: { kompetenz: "a", stundenfrage: "b", inhalte: [] }, schritte: [{ titel: "a", anleitung: "b" }], abgabe: "x" })).isError === true,
-        "Connector: kein Feibeitsblatt und keine Vertretungsstunde in der Grundschule");
+        && (await tool("save_selbstlern", { lesson_id: gsLessons[0].id, schulportal: "x", stationen: [{ titel: "a", typ: "aufgabe", anleitung: "b" }] })).isError === true,
+        "Connector: kein Feibeitsblatt und keine Selbstlern-Phase in der Grundschule");
       // f) Kursseite: Einheit mit ihren Sitzungen (ohne Sitzungscode und Schüler:innen)
       await tp.goto(BASE + "/#/lk/grundschule/k/" + gsRelId);
       const uc = tp.locator(".unit-card", { hasText: "Josef und seine Brüder" });
@@ -2913,8 +2927,8 @@ async function main() {
       await tp.goto(BASE + "/#/lk/s/" + nl[3].id);
       await tp.locator("#gsplan").waitFor({ timeout: 15000 });
       ok(await tp.locator(".revisebox").count() === 0 && (await tp.locator(".pagehead .chips").textContent()).includes(fmtDay(addDays(end4, 1))), "Sitzung 4: neuer Termin, kein roter Kasten");
-      ok((await tool("save_substitute_plan", { lesson_id: nl[0].id, analyse: { kompetenz: "a", stundenfrage: "b", inhalte: [] }, schritte: [{ titel: "a", anleitung: "b" }], abgabe: "x" })).isError === true,
-        "Connector: keine Vertretungsstunde in der Grundschule");
+      ok((await tool("save_selbstlern", { lesson_id: nl[0].id, schulportal: "x", stationen: [{ titel: "a", typ: "aufgabe", anleitung: "b" }] })).isError === true && await tp.getByRole("button", { name: /Selbstlern-Phase umbauen/ }).count() === 0,
+        "Connector und Sitzungsseite: keine Selbstlern-Phase in der Grundschule");
       gsNoah = { unitId: nu.id, lessons: nl.map((l) => l.id) };
     }
 
@@ -3674,7 +3688,7 @@ async function main() {
         await ctx.close();
       };
       const T_PAGES = [["Fächer", "#/lk"], ["Klassen PoWi", "#/lk/f/powi"], ["Kurse Ethik", "#/lk/f/ethik"], ["Sitzungen Q2 GK", "#/lk/f/powi/Q2-GK"], ["Unterrichtseinheit", "#/lk/u/" + unitId],
-        ["Sitzung", "#/lk/s/" + lessonId], ["Sitzung mit Vertretung", "#/lk/s/" + l2.id], ["Sitzung mit Escape-Room", "#/lk/s/" + l3.id], ["Planungsgrundlagen", "#/lk/grundlagen"],
+        ["Sitzung", "#/lk/s/" + lessonId], ["Sitzung nach der Selbstlern-Phase", "#/lk/s/" + l2.id], ["Sitzung mit Selbstlern-Phase (Escape-Room)", "#/lk/s/" + l3.id], ["Selbstlern-Phase Jg. 6", "#/lk/s/" + l6.id], ["Planungsgrundlagen", "#/lk/grundlagen"],
         ["Planungsgrundlagen PoWi", "#/lk/grundlagen/powi"], ["Einstellungen", "#/lk/einstellungen"], ["Escape-Room-Vorschau", "#/lk/escape/" + l3.id],
         ["Planungsgrundlagen Ev. Religion", "#/lk/grundlagen/evrel"], ["Planungsgrundlage (Text)", "#/lk/grundlage/" + txtBaseId], ["Elternansicht (Vorschau)", "#/lk/eltern/" + parentLessonId]];
       // Grundschule: Übersicht, Kurs, Einheit, Sitzung (Verlaufsplan, Bildkarten, Material, Elternkarte) und nach einer Krankmeldung roter Kasten und

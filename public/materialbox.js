@@ -103,9 +103,9 @@ export function materialBox({ lessonId: id, st, L, gs = false, labels = {}, excl
         if (!(await confirmDialog("Datei löschen", "„" + f.name + "“ endgültig löschen?", "Löschen", true))) return;
         try { await tapi("DELETE", "/api/teacher/files/" + f.id); st.files = st.files.filter((x) => x !== f); paintFiles(); if (gs) paintPrint(); changed(); } catch (e) { errToast(e); }
       } }, icon("trash"))));
-    const src = (f.source === "claude" ? " · von Claude" : f.source === "chat" ? " · aus dem Chat" : f.source === "vertretung" ? " · Vertretung" : f.source === "uebernommen" ? " · übernommen" : f.source === "notfall" ? " · Notfall-Feibeitsblatt (automatisch aus dem Feibeitsblatt " + formatCode(f.fbCode || "") + ")" : f.notesOf ? " · automatisch aus den Notizen der Präsentation – jede Folie mit ihrer Anmerkungsfolie, nur für Sie" : "") + " · " + fmtTime(f.createdAt);
+    const src = (f.source === "claude" ? " · von Claude" : f.source === "chat" ? " · aus dem Chat" : f.source === "vertretung" ? " · Vertretung" : f.source === "selbstlern" ? " · Selbstlern-Phase" : f.source === "uebernommen" ? " · übernommen" : f.source === "notfall" ? " · Notfall-Feibeitsblatt (automatisch aus dem Feibeitsblatt " + formatCode(f.fbCode || "") + ")" : f.notesOf ? " · automatisch aus den Notizen der Präsentation – jede Folie mit ihrer Anmerkungsfolie, nur für Sie" : "") + " · " + fmtTime(f.createdAt);
     const row = h("div", { class: "item" + (des && des.error ? " design-err" : "") }, fileIcon(f.name, f.mime, f.kind), h("div", { class: "main" }, h("div", { class: "name", text: f.name }),
-      des ? h("div", { class: "meta" }, des.meta, (des.d.ok ? " · " + fmtBytes(f.size) : "") + (f.source === "vertretung" ? " · Vertretung" : f.source === "uebernommen" ? " · übernommen" : "") + " · " + fmtTime(f.createdAt))
+      des ? h("div", { class: "meta" }, des.meta, (des.d.ok ? " · " + fmtBytes(f.size) : "") + (f.source === "vertretung" ? " · Vertretung" : f.source === "selbstlern" ? " · Selbstlern-Phase" : f.source === "uebernommen" ? " · übernommen" : "") + " · " + fmtTime(f.createdAt))
         : h("div", { class: "meta", text: (f.kind === "link" ? "Link: " + webUrlLabel(f.url) : f.kind === "text" ? "Text (PDF-Download)" : fmtBytes(f.size)) + src }),
       ...nn(fileBadge ? fileBadge(f) : null, gs ? printToggle(f) : null)), acts);
     rowEls.set(f.id, row);
@@ -243,7 +243,7 @@ export function materialBox({ lessonId: id, st, L, gs = false, labels = {}, excl
       } }, icon("trash")));
     const row = h("div", { class: "item printrow" + (des && des.error ? " design-err" : "") }, fileIcon(f.name, "application/pdf", "file"), h("div", { class: "main" }, nameEl,
       h("div", { class: "pset" }, h("label", { class: "small pcount" }, copies, h("span", { text: "Exemplare" })), duplex, color),
-      des ? h("div", { class: "meta" }, des.meta, (des.d.ok ? " · " + fmtBytes(f.size) : "") + (f.source === "vertretung" ? " · Vertretung" : f.source === "uebernommen" ? " · übernommen" : ""))
+      des ? h("div", { class: "meta" }, des.meta, (des.d.ok ? " · " + fmtBytes(f.size) : "") + (f.source === "vertretung" ? " · Vertretung" : f.source === "selbstlern" ? " · Selbstlern-Phase" : f.source === "uebernommen" ? " · übernommen" : ""))
         : h("div", { class: "meta", text: (f.kind === "text" ? "Text (als A4-PDF)" : fmtBytes(f.size)) + (f.source === "claude" ? " · von Claude" : f.source === "uebernommen" ? " · übernommen" : "") })), acts);
     rowEls.set(f.id, row);
     return row;

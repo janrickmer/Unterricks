@@ -108,9 +108,7 @@ const ROUTES = [
   ["POST", "/api/teacher/units/" + ID + "/cancel/undo", GS.routeCancelUndo],
   ["POST", "/api/teacher/lessons/" + ID + "/cancel", GS.routeLessonCancel],
   // Krankheitsvertretung
-  ["POST", "/api/teacher/lessons/" + ID + "/substitute/confirm", SUB.routeSubstituteConfirm],
   ["POST", "/api/teacher/lessons/" + ID + "/substitute/discard", SUB.routeSubstituteDiscard],
-  ["POST", "/api/teacher/lessons/" + ID + "/substitute/preview", SUB.routeSubstitutePreview],
   ["POST", "/api/teacher/lessons/" + ID + "/substitute/restore", SUB.routeSubstituteRestore],
   ["POST", "/api/teacher/lessons/" + ID + "/substitute/transfer", SUB.routeSubstituteTransfer],
   ["GET", "/api/teacher/lessons/" + ID + "/escape", SUB.routeTeacherEscape],

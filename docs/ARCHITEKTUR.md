@@ -71,6 +71,7 @@ implementiert und im End-to-End-Test geprüft (Ausnahmen unten ausdrücklich gen
 | Dialoge: Tastaturfokus (Nachtrag 25 vom 14.11.2026) | Auf die Frage „Soll ich das plattformweit beheben?“ (mit Tab gelangte man aus jedem Dialog auf die Seite dahinter): **„Ja, beheben“** – Tab und Umschalt+Tab bleiben im offenen Dialog, danach geht der Fokus zurück; mit Tests und E2E (Abschnitt 4s) |
 | Konzentrationsaufgabe (Nachtrag 27 vom 15.11.2026) | Jeder Prompt, mit dem eine **Sitzung der Grundschule** mit Claude geplant wird („Stunde mit Claude planen“, Schritt 5 der Überarbeitung einer Einheit), lässt Claude zusammen mit dem übrigen Material die **„Konzentrationsaufgabe“** gestalten – für Kinder, die ihre Aufmerksamkeit in Plenumsphasen nur bündeln können, wenn sie den Sitzkreis verlassen und beim Zuhören ausmalen: höchstens **zwei A4-Seiten**, zuerst **mindestens zwei Ausmalbilder** zum aktuellen Unterrichtsinhalt, dann das Symbol einer **roten Karte**, danach **eine weitere altersgerechte Aufgabe** zum Inhalt der Stunde. Rückfragen beantwortet: **beidseitig** drucken, Bereich **druck** – nur auf der Druckliste der Lehrkraft als „5x - beidseitig - sw - Konzentrationsaufgabe – <Thema>.pdf“, nie in der Elternansicht, nie für Kinder. Siehe 4u |
 | Gegenstände zum Einpacken (Nachtrag 28 vom 15.11.2026) | Unter „Druckaufträge für den nächsten Arbeitstag“ auf **beiden Startseiten** ein **roter Kasten „Für den nächsten Arbeitstag einpacken“** mit den Gegenständen, die die Lehrkraft für die Sitzungen desselben Tages mitbringen muss (z. B. Bibel, Beutel), als **Stichpunktliste**; ein Klick auf einen Gegenstand klappt in **kleinerer Schrift** auf, **an welcher Stelle und in welcher Lerngruppe** er gebraucht wird (je Sitzung höchstens zwei Sätze). Rückfrage beantwortet: **Claude + von Hand** – Claude trägt sie beim Planen über den Connector ein (`update_lesson` mit `mitbringen`), die Lehrkraft ergänzt, ändert und löscht sie auf der Sitzungsseite (Karte „Mitbringen“); **Gymnasium und Grundschule**. Ohne Gegenstände kein Kasten. Siehe 4v |
+| Selbstlern-Phase statt Krankheitsvertretung (Nachtrag 29 vom 15.11.2026, Teil A) | Knopf **„Präsenz der Lehrkraft nicht möglich – Unterricht in Selbstlern-Phase umbauen“** (die Lehrkraft tippte einen Bindestrich; Unterricks setzt wie überall den Gedankenstrich), nur Gymnasium. Rückfragen beantwortet: **ersetzt die Krankheitsvertretung ganz** (Feibeitsblatt und Escape-Room können Stationen sein; ältere Vertretungen bleiben lesbar), **Jg. 5/6 analoge Selbstlern-Stationen** (Laufzettel, Arbeitsblätter, Lösungskontrolle auf der Druckliste; die Aufsicht teilt nur aus), **KI-Chatbots wie die KI-Begriffshilfe** (dieselben kostenlosen Dienste, dieselbe Einwilligung, ohne Namen), **YouTube eingebettet nach Klick** (youtube-nocookie.com, „Video in neuem Tab öffnen“), **Hausaufgabe von Anfang an sichtbar**. Claude entwickelt im Chat mindestens drei Ideen, speichert erst nach ausdrücklicher Zustimmung mit `save_selbstlern` (ein Schritt; die ursprüngliche Planung wird archiviert, „Wiederherstellen“ macht die Sitzung wieder normal) – Abschnitt 4w. Teil B (Schüleransicht, Erklär-Chatbot, Video, Begriffshilfe ganz unten) folgt |
 
 ## 2. Gesamtarchitektur
 
@@ -134,7 +135,7 @@ implementiert und im End-to-End-Test geprüft (Ausnahmen unten ausdrücklich gen
 | | `worker/printjobs.js`, `public/printnext.js` | Druckaufträge für den nächsten Arbeitstag (`GET /api/teacher/print-next`; Feld ganz oben auf beiden Startseiten) und darunter der rote Kasten „Für den nächsten Arbeitstag einpacken“ (Nachtrag 28), siehe 4n und 4v |
 | | `public/bring.js`, `public/bringcard.js` | Gegenstände zum Mitbringen (Nachtrag 28): Prüfung (Länge, höchstens zwei Sätze), Speicherform mit Stand, Zusammenfassen für die Startseite, Bausteine für Prompt und `get_lesson` (Browser und Worker); Karte „Mitbringen“ auf beiden Sitzungsseiten, siehe 4v |
 | | `worker/podcast.js`, `public/podcast.js`, `public/podcastlib.js` | Podcast für den kommenden Unterricht (Nachtrag 22): Grundlage des Tages, Auftrag für Claude in Chrome, Ablage der Audiodatei in R2, Player mit Range-Anfragen, Löschen zwei Tage nach dem Unterricht – Knopf bzw. Player unter dem Wochenkalender beider Startseiten, siehe 4q |
-| | `worker/substitute.js` | Krankheitsvertretung: Vorschlag, Bestätigen (Archiv), Wiederherstellen, Übertragen |
+| | `worker/substitute.js`, `public/selbstlern.js` | Selbstlern-Phase (Nachtrag 29): Speichern mit Archiv (`save_selbstlern`), Wiederherstellen, Übertragen, Schülerdaten, Escape-Room; ältere Vertretungen lesen. `public/selbstlern.js`: Prüfen der Stationen, YouTube, Hausaufgabe, Prompt für Claude, System-Prompt des Erklär-Chatbots (gemeinsam für Browser und Worker) |
 | Oberfläche | `public/boot.js` | Startdatei (unversioniert, bleibt über Deploys gleich): aktuellen Stand erfragen, `/v/<Stand>/app.js` laden, Hinweis bei einem Ladefehler, siehe 4t |
 | | `public/update.js` | Nach einem Update: Prüfung beim Seitenwechsel, sicheres Neuladen, `lazy()` für jedes Nachladen, Hinweis „Unterricks wurde aktualisiert“, siehe 4t |
 | | `scripts/build.mjs` | Build für Worker (`dist/`) und GitHub Pages (`dist-pages/`): Stand je Build in `/v/<Stand>/`, `version.json`, Prüfung der Verweise, siehe 4t |
@@ -149,7 +150,7 @@ implementiert und im End-to-End-Test geprüft (Ausnahmen unten ausdrücklich gen
 | | `public/cardview.js` | Betrachter der Bildkarten (Durchklicken, Erzähltext darunter) – eigenes Modul für Lehrkraft und Eltern |
 | | `public/cards.js` | Bildkarten: Betrachter (aus `cardview.js`), Karte „Bildkarten“ der Grundschul-Sitzung (Erzähltexte, Freigabe, Hochladen), Kartenbilder im Browser erstellen (PDF.js, nacheinander) |
 | | `public/units.js`, `public/bases.js` | Seite der Unterrichtseinheit (Leupold-Schema, Tabelle), Planungsgrundlagen |
-| | `public/substitute.js`, `public/claude.js` | Krankheitsvertretung in der Sitzung; Übergabe an Claude (Modell/Aufwand) |
+| | `public/substitute.js`, `public/claude.js` | Selbstlern-Phase in der Sitzung (Knopf, Karte, Wiederherstellen; ältere Vertretungen lesbar); Übergabe an Claude (Modell/Aufwand) |
 | | `public/escape.js`, `public/escape-data.js` | Escape-Room-Vorlage (Oberfläche, Überblick-PDF); Prüfen/Bewerten, Zwischenstand, Feibeitsblatt-Datensatz |
 | | `public/fbclient.js` | Feibeitsblatt-Client (Schlüsselableitung, Anlegen, Entschlüsseln) |
 | | `public/fblink.js` | gespeicherte Feibeitsblatt-Verbindung (Schlüssel aus dem Unterricks-Passwort, IndexedDB) |
@@ -626,7 +627,7 @@ implementiert und im End-to-End-Test geprüft (Ausnahmen unten ausdrücklich gen
   Lernaufgabe, Lernschritt und Stundenfrage zu beziehen; der Ablauf ist nur Inspiration. Weicht er begründet ab, schlägt er die
   Änderung in einem Block vor, den die Lehrkraft mit „In die Einheit übernehmen“ in die Tabelle schreibt (Claude über den
   Connector: `update_unit_row`, nur nach Zustimmung).
-* **Krankheit.** Jede Sitzung hat den Knopf „Lehrkraft ist zu dieser Sitzung krank – Alternative entwickeln“. Die Plattform fragt
+* **Krankheit (bis 15.11.2026; seitdem ersetzt durch die Selbstlern-Phase, Abschnitt 4w – ältere Vertretungen bleiben lesbar).** Jede Sitzung hatte den Knopf „Lehrkraft ist zu dieser Sitzung krank – Alternative entwickeln“. Die Plattform fragt
   Modell und Aufwand ab und kopiert einen Prompt: Claude liest die geplante Stunde, untersucht Kompetenz, Stundenfrage und
   Lerninhalte und entwickelt eine Vertretung für ca. 80 % der Zeit mit chronologischer Anleitung, Material, Schulportal-Eintrag,
   Hinweisen für die Vertretungslehrkraft und einer **Abgabe** (ab Jahrgang 7 Pflicht: Feibeitsblatt; Jahrgang 5/6: Papier) und
@@ -663,14 +664,14 @@ implementiert und im End-to-End-Test geprüft (Ausnahmen unten ausdrücklich gen
   „Lösungserläuterungen“, „Verwendung von Zwischenstand-Dateien“ – mit Link zum Feibeitsblatt und dem Datensatz als eingebettete
   Datei (`feibeitsblatt-escape.json`, Kennzeichen `/FbEscape 1`), damit das Finale später über „Zwischenstand-PDF hochladen“
   fortgesetzt werden kann.
-* **Finale im Feibeitsblatt (Schnittstelle v1, unverändert):** Beim Bestätigen der Vertretung legt der Browser der Lehrkraft das
+* **Finale im Feibeitsblatt (Schnittstelle v1, unverändert):** Beim Anlegen des Finales (seit Nachtrag 29 in der Karte „Selbstlern-Phase“, früher beim Bestätigen der Vertretung) legt der Browser der Lehrkraft das
   Finale-Blatt mit `escape = {id, name}` an (Kennung je Raum `unterricks-…`). Der Tunnel öffnet
   `FEIBEITSBLATT_URL#escape=<Hülle>` im selben Tab; die Hülle `{kind:"feibeitsblatt-escape", v:1, d, s}` enthält Code, Raum,
   Person, Bestätigungscode, Lösungswort, Versuche und Fehler im ersten Versuch je Station, Lösungserläuterungen und
   Zwischenstands-Protokoll; `s` ist die Prüfsumme des Feibeitsblatts (Testvektoren identisch). Die Auswertung (KI-Rückmeldung,
   Abgaben) bleibt im Feibeitsblatt; Unterricks zeigt das Finale-Blatt in der Sitzung („Abgaben ansehen“), Schüler:innen sehen es
   nicht als normales Feibeitsblatt (sie erreichen es nur über den Tunnel).
-* **Inhalte von Claude:** `save_substitute_plan` mit `escape_room`. Die Plattform prüft streng (genau 6 Stationen, Lösungswort aus
+* **Inhalte von Claude:** `save_selbstlern` mit einer Station `escape_room` (früher `save_substitute_plan`). Die Plattform prüft streng (genau 6 Stationen, Lösungswort aus
   6 Buchstaben A–Z, genau eine richtige Option bei Einfachwahl, Zuordnungs-Antworten wörtlich in den Optionen, jede Lücke genau
   einmal, Abschnittsnummern, Finale-Aufgaben …) und meldet Fehler mit genauer Stelle an Claude zurück. Die Lehrkraft sieht den Raum
   vor dem Bestätigen in einer **Vorschau** (mit Sprung zu jeder Station).
@@ -1340,6 +1341,109 @@ Gegenstand gebraucht wird.“ Rückfrage beantwortet: **Claude + von Hand**, Gym
   Arbeitstag an → roter Kasten unter den Druckaufträgen auf beiden Startseiten, Aufklappen per Maus und Tastatur, Farben hell/dunkel, von Hand
   hinzufügen (Fehler bei drei Sätzen), ändern, löschen, leer → kein Kasten; Bildschirmfotos `test-results/einpacken-*.png`.
 - **Nicht prüfbar hier:** ob Claude in claude.ai die Gegenstände sinnvoll auswählt (nur Mitzubringendes, nicht die Ausstattung des Klassenraums).
+
+## 4w. Selbstlern-Phase statt Krankheitsvertretung (Nachtrag der Lehrkraft vom 15.11.2026, Nachtrag 29 – Teil A)
+
+Wortlaut der Lehrkraft (gekürzt): Der Knopf „Lehrkraft ist zu dieser Sitzung krank – Alternative entwickeln“ heißt „Präsenz der Lehrkraft nicht
+möglich - Unterricht in Selbstlern-Phase umbauen“. Ein Klick liefert den Prompt für Claude; im Chat entwickelt Claude **mindestens drei Ideen**
+für eine Selbstlern-Sitzung, die **vollständig ohne Lehrkraft** funktioniert, und verändert die Sitzung erst **nach Genehmigung** über den
+Connector – Stationen in der richtigen Reihenfolge (selbst durchklickbare, erklärende Präsentation, Feibeitsblatt, einem KI-Chatbot etwas
+erklären, der kritisch nachfragt, eingebettetes YouTube-Video), Hausaufgabe „bis zur nächsten Sitzung mit Lehrkraft“, ganz unten ein KI-Chatbot
+für Fachbegriffe. Muss vorhandenes Material von Hand gelöscht werden, sagt Claude das im Chat, bevor neue Materialien abgelegt werden.
+Antworten auf die Rückfragen: siehe Tabelle in Abschnitt 1a. **Teil A** (dieser Abschnitt): Daten, Connector, Prompt, Lehrkraft-Seite.
+**Teil B**: Schüleransicht (Stationen, Video nach Klick, Erklär-Chatbot samt Route, KI-Begriffshilfe ganz unten).
+
+- **Knopf und Prompt** (`public/substitute.js`, `public/selbstlern.js`): Karte „Ohne Lehrkraft“ in der rechten Spalte der Sitzung (nur Gymnasium;
+  die Grundschule hat weiter die Krankmeldung), Knopf `SELBSTLERN_BUTTON` mit Gedankenstrich. Übergabe wie bisher (`claudeHandoff`: Modell und
+  Aufwand, Chat-Name „Jg. 8 - PoWi - Sitzung 1 - Selbstlern-Phase - Titel“, Prompt kopieren, claude.ai öffnen). `claudeSelbstlernPrompt`:
+  Sitzung (ID, Fach, Lerngruppe, Schülerzahl, Datum, Dauer, Code, **nächste Sitzung mit der Lehrkraft**), Einheit; wie die Schüler:innen eine
+  Selbstlern-Phase sehen; die Methoden mit ihrem `typ`; feste Vorgaben (ohne Lehrkraft lösbar, Selbstkontrolle, Minuten = Dauer, keine erfundenen
+  Quellen/Videos); Gestaltungsregeln; Vorgehen: `get_lesson` → Lerninhalte und Stundenziel nennen → **mindestens drei Ideen** mit Vor- und
+  Nachteilen und Empfehlung, warten → anpassen bis zur **ausdrücklichen Zustimmung**, vorher nichts speichern → **Hinweis zum Löschen**: der
+  Connector kann nichts löschen; muss etwas von Hand gelöscht werden, nennt Claude genau die Dateien (Titel und Bereich) und wartet auf die
+  Bestätigung, sonst sagt es, dass nichts zu löschen ist → Material (`add_material_pdf` mit `selbstlern: true`, Feibeitsblätter mit
+  `propose_feibeitsblatt`) → **Schulportal-Eintrag neu** (Schulportal-Zeichen, Vorlage, Code kursiv) → `save_selbstlern` → Schluss (was noch zu tun ist;
+  die „Zusammenfassung der Sitzung für die Lehrkraft“ bleibt). **Jg. 5/6** (`isAnalogClass`): analoge Stationen (`material` auf der Druckliste,
+  `aufgabe`), Laufzettel und Lösungskontrolle in `material`, `anzahl` = Schülerzahl; kein Chatbot, kein Video, keine digitale Präsentation, kein
+  Feibeitsblatt, kein Escape-Room; die Aufsicht teilt nur aus. Ist die Sitzung schon eine Selbstlern-Phase, überarbeitet Claude sie.
+- **Entscheidung: neues Werkzeug `save_selbstlern`**, `save_substitute_plan` aus `tools/list` entfernt. Ein älterer Chat, der es noch aufruft,
+  bekommt statt „unbekanntes Werkzeug“ die Meldung `OLD_TOOL_TEXT` (Krankheitsvertretung gibt es nicht mehr → `save_selbstlern`, zuerst
+  `get_lesson`, Prompt über den Knopf). Die Server-Anweisungen werden kürzer (5646 statt bis 5724 Zeichen): ein Satz zu `save_selbstlern` statt der
+  Vertretung; die Einzelheiten stehen in Prompt, Werkzeugbeschreibung und den Antworten.
+- **`save_selbstlern`** (`worker/substitute.js` `saveSelbstlern`): `stationen` (1–10, je `titel`, `typ`, `anleitung` in der Du-Form, `minuten`
+  1–180 und je Typ der Verweis: `praesentation` → `file_id` einer PDF für Schüler:innen; `material` → `file_id` (für Schüler:innen bzw. Druckliste,
+  nie „nur Lehrkraft“, nie die Präsentation der Sitzung); `feibeitsblatt` → `entwurf_id` (Entwurf aus `propose_feibeitsblatt`) oder
+  `feibeitsblatt_code`; `video` → `video_url`, geprüft wie im Feibeitsblatt (`parseYouTube`: exakt die Hosts youtube.com, www./m.youtube.com,
+  youtu.be, [www.]youtube-nocookie.com; Kennung 11 Zeichen, Groß-/Kleinschreibung bleibt; Playlists abgelehnt), **gespeichert nur `{id, start}`, nie
+  eine Adresse**; `erklaer_chatbot` → `erklaeren` (sehen die Schüler:innen), `kernpunkte` (1–8), `fehlvorstellungen` (0–6) – beides nur für den
+  Chatbot; `escape_room` → der Raum (höchstens einer, `normalizeEscapeRoom` streng); `aufgabe` ohne Verweis), optional `einleitung`, `schulportal`
+  (Pflicht beim ersten Umstellen), `hausaufgabe` (leer = `selbstlernHomework(Termin)`: „Erledige alle Stationen dieser Selbstlern-Phase bis zum Beginn
+  der nächsten Unterrichtsstunde mit deiner Lehrkraft (Do, 19.11.2026). Was du in der Stunde nicht schaffst, machst du zu Hause fertig.“),
+  `material` (weitere file_id, z. B. Laufzettel), `hinweis_aufsicht`. Jg. 5/6 nur `material`/`aufgabe`. Alle Fehler auf einmal als deutsche Liste
+  mit „Station n („Titel“): …“ – nichts wird halb gespeichert. Ältere aktive Vertretung → 409 (erst wiederherstellen); ein älterer Vorschlag geht
+  auf (samt Entwurf). Grundschule → Meldung. 13 D1-Anweisungen (Unit-Test ≤ 50).
+- **Archiv – Entscheidung:** Daten in der vorhandenen Tabelle `substitutes` mit `status='selbstlern'` (`proposal` = Selbstlern-Daten `{kind:"selbstlern",
+  v:1, analog, einleitung, stationen [{nr, id (8 Hex je Speichern), titel, typ, anleitung, minuten, fileId?, code?, draftId?, video?, bot?, escape?}],
+  material, hausaufgabe, hinweisAufsicht, escape_room, escapeDraftId, savedAt}`, `archive` = ursprüngliche Planung wie bei der Vertretung) – **kein
+  neues Schema**; Löschen der Sitzung, Zurücksetzen, „leere Sitzung“ und die Abfragen über `substitutes` gelten so weiter. Beim **ersten Umstellen**
+  (eine Anweisungsfolge): Schulportal-Eintrag und Hausaufgabe ins Archiv, alle Dateien der Bereiche Schüler:innen/nur Lehrkraft/Druckliste ins
+  Archiv **außer** dem Material der Selbstlern-Phase (`source='selbstlern'`), den Dateien, auf die eine Station oder `material` verweist, den
+  Anmerkungs-PDFs der Präsentation und den Notfall-Feibeitsblättern verknüpfter Stationsblätter; Feibeitsblätter, auf die keine Station verweist,
+  werden gelöst (im Archiv; Blätter aus Entwürfen dieser Selbstlern-Phase zählen nicht zur ursprünglichen Planung). Die Präsentation der Sitzung
+  bleibt unverändert (Teil B entscheidet, was Schüler:innen davon in einer Selbstlern-Phase sehen). **Erneutes Speichern** ersetzt nur die
+  Selbstlern-Phase: das Archiv bleibt; ursprüngliches Material, auf das jetzt eine Station verweist, kehrt aus dem Archiv zurück (samt
+  Notfall-Feibeitsblatt), nicht mehr gebrauchtes geht ins Archiv; ein schon angelegtes Escape-Finale behält seine Kennung.
+- **Material der Selbstlern-Phase:** `add_material_pdf` bekommt `selbstlern: true` (nur Gymnasium; Überarbeiten mit `file_id` ändert die Herkunft
+  nie – ursprüngliches Material wird nie zu Selbstlern-Material). Schüler:innen sehen es **nur, solange die Sitzung eine Selbstlern-Phase ist**
+  (Liste und Download-Link prüfen das); „Wiederherstellen“ **löscht** es (R2 in einem Aufruf, Datenbank in einer Anweisung). Material ohne Station
+  nennt die Antwort von `save_selbstlern` und die Karte („… brauchen Sie es nicht, löschen Sie es unten im Material“).
+- **Kein Lösch-Werkzeug – Entscheidung:** Der Connector bekommt kein Werkzeug zum Löschen. Das Archiv hält die ursprüngliche Planung ohnehin
+  verborgen und wiederherstellbar; was endgültig weg soll (z. B. eine frühere Fassung von Selbstlern-Material), löscht die Lehrkraft in der Sitzung –
+  Claude nennt ihr vorher genau die Dateien (Prompt Schritt 5; `get_lesson` listet dafür alle Dateien mit file_id und Bereich, auch hochgeladene,
+  Texte, Links und die Präsentation, im Abschnitt „## Weitere Dateien der Sitzung (file_id)“). Ein Löschen durch eine KI ohne Bestätigung in der
+  Plattform wäre nicht rückgängig zu machen.
+- **Hausaufgabe von Anfang an:** `homeworkShown` (worker/student.js) zeigt sie in einer Selbstlern-Phase immer (sonst unverändert 15 Minuten vor dem
+  Ende); fällig zur **nächsten Sitzung mit der Lehrkraft** (`nextTeacherLessonDate`: nächste Sitzung der Lerngruppe ohne Selbstlern-Phase und ohne
+  ältere, bestätigte Vertretung; unbekannt → ohne Datum). Die Sitzungsseite der Lehrkraft bekommt `teacherNextDate` für Prompt und Karte.
+- **get_lesson:** Abschnitt „## Selbstlern-Phase (aktiv seit …)“ mit der Erklärung für die Schüler:innen, allen Stationen samt Verweisen (Datei,
+  Feibeitsblatt bzw. Entwurf und ob angelegt, Video-Kennung und Start, Kernpunkte/Fehlvorstellungen, Escape-Room und Finale), Hinweis für die
+  Aufsicht, Hausaufgabe mit Termin, archivierter Planung samt ursprünglichem Schulportal-Eintrag; ältere Vertretung: „## Ältere Krankheitsvertretung“.
+  Die Zusammenfassung trägt den Hinweis „Für diese Sitzung gilt die Selbstlern-Phase – …“ (wie bei der Vertretung; keine Erinnerung beim Speichern).
+- **Lehrkraft-Seite** (`public/substitute.js`): Karte **„Selbstlern-Phase“** oben in der Sitzung: was die Schüler:innen ganz oben lesen (feste
+  Erklärung `SELBSTLERN_INTRO` bzw. für Jg. 5/6 `SELBSTLERN_INTRO_ANALOG` + `einleitung`) – das ist die **Vorschau** (eine eigene Schüleransicht
+  baut Teil B), der Ablaufplan (Stationen mit Methode, Minuten, Arbeitsauftrag; je Station der Verweis: Datei mit Zustand, Feibeitsblatt-Code
+  bzw. „Feibeitsblatt prüfen und anlegen“ im bekannten Editor, Link „auf YouTube ansehen“ (neuer Tab, nie eingebettet), was dem Chatbot erklärt
+  wird und aufklappbar „Woran der Chatbot eine gute Erklärung erkennt (nur für Sie)“, Escape-Room mit Vorschau und „Finale-Feibeitsblatt prüfen und
+  anlegen“), Material ohne Station, Hausaufgabe mit Termin, Hinweis für die Aufsicht, archivierte Planung, „Ursprüngliche Planung in eine andere
+  Sitzung übernehmen“ und **„Wiederherstellen – zurück zur normalen Sitzung“** (Rückfrage nennt das Material, das gelöscht wird). Das alte
+  „Vertretungsvorschlag prüfen/bestätigen“ ist entfernt (Routen `confirm` und `preview` gelöscht); ein **älterer Vorschlag** bleibt lesbar (Analyse,
+  Anleitung, Material, Schulportal) mit „Vorschlag verwerfen“, eine **ältere aktive Vertretung** wie bisher mit Wiederherstellen und Übernehmen.
+  Ein angelegtes Escape-Finale verknüpft `routeDraftCreated` als `kind='escape'` (kein Notfall-Feibeitsblatt, für Schüler:innen nur über den Tunnel).
+- **Je Stelle entschieden („wie eine bestätigte Vertretung“):** Podcast – nicht im Podcast, Karte „Selbstlern-Phase – nicht im Podcast“, heute
+  bevorstehender Unterricht zählt sie nicht; Druckaufträge – die Ausdrucke bleiben auf der Liste (in Jg. 5/6 die Stationen!) mit dem Hinweis
+  „Selbstlern-Phase – Ausdrucke für die Aufsicht“; Gegenstände – keine (die Lehrkraft kommt nicht); Zusammenfassung – Hinweis statt „danach
+  geändert“; Wochenkalender – unverändert (wie bei der Vertretung: er rechnet aus den Stundenplänen der Einheiten, nicht aus Sitzungen); Liste der
+  Sitzungen einer Klasse – Abzeichen „Selbstlern-Phase“; Sitzungsdatei/Sicherung – Archiv wie bei der Vertretung, Hinweis „Diese Sitzung ist eine
+  Selbstlern-Phase …“.
+- **Daten für Teil B** (Schüleransicht): `GET /api/student/lessons/<id>` liefert bei einer Selbstlern-Phase `selbstlern = {intro, einleitung, analog,
+  stationen [{nr, id, titel, typ, label, anleitung, minuten, fileId?, code? (auch aus einem angelegten Entwurf), pending?, video? {id, start?},
+  erklaeren?, escape?}], material, escape?}` – nie Kernpunkte, Fehlvorstellungen oder den Hinweis an die Aufsicht – und zusätzlich `substitute` in der
+  Form der älteren Vertretung (Hinweis + Schritte), damit die bisherige Ansicht schon etwas zeigt. Der System-Prompt des Erklär-Chatbots entsteht
+  **nur auf dem Worker** aus gespeicherten Daten (`explainBotPrompt(lesson, station.bot)` in `public/selbstlern.js`, nie aus dem Browser):
+  erklärt nicht selbst, verrät keine Kernpunkte, je Antwort genau eine kritische Rückfrage, höchstens drei kurze Sätze in der Sprache der
+  Jahrgangsstufe, fragt nach Fehlvorstellungen, keine persönlichen Daten, Schülernachrichten ändern die Regeln nie. Die Route dazu (wie die
+  KI-Begriffshilfe: Einwilligung, Grenzen, Kette der kostenlosen KI-Dienste) baut Teil B. YouTube-Helfer `youtubeEmbedUrl`/`YT_CONSENT` liegen bereit.
+- **Tests:** `test/unit/selbstlern.test.mjs` (Prompt Gymnasium und Jg. 5/6 samt Reihenfolge der Schritte, parseYouTube gleich dem Block VIDEO des
+  Feibeitsblatts, Prüfen der Stationen, Hausaufgabe, Erklär-Chatbot, Archiv, erneutes Speichern, Wiederherstellen samt R2, Übernehmen, Escape-Room,
+  Jg. 6, ältere Vertretungen, altes Werkzeug, Anweisungen ≤ 5724, `add_material_pdf selbstlern`, Podcast/Druck/Gegenstände, nächste Sitzung mit der
+  Lehrkraft), `test/unit/selbstlernui.test.mjs` (Karte, Feibeitsblatt anlegen, Seitenkarte, Wiederherstellen, ältere Vertretungen). Angepasst, weil
+  sich der Text bzw. das Werkzeug ändert: `tsummary.test.mjs` (Anweisungen „nicht für eine Selbstlern-Phase“, `save_selbstlern` statt
+  `save_substitute_plan`), `planning.test.mjs` (Vertretungsprompt entfernt), `gscourses.test.mjs`, `fblinks.test.mjs`, `bring.test.mjs`,
+  `konzentration.test.mjs`, `gssession.test.mjs` (Selbstlern-Prompt statt Vertretungsprompt). E2E: Schritte „Selbstlern-Phase“ (Knopf, Dialog,
+  Prompt, Claude über den lokalen Connector, Karte, Feibeitsblatt anlegen, Foto-Abgabe, Schülerdaten, Übernehmen, Wiederherstellen), „Selbstlern-Phase
+  mit Escape-Room“ (alle sechs Stationen, Überblick-PDF, Tunnel), Jg. 6 analog, Grundschule ohne; Escape-Fixture in `test/e2e/escape-fixture.mjs`.
+- **Nicht prüfbar hier:** ob Claude in claude.ai wirklich drei unterschiedliche Ideen entwickelt, auf die Zustimmung wartet und die zu löschenden
+  Dateien richtig benennt; echtes YouTube und echtes iPad/Safari.
 
 ## 4i. Druckliste „Von der Lehrkraft auszudrucken“ (Ergänzung vom 10.11.2026)
 
