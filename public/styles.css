@@ -1193,9 +1193,9 @@ img.sub-photo { max-width: 100%; max-height: 60vh; border-radius: 12px; border: 
 .pn-empty, .pn-err { margin: .5rem 0 0; }
 .pn-group { border-top: 1px solid color-mix(in srgb, var(--orange) 30%, var(--line)); margin-top: .75rem; padding-top: .6rem; }
 .pn-gh { display: flex; align-items: center; justify-content: space-between; gap: .3rem .8rem; flex-wrap: wrap; }
-.pn-gh h3 { margin: 0; font-size: 1.02rem; min-width: 0; flex: 1 1 16rem; }
-.pn-gh h3 a { color: var(--text); text-decoration: none; display: block; padding: .6rem 0; line-height: 1.45; min-height: 44px; }   /* ganze Zeile als Ziel (≥ 44 px), der Titel bricht im Fließtext um */
-.pn-gh h3 a:hover .pn-t, .pn-gh h3 a:focus-visible .pn-t { text-decoration: underline; }
+.pn-gh :is(h3, h4) { margin: 0; font-size: 1.02rem; min-width: 0; flex: 1 1 16rem; }   /* h4 in einem Tagesabschnitt (Nachtrag 33) */
+.pn-gh :is(h3, h4) a { color: var(--text); text-decoration: none; display: block; padding: .6rem 0; line-height: 1.45; min-height: 44px; }   /* ganze Zeile als Ziel (≥ 44 px), der Titel bricht im Fließtext um */
+.pn-gh :is(h3, h4) a:hover .pn-t, .pn-gh :is(h3, h4) a:focus-visible .pn-t { text-decoration: underline; }
 .pn-time { font-variant-numeric: tabular-nums; color: var(--muted); font-weight: 700; }
 .pn-gh .ftag { display: inline-block; min-width: 0; padding: .12rem .45rem; font-size: .74rem; vertical-align: .08em; }
 .pn-t { font-weight: 600; overflow-wrap: anywhere; }
@@ -1204,6 +1204,13 @@ img.sub-photo { max-width: 100%; max-height: 60vh; border-radius: 12px; border: 
 .card.printnext .list > .item + .item { border-top-color: color-mix(in srgb, var(--orange) 22%, var(--line)); }
 .pn-none { margin: .8rem 0 0; }
 .pn-hint { margin: .8rem 0 0; }
+/* Nachtrag 33: zeigt das Feld auch heute, gibt es zwei Tagesabschnitte – je Tag eine kräftigere Linie, die Überschrift (h3) und „Alle Dateien herunterladen“
+   daneben (schmal darunter, volle Breite); die Sitzungen darin wie sonst, nur eine Ebene tiefer (h4) */
+.pn-dayg { margin-top: 1.1rem; padding-top: .8rem; border-top: 2px solid var(--orange); }
+.pn-dayg:first-child { margin-top: .7rem; }
+.pn-dhead { display: flex; align-items: center; justify-content: space-between; gap: .5rem 1rem; flex-wrap: wrap; }
+.pn-dh { margin: 0; font-size: 1.14rem; min-width: 0; flex: 1 1 14rem; }
+.pn-dayg .pn-group:first-of-type { margin-top: .5rem; }
 @media (max-width: 560px) { .pn-all { width: 100%; } .pn-ico { width: 42px; height: 42px; } .pn-ico .ico { width: 24px; height: 24px; } }
 
 /* ---------- Für den nächsten Arbeitstag einpacken (printnext.js, Nachtrag 28: direkt unter den Druckaufträgen auf beiden Startseiten) ----------
@@ -1235,6 +1242,11 @@ img.sub-photo { max-width: 100%; max-height: 60vh; border-radius: 12px; border: 
 .pk-place { margin: 0; overflow-wrap: anywhere; }
 .pk-place + .pk-place { margin-top: .4rem; padding-top: .4rem; border-top: 1px solid var(--line); }
 .pk-where { font-weight: 700; color: var(--text); }
+/* Nachtrag 33: Gegenstände für heute und den nächsten Arbeitstag – je Tag eine Überschrift (h3) über seiner Liste */
+.pk-dayg + .pk-dayg { margin-top: .5rem; padding-top: .55rem; border-top: 1px solid color-mix(in srgb, var(--err) 45%, var(--line)); }
+.pk-dh { margin: .75rem 0 0; font-size: 1.06rem; }
+.pk-dayg + .pk-dayg .pk-dh { margin-top: 0; }
+.pk-dayg .pk-list { margin-top: .3rem; }
 @media (max-width: 560px) { .pk-ico { width: 42px; height: 42px; } .pk-ico .ico { width: 24px; height: 24px; } }
 @media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) .card.packnext { --pk-ink: #13213b; } }
 

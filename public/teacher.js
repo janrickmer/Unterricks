@@ -307,7 +307,7 @@ async function subjectsPage() {
   render(teacherBar("lessons"), main, teacherFoot());
   // Wochenkalender ganz oben: lädt eigenständig (ein Fehler dort verhindert die Fächer nicht)
   const week = weekCard(() => tapi("GET", "/api/teacher/schedule"));
-  // darüber das Feld „Druckaufträge für den nächsten Arbeitstag“ (beide Schulformen; lädt ebenso eigenständig)
+  // darüber das Feld „Druckaufträge“ (nächster Arbeitstag und – Nachtrag 33 – heute bis zum Ende der jeweiligen Sitzung; beide Schulformen; lädt ebenso eigenständig)
   const { card: prints, pack } = printNextCards();   // direkt darunter der rote Kasten „Für den nächsten Arbeitstag einpacken“ (Nachtrag 28)
   // direkt unter dem Wochenkalender: „Podcast für den kommenden Unterricht entwickeln“ bzw. der Player (Nachtrag 22, beide Schulformen)
   const podcast = podcastCard();

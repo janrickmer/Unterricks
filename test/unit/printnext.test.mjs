@@ -257,3 +257,231 @@ test("Nachtrag 32: dasselbe Arbeitsblatt für zwei Klassen desselben Jahrgangs (
   D.userClick(button(card, "Alle Dateien herunterladen")); await until(() => /^Fertig/.test(status.textContent), "Abschlussmeldung");
   assert.deepEqual(rec.blobs.map((x) => x[1]), ["28x - sw - beidseitig - PoWi8 - Arbeitsblatt.pdf", "28x - sw - beidseitig - PoWi8 - Arbeitsblatt (2).pdf"], "eindeutig wie in der ZIP-Datei (uniqueNames)");
 });
+
+/* ---------- Nachtrag 33: heute bis zum Ende der jeweiligen Sitzung, daneben der nächste Arbeitstag ---------- */
+// Uhr und Zeitgeber der Seite in der Hand des Tests; der Server (nachgebildet) entscheidet mit seiner Uhr, was noch läuft
+const M0 = Date.UTC(2026, 10, 16, 7, 0);   // Montag, 16.11.2026, 8:00 in Berlin
+const at = (hh, mm = 0) => Date.UTC(2026, 10, 16, hh - 1, mm);
+const tf = (n, name, course) => pfile(n, name, { printName: "2x - sw - beidseitig - " + course + " - " + name.replace(/\.pdf$/, "") + ".pdf", print: { copies: 2, duplex: true, color: false } });
+const S9 = () => ({ id: id("d1"), subject: "powi", klass: "8A", title: "Erste", date: "2026-11-16", startTime: "09:00", durationMin: 45, endsAt: at(9, 45), school: "gym", label: "PoWi 8A", subtitle: "Politik und Wirtschaft · 8A", printCourse: "PoWi8",
+  files: [tf(21, "AB Erste.pdf", "PoWi8")], bring: [{ item: "Beutel", note: "Im Einstieg der 8A." }] });
+const S11 = () => ({ id: id("d2"), subject: "ethik", klass: "7B", title: "Zweite", date: "2026-11-16", startTime: "11:00", durationMin: 45, endsAt: at(11, 45), school: "gym", label: "Ethik 7B", subtitle: "Ethik · 7B", printCourse: "Eth7",
+  files: [tf(22, "AB Zweite.pdf", "Eth7")] });
+const TUE = () => ({ id: id("d3"), subject: "powi", klass: "9D", title: "Dienstag", date: "2026-11-17", startTime: "08:00", school: "gym", label: "PoWi 9D", subtitle: "Politik und Wirtschaft · 9D", printCourse: "PoWi9",
+  files: [tf(23, "AB Dienstag.pdf", "PoWi9"), tf(24, "Folie Dienstag.pdf", "PoWi9")], bring: [{ item: "Beutel", note: "Für die Lose der 9D." }] });
+// Antwort des Servers zur Zeit now (wie routePrintNext: vorbei = Ende ≤ now; refreshAt = nächstes Ende, spätestens Mitternacht)
+function server(now, todays = [S9(), S11()], next = [TUE()]) {
+  const keep = todays.filter((s) => s.endsAt === null || s.endsAt > now);
+  const refreshAt = Math.min(Date.UTC(2026, 10, 16, 23, 0), ...keep.filter((s) => s.endsAt).map((s) => s.endsAt));
+  return { ok: true, today: "2026-11-16", candidate: "2026-11-17", date: "2026-11-17", sessions: next, now, refreshAt, todaySessions: keep };
+}
+let clock, timers;
+function clockPage(getNow, more = []) {
+  clock = M0; timers = [];
+  const p = page([[/^GET \/api\/teacher\/print-next$/, () => server(getNow ? getNow() : clock)], link, lessonText, ...more]);
+  return p;
+}
+const installClock = () => Object.assign(PN.io, { now: () => clock, timer: (fn, ms) => { const t = { fn, ms, due: clock + ms }; timers.push(t); return t; }, untimer: (t) => { t.off = true; } });
+const live = () => timers.filter((t) => !t.off && !t.fired);
+async function fireTimers() { for (const t of live()) if (t.due <= clock) { t.fired = true; t.fn(); } await D.sleep(10); }
+
+test("Nachtrag 33 – Texte: Titel, Tagesüberschriften, Zeile mit heute, Wartezeit bis zum Neuladen (relativ zur Uhr des Servers, nie eine Schleife)", () => {
+  assert.equal(PN.PN_TITLE, "Druckaufträge für den nächsten Arbeitstag");
+  assert.equal(PN.PN_TITLE_TODAY, "Druckaufträge für heute und den nächsten Arbeitstag");
+  assert.equal(PN.dayHead("2026-11-16", "2026-11-16"), "Heute, Montag, 16.11.2026");
+  assert.equal(PN.dayHead("2026-11-17", "2026-11-16"), "Morgen, Dienstag, 17.11.2026");
+  assert.equal(PN.dayHead("2026-11-23", "2026-11-20"), "Montag, 23.11.2026");
+  assert.equal(PN.dayTextToday({ today: "2026-11-16", candidate: "2026-11-17", date: "2026-11-17" }), "Heute bis zum Ende der jeweiligen Sitzung, dazu für morgen, Dienstag, 17.11.2026");
+  assert.equal(PN.dayTextToday({ today: "2026-11-16", candidate: "2026-11-17", date: "2026-11-18", freeDays: [{ from: "2026-11-17", to: "2026-11-17", label: "Studientag", scope: "both" }] }),
+    "Heute bis zum Ende der jeweiligen Sitzung. Am Dienstag, 17.11.2026, ist unterrichtsfrei (Studientag, beide Schulen) – deshalb die Druckaufträge für Mittwoch, 18.11.2026.");
+  assert.equal(PN.dayTextToday({ today: "2026-11-16", candidate: "2026-11-17", date: null }), "Heute bis zum Ende der jeweiligen Sitzung; danach ist in den nächsten Wochen kein Unterricht geplant.");
+  const m = PN.REFRESH_MARGIN_MS;
+  assert.equal(PN.refreshWait({ now: at(8), refreshAt: at(9, 45) }, 0), 105 * 60e3 + m, "relativ zur Uhr des Servers – die Uhr des Geräts zählt nicht");
+  assert.equal(PN.refreshWait({ now: at(9, 45), refreshAt: at(9, 45) }, 0), 30e3 + m, "schon vorbei: 30 s, keine Schleife");
+  assert.equal(PN.refreshWait({ now: 0, refreshAt: 400 * 3600e3 }, 0), 25 * 3600e3 + m, "höchstens 25 Stunden");
+  assert.equal(PN.refreshWait({ ok: true }, at(23, 30)), 30 * 60e3 + m, "älterer Server ohne refreshAt: bis Mitternacht in Berlin");
+});
+
+test("Nachtrag 33 – 8:00: zwei Tagesabschnitte (heute mit beiden Stunden, morgen), Sitzungen eine Ebene tiefer, je Tag „Alle Dateien herunterladen“ nur mit seinen Dateien", async () => {
+  installClock();
+  const card = await clockPage();
+  assert.equal($("#pn-h", card).textContent, "Druckaufträge für heute und den nächsten Arbeitstag");
+  assert.equal($("#pn-day", card).textContent, "Heute bis zum Ende der jeweiligen Sitzung, dazu für morgen, Dienstag, 17.11.2026");
+  const days = $$(".pn-dayg", card);
+  assert.deepEqual(days.map((d) => [d.dataset.day, $("h3", d).textContent, d.getAttribute("aria-labelledby") === $("h3", d).id]),
+    [["2026-11-16", "Heute, Montag, 16.11.2026", true], ["2026-11-17", "Morgen, Dienstag, 17.11.2026", true]]);
+  assert.deepEqual(days.map((d) => $$(".pn-group h4", d).map((x) => x.textContent)), [["09:00–09:45 PoWi 8A – Erste", "11:00–11:45 Ethik 7B – Zweite"], ["08:00 PoWi 9D – Dienstag"]],
+    "heute mit dem geplanten Ende (dann verschwindet sie), Sitzungen als h4 unter dem Tag");
+  assert.equal($$(".pn-group h3", card).length, 0);
+  // Kopf ohne eigenen Knopf; je Tag ein Knopf (sichtbarer Text im Namen – WCAG 2.5.3) und eine Statuszeile
+  assert.ok($(".pn-head .pn-all", card).classList.contains("hidden") && !("day" in $(".pn-head .pn-all", card).dataset));
+  const btns = days.map((d) => $("button.pn-all", d));
+  assert.deepEqual(btns.map((b) => [b.textContent.trim(), b.getAttribute("aria-label"), b.dataset.day, b.getAttribute("aria-describedby")]),
+    [["Alle Dateien herunterladen", "Alle Dateien herunterladen – Heute, Montag, 16.11.2026", "2026-11-16", "pn-all-h"], ["Alle Dateien herunterladen", "Alle Dateien herunterladen – Morgen, Dienstag, 17.11.2026", "2026-11-17", "pn-all-h"]]);
+  assert.match($("#pn-all-h", card).textContent, /jede Datei des jeweiligen Tages einzeln \(keine ZIP-Datei\)/);
+  PN.io.sleep = async () => {};
+  D.userClick(btns[0]);
+  const st0 = $(".pn-status", days[0]);
+  await until(() => /^Fertig/.test(st0.textContent), "heute fertig");
+  assert.deepEqual(rec.blobs.map((x) => x[1]), ["2x - sw - beidseitig - PoWi8 - AB Erste.pdf", "2x - sw - beidseitig - Eth7 - AB Zweite.pdf"], "nur die Dateien von heute");
+  assert.equal(st0.getAttribute("role"), "status"); assert.equal($(".pn-status", days[1]).textContent, "");
+  rec.blobs = [];
+  D.userClick(btns[1]); await until(() => /^Fertig/.test($(".pn-status", days[1]).textContent), "morgen fertig");
+  assert.deepEqual(rec.blobs.map((x) => x[1]), ["2x - sw - beidseitig - PoWi9 - AB Dienstag.pdf", "2x - sw - beidseitig - PoWi9 - Folie Dienstag.pdf"]);
+  assert.equal($(".pn-status", days[1]).textContent, "Fertig: Alle 2 Dateien sind einzeln heruntergeladen.");
+  assert.equal(document.activeElement, btns[1], "Fokus bleibt auf dem Knopf");
+  // Zeitgeber bis zum ersten Ende (relativ zur Uhr des Servers, mit Sicherheitsabstand)
+  assert.deepEqual(live().map((t) => t.ms), [105 * 60e3 + PN.REFRESH_MARGIN_MS]);
+  assert.equal(globalThis.__domErrors.length, 0, globalThis.__domErrors.join("\n"));
+});
+
+test("Nachtrag 33 – live: endet eine Sitzung, verschwinden ihre Einträge ohne Neuladen der Seite; übrige Zeilen bleiben dieselben Elemente, der Fokus bleibt bzw. geht an die Überschrift", async () => {
+  installClock();
+  const card = await clockPage();
+  const tueRows = $$(".pn-dayg", card)[1].querySelectorAll(".pn-row"), keepRow = $$(".pn-group", card)[1];
+  // Fokus auf „Herunterladen“ einer Datei von morgen
+  const tueBtn = tueRows[1].querySelector("button");
+  tueBtn.focus();
+  const n0 = rec.calls.filter((c) => c === "GET /api/teacher/print-next").length;
+  clock = at(9, 45) + PN.REFRESH_MARGIN_MS;
+  await fireTimers();
+  assert.equal(rec.calls.filter((c) => c === "GET /api/teacher/print-next").length, n0 + 1, "zum Ende der ersten Stunde neu geladen");
+  assert.deepEqual($$(".pn-dayg", card)[0].querySelectorAll(".pn-group h4").map((x) => x.textContent), ["11:00–11:45 Ethik 7B – Zweite"], "9:00-Stunde weg");
+  assert.equal($$(".pn-group", card)[0], keepRow, "die Gruppe der 11:00-Stunde ist dasselbe Element");
+  assert.ok($$(".pn-dayg", card)[1].querySelectorAll(".pn-row")[1] === tueRows[1], "Zeilen von morgen nicht neu aufgebaut");
+  assert.equal(document.activeElement, tueBtn, "Fokus bleibt – " + desc(document.activeElement));
+  assert.deepEqual(live().map((t) => t.due), [at(11, 45) + PN.REFRESH_MARGIN_MS], "nächster Zeitgeber bis 11:45 (Uhr des Servers beim Laden + Sicherheitsabstand)");
+  // Fokus in der Zeile der 11:00-Stunde, dann endet sie: Fokus an die Überschrift des Feldes; nur noch morgen (Titel wie bisher, Sitzungen wieder h3)
+  const lastBtn = $$(".pn-dayg", card)[0].querySelector(".pn-row button");
+  lastBtn.focus();
+  clock = at(11, 45) + 2 * PN.REFRESH_MARGIN_MS;
+  await fireTimers();
+  assert.equal($$(".pn-dayg", card).length, 0);
+  assert.equal($("#pn-h", card).textContent, "Druckaufträge für den nächsten Arbeitstag");
+  assert.equal($("#pn-day", card).textContent, "für morgen, Dienstag, 17.11.2026");
+  assert.deepEqual($$(".pn-group h3", card).map((x) => x.textContent), ["08:00 PoWi 9D – Dienstag"]);
+  assert.equal($$(".pn-row", card)[1], tueRows[1], "Zeilen von morgen bleiben dieselben Elemente (nur umgehängt)");
+  assert.equal(document.activeElement, $("#pn-h", card), "Fokus war im verschwundenen Eintrag → Überschrift – " + desc(document.activeElement));
+  assert.ok(!$(".pn-head .pn-all", card).classList.contains("hidden") && $(".pn-head .pn-all", card).dataset.day === "2026-11-17", "Knopf wieder im Kopf");
+  assert.equal(globalThis.__domErrors.length, 0, globalThis.__domErrors.join("\n"));
+});
+
+test("Nachtrag 33 – live: wechselt der Aufbau (letzte Stunde von heute vorbei), behält ein Knopf von morgen den Fokus; nach dem Ruhezustand prüft Tab-Wechsel bzw. Fokus nach", async () => {
+  installClock();
+  let card = await clockPage();
+  const tueBtn = $$(".pn-dayg", card)[1].querySelector(".pn-row button");
+  tueBtn.focus();
+  // Ruhezustand: der Zeitgeber feuert nicht, die Uhr springt auf 12:00 – beim Zurückkehren (visibilitychange) wird nachgesehen
+  clock = at(12, 0);
+  D.fire(document, "visibilitychange"); await D.sleep(10);
+  assert.equal($$(".pn-dayg", card).length, 0, "nur noch morgen");
+  assert.equal(document.activeElement, tueBtn, "derselbe Knopf behält den Fokus – " + desc(document.activeElement));
+  // noch nicht so weit: Fokus des Fensters lädt nicht neu
+  card = await clockPage();
+  const n0 = rec.calls.length;
+  D.fire(window, "focus"); await D.sleep(5);
+  assert.equal(rec.calls.length, n0, "vor dem nächsten Ende kein Neuladen");
+  clock = at(10, 0);
+  D.fire(window, "focus"); await D.sleep(10);
+  assert.deepEqual($$(".pn-dayg", card)[0].querySelectorAll(".pn-group h4").map((x) => x.textContent), ["11:00–11:45 Ethik 7B – Zweite"], "Fokus des Fensters nach dem Ende: neu geladen");
+  // nach dem Verlassen der Seite: kein Zeitgeber, keine Zuhörer mehr
+  globalThis.__leave();
+  assert.equal(live().length, 0);
+  const n1 = rec.calls.length;
+  clock = at(13, 0); D.fire(window, "focus"); D.fire(document, "visibilitychange"); await D.sleep(5);
+  assert.equal(rec.calls.length, n1);
+});
+
+test("Nachtrag 33 – live: während ein Download läuft, wartet das Neuladen; danach verschwindet die Sitzung", async () => {
+  installClock();
+  let release;
+  const gate = new Promise((r) => { release = r; });
+  const card = await clockPage(null, []);
+  // Einzel-Download der 9:00-Stunde hängt (Link vom Server kommt erst später)
+  globalThis.__tapi = ((orig) => async (m, p, o) => { if (m === "POST" && /files\/a+21\/link$/.test(p)) { await gate; } return orig(m, p, o); })(globalThis.__tapi);
+  const b = $$(".pn-dayg", card)[0].querySelector(".pn-row button");
+  D.userClick(b); await D.sleep(5);
+  assert.equal(b.getAttribute("aria-busy"), "true");
+  const n0 = rec.calls.filter((c) => c === "GET /api/teacher/print-next").length;
+  clock = at(9, 46); await fireTimers();
+  assert.equal(rec.calls.filter((c) => c === "GET /api/teacher/print-next").length, n0, "kein Neuladen unter dem laufenden Download");
+  assert.ok(b.isConnected);
+  release(); await until(() => rec.calls.filter((c) => c === "GET /api/teacher/print-next").length === n0 + 1, "gleich danach neu geladen");
+  await D.sleep(10);
+  assert.ok(!b.isConnected && $$(".pn-dayg", card)[0].querySelectorAll(".pn-group").length === 1, "danach ist die Stunde weg");
+  assert.equal(rec.urls.length, 1, "der Download kam trotzdem an");
+});
+
+test("Nachtrag 33 – roter Kasten: Gegenstände für heute (noch laufende Sitzungen) und morgen, je Tag beschriftet; folgt dem Ende der Sitzungen", async () => {
+  installClock();
+  if (globalThis.__leave) globalThis.__leave();
+  resetPrintQueue();
+  clock = M0; timers = [];
+  globalThis.__tapi = async (m, p) => { if (m + " " + p === "GET /api/teacher/print-next") return server(clock); throw new ApiError("nicht nachgebildet", 404, {}); };
+  const app = document.getElementById("app"); while (app.firstChild) app.firstChild.remove();
+  const { card, pack } = PN.printNextCards();
+  app.append(card, pack); await D.sleep(5);
+  assert.equal($("#pk-h", pack).textContent, "Für heute und den nächsten Arbeitstag einpacken");
+  assert.equal($("#pk-day", pack).textContent, "Heute bis zum Ende der jeweiligen Sitzung, dazu für morgen, Dienstag, 17.11.2026");
+  const groups = $$(".pk-dayg", pack);
+  assert.deepEqual(groups.map((g) => [g.dataset.day, $("h3", g).textContent, $$("button.pk-item", g).map((b) => b.textContent)]),
+    [["2026-11-16", "Heute, Montag, 16.11.2026", ["Beutel"]], ["2026-11-17", "Morgen, Dienstag, 17.11.2026", ["Beutel"]]], "derselbe Gegenstand an zwei Tagen: je Tag ein Stichpunkt");
+  const tueItem = $("button.pk-item", groups[1]);
+  D.userClick(tueItem);
+  assert.equal(tueItem.getAttribute("aria-expanded"), "true");
+  assert.equal(document.getElementById(tueItem.getAttribute("aria-controls")).textContent, "PoWi 9D, 08:00 Uhr: Für die Lose der 9D.");
+  // 9:45: die 9:00-Stunde ist vorbei – heute ohne Gegenstände: nur noch morgen, wie bisher; der aufgeklappte Stichpunkt bleibt dasselbe Element mit dem Fokus
+  clock = at(9, 50); await fireTimers();
+  assert.equal($("#pk-h", pack).textContent, "Für den nächsten Arbeitstag einpacken");
+  assert.equal($("#pk-day", pack).textContent, "für morgen, Dienstag, 17.11.2026");
+  assert.equal($$(".pk-dayg", pack).length, 0);
+  assert.deepEqual($$("button.pk-item", pack), [tueItem]);
+  assert.equal(tueItem.getAttribute("aria-expanded"), "true", "bleibt aufgeklappt");
+  assert.equal(document.activeElement, tueItem, "Fokus bleibt – " + desc(document.activeElement));
+  // nur heute Gegenstände: „Für heute einpacken“
+  clock = M0;
+  const only = PN.packHead(PN.packDays({ ...server(M0), sessions: [] }), server(M0));
+  assert.deepEqual(only, { title: "Für heute einpacken", day: "für heute, Montag, 16.11.2026 – bis zum Ende der jeweiligen Sitzung" });
+  assert.equal(globalThis.__domErrors.length, 0, globalThis.__domErrors.join("\n"));
+});
+
+test("Nachtrag 33 – heute ohne Druckaufträge (nur Gegenstände bzw. Sitzungen ohne Dateien): das Feld zeigt wie bisher nur den nächsten Arbeitstag; ältere Antwort ohne todaySessions ebenso", async () => {
+  installClock();
+  const noFiles = () => { const s = S9(); s.files = []; return s; };
+  clock = M0; timers = [];
+  let card = await page([[/^GET \/api\/teacher\/print-next$/, () => server(M0, [noFiles()])], link]);
+  assert.equal($("#pn-h", card).textContent, "Druckaufträge für den nächsten Arbeitstag");
+  assert.equal($("#pn-day", card).textContent, "für morgen, Dienstag, 17.11.2026");
+  assert.equal($$(".pn-dayg", card).length, 0);
+  assert.deepEqual($$(".pn-group h3", card).map((x) => x.textContent), ["08:00 PoWi 9D – Dienstag"]);
+  const old = server(M0); delete old.todaySessions; delete old.now; delete old.refreshAt;
+  card = await page([[/^GET \/api\/teacher\/print-next$/, () => old], link]);
+  assert.equal($$(".pn-dayg", card).length, 0);
+  assert.equal($("#pn-h", card).textContent, "Druckaufträge für den nächsten Arbeitstag");
+});
+
+// Prüfbefund im echten Browser: die Startseite hängt das Feld erst ein, nachdem es geladen hat – gemerkte Abschnitte dürfen dann nicht als „weg“ gelten,
+// und ein frühes „pageshow“ (beim ersten Laden) darf weder Zeitgeber noch Zuhörer abräumen
+test("Nachtrag 33 – das Feld hängt erst nach dem Laden im Dokument (wie auf der Startseite): Tagesabschnitte, Knöpfe und Zeitgeber bleiben, ein frühes „pageshow“ räumt nichts ab", async () => {
+  installClock();
+  if (globalThis.__leave) globalThis.__leave();
+  resetPrintQueue();
+  clock = M0; timers = [];
+  rec = { calls: [], urls: [], blobs: [], sleeps: 0 };
+  globalThis.__tapi = async (m, p, o = {}) => { rec.calls.push(m + " " + p); if (m + " " + p === "GET /api/teacher/print-next") return server(clock); const x = link[0].exec(m + " " + p); if (x) return link[1](x, o.body || {}); throw new ApiError("nicht nachgebildet", 404, {}); };
+  Object.assign(PN.io, { url: (u, n) => rec.urls.push([u, n]), blob: (b, n) => rec.blobs.push([b, n]), sleep: async () => {}, fetch: async (u) => ({ ok: true, status: 200, arrayBuffer: async () => new TextEncoder().encode("%PDF-1.7 " + u).buffer }) });
+  const app = document.getElementById("app");
+  app.replaceChildren();
+  const { card, pack } = PN.printNextCards();
+  await D.sleep(10);   // geladen und aufgebaut, aber noch nicht eingehängt
+  D.fire(window, "pageshow"); D.fire(document, "visibilitychange");
+  app.append(card, pack);
+  assert.equal(live().length, 1, "Zeitgeber bis zum ersten Ende steht");
+  const b = $$(".pn-dayg", card)[0].querySelector("button.pn-all");
+  D.userClick(b);
+  await until(() => /^Fertig/.test($$(".pn-dayg", card)[0].querySelector(".pn-status").textContent), "heute heruntergeladen");
+  assert.equal(rec.blobs.length, 2);
+  const keep = $$(".pn-group", card)[1];
+  clock = at(9, 46); await fireTimers();
+  assert.equal($$(".pn-group", card)[0], keep, "die 11:00-Gruppe bleibt dasselbe Element (gemerkt, obwohl beim ersten Aufbau nicht im Dokument)");
+});

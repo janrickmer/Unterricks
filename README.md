@@ -200,6 +200,20 @@ gleich in `public/_headers`, im Worker und – für GitHub Pages – in `scripts
   8B), bekommt die zweite beim Herunterladen „ (2)“ – wie in der ZIP-Datei, damit nichts überschrieben wird. Von Claude gestaltete Vorlagen, die noch als PDF gedruckt werden, kommen
   erst danach dazu und werden genannt. Anzahl, Druckart und Namen ändern Sie in der Sitzung („In der Sitzung bearbeiten“ springt zu
   deren Druckliste); das Feld selbst ist nur eine Übersicht.
+* **Druckaufträge bis zum Ende der jeweiligen Sitzung (seit dem 16.11.2026):** Die Druckaufträge einer Sitzung bleiben im Feld, bis
+  die Sitzung wirklich vorbei ist – geplantes Ende = Startzeit der Sitzung (aus dem Stundenplan ihrer Einheit bzw. von Hand in der Sitzung
+  geändert) plus ihre Dauer; eine Sitzung ohne Uhrzeit bleibt bis zum Ende des Tages. Morgens stehen deshalb oft zwei Tage im Feld, z. B. um
+  8:00 Uhr an einem Montag mit Stunden um 9:00 und 11:00: **„Heute, Montag, 16.11.2026“** mit beiden Stunden und **„Morgen, Dienstag,
+  17.11.2026“**; der Titel heißt dann „Druckaufträge für heute und den nächsten Arbeitstag“, bei den Stunden von heute steht auch das Ende
+  („09:00–09:45“). Jede Stunde verschwindet einzeln, sobald sie vorbei ist (um 9:50 Uhr steht unter „Heute“ nur noch die 11:00-Stunde), nach der
+  letzten Stunde des Tages nur noch der nächste Arbeitstag – wie bisher. Das geschieht auch, wenn die Startseite offen bleibt: Unterricks lädt
+  das Feld zum Ende der Stunde von selbst neu (die Uhr des Servers entscheidet), ohne die Seite neu zu laden; eine Zeile, in der Sie gerade
+  eine Datei herunterladen, bleibt bis zum Ende des Downloads stehen, und der Tastaturfokus bleibt, wo er war. Den nächsten Arbeitstag bestimmt
+  Unterricks wie bisher (unterrichtsfreie Tage, Ausfall-Einträge zählen nie). Hat heute keine der noch anstehenden Stunden Druckaufträge,
+  sieht das Feld aus wie bisher. **„Alle Dateien herunterladen“** gibt es dann **je Tag** (unter „Heute“ nur die Dateien von heute, unter
+  dem nächsten Arbeitstag nur dessen Dateien) – weiterhin einzeln, keine ZIP-Datei, mit den Druck-Namen und den Bildkarten wie oben. Der rote
+  Kasten folgt derselben Regel: Gegenstände für die heute noch anstehenden Stunden und für den nächsten Arbeitstag, je Tag beschriftet
+  („Für heute und den nächsten Arbeitstag einpacken“).
 * **Für den nächsten Arbeitstag einpacken:** Braucht eine Sitzung desselben Tages etwas, das Sie von zu Hause oder aus dem Lehrerzimmer
   mitbringen müssen (z. B. eine Bibel oder einen Beutel), steht direkt unter den Druckaufträgen ein **roter Kasten** mit diesen Gegenständen
   als Stichpunkte – für beide Schulformen, für denselben Tag wie die Druckaufträge (auch mit unterrichtsfreien Tagen; Ausfall-Einträge zählen

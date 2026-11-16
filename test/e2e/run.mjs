@@ -19,6 +19,7 @@ import { CONC_HTML, CONC_HTML_LONG } from "./konzentration.mjs";
 import { bringE2E } from "./bring.mjs";
 import { cardsPrintE2E } from "./cardsprint.mjs";
 import { printNamesE2E } from "./printnames.mjs";
+import { printTodayE2E } from "./printtoday.mjs";
 import { storageE2E } from "./storage.mjs";
 import { selbstlernStopE2E } from "./selbstlernstop.mjs";
 import { escapeFixture } from "./escape-fixture.mjs";
@@ -3128,10 +3129,15 @@ async function main() {
       await tp.goto(BASE + "/#/lk");
       const card = tp.locator(".printnext"), gymG = card.locator(".pn-group", { has: tp.locator('a[href="#/lk/s/' + gymL + '"]') }), gsG = card.locator(".pn-group", { has: tp.locator('a[href="#/lk/s/' + gsL + '"]') });
       await gymG.waitFor({ timeout: 15000 });
+      // Nachtrag 33: laufen heute noch Sitzungen mit Druckaufträgen (je nach Uhrzeit des Laufs – z. B. die Sitzungen von heute aus früheren Schritten), zeigt das
+      // Feld zwei Tagesabschnitte; der Satz zum nächsten Arbeitstag steht dann hinter „Heute bis zum Ende der jeweiligen Sitzung, dazu …“, Knopf und Statuszeile des
+      // Tages tragen data-day (eigener Schritt mit fester Lage nach dem Zurücksetzen: printtoday.mjs)
+      const two = await card.locator(".pn-dayg").count() > 0;
       const dayWant = "für " + (daysBetween(now0, cand) === 1 ? "morgen, " : "") + longDay(cand);
-      ok(await printTop() && await card.locator(".pn-ico svg").count() === 1 && (await card.locator("#pn-day").textContent()) === dayWant, "Startseite: Feld ganz oben mit Drucker-Symbol und Tag („" + dayWant + "“)");
+      ok(await printTop() && await card.locator(".pn-ico svg").count() === 1 && (await card.locator("#pn-day").textContent()) === (two ? "Heute bis zum Ende der jeweiligen Sitzung, dazu " : "") + dayWant,
+        "Startseite: Feld ganz oben mit Drucker-Symbol und Tag („" + dayWant + "“" + (two ? ", dazu heute" : "") + ")");
       const gymNames = await gymG.locator(".pn-row .name").allTextContents(), gsNames = await gsG.locator(".pn-row .name").allTextContents();
-      ok((await gymG.locator("h3").textContent()) === "07:50 PoWi 9D – Wählen ab 16?" && (await gsG.locator("h3").textContent()) === "09:40 Grundschule Religion 2ab – Die Schöpfung"
+      ok((await gymG.locator(".pn-gh").locator("h3, h4").textContent()) === "07:50 PoWi 9D – Wählen ab 16?" && (await gsG.locator(".pn-gh").locator("h3, h4").textContent()) === "09:40 Grundschule Religion 2ab – Die Schöpfung"
         && JSON.stringify(gymNames) === JSON.stringify(["27x - sw - einseitig - PoWi9 - Wahlplakat.pdf", "14x - sw - einseitig - PoWi9 - Kaertchen Wahlrecht.pdf"])
         && JSON.stringify(gsNames) === JSON.stringify(["22x - sw - beidseitig - Reli2 - Schoepfung Arbeitsblatt.pdf", "22x - sw - einseitig - Reli2 - Ausmalbild Schoepfung.pdf", CONC_NAME]),
         "je Sitzung eine Gruppe (Beginn, Fach/Klasse bzw. Grundschulkurs, Titel) mit den Druck-Namen: " + gymNames.concat(gsNames).join(" | "));
@@ -3144,11 +3150,11 @@ async function main() {
       // „Alle Dateien herunterladen“: nacheinander je eine Datei, keine ZIP-Datei, Fortschritt in der Statuszeile
       const got = [], onDl = (d) => got.push(d);
       tp.on("download", onDl);
-      const allBtn = card.locator("button.pn-all");   // während des Laufs heißt der Knopf „Lade die Dateien …“
+      const allBtn = card.locator('button.pn-all[data-day="' + cand + '"]'), pnStatus = card.locator('.pn-status[data-day="' + cand + '"]');   // während des Laufs heißt der Knopf „Lade die Dateien …“
       await allBtn.click();
-      await card.locator("#pn-status", { hasText: /^Lade 1 von / }).waitFor({ timeout: 10000 });
+      await pnStatus.filter({ hasText: /^Lade 1 von / }).waitFor({ timeout: 10000 });
       const during = await allBtn.getAttribute("aria-disabled");
-      await card.locator("#pn-status", { hasText: /^Fertig/ }).waitFor({ timeout: 90000 });
+      await pnStatus.filter({ hasText: /^Fertig/ }).waitFor({ timeout: 90000 });
       await tp.waitForTimeout(500);
       tp.off("download", onDl);
       const allNames = got.map((d) => d.suggestedFilename()), heads = await Promise.all(got.map(async (d) => readFileSync(await d.path()).subarray(0, 5).toString()));
@@ -3156,7 +3162,7 @@ async function main() {
       const sameName = (n, want) => n === want || (n === "download" && /[^\x20-\x7e]/.test(want));
       ok(during === "true" && allNames.length === ready.length && allNames.every((n, i) => sameName(n, ready[i])) && ["27x - sw - einseitig - PoWi9 - Wahlplakat.pdf", "14x - sw - einseitig - PoWi9 - Kaertchen Wahlrecht.pdf",
         "22x - sw - beidseitig - Reli2 - Schoepfung Arbeitsblatt.pdf", "22x - sw - einseitig - Reli2 - Ausmalbild Schoepfung.pdf"].every((n) => allNames.includes(n)) && ready.includes(CONC_NAME) && !allNames.some((n) => /\.zip$/i.test(n)) && heads.every((x) => x === "%PDF-")
-        && (await card.locator("#pn-status").textContent()).startsWith("Fertig: Alle " + ready.length + " Dateien sind einzeln heruntergeladen."),
+        && (await pnStatus.textContent()).startsWith("Fertig: Alle " + ready.length + " Dateien sind einzeln heruntergeladen."),
         "„Alle Dateien herunterladen“: " + allNames.length + " einzelne PDF-Dateien nacheinander (keine ZIP-Datei), währenddessen gesperrt (" + during + "), Abschlussmeldung – " + allNames.join(" | "));
       await tp.screenshot({ ...SHOT, path: join(OUT, "druckauftraege-gymnasium.png") });
       await tp.emulateMedia({ colorScheme: "dark" }); await tp.waitForTimeout(200);
@@ -4000,6 +4006,14 @@ async function main() {
         && kept.includes("sowie in der Grundschule Verlaufspläne, Bildkarten und Elternlinks."), "Einstellungen nennen, was bleibt und was gelöscht wird – auch für die Grundschule");
       await tp.goto(BASE + "/#/lk"); await tp.locator("main").first().waitFor();
       ok((await TR("POST", "/api/teacher/reset", { authKey: "x".repeat(43) })).status === 403, "der Server verlangt das Passwort auch selbst (ohne richtiges Passwort kein Zurücksetzen)");
+    }
+
+    /* ---------- Druckaufträge bis zum Ende der jeweiligen Sitzung (Nachtrag 33) – nach dem Zurücksetzen: keine anderen Sitzungen, echte Uhr des Servers ---------- */
+    step("Druckaufträge bis zum Ende der jeweiligen Sitzung (Nachtrag 33): heute und der nächste Arbeitstag je Tag beschriftet, roter Kasten je Tag, „Alle Dateien herunterladen“ je Tag, Einträge verschwinden zum Ende ohne Neuladen, Fokus bleibt");
+    {
+      const tok = await tp.evaluate(() => localStorage.getItem("u.ttoken"));
+      const TP = (method, path, body) => fetch(BASE + path, { method, headers: { Authorization: "Bearer " + tok, ...(body ? { "Content-Type": "application/json" } : {}) }, body: body ? JSON.stringify(body) : undefined }).then(async (r) => ({ status: r.status, data: await r.json().catch(() => null) }));
+      await printTodayE2E({ tp, BASE, T: TP, token: tok, ok, OUT, SHOT, gsId: gsRelId, horizontalIssues });
     }
 
     /* ---------- Unterrichtsfreie Tage (Nachtrag 24) – nach dem Zurücksetzen: eigene Einheiten beider Schulformen, zwei Wochen voraus ---------- */

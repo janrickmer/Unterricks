@@ -159,15 +159,16 @@ test("print-next: Mitternacht in Berlin, Freitag → Montag, freier Tag überspr
   await unit(c, "ethik", "10C", { start: "2027-02-01", end: "2027-03-18", weekdays: MON });
   c.db.counter.n = 0;
   r = await call(c);
-  assert.deepEqual([r.data.date, r.data.sessions], [null, []]);
-  assert.ok(c.db.counter.n <= 6, "ohne Zieltag keine zweite Abfrage: " + c.db.counter.n);
+  assert.deepEqual([r.data.date, r.data.sessions, r.data.todaySessions], [null, [], []]);
+  // Nachtrag 33 (geändert): auch ohne Zieltag fragt der Server die Sitzungen von heute ab – dieselben zwei Anweisungen, höchstens 8 wie mit Zieltag (vorher 6)
+  assert.ok(c.db.counter.n <= 8, "ohne Zieltag: " + c.db.counter.n);
   // der Wochenkalender nimmt dieselben Einheiten (gemeinsame Auswahl scheduleUnit) – PoWi 7A auch dort nicht
   assert.deepEqual((await call(c, routeSchedule, "/api/teacher/schedule")).data.units.map((u) => u.klass), ["10C"]);
 });
 
 // Nachtrag 31 (16.11.2026): Bildkarten mit Druckangaben gehören dazu (vorher ausdrücklich „ohne Bildkarten“ – geändert, weil die Regel sich ändert)
 test("Auswahl der Druckliste: dieselbe Regel wie printFiles() in der Sitzung (Druckliste; Grundschule auch „Auch ausdrucken“ und Bildkarten mit Druckangaben)", () => {
-  assert.match(PRINT_FILES_SQL, /area='print' OR \(print_copies IS NOT NULL AND \(\(area='student' AND cards IS NULL\) OR \(area='teacher' AND cards IS NOT NULL\)\) AND lesson_id IN \(SELECT id FROM lessons WHERE lesson_date=\?1 AND cancelled=0 AND subject='gs'\)\)/);
+  assert.match(PRINT_FILES_SQL, /area='print' OR \(print_copies IS NOT NULL AND \(\(area='student' AND cards IS NULL\) OR \(area='teacher' AND cards IS NOT NULL\)\) AND lesson_id IN \(SELECT id FROM lessons WHERE lesson_date IN \(\?1, \?2\) AND cancelled=0 AND subject='gs'\)\)/);   // Nachtrag 33: zwei Tage (geändert)
   const cols = PRINT_FILES_SQL.slice("SELECT ".length, PRINT_FILES_SQL.indexOf(" FROM files")).split(", ").map((x) => x.trim());
   assert.ok(!cols.includes("text") && !cols.includes("html") && !cols.some((x) => x.includes("substr(")), "weder Text noch Claudes Gestaltung: " + cols.join(", "));
 });
@@ -180,4 +181,95 @@ test("print-next liest nur die Sitzungen des Tages (Index lessons_day) – nie a
     assert.doesNotMatch(p, /SCAN lessons/, p);
     assert.match(p, /lessons_day/, p);
   }
+});
+
+/* ---------- Nachtrag 33 (16.11.2026): heute bis zum Ende der jeweiligen Sitzung, daneben der nächste Arbeitstag ---------- */
+// Montag, 16.11.2026: Sitzungen um 9:00 und 11:00 (je 45 Minuten, mit Druckaufträgen), Dienstag eine Sitzung – Beispiel der Lehrkraft
+async function monday(now) {
+  const c = await ctx(now);
+  const a = await lesson(c, { date: "2026-11-16", time: "09:00", title: "Erste" }), b = await lesson(c, { subject: "ethik", klass: "7B", date: "2026-11-16", time: "11:00", title: "Zweite" });
+  const t = await lesson(c, { date: "2026-11-17", time: "08:00", title: "Dienstag" });
+  for (const [l, n] of [[a, "AB Erste.pdf"], [b, "AB Zweite.pdf"], [t, "AB Dienstag.pdf"]]) await file(c, l, { name: n, copies: 2 });
+  return { c, a, b, t };
+}
+const ids = (xs) => xs.map((s) => s.id);
+test("Nachtrag 33: 8:00 heute beide Sitzungen + Dienstag, 9:50 nur noch 11:00, nach der letzten Stunde nur Dienstag – Ende genau jetzt zählt als vorbei", async () => {
+  let { c, a, b, t } = await monday(berlin(16, 8, 0));
+  c.db.counter.n = 0;
+  let r = await call(c);
+  assert.ok(c.db.counter.n <= 8, "D1-Anweisungen wie bisher: " + c.db.counter.n);
+  assert.deepEqual([r.data.today, r.data.candidate, r.data.date, ids(r.data.sessions)], ["2026-11-16", "2026-11-17", "2026-11-17", [t]], "nächster Arbeitstag unverändert (ältere Seiten lesen nur diese Felder)");
+  assert.deepEqual(ids(r.data.todaySessions), [a, b]);
+  assert.deepEqual(r.data.todaySessions.map((s) => [s.date, s.startTime, s.endsAt, s.files.map((f) => f.printName)]),
+    [["2026-11-16", "09:00", berlin(16, 9, 45), ["2x - sw - beidseitig - PoWi8 - AB Erste.pdf"]], ["2026-11-16", "11:00", berlin(16, 11, 45), ["2x - sw - beidseitig - Eth7 - AB Zweite.pdf"]]]);
+  assert.deepEqual([r.data.now, r.data.refreshAt], [berlin(16, 8, 0), berlin(16, 9, 45)], "neu laden zum Ende der ersten Stunde");
+  assert.ok(!("endsAt" in r.data.sessions[0]), "der nächste Arbeitstag ohne endsAt");
+  // 9:44:59 läuft die erste noch, 9:45:00 (Ende genau jetzt) ist sie vorbei
+  ({ c } = await monday(berlin(16, 9, 44) + 59e3)); r = await call(c);
+  assert.equal(r.data.todaySessions.length, 2);
+  ({ c, a, b, t } = await monday(berlin(16, 9, 45))); r = await call(c);
+  assert.deepEqual([ids(r.data.todaySessions), r.data.refreshAt], [[b], berlin(16, 11, 45)], "Ende genau jetzt: vorbei");
+  ({ c, a, b, t } = await monday(berlin(16, 9, 50))); r = await call(c);
+  assert.deepEqual([ids(r.data.todaySessions), ids(r.data.sessions)], [[b], [t]], "9:50: nur noch 11:00 und Dienstag");
+  ({ c, a, b, t } = await monday(berlin(16, 11, 46))); r = await call(c);
+  assert.deepEqual([r.data.todaySessions, ids(r.data.sessions), r.data.refreshAt], [[], [t], Date.UTC(2026, 10, 16, 23, 0)], "nach der letzten Stunde nur Dienstag; neu laden um Mitternacht in Berlin");
+});
+
+test("Nachtrag 33: ohne Uhrzeit bzw. ohne Dauer bis zum Ende des Tages; Ausfall-Eintrag nie; Selbstlern-Phase ohne Gegenstände; Wochenende nur der nächste Arbeitstag", async () => {
+  const c = await ctx(berlin(16, 23, 59));
+  const noTime = await lesson(c, { subject: "evrel", klass: "9B", date: "2026-11-16", title: "Ohne Uhrzeit" });
+  const noDur = await lesson(c, { date: "2026-11-16", time: "07:00", title: "Ohne Dauer" });
+  await c.db.prepare("UPDATE lessons SET duration_min=NULL WHERE id=?1").bind(noDur).run();
+  const gs = await gsCourse(c);
+  const gone = await lesson(c, { subject: "gs", klass: gs, date: "2026-11-16", time: "23:30", title: "Ausfall", cancelled: 1 });
+  await file(c, gone, { name: "Ausfall.pdf", copies: 1 });
+  const sl = await lesson(c, { subject: "ethik", klass: "6A", date: "2026-11-16", title: "Selbstlern" });
+  await c.db.prepare("UPDATE lessons SET bring=?2 WHERE id=?1").bind(sl, JSON.stringify({ v: 1, rev: 1, items: [{ t: "Bibel", w: "Für Phase 2." }] })).run();
+  await c.db.prepare("INSERT INTO substitutes(lesson_id, status, proposal, created_at, updated_at) VALUES(?1, 'selbstlern', '{}', 1, 1)").bind(sl).run();
+  await file(c, sl, { name: "Laufzettel.pdf", copies: 25 });
+  await c.db.prepare("UPDATE lessons SET bring=?2 WHERE id=?1").bind(noTime, JSON.stringify({ v: 1, rev: 1, items: [{ t: "Beutel", w: "Im Einstieg." }] })).run();
+  const r = await call(c);
+  assert.equal(r.status, 200, JSON.stringify(r.data));
+  assert.deepEqual(ids(r.data.todaySessions).sort(), [noTime, noDur, sl].sort(), "23:59: ohne Uhrzeit/Dauer noch da, Ausfall-Eintrag nie");
+  const by = new Map(r.data.todaySessions.map((s) => [s.id, s]));
+  assert.deepEqual([by.get(noTime).endsAt, by.get(noDur).endsAt], [null, null]);
+  assert.deepEqual(by.get(noTime).bring, [{ item: "Beutel", note: "Im Einstieg." }]);
+  assert.deepEqual([by.get(sl).selbstlern, "bring" in by.get(sl), by.get(sl).files.map((f) => f.name)], [true, false, ["Laufzettel.pdf"]], "Selbstlern-Phase: Ausdrucke bleiben, nichts einpacken");
+  assert.equal(r.data.refreshAt, Date.UTC(2026, 10, 16, 23, 0), "Mitternacht in Berlin");
+  // Samstag ohne Sitzungen: nur der nächste Arbeitstag
+  const w = await ctx(berlin(21, 9, 0));
+  await unit(w, "ethik", "10C", { start: "2026-11-02", end: "2026-12-18", weekdays: MON });
+  const r2 = await call(w);
+  assert.deepEqual([r2.data.today, r2.data.date, r2.data.todaySessions, r2.data.refreshAt], ["2026-11-21", "2026-11-23", [], Date.UTC(2026, 10, 21, 23, 0)]);
+});
+
+test("Nachtrag 33: späte Sitzung 23:30 + 45 Minuten bricht die Datumslogik nicht; unterrichtsfreie Tage verschieben nur den nächsten Arbeitstag; Sommerzeit", async () => {
+  // 23:40: läuft noch (Ende 0:15 am Dienstag); neu geladen wird um Mitternacht
+  let c = await ctx(berlin(16, 23, 40));
+  const late = await lesson(c, { date: "2026-11-16", time: "23:30", title: "Spät" });
+  const tue = await lesson(c, { date: "2026-11-17", time: "08:00", title: "Dienstag" });
+  let r = await call(c);
+  assert.deepEqual([r.data.today, r.data.date, ids(r.data.todaySessions), r.data.todaySessions[0].endsAt, r.data.refreshAt],
+    ["2026-11-16", "2026-11-17", [late], Date.UTC(2026, 10, 16, 23, 15), Date.UTC(2026, 10, 16, 23, 0)]);
+  // 0:05 am Dienstag: heute ist Dienstag (seine Sitzung um 8:00 steht noch bevor), der nächste Arbeitstag Mittwoch – die Montagsstunde gehört nicht mehr dazu
+  c = await ctx(berlin(17, 0, 5));
+  const late2 = await lesson(c, { date: "2026-11-16", time: "23:30", title: "Spät" });
+  const tue2 = await lesson(c, { date: "2026-11-17", time: "08:00", title: "Dienstag" });
+  const wed = await lesson(c, { date: "2026-11-18", time: "08:00", title: "Mittwoch" });
+  r = await call(c);
+  assert.deepEqual([r.data.today, r.data.date, ids(r.data.todaySessions), ids(r.data.sessions), r.data.refreshAt], ["2026-11-17", "2026-11-18", [tue2], [wed], berlin(17, 8, 45)]);
+  assert.ok(!ids(r.data.todaySessions).includes(late2) && tue);
+  // heute und morgen unterrichtsfrei für beide Schulen (Sitzung von heute liegt noch dort – „Nur speichern – Sitzungen bleiben“): heute zählt sie bis zu
+  // ihrem Ende, der nächste Arbeitstag überspringt den freien Dienstag (Grund im Feld freeDays)
+  c = await ctx(berlin(16, 8, 0));
+  await c.db.prepare("INSERT INTO free_days(id, date_from, date_to, label, scope, created_at, updated_at) VALUES('f1', '2026-11-16', '2026-11-17', 'Studientag', 'both', 1, 1)").run();
+  await unit(c, "powi", "8A", { start: "2026-11-02", end: "2026-12-18", weekdays: [{ day: 1, minutes: 45, time: "09:00" }, { day: 2, minutes: 45, time: "09:00" }, { day: 3, minutes: 45, time: "09:00" }] });
+  const stay = await lesson(c, { date: "2026-11-16", time: "09:00", title: "Bleibt" });
+  r = await call(c);
+  assert.deepEqual([r.data.candidate, r.data.date, ids(r.data.todaySessions), r.data.freeDays.map((f) => f.label)], ["2026-11-17", "2026-11-18", [stay], ["Studientag"]]);
+  // Sommerzeit (MESZ): 9:00 + 45 Minuten = 7:45 UTC
+  c = await ctx(Date.UTC(2026, 5, 15, 6, 0));   // Montag, 15.06.2026, 8:00 MESZ
+  const su = await lesson(c, { date: "2026-06-15", time: "09:00", title: "Sommer" });
+  r = await call(c);
+  assert.deepEqual([ids(r.data.todaySessions), r.data.todaySessions[0].endsAt, r.data.refreshAt], [[su], Date.UTC(2026, 5, 15, 7, 45), Date.UTC(2026, 5, 15, 7, 45)]);
 });

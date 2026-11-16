@@ -28,7 +28,7 @@ export async function gsOverviewPage() {
   render(teacherBar("primary"), main, teacherFoot());
   // derselbe Wochenkalender wie auf der Startseite: immer alle Termine beider Schulformen (lädt eigenständig)
   const week = weekCard(() => tapi("GET", "/api/teacher/schedule"));
-  // ganz oben das Feld „Druckaufträge für den nächsten Arbeitstag“ – dasselbe wie auf der Startseite „Gymnasium“ (beide Schulformen)
+  // ganz oben das Feld „Druckaufträge“ (nächster Arbeitstag, dazu heute bis zum Ende der jeweiligen Sitzung) – dasselbe wie auf der Startseite „Gymnasium“ (beide Schulformen)
   const { card: prints, pack } = printNextCards();   // direkt darunter der rote Kasten „Für den nächsten Arbeitstag einpacken“ (Nachtrag 28)
   // direkt unter dem Wochenkalender: derselbe Podcast wie auf der Startseite „Gymnasium“ (Nachtrag 22, beide Schulformen)
   const podcast = podcastCard();

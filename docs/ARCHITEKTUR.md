@@ -76,6 +76,7 @@ implementiert und im End-to-End-Test geprüft (Ausnahmen unten ausdrücklich gen
 | Abschlussprüfung Nr. 27–30 (16.11.2026) | Zusammenspiel geprüft und abgerundet (Abschnitt 4z): `save_selbstlern` gilt als **Planung der Sitzung** (Nachtrag 26 – der Hinweis zum Zwischenstopp der vorigen Stunde verschwindet nach Entscheidung + Umstellung; „Wiederherstellen“ setzt den Stand der ursprünglichen Planung zurück); der **Selbstlern-Prompt** fragt nach dem offenen Teil der vorigen Stunde; `get_lesson` der **nächsten Stunde mit der Lehrkraft** nennt die Selbstlern-Phase(n) davor samt jetzt fälliger Hausaufgabe (und `get_lesson` der Selbstlern-Sitzung ihre Hausaufgabe mit dem aktuellen Termin); die Sitzungsdatei sagt, welche Fassung sie enthält; die Karte „Mitbringen“ einer Selbstlern-Sitzung sagt, warum ihre Gegenstände nicht im roten Kasten stehen; die rechte Spalte der Sitzung (Gymnasium) **klebt nicht mehr** (sonst blieben „Mitbringen“ und der Knopf zur Selbstlern-Phase bis zum Seitenende unsichtbar) |
 | Bildkarten auf der Druckliste (Nachtrag 31 vom 16.11.2026) | Wird in der Grundschule im Sitzkreis eine Geschichte erzählt, gehören die Bildkarten **immer zu den Dateien, die die Lehrkraft für die Sitzung ausdruckt**. Rückfragen beantwortet: Druckeinstellung **„1x - einseitig - farbig“** (Druckliste damals „1x - einseitig - Farbe - <Titel>.pdf“ – die bestehende Schreibweise von `printFileName`; seit Nachtrag 32 „1x - farbig - einseitig - <Kurs> - <Titel>.pdf“) und **„stelle einfach sicher, dass das auch wirklich in den Druckdateien ist. Das hat bisher nicht geklappt.“** (Ursachen und Abhilfe in 4za); **„Ja, abwählbar“** (je Sitzung von der Druckliste nehmen und wieder aufnehmen – Bildkarten und Elternansicht bleiben); **„Ja, immer Bildkarten“** (Claude gestaltet zu jeder Geschichte im Sitzkreis Bildkarten; Prompt und Rückmeldungen des Connectors erinnern daran); **„Nur neue Bildkarten“** (keine Nachrüstung – ältere Bildkarten bleiben herunter, die Lehrkraft kann sie von Hand aufnehmen). Prüfung: Druckdateien enthalten Bildkarten nur in ihrer aktuellen Gestaltung (der Server gibt die alte PDF aus der Druckliste nicht heraus), die ZIP-Datei bzw. „Alle Dateien herunterladen“ holen vorher den Stand vom Server, hochgeladene Bildkarten kommen auf A4. Siehe 4za |
 | Dateinamen der Druckliste (Nachtrag 32 vom 16.11.2026) | Alle Dateien, die die Lehrkraft ausdruckt, heißen **`<n>x - <sw\|farbig> - <einseitig\|beidseitig> - <Kurs> - <Titel>.pdf`**, z. B. „23x - sw - einseitig - Reli4 - Die Arche Noah.pdf“ – **schwarz-weiß/farbig vor einseitig/beidseitig**, **„farbig“ statt „Farbe“**, dazu der **Kurs**: Kurzform des Fachs (Reli, PoWi, Eth) + Jahrgang ohne Leerzeichen. Rückfragen beantwortet: Oberstufe **„PoWiE / PoWiQ3LK“** (E-Phase als „E“, Qualifikationsphase mit Kurshalbjahr und GK/LK, z. B. ReliQ1GK); Farbdruck **„farbig“**; Grundschulkurse mit anderem Fach als Religion **die ersten 4 Buchstaben des Fachnamens** (z. B. „Sach3“), Religion bleibt „Reli“. Der Name entsteht beim Ausliefern – vorhandene Dateien heißen ohne Umstellung so. Siehe 4zb |
+| Druckaufträge bis zum Ende der Sitzung (Nachtrag 33 vom 16.11.2026) | Das Feld „Druckaufträge“ behält die Druckaufträge einer Sitzung, **bis sie wirklich beendet ist**; nach dem Unterricht eines Tages nur noch der nächste Arbeitstag, morgens oft **heute und der nächste Arbeitstag**. Rückfragen beantwortet: **beendet = geplantes Ende erreicht** (Beginn laut Stundenplan + Dauer der Sitzung); Sitzungen **ohne Uhrzeit bis zum Ende des Tages**; **einzeln je Sitzung** (jede verschwindet, sobald sie vorbei ist; daneben der nächste Arbeitstag); der **rote Kasten** (Nachtrag 28) folgt derselben Regel, **je Tag getrennt beschriftet**. Entscheidung „Alle Dateien herunterladen“: **je Tag ein Knopf**, weiterhin einzelne Downloads (Anforderung 14: ausdrücklich keine ZIP-Datei). Siehe 4zc |
 
 ## 2. Gesamtarchitektur
 
@@ -136,7 +137,7 @@ implementiert und im End-to-End-Test geprüft (Ausnahmen unten ausdrücklich gen
 | | `worker/cards.js` | Bildkarten der Grundschule: PDF hochladen (eine Seite = eine Karte), Kartenbilder mit Stand der PDF, Erzähltexte und Freigabe für Eltern, signierte Bilder (`/api/card/…`), von Claude gestaltete Bildkarten; neue Bildkarten mit `CARD_PRINT` auf der Druckliste (4za) |
 | | `public/weekcal.js` | Wochenkalender auf der Startseite der Lehrkraft (Raster bzw. Liste je Tag; unterrichtsfreie Tage als schraffiertes Band) |
 | | `worker/freedays.js`, `public/freedays.js` | Unterrichtsfreie Tage (Nachtrag 24): Liste, Vorschau der betroffenen Sitzungen, Speichern mit Verschieben, Löschen, Prüfung eines Datums; Karte in den Einstellungen mit Rückfrage, siehe 4r |
-| | `worker/printjobs.js`, `public/printnext.js` | Druckaufträge für den nächsten Arbeitstag (`GET /api/teacher/print-next`; Feld ganz oben auf beiden Startseiten) und darunter der rote Kasten „Für den nächsten Arbeitstag einpacken“ (Nachtrag 28), siehe 4n und 4v |
+| | `worker/printjobs.js`, `public/printnext.js` | Druckaufträge für den nächsten Arbeitstag und – Nachtrag 33 – für heute bis zum Ende der jeweiligen Sitzung (`GET /api/teacher/print-next`; Feld ganz oben auf beiden Startseiten, neu geladen zum Ende einer Sitzung) und darunter der rote Kasten „Für den nächsten Arbeitstag einpacken“ (Nachtrag 28), siehe 4n, 4v und 4zc |
 | | `public/bring.js`, `public/bringcard.js` | Gegenstände zum Mitbringen (Nachtrag 28): Prüfung (Länge, höchstens zwei Sätze), Speicherform mit Stand, Zusammenfassen für die Startseite, Bausteine für Prompt und `get_lesson` (Browser und Worker); Karte „Mitbringen“ auf beiden Sitzungsseiten, siehe 4v |
 | | `worker/podcast.js`, `public/podcast.js`, `public/podcastlib.js` | Podcast für den kommenden Unterricht (Nachtrag 22): Grundlage des Tages, Auftrag für Claude in Chrome, Ablage der Audiodatei in R2, Player mit Range-Anfragen, Löschen zwei Tage nach dem Unterricht – Knopf bzw. Player unter dem Wochenkalender beider Startseiten, siehe 4q |
 | | `worker/substitute.js`, `public/selbstlern.js` | Selbstlern-Phase (Nachtrag 29): Speichern mit Archiv (`save_selbstlern`), Wiederherstellen, Übertragen, Schülerdaten, Escape-Room; ältere Vertretungen lesen. `public/selbstlern.js`: Prüfen der Stationen, YouTube, Hausaufgabe, Prompt für Claude, System-Prompt des Erklär-Chatbots (gemeinsam für Browser und Worker) |
@@ -1802,6 +1803,68 @@ anderem Fach die ersten 4 Buchstaben des Fachnamens („Sach3“), Religion blei
   `getFile` eine Anweisung, Kurs geändert, Connector), geänderte Erwartungen in den bestehenden Tests (Namen bewusst neu); E2E `test/e2e/printnames.mjs`
   (Sachunterricht 3c, Gymnasium Ethik 7-K und PoWi EA, ZIP mit zwei gleich benannten Vorlagen, Kurs geändert; Bildschirmfotos `druckliste-namen-*.png`).
 
+## 4zc. Druckaufträge bis zum Ende der jeweiligen Sitzung (Nachtrag der Lehrkraft vom 16.11.2026, Nachtrag 33)
+
+Wortlaut: „Das Feld "Druckaufträge" soll so lange die Druckaufträge beinhalten, bis die jeweilige Unterrichtssitzung auch wirklich beendet ist. Nach dem
+abgeschlossenen Unterricht eines Tages werden also nur noch die Druckaufträge für den nächsten Arbeitstag sichtbar. Um 8:00 Uhr morgens könnte es sein,
+dass die für "heute" und die für den danach folgenden Arbeitstag dort angezeigt werden.“ Rückfragen beantwortet: beendet = geplantes Ende erreicht
+(Beginn laut Stundenplan + Dauer); ohne Uhrzeit bis zum Ende des Tages; einzeln je Sitzung, daneben der nächste Arbeitstag; der rote Kasten folgt
+derselben Regel, je Tag getrennt beschriftet.
+
+* **Ende einer Sitzung** (`lessonEnd` in `worker/printjobs.js`): dieselbe Rechnung wie überall in Unterricks – `lessonTimes` (`public/shared.js`) aus
+  `lessons.lesson_date`, `lessons.start_time` (die „Startzeit der Sitzung“: aus dem Stundenplan ihrer Einheit gespiegelt bzw. in der Sitzung von Hand
+  geändert – dieselbe Zeit, nach der Hausaufgabe und Präsentation freigegeben werden) und `duration_min`, Europe/Berlin samt Sommerzeit. Ohne Uhrzeit
+  oder ohne Dauer gibt es kein Ende: die Sitzung bleibt bis Mitternacht. **Vorbei ist sie genau zum Ende** (`end ≤ now`).
+* **Server entscheidet mit seiner Uhr** (`c.now`): `todayOpen(rows, today, now)` behält die Sitzungen **des heutigen Datums**, deren Ende nach `now`
+  liegt (bzw. ohne Ende), und liefert `refreshAt` = das früheste dieser Enden, spätestens Mitternacht in Berlin (dann wechselt „heute“ und damit auch
+  der nächste Arbeitstag). Eine späte Sitzung (23:30 + 45 Minuten, Ende 0:15) zählt bis Mitternacht zu ihrem Tag – danach fragt der Server nur noch
+  nach dem neuen Datum; die Datumslogik bricht nicht (Unit-Test). Ausfall-Einträge zählen nie (`cancelled = 0`), aktive Vertretung bzw.
+  Selbstlern-Phase wie beim nächsten Arbeitstag: Ausdrucke bleiben (mit Abzeichen „Selbstlern-Phase – Ausdrucke für die Aufsicht“), Gegenstände
+  entfallen. Den nächsten Arbeitstag bestimmt `nextTeachingDay(c, today)` unverändert (auch der Podcast nutzt es unverändert).
+* **D1 – keine zusätzliche Anweisung:** `DAY_SESSIONS_SQL` und `PRINT_FILES_SQL` lesen beide Tage in **denselben zwei Anweisungen**
+  (`lesson_date IN (?1, ?2)`, ?1 = Tag der Druckaufträge, ?2 = heute; Index `lessons_day`), die Aufteilung nach Tag und Ende geschieht im Worker.
+  Weiter höchstens 8 Anweisungen – jetzt auch ohne Tag der Druckaufträge (vorher 6: heute kann es trotzdem Sitzungen geben; Unit-Test).
+* **Antwort, abwärtskompatibel:** die bisherigen Felder unverändert für den nächsten Arbeitstag (`today, candidate, date, sessions, freeDays?`), dazu
+  `todaySessions` (Form wie `sessions`, zusätzlich `endsAt` in ms bzw. `null`), `now` (Uhr des Servers) und `refreshAt`. Ein noch offener Tab des
+  vorigen Stands liest nur die alten Felder und zeigt weiter den nächsten Arbeitstag, bis der versionierte Stand ihn neu lädt (4t).
+* **Oberfläche** (`public/printnext.js`): Der Abschnitt „heute“ erscheint nur, wenn eine der heute noch laufenden Sitzungen Druckaufträge hat
+  (`printDays`); sonst sieht das Feld **genau wie bisher** aus. Mit „heute“: Titel **„Druckaufträge für heute und den nächsten Arbeitstag“**
+  (`PN_TITLE_TODAY` – nie nur „für den nächsten Arbeitstag“, solange heute dabei ist), Zeile darunter „Heute bis zum Ende der jeweiligen Sitzung, dazu
+  für morgen, Dienstag, 17.11.2026“ (`dayTextToday` – dahinter unverändert `dayText`, also auch der Satz zu übersprungenen bzw. unterrichtsfreien Tagen),
+  zwei Tagesabschnitte `section.pn-dayg[data-day]` mit Überschrift (h3) **„Heute, Montag, 16.11.2026“** bzw. **„Morgen, Dienstag, 17.11.2026“**
+  (`dayHead`; nicht morgen: nur der Tag), die Sitzungen darunter eine Ebene tiefer (h4) – bei heute mit Ende („09:00–09:45“). Ohne „heute“ bleiben die
+  Sitzungen h3 direkt im Feld.
+* **„Alle Dateien herunterladen“ je Tag** (Entscheidung): Mit zwei Tagen hat jeder Abschnitt einen eigenen Knopf (sichtbarer Text unverändert, Name
+  „Alle Dateien herunterladen – Heute, Montag, 16.11.2026“, WCAG 2.5.3) und eine eigene Statuszeile (`role="status"`); beide tragen `data-day`. Morgens
+  braucht die Lehrkraft zuerst die Dateien von heute; was morgen gebraucht wird, kann sich bis dahin noch ändern. Weiterhin einzelne Downloads (keine
+  ZIP-Datei – Anforderung 14), Druck-Namen mit Kurs und `uniqueNames` je Tag (4zb), Bildkarten nur mit der PDF ihrer aktuellen Gestaltung
+  (`printReady`), in der Grundschule vorher neu geladen, hochgeladene auf A4 (4za) – derselbe Code wie bisher. Mit einem Tag steht der Knopf wie
+  bisher im Kopf des Feldes (dann mit `data-day` des nächsten Arbeitstags).
+* **Neuladen zum Ende, ohne die Seite neu zu laden:** Nach jedem Laden stellt das Feld einen Zeitgeber auf `refreshAt − now` (relativ zur Uhr des
+  Servers – eine falsch gehende Uhr des Geräts stört nicht; + 1,5 s Sicherheitsabstand; schon vorbei → 30 s, nie eine Schleife; höchstens 25 Stunden;
+  ohne `refreshAt` bis Mitternacht) und merkt sich den Zeitpunkt nach der Uhr des Geräts. Weil ein Zeitgeber im Ruhezustand nicht immer weiterzählt,
+  sieht das Feld bei `visibilitychange` (sichtbar), `focus` und `pageshow` nach, ob es so weit ist (oder ein neuer Tag begonnen hat). Läuft gerade
+  „Alle Dateien herunterladen“ oder ein Einzel-Download, wartet das Neuladen und folgt gleich danach. Abgemeldet werden Zeitgeber und Zuhörer beim
+  Verlassen der Seite (`onLeave`) – nicht schon, wenn das Feld beim ersten Laden noch nicht im Dokument hängt (Prüfbefund im echten Browser: die
+  Startseite hängt es erst nach dem Laden der Fächer ein; ein frühes `pageshow` räumte sonst den Zeitgeber ab).
+* **Ohne Neuaufbau unter der Lehrkraft:** Abschnitte, Gruppen und Zeilen bleiben beim Neuladen **dieselben Elemente**, solange sich ihr Inhalt nicht
+  ändert (`syncChildren` fügt nur ein bzw. entfernt, was sich geändert hat; eine Zeile mit laufendem Download wird nie ersetzt). Ändert sich der
+  Aufbau (letzte Stunde von heute vorbei → wieder ein Tag), werden Gruppen und Zeilen umgehängt; der Fokus bleibt auf demselben Element
+  (`keepFocus`). Verschwindet das Element mit dem Fokus, geht er an dasselbe Ziel im neuen Aufbau (`data-fk`) bzw. – war er in einem
+  verschwundenen Eintrag – an die Überschrift des Feldes (`#pn-h`; im roten Kasten an `#pk-h`), nur wenn er sonst auf `body` fiele (nie, wenn die
+  Lehrkraft ihn schon woandershin gesetzt hat).
+* **Roter Kasten** (`packDays`, `packHead`): Gegenstände der heute noch laufenden Sitzungen (unabhängig von Druckaufträgen) und des nächsten
+  Arbeitstags. Beide Tage: Titel „Für heute und den nächsten Arbeitstag einpacken“, je Tag eine Überschrift (h3, „Heute, Montag, 16.11.2026“) über
+  seiner Liste – derselbe Gegenstand an zwei Tagen sind zwei Stichpunkte; nur heute: „Für heute einpacken“; nur der nächste Arbeitstag: wie bisher
+  („Für den nächsten Arbeitstag einpacken“). Aufgeklappte Stichpunkte bleiben beim Neuladen aufgeklappt und dieselben Elemente.
+* **Tests:** `printjobs.test.mjs` mit festen Uhren (8:00 beide Stunden + Dienstag, 9:44:59 / 9:45 genau zum Ende / 9:50 / nach der letzten Stunde,
+  ohne Uhrzeit bzw. Dauer bis 23:59, Ausfall-Eintrag, Selbstlern-Phase, Samstag, 23:30 + 45 Minuten um 23:40 und 0:05, unterrichtsfreie Tage,
+  Sommerzeit, höchstens 8 Anweisungen); `printnext.test.mjs` (Texte, Wartezeit, zwei Abschnitte, Download je Tag, Zeitgeber, Ruhezustand,
+  Fokus bleibt bzw. an die Überschrift, Download hält das Neuladen auf, roter Kasten je Tag, ältere Antwort, Feld erst nach dem Laden eingehängt);
+  E2E `test/e2e/printtoday.mjs` (nach dem Zurücksetzen, echte Uhr des Servers: zwei Stunden von heute, die in gut einer bzw. zwei Minuten enden –
+  verschwinden ohne Neuladen der Seite, Fokus; Downloads je Tag; Bildschirmfotos `druckauftraege-heute-*.png`, `einpacken-heute-*.png`). Die übrigen
+  E2E-Schritte zu den Druckaufträgen finden Knopf und Statuszeile über `data-day` – je nach Uhrzeit des Laufs gibt es dort einen oder zwei Tage.
+
 ## 4i. Druckliste „Von der Lehrkraft auszudrucken“ (Ergänzung vom 10.11.2026)
 
 * Bereich `print` (für Schüler:innen nie sichtbar) mit `files.print_copies`, `print_duplex`, `print_color`. Nur PDF (Kennung `%PDF-`
@@ -1814,6 +1877,9 @@ anderem Fach die ersten 4 Buchstaben des Fachnamens („Sach3“), Religion blei
   ins Archiv.
 
 ## 4n. Druckaufträge für den nächsten Arbeitstag (Nachtrag der Lehrkraft vom 13.11.2026, Anforderung 14)
+
+Seit Nachtrag 33 zeigt das Feld daneben die Sitzungen von heute bis zu ihrem geplanten Ende – Antwort, Aufbau und Neuladen in 4zc; das Folgende gilt
+unverändert für den nächsten Arbeitstag.
 
 * **Server** (`worker/printjobs.js`, `GET /api/teacher/print-next`, nur angemeldet): „Heute“ ist das Datum in Europe/Berlin (`berlinToday(c.now)`),
   der nominelle nächste Arbeitstag `nextWorkday` (Mo–Do der folgende Tag, Fr/Sa/So der Montag; `public/planning.js`). Tag der Druckaufträge

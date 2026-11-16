@@ -1,8 +1,8 @@
 // bring.js – „Gegenstände zum Mitbringen“ (Nachtrag 28 vom 15.11.2026, Gymnasium und Grundschule): Gegenstände, die die Lehrkraft für eine Sitzung
 // von zu Hause oder aus dem Lehrerzimmer mitbringen muss (z. B. eine Bibel oder einen Beutel), je mit einem Hinweis in höchstens zwei Sätzen, wo in der
 // Stunde (Phase) und in welcher Lerngruppe er gebraucht wird. Claude trägt sie beim Planen mit update_lesson (mitbringen) ein, die Lehrkraft auf der
-// Sitzungsseite (bringcard.js); die Startseite zeigt die Gegenstände der Sitzungen des nächsten Arbeitstags im roten Kasten „Für den nächsten Arbeitstag
-// einpacken“ direkt unter den Druckaufträgen (printnext.js). Reine Funktionen für Browser und Worker: Prüfen, Speicherform, Zusammenfassen für die
+// Sitzungsseite (bringcard.js); die Startseite zeigt die Gegenstände der Sitzungen des nächsten Arbeitstags (und – Nachtrag 33 – der heute noch laufenden
+// Sitzungen, je Tag beschriftet) im roten Kasten „Für den nächsten Arbeitstag einpacken“ direkt unter den Druckaufträgen (printnext.js). Reine Funktionen für Browser und Worker: Prüfen, Speicherform, Zusammenfassen für die
 // Startseite, Bausteine für Prompt und get_lesson. Nie Daten von Schüler:innen – nur, was die Lehrkraft mitbringt.
 
 export const BRING_LIMITS = { items: 10, item: 60, note: 200, sentences: 2 };

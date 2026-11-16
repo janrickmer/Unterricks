@@ -40,6 +40,9 @@ export async function cardsPrintE2E({ tp, BASE, T, tool, ok, OUT, SHOT, gsL, pri
   const rowOf = (name) => card.locator(".printrow", { has: tp.locator(".name", { hasText: new RegExp("^" + esc(name) + "$") }) });
   const lessonFiles = async () => (await T("GET", "/api/teacher/lessons/" + gsL)).data.files;
   const pnFiles = async () => (await T("GET", "/api/teacher/print-next")).data.sessions.filter((s) => s.id === gsL).flatMap((s) => s.files);
+  // „Alle Dateien herunterladen“ und Statuszeile des Tages der Sitzung (Nachtrag 33: laufen heute noch Sitzungen mit Druckaufträgen, hat jeder Tag einen eigenen Knopf)
+  const gsDay = (await T("GET", "/api/teacher/lessons/" + gsL)).data.lesson.date;
+  const allOfDay = () => tp.locator('.printnext button.pn-all[data-day="' + gsDay + '"]'), statusOfDay = () => tp.locator('.printnext .pn-status[data-day="' + gsDay + '"]');
   // die Sitzung frisch laden (derselbe Hash lädt mit goto nicht neu)
   const openSession = async () => {
     const want = BASE + "/#/lk/s/" + gsL + "/druckliste";
@@ -107,8 +110,8 @@ export async function cardsPrintE2E({ tp, BASE, T, tool, ok, OUT, SHOT, gsL, pri
   // „Alle Dateien herunterladen“ nimmt sie mit (einzelne Downloads nacheinander)
   const got = [], onDl = (d) => got.push(d);
   tp.on("download", onDl);
-  await tp.locator(".printnext button.pn-all").click();
-  await tp.locator(".printnext #pn-status", { hasText: /^Fertig/ }).waitFor({ timeout: 120000 });
+  await allOfDay().click();
+  await statusOfDay().filter({ hasText: /^Fertig/ }).waitFor({ timeout: 120000 });
   await sleep(500); tp.off("download", onDl);
   const mine = got.find((d) => d.suggestedFilename() === NAME);
   info = mine ? await pdfInfo(readFileSync(await mine.path())) : { pages: 0 };
@@ -269,8 +272,8 @@ export async function cardsPrintE2E({ tp, BASE, T, tool, ok, OUT, SHOT, gsL, pri
   ok(await tp.locator(".printnext .pn-row", { hasText: NAME7 }).count() === 0, "… Startseite offen geblieben: die neuen Bildkarten stehen noch nicht in der Liste");
   const got2 = [], onDl2 = (d) => got2.push(d);
   tp.on("download", onDl2);
-  await tp.locator(".printnext button.pn-all").click();
-  await tp.locator(".printnext #pn-status", { hasText: /^Fertig/ }).waitFor({ timeout: 120000 });
+  await allOfDay().click();
+  await statusOfDay().filter({ hasText: /^Fertig/ }).waitFor({ timeout: 120000 });
   await sleep(500); tp.off("download", onDl2);
   const est = got2.find((d) => d.suggestedFilename() === NAME7);
   info = est ? await pdfInfo(readFileSync(await est.path())) : { pages: 0 };

@@ -78,7 +78,7 @@ const ROUTES = [
   // Unterrichtseinheiten
   ["GET", "/api/teacher/units", U.routeUnitsList],
   ["GET", "/api/teacher/schedule", U.routeSchedule],
-  ["GET", "/api/teacher/print-next", PJ.routePrintNext],   // Druckaufträge für den nächsten Arbeitstag (beide Startseiten)
+  ["GET", "/api/teacher/print-next", PJ.routePrintNext],   // Druckaufträge: nächster Arbeitstag und heute bis zum Ende der jeweiligen Sitzung (beide Startseiten)
   // Podcast für den kommenden Unterricht (Nachtrag 22, beide Startseiten): Grundlage, Ablage der Audiodatei, Link zum Abspielen, Löschen
   ["GET", "/api/teacher/podcast", PC.routePodcastList],
   ["POST", "/api/teacher/podcast", PC.routePodcastUpload],
