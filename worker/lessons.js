@@ -1,6 +1,6 @@
 // lessons.js – Unterrichtssitzungen (Lehrkraft): anlegen, planen (Chat), Schulportal-Eintrag, Feibeitsblatt-Entwürfe und -Verknüpfungen.
 import { HttpError, bad, json, readJson, randomId, generateCode, cleanText, cleanLine, isId, isDate, isObj } from "./lib.js";
-import { cleanWebUrl, cleanCopies, cleanCodeSlides, cleanSlideNotes, NOTES_LIMITS, slidePhasesData } from "../public/shared.js";
+import { cleanWebUrl, cleanCopies, cleanCodeSlides, cleanSlideNotes, NOTES_LIMITS, slidePhasesData, cardPrintsOf, CARD_REFS_MAX, CARD_PRINT } from "../public/shared.js";
 import { requireTeacher } from "./auth.js";
 import { callTask, PROVIDERS } from "./ai.js";
 import { getUnit, unitOut } from "./units.js";
@@ -299,7 +299,8 @@ export async function routeLessonGet(c, id) {
   if (l.unit_id) { try { unit = unitOut(await getUnit(c.db, l.unit_id), {}, fd); } catch {} }
   const previousStop = await prevStopInfo(c.db, l, prev, unit);
   // Grundschule: PDFs anderer Sitzungen des Kurses, auf die der Verlaufsplan (oder der der vorigen Sitzung) verweist, und die der vorigen Sitzung
-  const gs = l.subject === GS_SUBJECT ? { refFiles: await gsRefFiles(c.db, l, prev), opensAt: parentOpensAt({ date: l.lesson_date, startTime: l.start_time, durationMin: l.duration_min }) } : {};
+  // Grundschule: dazu die Bildkarten des Kurses aus anderen Sitzungen und die Druckangaben dieser Sitzung für die, auf die ihr Verlaufsplan verweist (Nachtrag 31b)
+  const gs = l.subject === GS_SUBJECT ? { ...(await gsRefData(c.db, l, prev)), cardPrints: cardPrintsOf(l.card_prints), opensAt: parentOpensAt({ date: l.lesson_date, startTime: l.start_time, durationMin: l.duration_min }) } : {};
   // Material nach dem Zwischenstopp der vorigen Sitzung (Grundschule): die Verweise ihres offenen Teils
   if (previousStop && gs.refFiles) previousStop.openFiles = openFilesOf(previousStop, gs.refFiles);
   const sub = await c.db.prepare("SELECT status, proposal, archive, created_at, updated_at, confirmed_at FROM substitutes WHERE lesson_id=?1").bind(id).first();
@@ -341,16 +342,57 @@ export async function routeLessonStamp(c, id) {
 }
 
 /* PDF-Dateien des Kurses aus anderen Sitzungen (eine Abfrage): die der vorigen Sitzung und alle, auf die der Verlaufsplan dieser oder der
-   vorigen Sitzung verweist – für die Namen im Verlaufsplan, „PDF-Verweis einfügen …“ und die Elternansicht */
-export async function gsRefFiles(db, l, prev) {
+   vorigen Sitzung verweist – für die Namen im Verlaufsplan, „PDF-Verweis einfügen …“ und die Elternansicht (refFiles); in derselben Abfrage alle
+   Bildkarten des Kurses aus anderen Sitzungen (courseCards, Nachtrag 31b: verweist der Verlaufsplan auf sie, stehen sie auch auf der Druckliste dieser
+   Sitzung – die Seite folgt jedem Verweis sofort, auch vor dem Speichern) */
+export async function gsRefData(db, l, prev) {
   const ids = [...new Set([...planRefs(l.portal).all, ...(prev ? planRefs(prev.portal).all : [])])].slice(0, 200);
-  const r = await db.prepare("SELECT f.id, f.lesson_id, f.name, f.area, f.kind, f.mime, f.status, f.source, f.pages, f.cards, f.card_pages, f.card_img_at, f.pdf_at, f.html_at, f.created_at, " +
-    "(f.html IS NOT NULL) AS designed, l.lesson_date, l.start_time AS lesson_start, l.created_at AS lesson_created, l.title AS lesson_title FROM files f JOIN lessons l ON l.id = f.lesson_id " +
+  const r = await db.prepare("SELECT f.id, f.lesson_id, f.name, f.area, f.kind, f.mime, f.size, f.status, f.source, f.pages, f.cards, f.card_pages, f.card_img_at, f.pdf_at, f.html_at, f.render_error, f.created_at, " +
+    "(f.html IS NOT NULL) AS designed, CASE WHEN f.html IS NULL THEN NULL ELSE '' END AS html, l.lesson_date, l.start_time AS lesson_start, l.created_at AS lesson_created, l.title AS lesson_title, " +
+    "(f.lesson_id=?3 OR f.id IN (SELECT value FROM json_each(?4))) AS in_ref FROM files f JOIN lessons l ON l.id = f.lesson_id " +
     "WHERE l.subject='gs' AND l.klass=?1 AND f.lesson_id<>?2 AND f.kind='file' AND f.mime='application/pdf' AND f.area NOT IN ('archive','presentation') " +
-    "AND (f.lesson_id=?3 OR f.id IN (SELECT value FROM json_each(?4))) ORDER BY l.lesson_date, f.created_at LIMIT 300").bind(l.klass, l.id, prev ? prev.id : "", JSON.stringify(ids)).all();
-  return (r.results || []).map((f) => ({ id: f.id, name: f.name, lessonId: f.lesson_id, lessonTitle: f.lesson_title || "", date: f.lesson_date || null, lessonStart: f.lesson_start || null, lessonCreatedAt: f.lesson_created ?? null, area: f.area, kind: f.kind, mime: f.mime,
+    "AND (f.lesson_id=?3 OR f.id IN (SELECT value FROM json_each(?4)) OR (f.cards IS NOT NULL AND f.area='teacher')) ORDER BY l.lesson_date, f.created_at LIMIT 400").bind(l.klass, l.id, prev ? prev.id : "", JSON.stringify(ids)).all();
+  const rows = r.results || [];
+  const refFiles = rows.filter((f) => f.in_ref).slice(0, 300).map((f) => ({ id: f.id, name: f.name, lessonId: f.lesson_id, lessonTitle: f.lesson_title || "", date: f.lesson_date || null, lessonStart: f.lesson_start || null, lessonCreatedAt: f.lesson_created ?? null, area: f.area, kind: f.kind, mime: f.mime,
     status: f.status, source: f.source || null, pages: f.pages ?? null, designed: !!f.designed, cards: f.cards, cardPages: f.card_pages ?? null, cardImgAt: f.card_img_at ?? null,
     pdfAt: f.pdf_at ?? null, htmlAt: f.html_at ?? null, createdAt: f.created_at, previous: !!prev && f.lesson_id === prev.id }));
+  // Bildkarten wie fileOut (Stand der Gestaltung, Kartenbilder) – ohne die Druckangaben ihrer eigenen Sitzung (hier gelten die dieser Sitzung)
+  const courseCards = rows.filter((f) => f.cards != null && f.area === "teacher").map((f) => {
+    const o = fileOut(f, false); delete o.print; delete o.printName;
+    return { ...o, lessonId: f.lesson_id, lessonTitle: f.lesson_title || "", date: f.lesson_date || null };
+  });
+  return { refFiles, courseCards };
+}
+export async function gsRefFiles(db, l, prev) { return (await gsRefData(db, l, prev)).refFiles; }
+
+/* Druckangaben dieser Grundschul-Sitzung für Bildkarten einer ANDEREN Sitzung des Kurses, auf die ihr Verlaufsplan verweist (Nachtrag 31b):
+   PUT /api/teacher/lessons/:id/card-prints {fileId, off: true} nimmt sie von der Druckliste dieser Sitzung; {fileId, off: false} nimmt sie wieder auf
+   (1x, einseitig, farbig – CARD_PRINT); {fileId, copies?, duplex?, color?} ändert die Druckangaben → {cardPrints}. Nur Bildkarten desselben Kurses
+   aus einer anderen Sitzung; deren eigene Druckliste bleibt unberührt. Zwei Anweisungen. */
+export async function routeCardPrints(c, id) {
+  await requireTeacher(c);
+  const l = await getLesson(c.db, id);
+  if (l.subject !== GS_SUBJECT) throw bad("Bildkarten gibt es nur in der Grundschule.");
+  if (l.cancelled) throw bad("Ein Ausfall-Eintrag hat keine Druckliste.");
+  const body = await readJson(c.request, 2000);
+  if (!isObj(body) || !isId(body.fileId)) throw bad("Bitte die Bildkarten angeben.");
+  const f = await c.db.prepare("SELECT f.id, f.lesson_id, f.cards, f.area, o.subject, o.klass FROM files f JOIN lessons o ON o.id = f.lesson_id WHERE f.id=?1").bind(body.fileId).first();
+  if (!f || f.cards == null || f.area !== "teacher" || f.subject !== GS_SUBJECT || f.klass !== l.klass || f.lesson_id === l.id)
+    throw new HttpError(404, "not_found", "Diese Bildkarten gibt es in einer anderen Sitzung dieses Kurses nicht (mehr).");
+  const all = cardPrintsOf(l.card_prints), cur = all[f.id] && !all[f.id].off ? all[f.id] : { ...CARD_PRINT };
+  let next;
+  if (body.off === true) next = { off: true };
+  else {
+    next = { copies: cur.copies, duplex: cur.duplex, color: cur.color };
+    if (body.copies !== undefined) { const n = cleanCopies(body.copies); if (!n) throw bad("Bitte eine Anzahl zwischen 1 und 500 angeben."); next.copies = n; }
+    if (body.duplex !== undefined) { if (typeof body.duplex !== "boolean") throw bad("Bitte „beidseitig“ oder „einseitig“ wählen."); next.duplex = body.duplex; }
+    if (body.color !== undefined) { if (typeof body.color !== "boolean") throw bad("Bitte „schwarz-weiß“ oder „farbig“ wählen."); next.color = body.color; }
+  }
+  delete all[f.id]; all[f.id] = next;   // zuletzt geändert = zuletzt in der Liste
+  const keys = Object.keys(all);
+  while (keys.length > CARD_REFS_MAX) delete all[keys.shift()];
+  await c.db.prepare("UPDATE lessons SET card_prints=?2, updated_at=?3 WHERE id=?1").bind(l.id, JSON.stringify(all), c.now).run();
+  return json({ ok: true, cardPrints: cardPrintsOf(all) });
 }
 
 /* Nachbarsitzungen derselben Klasse im selben Fach (nach Datum, bei gleichem Datum nach Anlegezeit) */

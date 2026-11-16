@@ -133,6 +133,9 @@ export const COLUMNS = [
   // unsichtbaren Zeile „Unterricks-Phase: n“ (1–99 bzw. null), hand = von der Lehrkraft zugeordnet (gilt vor pdf), auto = wo Unterricks zuletzt selbst einen
   // Zwischenstopp in den Schulportal-Eintrag geschrieben hat ({phase, until}). NULL = nie gesetzt (ältere Präsentation: keine Phasen)
   ["files", "slide_phases", "TEXT"],
+  // Grundschule (Nachtrag 31b): Druckangaben dieser Sitzung für Bildkarten ANDERER Sitzungen des Kurses, auf die ihr Verlaufsplan verweist – {"<file_id>":
+  // {copies, duplex, color} | {off: true}} als JSON (cardPrintsOf in public/shared.js); ohne Eintrag 1x, einseitig, farbig (CARD_PRINT). NULL = nie geändert
+  ["lessons", "card_prints", "TEXT"],
 ];
 
 // Indizes über nachträglich ergänzte Spalten (nach den Spalten angelegt; ein Fehler – z. B. alte Doppelungen – hält den Betrieb nicht auf)
@@ -146,7 +149,7 @@ export const INDEXES = [
 ];
 
 let ready = null, warm = false;
-/* true, sobald das Schema in diesem Isolate angelegt ist – vor ensureSchema abgefragt: false heißt, diese Anfrage legt es gerade an (bis zu 48
+/* true, sobald das Schema in diesem Isolate angelegt ist – vor ensureSchema abgefragt: false heißt, diese Anfrage legt es gerade an (bis zu 49 – seit Nachtrag 31b
    Anweisungen), lange Abfragen (Beamer-Code) halten dann nicht (höchstens 50 D1-Anweisungen je Aufruf im Free-Plan) */
 export const schemaWarm = () => warm;
 export function ensureSchema(db) {

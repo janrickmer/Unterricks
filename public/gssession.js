@@ -98,7 +98,9 @@ export async function gsSessionPage(id, d) {
   const main = h("main");
   render(teacherBar("primary"), main, teacherFoot());
   markNav("primary");
-  const st = { lesson: d.lesson, files: d.files, refFiles: d.refFiles || [], unit: d.unit, messages: d.messages || [], sheets: [], drafts: [] };
+  // courseCards/cardPrints (Nachtrag 31b): Bildkarten des Kurses aus anderen Sitzungen und die Druckangaben dieser Sitzung für die, auf die der Verlaufsplan verweist
+  const st = { lesson: d.lesson, files: d.files, refFiles: d.refFiles || [], courseCards: d.courseCards || [], cardPrints: d.cardPrints || {}, unit: d.unit, messages: d.messages || [], sheets: [], drafts: [] };
+  let box = null, printRefKey = "";   // Material und Druckliste (weiter unten angelegt – paintPlan läuft womöglich schon vorher)
   const L = () => st.lesson;
   const course = (d.course && d.course.gs) || null, classSize = d.course ? d.course.classSize : null;
   const coursePage = "#/lk/grundschule/k/" + L().klass;
@@ -152,6 +154,8 @@ export async function gsSessionPage(id, d) {
     unstopBtn.classList.toggle("hidden", !hasStop(ta.value));
     paintStopNext(); paintParents(); paintSummaryHint();
     if (tsum) tsum.paintNote();
+    // ein Verweis auf Bildkarten einer anderen Sitzung kam dazu oder fiel weg (Nachtrag 31b): die Druckliste folgt sofort (nur dann – nicht bei jedem Tastendruck)
+    if (box && box.refKey() !== printRefKey) { printRefKey = box.refKey(); box.paintPrint(); }
     icEmit("plan");
   }
   // von außen (eine PDF ist gedruckt, Bildkarten fertig, eine Datei gelöscht oder umbenannt): neu zeichnen, ohne den Fokus eines Verweises
@@ -376,7 +380,7 @@ export async function gsSessionPage(id, d) {
   // ZIP-Datei der Druckliste (Prüfung von Nachtrag 31): vorher den Dateistand vom Server holen – Bildkarten, die Claude angelegt oder neu gestaltet hat, während
   // diese Seite offen war (z. B. neben dem Chat, ohne Wechsel des Tabs), kämen sonst nicht bzw. mit den alten Karten in die ZIP-Datei
   const beforeZip = async () => { syncFiles(await tapi("GET", "/api/teacher/lessons/" + id)); };
-  const box = materialBox({ lessonId: id, st, L, gs: true, fileBadge, printCopies: () => classSize, exclude: (f) => f.cards != null, onChange: () => repaintPlan(), onPrintChange: (f) => cardsBox.syncPrint(f.id), beforeZip, onPaint: () => icEmit("files"),
+  box = materialBox({ lessonId: id, st, L, gs: true, refPlan: () => ta.value, fileBadge, printCopies: () => classSize, exclude: (f) => f.cards != null, onChange: () => repaintPlan(), onPrintChange: (f) => cardsBox.syncPrint(f.id), beforeZip, onPaint: () => icEmit("files"),
     subtitle: course ? course.label : "Grundschule", groupLabel: "Grundschule - " + (course ? course.short : "Kurs"), course: printCourse(GS_SUBJECT, L().klass, course),
     labels: { student: "Material für die Kinder (Eltern sehen die PDF-Dateien nach der Stunde)", teacher: "Nur für Sie", toStudent: "Für die Kinder", toTeacher: "Nur für Sie",
       nowStudent: "Jetzt im Material für die Kinder.", nowTeacher: "Jetzt nur noch für Sie.", teacherHint: "Sehen weder Kinder noch Eltern",
@@ -516,7 +520,7 @@ export async function gsSessionPage(id, d) {
   // kompakt: Verlaufsplan (mit Zwischenstopp, PDF-Verweise anklickbar), Material samt Druckdateien und Bildkarten, Hausaufgabe – ohne Präsentation und Pfeil
   const icApi = { kind: "gs", id, st, selbstlern: () => false, on: (k, fn) => { icOn[k].add(fn); return () => icOn[k].delete(fn); },
     planText: () => ta.value, paintPlan: (b) => paintPlanPreview(b, ta.value, { fileOf, onPending }), planState,
-    stopMenu, stopDialog, dropStop, stopNext: () => stopNext, openActs: box.openActs, badge: fileBadge, homework: hwField, homeworkWrap: true };
+    stopMenu, stopDialog, dropStop, stopNext: () => stopNext, openActs: box.openActs, refCards: () => box.refEntries(), badge: fileBadge, homework: hwField, homeworkWrap: true };
   const inClass = inClassToggle({ id, gs: true, full: () => [tsum.el, grid], mount: async () => (await lazy(import("./inclass.js"))).inClassView(icApi) });
   main.append(...inClass.els, tsum.el, grid);
   setEditing(false);
@@ -526,11 +530,16 @@ export async function gsSessionPage(id, d) {
   // Dateien (Material, Druckliste, Bildkarten) aus einer Antwort von GET /api/teacher/lessons/:id übernehmen – nur, was sich geändert hat → geändert?
   function syncFiles(r) {
     const refKey = (fs) => fs.map((f) => f.id + ":" + f.status + ":" + f.name).join("|");
+    // wiederverwendete Bildkarten (Nachtrag 31b): Bildkarten des Kurses und Druckangaben dieser Sitzung – ein anderes Fenster kann sie geändert haben
+    const before = box.refKey();
+    st.courseCards = r.courseCards || []; st.cardPrints = r.cardPrints || {};
+    const refChanged = box.refKey() !== before;
     const filesChanged = box.filesKey(r.files) !== box.filesKey(st.files) || refKey(r.refFiles || []) !== refKey(st.refFiles), cardsChanged = cardsBox.keyOf(r.files) !== cardsBox.keyOf(st.files);
+    if (refChanged && !filesChanged) { printRefKey = box.refKey(); box.paintPrint(); }
     if (filesChanged || cardsChanged) {
       const old = st.files;
       st.files = r.files; st.refFiles = r.refFiles || [];
-      if (filesChanged) { box.paintFiles(); box.paintPrint(); }
+      if (filesChanged) { printRefKey = box.refKey(); box.paintFiles(); box.paintPrint(); }
       repaintPlan();
       if (cardsChanged) cardsBox.refresh(old);
     }

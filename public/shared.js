@@ -1216,6 +1216,36 @@ export function planRefs(text) {
   }
   return { all, beforeStop: before, hasStop: stop };
 }
+/* ---------- Wiederverwendete Bildkarten (Nachtrag 31b vom 16.11.2026) ----------
+ * Verweist der Verlaufsplan einer Grundschul-Sitzung ([[pdf:<id>]]) auf Bildkarten einer ANDEREN Sitzung desselben Kurses, stehen sie auch auf der
+ * Druckliste dieser Sitzung – wie neue Bildkarten mit CARD_PRINT (1x, einseitig, farbig), je Sitzung abwählbar und mit eigenen Druckangaben:
+ * lessons.card_prints = {"<file_id>": {copies, duplex, color} | {off: true}} (ohne Eintrag gilt CARD_PRINT). Die Druckliste der Sitzung, der die
+ * Bildkarten gehören, bleibt unberührt; es zählt jeder Verweis im Verlaufsplan (auch nach einem Zwischenstopp – gedruckt wird vor der Stunde),
+ * gleich wann die Bildkarten angelegt wurden. Browser (Druckliste, kompakte Ansicht) und Worker (Druckaufträge, get_lesson) nutzen dieselben Funktionen. */
+export const CARD_REFS_MAX = 200;
+export function cardPrintsOf(raw) {
+  let o = null;
+  try { o = typeof raw === "string" ? JSON.parse(raw) : raw; } catch {}
+  const out = {};
+  if (!o || typeof o !== "object" || Array.isArray(o)) return out;
+  for (const [k, v] of Object.entries(o).slice(0, CARD_REFS_MAX)) {
+    if (!/^[a-f0-9]{16}$/.test(k) || !v || typeof v !== "object" || Array.isArray(v)) continue;
+    if (v.off === true) { out[k] = { off: true }; continue; }
+    out[k] = { copies: cleanCopies(v.copies) || CARD_PRINT.copies, duplex: typeof v.duplex === "boolean" ? v.duplex : CARD_PRINT.duplex,
+      color: typeof v.color === "boolean" ? v.color : CARD_PRINT.color };
+  }
+  return out;
+}
+/* Bildkarten anderer Sitzungen, auf die der Verlaufsplan planText verweist (Reihenfolge des Plans): cards = Bildkarten des Kurses ({id, lessonId, …}),
+   lessonId = diese Sitzung, prints = cardPrintsOf(…) dieser Sitzung → [{card, print}] – print = Druckangaben dieser Sitzung bzw. null (hier abgewählt) */
+export function refCardsOf(planText, cards, lessonId, prints) {
+  const byId = new Map((Array.isArray(cards) ? cards : []).filter((c) => c && typeof c.id === "string" && c.lessonId !== lessonId).map((c) => [c.id, c]));
+  const ov = prints || {};
+  return planRefs(planText).all.filter((fid) => byId.has(fid)).map((fid) => {
+    const o = ov[fid];
+    return { card: byId.get(fid), print: o && o.off ? null : o ? { copies: o.copies, duplex: o.duplex, color: o.color } : { ...CARD_PRINT } };
+  });
+}
 /* Welche PDF-Dateien Eltern zu einer Sitzung sehen (dieselbe Regel im Browser der Lehrkraft und im Worker).
    files: Dateien der Sitzungen DIESES Kurses (Zeilen aus D1 oder fileOut), lessonId: die Sitzung. Für Eltern in Frage kommen nur fertige
    PDF-Dateien (kein Notfall-Feibeitsblatt): PDFs der Kinder (area student) und Bildkarten, die Eltern sehen dürfen und deren Bilder aktuell sind.

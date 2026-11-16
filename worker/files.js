@@ -672,8 +672,9 @@ export async function routeTeacherFileLink(c, fileId) {
   // print: aus der Druckliste – Name wie dort (nur Dateien, die auf der Liste stehen; sonst wie bisher)
   const pr = body.print === true && onPrintList(f);
   // Bildkarten (Nachtrag 31, Prüfung): aus der Druckliste nur die PDF ihrer AKTUELLEN Gestaltung – auch wenn die Seite der Lehrkraft einen älteren Stand
-  // zeigt (zweites Fenster, Claude hat inzwischen neu gestaltet); die bisherige PDF zeigt die alten Karten und käme sonst still in die Druckdateien
-  if (pr && f.cards != null && f.html != null && (!f.pdf_at || (f.html_at || 0) > f.pdf_at))
+  // zeigt (zweites Fenster, Claude hat inzwischen neu gestaltet); die bisherige PDF zeigt die alten Karten und käme sonst still in die Druckdateien. Seit
+  // Nachtrag 31b auch für Bildkarten, die nur auf der Druckliste einer ANDEREN Sitzung stehen (wiederverwendet; ihre eigene Sitzung hat sie womöglich abgewählt)
+  if (body.print === true && f.cards != null && f.html != null && (!f.pdf_at || (f.html_at || 0) > f.pdf_at))
     throw new HttpError(409, "cards_not_printed", "Die Bildkarten „" + String(f.name).replace(/\.pdf$/i, "") + "“ sind in ihrer neuen Gestaltung noch nicht als PDF gedruckt – bitte die Seite neu laden, dann druckt Unterricks sie.");
   return json({ ok: true, url: await downloadUrl(requireSecret(c.env), f, !!body.inline, 10 * 60e3, c.now, pr ? "pr" : "") });
 }

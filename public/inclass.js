@@ -288,7 +288,7 @@ export function inClassView(api) {
       h("div", { class: "ic-acts" }, acts));
   }
   function paintMaterial() {
-    const cols = materialColumns(api.st.files, gym ? api.st.sheets : [], { gs: !gym, selbstlern: api.selbstlern() });
+    const cols = materialColumns(api.st.files, gym ? api.st.sheets : [], { gs: !gym, selbstlern: api.selbstlern(), refCards: api.refCards ? api.refCards() : [] });
     const key = materialKey(cols);
     if (key === matKey) return;
     matKey = key;

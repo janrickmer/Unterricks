@@ -121,6 +121,7 @@ const ROUTES = [
   ["PATCH", "/api/teacher/lessons/" + ID, L.routeLessonPatch],
   ["DELETE", "/api/teacher/lessons/" + ID, L.routeLessonDelete],
   ["PUT", "/api/teacher/lessons/" + ID + "/portal", L.routePortalPut],
+  ["PUT", "/api/teacher/lessons/" + ID + "/card-prints", L.routeCardPrints],   // Druckangaben für Bildkarten anderer Sitzungen (Nachtrag 31b)
   ["POST", "/api/teacher/lessons/" + ID + "/portal/generate", L.routePortalGenerate],
   ["POST", "/api/teacher/lessons/" + ID + "/chat", L.routeChatPost],
   ["POST", "/api/teacher/lessons/" + ID + "/chat/answer", L.routeChatAnswer],

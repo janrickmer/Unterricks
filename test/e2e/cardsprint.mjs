@@ -293,6 +293,52 @@ export async function cardsPrintE2E({ tp, BASE, T, tool, ok, OUT, SHOT, gsL, pri
   await rowOf("1x - farbig - einseitig - Reli2 - Alte Karten.pdf").waitFor({ timeout: 10000 });
   ok((await pnFiles()).some((x) => x.id === oid), "… von Hand aufgenommen: auf der Druckliste und bei den Druckaufträgen");
 
+  /* ---------- g) wiederverwendete Bildkarten (Nachtrag 31b): Verweis im Verlaufsplan auf Bildkarten einer anderen Sitzung des Kurses → auch auf dieser Druckliste ---------- */
+  {
+    const me = (await T("GET", "/api/teacher/lessons/" + gsL)).data.lesson;
+    // eine frühere Sitzung desselben Kurses (Sitzungen entstehen sonst aus Zeilen einer Einheit – hier direkt in D1, wie in e))
+    const prevL = "e31b" + Date.now().toString(16).slice(-12).padStart(12, "0");
+    d1("INSERT INTO lessons(id, subject, klass, title, lesson_date, code, created_at, updated_at) VALUES('" + prevL + "', 'gs', '" + me.klass + "', 'Noah baut die Arche', '2026-10-05', 'E31B" + prevL.slice(-4).toUpperCase() + "', 1, 1)");
+    const up2 = await fetch(BASE + "/api/teacher/lessons/" + prevL + "/cards?name=" + encodeURIComponent("Arche Karten.pdf"), { method: "POST",
+      headers: { Authorization: "Bearer " + (await tp.evaluate(() => localStorage.getItem("u.ttoken"))), "Content-Type": "application/pdf" }, body: await cardsPdf(2, [595.28, 419.53]) }).then((x) => x.json());
+    const aid2 = up2.file.id, NAMER = "1x - farbig - einseitig - Reli2 - Arche Karten.pdf";
+    r = await tool("save_verlaufsplan", { lesson_id: gsL, text: "**1) Erzählung: Die Arche (15 Min., Sitzkreis)**\n- Lehrkraft erzählt mit den Bildkarten [[pdf:" + aid2 + "]]" });
+    ok(!r.isError && r.content[0].text.includes("Wiederverwendete Bildkarten „Arche Karten.pdf“ stehen auch auf der Druckliste dieser Sitzung (1x, einseitig, farbig)."),
+      "save_verlaufsplan: Verweis auf Bildkarten der früheren Sitzung – die Antwort sagt, dass sie auch auf dieser Druckliste stehen");
+    await openSession();
+    const rrow = rowOf(NAMER);
+    await rrow.waitFor({ timeout: 20000 });
+    ok((await rrow.locator(".meta").textContent()).includes("aus der Sitzung „Noah baut die Arche“") && (await pnFiles()).some((x) => x.id === aid2 && x.printName === NAMER && x.refFrom),
+      "Druckliste dieser Sitzung und Druckaufträge: „" + NAMER + "“ (aus der Sitzung „Noah baut die Arche“)");
+    // eigene Druckangaben dieser Sitzung: 2 Exemplare – Name folgt, die Sitzung, der die Bildkarten gehören, bleibt bei 1x
+    await rrow.locator("input.pcopies").fill("2"); await rrow.locator("input.pcopies").dispatchEvent("change");
+    const NAMER2 = "2x - farbig - einseitig - Reli2 - Arche Karten.pdf";
+    await rowOf(NAMER2).waitFor({ timeout: 10000 });
+    const prevPrint = (await T("GET", "/api/teacher/lessons/" + prevL)).data.files.find((x) => x.id === aid2).print;
+    ok(prevPrint && prevPrint.copies === 1 && (await T("GET", "/api/teacher/lessons/" + gsL)).data.cardPrints[aid2].copies === 2, "2 Exemplare nur in dieser Sitzung (die frühere Sitzung bleibt bei 1x)");
+    // in der ZIP-Datei der Sitzung: unter dem Namen dieser Sitzung und auf A4 (hochgeladen in A5 quer)
+    z = await zip(); ze = z.entries.find((e) => e.name === NAMER2); info = ze ? await pdfInfo(Buffer.from(ze.data)) : { pages: 0 };
+    ok(info.pages === 2 && info.landscape, "ZIP-Datei der Sitzung: „" + NAMER2 + "“ mit 2 Seiten A4 quer");
+    [dl] = await Promise.all([tp.waitForEvent("download", { timeout: 30000 }), rowOf(NAMER2).getByRole("button", { name: "Herunterladen" }).click()]);
+    ok(dl.suggestedFilename() === NAMER2, "Einzel-Download unter dem Namen dieser Sitzung: „" + dl.suggestedFilename() + "“");
+    // nur in dieser Sitzung abwählen → darunter „Wieder ausdrucken“ (Fokus dort), nicht mehr bei den Druckaufträgen; wieder aufnehmen → 1x, einseitig, farbig
+    await rowOf(NAMER2).getByRole("button", { name: "Nicht ausdrucken – " + NAMER2 }).click();
+    const again = card.getByRole("button", { name: "Wieder ausdrucken – Arche Karten.pdf" });
+    await again.waitFor({ timeout: 10000 });
+    ok(await again.evaluate((el) => el === document.activeElement) && await rowOf(NAMER2).count() === 0 && !(await pnFiles()).some((x) => x.id === aid2)
+      && (await T("GET", "/api/teacher/lessons/" + prevL)).data.files.find((x) => x.id === aid2).print.copies === 1,
+      "„Nicht ausdrucken“: nur in dieser Sitzung – darunter „Wieder ausdrucken“ (Fokus dort), weg aus den Druckaufträgen, die frühere Sitzung unverändert");
+    await again.click();
+    await rowOf(NAMER).waitFor({ timeout: 10000 });
+    ok((await pnFiles()).some((x) => x.id === aid2 && x.printName === NAMER), "„Wieder ausdrucken“: wieder auf der Liste (1x, einseitig, farbig)");
+    await shots(tp, "#printcard", "wiederverwendet", { OUT, SHOT, ok, horizontalIssues });
+    // Verweis aus dem Verlaufsplan entfernt → nicht mehr auf der Druckliste dieser Sitzung
+    r = await tool("save_verlaufsplan", { lesson_id: gsL, text: "**1) Bewegungslied (5 Min.)**" });
+    await openSession();
+    ok(await rowOf(NAMER).count() === 0 && !(await pnFiles()).some((x) => x.id === aid2), "Verweis entfernt: nicht mehr auf der Druckliste dieser Sitzung");
+    await T("DELETE", "/api/teacher/lessons/" + prevL);
+  }
+
   /* ---------- f) Erinnerung: Geschichte im Verlaufsplan, aber keine Bildkarten ---------- */
   for (const id of [cid, aid, uid, oid, rid, vid, eid]) await T("DELETE", "/api/teacher/files/" + id);
   r = await tool("save_verlaufsplan", { lesson_id: gsL, text: "**1) Erzählung: Die Arche Noah (15 Min., Sitzkreis)**\n- Lehrkraft erzählt frei" });

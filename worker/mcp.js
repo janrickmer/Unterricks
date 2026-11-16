@@ -18,7 +18,7 @@ import { insertTextMaterial, insertPrintText, saveDesign, renderDesign, getFile 
 import { shortImages } from "./render.js";
 import { ESCAPE_FORMAT_HINT, PART_TYPES } from "../public/escape-data.js";
 import { SUBJECTS, ALL_CLASSES, subjectName, gradeInfo, formatCode, lessonContext, chatTranscript, PORTAL_RULES, PORTAL_EXAMPLE, PORTAL_TEACHER_RULE, SYSTEM_PROMPT_ROLE, FEIBEITSBLATT_INFO, FB_LINK_HINT, classShort, fmtDay, materialDesignText, printFileName, printCourse, GS_SUBJECT,
-  STOP_LINE, hasStop, planRefs, pdfRef, PLAN_REF_RE, NOTES_FILE, TEACHER_SUMMARY_TITLE, TEACHER_SUMMARY_MAX, teacherSummaryRules, summaryHead, summaryOutdated, fmtStampBerlin, addDays, berlinToday } from "../public/shared.js";
+  STOP_LINE, hasStop, planRefs, pdfRef, PLAN_REF_RE, NOTES_FILE, TEACHER_SUMMARY_TITLE, TEACHER_SUMMARY_MAX, teacherSummaryRules, summaryHead, summaryOutdated, fmtStampBerlin, addDays, berlinToday, cardPrintsOf, refCardsOf } from "../public/shared.js";
 import { gsLessonContext, GS_MATERIAL_RULES, CARD_DESIGN_RULES, VERLAUFSPLAN_EXAMPLE, VERLAUFSPLAN_RULES, CONC_TITLE, CONC_PRINT, CONC_PAGES_MAX, isConcName, concTitleOf, concSaveArgs, concSection, concMissingText, concUnplannedText,
   storyInPlan, cardsMissingText, CARD_PRINT_TEXT } from "../public/gsplanning.js";
 import { saveCardSet, setCardTexts } from "./cards.js";
@@ -423,7 +423,10 @@ async function gsLessonDump(c, l) {
   // Konzentrationsaufgabe (Nachtrag 27): gibt es sie schon – sonst Zweck, Aufbau und Ablage (nicht bei einem Ausfall-Eintrag)
   if (!l.cancelled) parts.push(...concSection(ctx.files, l.topic || l.title, (p) => printFileName({ ...p, course: pc })));
   // Bildkarten (Nachtrag 31): je Satz auch die Druckliste; ohne Bildkarten die Regel bzw. – erzählt der Verlaufsplan eine Geschichte – die Erinnerung
-  parts.push(...cardsSection(ctx.files, { plan: l.portal, cancelled: !!l.cancelled, refCards: others.some((f) => f.cards != null && refs.includes(f.id)), course: pc }));
+  // … und Bildkarten anderer Sitzungen, auf die der Verlaufsplan verweist (Nachtrag 31b): auch auf der Druckliste dieser Sitzung (Druckangaben dieser Sitzung)
+  const refSets = l.cancelled ? [] : refCardsOf(l.portal, others.filter((f) => f.cards != null && f.area === "teacher").map((f) => ({ ...f, lessonId: f.lesson_id })), l.id, cardPrintsOf(l.card_prints))
+    .map(({ card, print }) => ({ name: card.name, printName: print ? printFileName({ name: card.name, ...print, course: pc }) : null }));
+  parts.push(...cardsSection(ctx.files, { plan: l.portal, cancelled: !!l.cancelled, refCards: others.some((f) => f.cards != null && refs.includes(f.id)), course: pc, refSets }));
   parts.push(...(await designedSection(db, l.id, (a) => (a === "student" ? "für die Kinder" : a === "teacher" ? "nur Lehrkraft" : "zum Ausdrucken"))));
   if (results.length) parts.push("", "## Gespeicherter Stundenentwurf (save_planning_result)", results[results.length - 1].content.slice(0, 20000));
   if (l.unit_id) parts.push("", "Unterrichtseinheit: " + l.unit_id + " (Details mit get_unit; Planungsgrundlagen mit get_planning_basis)");
@@ -449,12 +452,16 @@ function freeLessonLine(l, unit, now) {
    bei einem Ausfall-Eintrag. refCards: der Verlaufsplan verweist auf Bildkarten einer anderen Sitzung; course: Kurs im Druck-Namen (Nachtrag 32). */
 const cardPrintLine = (f, course) => (f.print_copies != null ? "  Druckliste der Lehrkraft: „" + printNameOf(f, course) + "“."
   : "  Nicht auf der Druckliste der Lehrkraft (heruntergenommen oder vor dem 16.11.2026 angelegt) – nur sie nimmt die Bildkarten in der Sitzung wieder auf.");
-export function cardsSection(files, { plan = "", cancelled = false, refCards = false, course = "" } = {}) {
+/* refSets (Nachtrag 31b): Bildkarten anderer Sitzungen, auf die der Verlaufsplan verweist – [{name, printName}] (printName null = in dieser Sitzung abgewählt) */
+const refSetLines = (refSets) => refSets.map((x) => "- „" + x.name + "“ aus einer anderen Sitzung: " + (x.printName ? "auch auf der Druckliste dieser Sitzung als „" + x.printName + "“."
+  : "die Lehrkraft hat sie für diese Sitzung von der Druckliste genommen."));
+export function cardsSection(files, { plan = "", cancelled = false, refCards = false, course = "", refSets = [] } = {}) {
   const sets = files.filter((f) => f.cards != null && f.area !== "archive");
   if (!sets.length) {
     if (cancelled) return [];
     const story = refCards ? null : storyInPlan(plan);
-    return ["", "## Bildkarten", refCards ? "Diese Sitzung hat keine eigenen Bildkarten; der Verlaufsplan verweist auf Bildkarten einer anderen Sitzung (sie stehen auf deren Druckliste)."
+    if (refCards && refSets.length) return ["", "## Bildkarten", "Diese Sitzung hat keine eigenen Bildkarten; der Verlaufsplan verweist auf Bildkarten anderer Sitzungen:", ...refSetLines(refSets)];
+    return ["", "## Bildkarten", refCards ? "Diese Sitzung hat keine eigenen Bildkarten; der Verlaufsplan verweist auf Bildkarten einer anderen Sitzung (sie stehen auch auf der Druckliste dieser Sitzung)."
       : story ? "Achtung:" + cardsMissingText(story)
         : "Noch keine. Wird in dieser Stunde im Sitzkreis eine Geschichte erzählt oder vorgelesen, gehören immer Bildkarten dazu – gestalte sie mit add_picture_cards; " +
           "neue Bildkarten stehen von selbst auf der Druckliste der Lehrkraft (" + CARD_PRINT_TEXT + ")."];
@@ -473,6 +480,7 @@ export function cardsSection(files, { plan = "", cancelled = false, refCards = f
     if (n && d.texts.length !== n) out.push("  Achtung: " + n + (n === 1 ? " Karte" : " Karten") + ", aber " + d.texts.length + " Erzähltext" + (d.texts.length === 1 ? "" : "e") + ".");
     out.push(...(d.texts.length ? d.texts.map((t, i) => "  " + (i + 1) + ". " + (t || "(kein Erzähltext)")) : ["  (noch keine Erzähltexte)"]));
   }
+  if (refSets.length) out.push("Dazu verweist der Verlaufsplan auf Bildkarten anderer Sitzungen:", ...refSetLines(refSets));
   return out;
 }
 
@@ -961,6 +969,9 @@ async function callTool(c, name, a) {
       // Bildkarten (Nachtrag 31): erzählt der Verlaufsplan eine Geschichte, die Sitzung hat aber keine Bildkarten (auch keine verwiesenen anderer Sitzungen) → Erinnerung;
       // gespeichert wird trotzdem (die Erkennung ist bewusst großzügig, siehe storyInPlan)
       const hasCards = files.some((f) => f.is_cards && (f.lesson_id === l.id || refs.includes(f.id))), story = l.cancelled || hasCards ? null : storyInPlan(p.text);
+      // Nachtrag 31b: Bildkarten einer anderen Sitzung, auf die der Plan verweist, stehen auch auf der Druckliste dieser Sitzung (außer die Lehrkraft hat sie hier abgewählt)
+      const reused = l.cancelled ? [] : files.filter((f) => f.is_cards && f.lesson_id !== l.id && refs.includes(f.id) && !(cardPrintsOf(l.card_prints)[f.id] || {}).off);
+      if (reused.length) t.push("Wiederverwendete Bildkarten " + reused.map((f) => "„" + f.name + "“").join(", ") + " stehen auch auf der Druckliste dieser Sitzung (" + CARD_PRINT_TEXT + ").");
       return toolText(t.join(" ") + concText + (story ? cardsMissingText(story) : "") + (await summaryReminder(c.db, l, p.text)),
         { version: p.version, unknown_refs: unknown, invalid_refs: invalid, later_refs: later, konzentrationsaufgabe: conc.length > 0, ...(story ? { bildkarten_fehlen: true } : {}) });
     }

@@ -9,7 +9,7 @@ import { fileOut, PRINT_COURSE_COL } from "./lessons.js";
 import { loadSubjectConfigs } from "./bases.js";
 import { scheduleUnit } from "./units.js";
 import { gsCourseOut } from "./gs.js";
-import { berlinToday, berlinTime, addDays, lessonTimes, subjectName, subjectShort, classShort, printCourse, GS_SUBJECT } from "../public/shared.js";
+import { berlinToday, berlinTime, addDays, lessonTimes, subjectName, subjectShort, classShort, printCourse, printFileName, cardPrintsOf, refCardsOf, GS_SUBJECT } from "../public/shared.js";
 import { nextWorkday, printTargetDay, PRINT_AHEAD_DAYS, withSchoolBreaks } from "../public/planning.js";
 import { freeDaysStmt, freeDaysOf } from "./freedays.js";
 import { bringRead } from "../public/bring.js";
@@ -23,15 +23,22 @@ const PRINT_COLS = "id, lesson_id, area, kind, name, mime, size, pages, status, 
    zusätzlich PDFs der Kinder mit „Auch ausdrucken“ (print_copies) und – seit Nachtrag 31 – Bildkarten mit Druckangaben (Dateien der Lehrkraft mit cards
    und print_copies; heruntergenommene und ältere ohne print_copies nicht), wie in der Sitzung; Reihenfolge wie dort (created_at). Ohne html (PRINT_COLS). */
 const DAY_LESSONS = "SELECT id FROM lessons WHERE lesson_date IN (?1, ?2) AND cancelled=0";
-export const PRINT_FILES_SQL = "SELECT " + PRINT_COLS + " FROM files WHERE lesson_id IN (" + DAY_LESSONS + ") AND (area='print' OR (print_copies IS NOT NULL " +
-  "AND ((area='student' AND cards IS NULL) OR (area='teacher' AND cards IS NOT NULL)) AND lesson_id IN (" + DAY_LESSONS + " AND subject='" + GS_SUBJECT + "'))) ORDER BY created_at";
+/* Nachtrag 31b: in derselben Anweisung (UNION ALL, ref_card = 1) die Bildkarten aller Sitzungen der Grundschulkurse, die an diesen Tagen Unterricht haben – ob der
+   Verlaufsplan einer Sitzung auf sie verweist, entscheidet routePrintNext (refCardsOf in public/shared.js); owner_klass = Kurs der Sitzung, der sie gehören */
+export const PRINT_FILES_SQL = "SELECT " + PRINT_COLS + ", 0 AS ref_card, NULL AS owner_klass FROM files WHERE lesson_id IN (" + DAY_LESSONS + ") AND (area='print' OR (print_copies IS NOT NULL " +
+  "AND ((area='student' AND cards IS NULL) OR (area='teacher' AND cards IS NOT NULL)) AND lesson_id IN (" + DAY_LESSONS + " AND subject='" + GS_SUBJECT + "'))) " +
+  "UNION ALL SELECT " + PRINT_COLS + ", 1 AS ref_card, (SELECT klass FROM lessons WHERE id=files.lesson_id) AS owner_klass FROM files WHERE cards IS NOT NULL AND area='teacher' " +
+  "AND lesson_id IN (SELECT id FROM lessons WHERE subject='" + GS_SUBJECT + "' AND klass IN (SELECT klass FROM lessons WHERE lesson_date IN (?1, ?2) AND cancelled=0 AND subject='" + GS_SUBJECT + "')) " +
+  "ORDER BY created_at";
 
 // erster Tag mit einer (nicht ausgefallenen) Sitzung im Suchfenster und die Sitzungen des Zieltags – beide über den Index lessons_day
 export const FIRST_DAY_SQL = "SELECT MIN(lesson_date) AS d FROM lessons WHERE lesson_date >= ?1 AND lesson_date <= ?2 AND cancelled=0";
 // … samt den Gegenständen, die die Lehrkraft mitbringen muss (Nachtrag 28: roter Kasten „Für den nächsten Arbeitstag einpacken“ – dieselbe Anweisung) und
 // ob eine Krankheitsvertretung bzw. Selbstlern-Phase aktiv ist (Gymnasium: dann kommt die Lehrkraft nicht und packt nichts ein – Prüfbefund; Suche über den Schlüssel von substitutes);
 // ?1 und ?2 wie bei PRINT_FILES_SQL (Tag der Druckaufträge und heute)
-export const DAY_SESSIONS_SQL = "SELECT id, subject, klass, title, lesson_date, start_time, duration_min, bring, (SELECT status FROM substitutes WHERE lesson_id=lessons.id) AS sub " +
+// … in der Grundschule samt Verlaufsplan und den Druckangaben für wiederverwendete Bildkarten (Nachtrag 31b – die Verweise darin bestimmen sie)
+export const DAY_SESSIONS_SQL = "SELECT id, subject, klass, title, lesson_date, start_time, duration_min, bring, (SELECT status FROM substitutes WHERE lesson_id=lessons.id) AS sub, " +
+  "CASE WHEN subject='" + GS_SUBJECT + "' THEN portal END AS plan, CASE WHEN subject='" + GS_SUBJECT + "' THEN card_prints END AS card_prints " +
   "FROM lessons WHERE lesson_date IN (?1, ?2) AND cancelled=0";
 
 /* Sitzungen nach Beginn (ohne Uhrzeit zuletzt), dann Kurs bzw. Klasse, dann Titel (auch für den Podcast, worker/podcast.js) */
@@ -102,8 +109,18 @@ export async function routePrintNext(c) {
     c.db.prepare(DAY_SESSIONS_SQL).bind(date || today, today),
     c.db.prepare(PRINT_FILES_SQL).bind(date || today, today),
   ]);
-  const byLesson = new Map();
-  for (const f of fs.results || []) { if (!byLesson.has(f.lesson_id)) byLesson.set(f.lesson_id, []); byLesson.get(f.lesson_id).push(fileOut(f, false)); }
+  const byLesson = new Map(), courseCards = [];
+  for (const f of fs.results || []) {
+    if (f.ref_card) { courseCards.push(f); continue; }
+    if (!byLesson.has(f.lesson_id)) byLesson.set(f.lesson_id, []); byLesson.get(f.lesson_id).push(fileOut(f, false));
+  }
+  // Nachtrag 31b: Bildkarten einer anderen Sitzung desselben Kurses, auf die der Verlaufsplan verweist – hinten an die Liste der Sitzung, mit ihren Druckangaben
+  // (lessons.card_prints; ohne Eintrag 1x, einseitig, farbig) und ihrem Kurs im Druck-Namen; hier abgewählte nicht
+  const refCards = (l, course) => refCardsOf(l.plan, courseCards.filter((f) => f.owner_klass === l.klass).map((f) => ({ ...f, lessonId: f.lesson_id })), l.id, cardPrintsOf(l.card_prints))
+    .filter((x) => x.print).map(({ card, print }) => {
+      const o = fileOut(card, false);
+      return { ...o, print, printName: printFileName({ name: card.name, ...print, course: printCourse(l.subject, l.klass, course) }), refFrom: { lessonId: card.lesson_id } };
+    });
   const out = (l) => {
     // Selbstlern-Phase (Nachtrag 29) wie eine aktive Vertretung: die Lehrkraft kommt nicht, packt also nichts ein – ihre Ausdrucke (z. B. analoge Stationen
     // in Jg. 5/6) bleiben auf der Liste und tragen den Hinweis „Selbstlern-Phase“ (für die Aufsicht); für heute genauso
@@ -112,7 +129,7 @@ export async function routePrintNext(c) {
       school: isGs ? "gs" : "gym", label: isGs ? (course ? course.short : "Grundschule") : subjectShort(l.subject) + " " + classShort(l.klass),
       subtitle: isGs ? (course ? course.label : "Grundschule") : subjectName(l.subject) + " · " + classShort(l.klass),
       printCourse: printCourse(l.subject, l.klass, course),
-      ...(course ? { course: { id: course.id, short: course.short, label: course.label } } : {}), files: byLesson.get(l.id) || [], ...(bring.length ? { bring } : {}),
+      ...(course ? { course: { id: course.id, short: course.short, label: course.label } } : {}), files: [...(byLesson.get(l.id) || []), ...(isGs ? refCards(l, course) : [])], ...(bring.length ? { bring } : {}),
       ...(l.sub === "selbstlern" ? { selbstlern: true } : {}) };
   };
   const rows = ls.results || [];

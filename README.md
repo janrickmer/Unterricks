@@ -575,6 +575,13 @@ der **Podcast für den kommenden Unterricht** (derselbe wie auf der Startseite �
   nie in die Druckdateien. Hochgeladene Bildkarten in einem anderen Format (z. B. A5 vom Verlag) kommen in den Druckdateien auf A4
   (Quer- bzw. Hochformat bleibt); gespeichert bleibt Ihre PDF, wie sie war. Bildkarten, die vor dem 16.11.2026 angelegt wurden, stehen
   nicht auf der Liste – mit dem Schalter nehmen Sie sie bei Bedarf auf.
+* **Wiederverwendete Bildkarten (seit dem 16.11.2026):** Verweist der Verlaufsplan einer Sitzung auf Bildkarten einer **anderen** Sitzung
+  desselben Kurses (z. B. dieselben Karten zu Josef in der nächsten Stunde noch einmal), stehen sie **auch auf der Druckliste dieser
+  Sitzung** – wie neue Bildkarten mit 1 Exemplar, einseitig, farbig, mit dem Kurs dieser Sitzung im Namen, in der ZIP-Datei, in den
+  Druckaufträgen der Startseite und in „Ich bin jetzt im Unterricht“. In der Zeile steht, aus welcher Sitzung sie kommen. Anzahl, Farbe und
+  einseitig/beidseitig ändern Sie hier nur für diese Sitzung; **„Nicht ausdrucken“** nimmt sie nur hier herunter, darunter steht dann
+  **„Wieder ausdrucken“**. Die Druckliste der Sitzung, der die Bildkarten gehören, bleibt unverändert. Entfernen Sie den Verweis aus dem
+  Verlaufsplan, verschwinden sie auch von dieser Druckliste. Das gilt für alle Bildkarten, auch ältere.
 * **Konzentrationsaufgabe:** Zu jeder Sitzung, die Sie mit Claude planen („Stunde mit Claude planen“, auch wenn Claude beim Überarbeiten
   einer Einheit eine Sitzung neu plant), gestaltet Claude zusammen mit dem übrigen Material die **„Konzentrationsaufgabe“** – für Kinder, die
   ihre Aufmerksamkeit in Plenumsphasen nur bündeln können, wenn sie den Sitzkreis verlassen und beim Zuhören etwas ausmalen. Aufbau:

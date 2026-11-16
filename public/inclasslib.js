@@ -71,7 +71,9 @@ export const liveSlideText = (live) => (live.view === "code" && (live.slide === 
    Nie: Archiv (ursprüngliche Planung einer Selbstlern-Phase), die Präsentation selbst und ihre Anmerkungs-PDF (beide stehen unter „Präsentation“).
    Grundschule: Bildkarten stehen nie im Materialkasten, hier aber bei der Lehrkraft – auf der Druckliste „zum Ausdrucken“.
    → {student: [{type: "sheet", sheet} | {type: "file", file, tags}], teacher: [{type: "file", file, print, tags}]} */
-export function materialColumns(files, sheets, { gs = false, selbstlern = false } = {}) {
+/* refCards (Grundschule, Nachtrag 31b): wiederverwendete Bildkarten einer anderen Sitzung, die auf der Druckliste dieser Sitzung stehen (materialbox refEntries,
+   ohne die hier abgewählten) – hinten an „zum Ausdrucken“ */
+export function materialColumns(files, sheets, { gs = false, selbstlern = false, refCards = [] } = {}) {
   const fs = (Array.isArray(files) ? files : []).filter((f) => f && typeof f.id === "string");
   const student = [], notfall = [], teacher = [], print = [];
   for (const s of Array.isArray(sheets) ? sheets : []) if (s && s.code && s.kind !== "escape") student.push({ type: "sheet", sheet: s });
@@ -88,13 +90,14 @@ export function materialColumns(files, sheets, { gs = false, selbstlern = false 
     if (f.area === "print" || (gs && f.area === "student" && f.print && !(f.source === "selbstlern" && !selbstlern)) || (cards && f.print))
       print.push({ type: "file", file: f, print: true, tags: cards ? [CARDS_TAG, PRINT_TAG] : [PRINT_TAG] });
   }
+  if (gs) for (const f of Array.isArray(refCards) ? refCards : []) if (f && typeof f.id === "string" && !f.refOff) print.push({ type: "file", file: f, print: true, tags: [CARDS_TAG, PRINT_TAG] });
   return { student: [...student, ...notfall], teacher: [...teacher, ...print] };
 }
 
 /* Schlüssel des Materials: ändert er sich, baut die kompakte Ansicht die Spalten neu (sonst bleibt alles stehen – auch der Fokus) */
 export function materialKey(cols) {
   const one = (e) => (e.type === "sheet" ? "s:" + e.sheet.code + ":" + e.sheet.title
-    : [e.file.id, e.file.status, e.file.name, e.file.area, e.file.kind, e.print ? "p" + (e.file.printName || "") : "", e.file.url || "",
+    : [e.file.id, e.file.status, e.file.name, e.file.area, e.file.kind, e.print ? "p" + (e.file.printName || JSON.stringify(e.file.print || "")) : "", e.file.url || "",
       e.file.design ? [e.file.design.htmlAt, e.file.design.pdfAt, e.file.design.error || "", e.file.design.outdated ? 1 : 0].join("/") : ""].join(":"));
   return [...cols.student.map(one), "|", ...cols.teacher.map(one)].join("\n");
 }

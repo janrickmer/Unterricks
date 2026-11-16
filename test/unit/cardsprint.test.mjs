@@ -202,9 +202,14 @@ test("Druckliste des Tages (PRINT_FILES_SQL, „Druckaufträge für den nächste
   await patch(c, off, { copies: null });
   // so lag eine Zeile vor dem 16.11.2026 in D1 (ohne Druckangaben) – keine Nachrüstung
   await c.db.prepare("UPDATE files SET print_copies=NULL, print_duplex=NULL, print_color=NULL WHERE id=?1").bind(old).run();
-  const ids = async (d) => ((await c.db.prepare(PRINT_FILES_SQL).bind(d).all()).results || []).map((x) => x.id);
+  // eigene Druckliste der Sitzungen des Tages (ref_card = 0); seit Nachtrag 31b liefert dieselbe Anweisung dahinter (ref_card = 1) alle Bildkarten der Kurse des Tages –
+  // ob ein Verlaufsplan auf sie verweist, entscheidet routePrintNext (refcards.test.mjs)
+  const rows = async (d) => (await c.db.prepare(PRINT_FILES_SQL).bind(d).all()).results || [];
+  const ids = async (d) => (await rows(d)).filter((x) => !x.ref_card).map((x) => x.id);
   assert.deepEqual(await ids("2026-11-24"), [on]);
-  const out = L.fileOut((await c.db.prepare(PRINT_FILES_SQL).bind("2026-11-24").all()).results[0], false);
+  assert.deepEqual((await rows("2026-11-24")).filter((x) => x.ref_card).map((x) => [x.id, x.owner_klass]).sort(), [on, off, old].map((fid) => [fid, k.id]).sort(),
+    "Nachtrag 31b: alle Bildkarten des Kurses (auch abgewählte und ältere – die Druckangaben gelten je Sitzung), mit dem Kurs ihrer Sitzung");
+  const out = L.fileOut((await rows("2026-11-24")).filter((x) => !x.ref_card)[0], false);
   assert.deepEqual([out.printName, !!out.cards, out.design], ["1x - farbig - einseitig - Reli2 - Neu.pdf", true, undefined]);
   // ein Ausfall-Eintrag (Krankmeldung) zählt nie
   const x = await L.createLesson(c.db, { subject: "gs", klass: k.id, title: "Ausfall", date: "2026-11-25", startTime: "08:00", durationMin: 45 }, c.now + 5);
@@ -285,7 +290,9 @@ test("get_lesson und save_verlaufsplan: Druckliste je Satz; Geschichte ohne Bild
   r = await mcp("save_verlaufsplan", { lesson_id: l2.id, text: "**1) Erzählung (10 Min., Sitzkreis)**\n- [[pdf:" + id + "]] noch einmal zeigen", base_version: 0 });
   assert.ok(!r.content[0].text.includes("noch keine Bildkarten"), r.content[0].text);
   t = (await mcp("get_lesson", { lesson_id: l2.id })).content[0].text;
-  assert.ok(t.includes("\n## Bildkarten\nDiese Sitzung hat keine eigenen Bildkarten; der Verlaufsplan verweist auf Bildkarten einer anderen Sitzung"), t);
+  // Nachtrag 31b: die wiederverwendeten Bildkarten stehen auch auf der Druckliste dieser Sitzung (1x, einseitig, farbig – auch wenn ihre eigene Sitzung sie abgewählt hat)
+  assert.ok(t.includes("\n## Bildkarten\nDiese Sitzung hat keine eigenen Bildkarten; der Verlaufsplan verweist auf Bildkarten anderer Sitzungen:\n- „Bildkarten – Josef.pdf“ aus einer anderen Sitzung: " +
+    "auch auf der Druckliste dieser Sitzung als „1x - farbig - einseitig - Reli2 - Bildkarten – Josef.pdf“."), t);
   // Ausfall-Eintrag: kein Abschnitt; reine Abschnitts-Funktion auch direkt
   await c.db.prepare("UPDATE lessons SET cancelled=1 WHERE id=?1").bind(l2.id).run();
   assert.ok(!(await mcp("get_lesson", { lesson_id: l2.id })).content[0].text.includes("## Bildkarten"));
