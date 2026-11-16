@@ -11,6 +11,7 @@ import { printNextCards } from "./printnext.js";
 import { podcastCard } from "./podcast.js";
 import { freeDaysCard } from "./freedays.js";
 import { FbClient } from "./fbclient.js";
+import { storageFoot, resetStorageMemo } from "./storagefoot.js";
 import { deriveLogin, rememberKey, recallKey, forgetKey, sealLink, openLink, linkData, sameApi } from "./fblink.js";
 
 export const T = {
@@ -216,6 +217,9 @@ export function teacherBar(active) {
   return topbar({ home: "#/lk" }, [link("#/lk", "Gymnasium", "lessons"), link("#/lk/grundschule", "Grundschule", "primary"), link("#/lk/grundlagen", "Planungsgrundlagen", "bases"),
     link("#/lk/einstellungen", "Einstellungen", "settings"), h("button", { type: "button", onclick: logout }, "Abmelden")]);
 }
+/* Fußzeile jeder Seite der Lehrkraft (Nachtrag 30): „Speicher: n % belegt“, aufklappbar mit Dateien und Datenbank (public/storagefoot.js) –
+   in jedem render() der Lehrkräfteansicht hinter main; nie bei Schüler:innen, Eltern oder am Beamer */
+export const teacherFoot = () => storageFoot((fresh) => tapi("GET", "/api/teacher/storage" + (fresh ? "?fresh=1" : "")));
 /* Menüpunkt nachträglich markieren (z. B. Einheiten und Sitzungen der Grundschule: erst nach dem Laden steht fest, wohin sie gehören) */
 export function markNav(key) {
   for (const a of document.querySelectorAll(".topbar nav a[data-nav]")) { if (a.dataset.nav === key) a.setAttribute("aria-current", "page"); else a.removeAttribute("aria-current"); }
@@ -229,6 +233,7 @@ async function logout() {
   if (T.fb) T.fb.disconnect();
   T.wrapKey = null; T.fbLink = { state: "checking" }; fbAuto = null; await forgetKey();   // dieses Gerät vergisst den Schlüssel
   nfReset();   // ein laufendes Nachholen endet
+  resetStorageMemo();   // der gemerkte Stand des Speichers gilt nicht für die nächste Anmeldung
   lazy(import("./designrender.js")).then((m) => m.resetPrintQueue()).catch(() => {});   // ebenso das Drucken gestalteter Materialien
   toLogin();
 }
@@ -299,7 +304,7 @@ async function loadLessons() { return (await tapi("GET", "/api/teacher/lessons")
 
 async function subjectsPage() {
   const main = h("main", null, h("div", { class: "skeleton", text: "Lade …" }));
-  render(teacherBar("lessons"), main);
+  render(teacherBar("lessons"), main, teacherFoot());
   // Wochenkalender ganz oben: lädt eigenständig (ein Fehler dort verhindert die Fächer nicht)
   const week = weekCard(() => tapi("GET", "/api/teacher/schedule"));
   // darüber das Feld „Druckaufträge für den nächsten Arbeitstag“ (beide Schulformen; lädt ebenso eigenständig)
@@ -327,7 +332,7 @@ export async function subjectConfigs() { return (await tapi("GET", "/api/teacher
 async function classesPage(subject) {
   if (!isValidSubject(subject)) return go("#/lk");
   const main = h("main", null, h("div", { class: "skeleton", text: "Lade …" }));
-  render(teacherBar("lessons"), main);
+  render(teacherBar("lessons"), main, teacherFoot());
   let all, cfg;
   try { [all, cfg] = await Promise.all([loadLessons().then((x) => x.filter((l) => l.subject === subject)), subjectConfigs().then((c) => c[subject])]); }
   catch (e) { clear(main).append(h("p", { class: "err", text: e.message })); return; }
@@ -393,7 +398,7 @@ function lessonList(lessons, showContext) {
 async function lessonsPage(subject, klass) {
   if (!isValidSubject(subject) || !isValidClass(klass)) return go("#/lk");
   const main = h("main", null, h("div", { class: "skeleton", text: "Lade …" }));
-  render(teacherBar("lessons"), main);
+  render(teacherBar("lessons"), main, teacherFoot());
   let list, units, cfg, bases, cs, CC;
   try {
     [list, units, cfg, bases, cs, CC] = await Promise.all([
@@ -471,7 +476,7 @@ async function lessonsPage(subject, klass) {
 /* ---------- Einstellungen ---------- */
 async function settingsPage() {
   const main = h("main", { class: "narrow" }, h("div", { class: "skeleton", text: "Lade …" }));
-  render(teacherBar("settings"), main);
+  render(teacherBar("settings"), main, teacherFoot());
   let ai, mcp, me, sp;
   try { [ai, mcp, me, sp] = await Promise.all([tapi("GET", "/api/teacher/ai"), tapi("GET", "/api/teacher/mcp"), tapi("GET", "/api/teacher/me"), tapi("GET", "/api/teacher/student-settings"), config()]); }
   catch (e) { clear(main).append(h("p", { class: "err", text: e.message })); return; }

@@ -72,6 +72,7 @@ implementiert und im End-to-End-Test geprüft (Ausnahmen unten ausdrücklich gen
 | Konzentrationsaufgabe (Nachtrag 27 vom 15.11.2026) | Jeder Prompt, mit dem eine **Sitzung der Grundschule** mit Claude geplant wird („Stunde mit Claude planen“, Schritt 5 der Überarbeitung einer Einheit), lässt Claude zusammen mit dem übrigen Material die **„Konzentrationsaufgabe“** gestalten – für Kinder, die ihre Aufmerksamkeit in Plenumsphasen nur bündeln können, wenn sie den Sitzkreis verlassen und beim Zuhören ausmalen: höchstens **zwei A4-Seiten**, zuerst **mindestens zwei Ausmalbilder** zum aktuellen Unterrichtsinhalt, dann das Symbol einer **roten Karte**, danach **eine weitere altersgerechte Aufgabe** zum Inhalt der Stunde. Rückfragen beantwortet: **beidseitig** drucken, Bereich **druck** – nur auf der Druckliste der Lehrkraft als „5x - beidseitig - sw - Konzentrationsaufgabe – <Thema>.pdf“, nie in der Elternansicht, nie für Kinder. Siehe 4u |
 | Gegenstände zum Einpacken (Nachtrag 28 vom 15.11.2026) | Unter „Druckaufträge für den nächsten Arbeitstag“ auf **beiden Startseiten** ein **roter Kasten „Für den nächsten Arbeitstag einpacken“** mit den Gegenständen, die die Lehrkraft für die Sitzungen desselben Tages mitbringen muss (z. B. Bibel, Beutel), als **Stichpunktliste**; ein Klick auf einen Gegenstand klappt in **kleinerer Schrift** auf, **an welcher Stelle und in welcher Lerngruppe** er gebraucht wird (je Sitzung höchstens zwei Sätze). Rückfrage beantwortet: **Claude + von Hand** – Claude trägt sie beim Planen über den Connector ein (`update_lesson` mit `mitbringen`), die Lehrkraft ergänzt, ändert und löscht sie auf der Sitzungsseite (Karte „Mitbringen“); **Gymnasium und Grundschule**. Ohne Gegenstände kein Kasten. Siehe 4v |
 | Selbstlern-Phase statt Krankheitsvertretung (Nachtrag 29 vom 15.11.2026, Teil A) | Knopf **„Präsenz der Lehrkraft nicht möglich – Unterricht in Selbstlern-Phase umbauen“** (die Lehrkraft tippte einen Bindestrich; Unterricks setzt wie überall den Gedankenstrich), nur Gymnasium. Rückfragen beantwortet: **ersetzt die Krankheitsvertretung ganz** (Feibeitsblatt und Escape-Room können Stationen sein; ältere Vertretungen bleiben lesbar), **Jg. 5/6 analoge Selbstlern-Stationen** (Laufzettel, Arbeitsblätter, Lösungskontrolle auf der Druckliste; die Aufsicht teilt nur aus), **KI-Chatbots wie die KI-Begriffshilfe** (dieselben kostenlosen Dienste, dieselbe Einwilligung, ohne Namen), **YouTube eingebettet nach Klick** (youtube-nocookie.com, „Video in neuem Tab öffnen“), **Hausaufgabe von Anfang an sichtbar**. Claude entwickelt im Chat mindestens drei Ideen, speichert erst nach ausdrücklicher Zustimmung mit `save_selbstlern` (ein Schritt; die ursprüngliche Planung wird archiviert, „Wiederherstellen“ macht die Sitzung wieder normal) – Abschnitt 4w. **Teil B** (Schüleransicht, Erklär-Chatbot, Video nach Klick, KI-Begriffshilfe ganz unten; Chatbots ab Beginn der Sitzung bis zur nächsten Sitzung mit der Lehrkraft) – Abschnitt 4x |
+| Speicher in der Fußzeile (Nachtrag 30 vom 15.11.2026) | Ganz unten auf **jeder Seite der Lehrkraft** steht **„Speicher: n % belegt“** – Rückfrage beantwortet: **„knapperer Wert + Details“**: n ist der **höhere** der beiden Anteile – Dateien (R2, Grenze 9 GB) und Datenbank (D1, 500 MB im kostenlosen Plan); ein Klick bzw. Antippen klappt **beide Werte** auf („Dateien: 1,1 von 9 GB · Datenbank: 40 von 500 MB“). Ab 80 % ein Hinweis (Tinte mit Warnsymbol), ab 95 % rot mit „fast voll“; nie bei Schüler:innen, Eltern oder am Beamer – Abschnitt 4y |
 
 ## 2. Gesamtarchitektur
 
@@ -136,6 +137,7 @@ implementiert und im End-to-End-Test geprüft (Ausnahmen unten ausdrücklich gen
 | | `public/bring.js`, `public/bringcard.js` | Gegenstände zum Mitbringen (Nachtrag 28): Prüfung (Länge, höchstens zwei Sätze), Speicherform mit Stand, Zusammenfassen für die Startseite, Bausteine für Prompt und `get_lesson` (Browser und Worker); Karte „Mitbringen“ auf beiden Sitzungsseiten, siehe 4v |
 | | `worker/podcast.js`, `public/podcast.js`, `public/podcastlib.js` | Podcast für den kommenden Unterricht (Nachtrag 22): Grundlage des Tages, Auftrag für Claude in Chrome, Ablage der Audiodatei in R2, Player mit Range-Anfragen, Löschen zwei Tage nach dem Unterricht – Knopf bzw. Player unter dem Wochenkalender beider Startseiten, siehe 4q |
 | | `worker/substitute.js`, `public/selbstlern.js` | Selbstlern-Phase (Nachtrag 29): Speichern mit Archiv (`save_selbstlern`), Wiederherstellen, Übertragen, Schülerdaten, Escape-Room; ältere Vertretungen lesen. `public/selbstlern.js`: Prüfen der Stationen, YouTube, Hausaufgabe, Prompt für Claude, System-Prompt des Erklär-Chatbots (gemeinsam für Browser und Worker) |
+| | `public/storagefoot.js` (+ `GET /api/teacher/storage` in `worker/files.js`) | Speicher in der Fußzeile jeder Seite der Lehrkraft (Nachtrag 30): Anteil, Stufen, Einzelheiten, im Tab gemerkter Stand; Server: Summe der Dateien (wie beim Hochladen) und Größe der Datenbank (`meta.size_after`), siehe 4y |
 | Oberfläche | `public/boot.js` | Startdatei (unversioniert, bleibt über Deploys gleich): aktuellen Stand erfragen, `/v/<Stand>/app.js` laden, Hinweis bei einem Ladefehler, siehe 4t |
 | | `public/update.js` | Nach einem Update: Prüfung beim Seitenwechsel, sicheres Neuladen, `lazy()` für jedes Nachladen, Hinweis „Unterricks wurde aktualisiert“, siehe 4t |
 | | `scripts/build.mjs` | Build für Worker (`dist/`) und GitHub Pages (`dist-pages/`): Stand je Build in `/v/<Stand>/`, `version.json`, Prüfung der Verweise, siehe 4t |
@@ -1557,6 +1559,57 @@ Hausaufgabe von Anfang an.
 - **Tests:** `test/unit/selbstlerncheck.test.mjs` (je Befund), E2E im Schritt „Selbstlern-Phase“ (Sitzungsseite, zweite Frage der Begriffshilfe mit
   unterschriebenem Verlauf, untergeschobene Antwort über die Schnittstelle, `entwurf_id`, Herkunft nach dem Wiederherstellen) und „Jahrgang 6“ (Schüleransicht).
 
+## 4y. Belegter Speicher in der Fußzeile der Lehrkraft (Nachtrag der Lehrkraft vom 15.11.2026, Nachtrag 30)
+
+Wortlaut: „Sofern es einen beschränkten Speicherplatz für Dateien etc. in Unterricks gibt, sollte die Lehrkraft das wissen. Ganz unten in der Fußzeile
+der Seite sollte in der Lehrer-Ansicht angezeigt werden, wie viel Prozent des Speichers von Unterricks bereits belegt ist, damit die Lehrkraft eine
+Übersicht hat.“ Antwort auf die Rückfrage: **„knapperer Wert + Details“** – „Speicher: n % belegt“ (höherer Wert von Dateien 9 GB und Datenbank 500 MB),
+beim Antippen beide Werte.
+
+- **Zwei Grenzen:** Dateien liegen in R2; der Worker lässt höchstens `STORAGE_LIMIT_BYTES` zu (Vorgabe 9 · 1024³ Byte, unter den 10 GB des kostenlosen
+  Kontingents; `checkStorage` lehnt Uploads darüber mit 507 ab). Alles andere – Sitzungen, Einheiten, Schulportal-Einträge, Chats, Texte der
+  Planungsgrundlagen, Gestaltungen (HTML) – steht in D1, im kostenlosen Plan höchstens 500 MB je Datenbank (`DB_LIMIT_BYTES`, Vorgabe 500 000 000 Byte:
+  vorsichtig dezimal gerechnet – meint Cloudflare 500 MiB, warnt die Anzeige nur etwas früher; mit einem bezahlten Plan lässt sich die Grenze setzen).
+- **Server (`GET /api/teacher/storage`, `worker/files.js`, nur angemeldet):** `{files: {used, limit}, db: {used, limit}, at}`. Die Summe der Dateien ist
+  **dieselbe wie beim Hochladen** (`FILES_USED_SQL`: Dateien samt gekürzter und bereinigter Fassung der Präsentation, Folien- und Kartenbilder, PDFs der
+  Planungsgrundlagen, Podcasts). Die Größe der Datenbank liefert D1 in den Metadaten **jeder** Abfrage (`meta.size_after`, Byte; im lokalen
+  `wrangler dev` 4.145.0 geprüft: auch bei `SELECT` und im Batch) – `PRAGMA page_count` verweigert D1 („not authorized“), `PRAGMA page_size` allein
+  hilft nicht. Fehlt das Feld (ältere Laufzeit), ist `db.used` `null`; dann zählt nur der Anteil der Dateien und die Einzelheiten sagen „Datenbank: Größe
+  gerade nicht abrufbar“.
+- **Kosten:** Die Summe der Dateien liest jede Zeile von `files`, `slides`, `bases` und `podcasts` (D1 zählt gelesene Zeilen gegen 5 Mio. am Tag). Deshalb
+  merkt sich der Server den Stand **für alle Geräte** in einer Zeile `settings.storage_used` = `{at, used}` (`USAGE_CACHE_MS` 5 Minuten): jede Anfrage
+  liest nur diese Zeile (deren Abfrage bringt auch `size_after` mit, die Größe der Datenbank ist also immer aktuell), erst danach rechnet ein
+  `INSERT … ON CONFLICT … RETURNING` neu und speichert in derselben Anweisung. Höchstens zwei Anweisungen zur Anmeldung dazu, kaum CPU. `?fresh=1`
+  (die Fußzeile fragt so, wenn die Lehrkraft die Einzelheiten aufklappt und ihr gemerkter Stand älter als 10 s ist) rechnet neu, sobald der Stand des
+  Servers älter als `USAGE_FRESH_MS` (10 s) ist – so stimmen die Zahlen z. B. nach dem Löschen von Dateien bald wieder. Ein Stand „aus der Zukunft“ (andere Uhr) oder ein beschädigter gilt nicht. Keine Schemaänderung (Tabelle `settings`).
+- **Keine zusätzliche Anfrage je Seite:** Eine Anfrage, die jede Seite der Lehrkraft ohnehin stellt, gibt es nicht (jede Seite lädt ihre eigenen Daten;
+  `config()` und das Nachholen der Notfall-Feibeitsblätter laufen nur einmal je Laden). Deshalb merkt sich der Tab den Stand `STORAGE_MEMO_MS` (60 s, gemessen mit
+  `performance.now` – eine verstellte Uhr des Geräts hält ihn nicht fest): alle Seiten, die in dieser Zeit gezeichnet werden, zeigen ihn ohne neue Anfrage
+  (gleichzeitige Seiten teilen sich eine laufende Anfrage). Abmelden verwirft ihn (`resetStorageMemo`, eine späte Antwort zählt dann nicht).
+- **Anzeige (`public/storagefoot.js`, `storageView`):** Anteil = der höhere von Dateien und Datenbank, abgerundet („unter 1 %“, wenn etwas belegt ist,
+  aber weniger als 1 %); dieselbe Toleranz für die Stufen, damit angezeigte 95 % auch „fast voll“ sind. Stufen: unter 80 % ruhig (`--muted`), ab 80 %
+  **Hinweis** – Tinte mit Warnsymbol auf Papier (die Signal-Regel des Gestaltungssystems kennt keine Warnfarbe), ab 95 % **rot** mit „– fast voll“
+  (ab 100 % „– voll“). Die Einzelheiten nennen beide Werte („Dateien: 1,1 von 9 GB · Datenbank: 40 von 500 MB“; Dateien unter 1000 MB in MB, Zahlen auf
+  Deutsch mit geschütztem Leerzeichen vor Einheit und %), ab 80 % einen Satz, was zu tun ist (je nachdem, was knapp ist: „Dateien oder Sitzungen“ bzw.
+  „alte Sitzungen oder Einheiten“), was zu den Dateien und zur Datenbank zählt, und „Stand: HH:MM Uhr“. Dateien rechnet die Anzeige in GB zu 1024³ Byte
+  (wie die Grenze von 9 GB), die Datenbank in MB zu 1 000 000 Byte (wie ihre Grenze) – beide Zeilen sind in sich stimmig.
+- **Bedienung:** ein Knopf (`#storage-btn`, mindestens 44 px, `aria-expanded`, `aria-controls="storage-more"`) klappt die Einzelheiten auf und zu;
+  Tastatur wie jeder Knopf (Enter, Leertaste), der Fokus bleibt, die Fußzeile setzt ihn nie. Bis der Stand da ist, ist die Fußzeile leer; scheitert die
+  Anfrage, bleibt sie still leer (die nächste Seite fragt erneut). Aufgeklappt mit älterem Stand (> 10 s) holt sie ihn frisch und ändert die Werte an Ort
+  und Stelle.
+- **Wo:** in jedem `render()` der Lehrkräfteansicht hinter `main` (`teacherFoot()` aus `teacher.js`: Startseiten Gymnasium und Grundschule, Fächer,
+  Klassen, Sitzungen, Einheiten, Kurse der Grundschule, Planungsgrundlagen, Einstellungen, Vorschau der Elternansicht). **Nicht:** Anmeldeseite (noch nicht
+  angemeldet), „PDF öffnen“ (`#/lk/datei/…`, leitet sofort weiter), Vorschau des Escape-Rooms (eigene Gestaltung), Schüleransicht, Elternansicht,
+  Beamerfenster und Beamergerät.
+- **Nebenbei behoben (beim Ansehen der Bildschirmfotos):** Auf dem iPad hochkant (820 px) brach „Unterricks“ in der Kopfleiste als „Unterrick|s“ um –
+  `.brand` schrumpft jetzt nicht mehr (`flex: none`, `white-space: nowrap`), die Menüpunkte umbrechen wie bisher. Die Prüfung „ohne seitliches
+  Schieben“ in den E2E-Schritten Konzentrationsaufgabe und Einpacken las `hi.length` statt `hi.issues.length` und konnte so nie anschlagen – korrigiert.
+- **Tests:** `test/unit/storage.test.mjs` (Anzeige, Stufen, Zahlen, Fußzeile im Browser-Ersatz samt Tastatur und gemerktem Stand, Server mit D1 auf SQLite:
+  Summe, `size_after`, Zwischenspeicher, `fresh`, Grenzen aus der Umgebung, 401, Zahl der Anweisungen); `test/unit/fake-d1.mjs` liefert dafür
+  `meta.size_after` wie D1. E2E-Schritt „Speicher in der Fußzeile der Lehrkraft“ (`test/e2e/storage.mjs`): echter Stand auf fünf Seiten beider
+  Schulformen, Aufklappen mit Maus und Tastatur, 86 % und 96 % nur im Test (`page.route`) mit Farben hell und dunkel, keine Anzeige und keine Anfrage bei
+  Schüler:innen, Eltern und am Beamergerät; Bildschirmfotos `test-results/speicher-*.png`.
+
 ## 4i. Druckliste „Von der Lehrkraft auszudrucken“ (Ergänzung vom 10.11.2026)
 
 * Bereich `print` (für Schüler:innen nie sichtbar) mit `files.print_copies`, `print_duplex`, `print_color`. Nur PDF (Kennung `%PDF-`
@@ -1911,8 +1964,8 @@ stattdessen der von Anthropic vorgesehene Weg in umgekehrter Richtung (Connector
 | Dienst | Kostenlos enthalten | Hinweis |
 |---|---|---|
 | Cloudflare Workers | 100 000 Anfragen/Tag, 10 ms CPU je Anfrage | Live-Folien laufen über WebSockets (schonend) |
-| D1 | 5 GB je Konto, 500 MB je Datenbank | reicht für Texte und Metadaten vieler Schuljahre |
-| R2 | 10 GB/Monat | Aktivierung mit Zahlungsmittel; Plattform begrenzt auf 9 GB (Podcasts zählen mit, höchstens 95 MB je Folge, nach zwei Tagen gelöscht) |
+| D1 | 5 GB je Konto, 500 MB je Datenbank | reicht für Texte und Metadaten vieler Schuljahre; der Anteil steht in der Fußzeile der Lehrkraft (4y) |
+| R2 | 10 GB/Monat | Aktivierung mit Zahlungsmittel; Plattform begrenzt auf 9 GB (Podcasts zählen mit, höchstens 95 MB je Folge, nach zwei Tagen gelöscht); der Anteil steht in der Fußzeile der Lehrkraft (4y) |
 | Durable Objects | im Free-Plan (SQLite-Backend) | ein Objekt je Sitzung |
 | Workers AI | 10 000 Neurons/Tag (konto­weit, geteilt mit Feibeitsblatt) | Rückfall ohne Schlüssel |
 | Browser Run (PDF-Druck) | 10 Minuten Browserzeit/Tag, 1 Auftrag je 10 s (kontoweit) | Claudes Gestaltung → PDF; eine Seite ≈ 1–4 s; Stand in `GET /api/teacher/render` |

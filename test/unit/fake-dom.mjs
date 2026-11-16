@@ -445,7 +445,7 @@ globalThis.__leave = leave;`;
 const TEACHER = `
 export const T = { token: "lehrkraft", config: null, fb: null, wrapKey: null, fbLink: { state: "none" } };
 export async function tapi(method, path, o = {}) { if (!globalThis.__tapi) throw new Error("kein Server: " + method + " " + path); return globalThis.__tapi(method, path, o); }
-export const teacherBar = () => document.createElement("header"), markNav = () => {}, printPending = () => {}, cardsPendingRun = () => {};
+export const teacherBar = () => document.createElement("header"), teacherFoot = () => document.createElement("footer"), markNav = () => {}, printPending = () => {}, cardsPendingRun = () => {};
 export const askTeacherPassword = async () => null, fbAutoConnect = async () => {}, fbForget = () => {}, fbStore = async () => {}, fbUnlock = async () => {}, notfallBackfill = async () => {};`;
 export const stubs = "data:text/javascript," + encodeURIComponent(`
 const APP = ${JSON.stringify("data:text/javascript," + encodeURIComponent(APP))}, TEACHER = ${JSON.stringify("data:text/javascript," + encodeURIComponent(TEACHER))};

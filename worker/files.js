@@ -32,12 +32,45 @@ export const cutKey = (lessonId, fileId) => fileKey(lessonId, fileId) + "-bis"; 
 export const cleanKey = (lessonId, fileId) => fileKey(lessonId, fileId) + "-ohne-notizen";   // Präsentation ohne Anhänge/Notizen (für Schüler:innen, Nachtrag 20)
 export const slideKey = (lessonId, fileId, n) => "l/" + lessonId + "/p/" + fileId + "/" + n + ".img";
 
-const storageLimit = (env) => Number(env.STORAGE_LIMIT_BYTES) || 9 * 1024 ** 3;   // unter den 10 GB des kostenlosen R2-Kontingents bleiben
+export const storageLimit = (env) => Number(env.STORAGE_LIMIT_BYTES) || 9 * 1024 ** 3;   // unter den 10 GB des kostenlosen R2-Kontingents bleiben
+// Belegte Bytes aller Dateien in R2 (Material, Präsentationen samt gekürzter und bereinigter Fassung, Folien- und Kartenbilder, PDFs der
+// Planungsgrundlagen, Podcasts) – dieselbe Summe für die Grenze beim Hochladen und für die Anzeige in der Fußzeile der Lehrkraft (Nachtrag 30)
+const FILES_USED_SQL = "(SELECT COALESCE(SUM(size),0) + COALESCE(SUM(cut_size),0) + COALESCE(SUM(clean_size),0) FROM files) + (SELECT COALESCE(SUM(size),0) FROM slides) + (SELECT COALESCE(SUM(pdf_size),0) FROM bases) + (SELECT COALESCE(SUM(size),0) FROM podcasts)";
 export async function checkStorage(c, add) {
-  const r = await c.db.prepare("SELECT (SELECT COALESCE(SUM(size),0) + COALESCE(SUM(cut_size),0) + COALESCE(SUM(clean_size),0) FROM files) + (SELECT COALESCE(SUM(size),0) FROM slides) + (SELECT COALESCE(SUM(pdf_size),0) FROM bases) + (SELECT COALESCE(SUM(size),0) FROM podcasts) AS used").first();
+  const r = await c.db.prepare("SELECT " + FILES_USED_SQL + " AS used").first();
   const used = Number((r || {}).used) || 0, lim = storageLimit(c.env);
   if (used + add > lim) throw new HttpError(507, "storage_full", "Der Speicher ist voll (" + Math.round(used / 1024 ** 2) + " MB von " + Math.round(lim / 1024 ** 2) +
     " MB belegt). Bitte alte Dateien oder Sitzungen löschen – so bleibt die Ablage im kostenlosen Kontingent.");
+}
+/* ---------- Belegter Speicher für die Fußzeile der Lehrkraft (Nachtrag 30) ----------
+ * Dateien: dieselbe Summe wie checkStorage gegen storageLimit (9 GB, STORAGE_LIMIT_BYTES). Datenbank: Größe der D1-Datenbank in Byte, die D1 in den
+ * Metadaten jeder Abfrage mitliefert (meta.size_after – PRAGMA page_count verweigert D1), gegen 500 MB des kostenlosen Plans (DB_LIMIT_BYTES; vorsichtig als
+ * 500 000 000 Byte gerechnet). Die Summe der Dateien liest jede Zeile von files, slides, bases und podcasts – sie gilt deshalb für alle Geräte bis zu
+ * USAGE_CACHE_MS (eine Zeile in settings); ?fresh=1 (die Lehrkraft klappt die Einzelheiten auf) rechnet neu, sobald der Stand älter als USAGE_FRESH_MS
+ * ist. Die Größe der Datenbank ist immer aktuell (sie kommt mit der Abfrage des gemerkten Stands). Höchstens zwei Anweisungen zusätzlich zur Anmeldung. */
+export const DB_LIMIT_BYTES = 500 * 1000 ** 2;
+export const USAGE_CACHE_MS = 5 * 60e3, USAGE_FRESH_MS = 10e3;
+const STORAGE_KEY = "storage_used";
+const dbLimit = (env) => Number(env.DB_LIMIT_BYTES) || DB_LIMIT_BYTES;
+const sizeAfter = (res) => { const n = Number(res && res.meta && res.meta.size_after); return Number.isFinite(n) && n > 0 ? n : null; };
+export async function storageUsage(c, fresh = false) {
+  let res = await c.db.prepare("SELECT value FROM settings WHERE key=?1").bind(STORAGE_KEY).all();
+  let db = sizeAfter(res), cached = null;
+  try { const v = JSON.parse(((res.results || [])[0] || {}).value); if (v && Number.isFinite(v.at) && Number.isFinite(v.used) && v.used >= 0) cached = v; } catch {}
+  const age = cached ? c.now - cached.at : Infinity;
+  if (!(age >= 0 && age < (fresh ? USAGE_FRESH_MS : USAGE_CACHE_MS))) {
+    res = await c.db.prepare("INSERT INTO settings(key, value) VALUES(?1, json_object('at', ?2, 'used', " + FILES_USED_SQL + ")) " +
+      "ON CONFLICT(key) DO UPDATE SET value=excluded.value RETURNING value").bind(STORAGE_KEY, c.now).all();
+    const v = JSON.parse(res.results[0].value);
+    cached = { at: Number(v.at), used: Number(v.used) || 0 };
+    db = sizeAfter(res) ?? db;
+  }
+  return { files: { used: cached.used, limit: storageLimit(c.env) }, db: { used: db, limit: dbLimit(c.env) }, at: cached.at };
+}
+export async function routeStorage(c) {
+  await requireTeacher(c);
+  const fresh = new URL(c.request.url).searchParams.get("fresh") === "1";
+  return json({ ok: true, ...(await storageUsage(c, fresh)) }, 200, { "Cache-Control": "no-store" });
 }
 export function uploadLength(c, max) {
   const len = Number(c.request.headers.get("content-length"));

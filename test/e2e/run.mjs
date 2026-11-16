@@ -17,6 +17,7 @@ import { dialogsE2E } from "./dialogs.mjs";
 import { updateE2E } from "./update.mjs";
 import { CONC_HTML, CONC_HTML_LONG } from "./konzentration.mjs";
 import { bringE2E } from "./bring.mjs";
+import { storageE2E } from "./storage.mjs";
 import { escapeFixture } from "./escape-fixture.mjs";
 
 const require = createRequire(import.meta.url);
@@ -1049,6 +1050,8 @@ async function main() {
       await tdlg.getByRole("button", { name: "Timer schließen" }).click();
       await qp.waitForFunction(() => document.querySelector(".live .tband").hidden, null, { timeout: 10000 });
       await gp.waitForFunction(() => document.querySelector(".beamer .tband").hidden, null, { timeout: 10000 });
+      // das Band der Lehrkraft verschwindet mit der Antwort des Servers über ihre eigene Verbindung – die kann nach der der Schülerin ankommen (Wettlauf im Test)
+      await jpr.locator(".stage .tband").waitFor({ state: "hidden", timeout: 10000 }).catch(() => {});
       ok(await tdlg.isHidden() && await jpr.locator(".stage .tband").isHidden(), "„Timer schließen“ entfernt ihn überall");
       // „Präsentation für alle beenden“ entfernt einen laufenden Timer
       await tmB.click(); await tdlg.waitFor();
@@ -3215,7 +3218,7 @@ async function main() {
           await tp.setViewportSize({ width: w, height: hh }); await tp.emulateMedia({ colorScheme: dark ? "dark" : "light" }); await tp.waitForTimeout(250);
           const el = tp.locator(sel).first(); await el.scrollIntoViewIfNeeded();
           await el.screenshot({ ...SHOT, path: join(OUT, "konzentration-" + name + "-" + w + (dark ? "-dunkel" : "") + ".png") });
-          if (w < 400 && !dark) { const hi = await horizontalIssues(tp); ok(!hi.length, "„" + name + "“ am Handy (390 px): ohne seitliches Schieben" + (hi.length ? " – " + JSON.stringify(hi).slice(0, 200) : "")); }
+          if (w < 400 && !dark) { const hi = (await horizontalIssues(tp)).issues; ok(!hi.length, "„" + name + "“ am Handy (390 px): ohne seitliches Schieben" + (hi.length ? " – " + JSON.stringify(hi).slice(0, 200) : "")); }
         }
         await tp.emulateMedia({ colorScheme: "light" }); await tp.setViewportSize(vp0);
       };
@@ -3235,6 +3238,10 @@ async function main() {
       /* ---------- Nachtrag 28: Gegenstände zum Einpacken – roter Kasten unter den Druckaufträgen, Connector und Sitzungsseite ---------- */
       step("Für den nächsten Arbeitstag einpacken: Claude trägt Gegenstände ein (Gymnasium und Grundschule), roter Kasten unter den Druckaufträgen, Aufklappen, von Hand ändern, leer → kein Kasten");
       await bringE2E({ tp, BASE, T, tool, ok, OUT, SHOT, gymL, gsL, horizontalIssues });
+
+      /* ---------- Nachtrag 30: belegter Speicher in der Fußzeile der Lehrkraft ---------- */
+      step("Speicher in der Fußzeile der Lehrkraft: „Speicher: n % belegt“ auf jeder Seite der Lehrkraft (knapperer Wert von Dateien und Datenbank), aufklappbar, Hinweis ab 80 %, rot ab 95 %, nie bei Schüler:innen, Eltern und am Beamer");
+      await storageE2E({ browser, tp, sp, BASE, T, ok, OUT, SHOT, gymL, gsL, horizontalIssues, watch });
     }
 
     /* ---------- Podcast für den kommenden Unterricht (Nachtrag 22) ---------- */

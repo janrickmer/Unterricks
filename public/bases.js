@@ -5,7 +5,7 @@
 import { lazy, lazyWorker } from "./update.js";
 import { h, clear, toast, errToast, busy, modal, confirmDialog, fmtTime, fmtBytes, icon, pageHead, upload, apiUrl, stateLine } from "./ui.js";
 import { render, go } from "./app.js";
-import { T, tapi, teacherBar } from "./teacher.js";
+import { T, tapi, teacherBar, teacherFoot } from "./teacher.js";
 import { SUBJECTS, subjectName, isValidSubject, CLASS_GROUPS, Q_COURSES, classShort, schoolYearOf, berlinToday } from "./shared.js";
 import { BASE_KINDS, detectSections, parseRanges, formatRanges, sectionLabel, pageText, wantedSections, missingFor, wantedGsSections, missingForGs, gsReligionCourseIn, baseKindLabel } from "./bases-detect.js";
 
@@ -148,7 +148,7 @@ export function editBase(b, { grades = [], onSaved = () => {} } = {}) {
 /* ---------- Übersicht über alle Fächer ---------- */
 export async function basesOverview() {
   const main = h("main", null, h("div", { class: "skeleton", text: "Lade …" }));
-  render(teacherBar("bases"), main);
+  render(teacherBar("bases"), main, teacherFoot());
   let bases, cfgs;
   try { [bases, cfgs] = await Promise.all([tapi("GET", "/api/teacher/bases").then((r) => r.bases), tapi("GET", "/api/teacher/subjects").then((r) => r.subjects)]); }
   catch (e) { clear(main).append(h("p", { class: "err", text: e.message })); return; }
@@ -192,7 +192,7 @@ export function basePdfButton(b, { onSaved = () => {} } = {}) {
 export async function basesPage(subject) {
   if (!isValidSubject(subject)) return go("#/lk/grundlagen");
   const main = h("main", null, h("div", { class: "skeleton", text: "Lade …" }));
-  render(teacherBar("bases"), main);
+  render(teacherBar("bases"), main, teacherFoot());
   let bases, cfg, gsCourses = [];
   const load = async () => {
     [bases, cfg, gsCourses] = await Promise.all([tapi("GET", "/api/teacher/bases?subject=" + subject).then((r) => r.bases), tapi("GET", "/api/teacher/subjects").then((r) => r.subjects[subject]),
@@ -385,7 +385,7 @@ export async function basesPage(subject) {
    Mit Original-PDF: weiter zur PDF (signierter Link, wie „PDF ansehen“). Ältere ohne PDF: ihr gespeicherter Text als lesbare Seite. */
 export async function baseDocPage(id) {
   const main = h("main", { class: "narrow" }, h("div", { class: "skeleton", text: "Lade …" }));
-  render(teacherBar("bases"), main);
+  render(teacherBar("bases"), main, teacherFoot());
   let b;
   try { b = (await tapi("GET", "/api/teacher/bases/" + id)).base; }
   catch (e) { clear(main).append(pageHead({ crumbs: [["#/lk/grundlagen", "Planungsgrundlagen"]], title: "Planungsgrundlage" }), h("p", { class: "err", text: e.message })); return; }

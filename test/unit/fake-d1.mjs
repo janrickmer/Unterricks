@@ -8,14 +8,18 @@ export function fakeD1() {
   const vals = (a) => a.map((v) => (v === undefined ? null : typeof v === "boolean" ? (v ? 1 : 0) : v));
   const plain = (r) => (r ? { ...r } : null);
   const counter = { n: 0 };
+  // wie D1: meta.size_after = Größe der Datenbank nach der Anweisung in Byte (die Speicheranzeige der Lehrkraft liest sie, Nachtrag 30);
+  // sizeAfter = Zahl setzt sie fest (z. B. eine fast volle Datenbank), null lässt sie weg (ältere Laufzeit ohne das Feld)
+  const size = () => (counter.sizeAfter !== undefined ? counter.sizeAfter : Number(db.prepare("PRAGMA page_count").get().page_count) * Number(db.prepare("PRAGMA page_size").get().page_size));
+  const meta = (m) => { const n = size(); return n === null ? m : { ...m, size_after: n }; };
   const stmt = (sql, args = []) => ({
     bind: (...a) => stmt(sql, a),
     first: async (col) => { counter.n++; const r = plain(db.prepare(sql).get(...vals(args))); return r && col ? r[col] : r; },
-    all: async () => { counter.n++; return { results: db.prepare(sql).all(...vals(args)).map(plain) }; },
+    all: async () => { counter.n++; const results = db.prepare(sql).all(...vals(args)).map(plain); return { results, meta: meta({}) }; },
     run: async () => {
       counter.n++;
-      if (/\bRETURNING\b/i.test(sql)) { const rows = db.prepare(sql).all(...vals(args)); return { results: rows.map(plain), meta: { changes: rows.length } }; }
-      const r = db.prepare(sql).run(...vals(args)); return { meta: { changes: Number(r.changes) } };
+      if (/\bRETURNING\b/i.test(sql)) { const rows = db.prepare(sql).all(...vals(args)); return { results: rows.map(plain), meta: meta({ changes: rows.length }) }; }
+      const r = db.prepare(sql).run(...vals(args)); return { meta: meta({ changes: Number(r.changes) }) };
     },
   });
   return { raw: db, counter, prepare: (sql) => stmt(sql), batch: async (list) => { const out = []; for (const s of list) out.push(await s.all()); return out; } };

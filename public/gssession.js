@@ -5,7 +5,7 @@
 // Lehrkraft). Keine Live-Präsentation, kein Schulportal-Eintrag, kein Sitzungscode, keine Feibeitsblätter, kein Planungschat.
 import { h, clear, nn, toast, errToast, modal, confirmDialog, copyText, fmtTime, icon, pageHead, stateLine } from "./ui.js";
 import { render, go, onLeave } from "./app.js";
-import { tapi, teacherBar, markNav } from "./teacher.js";
+import { tapi, teacherBar, teacherFoot, markNav } from "./teacher.js";
 import { fmtDay, insertStop, removeStops, hasStop, isStopLine, parsePlanMarkup, parentMaterial, parentOpensAt, pdfRef, lessonTimes, fmtClockBerlin, TEACHER_SUMMARY_TITLE } from "./shared.js";
 import { unitContext } from "./planning.js";
 import { claudeGsLessonPrompt, gsChatName, CONC_TITLE, CONC_PRINT } from "./gsplanning.js";
@@ -94,7 +94,7 @@ const shortWhen = (x) => (x && x.date ? fmtDay(x.date).slice(0, 10) + (x.time ? 
 
 export async function gsSessionPage(id, d) {
   const main = h("main");
-  render(teacherBar("primary"), main);
+  render(teacherBar("primary"), main, teacherFoot());
   markNav("primary");
   const st = { lesson: d.lesson, files: d.files, refFiles: d.refFiles || [], unit: d.unit, messages: d.messages || [], sheets: [], drafts: [] };
   const L = () => st.lesson;

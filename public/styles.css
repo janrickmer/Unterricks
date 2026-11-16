@@ -102,7 +102,7 @@ svg.ico { width: 1.15em; height: 1.15em; flex: none; stroke: currentColor; fill:
 /* ---------- Kopfleiste ---------- */
 .topbar { position: sticky; top: 0; z-index: 20; background: var(--surface); border-bottom: 1px solid var(--line); }
 .topbar .inner { max-width: 1280px; margin: 0 auto; padding: .5rem 1rem; min-height: 62px; display: flex; align-items: center; gap: 1rem; }
-.brand { display: flex; align-items: center; gap: .6rem; font-weight: 800; font-size: 1.2rem; letter-spacing: -.01em; color: var(--text); text-decoration: none; }
+.brand { display: flex; flex: none; align-items: center; gap: .6rem; font-weight: 800; font-size: 1.2rem; letter-spacing: -.01em; color: var(--text); text-decoration: none; white-space: nowrap; }   /* nie „Unterrick|s“ (iPad hochkant, 820 px) */
 .brand img { width: 34px; height: 34px; }
 .topbar nav { margin-left: auto; display: flex; gap: .2rem; flex-wrap: wrap; }
 .topbar nav a, .topbar nav button { color: var(--text); background: transparent; border: 0; padding: .5rem .8rem; border-radius: 10px; font: inherit; font-weight: 700; font-size: .98rem; cursor: pointer; text-decoration: none; }
@@ -114,6 +114,29 @@ main.narrow { max-width: 780px; }
 .footer a { color: var(--muted); font-weight: 700; }
 .footer .footsep { margin: 0 .35rem; }
 .footer a.footbeamer { display: inline-flex; align-items: center; min-height: 44px; font-weight: 600; }   /* „Dieses Gerät als Beamer verwenden“ (Nachtrag 15) */
+/* Fußzeile der Lehrkraft: belegter Speicher (Nachtrag 30, public/storagefoot.js) – aufklappbar mit Dateien und Datenbank. Keine eigene Warnfarbe
+   (Signal-Regel): ab 80 % Tinte mit Warnsymbol auf Papier, ab 95 % Fehlerrot; der Anteil steht immer als Text. Farben nur über die Tokens (dunkel mit) */
+.footer.tfoot { padding: .25rem 1rem 1.75rem; }
+.sf { --sf-ink: var(--muted); --sf-bg: transparent; --sf-line: transparent; --sf-fill: var(--line-ui);
+  display: grid; justify-items: center; gap: .45rem; max-width: 1280px; margin: 0 auto; }
+.sf[data-level="warn"] { --sf-ink: var(--text); --sf-bg: var(--paper); --sf-line: color-mix(in srgb, var(--line-ui) 70%, transparent); --sf-fill: var(--text); }
+.sf[data-level="danger"] { --sf-ink: var(--err); --sf-bg: var(--rot-t); --sf-line: color-mix(in srgb, var(--rot) 45%, transparent); --sf-fill: var(--err); }
+.sf-btn { display: inline-flex; align-items: center; gap: .5rem; min-height: 44px; max-width: 100%; padding: .35rem .85rem; border: 1px solid var(--sf-line);
+  border-radius: 999px; background: var(--sf-bg); color: var(--sf-ink); font: inherit; font-weight: 700; text-align: left; cursor: pointer; }
+@media (hover: hover) { .sf-btn:hover { background: color-mix(in srgb, var(--surface-2) 75%, var(--sf-bg)); } }   /* am iPad bleibt kein Hover nach dem Antippen stehen */
+.sf-btn[hidden], .sf-more[hidden] { display: none; }
+.sf-ico { display: inline-flex; flex: none; } .sf-ico .ico { width: 1.15em; height: 1.15em; }
+.sf-label { min-width: 0; }
+.sf-bar { flex: none; width: 3.5rem; height: 6px; border-radius: 3px; background: var(--line); overflow: hidden; }
+.sf-fill { display: block; height: 100%; border-radius: inherit; background: var(--sf-fill); }
+.sf-btn > .ico { flex: none; width: 1.05em; height: 1.05em; transition: transform .2s var(--ease); }
+.sf-btn[aria-expanded="true"] > .ico { transform: rotate(180deg); }
+.sf-more { width: min(100%, 40rem); padding: .7rem .95rem; text-align: left; background: var(--surface); border: 1px solid var(--line); border-radius: var(--radius-s);
+  color: var(--text); font-size: .92rem; }
+.sf-more p { margin: 0; } .sf-more p + p { margin-top: .45rem; }
+.sf-vals { font-weight: 700; } .sf-v { white-space: nowrap; }
+@media (max-width: 420px) { .sf-bar, .sf-sep { display: none; } .sf-v { display: block; } }
+@media (prefers-reduced-motion: reduce) { .sf-btn > .ico { transition: none; } }
 
 /* ---------- Kopfband: getönte Folie in der Fachfarbe, randlos ---------- */
 .pagehead { --ring: #fff; position: relative; isolation: isolate; color: #fff; background: var(--fach);

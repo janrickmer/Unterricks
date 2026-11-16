@@ -144,6 +144,7 @@ const ROUTES = [
   ["POST", "/api/teacher/lessons/" + ID + "/designs", F.routeDesignCreate],
   ["GET", "/api/teacher/files/" + ID + "/html", F.routeFileHtml],
   ["GET", "/api/teacher/render", F.routeRenderUsage],
+  ["GET", "/api/teacher/storage", F.routeStorage],   // belegter Speicher für die Fußzeile der Lehrkraft (Nachtrag 30)
   ["DELETE", "/api/teacher/files/" + ID, F.routeFileDelete],
   ["POST", "/api/teacher/files/" + ID + "/link", F.routeTeacherFileLink],
   ["POST", "/api/teacher/lessons/" + ID + "/presentation", F.routePresentationUpload],

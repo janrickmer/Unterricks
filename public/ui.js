@@ -495,6 +495,8 @@ const ICONS = {
   // Tasche (Nachtrag 28: „Für den nächsten Arbeitstag einpacken“) und Pfeil zum Aufklappen
   bag: "M5 8h14l-1.2 11.2a2 2 0 0 1-2 1.8H8.2a2 2 0 0 1-2-1.8L5 8zM9 8V6.5a3 3 0 0 1 6 0V8",
   chev: "M6 9l6 6 6-6",
+  // Datenbank-Zylinder (Nachtrag 30: Speicher in der Fußzeile der Lehrkraft)
+  database: "M4 6c0-1.66 3.58-3 8-3s8 1.34 8 3-3.58 3-8 3-8-1.34-8-3zM4 6v12c0 1.66 3.58 3 8 3s8-1.34 8-3V6M4 12c0 1.66 3.58 3 8 3s8-1.34 8-3",
 };
 const SVGNS = "http://www.w3.org/2000/svg";
 export function icon(name) {

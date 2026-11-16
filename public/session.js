@@ -2,7 +2,7 @@
 import { lazy } from "./update.js";
 import { h, clear, toast, errToast, busy, modal, confirmDialog, copyText, fmtBytes, fmtDate, fmtTime, fileIcon, downloadBlob, upload, api, apiUrl, nn, icon, pageHead, setFach, stateLine } from "./ui.js";
 import { render, go, onLeave } from "./app.js";
-import { T, tapi, teacherBar, fbAutoConnect, fbUnlock, fbStore, fbForget, askTeacherPassword, notfallBackfill } from "./teacher.js";
+import { T, tapi, teacherBar, teacherFoot, fbAutoConnect, fbUnlock, fbStore, fbForget, askTeacherPassword, notfallBackfill } from "./teacher.js";
 import { subjectName, gradeInfo, formatCode, claudePresentationPrompt, PORTAL_RULES, portalForCopy, insertStop, removeStops, hasStop, isStopLine,
   fmtDay, classShort, gradeKey, isAnalogClass, ANALOG_RULE, isCourseClass, courseMembers, homeworkForPortal, PUBLIC_URL,
   lessonTimes, fmtClockBerlin, fmtDayBerlin, HOMEWORK_BEFORE_END_MIN, PRESENTATION_AFTER_END_MIN, slidesUpTo, subjectShort,
@@ -25,7 +25,7 @@ const MODES = [["planning", "Planung"], ["ideas", "Ideen weiterentwickeln"], ["m
 
 export async function sessionPage(id) {
   const main = h("main", null, h("div", { class: "skeleton", text: "Lade die Sitzung …" }));
-  render(teacherBar("lessons"), main);
+  render(teacherBar("lessons"), main, teacherFoot());
   let d, cfg = null;
   try { [d, cfg] = await Promise.all([tapi("GET", "/api/teacher/lessons/" + id), tapi("GET", "/api/teacher/subjects").then((r) => r.subjects).catch(() => null)]); }
   catch (e) { clear(main).append(h("div", { class: "card" }, h("p", { class: "err", text: e.message }), h("a", { class: "btn", href: "#/lk" }, "Zur Übersicht"))); return; }

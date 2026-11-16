@@ -3,7 +3,7 @@
 // Kurseinstellungen, Fach/Klassen/Beschreibung, Planungsgrundlagen, neue Einheit). Fach der Einheiten und Sitzungen: „gs“, Klasse = Kurs-ID.
 import { h, clear, nn, pageHead, toast, errToast, busy, confirmDialog, icon, stateLine, setFach } from "./ui.js";
 import { render, go } from "./app.js";
-import { tapi, teacherBar, markNav, printPending, cardsPendingRun } from "./teacher.js";
+import { tapi, teacherBar, teacherFoot, markNav, printPending, cardsPendingRun } from "./teacher.js";
 import { fmtClockBerlin, berlinToday, schoolYearOf, gsCourseShort, normalizeGsCourse, GS_CLASS_LETTERS, GS_LIMITS, fmtDay, clockMinutes, minutesClock, addDays } from "./shared.js";
 import { WEEKDAYS, normalizeCourseSettings, claudeGymRevisionPrompt } from "./planning.js";
 import { weekCard } from "./weekcal.js";
@@ -25,7 +25,7 @@ const sessions = (n) => n + (n === 1 ? " Sitzung" : " Sitzungen");
 /* ---------- Übersicht #/lk/grundschule ---------- */
 export async function gsOverviewPage() {
   const main = h("main", null, h("div", { class: "skeleton", text: "Lade …" }));
-  render(teacherBar("primary"), main);
+  render(teacherBar("primary"), main, teacherFoot());
   // derselbe Wochenkalender wie auf der Startseite: immer alle Termine beider Schulformen (lädt eigenständig)
   const week = weekCard(() => tapi("GET", "/api/teacher/schedule"));
   // ganz oben das Feld „Druckaufträge für den nächsten Arbeitstag“ – dasselbe wie auf der Startseite „Gymnasium“ (beide Schulformen)
@@ -188,7 +188,7 @@ function newCourseCard() {
 /* ---------- Kursseite #/lk/grundschule/k/<id> ---------- */
 export async function gsCoursePage(id) {
   const main = h("main", null, h("div", { class: "skeleton", text: "Lade den Kurs …" }));
-  render(teacherBar("primary"), main);
+  render(teacherBar("primary"), main, teacherFoot());
   let course, settings, units, lessons, bases, basis;
   const load = async () => {
     const r = await tapi("GET", "/api/teacher/gs/courses/" + id);
@@ -331,7 +331,7 @@ export async function parentsPreviewPage(id, other = null) {
   const within = previewOf === id;
   previewOf = id;
   const main = h("main", { class: "narrow parents parents-preview" }, h("div", { class: "skeleton", text: "Lade …" }));
-  render(teacherBar("primary"), main);
+  render(teacherBar("primary"), main, teacherFoot());
   markNav("primary");
   const target = other && other !== id ? other : id;
   const load = () => tapi("GET", "/api/teacher/lessons/" + target + "/parents" + (target !== id ? "?anchor=" + id : ""));

@@ -431,7 +431,7 @@ Die Markerfolie – der Hauptweg und, ganz dünn aufgetragen, Aufgaben und Ziele
 
 ### Tertiary
 Die Signale – jede Farbe hat genau einen Auftrag.
-- **Signalrot** (`--rot`, #c8281e): Zwischenstopp (Reiter, Kante des Abdeckblatts, Abzeichen), Live (Abzeichen „LIVE“, Knopf „Präsentation für alle beenden“) und Fehler (`--err`: Fehlertexte, Fehlerhinweise, Fehler-Toasts und Knöpfe für endgültige Aktionen). Die tiefe Stufe `rot-tief` (#a81f17) trägt den Hover des Live-Knopfs und den Fehler-Toast, die Tönung `--rot-t` (#fbe9e7) Hinweise und Abzeichen.
+- **Signalrot** (`--rot`, #c8281e): Zwischenstopp (Reiter, Kante des Abdeckblatts, Abzeichen), Live (Abzeichen „LIVE“, Knopf „Präsentation für alle beenden“) und Fehler (`--err`: Fehlertexte, Fehlerhinweise, Fehler-Toasts und Knöpfe für endgültige Aktionen; auch der Speicher in der Fußzeile der Lehrkraft ab 95 % – gleich scheitert das Hochladen). Die tiefe Stufe `rot-tief` (#a81f17) trägt den Hover des Live-Knopfs und den Fehler-Toast, die Tönung `--rot-t` (#fbe9e7) Hinweise und Abzeichen.
 - **Erledigt-Grün** (`--gruen`, #14794a) als `--ok`: gespeichert, verbunden, festgelegt, aktiv – in Zustandszeilen mit Häkchen. Die tiefe Stufe `gruen-tief` (#116a40) trägt Erfolgs-Toasts und das Erledigt-Abzeichen im Kopfband, die Tönung `--gruen-t` (#e3f2ea) Hinweise und Abzeichen.
 - **Druckauftrags-Orange** (`--orange`, #e05d00, mit `--orange-t` #fff0dc; dunkel #ff9a45 und #37230f, dort das Drucker-Symbol in #13213b): ausschließlich das Feld „Druckaufträge für den nächsten Arbeitstag“ auf den beiden Startseiten – ausdrücklicher Wunsch der Lehrkraft („ein orangenes Feld mit einem Drucker als Symbol“). Kennfarbe dieses einen Feldes, keine Warnfarbe; Schrift darauf immer `--text`/`--muted`.
 - **Einpack-Rot** (Nachtrag 28, nur der Kasten „Für den nächsten Arbeitstag einpacken“ direkt unter den Druckaufträgen): Fläche `--rot-t`, 2px-Kante, Taschen-Schild und Stichpunkte in `--err` (hell #c8281e mit weißem Symbol 5,6 : 1, dunkel #ff8a80 mit Tinte #13213b 7,0 : 1); Schrift immer `--text`/`--muted` (13,7 : 1 bzw. 13,1 : 1). Ausdrücklicher Wunsch der Lehrkraft („in einem roten Kasten“) – eine Ausnahme von der Signal-Regel nur für diesen Kasten, wie das Orange der Druckaufträge; die Karte „Mitbringen“ der Sitzungsseite bleibt neutral.
@@ -656,6 +656,19 @@ Der Kopf jeder Seite: Fach, Kurs und Stand auf einen Blick.
 - Karte **direkt unter** den Druckaufträgen auf beiden Startseiten (dasselbe Feld liefert die Daten), nur wenn es Gegenstände gibt. Fläche `--rot-t` mit 2px-Kante `--err`; links das Taschen-Symbol (`icon("bag")`) auf einem roten Schild (48px, Radius 12px, `aria-hidden`; unter 560px 42px), daneben h2 „Für den nächsten Arbeitstag einpacken“ und in 700 der Tag („für morgen, Dienstag, 17.11.2026“).
 - Stichpunktliste (`ul.pk-list`, Punkte in `--err`): je Gegenstand ein Knopf `.pk-item` (Text in 700/1.04rem, ≥ 44px, ohne Rahmen; Hover eine zarte Rot-Tönung; Fokusring 3px `--fach-text`) mit kleinem Pfeil (`icon("chev")`, dreht sich beim Aufklappen); derselbe Gegenstand mehrerer Stunden einmal, mit „· 2 Stunden“ in 600 und `--muted`. `aria-expanded`/`aria-controls`.
 - Aufgeklappt darunter ein Textfeld `.pk-note` in **kleinerer Schrift** (.9rem, Zeilenhöhe 1.5) auf `--surface` mit 1px-Kante (Rot 40 % in `--line`), Radius 10px, höchstens 70 Zeichen breit: je Stunde ein Absatz „**PoWi 9D, 07:50 Uhr**: Hinweis“ – die Lerngruppe in 700 als Link zur Sitzung; mehrere Stunden durch eine Haarlinie getrennt.
+
+### Speicher in der Fußzeile der Lehrkraft (`footer.tfoot`, `.sf`, `public/storagefoot.js`, Nachtrag 30)
+- Ganz unten auf jeder Seite der Lehrkraft, mittig, in der Schrift der Fußzeile (.88rem): ein Knopf als Pille (Radius 999px, mindestens 44px hoch, 700) mit
+  Symbol, „Speicher: 12 % belegt“, einem kleinen Balken (3.5rem × 6px, Spur `--line`, aria-hidden; am Handy ausgeblendet) und dem Winkel `chev`, der sich
+  beim Aufklappen dreht. Darunter aufgeklappt eine kleine Karte (`.sf-more`: `--surface`, 1px `--line`, Radius 10px, höchstens 40rem, .92rem): die beiden
+  Werte in 700 („Dateien: 1,1 von 9 GB · Datenbank: 40 von 500 MB“, am Handy untereinander ohne Punkt), ab 80 % ein Satz, was zu tun ist, und klein in
+  `--muted`, was zu den Dateien und zur Datenbank zählt, samt „Stand: HH:MM Uhr“.
+- Stufen über `data-level` und eigene Tokens (`--sf-ink`, `--sf-bg`, `--sf-line`, `--sf-fill`, abgeleitet aus den Systemfarben, dunkel automatisch mit):
+  **ruhig** (unter 80 %) `--muted` ohne Fläche mit dem Datenbank-Symbol (`database`), 6,4 : 1 hell, 8,8 : 1 dunkel; **Hinweis** (ab 80 %) Tinte `--text`
+  auf `--paper` mit Kante `--line-ui` und Warnsymbol, der Satz als `.warnc` – keine Warnfarbe (Signal-Regel), 14,3 : 1 bzw. 13,7 : 1; **fast voll** (ab
+  95 %) `--err` auf `--rot-t` mit roter Kante, „– fast voll“ im Knopf, der Satz als `.err` (4,7 : 1 hell, 6,8 : 1 dunkel) – Rot als Fehlersignal: ab hier
+  scheitert bald das Hochladen bzw. Speichern. Der Anteil steht immer als Text, die Farbe ist nur Hinweis. Hover nur mit Maus (`@media (hover: hover)`).
+- Nie auf Seiten der Schüler:innen, der Eltern oder am Beamer.
 
 ### Karte „Mitbringen“ auf der Sitzungsseite (`.bring`, `public/bringcard.js`, Nachtrag 28)
 - Rechte Spalte unter „Sitzungsdaten“ (Gymnasium und Grundschule), ohne eigene Farbe. h2 mit Taschen-Symbol „Mitbringen“, rechts die Zustandszeile; ein Satz zum Zweck in `--muted`/klein. Je Gegenstand eine Zeile mit Haarlinien: Name in 700, darunter der Hinweis (.9rem; ohne Hinweis „Ohne Hinweis.“ in `--muted`); rechts Stift und Papierkorb als Ghost-Symbolknöpfe (44px, `aria-label` „„Bibel“ bearbeiten“ bzw. „… löschen“, Papierkorb in `--err`).

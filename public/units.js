@@ -3,7 +3,7 @@
 import { lazy } from "./update.js";
 import { h, clear, toast, errToast, busy, confirmDialog, fmtTime, nn, icon, pageHead, modal, stateLine, downloadBlob, fmtBytes } from "./ui.js";
 import { render, go, onLeave } from "./app.js";
-import { T, tapi, teacherBar, markNav } from "./teacher.js";
+import { T, tapi, teacherBar, teacherFoot, markNav } from "./teacher.js";
 import { subjectName, gradeInfo, classShort, fmtDay, isAnalogClass, GS_SUBJECT } from "./shared.js";
 import { WEEKDAYS, computeSlots, lessonSlots, claudeUnitPrompt, normalizeParams, freeRangeText } from "./planning.js";
 import { freeDateMessage } from "./freedays.js";
@@ -29,7 +29,7 @@ export function leupoldView(unit, highlight) {
 
 export async function unitPage(id) {
   const main = h("main", null, h("div", { class: "skeleton", text: "Lade die Unterrichtseinheit …" }));
-  render(teacherBar("lessons"), main);
+  render(teacherBar("lessons"), main, teacherFoot());
   let u;
   try { u = (await tapi("GET", "/api/teacher/units/" + id)).unit; }
   catch (e) { clear(main).append(h("div", { class: "card" }, h("p", { class: "err", text: e.message }), h("a", { class: "btn", href: "#/lk" }, "Zur Übersicht"))); return; }

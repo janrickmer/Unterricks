@@ -424,6 +424,13 @@ gleich in `public/_headers`, im Worker und – für GitHub Pages – in `scripts
   keine KI nutzen möchte, schreibt die Erklärung ins Heft. Ein **YouTube-Video** lädt die Seite erst nach dem Klick auf „Video von YouTube laden“
   (über youtube-nocookie.com, ohne Vorschaubild); dabei erhält Google unter anderem die IP-Adresse und kann Cookies setzen, Daten können in die USA
   gelangen – so steht es auch über dem Knopf. Die Zustimmung zum Video speichert Unterricks nicht. „Video in neuem Tab öffnen“ öffnet YouTube direkt.
+* **Speicher (Fußzeile):** Ganz unten auf jeder Seite der Lehrkräfteansicht steht, wie viel des Speichers von Unterricks belegt ist, z. B.
+  **„Speicher: 12 % belegt“**. Es gibt zwei Grenzen: **Dateien** (Material, Präsentationen, Bildkarten, PDFs der Planungsgrundlagen, Podcasts)
+  höchstens **9 GB**, die **Datenbank** (Sitzungen, Einheiten, Texte, Chats) höchstens **500 MB** – so bleibt Unterricks im kostenlosen
+  Angebot von Cloudflare. Angezeigt wird der knappere der beiden Werte; ein Klick bzw. Antippen zeigt beide („Dateien: 1,1 von 9 GB ·
+  Datenbank: 40 von 500 MB“). Ab 80 % erscheint ein Warnsymbol mit dem Hinweis, bei Gelegenheit nicht mehr benötigte Dateien oder Sitzungen
+  zu löschen, ab 95 % steht der Wert rot mit „fast voll“ da (bei vollem Dateispeicher lassen sich keine Dateien mehr hochladen). Die Zahl wird
+  alle paar Minuten aktualisiert und beim Aufklappen neu abgefragt. Schüler:innen, Eltern und der Beamer sehen sie nie.
 * **Nach einem Update von Unterricks:** Ein Tab, der schon vorher offen war, merkt das beim nächsten Seitenwechsel (z. B. beim Klick auf
   eine Sitzung) und lädt sich dann an derselben Stelle neu – Sie müssen nichts tun. Solange ein Dialog offen ist, eine Präsentation läuft
   (auch am Beamergerät und im Live-Fenster der Schüler:innen) oder noch etwas gespeichert, hochgeladen oder heruntergeladen wird, lädt er
@@ -524,3 +531,6 @@ Programmteile (Fehler vom 14.11.2026, Einzelheiten in `docs/ARCHITEKTUR.md`, 4t)
 `public/` bleibt unversioniert. Der End-to-End-Test spielt das mit zwei Ständen nach (Schritt „Nach einem Update“, auch mit einem
 eigenen `wrangler dev` auf Port 8795 – vor einem Lauf frei halten); mit `UPDATE_SHOTS=1` legt er Bildschirmfotos der Hinweise in
 `test-results/update/` ab.
+
+Die Grenzen der Speicheranzeige (Fußzeile der Lehrkraft) lassen sich als Variablen des Workers setzen: `STORAGE_LIMIT_BYTES` (Dateien in R2,
+Vorgabe 9 GB – darüber lehnt der Worker Uploads ab) und `DB_LIMIT_BYTES` (Datenbank, Vorgabe 500 MB des kostenlosen D1-Plans; nur für die Anzeige).

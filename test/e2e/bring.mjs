@@ -63,7 +63,7 @@ export async function bringE2E({ tp, BASE, T, tool, ok, OUT, SHOT, gymL, gsL, ho
       await tp.setViewportSize({ width: w, height: hh }); await tp.emulateMedia({ colorScheme: dark ? "dark" : "light" }); await tp.waitForTimeout(250);
       const el = tp.locator(sel).first(); await el.scrollIntoViewIfNeeded();
       await el.screenshot({ ...SHOT, path: join(OUT, "einpacken-" + name + "-" + w + (dark ? "-dunkel" : "") + ".png") });
-      if (w < 400 && !dark) { const hi = await horizontalIssues(tp); ok(!hi.length, "„" + name + "“ am Handy (390 px): ohne seitliches Schieben" + (hi.length ? " – " + JSON.stringify(hi).slice(0, 200) : "")); }
+      if (w < 400 && !dark) { const hi = (await horizontalIssues(tp)).issues; ok(!hi.length, "„" + name + "“ am Handy (390 px): ohne seitliches Schieben" + (hi.length ? " – " + JSON.stringify(hi).slice(0, 200) : "")); }
       if (dark && w === 1366 && sel === "#packnext") { const d = await look(); ok(d.bg === "rgb(61, 26, 26)" && d.border === "rgb(255, 138, 128)", "dunkel: Fläche " + d.bg + ", Kante " + d.border); }
     }
     await tp.emulateMedia({ colorScheme: "light" }); await tp.setViewportSize(vp0);
