@@ -115,6 +115,15 @@ export async function printTodayE2E({ tp, BASE, T, token, ok, OUT, SHOT, gsId, h
     await tp.reload();
     await group(A).waitFor({ timeout: 20000 });
     await tp.evaluate(() => { window.__pnMarker = 33; });
+    // zweites Gerät, das „schläft“ (Prüfung von Nachtrag 33): Uhr angehalten, kein Zeitgeber läuft ab; beim Aufwachen ist das Netz noch nicht da
+    const sctx = await tp.context().browser().newContext({ storageState: await tp.context().storageState(), viewport: { width: 1366, height: 900 } });
+    const sp = await sctx.newPage(), sErr = [];
+    sp.on("pageerror", (e) => sErr.push(e.message));
+    await sp.clock.install();
+    await sp.goto(BASE + "/#/lk");
+    const sCard = sp.locator(".printnext"), sGroup = (l) => sCard.locator(".pn-group", { has: sp.locator('a[href="#/lk/s/' + l + '"]') });
+    await sGroup(A).waitFor({ timeout: 20000 });
+    await sp.clock.pauseAt(Date.now() + 1000);
     // Fokus auf „Herunterladen“ der Datei von morgen
     const cBtn = group(C).getByRole("button", { name: "Herunterladen – " + NEXT_NAME });
     await cBtn.focus();
@@ -124,6 +133,26 @@ export async function printTodayE2E({ tp, BASE, T, token, ok, OUT, SHOT, gsId, h
     ok(await tp.evaluate(() => window.__pnMarker) === 33 && await cBtn.evaluate((el) => el === document.activeElement) && await group(B).count() === 1
       && await card.locator("#pn-h").textContent() === "Druckaufträge für heute und den nächsten Arbeitstag" && late >= 0 && late < 15000,
       "um " + fmtClockBerlin(a1.end) + " Uhr (Ende der 8A) verschwindet ihr Eintrag ohne Neuladen der Seite (" + Math.round(late / 1000) + " s nach dem Ende); Fokus bleibt auf dem Knopf von morgen, die Grundschul-Stunde bleibt");
+    // das „schlafende“ Gerät wacht auf (Uhr springt, ohne Zeitgeber), das Netz fehlt noch: die Druckaufträge bleiben stehen (keine Fehlermeldung statt der Liste);
+    // sobald das Netz wieder da ist („online“), verschwindet die beendete Stunde
+    const sAll = sp.locator('.pn-dayg[data-day="' + cand + '"] button.pn-all');
+    await sAll.focus();
+    const stillA = await sGroup(A).count() === 1;
+    let aborted = 0;
+    await sp.route("**/api/teacher/print-next", (rt) => { aborted++; return rt.abort("internetdisconnected"); });
+    await sp.clock.setSystemTime(Date.now());
+    await sp.evaluate(() => document.dispatchEvent(new Event("visibilitychange")));
+    for (let i = 0; i < 40 && !aborted; i++) await sleep(100);
+    await sleep(500);
+    ok(stillA && aborted >= 1 && await sCard.locator(".pn-err").count() === 0 && await sGroup(A).count() === 1 && await sGroup(B).count() === 1
+      && await sAll.evaluate((el) => el === document.activeElement) && await sp.locator("#packnext .pk-dayg").count() === 2,
+      "Ruhezustand: beim Aufwachen ohne Netz (" + aborted + "× abgebrochen) bleiben Feld, roter Kasten und Fokus stehen – keine Fehlermeldung statt der Druckaufträge");
+    await sp.unroute("**/api/teacher/print-next");
+    await sp.evaluate(() => window.dispatchEvent(new Event("online")));
+    await sGroup(A).waitFor({ state: "detached", timeout: 15000 });
+    ok(await sGroup(B).count() === 1 && await sCard.locator(".pn-err").count() === 0 && await sAll.evaluate((el) => el === document.activeElement) && !sErr.length,
+      "Netz wieder da („online“): die beendete 8A verschwindet ohne Neuladen, die Grundschul-Stunde bleibt, Fokus bleibt auf „Alle Dateien herunterladen“ von morgen" + (sErr.length ? " – " + sErr.join(" | ") : ""));
+    await sctx.close();
     // roter Kasten: heute ohne Gegenstände → wie bisher nur der nächste Arbeitstag
     ok(await pack.locator("#pk-h").textContent() === "Für den nächsten Arbeitstag einpacken" && await pack.locator(".pk-dayg").count() === 0
       && JSON.stringify(await pack.locator("button.pk-item").allTextContents()) === JSON.stringify(["Beutel"]) && await pack.locator("#pk-day").textContent() === "für " + want,

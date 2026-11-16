@@ -208,7 +208,8 @@ gleich in `public/_headers`, im Worker und – für GitHub Pages – in `scripts
   („09:00–09:45“). Jede Stunde verschwindet einzeln, sobald sie vorbei ist (um 9:50 Uhr steht unter „Heute“ nur noch die 11:00-Stunde), nach der
   letzten Stunde des Tages nur noch der nächste Arbeitstag – wie bisher. Das geschieht auch, wenn die Startseite offen bleibt: Unterricks lädt
   das Feld zum Ende der Stunde von selbst neu (die Uhr des Servers entscheidet), ohne die Seite neu zu laden; eine Zeile, in der Sie gerade
-  eine Datei herunterladen, bleibt bis zum Ende des Downloads stehen, und der Tastaturfokus bleibt, wo er war. Den nächsten Arbeitstag bestimmt
+  eine Datei herunterladen, bleibt bis zum Ende des Downloads stehen, und der Tastaturfokus bleibt, wo er war. Ist das Netz gerade weg (z. B. kurz
+  nach dem Aufwachen des iPads), bleiben die bisherigen Druckaufträge stehen, und Unterricks versucht es von selbst noch einmal. Den nächsten Arbeitstag bestimmt
   Unterricks wie bisher (unterrichtsfreie Tage, Ausfall-Einträge zählen nie). Hat heute keine der noch anstehenden Stunden Druckaufträge,
   sieht das Feld aus wie bisher. **„Alle Dateien herunterladen“** gibt es dann **je Tag** (unter „Heute“ nur die Dateien von heute, unter
   dem nächsten Arbeitstag nur dessen Dateien) – weiterhin einzeln, keine ZIP-Datei, mit den Druck-Namen und den Bildkarten wie oben. Der rote
@@ -344,7 +345,9 @@ gleich in `public/_headers`, im Worker und – für GitHub Pages – in `scripts
   Fach → die ersten vier Buchstaben seines Namens + Jahrgang („Sachunterricht“ → „Sach3“). Der Name entsteht beim Herunterladen – auch schon
   vorhandene Dateien heißen so, und ändern Sie Fach oder Jahrgang eines Grundschulkurses, heißen seine Dateien gleich danach entsprechend.
   Den Titel wählen Sie wie bisher („Umbenennen“ in der Druckliste); Anzahl, schwarz-weiß/farbig und einseitig/beidseitig stellen Sie in
-  der Zeile ein – in dieser Reihenfolge.
+  der Zeile ein – in dieser Reihenfolge. Laden Sie eine früher heruntergeladene Druckdatei wieder hoch (z. B. für eine andere Klasse), behält
+  Unterricks nur ihren Titel: „23x - sw - einseitig - Reli4 - Die Arche Noah.pdf“ heißt in einer Sitzung der Reli3 mit 21 Exemplaren
+  „21x - sw - einseitig - Reli3 - Die Arche Noah.pdf“ – nie doppelt.
 * **Einheit als Datei:** Auf der Planungsseite einer Einheit, Karte **„Einheit als Datei“**, gibt es zwei Knöpfe.
   * **„Einheit als Datei herunterladen“** erzeugt eine ZIP-Datei. Darin liegt die Einheitsdatei mit Rahmendaten, Leupold-Schema und
     Ablauf. Dazu kommt je Sitzung ein Ordner, chronologisch nummeriert („01 - 12.11.2026 - …“), mit der Sitzungsdatei.

@@ -4,7 +4,7 @@ import { HttpError, bad, json, readJson, randomId, cleanLine, cleanText, isId, r
 import { courseClassSize } from "./courses.js";
 import { requireTeacher } from "./auth.js";
 import { getLesson, fileOut, codeSlidesOf, LIMITS, onPrintList, cardVersion, notesData, PRINT_COURSE_COL, printNameOf } from "./lessons.js";
-import { normalizeCode, isValidCode, cleanWebUrl, slidesUpTo, cleanCopies, isAnalogClass, cleanCodeSlides, GS_SUBJECT, cleanSlideNotes, annotatedName, CARD_PRINT } from "../public/shared.js";
+import { normalizeCode, isValidCode, cleanWebUrl, slidesUpTo, cleanCopies, isAnalogClass, cleanCodeSlides, GS_SUBJECT, cleanSlideNotes, annotatedName, CARD_PRINT, printTitleOf } from "../public/shared.js";
 import { cleanDesignHtml, renderPdf, htmlText, keepImages, shortImages, HTML_MAX, RenderError, renderUsage, printerConfigured } from "./render.js";
 
 export const MAX_FILE = 100 * 1024 * 1024;         // Grenze einer Anfrage im Cloudflare-Free-Plan
@@ -210,7 +210,8 @@ const boolParam = (v, dflt) => (v === "1" || v === "true" ? 1 : v === "0" || v =
 export async function routePrintUpload(c, lessonId) {
   await requireTeacher(c);
   await materialLesson(c.db, lessonId);
-  const u = new URL(c.request.url), name = cleanLine(u.searchParams.get("name"), 200) || "Druckvorlage.pdf";
+  // eine wieder hochgeladene Druckdatei („23x - sw - einseitig - Reli4 - Titel.pdf“) behält nur ihren Titel – den Druck-Namen baut Unterricks selbst (printTitleOf)
+  const u = new URL(c.request.url), name = printTitleOf(cleanLine(u.searchParams.get("name"), 200)) || "Druckvorlage.pdf";
   if (mimeFor(name, c.request.headers.get("content-type")) !== "application/pdf") throw bad("Zum Ausdrucken sind nur PDF-Dateien erlaubt.");
   const len = uploadLength(c, MAX_FILE);
   await checkStorage(c, len);

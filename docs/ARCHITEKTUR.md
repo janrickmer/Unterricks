@@ -1788,7 +1788,11 @@ anderem Fach die ersten 4 Buchstaben des Fachnamens („Sach3“), Religion blei
   bisher nur `print` (Anzahl, beidseitig, Farbe), keine Druck-Namen – unverändert.
 * **Gleiche Namen:** Durch den Kurs statt der Klasse heißen dieselben Vorlagen für 8A und 8B gleich. In einer ZIP-Datei (eine Sitzung) macht `makeZip`
   sie wie bisher eindeutig („… (2).pdf“, ohne Groß-/Kleinschreibung); „Alle Dateien herunterladen“ (mehrere Sitzungen, einzelne Downloads) nutzt jetzt
-  dieselbe Regel (`uniqueNames`), statt sich auf den Browser zu verlassen.
+  dieselbe Regel (`uniqueNames`), statt sich auf den Browser zu verlassen. Seit der Prüfung gelten dabei auch zwei Unicode-Normalformen desselben Titels
+  („Ü“ als ein Zeichen bzw. U + Trema, z. B. hochgeladen vom Mac) als gleich – das Dateisystem von iPad und Mac unterscheidet sie nicht.
+* **Wieder hochgeladene Druckdateien (Prüfung):** Trägt der Name einer hochgeladenen PDF schon einen Druck-Namen (neues oder altes Muster, mit oder ohne
+  Kurs – z. B. eine Datei aus einer früher heruntergeladenen ZIP-Datei für eine andere Klasse), speichert `routePrintUpload` nur den Titel
+  (`printTitleOf` in shared.js) – sonst stünden Anzahl, Druckart und zwei verschiedene Kurse im Namen. Gewöhnliche Titel („Quiz - Runde 1“) bleiben.
 * **Oberfläche:** Hinweis der Druckliste (`#print-name-hint`) mit Beispiel im Kurs der Sitzung („z. B. „28x - sw - beidseitig - PoWi8 -
   Arbeitsblatt.pdf““, Grundschule „23x - sw - einseitig - Reli4 - Die Arche Noah.pdf“); in jeder Zeile stehen die Auswahlfelder jetzt in der
   Reihenfolge des Namens (Anzahl, schwarz-weiß/farbig, einseitig/beidseitig), die Farboption heißt „farbig (nur wenn nötig)“. Der Einzel-Download
@@ -1847,6 +1851,12 @@ derselben Regel, je Tag getrennt beschriftet.
   „Alle Dateien herunterladen“ oder ein Einzel-Download, wartet das Neuladen und folgt gleich danach. Abgemeldet werden Zeitgeber und Zuhörer beim
   Verlassen der Seite (`onLeave`) – nicht schon, wenn das Feld beim ersten Laden noch nicht im Dokument hängt (Prüfbefund im echten Browser: die
   Startseite hängt es erst nach dem Laden der Fächer ein; ein frühes `pageshow` räumte sonst den Zeitgeber ab).
+* **Neuladen gescheitert (Prüfung von Nachtrag 33):** Scheitert ein Neuladen **im Hintergrund** (Zeitgeber, Tab-Wechsel, Fokus, neuer Tag) – typisch
+  direkt nach dem Aufwachen des iPads, bevor das WLAN wieder verbunden ist –, bleiben Feld und roter Kasten **mit dem bisherigen Stand** stehen (vorher
+  ersetzte „Die Druckaufträge ließen sich nicht laden …“ die ganze Liste, genau dann, wenn die Lehrkraft morgens nachsieht). Neuer Versuch sofort beim
+  nächsten Tab-Wechsel, Fokus oder `online`-Ereignis und sonst nach 30 s, 60 s, 2 min, 4 min, dann alle 5 Minuten (`retryWait`, `RETRY_MS`); danach
+  wieder bis zum nächsten Ende. Die Meldung mit „Erneut versuchen“ gibt es weiter beim ersten Laden und wenn die Lehrkraft selbst neu lädt („Erneut
+  versuchen“, Neuladen vor „Alle Dateien herunterladen“ in der Grundschule).
 * **Ohne Neuaufbau unter der Lehrkraft:** Abschnitte, Gruppen und Zeilen bleiben beim Neuladen **dieselben Elemente**, solange sich ihr Inhalt nicht
   ändert (`syncChildren` fügt nur ein bzw. entfernt, was sich geändert hat; eine Zeile mit laufendem Download wird nie ersetzt). Ändert sich der
   Aufbau (letzte Stunde von heute vorbei → wieder ein Tag), werden Gruppen und Zeilen umgehängt; der Fokus bleibt auf demselben Element
@@ -1860,9 +1870,11 @@ derselben Regel, je Tag getrennt beschriftet.
 * **Tests:** `printjobs.test.mjs` mit festen Uhren (8:00 beide Stunden + Dienstag, 9:44:59 / 9:45 genau zum Ende / 9:50 / nach der letzten Stunde,
   ohne Uhrzeit bzw. Dauer bis 23:59, Ausfall-Eintrag, Selbstlern-Phase, Samstag, 23:30 + 45 Minuten um 23:40 und 0:05, unterrichtsfreie Tage,
   Sommerzeit, höchstens 8 Anweisungen); `printnext.test.mjs` (Texte, Wartezeit, zwei Abschnitte, Download je Tag, Zeitgeber, Ruhezustand,
-  Fokus bleibt bzw. an die Überschrift, Download hält das Neuladen auf, roter Kasten je Tag, ältere Antwort, Feld erst nach dem Laden eingehängt);
+  Fokus bleibt bzw. an die Überschrift, Download hält das Neuladen auf, roter Kasten je Tag, ältere Antwort, Feld erst nach dem Laden eingehängt,
+  Neuladen ohne Netz nach dem Ruhezustand: Stand bleibt, neuer Versuch bei `online`/später);
   E2E `test/e2e/printtoday.mjs` (nach dem Zurücksetzen, echte Uhr des Servers: zwei Stunden von heute, die in gut einer bzw. zwei Minuten enden –
-  verschwinden ohne Neuladen der Seite, Fokus; Downloads je Tag; Bildschirmfotos `druckauftraege-heute-*.png`, `einpacken-heute-*.png`). Die übrigen
+  verschwinden ohne Neuladen der Seite, Fokus; ein zweites Gerät mit angehaltener Uhr „schläft“ über das Ende hinweg und wacht ohne Netz auf – Stand
+  und Fokus bleiben, bei `online` verschwindet die beendete Stunde; Downloads je Tag; Bildschirmfotos `druckauftraege-heute-*.png`, `einpacken-heute-*.png`). Die übrigen
   E2E-Schritte zu den Druckaufträgen finden Knopf und Statuszeile über `data-day` – je nach Uhrzeit des Laufs gibt es dort einen oder zwei Tage.
 
 ## 4i. Druckliste „Von der Lehrkraft auszudrucken“ (Ergänzung vom 10.11.2026)

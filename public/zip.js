@@ -11,13 +11,15 @@ export function crc32(u8) {
 }
 const dosTime = (d) => ((d.getHours() << 11) | (d.getMinutes() << 5) | (d.getSeconds() >> 1)) & 0xffff;
 const dosDate = (d) => (((d.getFullYear() - 1980) << 9) | ((d.getMonth() + 1) << 5) | d.getDate()) & 0xffff;
-/* Namen eindeutig machen: „Name.pdf“, „Name (2).pdf“ … */
+/* Namen eindeutig machen: „Name.pdf“, „Name (2).pdf“ … – gleich ist, was auf dem Gerät dieselbe Datei wäre: ohne Groß-/Kleinschreibung und unabhängig von der
+   Unicode-Normalform („Ü“ als ein Zeichen oder U + Trema – das Dateisystem von iPad und Mac unterscheidet beide nicht; Prüfung von Nachtrag 32) */
+const sameKey = (s) => s.normalize("NFC").toLowerCase();
 export function uniqueNames(names) {
   const seen = new Map();
   return names.map((n) => {
     let k = n, i = 1;
-    while (seen.has(k.toLowerCase())) { i++; k = n.replace(/(\.[^.]+)?$/, (ext) => " (" + i + ")" + (ext || "")); }
-    seen.set(k.toLowerCase(), true);
+    while (seen.has(sameKey(k))) { i++; k = n.replace(/(\.[^.]+)?$/, (ext) => " (" + i + ")" + (ext || "")); }
+    seen.set(sameKey(k), true);
     return k;
   });
 }

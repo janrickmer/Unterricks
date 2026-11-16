@@ -67,6 +67,19 @@ test("Druckliste: Name mit dem Kurs der Sitzung – Gymnasium (Klasse, Kurs, E-P
   }
 });
 
+test("Prüfung: eine wieder hochgeladene Druckdatei („23x - sw - einseitig - Reli4 - …“ bzw. altes Muster) bekommt den Namen der neuen Sitzung – nie doppelt", async () => {
+  const { c } = await setup();
+  const rel3 = await course(c, { grade: 3, religion: true });
+  const gl = await L.createLesson(c.db, { subject: "gs", klass: rel3.id, title: "Arche", date: "2026-11-18" }, c.now);
+  const pl = await L.createLesson(c.db, { subject: "powi", klass: "8C", title: "AB", date: "2026-11-18" }, c.now + 1);
+  let f = await upload(c, gl.id, "23x - sw - einseitig - Reli4 - Die Arche Noah.pdf", "copies=21&duplex=0&color=0");
+  assert.deepEqual([f.name, f.printName], ["Die Arche Noah.pdf", "21x - sw - einseitig - Reli3 - Die Arche Noah.pdf"]);
+  f = await upload(c, pl.id, "28x - beidseitig - sw - Arbeitsblatt.pdf", "copies=27&duplex=1&color=0");
+  assert.deepEqual([f.name, f.printName], ["Arbeitsblatt.pdf", "27x - sw - beidseitig - PoWi8 - Arbeitsblatt.pdf"]);
+  f = await upload(c, pl.id, "Quiz - Runde 1.pdf", "copies=27&duplex=1&color=0");
+  assert.equal(f.printName, "27x - sw - beidseitig - PoWi8 - Quiz - Runde 1.pdf", "ein gewöhnlicher Titel bleibt");
+});
+
 test("Druckaufträge für den nächsten Arbeitstag: jede Datei mit dem Kurs ihrer Sitzung, ohne zusätzliche D1-Anweisung; der Kurs auch je Sitzung (printCourse)", async () => {
   const { c } = await setup();
   const rel2 = await course(c, { grade: 2, religion: true }), mus1 = await course(c, { grade: 1, religion: false, subjectName: "musik" });

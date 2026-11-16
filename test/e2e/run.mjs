@@ -3192,8 +3192,10 @@ async function main() {
         && await tp.locator("#printcard h2").evaluate((el) => { const r = el.getBoundingClientRect(); return r.top >= 0 && r.top < innerHeight; }),
         "„In der Sitzung bearbeiten“: Grundschul-Sitzung mit der Druckliste im Blick (Fokus auf „Von der Lehrkraft auszudrucken“), dieselben Namen");
       await tp.goto(BASE + "/#/lk/s/" + gymL + "/druckliste");
-      await tp.locator("#printcard .printrow").first().waitFor({ timeout: 15000 });
-      ok(JSON.stringify(await tp.locator("#printcard .printrow .name").allTextContents()) === JSON.stringify(gymNames), "Gymnasium: Druckliste der Sitzung nennt dieselben Namen wie das Feld");
+      // (Prüfung S31: nach dem Wechsel der Adresse steht kurz noch die Druckliste der Grundschul-Sitzung da – deshalb erst auf eine Zeile dieser Sitzung warten)
+      await tp.locator("#printcard .printrow .name", { hasText: new RegExp("^" + gymNames[0].replace(/[.*+?^${}()|[\]\\]/g, "\\$&") + "$") }).first().waitFor({ timeout: 15000 });
+      const gymList = await tp.locator("#printcard .printrow .name").allTextContents();
+      ok(JSON.stringify(gymList) === JSON.stringify(gymNames), "Gymnasium: Druckliste der Sitzung nennt dieselben Namen wie das Feld" + (JSON.stringify(gymList) === JSON.stringify(gymNames) ? "" : " – " + gymList.join(" | ") + " ≠ " + gymNames.join(" | ")));
 
       /* ---------- Nachtrag 27: Konzentrationsaufgabe – nur auf der Druckliste der Lehrkraft, nie in der Elternansicht; get_lesson und save_verlaufsplan ---------- */
       step("Konzentrationsaufgabe (Grundschule): get_lesson, Verlaufsplan, Druckliste der Sitzung, Druckaufträge, nie für Eltern; zwei Seiten mit roter Karte");

@@ -5,7 +5,7 @@ import zlib from "node:zlib";
 import { PDFDocument, StandardFonts, degrees } from "pdf-lib";
 import { toA4, isA4Size, A4 } from "../../public/a4.js";
 import { makeZip, readZip, crc32, uniqueNames } from "../../public/zip.js";
-import { printFileName, printBase, cleanCopies, printCourse, PRINT_SUBJECT_SHORT, CLASS_GROUPS, COURSE_CLASSES, ALL_CLASSES, isValidClass, gradeKey, classShort, groupShort, GS_SUBJECT, normalizeGsCourse } from "../../public/shared.js";
+import { printFileName, printBase, cleanCopies, printCourse, printTitleOf, PRINT_SUBJECT_SHORT, CLASS_GROUPS, COURSE_CLASSES, ALL_CLASSES, isValidClass, gradeKey, classShort, groupShort, GS_SUBJECT, normalizeGsCourse } from "../../public/shared.js";
 
 async function pdfWith(sizes, rotate = {}) {
   const d = await PDFDocument.create(), f = await d.embedFont(StandardFonts.Helvetica);
@@ -44,6 +44,26 @@ test("Dateiname der Druckvorlage (Nachtrag 32): „23x - sw - einseitig - Reli4 
   assert.equal(printFileName({ name: "", copies: 0, duplex: false, color: false, course: "Eth9" }), "1x - sw - einseitig - Eth9 - Druckvorlage.pdf");
   assert.equal(printBase(""), "Druckvorlage");
   assert.equal(cleanCopies("28"), 28); assert.equal(cleanCopies(0), null); assert.equal(cleanCopies(501), null); assert.equal(cleanCopies(2.5), null);
+});
+
+// Prüfung von Nachtrag 32: eine wieder hochgeladene Druckdatei trägt schon einen Druck-Namen – nur ihr Titel bleibt (sonst stünden Anzahl, Druckart und Kurs doppelt im Namen)
+test("Titel aus einem Druck-Namen (printTitleOf): neues und altes Muster, mit und ohne Kurs, doppelt; echte Titel bleiben unverändert", () => {
+  const same = (n, want) => assert.equal(printTitleOf(n), want, n);
+  same("23x - sw - einseitig - Reli4 - Die Arche Noah.pdf", "Die Arche Noah.pdf");
+  same("1x - farbig - einseitig - Reli2 - Bildkarten Arche Noah.pdf", "Bildkarten Arche Noah.pdf");
+  same("5x - sw - beidseitig - Reli2 - Konzentrationsaufgabe – Schöpfung.pdf", "Konzentrationsaufgabe – Schöpfung.pdf");
+  same("3x - farbig - einseitig - PoWiQ3LK - Plakat.pdf", "Plakat.pdf");
+  same("12x - sw - beidseitig - ReliQ1GK - Quellen.pdf", "Quellen.pdf");
+  same("9x - sw - beidseitig - ReliE - Material.pdf", "Material.pdf");
+  same("28x - sw - beidseitig - Eth10 - Arbeitsblatt.pdf", "Arbeitsblatt.pdf");
+  same("21x - sw - einseitig - Ökol2 - Wasser.pdf", "Wasser.pdf");
+  same("1x - farbig - einseitig - Titel ohne Kurs.pdf", "Titel ohne Kurs.pdf");
+  same("28x - beidseitig - sw - Quiz - Runde 1.pdf", "Quiz - Runde 1.pdf");   // altes Muster (vor Nachtrag 32): ohne Kurs – „Quiz“ bleibt
+  same("1x - einseitig - Farbe - Bildkarten.pdf", "Bildkarten.pdf");
+  same("23x - sw - einseitig - Reli3 - 23x - sw - einseitig - Reli4 - Die Arche Noah.pdf", "Die Arche Noah.pdf");
+  same("2x - sw - einseitig - Teil 1 - Text.pdf", "Teil 1 - Text.pdf");
+  for (const n of ["Arbeitsblatt.pdf", "Quiz - Runde 1.pdf", "3 x 3 - Einmaleins.pdf", "Reli4 - Die Arche Noah.pdf", "23x - sw - einseitig - Reli4 - .pdf", "", "8x8 - sw - Muster.pdf"]) same(n, n);
+  assert.equal(printFileName({ name: printTitleOf("23x - sw - einseitig - Reli4 - Die Arche Noah.pdf"), copies: 22, duplex: false, color: false, course: "Reli3" }), "22x - sw - einseitig - Reli3 - Die Arche Noah.pdf");
 });
 
 test("Kurs im Dateinamen (printCourse, Nachtrag 32): jedes Klassenformat des Gymnasiums in allen drei Fächern, Grundschulkurse, Unbekanntes leer", () => {
@@ -94,6 +114,10 @@ test("ZIP: Namen in UTF-8 und eindeutig, Inhalt unverändert (Prüfsumme wie zli
   assert.deepEqual([...back[0].data], [...a]); assert.equal(back[1].data.length, 70000); assert.equal(zlib.crc32(back[1].data), zlib.crc32(b));
   const dv = new DataView(zip.buffer); assert.equal(dv.getUint32(0, true), 0x04034b50); assert.equal(dv.getUint16(6, true) & 0x0800, 0x0800, "UTF-8-Kennzeichen");
   assert.deepEqual(uniqueNames(["a.pdf", "A.pdf", "a.pdf"]), ["a.pdf", "A (2).pdf", "a (3).pdf"]);
+  // Prüfung von Nachtrag 32: derselbe Titel in zwei Unicode-Normalformen (z. B. hochgeladen vom Mac) wäre auf iPad und Mac dieselbe Datei – auch dann „(2)“
+  const nfc = "23x - sw - einseitig - Reli4 - \u00dcbung.pdf", nfd = "23x - sw - einseitig - Reli4 - U\u0308bung.pdf";
+  assert.deepEqual(uniqueNames([nfc, nfd]), [nfc, "23x - sw - einseitig - Reli4 - U\u0308bung (2).pdf"]);
+  assert.deepEqual(uniqueNames(["x.pdf", "x (2).pdf", "x.pdf"]), ["x.pdf", "x (2).pdf", "x (3).pdf"], "ein schon vorhandenes „(2)“ wird nie doppelt vergeben");
   const withDirs = await readZip(makeZip([{ name: "sitzung.json", data: a }, { name: "dateien/1 - A.pdf", data: a }, { name: "../../böse\\x.pdf", data: a }, { name: "/abs.pdf", data: a }]));
   assert.deepEqual(withDirs.map((x) => x.name), ["sitzung.json", "dateien/1 - A.pdf", "böse/x.pdf", "abs.pdf"], "Ordner bleiben, nie „..“ oder absolute Pfade");
   await assert.rejects(readZip(new Uint8Array(30)), /keine ZIP-Datei/);

@@ -94,6 +94,11 @@ export function packHead(days, d) {
 /* Wartezeit bis zum Neuladen (ms): bis refreshAt laut Uhr des Servers (relativ – eine falsch gehende Uhr des Geräts stört nicht), höchstens 25 Stunden; ohne
    Angabe (älterer Server) bis Mitternacht in Berlin; nie eine Schleife (refreshAt schon vorbei → 30 s) */
 export const REFRESH_MARGIN_MS = 1500;
+/* Scheitert ein Neuladen im Hintergrund (Ende einer Sitzung, Ruhezustand, neuer Tag) – z. B. direkt nach dem Aufwachen des iPads, bevor das Netz wieder
+   da ist –, bleiben die Druckaufträge stehen, wie sie waren (nie eine Fehlermeldung statt der Liste); neuer Versuch beim nächsten Tab-Wechsel, Fokus oder
+   „online“ und sonst nach 30 s, 60 s, 2 min, 4 min, dann alle 5 Minuten (Prüfung von Nachtrag 33) */
+export const RETRY_MS = 30e3, RETRY_MAX_MS = 5 * 60e3;
+export const retryWait = (n) => Math.min(RETRY_MS * 2 ** Math.min(Math.max(n, 0), 8), RETRY_MAX_MS);
 export function refreshWait(r, now = Date.now()) {
   const rel = r && Number.isFinite(r.refreshAt) && Number.isFinite(r.now) ? r.refreshAt - r.now : null;
   const wait = rel !== null ? (rel > 0 ? rel : 30e3) : (berlinTime(addDays(berlinToday(now), 1), "00:00") || now + 864e5) - now;
@@ -139,7 +144,8 @@ function syncChildren(parent, list) {
    Aufbau (Nachtrag 33): Zeigt das Feld nur den nächsten Arbeitstag, steht „Alle Dateien herunterladen“ im Kopf und die Sitzungen (h3) direkt im Feld –
    wie bisher. Hat eine heute noch laufende Sitzung Druckaufträge, gibt es zwei Tagesabschnitte (h3 je Tag, Sitzungen h4), jeder mit eigenem Knopf und
    eigener Statuszeile (data-day = Datum). Neu geladen wird zum nächsten Ende (refreshAt des Servers), nach Ruhezustand/Tab-Wechsel/Fokus, wenn es so
-   weit ist, und an einem neuen Tag – nie während „Alle Dateien herunterladen“ oder ein Download läuft (dann gleich danach). Beim Neuladen bleiben
+   weit ist, und an einem neuen Tag – nie während „Alle Dateien herunterladen“ oder ein Download läuft (dann gleich danach); scheitert es (z. B. ohne Netz
+   direkt nach dem Aufwachen), bleibt der bisherige Stand stehen und es wird später erneut versucht (retryWait, auch bei „online“). Beim Neuladen bleiben
    Abschnitte, Gruppen und Zeilen, die sich nicht geändert haben, dieselben Elemente; der Fokus bleibt, wo er war – verschwindet sein Eintrag, geht er an
    die Überschrift des Feldes (bzw. des Kastens). */
 export const printNextCard = (load) => printNextCards(load).card;
@@ -408,19 +414,34 @@ export function printNextCards(load = () => tapi("GET", "/api/teacher/print-next
   function refresh() {
     if (stopped || !card.isConnected) return;
     if (running || busy) { due = true; return; }
-    due = false; reload();
+    due = false; reload(true);
   }
-  async function reload() {
+  // Neuladen im Hintergrund gescheitert (RETRY_MS): später noch einmal – und schon fällig, damit Tab-Wechsel, Fokus oder „online“ es sofort versuchen
+  let retries = 0;
+  function retryLater() {
+    if (timer !== null) io.untimer(timer);
+    const wait = retryWait(retries++);
+    dueAt = io.now();
+    timer = io.timer(() => { timer = null; refresh(); }, wait);
+  }
+  /* auto: Neuladen im Hintergrund (refresh) – scheitert es, bleibt der bisherige Stand stehen; sonst (erstes Laden, „Erneut versuchen“, vor „Alle Dateien
+     herunterladen“ in der Grundschule) die Fehlermeldung mit „Erneut versuchen“ */
+  async function reload(auto = false) {
     const mine = ++run, had = card.contains(document.activeElement) || pack.contains(document.activeElement);
     try {
       const r = await load(); if (mine !== run) return;
+      retries = 0;
       today = r.today || berlinToday(io.now());
       data = { today: r.today || null, candidate: r.candidate || null, date: r.date || null, sessions: Array.isArray(r.sessions) ? r.sessions : [], freeDays: Array.isArray(r.freeDays) ? r.freeDays : [],
         todaySessions: Array.isArray(r.todaySessions) ? r.todaySessions : [] };
       plan(r);
       paint();
     }
-    catch (e) { if (mine !== run) return; showError(e); }
+    catch (e) {
+      if (mine !== run) return;
+      if (auto === true && data) { retryLater(); return; }
+      showError(e);
+    }
     // war der Fokus im Feld (z. B. auf „Erneut versuchen“) und ist sein Element jetzt weg, geht er an die Überschrift – nie verloren auf body
     if (mine === run && had && card.isConnected && !card.contains(document.activeElement) && !pack.contains(document.activeElement) && (!document.activeElement || document.activeElement === document.body)) heading.focus({ preventScroll: true });
   }
@@ -494,11 +515,12 @@ export function printNextCards(load = () => tapi("GET", "/api/teacher/print-next
   const win = typeof window !== "undefined" && window && typeof window.addEventListener === "function" ? window : null;
   const unlisten = () => {
     document.removeEventListener("visibilitychange", check);
-    if (win) { win.removeEventListener("focus", check); win.removeEventListener("pageshow", check); }
+    if (win) { win.removeEventListener("focus", check); win.removeEventListener("pageshow", check); win.removeEventListener("online", check); }
     if (timer !== null) { io.untimer(timer); timer = null; }
   };
   document.addEventListener("visibilitychange", check);
-  if (win) { win.addEventListener("focus", check); win.addEventListener("pageshow", check); }
+  // „online“: das Netz ist wieder da (z. B. nach dem Aufwachen) – ein fälliges Neuladen bzw. ein gescheitertes versucht es dann sofort
+  if (win) { win.addEventListener("focus", check); win.addEventListener("pageshow", check); win.addEventListener("online", check); }
   onLeave(() => { stopped = true; run++; off(); unlisten(); });
   reload();
   return { card, pack };

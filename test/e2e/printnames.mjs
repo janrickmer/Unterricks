@@ -91,6 +91,15 @@ export async function printNamesE2E({ tp, BASE, T, token, ok, OUT, SHOT, cand, h
   ok(JSON.stringify(after) === JSON.stringify(["21x - sw - beidseitig - Werk3 - Wasser.pdf", "21x - farbig - einseitig - Werk3 - Wasser.pdf"]), "… vorhandene Dateien heißen jetzt „… - Werk3 - …“ (" + after.join(" | ") + ")");
   ok((await T("PATCH", "/api/teacher/gs/courses/" + sach.id, { subjectName: "Sachunterricht" })).status === 200, "Kurs wieder Sachunterricht");
 
+  // Prüfung: eine früher heruntergeladene Druckdatei (Name mit Anzahl, Druckart und anderem Kurs) wieder hochgeladen – sie behält nur ihren Titel, nie doppelt
+  await tp.reload();
+  await card.locator(".printrow").nth(1).waitFor({ timeout: 20000 });
+  await card.locator("input[type=file]").setInputFiles([{ name: "23x - sw - einseitig - Reli4 - Regenwasser.pdf", mimeType: "application/pdf", buffer: await a4("Regenwasser") }]);
+  const re = card.locator(".printrow .name", { hasText: "Regenwasser" });
+  await re.waitFor({ timeout: 20000 });
+  const reName = await re.textContent();
+  ok(/^\d+x - sw - beidseitig - Sach3 - Regenwasser\.pdf$/.test(reName), "wieder hochgeladene Druckdatei „23x - sw - einseitig - Reli4 - Regenwasser.pdf“ → „" + reName + "“ (nur der Titel bleibt)");
+
   // aufräumen
   for (const x of made) { await T("DELETE", "/api/teacher/lessons/" + x.l); await T("DELETE", "/api/teacher/units/" + x.u); }
   ok(!(await T("GET", "/api/teacher/lessons?subject=gs&klass=" + sach.id)).data.lessons.some((l) => l.id === sl), "Test-Sitzungen und -Einheiten wieder gelöscht");

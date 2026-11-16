@@ -392,6 +392,66 @@ test("Nachtrag 33 – live: wechselt der Aufbau (letzte Stunde von heute vorbei)
   assert.equal(rec.calls.length, n1);
 });
 
+// Prüfbefund (S31 check): nach dem Aufwachen des Geräts ist das Netz oft noch nicht da – das Neuladen im Hintergrund scheiterte und ersetzte die ganze Liste
+// (samt rotem Kasten) durch „Die Druckaufträge ließen sich nicht laden …“
+test("Nachtrag 33 – live: scheitert das Neuladen im Hintergrund (kein Netz nach dem Ruhezustand), bleiben die Druckaufträge stehen; neuer Versuch bei „online“, Fokus bzw. später", async () => {
+  installClock();
+  if (globalThis.__leave) globalThis.__leave();
+  resetPrintQueue();
+  clock = M0; timers = [];
+  rec = { calls: [], urls: [], blobs: [], sleeps: 0 };
+  let offline = false;
+  globalThis.__tapi = async (m, p) => {
+    rec.calls.push(m + " " + p);
+    if (m + " " + p !== "GET /api/teacher/print-next") throw new ApiError("nicht nachgebildet", 404, {});
+    if (offline) throw new ApiError("Keine Verbindung zum Server. Bitte Internetverbindung prüfen.", 0, { code: "network" });
+    return server(clock);
+  };
+  const app = document.getElementById("app"); while (app.firstChild) app.firstChild.remove();
+  const { card, pack } = PN.printNextCards();
+  app.append(card, pack); await D.sleep(5);
+  const tueBtn = $$(".pn-dayg", card)[1].querySelector(".pn-row button");
+  tueBtn.focus();
+  const loads = () => rec.calls.filter((c) => c === "GET /api/teacher/print-next").length;
+  // Ruhezustand bis 10:00, beim Aufwachen kein Netz
+  offline = true; clock = at(10, 0);
+  D.fire(document, "visibilitychange"); await D.sleep(10);
+  assert.equal(loads(), 2, "nach dem Aufwachen nachgesehen");
+  assert.equal($$(".pn-err", card).length, 0, "keine Fehlermeldung statt der Druckaufträge");
+  assert.equal($$(".pn-dayg", card).length, 2, "der bisherige Stand bleibt stehen (beide Tage)");
+  assert.ok(tueBtn.isConnected && document.activeElement === tueBtn, "derselbe Knopf, derselbe Fokus – " + desc(document.activeElement));
+  assert.ok(!pack.classList.contains("hidden") && $$(".pk-dayg", pack).length === 2, "der rote Kasten bleibt ebenso");
+  const w = live();
+  assert.equal(w.length, 1, "ein Zeitgeber für den neuen Versuch");
+  assert.equal(w[0].ms, PN.RETRY_MS, "neuer Versuch nach 30 s");
+  // noch ohne Netz: der Zeitgeber versucht es erneut und wartet dann länger (höchstens 5 Minuten)
+  clock += PN.RETRY_MS; await fireTimers();
+  assert.equal(loads(), 3);
+  assert.equal(live()[0].ms, 2 * PN.RETRY_MS);
+  assert.deepEqual([0, 1, 2, 3, 4, 9].map(PN.retryWait), [30e3, 60e3, 120e3, 240e3, 300e3, 300e3]);
+  // das Netz ist wieder da („online“): sofort neu geladen, die 9:00-Stunde ist vorbei
+  offline = false;
+  D.fire(window, "online"); await D.sleep(10);
+  assert.equal(loads(), 4, "„online“ lädt sofort");
+  assert.deepEqual($$(".pn-dayg", card)[0].querySelectorAll(".pn-group h4").map((x) => x.textContent), ["11:00–11:45 Ethik 7B – Zweite"]);
+  assert.equal(document.activeElement, tueBtn, "Fokus bleibt – " + desc(document.activeElement));
+  assert.equal(live().length, 1);
+  assert.equal(live()[0].ms, at(11, 45) - clock + PN.REFRESH_MARGIN_MS, "danach wieder bis zum nächsten Ende");
+  // ein Fehler beim ersten Laden (keine Daten) zeigt weiter die Meldung mit „Erneut versuchen“
+  globalThis.__leave();
+  offline = true;
+  while (app.firstChild) app.firstChild.remove();
+  const c2 = PN.printNextCard(); app.append(c2); await D.sleep(10);
+  assert.equal($$(".pn-err", c2).length, 1, "erstes Laden ohne Netz: Fehlermeldung");
+  assert.ok(button(c2, "Erneut versuchen"));
+  // nach dem Verlassen der Seite hört auch „online“ nicht mehr zu
+  globalThis.__leave();
+  const n1 = loads(); offline = false;
+  D.fire(window, "online"); await D.sleep(5);
+  assert.equal(loads(), n1);
+  assert.equal(globalThis.__domErrors.length, 0, globalThis.__domErrors.join("\n"));
+});
+
 test("Nachtrag 33 – live: während ein Download läuft, wartet das Neuladen; danach verschwindet die Sitzung", async () => {
   installClock();
   let release;

@@ -188,6 +188,17 @@ export function printCourse(subject, klass, gs = null) {
 const printCourseClean = (c) => String(c == null ? "" : c).normalize("NFC").replace(/[\\/:*?"<>|\u0000-\u001f\s]+/g, "").slice(0, PRINT_LIMITS.course);
 export const printFileName = (p) => { const k = printCourseClean(p.course);
   return (Number(p.copies) || 1) + "x - " + (p.color ? "farbig" : "sw") + " - " + (p.duplex ? "beidseitig" : "einseitig") + " - " + (k ? k + " - " : "") + printBase(p.name) + ".pdf"; };
+/* Titel aus einem Dateinamen, der selbst schon ein Druck-Name ist – z. B. eine früher heruntergeladene Druckdatei, die die Lehrkraft für eine andere Sitzung
+   wieder hochlädt: Anzahl, Druckart und Kurs vorn entfallen, sonst stünden sie doppelt (und mit zwei Kursen) im Namen („23x - sw - einseitig - Reli3 - 23x - sw -
+   einseitig - Reli4 - …“; Prüfung von Nachtrag 32). Auch das alte Muster „28x - beidseitig - sw - …“. Bleibt kein Titel übrig, gilt der Name unverändert. */
+const PRINT_PREFIX_NEW = /^\s*\d{1,3}x - (?:sw|farbig) - (?:einseitig|beidseitig) - (?:(?:PoWi|Reli|Eth)(?:10|[5-9]|E|Q[1-4](?:GK|LK)) - |\p{L}{1,4}[1-4] - )?/iu;
+const PRINT_PREFIX_OLD = /^\s*\d{1,3}x - (?:einseitig|beidseitig) - (?:sw|Farbe) - /i;
+export function printTitleOf(name) {
+  const s = String(name == null ? "" : name);
+  let t = s;
+  for (let i = 0; i < 3; i++) { const u = t.replace(PRINT_PREFIX_NEW, "").replace(PRINT_PREFIX_OLD, ""); if (u === t) break; t = u; }
+  return /\S/.test(t.replace(/\.pdf$/i, "")) ? t : s;
+}
 export const cleanCopies = (v) => { const n = Number(v); return Number.isInteger(n) && n >= 1 && n <= PRINT_LIMITS.copies ? n : null; };
 /* Bildkarten der Grundschule (Nachtrag 31 vom 16.11.2026): neue Bildkarten stehen von selbst auf der Druckliste – 1x, einseitig, farbig („1x - farbig - einseitig -
    Reli2 - <Titel>.pdf“, Nachtrag 32); die Lehrkraft kann sie herunternehmen (print_copies NULL) und wieder aufnehmen. Ältere Bildkarten bleiben, wie sie sind (nicht auf der Liste). */
