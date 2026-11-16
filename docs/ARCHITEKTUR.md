@@ -70,6 +70,7 @@ implementiert und im End-to-End-Test geprüft (Ausnahmen unten ausdrücklich gen
 | Hinweis zum Zwischenstopp erledigt (Nachtrag 26 vom 14.11.2026) | Die Karte „Hinweis: Die letzte Stunde wurde nicht vollständig beendet“ auf der **Sitzungsseite** (Gymnasium und Grundschule) verschwindet, sobald mit Claude **entschieden** wurde (übernehmen oder verzichten) **und danach** der Schulportal-Eintrag bzw. Verlaufsplan dieser Sitzung **gespeichert** wurde (Rückfragen beantwortet: Auslöser „Entscheidung + Speichern“, dieselbe Regel wie beim Podcast; danach **ganz verschwinden**, bei einem neuen offenen Teil – Zwischenstopp der vorigen Stunde verschoben oder ihr Eintrag geändert – wieder erscheinen; **nur die Sitzungsseite**, die Karte auf der Seite der Klasse bleibt). Siehe 4a |
 | Dialoge: Tastaturfokus (Nachtrag 25 vom 14.11.2026) | Auf die Frage „Soll ich das plattformweit beheben?“ (mit Tab gelangte man aus jedem Dialog auf die Seite dahinter): **„Ja, beheben“** – Tab und Umschalt+Tab bleiben im offenen Dialog, danach geht der Fokus zurück; mit Tests und E2E (Abschnitt 4s) |
 | Konzentrationsaufgabe (Nachtrag 27 vom 15.11.2026) | Jeder Prompt, mit dem eine **Sitzung der Grundschule** mit Claude geplant wird („Stunde mit Claude planen“, Schritt 5 der Überarbeitung einer Einheit), lässt Claude zusammen mit dem übrigen Material die **„Konzentrationsaufgabe“** gestalten – für Kinder, die ihre Aufmerksamkeit in Plenumsphasen nur bündeln können, wenn sie den Sitzkreis verlassen und beim Zuhören ausmalen: höchstens **zwei A4-Seiten**, zuerst **mindestens zwei Ausmalbilder** zum aktuellen Unterrichtsinhalt, dann das Symbol einer **roten Karte**, danach **eine weitere altersgerechte Aufgabe** zum Inhalt der Stunde. Rückfragen beantwortet: **beidseitig** drucken, Bereich **druck** – nur auf der Druckliste der Lehrkraft als „5x - beidseitig - sw - Konzentrationsaufgabe – <Thema>.pdf“, nie in der Elternansicht, nie für Kinder. Siehe 4u |
+| Gegenstände zum Einpacken (Nachtrag 28 vom 15.11.2026) | Unter „Druckaufträge für den nächsten Arbeitstag“ auf **beiden Startseiten** ein **roter Kasten „Für den nächsten Arbeitstag einpacken“** mit den Gegenständen, die die Lehrkraft für die Sitzungen desselben Tages mitbringen muss (z. B. Bibel, Beutel), als **Stichpunktliste**; ein Klick auf einen Gegenstand klappt in **kleinerer Schrift** auf, **an welcher Stelle und in welcher Lerngruppe** er gebraucht wird (je Sitzung höchstens zwei Sätze). Rückfrage beantwortet: **Claude + von Hand** – Claude trägt sie beim Planen über den Connector ein (`update_lesson` mit `mitbringen`), die Lehrkraft ergänzt, ändert und löscht sie auf der Sitzungsseite (Karte „Mitbringen“); **Gymnasium und Grundschule**. Ohne Gegenstände kein Kasten. Siehe 4v |
 
 ## 2. Gesamtarchitektur
 
@@ -130,7 +131,8 @@ implementiert und im End-to-End-Test geprüft (Ausnahmen unten ausdrücklich gen
 | | `worker/cards.js` | Bildkarten der Grundschule: PDF hochladen (eine Seite = eine Karte), Kartenbilder mit Stand der PDF, Erzähltexte und Freigabe für Eltern, signierte Bilder (`/api/card/…`), von Claude gestaltete Bildkarten |
 | | `public/weekcal.js` | Wochenkalender auf der Startseite der Lehrkraft (Raster bzw. Liste je Tag; unterrichtsfreie Tage als schraffiertes Band) |
 | | `worker/freedays.js`, `public/freedays.js` | Unterrichtsfreie Tage (Nachtrag 24): Liste, Vorschau der betroffenen Sitzungen, Speichern mit Verschieben, Löschen, Prüfung eines Datums; Karte in den Einstellungen mit Rückfrage, siehe 4r |
-| | `worker/printjobs.js`, `public/printnext.js` | Druckaufträge für den nächsten Arbeitstag (`GET /api/teacher/print-next`; Feld ganz oben auf beiden Startseiten), siehe 4n |
+| | `worker/printjobs.js`, `public/printnext.js` | Druckaufträge für den nächsten Arbeitstag (`GET /api/teacher/print-next`; Feld ganz oben auf beiden Startseiten) und darunter der rote Kasten „Für den nächsten Arbeitstag einpacken“ (Nachtrag 28), siehe 4n und 4v |
+| | `public/bring.js`, `public/bringcard.js` | Gegenstände zum Mitbringen (Nachtrag 28): Prüfung (Länge, höchstens zwei Sätze), Speicherform mit Stand, Zusammenfassen für die Startseite, Bausteine für Prompt und `get_lesson` (Browser und Worker); Karte „Mitbringen“ auf beiden Sitzungsseiten, siehe 4v |
 | | `worker/podcast.js`, `public/podcast.js`, `public/podcastlib.js` | Podcast für den kommenden Unterricht (Nachtrag 22): Grundlage des Tages, Auftrag für Claude in Chrome, Ablage der Audiodatei in R2, Player mit Range-Anfragen, Löschen zwei Tage nach dem Unterricht – Knopf bzw. Player unter dem Wochenkalender beider Startseiten, siehe 4q |
 | | `worker/substitute.js` | Krankheitsvertretung: Vorschlag, Bestätigen (Archiv), Wiederherstellen, Übertragen |
 | Oberfläche | `public/boot.js` | Startdatei (unversioniert, bleibt über Deploys gleich): aktuellen Stand erfragen, `/v/<Stand>/app.js` laden, Hinweis bei einem Ladefehler, siehe 4t |
@@ -1266,6 +1268,69 @@ für die Lehrkraft unter den Dateien zum Ausdrucken, **5x**; auf Rückfrage **be
   `test-results/konzentration-*.png`, die PDF als `test-results/konzentrationsaufgabe.pdf`.
 - **Nicht prüfbar hier:** ob Claude in claude.ai die Regeln einhält (Bildqualität der Ausmalbilder, wirklich zwei Seiten) – Unterricks meldet
   nur die Seitenzahl.
+
+## 4v. Gegenstände zum Einpacken (Nachtrag der Lehrkraft vom 15.11.2026, Nachtrag 28)
+
+Wortlaut der Lehrkraft: „Manchmal kommt es vor, dass eine Unterrichtssitzung von einer Lehrkraft verlangt, zusätzliche Gegenstände mitzubringen
+(bspw. eine Bibel oder einen Beutel). Unter dem Kasten ‚Druckaufträge für den nächsten Arbeitstag‘ soll auf der Startseite der Lehrkraft in einem
+roten Kasten angezeigt werden, welche Gegenstände sie am nächsten Arbeitstag einpacken muss. […] Wenn die Lehrkraft auf einen Gegenstand klickt,
+soll sich ein Textfeld aufklappen, in dem in kleinerer Schrift in maximal zwei Sätzen steht, an welcher Stelle und in welcher Lerngruppe dieser
+Gegenstand gebraucht wird.“ Rückfrage beantwortet: **Claude + von Hand**, Gymnasium und Grundschule.
+
+- **Daten:** neue Spalte `lessons.bring` (additiv; auf einer ganz neuen Datenbank 47 Anweisungen für das Schema, Grenze 50) = JSON
+  `{v:1, rev, items:[{t, w}]}` – `t` Gegenstand (≤ 60 Zeichen), `w` Hinweis (≤ 200 Zeichen, **höchstens zwei Sätze**), höchstens 10 je Sitzung,
+  keine Doppelten (ohne Groß-/Kleinschreibung). `rev` zählt jede Speicherung **in derselben Anweisung** (`json_set(…, '$.rev', <alter Stand> + 1)`,
+  `BRING_REV_SQL`). `lessonOut` liefert `bring: [{item, note}]` und `bringRev` – nur in Routen der Lehrkraft; Schüler-, Eltern-, Beamer- und
+  Live-Routen lesen die Spalte nie (Unit-Test über Antworten und Quelltext).
+- **Regel „höchstens zwei Sätze“** (`sentenceCount` in `public/bring.js`, gleich für Browser, Worker und Connector): Satzende ist „!“/„?“ bzw. ein
+  Punkt (auch „…“) vor Leerraum und Großbuchstabe/Ziffer oder am Textende – nicht nach einer ein- oder zweistelligen Zahl („in der 3. Phase“),
+  einem einzelnen Buchstaben („z. B.“, „S. 12“), Einzelbuchstaben-Abkürzungen („z.B.“) und gängigen Abkürzungen („ca.“, „Nr.“, „Mt.“, „Gen.“);
+  klein weiter („Std. vor“) ist nie ein Satzende; Text nach dem letzten Satzende zählt als Satz. Im Zweifel zählt die Regel eher zu wenig (Claude
+  und die Lehrkraft sollen nicht an einer Abkürzung scheitern); dazu gilt die Länge. Eingaben (Sitzungsseite, Connector) werden mit Meldung
+  abgelehnt (`validateBring`), fremde Daten (Sitzungsdatei, Spalte) still bereinigt und auf zwei Sätze gekürzt (`cleanBring`).
+- **Ändern** (`PATCH /api/teacher/lessons/<id>` mit `bring`): die ganze Liste. Die Sitzungsseite schickt `bringBase` (Stand, auf dem ihre
+  Änderung beruht) – stimmt er nicht mehr, 409 `bring_conflict` mit der aktuellen Liste; die Karte wendet dann **dieselbe Änderung** (hinzufügen,
+  ändern, löschen) auf den neuen Stand an und speichert erneut (höchstens dreimal); fehlt der geänderte Gegenstand inzwischen, sagt sie es.
+  Ohne `bringBase` (Connector) wird gespeichert. Ein Ausfall-Eintrag der Grundschule nimmt keine Gegenstände an.
+- **Claude** (`worker/mcp.js`; Server-Anweisungen unverändert): `update_lesson` hat `mitbringen: [{gegenstand, wofuer}]` (beide Pflicht; ersetzt die
+  Liste, `[]` leert sie) – geprüft wie auf der Sitzungsseite, Fehler als Meldung; die Antwort nennt die Gegenstände bzw. „Die Liste ‚Mitbringen‘ ist
+  leer.“ (ohne `mitbringen` bleibt die Antwort wie bisher). `get_lesson` beider Schulformen (nicht beim Ausfall-Eintrag) hat den Abschnitt
+  „## Mitbringen (Gegenstände, die die Lehrkraft für diese Stunde mitbringen muss)“ – mit der Liste bzw., wenn leer, was hineingehört und wie man
+  sie anlegt. Die Prompts „Stunde mit Claude planen“ beider Schulformen bekommen **genau einen** Speicherschritt (`bringSaveStep`: nur, was die
+  Lehrkraft von zu Hause oder aus dem Lehrerzimmer mitnimmt – nicht die übliche Ausstattung des Klassenraums und nicht das Material der
+  Druckliste; je Gegenstand in höchstens zwei Sätzen, an welcher Stelle der Stunde und in welcher Lerngruppe; ohne solche Gegenstände
+  `mitbringen` weglassen) – am Gymnasium nach der Hausaufgabe, in der Grundschule nach dem Inhalt für die Eltern. Ohne diesen Schritt bleiben die
+  Prompts byte-gleich (SHA-Test in `zwischenstopp.test.mjs` streicht genau ihn). Andere Prompts (Einheit, Vertretung, Überarbeitung) unverändert.
+- **Startseite** (`public/printnext.js`): `GET /api/teacher/print-next` liefert je Sitzung des Zieltags zusätzlich `bring` (nur, wenn es
+  Gegenstände gibt) – **dieselbe Anweisung** wie bisher (`DAY_SESSIONS_SQL` liest eine Spalte mehr, weiter ≤ 8 D1-Anweisungen), also derselbe Tag
+  wie die Druckaufträge samt unterrichtsfreien Tagen und ohne Ausfall-Einträge. `printNextCards()` gibt das Feld und den Kasten zurück; beide
+  Startseiten setzen den Kasten **direkt unter** das Feld der Druckaufträge (das Feld selbst bleibt unverändert). Ohne Gegenstände ist der Kasten
+  verborgen (auch ohne Unterricht und wenn die Druckaufträge nicht laden). **Entscheidung zum selben Gegenstand in mehreren Sitzungen:** ein
+  Stichpunkt je Gegenstand (Name ohne Groß-/Kleinschreibung verglichen, z. B. „Beutel · 2 Stunden“), aufgeklappt **je Sitzung ein Eintrag**
+  „Lerngruppe, Beginn: Hinweis“ (die Lerngruppe als Link zur Sitzung, damit auch ein knapper Hinweis von Hand zuordenbar bleibt) – jeder Hinweis
+  bleibt so höchstens zwei Sätze; ohne Hinweis „Gebraucht in der Stunde ‚<Titel>‘.“. Ein Gegenstand ist ein Knopf mit `aria-expanded`/
+  `aria-controls` (≥ 44 px, Pfeil dreht sich), der Hinweis ein Kasten in kleinerer Schrift (.9rem) auf `--surface`; aufgeklappte bleiben beim
+  Neuladen am nächsten Tag offen, der Fokus geht nie verloren.
+- **Sitzungsseite** (`public/bringcard.js`, Gymnasium und Grundschule, rechte Spalte unter „Sitzungsdaten“): Liste mit Stift und Papierkorb
+  (`aria-label` mit dem Gegenstand), „Gegenstand hinzufügen“ öffnet ein Formular (Gegenstand, „Wo und in welcher Lerngruppe? (höchstens zwei
+  Sätze)“ mit Zähler); Fehler am Feld (`aria-invalid`, Fokus dorthin); Löschen und Verwerfen mit Rückfrage; Fokus nach Speichern/Abbrechen auf den
+  auslösenden Knopf (nur, wenn er sonst verloren wäre); beim Zurückkehren in den Tab übernimmt die Karte den Stand von Claude – nie in ein offenes
+  Formular. Ab 10 Gegenständen ist „Gegenstand hinzufügen“ gesperrt (`aria-disabled`, mit Hinweis).
+- **Sitzungsdatei, Sicherung, Zurücksetzen:** `sitzung.json` enthält `lesson.bring` (nur, wenn es Gegenstände gibt – ältere Dateien bleiben gleich);
+  beim Laden ersetzt die Liste der Datei die der Sitzung (ohne Liste in der Datei: leer), in den Hinweisen werden **Datumsangaben** (wie in den
+  übrigen Texten) und die **Lerngruppe** angepasst (`adaptBringGroup`: „8b“ → „8c“, „Q2-GK“ auch als „Q2 GK“, „Kurs Jg. 8“; nur ganze
+  Bezeichnungen); der Dialog nennt beides. Die große Sicherung nutzt dieselbe Sitzungsdatei; das Zurücksetzen löscht die Sitzungen und damit die
+  Gegenstände.
+- **Farbe:** Rot ist sonst Zwischenstopp, Live und Fehler – für diesen einen Kasten ausdrücklicher Wunsch der Lehrkraft (wie Orange bei den
+  Druckaufträgen): Fläche `--rot-t`, 2px-Kante, Taschen-Schild und Stichpunkte in `--err` (hell #c8281e, dunkel #ff8a80); Schrift `--text`
+  (13,7 : 1 bzw. 13,1 : 1), Kante 4,7 : 1 bzw. 6,8 : 1. Die Karte der Sitzungsseite ist neutral.
+- **Tests:** `test/unit/bring.test.mjs` (Satzregel, Prüfung, Bereinigen, Zusammenfassen, Prompts, PATCH mit Stand und 409, Connector beider
+  Schulformen, print-next ≤ 8 Anweisungen ohne Ausfall-Einträge, nie für Schüler:innen und Eltern, Sitzungsdatei samt Anpassung, roter Kasten mit
+  Maus und Tastatur, Karte der Sitzungsseite mit Konflikt), angepasst: `zwischenstopp.test.mjs` (SHA ohne den neuen Schritt). E2E
+  (`test/e2e/bring.mjs`): Claude legt über den lokalen Connector Gegenstände für eine Sitzung des Gymnasiums und der Grundschule am nächsten
+  Arbeitstag an → roter Kasten unter den Druckaufträgen auf beiden Startseiten, Aufklappen per Maus und Tastatur, Farben hell/dunkel, von Hand
+  hinzufügen (Fehler bei drei Sätzen), ändern, löschen, leer → kein Kasten; Bildschirmfotos `test-results/einpacken-*.png`.
+- **Nicht prüfbar hier:** ob Claude in claude.ai die Gegenstände sinnvoll auswählt (nur Mitzubringendes, nicht die Ausstattung des Klassenraums).
 
 ## 4i. Druckliste „Von der Lehrkraft auszudrucken“ (Ergänzung vom 10.11.2026)
 

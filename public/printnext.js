@@ -4,6 +4,9 @@
 // (materialbox.js: printName, Textmaterial als A4-PDF, gestaltetes Material erst nach dem Druck); „Alle Dateien herunterladen“ lädt alle
 // fertigen Dateien nacheinander als einzelne Downloads – ausdrücklich keine ZIP-Datei. Das Feld ist eine Übersicht: Anzahl, Druckart und
 // Namen ändert die Lehrkraft in der Sitzung („In der Sitzung bearbeiten“ führt zu deren Druckliste).
+// Direkt darunter (Nachtrag 28) der rote Kasten „Für den nächsten Arbeitstag einpacken“: die Gegenstände, die die Lehrkraft für die Sitzungen desselben
+// Tages mitbringen muss (aus derselben Antwort des Servers, bring.js), als Stichpunkte; ein Klick auf einen Gegenstand klappt in kleinerer Schrift auf,
+// wo und in welcher Lerngruppe er gebraucht wird (je Sitzung ein Eintrag mit höchstens zwei Sätzen). Ohne Gegenstände gibt es den Kasten nicht.
 import { lazy } from "./update.js";
 import { h, clear, icon, fileIcon, fmtBytes, errToast, downloadUrl, downloadBlob, apiUrl } from "./ui.js";
 import { onLeave } from "./app.js";
@@ -11,6 +14,7 @@ import { tapi } from "./teacher.js";
 import { berlinToday, addDays, daysBetween, isIsoDate, isWeekend, printFileName, subjectShort, classShort } from "./shared.js";
 import { designState, printQueue } from "./designrender.js";
 import { freeScopeText } from "./planning.js";
+import { packList, placeLabel, placeText, BRING_BOX_TITLE } from "./bring.js";
 
 /* Ein- und Ausgänge, die Unit-Tests ersetzen (Downloads, Abruf der PDF, Pause zwischen zwei Downloads – Browser blockieren schnelle
    Mehrfach-Downloads) */
@@ -68,8 +72,11 @@ async function working(btn, fn, label) {
 }
 
 /* Das Feld. load() → Promise mit der Antwort von GET /api/teacher/print-next (Vorgabe: der Server); lädt eigenständig – ein Fehler hier
-   verhindert die Startseite nicht. Nach dem Aufbau der Seite (render) anlegen: es meldet sich mit onLeave ab. */
-export function printNextCard(load = () => tapi("GET", "/api/teacher/print-next")) {
+   verhindert die Startseite nicht. Nach dem Aufbau der Seite (render) anlegen: es meldet sich mit onLeave ab.
+   printNextCards → {card, pack}: pack = der rote Kasten „Für den nächsten Arbeitstag einpacken“ (Nachtrag 28), direkt unter card einzufügen; ohne
+   Gegenstände verborgen. printNextCard → nur das Feld (wie bisher). */
+export const printNextCard = (load) => printNextCards(load).card;
+export function printNextCards(load = () => tapi("GET", "/api/teacher/print-next")) {
   let data = null, run = 0, stopped = false, today = berlinToday();
   const rq = printQueue(), rNotes = new Map(), rowEls = new Map();
   const heading = h("h2", { id: "pn-h", tabindex: "-1", text: "Druckaufträge für den nächsten Arbeitstag" });
@@ -82,6 +89,13 @@ export function printNextCard(load = () => tapi("GET", "/api/teacher/print-next"
   const card = h("section", { class: "card printnext", "aria-labelledby": "pn-h", "aria-describedby": "pn-day" },
     h("div", { class: "pn-head" }, h("div", { class: "pn-title" }, h("span", { class: "pn-ico", "aria-hidden": "true" }, icon("printer")), h("div", { class: "pn-tt" }, heading, day)), allBtn),
     status, body, allHint);
+  // Nachtrag 28: roter Kasten mit den Gegenständen zum Einpacken (aus denselben Daten)
+  const packH = h("h2", { id: "pk-h", tabindex: "-1", text: BRING_BOX_TITLE });
+  const packDay = h("p", { class: "pk-day", id: "pk-day" });
+  const packUl = h("ul", { class: "pk-list", id: "pk-list" });
+  const pack = h("section", { class: "card packnext hidden", id: "packnext", "aria-labelledby": "pk-h", "aria-describedby": "pk-day" },
+    h("div", { class: "pk-head" }, h("span", { class: "pk-ico", "aria-hidden": "true" }, icon("bag")), h("div", { class: "pk-tt" }, packH, packDay)), packUl);
+  const opened = new Set();   // aufgeklappte Gegenstände (Schlüssel) – bleiben beim Neuladen aufgeklappt
 
   const filesOf = () => (data ? data.sessions.flatMap((s) => s.files.map((f) => ({ f, s }))) : []);
   // gestaltete Vorlage ohne fertige PDF, die nichts von selbst druckt: Druck gescheitert oder Tageskontingent aufgebraucht (wie designMeta)
@@ -146,6 +160,33 @@ export function printNextCard(load = () => tapi("GET", "/api/teacher/print-next"
       h("a", { class: "btn ghost pn-edit", href: "#/lk/s/" + s.id + "/druckliste", "aria-label": "Druckliste von „" + (s.title || s.label) + "“ (" + (gs ? "Grundschule " : "") + s.label + ") in der Sitzung bearbeiten" },
         icon("edit"), "In der Sitzung bearbeiten"));
   };
+  /* Kasten „Für den nächsten Arbeitstag einpacken“: je Gegenstand ein Stichpunkt (Knopf mit aria-expanded); derselbe Gegenstand in mehreren Sitzungen ist
+     EIN Stichpunkt, aufgeklappt mit je einem Eintrag pro Sitzung (Lerngruppe und Beginn als Link zur Sitzung, dann der Hinweis) */
+  function paintPack() {
+    const items = data && data.date ? packList(data.sessions) : [];
+    const had = pack.contains(document.activeElement) ? document.activeElement : null, hadKey = had && had.dataset ? had.dataset.key || null : null;
+    clear(packUl);
+    pack.classList.toggle("hidden", !items.length);
+    packDay.textContent = items.length ? "für " + (data.today && daysBetween(data.today, data.date) === 1 ? "morgen, " : "") + longDay(data.date) : "";
+    items.forEach((it, i) => {
+      const nid = "pk-n-" + i, on = opened.has(it.key);
+      const note = h("div", { class: "pk-note" + (on ? "" : " hidden"), id: nid }, it.places.map((p) => h("p", { class: "pk-place" },
+        h("a", { class: "pk-where", href: "#/lk/s/" + p.id, text: placeLabel(p) }), ": " + placeText(p))));
+      const btn = h("button", { class: "pk-item", type: "button", "aria-expanded": on ? "true" : "false", "aria-controls": nid, dataset: { key: it.key } },
+        h("span", { class: "pk-name", text: it.item }), it.places.length > 1 ? h("span", { class: "pk-n", text: " · " + it.places.length + " Stunden" }) : null, icon("chev"));
+      btn.addEventListener("click", () => {
+        const now = btn.getAttribute("aria-expanded") !== "true";
+        btn.setAttribute("aria-expanded", now ? "true" : "false"); note.classList.toggle("hidden", !now);
+        if (now) opened.add(it.key); else opened.delete(it.key);
+      });
+      packUl.append(h("li", { class: "pk-li" }, btn, note));
+    });
+    // lag der Fokus auf einem Gegenstand, geht er an denselben (sonst an die Überschrift bzw. das Feld darüber) – nur, wenn er sonst verloren wäre
+    if (had && !had.isConnected && (!document.activeElement || document.activeElement === document.body)) {
+      const same = hadKey ? Array.from(packUl.querySelectorAll("button.pk-item")).find((b) => b.dataset.key === hadKey) : null;
+      (same || (items.length ? packH : heading)).focus({ preventScroll: true });
+    }
+  }
   function paintAll() {
     const all = filesOf();
     allBtn.classList.toggle("hidden", !all.length); allHint.classList.toggle("hidden", !all.length);
@@ -164,19 +205,20 @@ export function printNextCard(load = () => tapi("GET", "/api/teacher/print-next"
     for (const s of withFiles) body.append(h("section", { class: "pn-group", "aria-labelledby": "pn-g-" + s.id }, sessionHead(s), h("div", { class: "list" }, s.files.map((f) => fileRow(f, s)))));
     if (without.length) body.append(h("p", { class: "small muted pn-none", text: "Ohne Druckaufträge: " + without.map((s) => (s.startTime ? s.startTime + " " : "") + (s.school === "gs" ? "Grundschule " : "") + s.label).join(", ") + "." }));
     paintAll();
+    paintPack();
   }
   async function reload() {
-    const mine = ++run, had = card.contains(document.activeElement);
+    const mine = ++run, had = card.contains(document.activeElement) || pack.contains(document.activeElement);
     try { const r = await load(); if (mine !== run) return; data = { today: r.today || null, candidate: r.candidate || null, date: r.date || null, sessions: Array.isArray(r.sessions) ? r.sessions : [], freeDays: Array.isArray(r.freeDays) ? r.freeDays : [] }; paint(); }
     catch (e) {
       if (mine !== run) return;
-      data = null; rowEls.clear(); day.textContent = ""; day.classList.add("hidden"); paintAll();
+      data = null; rowEls.clear(); day.textContent = ""; day.classList.add("hidden"); paintAll(); paintPack();
       clear(body); body.classList.remove("skeleton");
       body.append(h("p", { class: "pn-err", role: "alert", text: "Die Druckaufträge ließen sich nicht laden: " + ((e && e.message) || e) }),
         h("button", { class: "btn", type: "button", onclick: (ev) => working(ev.currentTarget, reload, "Lade …") }, "Erneut versuchen"));
     }
     // war der Fokus im Feld (z. B. auf „Erneut versuchen“) und ist sein Element jetzt weg, geht er an die Überschrift – nie verloren auf body
-    if (mine === run && had && card.isConnected && !card.contains(document.activeElement) && (!document.activeElement || document.activeElement === document.body)) heading.focus({ preventScroll: true });
+    if (mine === run && had && card.isConnected && !card.contains(document.activeElement) && !pack.contains(document.activeElement) && (!document.activeElement || document.activeElement === document.body)) heading.focus({ preventScroll: true });
   }
 
   /* „Alle Dateien herunterladen“: nacheinander, je Datei ein Download, dazwischen eine kurze Pause; Fortschritt in der Statuszeile */
@@ -226,5 +268,5 @@ export function printNextCard(load = () => tapi("GET", "/api/teacher/print-next"
   document.addEventListener("visibilitychange", onVis);
   onLeave(() => { stopped = true; run++; off(); document.removeEventListener("visibilitychange", onVis); });
   reload();
-  return card;
+  return { card, pack };
 }

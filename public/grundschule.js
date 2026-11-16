@@ -7,7 +7,7 @@ import { tapi, teacherBar, markNav, printPending, cardsPendingRun } from "./teac
 import { fmtClockBerlin, berlinToday, schoolYearOf, gsCourseShort, normalizeGsCourse, GS_CLASS_LETTERS, GS_LIMITS, fmtDay, clockMinutes, minutesClock, addDays } from "./shared.js";
 import { WEEKDAYS, normalizeCourseSettings, claudeGymRevisionPrompt } from "./planning.js";
 import { weekCard } from "./weekcal.js";
-import { printNextCard } from "./printnext.js";
+import { printNextCards } from "./printnext.js";
 import { podcastCard } from "./podcast.js";
 import { weekdayRows, courseSettingsCard } from "./coursecard.js";
 import { baseLink, uploadBaseFile, editBase, basePdfButton } from "./bases.js";
@@ -29,7 +29,7 @@ export async function gsOverviewPage() {
   // derselbe Wochenkalender wie auf der Startseite: immer alle Termine beider Schulformen (lädt eigenständig)
   const week = weekCard(() => tapi("GET", "/api/teacher/schedule"));
   // ganz oben das Feld „Druckaufträge für den nächsten Arbeitstag“ – dasselbe wie auf der Startseite „Gymnasium“ (beide Schulformen)
-  const prints = printNextCard();
+  const { card: prints, pack } = printNextCards();   // direkt darunter der rote Kasten „Für den nächsten Arbeitstag einpacken“ (Nachtrag 28)
   // direkt unter dem Wochenkalender: derselbe Podcast wie auf der Startseite „Gymnasium“ (Nachtrag 22, beide Schulformen)
   const podcast = podcastCard();
   printPending();
@@ -37,7 +37,7 @@ export async function gsOverviewPage() {
   let courses, lessons;
   try {
     [courses, lessons] = await Promise.all([tapi("GET", "/api/teacher/gs/courses").then((r) => r.courses || []), tapi("GET", "/api/teacher/lessons?school=gs").then((r) => r.lessons || [])]);
-  } catch (e) { clear(main).append(pageHead({ fach: "gs", title: "Grundschule" }), prints, week, podcast, h("p", { class: "err", role: "alert", text: e.message })); return; }
+  } catch (e) { clear(main).append(pageHead({ fach: "gs", title: "Grundschule" }), prints, pack, week, podcast, h("p", { class: "err", role: "alert", text: e.message })); return; }
   const byId = new Map(courses.map((c) => [c.id, c]));
   const recent = lessons.slice().sort((a, b) => b.updatedAt - a.updatedAt).slice(0, 6);
   // Knopf „Neuen Kurs anlegen“ ganz oben (Wunsch der Lehrkraft vom 12.11.2026): sofort sichtbar, auch wenn der Wochenkalender darunter die
@@ -50,7 +50,7 @@ export async function gsOverviewPage() {
     if (first) first.focus({ preventScroll: true });
   } }, icon("plus"), "Neuen Kurs anlegen");
   clear(main).append(...nn(pageHead({ fach: "gs", title: "Grundschule", aside: add, sub: "Kurse der Jahrgänge 1–4: Unterrichtseinheiten, Sitzungen mit Verlaufsplan und Elternansicht." }),
-    prints, week, podcast, gsCourseList(courses), form,
+    prints, pack, week, podcast, gsCourseList(courses), form,
     recent.length ? h("section", { class: "card gs-recent", "aria-labelledby": "gs-recent-h" }, h("h2", { id: "gs-recent-h", text: "Zuletzt bearbeitet" }), gsLessonList(recent, byId)) : null));
 }
 

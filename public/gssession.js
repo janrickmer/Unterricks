@@ -17,6 +17,7 @@ import { materialBox } from "./materialbox.js";
 import { cardsCard } from "./cards.js";
 import { reviseBox } from "./grundschule.js";
 import { summaryCard } from "./tsummary.js";
+import { bringCard } from "./bringcard.js";
 import { freeDateMessage } from "./freedays.js";
 
 const isPdf = (f) => !!f && f.kind === "file" && f.mime === "application/pdf" && f.area !== "archive" && f.area !== "presentation";
@@ -493,9 +494,11 @@ export async function gsSessionPage(id, d) {
 
   /* ======================= Zusammenfassung der Sitzung für die Lehrkraft (Nachtrag 21): ganz oben, vor dem Verlaufsplan ======================= */
   tsum = summaryCard({ id, L, course, planText: () => ta.value });
+  // Gegenstände zum Mitbringen (Nachtrag 28): kompakte Karte unter den Sitzungsdaten
+  const bring = bringCard({ id, L, course });
   main.append(tsum.el, h("div", { class: "session-grid gs-session" },
     h("div", { class: "stack gs-stack" }, planCard, prevEl, draftCard, unitCard, claudeCard, cardsBox.el, box.filesCard, box.printCard, contentCard, parentsCard),
-    h("aside", { class: "side" }, metaCard, sickCard)));
+    h("aside", { class: "side" }, metaCard, bring.el, sickCard)));
   setEditing(false);
   paintRevise();
 
@@ -520,6 +523,7 @@ export async function gsSessionPage(id, d) {
     if (JSON.stringify(r.previousStop || null) !== JSON.stringify(d.previousStop || null) || filesChanged) { d.previousStop = r.previousStop; paintPrev(); }
     d.nextLesson = r.nextLesson;
     tsum.update(r.lesson);   // Zusammenfassung (z. B. von Claude mit update_lesson) – nie in eine laufende Bearbeitung
+    bring.update(r.lesson);  // Gegenstände zum Mitbringen (Nachtrag 28) – nie in ein offenes Formular
     if (r.lesson.portalVersion !== plan.version && !plan.dirty && !busyField(ta)) {
       plan.version = r.lesson.portalVersion; ta.value = r.lesson.portal || "";
       Object.assign(L(), { portal: r.lesson.portal, portalVersion: r.lesson.portalVersion, portalUpdatedAt: r.lesson.portalUpdatedAt, portalSource: r.lesson.portalSource });

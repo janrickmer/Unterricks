@@ -15,6 +15,7 @@ import {
 } from "../public/shared.js";
 import { unitContext, STOP_CHOICE_TEXT, stopChatSection, freeDayOn, schoolOf } from "../public/planning.js";
 import { loadFreeDays, assertNotFree } from "./freedays.js";
+import { validateBring, cleanBring, bringStore, bringRead, BRING_REV_SQL } from "../public/bring.js";
 
 export const LIMITS = { title: 200, topic: 500, ideas: 20000, homework: 10000, portal: 30000, message: 30000, answer: 100000, textMaterial: 200000, parentSummary: 800, parentNote: 2000, teacherSummary: TEACHER_SUMMARY_MAX };
 
@@ -24,9 +25,12 @@ export const lessonOut = (r, extra = {}) => ({
   createdAt: r.created_at, updatedAt: r.updated_at,
   // Zusammenfassung der Sitzung für die Lehrkraft (Nachtrag 21) – nur in Routen der Lehrkraft (lessonOut gibt es nur dort)
   teacherSummary: r.teacher_summary || "", teacherSummaryAt: r.teacher_summary_at ?? null, teacherSummaryPlan: r.teacher_summary_plan || null,
+  // Gegenstände zum Mitbringen (Nachtrag 28, beide Schulformen; nur Lehrkraft) und ihr Stand (Schutz vor Überschreiben)
+  ...bringOut(r),
   // Grundschule: Inhalt und Hinweis für die Eltern, Ausfall-Eintrag, ob es einen Elternlink gibt (nie der Link selbst)
   ...(r.subject === GS_SUBJECT ? { parentSummary: r.parent_summary || "", parentNote: r.parent_note || "", cancelled: !!r.cancelled, hasParentLink: !!r.parent_hash } : {}), ...extra,
 });
+function bringOut(r) { const b = bringRead(r.bring); return { bring: b.items, bringRev: b.rev }; }
 export const printProps = (f) => ({ copies: f.print_copies || 1, duplex: f.print_duplex !== 0, color: f.print_color === 1 });
 export const codeSlidesOf = (f) => { try { return cleanCodeSlides(JSON.parse(f.code_slides || "[]"), f.pages || 0); } catch { return []; } };
 /* Spalten einer Dateiliste ohne Claudes Gestaltung (html bis 1,5 MB je Material – nur '' als Kennzeichen „gestaltet“) */
@@ -145,6 +149,10 @@ function lessonFields(body, partial) {
     const t = cleanText(body.teacherSummary).trim();
     if (t.length > LIMITS.teacherSummary) throw bad("Die Zusammenfassung der Sitzung für die Lehrkraft ist zu lang (" + t.length + " Zeichen, höchstens " + LIMITS.teacherSummary + ") – bitte kürzen.");
     f.teacher_summary = t;
+  }
+  // Gegenstände zum Mitbringen (Nachtrag 28): die ganze Liste [{item, note}] – geprüft wie im Browser (bring.js), Fehler als Meldung statt still zu kürzen
+  if (partial && body.bring !== undefined) {
+    try { f.bring = bringStore(validateBring(body.bring)); } catch (e) { throw bad(e.message); }
   }
   // Beginn (Uhrzeit, freiwillig): ohne ihn sehen Schüler:innen weder Hausaufgabe noch Präsentation (siehe lessonTimes)
   if (!partial || body.startTime !== undefined) {
@@ -383,12 +391,25 @@ export async function updateLesson(db, id, body, now) {
       if (base !== null && !Number.isInteger(base)) throw bad("Stand der Zusammenfassung fehlt.");
     }
   }
-  const cols = Object.keys(f);
-  if (body.teacherSummaryBase !== undefined && f.teacher_summary !== undefined) guard = " AND teacher_summary_at IS ?" + (cols.length + 3);
-  const sets = cols.map((k, i) => k + "=?" + (i + 2)).join(", ");
-  const r = await db.prepare("UPDATE lessons SET " + sets + ", updated_at=?" + (cols.length + 2) + " WHERE id=?1" + guard).bind(id, ...cols.map((k) => f[k]), now, ...(guard ? [base] : [])).run();
+  // Gegenstände zum Mitbringen (Nachtrag 28): bringBase (Sitzungsseite) = Stand, auf dem die Änderung beruht – sonst 409 mit der aktuellen Liste;
+  // der Stand zählt in derselben Anweisung weiter (BRING_REV_SQL), ohne Base (Connector) wird gespeichert
+  let bringBase = null;
+  if (f.bring !== undefined && body.bringBase !== undefined) {
+    bringBase = body.bringBase;
+    if (!Number.isInteger(bringBase) || bringBase < 0) throw bad("Stand der Liste „Mitbringen“ fehlt.");
+  }
+  const cols = Object.keys(f), guards = [], extra = [];
+  if (body.teacherSummaryBase !== undefined && f.teacher_summary !== undefined) { extra.push(base); guards.push(" AND teacher_summary_at IS ?" + (cols.length + 2 + extra.length)); }
+  if (bringBase !== null) { extra.push(bringBase); guards.push(" AND " + BRING_REV_SQL + "=?" + (cols.length + 2 + extra.length)); }
+  guard = guards.join("");
+  const sets = cols.map((k, i) => k + "=" + (k === "bring" ? "json_set(?" + (i + 2) + ", '$.rev', " + BRING_REV_SQL + " + 1)" : "?" + (i + 2))).join(", ");
+  const r = await db.prepare("UPDATE lessons SET " + sets + ", updated_at=?" + (cols.length + 2) + " WHERE id=?1" + guard).bind(id, ...cols.map((k) => f[k]), now, ...extra).run();
   if (guard && !(r.meta && r.meta.changes)) {
     const cur = await getLesson(db, id);
+    if (bringBase !== null && bringRead(cur.bring).rev !== bringBase) {
+      const b = bringRead(cur.bring);
+      throw new HttpError(409, "bring_conflict", "Die Liste „Mitbringen“ wurde inzwischen an anderer Stelle geändert.", { current: { items: b.items, rev: b.rev } });
+    }
     throw new HttpError(409, "summary_conflict", "Die Zusammenfassung der Sitzung für die Lehrkraft wurde inzwischen an anderer Stelle geändert.",
       { current: { text: cur.teacher_summary || "", at: cur.teacher_summary_at ?? null, plan: cur.teacher_summary_plan || null } });
   }
@@ -459,8 +480,12 @@ export async function routeLessonImport(c, id) {
     f.teacher_summary_plan = !f.teacher_summary ? null : les.teacherSummaryOutdated === true ? PLAN_FINGERPRINT_STALE
       : planFingerprint(typeof les.portal === "string" ? cleanText(les.portal, LIMITS.portal) : l.portal);
   }
+  // Gegenstände zum Mitbringen (Nachtrag 28): ersetzen die Liste dieser Sitzung (der Browser hat Datum und Lerngruppe in den Hinweisen angepasst);
+  // fremde Daten – Ungültiges entfällt, zu lange Hinweise werden gekürzt (cleanBring)
+  if (Array.isArray(les.bring)) f.bring = bringStore(cleanBring(les.bring));
   const keys = Object.keys(f), stmts = [];
-  if (keys.length) stmts.push(c.db.prepare("UPDATE lessons SET " + keys.map((k, i) => k + "=?" + (i + 2)).join(", ") + ", updated_at=?" + (keys.length + 2) + " WHERE id=?1").bind(id, ...keys.map((k) => f[k]), c.now));
+  if (keys.length) stmts.push(c.db.prepare("UPDATE lessons SET " + keys.map((k, i) => k + "=" + (k === "bring" ? "json_set(?" + (i + 2) + ", '$.rev', " + BRING_REV_SQL + " + 1)" : "?" + (i + 2))).join(", ") +
+    ", updated_at=?" + (keys.length + 2) + " WHERE id=?1").bind(id, ...keys.map((k) => f[k]), c.now));
   // Planungsverlauf ersetzen (Reihenfolge bleibt: json_each in der Reihenfolge der Liste)
   const chat = (Array.isArray(body.chat) ? body.chat : []).slice(-200).filter((m) => m && (m.role === "user" || m.role === "assistant") && typeof m.content === "string" && m.content.trim())
     .map((m) => ({ r: m.role, c: cleanText(m.content, LIMITS.answer), m: cleanLine(m.model, 200) || null, o: MODE_HINT[m.mode] !== undefined ? m.mode : null }));

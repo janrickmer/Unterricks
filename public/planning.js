@@ -4,6 +4,7 @@ import { subjectName, gradeInfo, classShort, isAnalogClass, ANALOG_RULE, fmtDay,
   SYSTEM_PROMPT_ROLE, UNIT_RULE_BASE, STOP_LINE, lessonContext, teacherWishes, groupShort, subjectShort, isValidSubject, isValidClass, clockMinutes, minutesClock, mondayOf, isWeekend,
   GS_SUBJECT, isGsCourseId, parentOpensAt, berlinToday, stopParts, STOP_CHOICE_TEXT, STOP_CHOICES, stopDecidedOn, summarySaveStep, SUMMARY_FALLBACK, daysBetween } from "./shared.js";
 import { ESCAPE_FORMAT_HINT } from "./escape-data.js";
+import { bringSaveStep } from "./bring.js";
 export { UNIT_RULE } from "./shared.js";
 
 export const WEEKDAYS = [{ d: 1, n: "Montag" }, { d: 2, n: "Dienstag" }, { d: 3, n: "Mittwoch" }, { d: 4, n: "Donnerstag" }, { d: 5, n: "Freitag" }];
@@ -687,6 +688,7 @@ export function claudeLessonPrompt(ctx) {
     "   - Meldet `add_material_pdf` einen Druckfehler, korrigiere die Gestaltung und sende sie mit `file_id` erneut. Nur wenn der PDF-Druck gar nicht funktioniert, nimm als Rückfall `add_text_material` bzw. `add_print_material` (Markdown, ohne eigene Gestaltung).",
     analog ? null : "   - Feibeitsblatt → `propose_feibeitsblatt` (nur ein Entwurf: Ich prüfe ihn in der Plattform und lege das Blatt dort an).",
     "   - Hausaufgabe bis zur nächsten Sitzung → `update_lesson` mit `hausaufgabe` (für die Schüler:innen sichtbar; Schulportal-Zeichen erlaubt). Geänderte Sitzungsdaten (Titel, Thema, Dauer) ebenfalls mit `update_lesson`.",
+    bringSaveStep(false),   // Nachtrag 28: Gegenstände, die ich mitbringen muss
     unit ? "   - Abgestimmte Abweichung von der Einheit (Stundenfrage, grober Ablauf) → `update_unit_row`." : null,
     summarySaveStep(false, analog),
   ];

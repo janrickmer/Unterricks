@@ -125,6 +125,10 @@ export const COLUMNS = [
   // Lehrkraft auf der Sitzungsseite, „Mit KI neu erstellen“, save_schulportal_entry, save_verlaufsplan – nicht beim Laden einer Sitzungsdatei und nicht
   // durch die Vertretung (portal_updated_at zählt jede Änderung). NULL = nie (bzw. vor dieser Spalte, siehe planSavedAt in worker/lessons.js)
   ["lessons", "plan_saved_at", "INTEGER"],
+  // Gegenstände, die die Lehrkraft für diese Sitzung mitbringen muss (Nachtrag 28, beide Schulformen): {v:1, rev, items:[{t, w}]} als JSON (public/bring.js) –
+  // t = Gegenstand, w = Hinweis (höchstens zwei Sätze: wo in der Stunde und in welcher Lerngruppe); rev zählt jede Speicherung (Schutz vor Überschreiben).
+  // NULL = nie gesetzt. Die Startseite liest sie mit den Sitzungen des nächsten Arbeitstags (printjobs.js, keine zusätzliche Abfrage)
+  ["lessons", "bring", "TEXT"],
 ];
 
 // Indizes über nachträglich ergänzte Spalten (nach den Spalten angelegt; ein Fehler – z. B. alte Doppelungen – hält den Betrieb nicht auf)
@@ -138,7 +142,7 @@ export const INDEXES = [
 ];
 
 let ready = null, warm = false;
-/* true, sobald das Schema in diesem Isolate angelegt ist – vor ensureSchema abgefragt: false heißt, diese Anfrage legt es gerade an (bis zu 46
+/* true, sobald das Schema in diesem Isolate angelegt ist – vor ensureSchema abgefragt: false heißt, diese Anfrage legt es gerade an (bis zu 47
    Anweisungen), lange Abfragen (Beamer-Code) halten dann nicht (höchstens 50 D1-Anweisungen je Aufruf im Free-Plan) */
 export const schemaWarm = () => warm;
 export function ensureSchema(db) {

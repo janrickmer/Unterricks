@@ -492,6 +492,9 @@ const ICONS = {
   headphones: "M3 18v-6a9 9 0 0 1 18 0v6M21 19a2 2 0 0 1-2 2h-1a2 2 0 0 1-2-2v-3a2 2 0 0 1 2-2h3zM3 19a2 2 0 0 0 2 2h1a2 2 0 0 0 2-2v-3a2 2 0 0 0-2-2H3z",
   upload: "M12 15V4M7 9l5-5 5 5M5 20h14",
   copy: "M9 9h11v11H9zM5 15H4V4h11v1",
+  // Tasche (Nachtrag 28: „Für den nächsten Arbeitstag einpacken“) und Pfeil zum Aufklappen
+  bag: "M5 8h14l-1.2 11.2a2 2 0 0 1-2 1.8H8.2a2 2 0 0 1-2-1.8L5 8zM9 8V6.5a3 3 0 0 1 6 0V8",
+  chev: "M6 9l6 6 6-6",
 };
 const SVGNS = "http://www.w3.org/2000/svg";
 export function icon(name) {

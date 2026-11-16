@@ -2,7 +2,8 @@
 // um eine schon gehaltene Sitzung in einer anderen Lerngruppe erneut durchzuführen oder leicht abzuändern. Beim Laden kommen Datum, Beginn,
 // Dauer und Fälligkeit aus der geöffneten Sitzung; Datumsangaben in den Texten werden an sie angepasst (adaptDates).
 // Hier nur reine Funktionen (ohne Netz und DOM) – das Herunterladen und Hochladen steuert session.js.
-import { subjectName, subjectShort, groupShort, isIsoDate, isClockTime, cleanWebUrl, cleanCopies, normalizeFbDraft, cleanSlideNotes, NOTES_LIMITS, TEACHER_SUMMARY_MAX } from "./shared.js";
+import { subjectName, subjectShort, groupShort, isIsoDate, isClockTime, cleanWebUrl, cleanCopies, normalizeFbDraft, cleanSlideNotes, NOTES_LIMITS, TEACHER_SUMMARY_MAX, isValidClass, isCourseClass, classShort } from "./shared.js";
+import { cleanBring } from "./bring.js";
 
 export const SESSION_FILE = { kind: "unterricks-sitzung", v: 1, json: "sitzung.json" };
 export const SESSION_LIMITS = { files: 60, chat: 200, drafts: 20, text: 200000 };
@@ -79,6 +80,24 @@ export function adaptDates(text, pairs) {
   return { text: out, replaced, unknown };
 }
 
+/* ---------- Lerngruppe in den Hinweisen der Gegenstände zum Mitbringen anpassen (Nachtrag 28) ----------
+ * Eine Sitzungsdatei aus der 8B in die 8C geladen: „In Phase 2 in der 8b“ → „… in der 8c“. Ersetzt nur ganze Bezeichnungen der Lerngruppe (nicht in „18B“
+ * oder „8Ba“), ohne Groß-/Kleinschreibung (klein geschrieben bleibt klein), „Q2-GK“ auch als „Q2 GK“, ein Kurs auch in der Form „Kurs Jg. 8“.
+ * items = [{item, note}] → {items, replaced: [[alt, neu], …]} */
+const reEsc = (s) => s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+export function adaptBringGroup(items, from, to) {
+  const list = Array.isArray(items) ? items : [], replaced = [];
+  if (!isValidClass(from) || !isValidClass(to) || from === to) return { items: list, replaced };
+  const forms = [[reEsc(from).replace(/-/g, "[- ]?"), to]];
+  if (isCourseClass(from) && isCourseClass(to)) forms.unshift([reEsc(classShort(from)).replace(/ /g, "\\s+"), classShort(to)]);
+  const fix = (text) => forms.reduce((t, [pat, want]) => t.replace(new RegExp("(?<![\\p{L}\\p{N}])" + pat + "(?![\\p{L}\\p{N}])", "giu"), (m) => {
+    const out = /\p{L}/u.test(m) && m === m.toLowerCase() ? want.toLowerCase() : / /.test(m) && !/ /.test(want) ? want.replace(/-/g, " ") : want;
+    if (out !== m && !replaced.some(([a, b]) => a === m && b === out)) replaced.push([m, out]);
+    return out;
+  }), String(text || ""));
+  return { items: list.map((x) => ({ item: x.item, note: fix(x.note) })), replaced };
+}
+
 /* ---------- Inhalt der Datei prüfen (fremde Daten) ---------- */
 const str = (v, max) => (typeof v === "string" ? v : v == null ? "" : String(v)).slice(0, max);
 export function cleanSessionFile(raw) {
@@ -109,7 +128,9 @@ export function cleanSessionFile(raw) {
       date: isIsoDate(s.date) ? s.date : null, nextDate: isIsoDate(s.nextDate) ? s.nextDate : null, startTime: isClockTime(s.startTime) ? s.startTime : null,
       durationMin: Number.isInteger(s.durationMin) ? s.durationMin : null, title: str(s.title, 200) },
     lesson: { title: str(l.title, 200), topic: str(l.topic, 500), ideas: str(l.ideas, 20000), homework: str(l.homework, 10000), portal: str(l.portal, 30000),
-      teacherSummary: str(l.teacherSummary, TEACHER_SUMMARY_MAX), ...(l.teacherSummaryOutdated === true ? { teacherSummaryOutdated: true } : {}) },
+      teacherSummary: str(l.teacherSummary, TEACHER_SUMMARY_MAX), ...(l.teacherSummaryOutdated === true ? { teacherSummaryOutdated: true } : {}),
+      // Gegenstände zum Mitbringen (Nachtrag 28) – nur, wenn die Datei welche hat (ältere Dateien bleiben, wie sie waren)
+      ...(cleanBring(l.bring).length ? { bring: cleanBring(l.bring) } : {}) },
     chat: (Array.isArray(raw.chat) ? raw.chat : []).slice(-SESSION_LIMITS.chat).filter((m) => m && (m.role === "user" || m.role === "assistant") && typeof m.content === "string" && m.content.trim())
       .map((m) => ({ role: m.role, content: m.content.slice(0, 100000), model: str(m.model, 200) || null, mode: str(m.mode, 20) || null })),
     files, drafts,

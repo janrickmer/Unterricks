@@ -2,6 +2,7 @@
 // Worker (keine DOM-Zugriffe). Die Kinder arbeiten nicht digital: nur analoges, ausdruckbares Material.
 import { fmtDay, SYSTEM_PROMPT_ROLE, UNIT_RULE_BASE, materialDesignText, summarySaveStep, SUMMARY_FALLBACK, berlinToday } from "./shared.js";
 import { lessonSlots, paramsText, freeSlots, normalizeParams, stopCarrySection, stopCarryStep, stopFallbackText, freeShiftText, freeDaysInRange, freeBreakOf, freeRowNote } from "./planning.js";
+import { bringSaveStep } from "./bring.js";
 
 export const GS_RULE = "In der Grundschule arbeiten die Kinder nicht digital: Plane ausschließlich analoges Material (ausdruckbare Arbeitsblätter, Bildkarten, Tafel- und Bodenbilder) – keine Feibeitsblätter, keine Escape-Rooms, keine Online-Aufgaben, keine Präsentation zum Mitverfolgen.";
 
@@ -234,6 +235,7 @@ export function claudeGsLessonPrompt(ctx) {
     concPromptStep(L),
     "   - Den Stundenverlauf speicherst du mit `save_verlaufsplan` (übergib `base_version` aus `get_lesson`): " + VERLAUFSPLAN_RULES + " Setze selbst keinen Zwischenstopp – den trage ich ein, wenn wir nicht fertig werden.",
     "   - Den „Inhalt der Unterrichtsstunde“ für die Eltern speicherst du mit `update_lesson` und `inhalt_eltern`: 2–3 elternverständliche Sätze, worum es ging und was die Kinder lernen sollten. Eine Hausaufgabe nur, wenn wir eine vereinbart haben (`hausaufgabe`, schlichter Text ohne Zeichen).",
+    bringSaveStep(true),   // Nachtrag 28: Gegenstände, die ich mitbringen muss
     "   - Den ausgearbeiteten Stundenentwurf (Verlauf mit Minuten, Begründung, Erwartungen) speicherst du mit `save_planning_result`.",
     unit ? "   - Eine abgestimmte Abweichung von der Einheit (Stundenfrage, grober Ablauf) hältst du mit `update_unit_row` fest." : null,
     summarySaveStep(true),

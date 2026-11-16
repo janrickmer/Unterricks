@@ -316,6 +316,29 @@ a.item:hover { border-color: color-mix(in srgb, var(--fach-text) 55%, var(--line
 .tsum-note { margin: .75rem 0 0; max-width: 75ch; }
 .tsum-edit textarea { min-height: 13rem; }
 .tsum-edit .field { margin-bottom: .6rem; }
+/* Karte „Mitbringen“ auf der Sitzungsseite (bringcard.js, Nachtrag 28): kompakt in der rechten Spalte unter den Sitzungsdaten, ohne eigene Farbe –
+   Rot trägt nur der Kasten auf der Startseite. Je Gegenstand eine Zeile (Name in 700, Hinweis klein), rechts Stift und Papierkorb (44 px). */
+.bring h2 { display: inline-flex; align-items: center; gap: .45rem; }
+.bring h2 .ico { width: 1.15em; height: 1.15em; flex: none; }
+.bring-intro { margin: 0 0 .6rem; }
+.bring-list { list-style: none; margin: 0; padding: 0; }
+.bring-row { display: flex; align-items: flex-start; justify-content: space-between; gap: .5rem; padding: .45rem 0; border-top: 1px solid var(--line); }
+.bring-row:last-child { border-bottom: 1px solid var(--line); }
+.bring-main { min-width: 0; flex: 1 1 auto; padding-top: .35rem; }
+.bring-item { margin: 0; font-weight: 700; overflow-wrap: anywhere; }
+.bring-note { margin: .15rem 0 0; font-size: .9rem; line-height: 1.45; overflow-wrap: anywhere; }
+.bring-acts { display: flex; gap: .15rem; flex: none; }
+.bring-acts .iconbtn { min-width: 44px; min-height: 44px; }
+.bring-empty { margin: 0; }
+.bring-form { margin-top: .7rem; padding-top: .7rem; border-top: 1px solid var(--line); }
+.bring-form-h { margin: 0 0 .5rem; font-size: 1rem; }
+.bring-form .field { margin-bottom: .55rem; }
+.bring-form textarea { min-height: 5.5rem; }
+.bring-form [aria-invalid="true"] { border-color: var(--err); box-shadow: 0 0 0 2px color-mix(in srgb, var(--err) 30%, transparent); }
+.bring-err { margin: 0 0 .55rem; }
+.bring-addrow { margin-top: .7rem; }
+.bring-full { margin: .4rem 0 0; }
+.bring-full:empty { display: none; }
 .tsum-edit .hint { margin-bottom: 0; }
 .tsum-pre { white-space: pre-wrap; font-family: var(--font); min-height: 0; }
 
@@ -1071,6 +1094,38 @@ img.sub-photo { max-width: 100%; max-height: 60vh; border-radius: 12px; border: 
 .pn-none { margin: .8rem 0 0; }
 .pn-hint { margin: .8rem 0 0; }
 @media (max-width: 560px) { .pn-all { width: 100%; } .pn-ico { width: 42px; height: 42px; } .pn-ico .ico { width: 24px; height: 24px; } }
+
+/* ---------- Für den nächsten Arbeitstag einpacken (printnext.js, Nachtrag 28: direkt unter den Druckaufträgen auf beiden Startseiten) ----------
+   Rot ist die Kennfarbe genau dieses Kastens (Wunsch der Lehrkraft: „in einem roten Kasten“) – Fläche --rot-t, 2px-Kante, Taschen-Schild und Stichpunkte
+   in --err (hell #c8281e, dunkel #ff8a80), Schrift immer --text/--muted. Kontrast: Schrift 13,7 : 1 (dunkel 13,1 : 1), Kante/Stichpunkte 4,7 : 1 (6,8 : 1),
+   Symbol weiß auf Rot 5,6 : 1 (dunkel Tinte auf #ff8a80 7,0 : 1). Ein Gegenstand ist ein Knopf (≥ 44 px) mit aria-expanded; aufgeklappt ein Textfeld in
+   kleinerer Schrift auf --surface. */
+.card.packnext { background: var(--rot-t); border: 2px solid var(--err); --pk-ink: #fff; }
+.pk-head { display: flex; align-items: center; gap: .85rem; min-width: 0; }
+.pk-ico { flex: none; width: 48px; height: 48px; border-radius: 12px; display: grid; place-items: center; background: var(--err); color: var(--pk-ink); }
+.pk-ico .ico { width: 28px; height: 28px; }
+.pk-tt { min-width: 0; }
+.pk-tt h2 { margin: 0; }
+.pk-tt h2:focus { outline: none; } .pk-tt h2:focus-visible { outline: 3px solid var(--fach-text); outline-offset: 3px; border-radius: 4px; }
+.pk-day { margin: .2rem 0 0; font-weight: 700; color: var(--text); }
+.pk-list { margin: .7rem 0 0; padding-left: 1.5rem; list-style: disc; }
+.pk-list li::marker { color: var(--err); font-size: 1.15em; }
+.pk-li + .pk-li { margin-top: .1rem; }
+.pk-item { display: inline-flex; align-items: center; gap: .45rem; min-height: 44px; max-width: 100%; margin-left: -.4rem; padding: .3rem .5rem; border: 0; border-radius: 8px;
+  background: transparent; color: var(--text); font: inherit; font-weight: 700; font-size: 1.04rem; text-align: left; cursor: pointer; }
+.pk-item:hover { background: color-mix(in srgb, var(--err) 12%, transparent); }
+.pk-item:focus-visible { outline: 3px solid var(--fach-text); outline-offset: 1px; }
+.pk-name { overflow-wrap: anywhere; }
+.pk-n { font-weight: 600; color: var(--muted); white-space: nowrap; }
+.pk-item .ico { flex: none; width: 1.1em; height: 1.1em; color: var(--err); transition: transform .2s var(--ease); }
+.pk-item[aria-expanded="true"] .ico { transform: rotate(180deg); }
+.pk-note { margin: .15rem 0 .55rem; padding: .55rem .8rem; max-width: 70ch; background: var(--surface); border: 1px solid color-mix(in srgb, var(--err) 40%, var(--line)); border-radius: var(--radius-s);
+  font-size: .9rem; line-height: 1.5; color: var(--text); }
+.pk-place { margin: 0; overflow-wrap: anywhere; }
+.pk-place + .pk-place { margin-top: .4rem; padding-top: .4rem; border-top: 1px solid var(--line); }
+.pk-where { font-weight: 700; color: var(--text); }
+@media (max-width: 560px) { .pk-ico { width: 42px; height: 42px; } .pk-ico .ico { width: 24px; height: 24px; } }
+@media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) .card.packnext { --pk-ink: #13213b; } }
 
 /* ---------- Podcast für den kommenden Unterricht (podcast.js, Nachtrag 22: direkt unter dem Wochenkalender auf beiden Startseiten der Lehrkraft) ----------
    Ohne eigene Farbe: Knopf bzw. Karte wie alle anderen, das Kopfhörer-Schild in Tinte. Im Player ist der gerade mögliche Knopf (Abspielen bzw. Pause)

@@ -11,6 +11,7 @@ const P = await import("../../public/planning.js");
 const G = await import("../../public/gsplanning.js");
 const S = await import("../../public/shared.js");
 const F = await import("./stop-fixtures.mjs");
+const B = await import("../../public/bring.js");
 const { fakeCtx } = await import("./fake-d1.mjs");
 const GS = await import("../../worker/gs.js");
 const U = await import("../../worker/units.js");
@@ -67,15 +68,24 @@ const withoutConc = (p, L) => {
   assert.ok(p.indexOf(sec) < p.indexOf("\n## Vorgehen") && p.indexOf("`add_picture_cards`") < p.indexOf(step) && p.indexOf(step) < p.indexOf("`save_verlaufsplan`"), "Abschnitt vor dem Vorgehen, Schritt nach den Bildkarten und vor dem Verlaufsplan");
   return p.replace(sec, "").replace(step, "");
 };
-test("ohne Zwischenstopp: beide Prompts byte-gleich zum Stand vor S11 (Gymnasium: bis auf den Satz zu Links in Feibeitsblättern; beide bis auf die Zusammenfassung; Grundschule bis auf die Konzentrationsaufgabe)", () => {
+// Nr. 28 (15.11.2026): beide Prompts bekommen genau einen Speicherschritt „Gegenstände, die ich mitbringen muss“ (update_lesson mitbringen) – am Gymnasium nach der
+// Hausaufgabe, in der Grundschule nach dem Inhalt für die Eltern; ohne ihn bleiben sie byte-gleich
+const withoutBring = (p, gs) => {
+  const step = "\n" + B.bringSaveStep(gs);
+  assert.equal(p.split(step).length - 1, 1, "der Schritt zu den Gegenständen steht genau einmal im Prompt");
+  assert.ok(gs ? p.indexOf("`inhalt_eltern`") < p.indexOf(step) && p.indexOf(step) < p.indexOf("`save_planning_result`") : p.indexOf("`hausaufgabe`") < p.indexOf(step) && p.indexOf(step) < p.indexOf(S.summarySaveStep(false, false).slice(0, 30)),
+    "Schritt an der richtigen Stelle");
+  return p.replace(step, "");
+};
+test("ohne Zwischenstopp: beide Prompts byte-gleich zum Stand vor S11 (Gymnasium: bis auf den Satz zu Links in Feibeitsblättern; beide bis auf die Zusammenfassung und die Gegenstände zum Mitbringen; Grundschule bis auf die Konzentrationsaufgabe)", () => {
   const s = F.sekCtx(P.unitContext), g = F.gsCtx(P.unitContext);
-  assert.equal(sha(withoutLinkRule(withoutSummary(P.claudeLessonPrompt(s), false))), BEFORE.sek);
+  assert.equal(sha(withoutLinkRule(withoutSummary(withoutBring(P.claudeLessonPrompt(s), false), false))), BEFORE.sek);
   const sek6 = P.claudeLessonPrompt({ ...s, klass: "6B", unit: null, row: null, unitText: "", messages: [] }), gs = G.claudeGsLessonPrompt(g), gs0 = G.claudeGsLessonPrompt({ ...g, unit: null, row: null, unitText: "" });
   for (const p of [sek6, gs, gs0]) assert.ok(!p.includes(S.FB_LINK_RULE) && !p.includes("[Linktext](https://…)"));
   for (const p of [P.claudeLessonPrompt(s), sek6]) assert.ok(!p.includes("Konzentrationsaufgabe"), "Gymnasium (auch Jg. 5/6) ohne Konzentrationsaufgabe");
-  assert.equal(sha(withoutSummary(sek6, false, true)), BEFORE.sek6);
-  assert.equal(sha(withoutConc(withoutSummary(gs, true), g.lesson)), BEFORE.gs);
-  assert.equal(sha(withoutConc(withoutSummary(gs0, true), g.lesson)), BEFORE.gs0);
+  assert.equal(sha(withoutSummary(withoutBring(sek6, false), false, true)), BEFORE.sek6);
+  assert.equal(sha(withoutConc(withoutSummary(withoutBring(gs, true), true), g.lesson)), BEFORE.gs);
+  assert.equal(sha(withoutConc(withoutSummary(withoutBring(gs0, true), true), g.lesson)), BEFORE.gs0);
 });
 
 const PREV = { id: "abcdefabcdefabcd", title: "Was ist Macht?", date: "2026-11-10", portal: "**1) Einstieg**\n- Karikatur\n" + STOP + "\n**2) Partnerarbeit**\n- ~~M1~~ lesen", portalVersion: 4,

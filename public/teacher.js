@@ -7,7 +7,7 @@ import { SUBJECTS, subjectName, gradeInfo, isValidClass, isValidSubject, formatC
 import { missingFor } from "./bases-detect.js";
 import { portalPreview } from "./portalview.js";
 import { weekCard } from "./weekcal.js";
-import { printNextCard } from "./printnext.js";
+import { printNextCards } from "./printnext.js";
 import { podcastCard } from "./podcast.js";
 import { freeDaysCard } from "./freedays.js";
 import { FbClient } from "./fbclient.js";
@@ -303,7 +303,7 @@ async function subjectsPage() {
   // Wochenkalender ganz oben: lädt eigenständig (ein Fehler dort verhindert die Fächer nicht)
   const week = weekCard(() => tapi("GET", "/api/teacher/schedule"));
   // darüber das Feld „Druckaufträge für den nächsten Arbeitstag“ (beide Schulformen; lädt ebenso eigenständig)
-  const prints = printNextCard();
+  const { card: prints, pack } = printNextCards();   // direkt darunter der rote Kasten „Für den nächsten Arbeitstag einpacken“ (Nachtrag 28)
   // direkt unter dem Wochenkalender: „Podcast für den kommenden Unterricht entwickeln“ bzw. der Player (Nachtrag 22, beide Schulformen)
   const podcast = podcastCard();
   resumeCleanup();
@@ -311,9 +311,9 @@ async function subjectsPage() {
   cardsPendingRun();
   const head = () => pageHead({ title: "Welches Fach unterrichten Sie?", sub: "Planung in Unterrichtseinheiten – jede Sitzung gehört zu einer Stunde ihrer Einheit." });
   // auch wenn die Fächer nicht laden: die Druckaufträge (und der Wochenkalender) bleiben ganz oben – wie auf der Übersicht „Grundschule“
-  let all; try { all = await loadLessons(); } catch (e) { clear(main).append(head(), prints, week, podcast, h("p", { class: "err", text: e.message })); return; }
+  let all; try { all = await loadLessons(); } catch (e) { clear(main).append(head(), prints, pack, week, podcast, h("p", { class: "err", text: e.message })); return; }
   clear(main).append(...nn(head(),
-    prints, week, podcast, h("h2", { class: "sr-only", text: "Fächer" }),
+    prints, pack, week, podcast, h("h2", { class: "sr-only", text: "Fächer" }),
     h("div", { class: "tiles" }, SUBJECTS.map((s) => {
       const n = all.filter((l) => l.subject === s.id).length;
       return h("a", { class: "tile", href: "#/lk/f/" + s.id, dataset: { fach: s.id } }, h("div", { class: "t", text: s.name }), h("div", { class: "s", text: n ? n + " Sitzung" + (n === 1 ? "" : "en") : "Noch keine Sitzungen" }));

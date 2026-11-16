@@ -197,6 +197,17 @@ Feibeitsblatt braucht keine Änderung. Die Adressen stehen in `wrangler.jsonc` (
   womöglich, ob die Seite mehrere Dateien herunterladen darf). Von Claude gestaltete Vorlagen, die noch als PDF gedruckt werden, kommen
   erst danach dazu und werden genannt. Anzahl, Druckart und Namen ändern Sie in der Sitzung („In der Sitzung bearbeiten“ springt zu
   deren Druckliste); das Feld selbst ist nur eine Übersicht.
+* **Für den nächsten Arbeitstag einpacken:** Braucht eine Sitzung desselben Tages etwas, das Sie von zu Hause oder aus dem Lehrerzimmer
+  mitbringen müssen (z. B. eine Bibel oder einen Beutel), steht direkt unter den Druckaufträgen ein **roter Kasten** mit diesen Gegenständen
+  als Stichpunkte – für beide Schulformen, für denselben Tag wie die Druckaufträge (auch mit unterrichtsfreien Tagen; Ausfall-Einträge zählen
+  nicht). Ein Klick (oder Enter) auf einen Gegenstand klappt in kleinerer Schrift auf, **an welcher Stelle und in welcher Lerngruppe** er
+  gebraucht wird; die Lerngruppe führt zur Sitzung. Brauchen mehrere Stunden denselben Gegenstand, steht er einmal da (z. B. „Beutel ·
+  2 Stunden“), aufgeklappt mit je einem Eintrag pro Stunde. Ohne Gegenstände gibt es den Kasten nicht. Die Gegenstände trägt **Claude beim
+  Planen** ein („Stunde mit Claude planen“, Gymnasium und Grundschule – je Gegenstand höchstens zwei Sätze: wo in der Stunde und in welcher
+  Lerngruppe); Sie ergänzen, ändern oder löschen sie auf der Sitzungsseite in der Karte **„Mitbringen“** (rechts unter den Sitzungsdaten;
+  höchstens 10 je Sitzung). Hat Claude die Liste inzwischen geändert, übernimmt die Karte Ihre Änderung in den neuen Stand. Die Gegenstände
+  kommen mit der Sitzungsdatei und der Sicherung mit; beim Laden einer Sitzungsdatei passt Unterricks Datum und Lerngruppe in den Hinweisen an.
+  Schüler:innen und Eltern sehen sie nie.
 * **Wochenkalender:** Ganz oben auf Ihrer Startseite (unter den Druckaufträgen) steht die Woche (Mo–Fr) mit Ihrem Unterricht – aus den Stundenplänen Ihrer
   Unterrichtseinheiten (Wochentag, Uhrzeit, Dauer, Zeitraum, Ferien/Ausfälle). Mit ‹ › blättern Sie, „Heute“ führt zurück; am
   Wochenende zeigt er die kommende Woche. Unterricht ohne eingetragene Uhrzeit steht in der Zeile „ohne Uhrzeit“. Ein Klick auf einen

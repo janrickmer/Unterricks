@@ -16,6 +16,7 @@ import { freeDaysE2E } from "./freedays.mjs";
 import { dialogsE2E } from "./dialogs.mjs";
 import { updateE2E } from "./update.mjs";
 import { CONC_HTML, CONC_HTML_LONG } from "./konzentration.mjs";
+import { bringE2E } from "./bring.mjs";
 
 const require = createRequire(import.meta.url);
 const { chromium, devices } = require("playwright");
@@ -3076,6 +3077,10 @@ async function main() {
       const cdoc = await PDFDocument.load(cbuf), csz = cdoc.getPage(0).getSize();
       ok(cdoc.getPageCount() === 2 && Math.abs(csz.width - 595.3) < 2 && Math.abs(csz.height - 841.9) < 2 && (cdl.suggestedFilename() === CONC_NAME || cdl.suggestedFilename() === "download"),
         "Druckaufträge: „" + CONC_NAME + "“ herunterladen – 2 A4-Seiten (" + cdl.suggestedFilename() + ")");
+
+      /* ---------- Nachtrag 28: Gegenstände zum Einpacken – roter Kasten unter den Druckaufträgen, Connector und Sitzungsseite ---------- */
+      step("Für den nächsten Arbeitstag einpacken: Claude trägt Gegenstände ein (Gymnasium und Grundschule), roter Kasten unter den Druckaufträgen, Aufklappen, von Hand ändern, leer → kein Kasten");
+      await bringE2E({ tp, BASE, T, tool, ok, OUT, SHOT, gymL, gsL, horizontalIssues });
     }
 
     /* ---------- Podcast für den kommenden Unterricht (Nachtrag 22) ---------- */

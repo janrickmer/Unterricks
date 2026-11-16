@@ -20,6 +20,7 @@ import { SUBJECTS, ALL_CLASSES, subjectName, gradeInfo, formatCode, lessonContex
 import { gsLessonContext, GS_MATERIAL_RULES, CARD_DESIGN_RULES, VERLAUFSPLAN_EXAMPLE, VERLAUFSPLAN_RULES, CONC_TITLE, CONC_PRINT, CONC_PAGES_MAX, isConcName, concTitleOf, concSection, concMissingText, concUnplannedText } from "../public/gsplanning.js";
 import { saveCardSet, setCardTexts } from "./cards.js";
 import { parentFiles, refCounts } from "./parents.js";
+import { BRING_LIMITS, bringSection, bringRead } from "../public/bring.js";
 
 const MODERN = "2026-07-28";
 const LEGACY = ["2025-11-25", "2025-06-18", "2025-03-26", "2024-11-05"];
@@ -91,14 +92,20 @@ const TOOLS = [
     description: "Ändert Titel, Thema, Dauer, Datum, Beginn (Uhrzeit), das Notizfeld „Ideen und Wünsche“ oder die Hausaufgabe (bis zur nächsten Sitzung; Schüler:innen sehen sie ab 15 Minuten vor dem Ende der Sitzung) einer Sitzung (nur übergebene Felder). Ein Datum an einem unterrichtsfreien Tag der Schule (Einstellungen der Lehrkraft) lehnt die Plattform ab. " +
       "Mit zwischenstopp hältst du die Entscheidung der Lehrkraft zum offenen Teil der vorigen Sitzung fest (get_lesson, Abschnitt „Vorige Stunde nicht vollständig beendet“). " +
       "Mit zusammenfassung_lehrkraft speicherst du die „" + TEACHER_SUMMARY_TITLE + "“ (Gymnasium und Grundschule; Unterricks zeigt sie ganz oben in der Sitzung, nur der Lehrkraft) – " +
-      "immer, wenn du Unterrichtsinhalte der Sitzung ablegst, als letzten Speicherschritt (auch wenn die Lehrkraft nur einen Teil freigibt, ohne eigene Rückfrage), und erneut, wenn du die Planung später überarbeitest – nicht für einen Vertretungsvorschlag.",
+      "immer, wenn du Unterrichtsinhalte der Sitzung ablegst, als letzten Speicherschritt (auch wenn die Lehrkraft nur einen Teil freigibt, ohne eigene Rückfrage), und erneut, wenn du die Planung später überarbeitest – nicht für einen Vertretungsvorschlag. " +
+      "Mit mitbringen hältst du fest, welche Gegenstände die Lehrkraft für die Stunde mitbringen muss (Gymnasium und Grundschule; Unterricks zeigt sie ihr am Vortag auf der Startseite).",
     inputSchema: { type: "object", properties: { lesson_id: ID_ARG, titel: { type: "string", maxLength: 200 }, thema: { type: "string", maxLength: 500 },
       dauer_minuten: { type: "integer", minimum: 5, maximum: 600 }, datum: { type: "string", pattern: "^\\d{4}-\\d{2}-\\d{2}$" },
       beginn: { type: "string", pattern: "^([01]\\d|2[0-3]):[0-5]\\d$", description: "Uhrzeit des Unterrichtsbeginns, z. B. 07:45" }, ideen: { type: "string", maxLength: 20000 },
       hausaufgabe: { type: "string", maxLength: 10000, description: "Schulportal-Zeichen erlaubt; leer = keine Hausaufgabe (Grundschule: schlichter Text für Eltern und Kinder, ohne Schulportal-Zeichen; Eltern sehen sie nach der Stunde)" },
       inhalt_eltern: { type: "string", maxLength: 800, description: "nur Grundschule: Inhalt der Unterrichtsstunde für die Eltern – 2–3 Sätze, elternverständlich: worum es ging und was die Kinder lernen sollten; nie Namen von Kindern" },
       zwischenstopp: { type: "string", enum: STOP_CHOICES, description: "Entscheidung der Lehrkraft zum offenen Teil der vorigen Sitzung nach ihrem Zwischenstopp: \"uebernehmen\" (in diese Stunde einbauen) oder \"verzichten\" – nur, was die Lehrkraft entschieden hat; halte sie gleich nach ihrer Antwort fest, vor dem Speichern der Planung dieser Stunde (erst eine danach gespeicherte Planung erledigt den Hinweis darauf in Unterricks)" },
-      zusammenfassung_lehrkraft: { type: "string", maxLength: TEACHER_SUMMARY_MAX, description: TEACHER_SUMMARY_TITLE + " (nie für Schüler:innen oder Eltern sichtbar). " + teacherSummaryRules("beide") + " Leer = löschen." } },
+      zusammenfassung_lehrkraft: { type: "string", maxLength: TEACHER_SUMMARY_MAX, description: TEACHER_SUMMARY_TITLE + " (nie für Schüler:innen oder Eltern sichtbar). " + teacherSummaryRules("beide") + " Leer = löschen." },
+      mitbringen: { type: "array", maxItems: BRING_LIMITS.items, description: "Gegenstände, die die Lehrkraft für diese Stunde mitbringen muss – nur, was sie von zu Hause oder aus dem Lehrerzimmer mitnimmt (z. B. eine Bibel oder einen Beutel), " +
+        "nicht die übliche Ausstattung des Klassenraums und nicht das Material ihrer Druckliste; nur nach ihrer Freigabe. Ersetzt die bisherige Liste (siehe get_lesson); [] leert sie. Nie Namen von Schüler:innen oder Kindern.",
+        items: { type: "object", properties: { gegenstand: { type: "string", maxLength: BRING_LIMITS.item, description: "z. B. „Bibel“" },
+          wofuer: { type: "string", maxLength: BRING_LIMITS.note, description: "höchstens zwei Sätze: an welcher Stelle der Stunde (Phase) und in welcher Lerngruppe der Gegenstand gebraucht wird, z. B. „In Phase 2 (Erzählung) im Kurs 8-K zum Vorlesen der Schöpfungsgeschichte.“" } },
+          required: ["gegenstand", "wofuer"], additionalProperties: false } } },
       required: ["lesson_id"], additionalProperties: false } },
   { name: "save_planning_result", title: "Planungsergebnis in der Sitzung speichern", annotations: wr,
     description: "Speichert ein Planungsergebnis (z. B. den ausgearbeiteten Stundenentwurf) als Nachricht „Claude“ im Planungsverlauf der Sitzung, damit Schulportal-Eintrag und Präsentations-Prompt der Plattform darauf aufbauen.",
@@ -269,6 +276,7 @@ async function lessonDump(db, l, now = Date.now()) {
     "", "## Schulportal-Eintrag (Version " + l.portal_version + (l.portal_source ? ", zuletzt von " + l.portal_source : "") + ")", l.portal || "(noch leer)",
     ...(ps ? stopLessonLines(ps, { gs: false, unitId: ctx.unit ? ctx.unit.id : null, unit: ctx.unit, now }) : []),
     ...summarySection(l, null, { substitute: !!sub && sub.status === "aktiv" }),
+    ...bringSection(bringRead(l.bring).items),
     "", "## Planungsverlauf", chatTranscript(msgs, 60000) || "(leer)",
   ];
   const ds = (drafts.results || []);
@@ -351,6 +359,7 @@ async function gsLessonDump(c, l) {
     parentsLine,
     ...(ps ? stopLessonLines({ ...ps, openFiles: openFilesOf(ps, [...ctx.files, ...others]) }, { gs: true, unitId: ctx.unit ? ctx.unit.id : null, unit: ctx.unit, now: c.now }) : []),
     ...(l.cancelled ? [] : summarySection(l, ctx.course)),
+    ...(l.cancelled ? [] : bringSection(bringRead(l.bring).items)),
     "", "## Inhalt der Unterrichtsstunde (für die Eltern)", l.parent_summary || (l.cancelled ? "(Ausfall-Eintrag – keiner)" : "(noch leer – formuliere ihn mit update_lesson und inhalt_eltern)"),
     "", "## Hinweis der Lehrkraft für die Eltern (nur lesen)", l.parent_note || "(keiner)",
   ];
@@ -701,6 +710,13 @@ async function callTool(c, name, a) {
         if (typeof a.zusammenfassung_lehrkraft !== "string") return toolError("zusammenfassung_lehrkraft ist ein Text (leer = löschen).");
         b.teacherSummary = a.zusammenfassung_lehrkraft;
       }
+      // Gegenstände zum Mitbringen (Nachtrag 28): die ganze Liste; geprüft wie auf der Sitzungsseite (Länge, höchstens zwei Sätze, doppelt) – Fehler als Meldung
+      if (a.mitbringen !== undefined) {
+        if (!Array.isArray(a.mitbringen)) return toolError("mitbringen ist eine Liste [{gegenstand, wofuer}] ([] leert sie).");
+        const wrong = a.mitbringen.findIndex((x) => !x || typeof x !== "object" || typeof x.gegenstand !== "string" || !x.gegenstand.trim() || typeof x.wofuer !== "string" || !x.wofuer.trim());
+        if (wrong >= 0) return toolError("mitbringen, Eintrag " + (wrong + 1) + ": gegenstand und wofuer sind Pflicht (wofuer: in höchstens zwei Sätzen, an welcher Stelle der Stunde und in welcher Lerngruppe er gebraucht wird).");
+        b.bring = a.mitbringen.map((x) => ({ item: x.gegenstand, note: x.wofuer }));
+      }
       let { lesson: l } = await updateLesson(c.db, a.lesson_id, b, c.now);
       if (stopPrev) {
         // dieselbe Entscheidung noch einmal (z. B. am Ende zusammen mit der Zusammenfassung): ihr Zeitpunkt bleibt – sonst gälte eine schon danach
@@ -712,7 +728,10 @@ async function callTool(c, name, a) {
           (l.unit_id || stopPrev.unit_row ? " Passe die Einheit an, sobald die Lehrkraft die Planung dieser Stunde bestätigt hat (siehe get_lesson)." : "");
       }
       const sumNote = a.zusammenfassung_lehrkraft !== undefined ? " " + (await summaryNote(c, l)) : "";
-      return toolText("Gespeichert." + stopNote + sumNote, { lesson: lessonOut(l), ...(stopPrev ? { zwischenstopp: a.zwischenstopp } : {}) });
+      const items = bringRead(l.bring).items;
+      const bringNote = a.mitbringen === undefined ? "" : items.length ? " Mitbringen (" + items.length + (items.length === 1 ? " Gegenstand" : " Gegenstände") + "): " + items.map((x) => x.item).join(", ") +
+        " – Unterricks zeigt sie der Lehrkraft am Vortag auf der Startseite („Für den nächsten Arbeitstag einpacken“)." : " Die Liste „Mitbringen“ ist leer.";
+      return toolText("Gespeichert." + stopNote + sumNote + bringNote, { lesson: lessonOut(l), ...(stopPrev ? { zwischenstopp: a.zwischenstopp } : {}) });
     }
     case "save_planning_result": {
       if ((await getLesson(c.db, a.lesson_id)).cancelled) return toolError(NO_PLANNING);
