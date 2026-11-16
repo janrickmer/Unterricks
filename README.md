@@ -196,9 +196,10 @@ gleich in `public/_headers`, im Worker und – für GitHub Pages – in `scripts
   Nach Sitzung gruppiert (Beginn, Fach und Klasse bzw. Grundschulkurs, Titel – ein Klick öffnet die Sitzung) stehen alle Dateien genau
   so wie in deren Liste „Von der Lehrkraft auszudrucken“, z. B. „28x - sw - beidseitig - PoWi8 - Arbeitsblatt.pdf“ (in der Grundschule auch
   Arbeitsblätter der Kinder mit „Auch ausdrucken“ und die Bildkarten der Sitzung, z. B. „1x - farbig - einseitig - Reli2 - Bildkarten – Josef.pdf“). Jede Datei lässt sich einzeln herunterladen; **„Alle Dateien herunterladen“** lädt
-  alle nacheinander als einzelne PDF-Dateien – bewusst keine ZIP-Datei – mit kurzer Pause dazwischen (Ihr Browser fragt beim ersten Mal
-  womöglich, ob die Seite mehrere Dateien herunterladen darf). Heißen zwei Dateien gleich (z. B. dasselbe Arbeitsblatt für die 8A und die
-  8B), bekommt die zweite beim Herunterladen „ (2)“ – wie in der ZIP-Datei, damit nichts überschrieben wird. Von Claude gestaltete Vorlagen, die noch als PDF gedruckt werden, kommen
+  seit dem 16.11.2026 (Nachtrag 36) alle Dateien des Tages als **eine ZIP-Datei**, z. B. „Druckaufträge - Dienstag, 17.11.2026.zip“ (vorher einzeln
+  nacheinander). Am iPad öffnen Sie sie in der App „Dateien“: Antippen entpackt sie in einen Ordner. Heißen zwei Dateien gleich (z. B. dasselbe
+  Arbeitsblatt für die 8A und die 8B), bekommt die zweite in der ZIP-Datei „ (2)“ – damit nichts überschrieben wird. Lässt sich eine Datei nicht
+  laden, fehlt nur sie, und die Meldung unter dem Knopf nennt sie. Von Claude gestaltete Vorlagen, die noch als PDF gedruckt werden, kommen
   erst danach dazu und werden genannt. Anzahl, Druckart und Namen ändern Sie in der Sitzung („In der Sitzung bearbeiten“ springt zu
   deren Druckliste); das Feld selbst ist nur eine Übersicht.
 * **Druckaufträge bis zum Ende der jeweiligen Sitzung (seit dem 16.11.2026):** Die Druckaufträge einer Sitzung bleiben im Feld, bis
@@ -213,7 +214,7 @@ gleich in `public/_headers`, im Worker und – für GitHub Pages – in `scripts
   nach dem Aufwachen des iPads), bleiben die bisherigen Druckaufträge stehen, und Unterricks versucht es von selbst noch einmal. Den nächsten Arbeitstag bestimmt
   Unterricks wie bisher (unterrichtsfreie Tage, Ausfall-Einträge zählen nie). Hat heute keine der noch anstehenden Stunden Druckaufträge,
   sieht das Feld aus wie bisher. **„Alle Dateien herunterladen“** gibt es dann **je Tag** (unter „Heute“ nur die Dateien von heute, unter
-  dem nächsten Arbeitstag nur dessen Dateien) – weiterhin einzeln, keine ZIP-Datei, mit den Druck-Namen und den Bildkarten wie oben. Der rote
+  dem nächsten Arbeitstag nur dessen Dateien) – je Tag eine ZIP-Datei (Nachtrag 36), mit den Druck-Namen und den Bildkarten wie oben. Der rote
   Kasten folgt derselben Regel: Gegenstände für die heute noch anstehenden Stunden und für den nächsten Arbeitstag, je Tag beschriftet
   („Für heute und den nächsten Arbeitstag einpacken“).
 * **Für den nächsten Arbeitstag einpacken:** Braucht eine Sitzung desselben Tages etwas, das Sie von zu Hause oder aus dem Lehrerzimmer

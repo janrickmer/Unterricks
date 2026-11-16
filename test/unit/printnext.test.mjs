@@ -1,5 +1,5 @@
 // Feld „Druckaufträge für den nächsten Arbeitstag“ (public/printnext.js, Anforderung 14) im Browser-Ersatz (fake-dom.mjs): Aufbau, Namen wie in
-// der Druckliste der Sitzung, Einzel-Download, „Alle Dateien herunterladen“ nacheinander als einzelne Dateien (keine ZIP-Datei), gestaltete
+// der Druckliste der Sitzung, Einzel-Download, „Alle Dateien herunterladen“ als EINE ZIP-Datei je Tag (Nachtrag 36; vorher einzeln), gestaltete
 // Vorlagen, leere Zustände, Fehler mit „Erneut versuchen“ (Fokus), Abbruch beim Verlassen der Seite. Der Server über globalThis.__tapi.
 import test from "node:test";
 import assert from "node:assert/strict";
@@ -12,6 +12,9 @@ const D = installDom({ hash: "#/lk" });
 const { ApiError } = await import("../../public/ui.js");
 const PN = await import("../../public/printnext.js");
 const { resetPrintQueue } = await import("../../public/designrender.js");
+const { readZip } = await import("../../public/zip.js");
+/* Inhalt einer heruntergeladenen ZIP-Datei (rec.blobs-Eintrag [Blob, Name]) → [[Name, Text]] */
+const zipOf = async ([blob]) => (await readZip(new Uint8Array(await blob.arrayBuffer()))).map((e) => [e.name, new TextDecoder().decode(e.data)]);
 
 const id = (n) => String(n).padStart(16, "a");
 const pfile = (n, name, extra = {}) => ({ id: id(n), area: "print", kind: "file", name, mime: "application/pdf", size: 2048, pages: 1, status: "ready", source: "upload", createdAt: n,
@@ -42,7 +45,7 @@ async function page(routes, wait = 5) {
     for (const [re, fn] of routes) { const m = re.exec(method + " " + path); if (m) return fn(m, o.body || {}); }
     throw new ApiError("nicht nachgebildet: " + method + " " + path, 404, { code: "not_found" });
   };
-  Object.assign(PN.io, { url: (u, n) => rec.urls.push([u, n]), blob: (b, n) => rec.blobs.push([b, n]), sleep: async () => { rec.sleeps++; },
+  Object.assign(PN.io, { url: (u, n) => rec.urls.push([u, n]), blob: (b, n) => rec.blobs.push([b, n]),
     fetch: async (u) => ({ ok: true, status: 200, arrayBuffer: async () => new TextEncoder().encode("%PDF-1.7 " + u).buffer }) });
   const app = document.getElementById("app");
   while (app.firstChild) app.firstChild.remove();
@@ -80,9 +83,16 @@ test("Texte: Tag (morgen, übersprungener Tag, Ferien bis Freitag), keine Drucka
   assert.equal(PN.dayText({ today: "2026-11-06", candidate: "2026-11-09", date: "2026-11-18", freeDays: [HERBST] }),
     "Von Montag, 09.11.2026, bis Dienstag, 17.11.2026, ist laut Stundenplan kein Unterricht (darin unterrichtsfrei: Herbstferien, beide Schulen) – deshalb die Druckaufträge für Mittwoch, 18.11.2026.");
   const f = (n) => ({ printName: n + ".pdf" });
-  assert.equal(PN.doneText(3, [], []), "Fertig: Alle 3 Dateien sind einzeln heruntergeladen.");
-  assert.equal(PN.doneText(1, [f("Gestaltet")], [{ f: f("Kaputt"), msg: "Fehler 404" }]),
-    "Fertig: Eine Datei ist heruntergeladen. Noch nicht dabei (wird gerade als PDF gedruckt): „Gestaltet.pdf“. Nicht heruntergeladen: „Kaputt.pdf“ (Fehler 404).");
+  // Nachtrag 36: eine ZIP-Datei je Tag
+  const Z = "Druckaufträge - Mittwoch, 18.11.2026.zip";
+  assert.equal(PN.zipNameOf("2026-11-18"), Z);
+  assert.equal(PN.doneText(3, [], [], false, [], Z), "Fertig: Alle 3 Dateien sind als eine ZIP-Datei „" + Z + "“ heruntergeladen.");
+  assert.equal(PN.doneText(1, [f("Gestaltet")], [{ f: f("Kaputt"), msg: "Fehler 404" }], false, [], Z),
+    "Fertig: Die Datei ist als ZIP-Datei „" + Z + "“ heruntergeladen. Noch nicht dabei (wird gerade als PDF gedruckt): „Gestaltet.pdf“. Nicht in der ZIP-Datei: „Kaputt.pdf“ (Fehler 404).");
+  assert.equal(PN.doneText(2, [], [{ f: f("Kaputt"), msg: "Fehler 404" }], false, [], Z),
+    "Fertig: 2 Dateien sind als eine ZIP-Datei „" + Z + "“ heruntergeladen. Nicht in der ZIP-Datei: „Kaputt.pdf“ (Fehler 404).", "mit Fehlern nicht „Alle“");
+  assert.equal(PN.doneText(0, [], [{ f: f("Kaputt"), msg: "Fehler 404" }], false, [], Z), "Keine Datei heruntergeladen. Nicht heruntergeladen: „Kaputt.pdf“ (Fehler 404).");
+  assert.equal(PN.doneText(1, [], [], true, [], Z), "Abgebrochen – keine ZIP-Datei heruntergeladen.");
   assert.equal(PN.printNameOf({ name: "AB.pdf", print: { copies: 3, duplex: false, color: true } }), "3x - farbig - einseitig - AB.pdf", "ohne printName und ohne Kurs: ohne diesen Teil");
   assert.equal(PN.printNameOf({ name: "AB.pdf", print: { copies: 3, duplex: false, color: true } }, "Eth10"), "3x - farbig - einseitig - Eth10 - AB.pdf", "ohne printName mit dem Kurs der Sitzung (Nachtrag 32)");
   assert.equal(PN.printNameOf({ name: "AB.pdf", printName: "Vom Server.pdf" }, "Eth10"), "Vom Server.pdf", "der Name des Servers gilt");
@@ -138,48 +148,65 @@ test("Aufbau: Überschrift mit Drucker, Tag, je Sitzung eine Gruppe (Link zur Si
   assert.equal(globalThis.__domErrors.length, 0, globalThis.__domErrors.join("\n"));
 });
 
-test("„Alle Dateien herunterladen“: nacheinander je eine Datei (keine ZIP-Datei), Pause dazwischen, Fortschritt, nicht gedruckte Vorlage genannt", async () => {
+test("„Alle Dateien herunterladen“ (Nachtrag 36): EINE ZIP-Datei des Tages mit den Druck-Namen, Fortschritt, gesperrt während des Packens, nicht gedruckte Vorlage genannt", async () => {
   const seen = [];
   const card = await page([[/^GET \/api\/teacher\/print-next$/, () => DATA()], link, lessonText,
     [/^POST \/api\/teacher\/files\/(\w+)\/render$/, () => new Promise(() => {})]]);   // der Drucker antwortet nicht
   const all = button(card, "Alle Dateien herunterladen");
   assert.ok(all && !all.classList.contains("hidden"));
   assert.equal(all.getAttribute("aria-describedby"), "pn-all-h");
-  assert.match($("#pn-all-h", card).textContent, /keine ZIP-Datei/);
+  assert.equal($("#pn-all-h", card).textContent, "„Alle Dateien herunterladen“ lädt alle Dateien als eine ZIP-Datei herunter. Am iPad öffnen Sie sie in der App „Dateien“: Antippen entpackt sie in einen Ordner.");
   const status = $("#pn-status", card);
   assert.equal(status.getAttribute("role"), "status");
-  let open;
+  let open, fetches = 0;
   const gate = new Promise((r) => { open = r; });
-  PN.io.sleep = async () => { rec.sleeps++; seen.push(status.textContent); if (rec.sleeps === 1) await gate; };   // die erste Pause hält an
+  const real = PN.io.fetch;
+  PN.io.fetch = async (u) => { fetches++; seen.push(status.textContent); if (fetches === 1) await gate; return real(u); };   // die erste Datei hält an
   D.userClick(all);
-  await until(() => rec.sleeps === 1, "erste Pause");
-  assert.equal(all.getAttribute("aria-disabled"), "true", "gesperrt, solange er läuft");
+  await until(() => fetches === 1, "erste Datei wird geholt");
+  assert.equal(all.getAttribute("aria-disabled"), "true", "gesperrt, solange er packt");
   assert.equal(document.activeElement, all, "Fokus bleibt – " + desc(document.activeElement));
+  assert.equal(rec.blobs.length, 0, "noch keine Datei heruntergeladen (erst die fertige ZIP-Datei)");
   D.userClick(all);   // zweiter Klick während des Laufs: wirkungslos
   open();
   await until(() => /^Fertig/.test(status.textContent), "Abschlussmeldung");
-  assert.deepEqual(rec.blobs.map((x) => x[1]), ["22x - sw - beidseitig - Reli2 - Arbeitsblatt Josef.pdf", "28x - sw - beidseitig - PoWi8 - AB Gewaltenteilung.pdf", "1x - sw - einseitig - PoWi8 - Tafelbild.pdf"]);
-  assert.ok(rec.blobs.every(([b, n]) => b.type === "application/pdf" && !/\.zip$/i.test(n)), "einzelne PDF-Dateien");
+  assert.equal(rec.blobs.length, 1, "genau ein Download");
+  const Z = "Druckaufträge - Mittwoch, 18.11.2026.zip";
+  assert.equal(rec.blobs[0][1], Z);
+  assert.equal(rec.blobs[0][0].type, "application/zip");
+  const entries = await zipOf(rec.blobs[0]);
+  assert.deepEqual(entries.map((e) => e[0]), ["22x - sw - beidseitig - Reli2 - Arbeitsblatt Josef.pdf", "28x - sw - beidseitig - PoWi8 - AB Gewaltenteilung.pdf", "1x - sw - einseitig - PoWi8 - Tafelbild.pdf"]);
+  assert.equal(entries[1][1], "%PDF-1.7 /api/dl/" + id(2) + "?d=a&e=1&s=x", "Inhalt über den signierten Link (apiUrl)");
+  assert.equal(entries[2][1].slice(0, 5), "%PDF-", "Textmaterial als A4-PDF");
   assert.equal(rec.urls.length, 0);
-  assert.equal(rec.sleeps, 2, "Pause zwischen den Downloads (nicht nach dem letzten)");
-  assert.deepEqual(seen, ["Lade 1 von 3: „22x - sw - beidseitig - Reli2 - Arbeitsblatt Josef.pdf“ …", "Lade 2 von 3: „28x - sw - beidseitig - PoWi8 - AB Gewaltenteilung.pdf“ …"]);
-  assert.equal(status.textContent, "Fertig: Alle 3 Dateien sind einzeln heruntergeladen. Noch nicht dabei (wird gerade als PDF gedruckt): „2x - farbig - beidseitig - PoWi8 - Gestaltet.pdf“.");
+  assert.deepEqual(seen, ["Packe 1 von 3: „22x - sw - beidseitig - Reli2 - Arbeitsblatt Josef.pdf“ …", "Packe 2 von 3: „28x - sw - beidseitig - PoWi8 - AB Gewaltenteilung.pdf“ …"]);
+  assert.equal(status.textContent, "Fertig: Alle 3 Dateien sind als eine ZIP-Datei „" + Z + "“ heruntergeladen. Noch nicht dabei (wird gerade als PDF gedruckt): „2x - farbig - beidseitig - PoWi8 - Gestaltet.pdf“.");
   assert.equal(all.getAttribute("aria-disabled"), null);
-  const bytes = new TextDecoder().decode(new Uint8Array(await rec.blobs[1][0].arrayBuffer()));
-  assert.equal(bytes, "%PDF-1.7 /api/dl/" + id(2) + "?d=a&e=1&s=x", "Inhalt über den signierten Link (apiUrl)");
-  // eine Datei lässt sich nicht laden: die übrigen kommen trotzdem, die Meldung nennt sie
+  // eine Datei lässt sich nicht laden: die übrigen kommen trotzdem in die ZIP-Datei, die Meldung nennt sie
   PN.io.fetch = async (u) => (u.includes(id(1)) ? { ok: false, status: 404 } : { ok: true, status: 200, arrayBuffer: async () => new TextEncoder().encode("%PDF-x").buffer });
   rec.blobs = [];
-  D.userClick(all); await until(() => /^Fertig/.test(status.textContent), "Abschlussmeldung");
-  assert.equal(rec.blobs.length, 2);
-  assert.match(status.textContent, /^Fertig: Alle 2 Dateien sind einzeln heruntergeladen\. .* Nicht heruntergeladen: „22x - sw - beidseitig - Reli2 - Arbeitsblatt Josef\.pdf“ \(„Arbeitsblatt Josef\.pdf“ ließ sich nicht laden \(Fehler 404\)\.\)\.$/);
+  D.userClick(all); await until(() => /^Fertig/.test(status.textContent) && rec.blobs.length === 1, "Abschlussmeldung");
+  assert.deepEqual((await zipOf(rec.blobs[0])).map((e) => e[0]), ["28x - sw - beidseitig - PoWi8 - AB Gewaltenteilung.pdf", "1x - sw - einseitig - PoWi8 - Tafelbild.pdf"]);
+  assert.match(status.textContent, /^Fertig: 2 Dateien sind als eine ZIP-Datei „Druckaufträge - Mittwoch, 18\.11\.2026\.zip“ heruntergeladen\. .* Nicht in der ZIP-Datei: „22x - sw - beidseitig - Reli2 - Arbeitsblatt Josef\.pdf“ \(„Arbeitsblatt Josef\.pdf“ ließ sich nicht laden \(Fehler 404\)\.\)\.$/);
+  // keine einzige Datei lässt sich laden: keine (leere) ZIP-Datei
+  PN.io.fetch = async () => ({ ok: false, status: 500 });
+  const only = DATA();
+  only.sessions = [{ ...only.sessions[1], files: [only.sessions[1].files[0]] }];
+  const c2 = await page([[/^GET \/api\/teacher\/print-next$/, () => only], link]);
+  PN.io.fetch = async () => ({ ok: false, status: 500 });
+  D.userClick(button(c2, "Alle Dateien herunterladen")); await until(() => /^Keine Datei/.test($("#pn-status", c2).textContent), "Abschlussmeldung ohne ZIP-Datei");
+  assert.equal(rec.blobs.length, 0, "keine leere ZIP-Datei");
+  assert.equal(globalThis.__domErrors.length, 0, globalThis.__domErrors.join("\n"));
 });
 
-test("Verlassen der Seite bricht „Alle Dateien herunterladen“ ab; nur gestaltete, noch nicht gedruckte Vorlagen → Hinweis statt Download", async () => {
+test("Verlassen der Seite bricht „Alle Dateien herunterladen“ ab (keine ZIP-Datei); nur gestaltete, noch nicht gedruckte Vorlagen → Hinweis statt Download", async () => {
   let card = await page([[/^GET \/api\/teacher\/print-next$/, () => DATA()], link, lessonText, [/^POST \/api\/teacher\/files\/(\w+)\/render$/, () => new Promise(() => {})]]);
-  PN.io.sleep = async () => { rec.sleeps++; globalThis.__leave(); };   // während der ersten Pause verlässt die Lehrkraft die Seite
-  D.userClick(button(card, "Alle Dateien herunterladen")); await until(() => rec.sleeps === 1, "erste Pause"); await D.sleep(30);
-  assert.equal(rec.blobs.length, 1, "nach dem Verlassen keine weiteren Downloads");
+  let fetches = 0;
+  const real = PN.io.fetch;
+  PN.io.fetch = async (u) => { fetches++; if (fetches === 1) globalThis.__leave(); return real(u); };   // während der ersten Datei verlässt die Lehrkraft die Seite
+  D.userClick(button(card, "Alle Dateien herunterladen")); await until(() => fetches === 1, "erste Datei"); await D.sleep(30);
+  assert.equal(rec.blobs.length, 0, "nach dem Verlassen keine ZIP-Datei");
+  assert.equal(fetches, 1, "keine weiteren Dateien geholt");
   const only = DATA();
   only.sessions = [{ ...only.sessions[1], files: [only.sessions[1].files[2]] }];
   card = await page([[/^GET \/api\/teacher\/print-next$/, () => only], [/^POST \/api\/teacher\/files\/(\w+)\/render$/, () => new Promise(() => {})]]);
@@ -222,7 +249,7 @@ test("gestaltete Vorlage, deren PDF-Druck scheitert bzw. am Tageskontingent hän
   D.userClick(button(card, "Alle Dateien herunterladen"));
   const status = $("#pn-status", card);
   await until(() => /^Fertig/.test(status.textContent), "Abschlussmeldung");
-  assert.equal(status.textContent, "Fertig: Alle 3 Dateien sind einzeln heruntergeladen. Nicht dabei, weil der PDF-Druck nicht geklappt hat (in der Sitzung „Erneut drucken“): „2x - farbig - beidseitig - PoWi8 - Gestaltet.pdf“.");
+  assert.equal(status.textContent, "Fertig: Alle 3 Dateien sind als eine ZIP-Datei „Druckaufträge - Mittwoch, 18.11.2026.zip“ heruntergeladen. Nicht dabei, weil der PDF-Druck nicht geklappt hat (in der Sitzung „Erneut drucken“): „2x - farbig - beidseitig - PoWi8 - Gestaltet.pdf“.");
   // nur diese Vorlage: kein „bitte gleich noch einmal“ (es druckt nichts von selbst)
   const only = DATA();
   only.sessions = [{ ...only.sessions[1], files: [only.sessions[1].files[2]] }];
@@ -248,14 +275,13 @@ test("Nachtrag 32: dasselbe Arbeitsblatt für zwei Klassen desselben Jahrgangs (
   const two = DATA();
   const same = (n) => pfile(n, "Arbeitsblatt.pdf", { printName: "28x - sw - beidseitig - PoWi8 - Arbeitsblatt.pdf" });
   two.sessions = [{ ...two.sessions[1], id: id("c1"), klass: "8A", label: "PoWi 8A", files: [same(11)] }, { ...two.sessions[1], id: id("c2"), klass: "8B", label: "PoWi 8B", startTime: "09:00", files: [same(12)] }];
-  PN.io.sleep = async () => {};
-  PN.io.fetch = async () => ({ ok: true, status: 200, arrayBuffer: async () => new TextEncoder().encode("%PDF-x").buffer });
   const card = await page([[/^GET \/api\/teacher\/print-next$/, () => two], link, lessonText]);
   // in der Liste steht bei beiden Sitzungen der Name der Druckliste (je Sitzung eine eigene Gruppe)
   assert.deepEqual($$(".pn-row .name", card).map((x) => x.textContent), ["28x - sw - beidseitig - PoWi8 - Arbeitsblatt.pdf", "28x - sw - beidseitig - PoWi8 - Arbeitsblatt.pdf"]);
   const status = $("#pn-status", card);
   D.userClick(button(card, "Alle Dateien herunterladen")); await until(() => /^Fertig/.test(status.textContent), "Abschlussmeldung");
-  assert.deepEqual(rec.blobs.map((x) => x[1]), ["28x - sw - beidseitig - PoWi8 - Arbeitsblatt.pdf", "28x - sw - beidseitig - PoWi8 - Arbeitsblatt (2).pdf"], "eindeutig wie in der ZIP-Datei (uniqueNames)");
+  assert.equal(rec.blobs.length, 1);
+  assert.deepEqual((await zipOf(rec.blobs[0])).map((e) => e[0]), ["28x - sw - beidseitig - PoWi8 - Arbeitsblatt.pdf", "28x - sw - beidseitig - PoWi8 - Arbeitsblatt (2).pdf"], "eindeutig wie in der ZIP-Datei der Sitzung (uniqueNames)");
 });
 
 /* ---------- Nachtrag 33: heute bis zum Ende der jeweiligen Sitzung, daneben der nächste Arbeitstag ---------- */
@@ -318,17 +344,18 @@ test("Nachtrag 33 – 8:00: zwei Tagesabschnitte (heute mit beiden Stunden, morg
   const btns = days.map((d) => $("button.pn-all", d));
   assert.deepEqual(btns.map((b) => [b.textContent.trim(), b.getAttribute("aria-label"), b.dataset.day, b.getAttribute("aria-describedby")]),
     [["Alle Dateien herunterladen", "Alle Dateien herunterladen – Heute, Montag, 16.11.2026", "2026-11-16", "pn-all-h"], ["Alle Dateien herunterladen", "Alle Dateien herunterladen – Morgen, Dienstag, 17.11.2026", "2026-11-17", "pn-all-h"]]);
-  assert.match($("#pn-all-h", card).textContent, /jede Datei des jeweiligen Tages einzeln \(keine ZIP-Datei\)/);
-  PN.io.sleep = async () => {};
+  assert.equal($("#pn-all-h", card).textContent, "„Alle Dateien herunterladen“ lädt alle Dateien des jeweiligen Tages als eine ZIP-Datei herunter. Am iPad öffnen Sie sie in der App „Dateien“: Antippen entpackt sie in einen Ordner.");
   D.userClick(btns[0]);
   const st0 = $(".pn-status", days[0]);
   await until(() => /^Fertig/.test(st0.textContent), "heute fertig");
-  assert.deepEqual(rec.blobs.map((x) => x[1]), ["2x - sw - beidseitig - PoWi8 - AB Erste.pdf", "2x - sw - beidseitig - Eth7 - AB Zweite.pdf"], "nur die Dateien von heute");
+  assert.deepEqual(rec.blobs.map((x) => x[1]), ["Druckaufträge - Montag, 16.11.2026.zip"], "eine ZIP-Datei für heute");
+  assert.deepEqual((await zipOf(rec.blobs[0])).map((e) => e[0]), ["2x - sw - beidseitig - PoWi8 - AB Erste.pdf", "2x - sw - beidseitig - Eth7 - AB Zweite.pdf"], "nur die Dateien von heute");
   assert.equal(st0.getAttribute("role"), "status"); assert.equal($(".pn-status", days[1]).textContent, "");
   rec.blobs = [];
   D.userClick(btns[1]); await until(() => /^Fertig/.test($(".pn-status", days[1]).textContent), "morgen fertig");
-  assert.deepEqual(rec.blobs.map((x) => x[1]), ["2x - sw - beidseitig - PoWi9 - AB Dienstag.pdf", "2x - sw - beidseitig - PoWi9 - Folie Dienstag.pdf"]);
-  assert.equal($(".pn-status", days[1]).textContent, "Fertig: Alle 2 Dateien sind einzeln heruntergeladen.");
+  assert.deepEqual(rec.blobs.map((x) => x[1]), ["Druckaufträge - Dienstag, 17.11.2026.zip"]);
+  assert.deepEqual((await zipOf(rec.blobs[0])).map((e) => e[0]), ["2x - sw - beidseitig - PoWi9 - AB Dienstag.pdf", "2x - sw - beidseitig - PoWi9 - Folie Dienstag.pdf"]);
+  assert.equal($(".pn-status", days[1]).textContent, "Fertig: Alle 2 Dateien sind als eine ZIP-Datei „Druckaufträge - Dienstag, 17.11.2026.zip“ heruntergeladen.");
   assert.equal(document.activeElement, btns[1], "Fokus bleibt auf dem Knopf");
   // Zeitgeber bis zum ersten Ende (relativ zur Uhr des Servers, mit Sicherheitsabstand)
   assert.deepEqual(live().map((t) => t.ms), [105 * 60e3 + PN.REFRESH_MARGIN_MS]);
@@ -529,7 +556,7 @@ test("Nachtrag 33 – das Feld hängt erst nach dem Laden im Dokument (wie auf d
   clock = M0; timers = [];
   rec = { calls: [], urls: [], blobs: [], sleeps: 0 };
   globalThis.__tapi = async (m, p, o = {}) => { rec.calls.push(m + " " + p); if (m + " " + p === "GET /api/teacher/print-next") return server(clock); const x = link[0].exec(m + " " + p); if (x) return link[1](x, o.body || {}); throw new ApiError("nicht nachgebildet", 404, {}); };
-  Object.assign(PN.io, { url: (u, n) => rec.urls.push([u, n]), blob: (b, n) => rec.blobs.push([b, n]), sleep: async () => {}, fetch: async (u) => ({ ok: true, status: 200, arrayBuffer: async () => new TextEncoder().encode("%PDF-1.7 " + u).buffer }) });
+  Object.assign(PN.io, { url: (u, n) => rec.urls.push([u, n]), blob: (b, n) => rec.blobs.push([b, n]), fetch: async (u) => ({ ok: true, status: 200, arrayBuffer: async () => new TextEncoder().encode("%PDF-1.7 " + u).buffer }) });
   const app = document.getElementById("app");
   app.replaceChildren();
   const { card, pack } = PN.printNextCards();
@@ -540,7 +567,8 @@ test("Nachtrag 33 – das Feld hängt erst nach dem Laden im Dokument (wie auf d
   const b = $$(".pn-dayg", card)[0].querySelector("button.pn-all");
   D.userClick(b);
   await until(() => /^Fertig/.test($$(".pn-dayg", card)[0].querySelector(".pn-status").textContent), "heute heruntergeladen");
-  assert.equal(rec.blobs.length, 2);
+  assert.equal(rec.blobs.length, 1, "eine ZIP-Datei");
+  assert.equal((await zipOf(rec.blobs[0])).length, 2, "mit beiden Dateien von heute");
   const keep = $$(".pn-group", card)[1];
   clock = at(9, 46); await fireTimers();
   assert.equal($$(".pn-group", card)[0], keep, "die 11:00-Gruppe bleibt dasselbe Element (gemerkt, obwohl beim ersten Aufbau nicht im Dokument)");

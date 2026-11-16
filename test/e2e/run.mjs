@@ -3093,7 +3093,7 @@ async function main() {
     }
 
     /* ---------- Druckaufträge für den nächsten Arbeitstag (Anforderung 14) ---------- */
-    step("Druckaufträge für den nächsten Arbeitstag: ganz oben auf beiden Startseiten, beide Schulformen, Namen wie in der Druckliste, einzeln und alle nacheinander (keine ZIP-Datei)");
+    step("Druckaufträge für den nächsten Arbeitstag: ganz oben auf beiden Startseiten, beide Schulformen, Namen wie in der Druckliste, einzeln und alle als eine ZIP-Datei (Nachtrag 36)");
     {
       const { berlinToday, daysBetween } = await import("../../public/shared.js");
       const { nextWorkday } = await import("../../public/planning.js");
@@ -3155,23 +3155,27 @@ async function main() {
       ok(dl.suggestedFilename() === "27x - sw - einseitig - PoWi9 - Wahlplakat.pdf" && one.subarray(0, 5).toString() === "%PDF-", "Einzel-Download: „" + dl.suggestedFilename() + "“");
       [dl] = await Promise.all([tp.waitForEvent("download", { timeout: 30000 }), gymG.getByRole("button", { name: "Herunterladen – 14x - sw - einseitig - PoWi9 - Kaertchen Wahlrecht.pdf" }).click()]);
       ok(dl.suggestedFilename() === "14x - sw - einseitig - PoWi9 - Kaertchen Wahlrecht.pdf" && readFileSync(await dl.path()).subarray(0, 5).toString() === "%PDF-", "Textmaterial als A4-PDF: „" + dl.suggestedFilename() + "“");
-      // „Alle Dateien herunterladen“: nacheinander je eine Datei, keine ZIP-Datei, Fortschritt in der Statuszeile
+      // „Alle Dateien herunterladen“ (Nachtrag 36): EINE ZIP-Datei des Tages mit allen fertigen Dateien unter ihren Druck-Namen, Fortschritt in der Statuszeile
       const got = [], onDl = (d) => got.push(d);
       tp.on("download", onDl);
-      const allBtn = card.locator('button.pn-all[data-day="' + cand + '"]'), pnStatus = card.locator('.pn-status[data-day="' + cand + '"]');   // während des Laufs heißt der Knopf „Lade die Dateien …“
+      const allBtn = card.locator('button.pn-all[data-day="' + cand + '"]'), pnStatus = card.locator('.pn-status[data-day="' + cand + '"]');   // während des Laufs heißt der Knopf „Packe die Dateien …“
       await allBtn.click();
-      await pnStatus.filter({ hasText: /^Lade 1 von / }).waitFor({ timeout: 10000 });
+      await pnStatus.filter({ hasText: /^Packe 1 von / }).waitFor({ timeout: 10000 });
       const during = await allBtn.getAttribute("aria-disabled");
       await pnStatus.filter({ hasText: /^Fertig/ }).waitFor({ timeout: 90000 });
       await tp.waitForTimeout(500);
       tp.off("download", onDl);
-      const allNames = got.map((d) => d.suggestedFilename()), heads = await Promise.all(got.map(async (d) => readFileSync(await d.path()).subarray(0, 5).toString()));
-      // Chromium dieser Testumgebung (ohne UTF-8-Locale) speichert Namen mit Umlauten als „download“ – Dateien anderer Sitzungen dürfen so heißen
+      // Chromium dieser Testumgebung (ohne UTF-8-Locale) speichert Namen mit Umlauten als „download“ – „Druckaufträge - … .zip“ darf so heißen
       const sameName = (n, want) => n === want || (n === "download" && /[^\x20-\x7e]/.test(want));
-      ok(during === "true" && allNames.length === ready.length && allNames.every((n, i) => sameName(n, ready[i])) && ["27x - sw - einseitig - PoWi9 - Wahlplakat.pdf", "14x - sw - einseitig - PoWi9 - Kaertchen Wahlrecht.pdf",
-        "22x - sw - beidseitig - Reli2 - Schoepfung Arbeitsblatt.pdf", "22x - sw - einseitig - Reli2 - Ausmalbild Schoepfung.pdf"].every((n) => allNames.includes(n)) && ready.includes(CONC_NAME) && !allNames.some((n) => /\.zip$/i.test(n)) && heads.every((x) => x === "%PDF-")
-        && (await pnStatus.textContent()).startsWith("Fertig: Alle " + ready.length + " Dateien sind einzeln heruntergeladen."),
-        "„Alle Dateien herunterladen“: " + allNames.length + " einzelne PDF-Dateien nacheinander (keine ZIP-Datei), währenddessen gesperrt (" + during + "), Abschlussmeldung – " + allNames.join(" | "));
+      const ZIP_NAME = "Druckaufträge - " + longDay(cand) + ".zip";
+      const zipAll = got.length === 1 ? await readZip(new Uint8Array(readFileSync(await got[0].path()))) : [];
+      const allNames = zipAll.map((e) => e.name);
+      ok(during === "true" && got.length === 1 && sameName(got[0].suggestedFilename(), ZIP_NAME) && allNames.length === ready.length && allNames.every((n, i) => n === ready[i])
+        && ["27x - sw - einseitig - PoWi9 - Wahlplakat.pdf", "14x - sw - einseitig - PoWi9 - Kaertchen Wahlrecht.pdf", "22x - sw - beidseitig - Reli2 - Schoepfung Arbeitsblatt.pdf",
+          "22x - sw - einseitig - Reli2 - Ausmalbild Schoepfung.pdf", CONC_NAME].every((n) => allNames.includes(n))
+        && zipAll.every((e) => new TextDecoder().decode(e.data.subarray(0, 5)) === "%PDF-")
+        && (await pnStatus.textContent()).startsWith("Fertig: Alle " + ready.length + " Dateien sind als eine ZIP-Datei „" + ZIP_NAME + "“ heruntergeladen."),
+        "„Alle Dateien herunterladen“: eine ZIP-Datei („" + (got[0] ? got[0].suggestedFilename() : "–") + "“, " + got.length + " Download) mit " + allNames.length + " PDF-Dateien unter ihren Druck-Namen, währenddessen gesperrt (" + during + "), Abschlussmeldung – " + allNames.join(" | "));
       await tp.screenshot({ ...SHOT, path: join(OUT, "druckauftraege-gymnasium.png") });
       await tp.emulateMedia({ colorScheme: "dark" }); await tp.waitForTimeout(200);
       await tp.screenshot({ ...SHOT, path: join(OUT, "druckauftraege-gymnasium-dunkel.png") });

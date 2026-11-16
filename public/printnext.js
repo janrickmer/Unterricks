@@ -6,8 +6,8 @@
 // Ende, den der Server nennt; nach Ruhezustand, Tab-Wechsel und Fokus wird nachgesehen) – ohne Zeilen neu aufzubauen, in denen die Lehrkraft
 // gerade arbeitet, und ohne ihr den Fokus zu nehmen. Jede Datei heißt und lädt wie in der Druckliste „Von der Lehrkraft auszudrucken“ der Sitzung
 // (materialbox.js: printName, Textmaterial als A4-PDF, gestaltetes Material erst nach dem Druck); „Alle Dateien herunterladen“ lädt alle
-// fertigen Dateien (eines Tages) nacheinander als einzelne Downloads – ausdrücklich keine ZIP-Datei. Das Feld ist eine Übersicht: Anzahl, Druckart und
-// Namen ändert die Lehrkraft in der Sitzung („In der Sitzung bearbeiten“ führt zu deren Druckliste).
+// fertigen Dateien eines Tages als EINE ZIP-Datei (Nachtrag 36 vom 16.11.2026 – vorher je Datei ein Download, Entscheidung 14 b aufgehoben). Das Feld ist
+// eine Übersicht: Anzahl, Druckart und Namen ändert die Lehrkraft in der Sitzung („In der Sitzung bearbeiten“ führt zu deren Druckliste).
 // Direkt darunter (Nachtrag 28) der rote Kasten „Für den nächsten Arbeitstag einpacken“: die Gegenstände, die die Lehrkraft für die Sitzungen desselben
 // Tages mitbringen muss (aus derselben Antwort des Servers, bring.js), als Stichpunkte; ein Klick auf einen Gegenstand klappt in kleinerer Schrift auf,
 // wo und in welcher Lerngruppe er gebraucht wird (je Sitzung ein Eintrag mit höchstens zwei Sätzen). Ohne Gegenstände gibt es den Kasten nicht. Er folgt
@@ -20,11 +20,10 @@ import { berlinToday, berlinTime, addDays, daysBetween, isIsoDate, isWeekend, pr
 import { printDesignState as designState, printQueue } from "./designrender.js";   // Bildkarten (Nachtrag 31): erst die PDF ihrer aktuellen Gestaltung zählt
 import { freeScopeText } from "./planning.js";
 import { packList, placeLabel, placeText, BRING_BOX_TITLE } from "./bring.js";
-import { uniqueNames } from "./zip.js";
+import { uniqueNames, ZipBlob } from "./zip.js";
 
-/* Ein- und Ausgänge, die Unit-Tests ersetzen (Downloads, Abruf der PDF, Pause zwischen zwei Downloads – Browser blockieren schnelle
-   Mehrfach-Downloads) */
-export const io = { url: downloadUrl, blob: downloadBlob, fetch: (u, o) => fetch(u, o), pauseMs: 1200, sleep: (ms) => new Promise((r) => setTimeout(r, ms)),
+/* Ein- und Ausgänge, die Unit-Tests ersetzen (Downloads, Abruf der PDF) */
+export const io = { url: downloadUrl, blob: downloadBlob, fetch: (u, o) => fetch(u, o),
   // Uhr und Zeitgeber für das Ende der Sitzungen von heute (Nachtrag 33)
   now: () => Date.now(), timer: (fn, ms) => setTimeout(fn, ms), untimer: (t) => clearTimeout(t) };
 
@@ -109,14 +108,19 @@ export const printNameOf = (f, course = "") => f.printName || printFileName({ na
 /* „Alle Dateien herunterladen“: wie die ZIP-Datei der Sitzung ohne gestaltete Vorlagen, die noch nicht gedruckt sind (die werden genannt); Bildkarten erst mit der
    PDF ihrer aktuellen Gestaltung (shared.js printReady) */
 export const readyForAll = printReady;
-/* Text der Abschlussmeldung von „Alle Dateien herunterladen“; wait = gestaltete Vorlagen, die gerade gedruckt werden, stuck = solche, deren
-   PDF-Druck gescheitert bzw. heute nicht mehr möglich ist (sie druckt nichts von selbst – in der Sitzung „Erneut drucken“) */
-export function doneText(n, wait, failed, stopped = false, stuck = []) {
-  const q = (xs) => xs.map((f) => "„" + printNameOf(f) + "“").join(", ");
-  return (stopped ? "Abgebrochen nach " + n + (n === 1 ? " Datei." : " Dateien.") : n === 0 ? "Keine Datei heruntergeladen." : n === 1 ? "Fertig: Eine Datei ist heruntergeladen." : "Fertig: Alle " + n + " Dateien sind einzeln heruntergeladen.") +
+/* Name der ZIP-Datei eines Tages (Nachtrag 36): „Druckaufträge - Dienstag, 17.11.2026.zip“ */
+export const zipNameOf = (iso) => "Druckaufträge - " + (longDay(iso) || "nächster Arbeitstag") + ".zip";
+/* Text der Abschlussmeldung von „Alle Dateien herunterladen“ (n Dateien in der ZIP-Datei zip); wait = gestaltete Vorlagen, die gerade gedruckt werden,
+   stuck = solche, deren PDF-Druck gescheitert bzw. heute nicht mehr möglich ist (sie druckt nichts von selbst – in der Sitzung „Erneut drucken“),
+   failed = Dateien, die sich nicht laden ließen (nicht in der ZIP-Datei); stopped = abgebrochen, bevor die ZIP-Datei fertig war (keine heruntergeladen) */
+export function doneText(n, wait, failed, stopped = false, stuck = [], zip = "") {
+  const q = (xs) => xs.map((f) => "„" + printNameOf(f) + "“").join(", "), z = zip ? " „" + zip + "“" : "";
+  return (stopped ? "Abgebrochen – keine ZIP-Datei heruntergeladen." : n === 0 ? "Keine Datei heruntergeladen."
+    : n === 1 ? "Fertig: Die Datei ist als ZIP-Datei" + z + " heruntergeladen."
+    : "Fertig: " + (failed.length ? "" : "Alle ") + n + " Dateien sind als eine ZIP-Datei" + z + " heruntergeladen.") +
     (wait.length ? " Noch nicht dabei (wird gerade als PDF gedruckt): " + q(wait) + "." : "") +
     (stuck.length ? " Nicht dabei, weil der PDF-Druck nicht geklappt hat (in der Sitzung „Erneut drucken“): " + q(stuck) + "." : "") +
-    (failed.length ? " Nicht heruntergeladen: " + failed.map((x) => "„" + printNameOf(x.f) + "“ (" + x.msg + ")").join(", ") + "." : "");
+    (failed.length ? (n ? " Nicht in der ZIP-Datei: " : " Nicht heruntergeladen: ") + failed.map((x) => "„" + printNameOf(x.f) + "“ (" + x.msg + ")").join(", ") + "." : "");
 }
 
 /* Knopf während einer Aktion sperren, ohne ihm den Fokus zu nehmen (aria-disabled statt disabled) */
@@ -157,8 +161,8 @@ export function printNextCards(load = () => tapi("GET", "/api/teacher/print-next
   const status = h("p", { class: "pn-status", id: "pn-status", role: "status" });
   const body = h("div", { class: "pn-body skeleton", text: "Lade die Druckaufträge …" });
   const allBtn = h("button", { class: "btn primary pn-all hidden", type: "button", "aria-describedby": "pn-all-h", dataset: { fk: "all:next" }, onclick: () => downloadAll("next") }, icon("download"), "Alle Dateien herunterladen");
-  const HINT_ONE = "„Alle Dateien herunterladen“ lädt jede Datei einzeln (keine ZIP-Datei), mit kurzer Pause dazwischen. Ihr Browser fragt beim ersten Mal womöglich, ob diese Seite mehrere Dateien herunterladen darf – bitte erlauben.";
-  const HINT_TWO = "„Alle Dateien herunterladen“ lädt jede Datei des jeweiligen Tages einzeln (keine ZIP-Datei), mit kurzer Pause dazwischen. Ihr Browser fragt beim ersten Mal womöglich, ob diese Seite mehrere Dateien herunterladen darf – bitte erlauben.";
+  const HINT_ONE = "„Alle Dateien herunterladen“ lädt alle Dateien als eine ZIP-Datei herunter. Am iPad öffnen Sie sie in der App „Dateien“: Antippen entpackt sie in einen Ordner.";
+  const HINT_TWO = "„Alle Dateien herunterladen“ lädt alle Dateien des jeweiligen Tages als eine ZIP-Datei herunter. Am iPad öffnen Sie sie in der App „Dateien“: Antippen entpackt sie in einen Ordner.";
   const allHint = h("p", { class: "hint pn-hint hidden", id: "pn-all-h", text: HINT_ONE });
   const card = h("section", { class: "card printnext", "aria-labelledby": "pn-h", "aria-describedby": "pn-day" },
     h("div", { class: "pn-head" }, h("div", { class: "pn-title" }, h("span", { class: "pn-ico", "aria-hidden": "true" }, icon("printer")), h("div", { class: "pn-tt" }, heading, day)), allBtn),
@@ -446,8 +450,10 @@ export function printNextCards(load = () => tapi("GET", "/api/teacher/print-next
     if (mine === run && had && card.isConnected && !card.contains(document.activeElement) && !pack.contains(document.activeElement) && (!document.activeElement || document.activeElement === document.body)) heading.focus({ preventScroll: true });
   }
 
-  /* „Alle Dateien herunterladen“ (eines Tages – key „today“ bzw. „next“): nacheinander, je Datei ein Download, dazwischen eine kurze Pause; Fortschritt
-     in der Statuszeile des Tages */
+  /* „Alle Dateien herunterladen“ (eines Tages – key „today“ bzw. „next“): seit Nachtrag 36 EINE ZIP-Datei je Tag (zipNameOf). Die Dateien werden nacheinander
+     geholt und sofort angehängt (ZipBlob: jeder Eintrag wird gleich zu einem Blob, den der Browser auslagern darf – nie alles zugleich im Arbeitsspeicher, wichtig
+     am iPad); Namen wie beim Einzel-Download, gleiche eindeutig wie in der ZIP-Datei der Sitzung („… (2).pdf“). Fortschritt in der Statuszeile des Tages. Lässt
+     sich eine Datei nicht laden, fehlt nur sie (die Meldung nennt sie); verlässt die Lehrkraft die Seite vorher, entsteht keine ZIP-Datei. */
   let running = false;
   async function downloadAll(key) {
     if (running || !data) return;
@@ -472,29 +478,29 @@ export function printNextCards(load = () => tapi("GET", "/api/teacher/print-next
       return;
     }
     running = true;
-    const texts = new Map(), failed = [];
-    let n = 0;
+    const texts = new Map(), failed = [], zip = new ZipBlob(), zipName = zipNameOf(date0);
+    let n = 0, left = false;
     // gleiche Namen (Nachtrag 32: z. B. dasselbe Arbeitsblatt für 8A und 8B → beide „28x - sw - beidseitig - PoWi8 - …“) eindeutig wie in der ZIP-Datei: „… (2).pdf“
     const names = uniqueNames(ready.map(({ f, s }) => printNameOf(f, s.printCourse)));
     await work(btn, async () => {
       for (let i = 0; i < ready.length; i++) {
-        if (stopped || !card.isConnected) break;
+        if (stopped || !card.isConnected) { left = true; break; }
         const { f, s } = ready[i];
-        st.textContent = "Lade " + (i + 1) + " von " + ready.length + ": „" + names[i] + "“ …";
+        st.textContent = "Packe " + (i + 1) + " von " + ready.length + ": „" + names[i] + "“ …";
         try {
           const bytes = await pdfBytes(f, s, texts);
-          if (stopped || !card.isConnected) break;
-          io.blob(new Blob([bytes], { type: "application/pdf" }), names[i]);
+          if (stopped || !card.isConnected) { left = true; break; }
+          zip.add(names[i], bytes);
           n++;
         } catch (e) { failed.push({ f, msg: (e && e.message) || String(e) }); }
-        if (i < ready.length - 1 && !stopped) await io.sleep(io.pauseMs);
       }
-    }, "Lade die Dateien …");
+      if (!left && n) io.blob(zip.finish(), zipName);
+    }, "Packe die Dateien …");
     running = false;
     if (stopped || !card.isConnected) return;
     // die Statuszeile des Tages (steht der Tag nach einem Neuladen anders da, die jetzige)
     const now = uiFor(key), out = now && now.dd.date === date0 ? now.st : st;
-    out.textContent = doneText(n, wait.filter((f) => !stuck(f)), failed, n + failed.length < ready.length, wait.filter(stuck));
+    out.textContent = doneText(n, wait.filter((f) => !stuck(f)), failed, left, wait.filter(stuck), zipName);
     if (due) refresh();
   }
 

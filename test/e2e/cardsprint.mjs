@@ -43,6 +43,15 @@ export async function cardsPrintE2E({ tp, BASE, T, tool, ok, OUT, SHOT, gsL, pri
   // „Alle Dateien herunterladen“ und Statuszeile des Tages der Sitzung (Nachtrag 33: laufen heute noch Sitzungen mit Druckaufträgen, hat jeder Tag einen eigenen Knopf)
   const gsDay = (await T("GET", "/api/teacher/lessons/" + gsL)).data.lesson.date;
   const allOfDay = () => tp.locator('.printnext button.pn-all[data-day="' + gsDay + '"]'), statusOfDay = () => tp.locator('.printnext .pn-status[data-day="' + gsDay + '"]');
+  // „Alle Dateien herunterladen“ des Tages (Nachtrag 36: EINE ZIP-Datei) → {count: Zahl der Downloads, entries} – genau ein Download erwartet
+  const dayZip = async () => {
+    const got = [], onDl = (d) => got.push(d);
+    tp.on("download", onDl);
+    await allOfDay().click();
+    await statusOfDay().filter({ hasText: /^Fertig/ }).waitFor({ timeout: 120000 });
+    await sleep(500); tp.off("download", onDl);
+    return { count: got.length, entries: got.length === 1 ? await readZip(new Uint8Array(readFileSync(await got[0].path()))) : [] };
+  };
   // die Sitzung frisch laden (derselbe Hash lädt mit goto nicht neu)
   const openSession = async () => {
     const want = BASE + "/#/lk/s/" + gsL + "/druckliste";
@@ -107,15 +116,10 @@ export async function cardsPrintE2E({ tp, BASE, T, tool, ok, OUT, SHOT, gsL, pri
   [dl] = await Promise.all([tp.waitForEvent("download", { timeout: 30000 }), pnRow.getByRole("button", { name: "Herunterladen – " + NAME }).click()]);
   info = await pdfInfo(readFileSync(await dl.path()));
   ok(dl.suggestedFilename() === NAME && info.pages === 3 && info.landscape, "… Download dort: „" + dl.suggestedFilename() + "“, " + info.pages + " Seiten A4 quer");
-  // „Alle Dateien herunterladen“ nimmt sie mit (einzelne Downloads nacheinander)
-  const got = [], onDl = (d) => got.push(d);
-  tp.on("download", onDl);
-  await allOfDay().click();
-  await statusOfDay().filter({ hasText: /^Fertig/ }).waitFor({ timeout: 120000 });
-  await sleep(500); tp.off("download", onDl);
-  const mine = got.find((d) => d.suggestedFilename() === NAME);
-  info = mine ? await pdfInfo(readFileSync(await mine.path())) : { pages: 0 };
-  ok(!!mine && info.pages === 3 && info.landscape, "„Alle Dateien herunterladen“: die Bildkarten sind dabei (" + got.length + " Dateien, „" + NAME + "“ mit 3 Seiten A4 quer)");
+  // „Alle Dateien herunterladen“ nimmt sie mit (Nachtrag 36: in der ZIP-Datei des Tages)
+  const dz = await dayZip(), mine = dz.entries.find((e) => e.name === NAME);
+  info = mine ? await pdfInfo(mine.data) : { pages: 0 };
+  ok(dz.count === 1 && !!mine && info.pages === 3 && info.landscape, "„Alle Dateien herunterladen“: eine ZIP-Datei (" + dz.count + " Download, " + dz.entries.length + " Dateien), die Bildkarten sind dabei („" + NAME + "“ mit 3 Seiten A4 quer)");
   await shots(tp, ".printnext", "druckauftraege", { OUT, SHOT, ok, horizontalIssues });
 
   /* ---------- b) herunternehmen (Druckliste) und wieder aufnehmen (Karte „Bildkarten“) – die Bildkarten und die Elternansicht bleiben ---------- */
@@ -270,14 +274,9 @@ export async function cardsPrintE2E({ tp, BASE, T, tool, ok, OUT, SHOT, gsL, pri
   r = await tool("add_picture_cards", { lesson_id: gsL, titel: "Bildkarten Ester", html: cardsHtml(2, "Ester"), erzaehltexte: ["Ester wird Königin.", "Ester bittet den König."] });
   const eid = r.structuredContent && r.structuredContent.file_id;
   ok(await tp.locator(".printnext .pn-row", { hasText: NAME7 }).count() === 0, "… Startseite offen geblieben: die neuen Bildkarten stehen noch nicht in der Liste");
-  const got2 = [], onDl2 = (d) => got2.push(d);
-  tp.on("download", onDl2);
-  await allOfDay().click();
-  await statusOfDay().filter({ hasText: /^Fertig/ }).waitFor({ timeout: 120000 });
-  await sleep(500); tp.off("download", onDl2);
-  const est = got2.find((d) => d.suggestedFilename() === NAME7);
-  info = est ? await pdfInfo(readFileSync(await est.path())) : { pages: 0 };
-  ok(!!est && info.pages === 2 && info.landscape && await tp.locator(".printnext .pn-row", { hasText: NAME7 }).count() === 1, "„Alle Dateien herunterladen“ ohne Neuladen der Seite: die neuen Bildkarten „" + NAME7 + "“ sind dabei (2 Seiten A4 quer)");
+  const dz2 = await dayZip(), est = dz2.entries.find((e) => e.name === NAME7);
+  info = est ? await pdfInfo(est.data) : { pages: 0 };
+  ok(dz2.count === 1 && !!est && info.pages === 2 && info.landscape && await tp.locator(".printnext .pn-row", { hasText: NAME7 }).count() === 1, "„Alle Dateien herunterladen“ ohne Neuladen der Seite: die neuen Bildkarten „" + NAME7 + "“ sind in der ZIP-Datei (2 Seiten A4 quer)");
 
   /* ---------- e) ältere Bildkarten (vor der Änderung angelegt, ohne Druckangaben): bleiben herunter, lassen sich von Hand aufnehmen ---------- */
   const up = await fetch(BASE + "/api/teacher/lessons/" + gsL + "/cards?name=" + encodeURIComponent("Alte Karten.pdf"), { method: "POST", headers: { Authorization: "Bearer " + (await tp.evaluate(() => localStorage.getItem("u.ttoken"))), "Content-Type": "application/pdf" }, body: await cardsPdf(2) }).then((x) => x.json());

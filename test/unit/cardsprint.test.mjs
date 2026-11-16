@@ -569,7 +569,7 @@ test("Prüfung: „Druckaufträge für den nächsten Arbeitstag“ – Bildkarte
     throw new UI.ApiError("nicht nachgebildet: " + method + " " + path, 404, { code: "not_found" });
   };
   const io0 = { ...PN.io };
-  Object.assign(PN.io, { blob: (b, n) => blobs.push([b, n]), sleep: async () => {}, fetch: async () => ({ ok: true, status: 200, arrayBuffer: async () => a5bytes.buffer.slice(a5bytes.byteOffset, a5bytes.byteOffset + a5bytes.byteLength) }) });
+  Object.assign(PN.io, { blob: (b, n) => blobs.push([b, n]), fetch: async () => ({ ok: true, status: 200, arrayBuffer: async () => a5bytes.buffer.slice(a5bytes.byteOffset, a5bytes.byteOffset + a5bytes.byteLength) }) });
   const app = document.getElementById("app");
   for (const x of [...app.childNodes]) app.removeChild(x);
   const card = PN.printNextCard();
@@ -587,11 +587,18 @@ test("Prüfung: „Druckaufträge für den nächsten Arbeitstag“ – Bildkarte
     later = [{ ...sessions[0], files: [up, des, { ...cardFile(13, "Arche.pdf"), lessonId: fid(98) }] }];
     blobs.length = 0;
     D.userClick($("button.pn-all", card));
-    await until(() => /^Fertig|^Keine|Nicht heruntergeladen/.test($("#pn-status", card).textContent) && blobs.length >= 1, "fertig");
+    await until(() => /^Fertig|^Keine|Nicht heruntergeladen|Nicht in der ZIP-Datei/.test($("#pn-status", card).textContent) && blobs.length >= 1, "fertig");
     assert.equal(loads, 2, "vorher neu geladen");
     assert.equal($$(".pn-row", card).length, 3, "die neuen Bildkarten stehen jetzt auch in der Liste");
     assert.ok(bodies.every(([, b]) => b && b.print === true), "Bildkarten immer mit print");
-    assert.deepEqual(blobs.map((x) => x[1]), ["1x - farbig - einseitig - Reli2 - Verlag.pdf", "1x - farbig - einseitig - Reli2 - Arche.pdf"]);
-    assert.ok($("#pn-status", card).textContent.includes("Nicht heruntergeladen: „1x - farbig - einseitig - Reli2 - Noah.pdf“ (Die Bildkarten „Noah“ sind in ihrer neuen Gestaltung noch nicht als PDF gedruckt"), $("#pn-status", card).textContent);
+    // Nachtrag 36: eine ZIP-Datei des Tages – die hochgeladenen Karten darin ebenfalls auf A4
+    assert.equal(blobs.length, 1, "eine ZIP-Datei");
+    assert.match(blobs[0][1], /^Druckaufträge - \S+, \d\d\.\d\d\.\d{4}\.zip$/);
+    const { readZip } = await import("../../public/zip.js");
+    const entries = await readZip(new Uint8Array(await blobs[0][0].arrayBuffer()));
+    assert.deepEqual(entries.map((e) => e.name), ["1x - farbig - einseitig - Reli2 - Verlag.pdf", "1x - farbig - einseitig - Reli2 - Arche.pdf"]);
+    const inZip = await lib.PDFDocument.load(entries[0].data);
+    assert.ok(inZip.getPageCount() === 3 && inZip.getPages().every((p) => Math.round(p.getWidth()) === 842 && Math.round(p.getHeight()) === 595), "in der ZIP-Datei: 3 Seiten A4 quer");
+    assert.ok($("#pn-status", card).textContent.includes("Nicht in der ZIP-Datei: „1x - farbig - einseitig - Reli2 - Noah.pdf“ (Die Bildkarten „Noah“ sind in ihrer neuen Gestaltung noch nicht als PDF gedruckt"), $("#pn-status", card).textContent);
   } finally { Object.assign(PN.io, io0); }
 });

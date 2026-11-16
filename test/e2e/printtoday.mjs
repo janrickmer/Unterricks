@@ -10,6 +10,7 @@
 import { join } from "node:path";
 import { readFileSync } from "node:fs";
 import { PDFDocument } from "pdf-lib";
+import { readZip } from "../../public/zip.js";
 import { berlinToday, fmtClockBerlin, daysBetween } from "../../public/shared.js";
 import { nextWorkday } from "../../public/planning.js";
 
@@ -91,7 +92,9 @@ export async function printTodayE2E({ tp, BASE, T, token, ok, OUT, SHOT, gsId, h
   await tp.emulateMedia({ colorScheme: "light" }); await tp.setViewportSize(vp0);
   await pack.getByRole("button", { name: "Bibel" }).click();
 
-  // „Alle Dateien herunterladen“ je Tag: heute genau die Dateien von heute (Grundschule: vorher neu geladen), mit den Druck-Namen; keine ZIP-Datei
+  // „Alle Dateien herunterladen“ je Tag (Nachtrag 36: eine ZIP-Datei je Tag): heute genau die Dateien von heute (Grundschule: vorher neu geladen), mit den Druck-Namen
+  // Chromium dieser Testumgebung (ohne UTF-8-Locale) speichert Namen mit Umlauten als „download“ – „Druckaufträge - … .zip“ darf so heißen
+  const sameName = (n, want) => n === want || (n === "download" && /[^\x20-\x7e]/.test(want));
   const got = [], onDl = (d) => got.push(d), reqs = [], onReq = (r) => { if (r.url().includes("/api/teacher/print-next")) reqs.push(r.url()); };
   tp.on("download", onDl); tp.on("request", onReq);
   const todayBtn = dayG(today).locator("button.pn-all");
@@ -101,10 +104,13 @@ export async function printTodayE2E({ tp, BASE, T, token, ok, OUT, SHOT, gsId, h
   await dayG(today).locator(".pn-status", { hasText: /^Fertig/ }).waitFor({ timeout: 60000 });
   await sleep(500);
   tp.off("download", onDl); tp.off("request", onReq);
-  const names = got.map((d) => d.suggestedFilename()), heads = await Promise.all(got.map(async (d) => readFileSync(await d.path()).subarray(0, 5).toString()));
-  ok(JSON.stringify(names) === JSON.stringify(TODAY_NAMES) && heads.every((x) => x === "%PDF-") && reqs.length >= 1 && (await dayG(cand).locator(".pn-status").textContent()) === ""
-    && (await dayG(today).locator(".pn-status").textContent()) === "Fertig: Alle 3 Dateien sind einzeln heruntergeladen.",
-    "„Alle Dateien herunterladen“ (heute): nur die 3 Dateien von heute, einzeln (" + names.join(" | ") + "); Grundschule: vorher neu geladen (" + reqs.length + "×)");
+  const TODAY_ZIP = "Druckaufträge - " + longDay(today) + ".zip";
+  const todayZip = got.length === 1 ? await readZip(new Uint8Array(readFileSync(await got[0].path()))) : [];
+  const names = todayZip.map((e) => e.name), heads = todayZip.map((e) => new TextDecoder().decode(e.data.subarray(0, 5)));
+  ok(got.length === 1 && sameName(got[0].suggestedFilename(), TODAY_ZIP) && JSON.stringify(names) === JSON.stringify(TODAY_NAMES) && heads.every((x) => x === "%PDF-") && reqs.length >= 1
+    && (await dayG(cand).locator(".pn-status").textContent()) === ""
+    && (await dayG(today).locator(".pn-status").textContent()) === "Fertig: Alle 3 Dateien sind als eine ZIP-Datei „" + TODAY_ZIP + "“ heruntergeladen.",
+    "„Alle Dateien herunterladen“ (heute): eine ZIP-Datei („" + (got[0] ? got[0].suggestedFilename() : "–") + "“) mit nur den 3 Dateien von heute (" + names.join(" | ") + "); Grundschule: vorher neu geladen (" + reqs.length + "×)");
 
   // live: die Sitzungen enden kurz nacheinander, während die Seite offen ist (Server-Uhr); Ende in gut einer bzw. zwei Minuten
   const a1 = slot(1.2), b1 = a1 && { start: fmtClockBerlin(a1.end + 60e3 - 45 * 60e3), end: a1.end + 60e3 };
@@ -171,7 +177,10 @@ export async function printTodayE2E({ tp, BASE, T, token, ok, OUT, SHOT, gsId, h
     // morgen herunterladen (Knopf im Kopf)
     const [dl] = await Promise.all([tp.waitForEvent("download", { timeout: 30000 }), card.locator(".pn-head .pn-all").click()]);
     await card.locator("#pn-status", { hasText: /^Fertig/ }).waitFor({ timeout: 30000 });
-    ok(dl.suggestedFilename() === NEXT_NAME, "„Alle Dateien herunterladen“ für " + nextHead + ": „" + dl.suggestedFilename() + "“");
+    const NEXT_ZIP = "Druckaufträge - " + longDay(cand) + ".zip", nz = await readZip(new Uint8Array(readFileSync(await dl.path())));
+    ok(sameName(dl.suggestedFilename(), NEXT_ZIP) && JSON.stringify(nz.map((e) => e.name)) === JSON.stringify([NEXT_NAME])
+      && (await card.locator("#pn-status").textContent()) === "Fertig: Die Datei ist als ZIP-Datei „" + NEXT_ZIP + "“ heruntergeladen.",
+      "„Alle Dateien herunterladen“ für " + nextHead + ": ZIP-Datei „" + dl.suggestedFilename() + "“ mit „" + NEXT_NAME + "“");
   }
   // aufräumen: Sitzungen, dann Einheiten
   for (const m of made) { await T("DELETE", "/api/teacher/lessons/" + m.l); await T("DELETE", "/api/teacher/units/" + m.u); }
