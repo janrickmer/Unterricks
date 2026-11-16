@@ -201,6 +201,35 @@ test("Befund 3: „Nicht ausdrucken“ (wiederverwendete Bildkarten) – Fokus a
   assert.equal(globalThis.__domErrors.length, 0, globalThis.__domErrors.join("\n"));
 });
 
+test("Anzahl und gleich danach die Farbe wiederverwendeter Bildkarten geändert – die Anfragen laufen nacheinander, keine Änderung geht verloren", async () => {
+  // Server wie routeCardPrints: liest die gespeicherten Angaben, die Anfrage dauert, schreibt alle zurück (zwei gleichzeitige Anfragen überschrieben sich)
+  const state = {};
+  let gate = null;
+  const calls = await page({ lesson: lessonOf(PLAN), files: [printFile()], courseCards: [cardSet(X, "Bildkarten Arche.pdf", PREV, "Noah baut die Arche", "2026-11-16")] }, [link,
+    [/^PUT \/api\/teacher\/lessons\/\w+\/card-prints$/, async (m, b) => {
+      const cur = state[b.fileId] && !state[b.fileId].off ? { ...state[b.fileId] } : { ...S.CARD_PRINT };
+      if (gate) await gate;
+      state[b.fileId] = b.off === true ? { off: true } : { copies: b.copies ?? cur.copies, duplex: b.duplex ?? cur.duplex, color: b.color ?? cur.color };
+      return { cardPrints: JSON.parse(JSON.stringify(state)) };
+    }]]);
+  const puts = () => calls.filter((c) => c.method === "PUT" && c.path.endsWith("/card-prints"));
+  const row = rowOf("1x - farbig - einseitig - Reli2 - Bildkarten Arche.pdf");
+  let open;
+  gate = new Promise((r) => { open = r; });
+  const copies = $("input.pcopies", row), color = $('select[aria-label^="Schwarz-weiß oder farbig"]', row);
+  copies.value = "2"; D.fire(copies, "change");
+  color.value = "0"; D.fire(color, "change");
+  await D.sleep(5);
+  assert.equal(puts().length, 1, "die zweite Anfrage wartet, bis die erste beantwortet ist");
+  open(); gate = null;
+  const NEW = "2x - sw - einseitig - Reli2 - Bildkarten Arche.pdf";
+  await until(() => $(".name", row).textContent === NEW, "beide Änderungen im Namen – ist " + $(".name", row).textContent);
+  assert.deepEqual(puts().map((c) => c.body), [{ fileId: X, copies: 2 }, { fileId: X, color: false }]);
+  assert.deepEqual(state[X], { copies: 2, duplex: false, color: false }, "gespeichert: 2 Exemplare UND schwarz-weiß");
+  same(rowOf(NEW), row, "dieselbe Zeile (kein Neuaufbau)");
+  assert.equal(globalThis.__domErrors.length, 0, globalThis.__domErrors.join("\n"));
+});
+
 test("Befund 6: Verweis auf Bildkarten einer früheren (nicht der vorigen) Sitzung – der Verlaufsplan nennt sie sofort mit Namen, wie die Druckliste", async () => {
   await page({ lesson: lessonOf("**1) Bewegungslied (5 Min.)**"), files: [printFile()],
     courseCards: [cardSet(Y, "Regenbogen Karten.pdf", OLD, "Gott schließt einen Bund", "2026-11-09", { source: "upload", design: undefined })] }, [link]);

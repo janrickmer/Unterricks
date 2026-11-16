@@ -1820,6 +1820,11 @@ neue Bildkarten“.
 * **save_verlaufsplan** nennt die Druckangaben dieser Sitzung (`printSettingsText` in gsplanning.js): alle gleich → derselbe Satz wie bisher, sonst je Bildkarten
   („„Josef.pdf“ (3x, einseitig, schwarz-weiß), …“); abgewählte nicht.
 * **„Wieder ausdrucken“**: mindestens 44 px hoch und einzeilig (`.refoff .btn.small`).
+* **Druckangaben nacheinander speichern:** `PUT …/card-prints` liest die gespeicherten Angaben, ändert eine und schreibt alle zurück. Änderte die Lehrkraft
+  die Anzahl und gleich danach die Farbe, liefen zwei Anfragen gleichzeitig, und die spätere überschrieb die frühere (z. B. „1x - sw“ statt „2x - sw“). Jetzt
+  stellt `putRef` (materialbox.js) die Anfragen einer Sitzungsseite hintereinander (`refChain`; ein Fehlschlag hält die nächste nicht auf). Zwei Fenster
+  derselben Sitzung, die im selben Augenblick dieselben Bildkarten ändern, können sich weiterhin überschreiben – das bleibt bewusst so (ohne praktische
+  Bedeutung, eine atomare Lösung in SQL bräche die Reihenfolge und die Grenze von 200 Einträgen). Unit-Test in `refcardsui.test.mjs`.
 * **Tests:** Unit `test/unit/refcardsui.test.mjs` (Sitzungsseite im Browser-Ersatz – fake-dom kennt dafür `createComment` und `cloneNode`), `printnext.test.mjs`
   (dieselben Bildkarten heute und morgen), `refcards.test.mjs` (save_verlaufsplan); E2E `cardsprint.mjs` Abschnitt g (gestaltete wiederverwendete Bildkarten:
   Download-Namen, Antwort von save_verlaufsplan, kompakte Ansicht, Höhe von „Wieder ausdrucken“, zwei Sitzungen eines Tages auf der Startseite mit Druck).

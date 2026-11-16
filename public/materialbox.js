@@ -255,8 +255,15 @@ export function materialBox({ lessonId: id, st, L, gs = false, labels = {}, excl
   const syncRefs = () => { if (refKey() !== refsPainted) paintPrint(); };
   const printFiles = () => [...st.files.filter((f) => f.area === "print" || (gs && f.area === "student" && f.print && shown(f)) || (isCards(f) && f.print)), ...refEntries().filter((f) => !f.refOff)];
   const refFrom = (f) => "aus der Sitzung „" + (f.lessonTitle || "ohne Titel") + "“" + (f.date ? " (" + fmtDay(f.date) + ")" : "");
-  /* Druckangaben dieser Sitzung für wiederverwendete Bildkarten speichern (PUT …/card-prints) – die Druckliste ihrer eigenen Sitzung bleibt unberührt */
-  const putRef = async (f, body) => { const r = await tapi("PUT", "/api/teacher/lessons/" + id + "/card-prints", { body: { fileId: f.id, ...body } }); st.cardPrints = r.cardPrints || {}; };
+  /* Druckangaben dieser Sitzung für wiederverwendete Bildkarten speichern (PUT …/card-prints) – die Druckliste ihrer eigenen Sitzung bleibt unberührt.
+     Nacheinander (refChain): Der Server liest die gespeicherten Angaben, ändert eine und schreibt alle zurück – zwei gleichzeitige Anfragen (z. B. die Anzahl
+     und gleich danach die Farbe) überschrieben sonst die eine mit der anderen (Prüfung von Nachtrag 31b). Ein Fehlschlag hält die nächste nicht auf. */
+  let refChain = Promise.resolve();
+  const putRef = (f, body) => {
+    const run = refChain.then(async () => { const r = await tapi("PUT", "/api/teacher/lessons/" + id + "/card-prints", { body: { fileId: f.id, ...body } }); st.cardPrints = r.cardPrints || {}; });
+    refChain = run.catch(() => {});
+    return run;
+  };
   const pdfLib = () => lazy(import("/vendor/pdf-lib.esm.min.js"));
   // hochgeladene Bildkarten (ohne Gestaltung): ihre PDF hat das Format der Lehrkraft – für die Druckliste auf A4 umgerechnet (a4.js cardsA4, Ausrichtung bleibt);
   // die gespeicherte PDF und die Kartenbilder der Elternansicht bleiben, wie sie sind (Prüfung von Nachtrag 31)
