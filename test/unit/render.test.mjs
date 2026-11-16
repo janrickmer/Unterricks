@@ -289,7 +289,7 @@ test("Connector: add_material_pdf legt an und druckt (Seitenzahl in der Antwort)
   try { r = await call("tools/call", { name: "add_material_pdf", arguments: { lesson_id: L, bereich: "druck", titel: "Kärtchen", html: "<p>x</p>", anzahl: 14, beidseitig: false, farbe: false } }); }
   finally { p2.restore(); }
   assert.match(r.content[0].text, /noch nicht als PDF gedruckt/); assert.match(r.content[0].text, /druckt es automatisch nach/);
-  assert.match(r.content[0].text, /„14x - einseitig - sw - Kärtchen\.pdf“/);
+  assert.match(r.content[0].text, /„14x - sw - einseitig - PoWi8 - Kärtchen\.pdf“/);
   r = await call("tools/call", { name: "add_material_pdf", arguments: { lesson_id: L, titel: "x", html: "<p>x</p>" } });
   assert.ok(r.isError && /bereich/.test(r.content[0].text));
 });

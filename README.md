@@ -193,10 +193,11 @@ gleich in `public/_headers`, im Worker und – für GitHub Pages – in `scripts
   bis Freitag, 16.10.2026, ist unterrichtsfrei (Herbstferien, beide Schulen) – deshalb die Druckaufträge für …“. Dieselbe Regel bestimmt beim
   Podcast den „nächsten Schultag“.
   Nach Sitzung gruppiert (Beginn, Fach und Klasse bzw. Grundschulkurs, Titel – ein Klick öffnet die Sitzung) stehen alle Dateien genau
-  so wie in deren Liste „Von der Lehrkraft auszudrucken“, z. B. „28x - beidseitig - sw - Arbeitsblatt.pdf“ (in der Grundschule auch
-  Arbeitsblätter der Kinder mit „Auch ausdrucken“ und die Bildkarten der Sitzung, z. B. „1x - einseitig - Farbe - Bildkarten – Josef.pdf“). Jede Datei lässt sich einzeln herunterladen; **„Alle Dateien herunterladen“** lädt
+  so wie in deren Liste „Von der Lehrkraft auszudrucken“, z. B. „28x - sw - beidseitig - PoWi8 - Arbeitsblatt.pdf“ (in der Grundschule auch
+  Arbeitsblätter der Kinder mit „Auch ausdrucken“ und die Bildkarten der Sitzung, z. B. „1x - farbig - einseitig - Reli2 - Bildkarten – Josef.pdf“). Jede Datei lässt sich einzeln herunterladen; **„Alle Dateien herunterladen“** lädt
   alle nacheinander als einzelne PDF-Dateien – bewusst keine ZIP-Datei – mit kurzer Pause dazwischen (Ihr Browser fragt beim ersten Mal
-  womöglich, ob die Seite mehrere Dateien herunterladen darf). Von Claude gestaltete Vorlagen, die noch als PDF gedruckt werden, kommen
+  womöglich, ob die Seite mehrere Dateien herunterladen darf). Heißen zwei Dateien gleich (z. B. dasselbe Arbeitsblatt für die 8A und die
+  8B), bekommt die zweite beim Herunterladen „ (2)“ – wie in der ZIP-Datei, damit nichts überschrieben wird. Von Claude gestaltete Vorlagen, die noch als PDF gedruckt werden, kommen
   erst danach dazu und werden genannt. Anzahl, Druckart und Namen ändern Sie in der Sitzung („In der Sitzung bearbeiten“ springt zu
   deren Druckliste); das Feld selbst ist nur eine Übersicht.
 * **Für den nächsten Arbeitstag einpacken:** Braucht eine Sitzung desselben Tages etwas, das Sie von zu Hause oder aus dem Lehrerzimmer
@@ -315,10 +316,21 @@ gleich in `public/_headers`, im Worker und – für GitHub Pages – in `scripts
   Nach dem Ausrollen prüft `https://<Worker-Adresse>/api/health/pdf` den Druck (höchstens einmal je Stunde; `?pdf=1` zeigt die
   Testseite).
 * **Material:** auch Links mit Titel (für Schüler:innen oder nur für Sie). Ganz unten in der Sitzung: **„Von der Lehrkraft
-  auszudrucken“** – nur PDF, alles A4 (andere Formate rechnet Unterricks um), Name wie „28x - beidseitig - sw - Arbeitsblatt.pdf“,
-  einzeln oder alle als ZIP; Claude gestaltet Druckvorlagen über den Connector selbst (mit Anzahl, beidseitig und Farbe). Darunter **„Sitzung als Datei herunterladen“** und
+  auszudrucken“** – nur PDF, alles A4 (andere Formate rechnet Unterricks um), Name wie „28x - sw - beidseitig - PoWi8 - Arbeitsblatt.pdf“
+  (siehe **Dateinamen der Druckliste**), einzeln oder alle als ZIP; Claude gestaltet Druckvorlagen über den Connector selbst (mit Anzahl, beidseitig und Farbe). Darunter **„Sitzung als Datei herunterladen“** und
   **„Sitzung aus Datei laden“**, um eine gehaltene Sitzung in einer anderen Lerngruppe erneut durchzuführen (Datum, Beginn und Dauer
   bleiben, Datumsangaben in den Texten werden angepasst, Feibeitsblätter kommen als Entwürfe).
+* **Dateinamen der Druckliste:** Jede Datei, die Sie ausdrucken (Druckliste der Sitzung, in der Grundschule auch Arbeitsblätter mit
+  „Auch ausdrucken“, Bildkarten und die Konzentrationsaufgabe, „Druckaufträge für den nächsten Arbeitstag“, ZIP-Datei, einzelne Downloads),
+  heißt **„Anzahl - sw/farbig - einseitig/beidseitig - Kurs - Titel.pdf“**, z. B. „23x - sw - einseitig - Reli4 - Die Arche Noah.pdf“,
+  „1x - farbig - einseitig - Reli2 - Bildkarten Arche Noah.pdf“ oder „5x - sw - beidseitig - Reli2 - Konzentrationsaufgabe – Schöpfung.pdf“.
+  Der Kurs ist die Kurzform des Fachs mit dem Jahrgang, ohne Leerzeichen: Ev. Religion „Reli“, Politik und Wirtschaft „PoWi“, Ethik „Eth“;
+  Klasse 8a oder Kurs 8-K → „PoWi8“, „Reli8“, „Eth8“; E-Phase (Klassen EA–EH, Kurs E-K) → „PoWiE“, „ReliE“; Qualifikationsphase mit
+  Kurshalbjahr und Grund- bzw. Leistungskurs → „PoWiQ3LK“, „ReliQ1GK“. Grundschule: Religion → „Reli“ + Jahrgang („Reli4“), ein anderes
+  Fach → die ersten vier Buchstaben seines Namens + Jahrgang („Sachunterricht“ → „Sach3“). Der Name entsteht beim Herunterladen – auch schon
+  vorhandene Dateien heißen so, und ändern Sie Fach oder Jahrgang eines Grundschulkurses, heißen seine Dateien gleich danach entsprechend.
+  Den Titel wählen Sie wie bisher („Umbenennen“ in der Druckliste); Anzahl, schwarz-weiß/farbig und einseitig/beidseitig stellen Sie in
+  der Zeile ein – in dieser Reihenfolge.
 * **Einheit als Datei:** Auf der Planungsseite einer Einheit, Karte **„Einheit als Datei“**, gibt es zwei Knöpfe.
   * **„Einheit als Datei herunterladen“** erzeugt eine ZIP-Datei. Darin liegt die Einheitsdatei mit Rahmendaten, Leupold-Schema und
     Ablauf. Dazu kommt je Sitzung ein Ordner, chronologisch nummeriert („01 - 12.11.2026 - …“), mit der Sitzungsdatei.
@@ -481,7 +493,7 @@ der **Podcast für den kommenden Unterricht** (derselbe wie auf der Startseite �
   und beim Überarbeiten einer Einheit; erzählt der Verlaufsplan eine Geschichte und fehlen Bildkarten, erinnert Unterricks Claude beim
   Lesen der Sitzung und beim Speichern des Verlaufsplans).
 * **Bildkarten auf der Druckliste:** Neue Bildkarten – von Claude gestaltet oder von Ihnen hochgeladen – stehen von selbst auf Ihrer
-  Druckliste „Von der Lehrkraft auszudrucken“ als **„1x - einseitig - Farbe - <Titel>.pdf“** (1 Exemplar, einseitig, farbig) und damit
+  Druckliste „Von der Lehrkraft auszudrucken“ als **„1x - farbig - einseitig - <Kurs> - <Titel>.pdf“**, z. B. „1x - farbig - einseitig - Reli2 - Bildkarten Arche Noah.pdf“ (1 Exemplar, einseitig, farbig) und damit
   auch in den Druckaufträgen für den nächsten Arbeitstag und in der ZIP-Datei der Druckliste – immer die vollständige PDF mit allen Karten
   (A4 quer, eine Karte je Seite) in ihrer aktuellen Gestaltung. Anzahl, beidseitig/einseitig und Farbe ändern Sie dort wie bei jeder
   Druckvorlage; **„Nicht ausdrucken“** (in der Druckliste) bzw. der Schalter **„Auf der Druckliste …“** bei den Bildkarten nimmt sie
@@ -499,7 +511,7 @@ der **Podcast für den kommenden Unterricht** (derselbe wie auf der Startseite �
   höchstens **zwei A4-Seiten**, zuerst **mindestens zwei Ausmalbilder** zum Inhalt der Stunde in ihrer Reihenfolge (z. B. Bilder zur
   Geschichte, die Sie erzählen), dann das Symbol einer **roten Karte** und danach eine weitere, altersgerechte Aufgabe zum Inhalt der Stunde
   (ankreuzen, verbinden, malen oder ein Wort). Claude stellt sie Ihnen mit dem übrigen Material vor; nach Ihrer Freigabe steht sie **nur** auf
-  Ihrer Druckliste „Von der Lehrkraft auszudrucken“ als **„5x - beidseitig - sw - Konzentrationsaufgabe – <Thema>.pdf“** und damit auch in den
+  Ihrer Druckliste „Von der Lehrkraft auszudrucken“ als **„5x - sw - beidseitig - <Kurs> - Konzentrationsaufgabe – <Thema>.pdf“** (z. B. „5x - sw - beidseitig - Reli2 - Konzentrationsaufgabe – Schöpfung.pdf“) und damit auch in den
   Druckaufträgen für den nächsten Arbeitstag – nie in der Elternansicht und nie für die Kinder (als Bildkarten, die Eltern sehen, nimmt
   Unterricks sie gar nicht erst an). Anzahl und Druckart ändern Sie dort wie bei
   jeder Druckvorlage. Im Verlaufsplan nennt Claude sie in der ersten Plenumsphase (gelb markiert). Fehlt sie noch, erinnert Unterricks Claude

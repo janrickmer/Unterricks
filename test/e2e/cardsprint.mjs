@@ -1,5 +1,5 @@
 // cardsprint.mjs – End-to-End-Prüfung „Bildkarten auf der Druckliste“ (Nachtrag 31): Bildkarten der Grundschule gehören immer zu den Dateien, die die
-// Lehrkraft für die Sitzung ausdruckt – 1x, einseitig, farbig („1x - einseitig - Farbe - <Titel>.pdf“), abwählbar, nur neue Bildkarten.
+// Lehrkraft für die Sitzung ausdruckt – 1x, einseitig, farbig („1x - farbig - einseitig - Reli2 - <Titel>.pdf“, Muster von Nachtrag 32), abwählbar, nur neue Bildkarten.
 // Geprüft in der Grundschul-Sitzung am nächsten Arbeitstag (gsL): von Claude gestaltete Bildkarten (Connector, gedruckt vom Chromium der Drucker-Attrappe)
 // → Druckliste der Sitzung (Zeile, Einzel-Download unter dem Druck-Namen, ZIP-Datei entpackt: alle Karten, A4 quer, eine Karte je Seite) und „Druckaufträge
 // für den nächsten Arbeitstag“; herunternehmen und wieder aufnehmen (Bildkarten und Elternansicht bleiben); Claude gestaltet neu → die Einstellung der
@@ -35,7 +35,7 @@ async function pdfInfo(buf) {
 
 export async function cardsPrintE2E({ tp, BASE, T, tool, ok, OUT, SHOT, gsL, printer, d1, horizontalIssues }) {
   const card = tp.locator("#printcard"), cbox = tp.locator("#gs-cards");
-  // Zeile genau dieses Druck-Namens (die Druckliste der Sitzung hat noch andere Zeilen, z. B. „22x - einseitig - sw - …“)
+  // Zeile genau dieses Druck-Namens (die Druckliste der Sitzung hat noch andere Zeilen, z. B. „22x - sw - einseitig - Reli2 - …“)
   const esc = (x) => x.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
   const rowOf = (name) => card.locator(".printrow", { has: tp.locator(".name", { hasText: new RegExp("^" + esc(name) + "$") }) });
   const lessonFiles = async () => (await T("GET", "/api/teacher/lessons/" + gsL)).data.files;
@@ -56,7 +56,7 @@ export async function cardsPrintE2E({ tp, BASE, T, tool, ok, OUT, SHOT, gsL, pri
   const plan0 = (await T("GET", "/api/teacher/lessons/" + gsL)).data.lesson;
 
   /* ---------- a) Claude gestaltet Bildkarten (Connector): auf der Druckliste, 1x einseitig farbig ---------- */
-  const NAME = "1x - einseitig - Farbe - Bildkarten Schoepfung.pdf";
+  const NAME = "1x - farbig - einseitig - Reli2 - Bildkarten Schoepfung.pdf";
   let r = await tool("add_picture_cards", { lesson_id: gsL, titel: "Bildkarten Schoepfung", html: cardsHtml(3), erzaehltexte: ["Gott macht das Licht.", "Gott macht das Land und das Meer.", "Gott macht die Tiere."] });
   const cid = r.structuredContent && r.structuredContent.file_id;
   ok(!r.isError && r.structuredContent.pages === 3 && r.structuredContent.druckliste === NAME && r.content[0].text.includes("Sie stehen auf der Druckliste der Lehrkraft als „" + NAME + "“ (1x, einseitig, farbig)."),
@@ -75,7 +75,7 @@ export async function cardsPrintE2E({ tp, BASE, T, tool, ok, OUT, SHOT, gsL, pri
   await row.waitFor({ timeout: 15000 });
   await cbox.locator("#cs-print-" + cid).waitFor({ timeout: 15000 });
   await cbox.locator("#cs-" + cid + " .cs-state", { hasText: "3 Karten · Bilder bereit" }).waitFor({ timeout: 60000 });   // Bilder für die Elternansicht (Browser)
-  ok(await row.locator("input.pcopies").inputValue() === "1" && await row.locator("select").nth(0).inputValue() === "0" && await row.locator("select").nth(1).inputValue() === "1"
+  ok(await row.locator("input.pcopies").inputValue() === "1" && await row.locator('select[aria-label^="Beidseitig oder einseitig"]').inputValue() === "0" && await row.locator('select[aria-label^="Schwarz-weiß oder farbig"]').inputValue() === "1"
     && (await row.locator(".meta").textContent()).includes("Bildkarten") && await row.getByRole("button", { name: "Nicht ausdrucken – " + NAME }).count() === 1 && await row.locator("button.danger").count() === 0,
     "Druckliste der Sitzung: „" + NAME + "“ – 1 Exemplar, einseitig, Farbe, „Nicht ausdrucken“ statt Löschen");
   ok(await cbox.locator("#cs-print-" + cid).isChecked() && (await cbox.locator("#cs-print-d-" + cid).textContent()).includes("„" + NAME + "“") && (await tp.locator("#print-cards-hint").textContent()).includes("Neue Bildkarten"),
@@ -89,7 +89,7 @@ export async function cardsPrintE2E({ tp, BASE, T, tool, ok, OUT, SHOT, gsL, pri
   const link = (await T("POST", "/api/teacher/files/" + cid + "/link", { print: true })).data.url, plain = (await T("POST", "/api/teacher/files/" + cid + "/link", {})).data.url;
   const cd = async (u) => (await fetch(BASE + u)).headers.get("content-disposition") || "";
   ok((await cd(link)).includes('filename="' + NAME + '"'), "Link aus der Druckliste: Content-Disposition mit dem Druck-Namen");
-  ok(!(await cd(plain)).includes("1x - einseitig"), "… ohne print (z. B. „Als PDF ansehen“): der Name der Bildkarten wie bisher");
+  ok(!(await cd(plain)).includes("1x - farbig - einseitig"), "… ohne print (z. B. „Als PDF ansehen“): der Name der Bildkarten wie bisher");
   // ZIP-Datei: die vollständige PDF unter dem Namen der Druckliste
   let z = await zip();
   let ze = z.entries.find((e) => e.name === NAME);
@@ -139,11 +139,11 @@ export async function cardsPrintE2E({ tp, BASE, T, tool, ok, OUT, SHOT, gsL, pri
   ok(await cbox.locator("#cs-print-" + cid).isChecked() && await tp.evaluate((id) => document.activeElement && document.activeElement.id === "cs-print-" + id, cid)
     && (await pnFiles()).some((x) => x.id === cid && x.printName === NAME), "Schalter (Leertaste): wieder auf der Druckliste als „" + NAME + "“, Fokus bleibt auf dem Schalter");
   // Anzahl und Farbe in der Druckliste ändern wie bei anderen Einträgen; die Karte „Bildkarten“ zeigt den neuen Namen
-  const NAME2 = "2x - einseitig - sw - Bildkarten Schoepfung.pdf";
-  const NAME1b = "2x - einseitig - Farbe - Bildkarten Schoepfung.pdf";
+  const NAME2 = "2x - sw - einseitig - Reli2 - Bildkarten Schoepfung.pdf";
+  const NAME1b = "2x - farbig - einseitig - Reli2 - Bildkarten Schoepfung.pdf";
   await rowOf(NAME).locator("input.pcopies").fill("2"); await rowOf(NAME).locator("input.pcopies").press("Tab");
   await rowOf(NAME1b).waitFor({ timeout: 10000 });
-  await rowOf(NAME1b).locator("select").nth(1).selectOption("0");
+  await rowOf(NAME1b).locator('select[aria-label^="Schwarz-weiß oder farbig"]').selectOption("0");   // Nachtrag 32: Farbe vor einseitig/beidseitig
   await rowOf(NAME2).waitFor({ timeout: 10000 });
   await tp.waitForFunction(([id, n]) => (document.getElementById("cs-print-d-" + id) || {}).textContent.includes(n), [cid, NAME2], { timeout: 5000 });
   ok((await lessonFiles()).find((x) => x.id === cid).printName === NAME2, "Druckliste: 2 Exemplare, schwarz-weiß → „" + NAME2 + "“ (auch in der Karte „Bildkarten“)");
@@ -164,7 +164,7 @@ export async function cardsPrintE2E({ tp, BASE, T, tool, ok, OUT, SHOT, gsL, pri
   await shots(tp, "#cs-" + cid, "karte", { OUT, SHOT, ok, horizontalIssues });
 
   /* ---------- c) noch nicht gedruckt bzw. Druck fehlgeschlagen: nie stillschweigend weg ---------- */
-  const NAME3 = "1x - einseitig - Farbe - Bildkarten Arche.pdf";
+  const NAME3 = "1x - farbig - einseitig - Reli2 - Bildkarten Arche.pdf";
   printer.mode = "busy";
   r = await tool("add_picture_cards", { lesson_id: gsL, titel: "Bildkarten Arche", html: cardsHtml(2, "Arche"), erzaehltexte: ["Noah baut eine Arche.", "Die Tiere kommen."] });
   const aid = r.structuredContent && r.structuredContent.file_id;
@@ -207,7 +207,7 @@ export async function cardsPrintE2E({ tp, BASE, T, tool, ok, OUT, SHOT, gsL, pri
 
   /* ---------- c2) Prüfung: die Sitzung bleibt offen, Claude arbeitet im Fenster daneben (kein Wechsel des Tabs, kein Neuladen) ----------
      vorher: die ZIP-Datei nahm den Stand beim Öffnen – neue Bildkarten fehlten, neu gestaltete kamen mit den alten Karten hinein, beides ohne Hinweis */
-  const NAME5 = "1x - einseitig - Farbe - Bildkarten Rut.pdf";
+  const NAME5 = "1x - farbig - einseitig - Reli2 - Bildkarten Rut.pdf";
   r = await tool("add_picture_cards", { lesson_id: gsL, titel: "Bildkarten Rut", html: cardsHtml(2, "Rut"), erzaehltexte: ["Rut geht mit Noomi.", "Rut sammelt Ähren."] });
   const rid = r.structuredContent && r.structuredContent.file_id;
   printer.mode = "busy";
@@ -229,7 +229,7 @@ export async function cardsPrintE2E({ tp, BASE, T, tool, ok, OUT, SHOT, gsL, pri
   ok(info.pages === 4 && info.landscape && z.names.includes(NAME5), "… gedruckt: die neue Gestaltung (4 Seiten A4 quer) in der ZIP-Datei");
 
   /* ---------- d) hochgeladene Bildkarten-PDF: ebenfalls auf der Druckliste ---------- */
-  const NAME4 = "1x - einseitig - Farbe - Josef Bilder.pdf";
+  const NAME4 = "1x - farbig - einseitig - Reli2 - Josef Bilder.pdf";
   await cbox.locator("#gs-cards-file").setInputFiles({ name: "Josef Bilder.pdf", mimeType: "application/pdf", buffer: await cardsPdf(5) });
   const urow = rowOf(NAME4);
   await urow.waitFor({ timeout: 30000 });
@@ -243,7 +243,7 @@ export async function cardsPrintE2E({ tp, BASE, T, tool, ok, OUT, SHOT, gsL, pri
   ok(info.pages === 5 && info.landscape, "… in der ZIP-Datei: 5 Seiten A4 quer");
   // Prüfung: eine hochgeladene Bildkarten-PDF in einem anderen Format (z. B. A5 quer vom Verlag) kommt in allen Druckdateien auf A4 (quer bleibt quer);
   // gespeichert bleibt sie, wie sie war (daraus entstehen die Kartenbilder der Elternansicht)
-  const NAME6 = "1x - einseitig - Farbe - Verlag A5.pdf", A5Q = [595.28, 419.53];
+  const NAME6 = "1x - farbig - einseitig - Reli2 - Verlag A5.pdf", A5Q = [595.28, 419.53];
   await cbox.locator("#gs-cards-file").setInputFiles({ name: "Verlag A5.pdf", mimeType: "application/pdf", buffer: await cardsPdf(3, A5Q) });
   const vrow = rowOf(NAME6);
   await vrow.waitFor({ timeout: 30000 });
@@ -263,7 +263,7 @@ export async function cardsPrintE2E({ tp, BASE, T, tool, ok, OUT, SHOT, gsL, pri
   [dl] = await Promise.all([tp.waitForEvent("download", { timeout: 30000 }), vpn.getByRole("button", { name: "Herunterladen – " + NAME6 }).click()]);
   info = await pdfInfo(readFileSync(await dl.path()));
   ok(dl.suggestedFilename() === NAME6 && info.pages === 3 && info.landscape, "Startseite: „" + NAME6 + "“ – " + info.pages + " Seiten A4 quer");
-  const NAME7 = "1x - einseitig - Farbe - Bildkarten Ester.pdf";
+  const NAME7 = "1x - farbig - einseitig - Reli2 - Bildkarten Ester.pdf";
   r = await tool("add_picture_cards", { lesson_id: gsL, titel: "Bildkarten Ester", html: cardsHtml(2, "Ester"), erzaehltexte: ["Ester wird Königin.", "Ester bittet den König."] });
   const eid = r.structuredContent && r.structuredContent.file_id;
   ok(await tp.locator(".printnext .pn-row", { hasText: NAME7 }).count() === 0, "… Startseite offen geblieben: die neuen Bildkarten stehen noch nicht in der Liste");
@@ -288,7 +288,7 @@ export async function cardsPrintE2E({ tp, BASE, T, tool, ok, OUT, SHOT, gsL, pri
   g = await tool("get_lesson", { lesson_id: gsL });
   ok(g.content[0].text.includes("„Alte Karten.pdf“") && g.content[0].text.includes("  Nicht auf der Druckliste der Lehrkraft (heruntergenommen oder vor dem 16.11.2026 angelegt)"), "get_lesson: „Nicht auf der Druckliste der Lehrkraft“");
   await cbox.locator("#cs-print-" + oid).check();
-  await rowOf("1x - einseitig - Farbe - Alte Karten.pdf").waitFor({ timeout: 10000 });
+  await rowOf("1x - farbig - einseitig - Reli2 - Alte Karten.pdf").waitFor({ timeout: 10000 });
   ok((await pnFiles()).some((x) => x.id === oid), "… von Hand aufgenommen: auf der Druckliste und bei den Druckaufträgen");
 
   /* ---------- f) Erinnerung: Geschichte im Verlaufsplan, aber keine Bildkarten ---------- */

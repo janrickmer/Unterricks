@@ -18,6 +18,7 @@ import { updateE2E } from "./update.mjs";
 import { CONC_HTML, CONC_HTML_LONG } from "./konzentration.mjs";
 import { bringE2E } from "./bring.mjs";
 import { cardsPrintE2E } from "./cardsprint.mjs";
+import { printNamesE2E } from "./printnames.mjs";
 import { storageE2E } from "./storage.mjs";
 import { selbstlernStopE2E } from "./selbstlernstop.mjs";
 import { escapeFixture } from "./escape-fixture.mjs";
@@ -529,7 +530,7 @@ async function main() {
     await tp.locator(".item", { hasText: "Interne Linkliste GEHEIM" }).waitFor();
     ok(await tp.locator(".item", { hasText: "Erklärvideo der bpb" }).getByRole("link", { name: /Öffnen/ }).getAttribute("href") === "https://www.bpb.de/mediathek/video/bverfg", "Links mit Titel in beiden Bereichen (ohne „https://“ eingegeben → ergänzt)");
 
-    step("Von der Lehrkraft auszudrucken: nur PDF, A4, Name mit Anzahl/Druckart, einzeln und als ZIP");
+    step("Von der Lehrkraft auszudrucken: nur PDF, A4, Name mit Anzahl/Druckart/Kurs (Nachtrag 32), einzeln und als ZIP");
     {
       const pc = tp.locator("#printcard");
       const letter = await (async () => { const d = await PDFDocument.create(); d.addPage([612, 792]).drawText("US Letter", { x: 50, y: 700, size: 20 }); return Buffer.from(await d.save()); })();
@@ -539,28 +540,33 @@ async function main() {
       ok(true, "Druckliste: Word-Datei abgelehnt (nur PDF)");
       await pc.locator("input[type=file]").setInputFiles([{ name: "Arbeitsblatt Letter.pdf", mimeType: "application/pdf", buffer: letter }]);
       await tp.locator(".toast", { hasText: "nicht im Format A4 und wurde auf A4 umgerechnet" }).waitFor({ timeout: 20000 });
-      await pc.locator(".printrow", { hasText: "1x - beidseitig - sw - Arbeitsblatt Letter.pdf" }).waitFor({ timeout: 10000 });
-      ok(true, "US-Letter-PDF auf A4 umgerechnet (mit Hinweis), Name „1x - beidseitig - sw - …“ (Vorgabe: beidseitig, schwarz-weiß)");
+      await pc.locator(".printrow", { hasText: "1x - sw - beidseitig - PoWiQ2GK - Arbeitsblatt Letter.pdf" }).waitFor({ timeout: 10000 });
+      ok(true, "US-Letter-PDF auf A4 umgerechnet (mit Hinweis), Name „1x - sw - beidseitig - PoWiQ2GK - …“ (Vorgabe: schwarz-weiß, beidseitig; Kurs PoWi Q2 GK)");
+      // Nachtrag 32: der Hinweis nennt das Muster mit dem Kurs dieser Sitzung; die Auswahlfelder stehen in der Reihenfolge des Namens
+      ok((await pc.locator("#print-name-hint").textContent()).includes("Der Dateiname nennt Anzahl, schwarz-weiß/farbig, einseitig/beidseitig, den Kurs und den Titel, z. B. „28x - sw - beidseitig - PoWiQ2GK - Arbeitsblatt.pdf“."),
+        "Hinweis der Druckliste: Muster mit Kurs („PoWiQ2GK“)");
+      ok(JSON.stringify(await pc.locator(".printrow", { hasText: "Arbeitsblatt Letter" }).locator(".pset > *").evaluateAll((xs) => xs.map((x) => x.tagName + ":" + (x.getAttribute("aria-label") || x.textContent).split(" – ")[0])))
+        === JSON.stringify(["LABEL:Exemplare", "SELECT:Schwarz-weiß oder farbig", "SELECT:Beidseitig oder einseitig"]), "Zeile: Anzahl, schwarz-weiß/farbig, einseitig/beidseitig – wie im Dateinamen");
       const row = pc.locator(".printrow", { hasText: "Arbeitsblatt Letter" });
       await row.locator("input.pcopies").fill("28"); await row.locator("input.pcopies").press("Tab");
-      await pc.locator(".printrow .name", { hasText: "28x - beidseitig - sw - Arbeitsblatt Letter.pdf" }).waitFor({ timeout: 10000 });
+      await pc.locator(".printrow .name", { hasText: "28x - sw - beidseitig - PoWiQ2GK - Arbeitsblatt Letter.pdf" }).waitFor({ timeout: 10000 });
       await row.locator('select[aria-label^="Beidseitig oder einseitig"]').selectOption("0");
-      await row.locator('select[aria-label^="Schwarz-weiß oder Farbe"]').selectOption("1");
-      await pc.locator(".printrow .name", { hasText: "28x - einseitig - Farbe - Arbeitsblatt Letter.pdf" }).waitFor({ timeout: 10000 });
-      ok(true, "Anzahl, einseitig und Farbe ändern den Dateinamen („28x - einseitig - Farbe - …“)");
+      await row.locator('select[aria-label^="Schwarz-weiß oder farbig"]').selectOption("1");
+      await pc.locator(".printrow .name", { hasText: "28x - farbig - einseitig - PoWiQ2GK - Arbeitsblatt Letter.pdf" }).waitFor({ timeout: 10000 });
+      ok(true, "Anzahl, einseitig und farbig ändern den Dateinamen („28x - farbig - einseitig - PoWiQ2GK - …“)");
       await pc.locator("input[type=file]").setInputFiles([{ name: "Tafelbild.pdf", mimeType: "application/pdf", buffer: a4doc }]);
-      await pc.locator(".printrow .name", { hasText: "28x - beidseitig - sw - Tafelbild.pdf" }).waitFor({ timeout: 10000 });
+      await pc.locator(".printrow .name", { hasText: "28x - sw - beidseitig - PoWiQ2GK - Tafelbild.pdf" }).waitFor({ timeout: 10000 });
       ok(true, "neue Druckvorlage übernimmt die zuletzt verwendete Anzahl der Klasse (28)");
       const pfs = (await T("GET", "/api/teacher/lessons/" + lessonId)).data.files.filter((f) => f.area === "print");
       const lt = pfs.find((f) => f.name === "Arbeitsblatt Letter.pdf"), lres = await fetch(BASE + (await T("POST", "/api/teacher/files/" + lt.id + "/link", {})).data.url);
       const ldoc = await PDFDocument.load(new Uint8Array(await lres.arrayBuffer()));
-      ok(ldoc.getPages().every((pg) => Math.round(pg.getWidth()) === 595 && Math.round(pg.getHeight()) === 842) && /28x%20-%20einseitig%20-%20Farbe%20-%20Arbeitsblatt%20Letter\.pdf|28x - einseitig - Farbe - Arbeitsblatt Letter\.pdf/.test(lres.headers.get("content-disposition") || ""),
-        "gespeicherte Datei ist A4; Download heißt „28x - einseitig - Farbe - Arbeitsblatt Letter.pdf“");
+      ok(ldoc.getPages().every((pg) => Math.round(pg.getWidth()) === 595 && Math.round(pg.getHeight()) === 842) && /28x%20-%20farbig%20-%20einseitig%20-%20PoWiQ2GK%20-%20Arbeitsblatt%20Letter\.pdf|28x - farbig - einseitig - PoWiQ2GK - Arbeitsblatt Letter\.pdf/.test(lres.headers.get("content-disposition") || ""),
+        "gespeicherte Datei ist A4; Download heißt „28x - farbig - einseitig - PoWiQ2GK - Arbeitsblatt Letter.pdf“");
       const fake = await fetch(BASE + "/api/teacher/lessons/" + lessonId + "/print?name=" + encodeURIComponent("Tarnung.pdf"), { method: "POST", headers: { Authorization: "Bearer " + token, "Content-Type": "application/pdf" }, body: Buffer.from("kein pdf, nur Text") });
       ok(fake.status === 400, "Server prüft den Inhalt: eine als PDF getarnte Datei wird abgelehnt");
       const [zdl] = await Promise.all([tp.waitForEvent("download", { timeout: 30000 }), pc.getByRole("button", { name: "Alle herunterladen (ZIP)" }).click()]);
       const zipEntries = await readZip(new Uint8Array(readFileSync(await zdl.path())));
-      ok(/^Von der Lehrkraft auszudrucken - PoWi - Q2 GK - \d{4}-\d{2}-\d{2}\.zip$/.test(zdl.suggestedFilename()) && zipEntries.map((e) => e.name).sort().join(" | ") === "28x - beidseitig - sw - Tafelbild.pdf | 28x - einseitig - Farbe - Arbeitsblatt Letter.pdf"
+      ok(/^Von der Lehrkraft auszudrucken - PoWi - Q2 GK - \d{4}-\d{2}-\d{2}\.zip$/.test(zdl.suggestedFilename()) && zipEntries.map((e) => e.name).sort().join(" | ") === "28x - farbig - einseitig - PoWiQ2GK - Arbeitsblatt Letter.pdf | 28x - sw - beidseitig - PoWiQ2GK - Tafelbild.pdf"
         && zipEntries.every((e) => new TextDecoder().decode(e.data.subarray(0, 5)) === "%PDF-"), "„Alle herunterladen“: eine ZIP-Datei mit allen PDFs unter ihren Druck-Namen");
       await pc.screenshot({ ...SHOT, path: join(OUT, "lehrkraft-druckliste.png") });
     }
@@ -1297,10 +1303,10 @@ async function main() {
     await sp.reload(); await sp.locator(".item", { hasText: "Von Claude: Arbeitsauftrag" }).waitFor();
     ok(true, "Material von Claude erscheint bei den Schüler:innen");
     r = await rpc({ jsonrpc: "2.0", id: 10, method: "tools/call", params: { name: "add_print_material", arguments: { lesson_id: lessonId, titel: "Kärtchen Gewaltenteilung", markdown: "# Kärtchen\n\n- Legislative\n- Exekutive\n- Judikative", anzahl: 14, beidseitig: false, farbe: false } } });
-    ok(!r.data.result.isError && r.data.result.content[0].text.includes("14x - einseitig - sw - Kärtchen Gewaltenteilung.pdf"), "Claude legt eine Druckvorlage ab (add_print_material) mit Anzahl und Druckart");
+    ok(!r.data.result.isError && r.data.result.content[0].text.includes("14x - sw - einseitig - PoWiQ2GK - Kärtchen Gewaltenteilung.pdf"), "Claude legt eine Druckvorlage ab (add_print_material) mit Anzahl und Druckart");
     ok(!(await SA("GET", "/api/student/lessons/" + lessonId)).data.files.some((f) => /Kärtchen|Tafelbild|Arbeitsblatt Letter/.test(f.name)), "Druckvorlagen sind für Schüler:innen nie sichtbar");
     await tp.evaluate(() => document.dispatchEvent(new Event("visibilitychange")));
-    await tp.locator("#printcard .printrow .name", { hasText: "14x - einseitig - sw - Kärtchen Gewaltenteilung.pdf" }).waitFor({ timeout: 10000 });
+    await tp.locator("#printcard .printrow .name", { hasText: "14x - sw - einseitig - PoWiQ2GK - Kärtchen Gewaltenteilung.pdf" }).waitFor({ timeout: 10000 });
     ok(true, "… erscheint beim Zurückkehren in der Druckliste der Sitzung");
 
     /* ---------- Von Claude gestaltetes Material: HTML → PDF (Server druckt) ---------- */
@@ -1357,9 +1363,9 @@ async function main() {
     await tp.locator("#app .item", { hasText: "Arbeitsblatt Gewaltenteilung.pdf" }).screenshot({ ...SHOT, path: join(OUT, "lehrkraft-material-claude.png") });
     // Druckliste
     r = await tool("add_material_pdf", { lesson_id: lessonId, bereich: "druck", titel: "Kärtchen Gewalten", html: "<div style='display:grid;grid-template-columns:1fr 1fr;gap:10mm'><div>Legislative</div><div>Exekutive</div></div>", anzahl: 28, beidseitig: false, farbe: false });
-    ok(!r.isError && r.content[0].text.includes("„28x - einseitig - sw - Kärtchen Gewalten.pdf“"), "Druckvorlage gestaltet (bereich druck) mit Anzahl und Druckart");
+    ok(!r.isError && r.content[0].text.includes("„28x - sw - einseitig - PoWiQ2GK - Kärtchen Gewalten.pdf“"), "Druckvorlage gestaltet (bereich druck) mit Anzahl und Druckart");
     await tp.evaluate(() => document.dispatchEvent(new Event("visibilitychange")));
-    await tp.locator("#printcard .printrow", { hasText: "28x - einseitig - sw - Kärtchen Gewalten.pdf" }).locator(".meta", { hasText: "PDF, von Claude gestaltet" }).waitFor({ timeout: 10000 });
+    await tp.locator("#printcard .printrow", { hasText: "28x - sw - einseitig - PoWiQ2GK - Kärtchen Gewalten.pdf" }).locator(".meta", { hasText: "PDF, von Claude gestaltet" }).waitFor({ timeout: 10000 });
     ok(true, "… erscheint gedruckt in der Druckliste");
     // Prüfung nach dem Ausrollen: Testseite höchstens einmal je Stunde
     let hp = await (await fetch(BASE + "/api/health/pdf")).json();
@@ -2301,7 +2307,7 @@ async function main() {
       const tl = (await rpc({ jsonrpc: "2.0", id: 31, method: "tools/list", params: {} })).data.result.tools;
       ok(tl.find((t) => t.name === "add_material_pdf").description.includes("Standard: Schülerzahl laut Kurseinstellungen (siehe get_lesson)"), "add_material_pdf: anzahl standardmäßig aus den Kurseinstellungen");
       const am = await tool("add_material_pdf", { lesson_id: old7a.id, bereich: "druck", titel: "Gerechtigkeitskärtchen", html: "<h1>Gerecht oder ungerecht?</h1><p>Kärtchen</p>" });
-      ok(!am.isError && am.content[0].text.includes("„24x - beidseitig - sw - Gerechtigkeitskärtchen.pdf“"), "add_material_pdf (druck) ohne anzahl: " + am.content[0].text.slice(0, 160));
+      ok(!am.isError && am.content[0].text.includes("„24x - sw - beidseitig - Eth7 - Gerechtigkeitskärtchen.pdf“"), "add_material_pdf (druck) ohne anzahl: " + am.content[0].text.slice(0, 160));
       const pf = (await T("GET", "/api/teacher/lessons/" + old7a.id)).data.files.find((f) => f.area === "print" && f.name.startsWith("Gerechtigkeitskärtchen"));
       ok(pf && pf.printName.startsWith("24x - "), "Druckliste: „" + (pf && pf.printName) + "“");
     }
@@ -2586,7 +2592,7 @@ async function main() {
       const vorId = g.structuredContent.file_id;
       g = await tool("add_material_pdf", { lesson_id: les2.id, bereich: "schueler", titel: "Arbeitsblatt Josef in Ägypten", html: "<h1>Josef in Ägypten</h1><p>Male ein Bild.</p>", anzahl: 22 });
       const abId = g.structuredContent.file_id;
-      ok(!g.isError && g.content[0].text.includes("„22x - beidseitig - sw - Arbeitsblatt Josef in Ägypten.pdf“") && g.content[0].text.includes("Verweis im Verlaufsplan: [[pdf:" + abId + "]]"),
+      ok(!g.isError && g.content[0].text.includes("„22x - sw - beidseitig - Reli2 - Arbeitsblatt Josef in Ägypten.pdf“") && g.content[0].text.includes("Verweis im Verlaufsplan: [[pdf:" + abId + "]]"),
         "add_material_pdf (Kinder, anzahl 22): auch auf der Druckliste, Antwort nennt den Verweis");
       g = await tool("add_material_pdf", { lesson_id: les2.id, bereich: "schueler", titel: "Rätsel Pyramide", html: "<h1>Rätsel</h1>", anzahl: 22 });
       const raeId = g.structuredContent.file_id;
@@ -2633,7 +2639,7 @@ async function main() {
       ok(JSON.stringify(await mat.locator(".gs-parents-badge").allTextContents()) === JSON.stringify(["Eltern sehen sie", "Eltern sehen sie"]) && await mat.getByText("Material für die Kinder (Eltern sehen die PDF-Dateien nach der Stunde)").count() === 1
         && await mat.locator(".printtoggle input:checked").count() === 2 && (await mat.locator(".printtoggle").first().textContent()) === "Auch ausdrucken (22×)", "Materialkasten: „Eltern sehen sie“ und „Auch ausdrucken (22×)“");
       const prn = await tp.locator("#printcard .printrow .name").allTextContents();
-      ok(prn.includes("22x - beidseitig - sw - Arbeitsblatt Josef in Ägypten.pdf") && prn.includes("22x - beidseitig - sw - Rätsel Pyramide.pdf"), "Druckliste: die Blätter der Kinder mit 22 Exemplaren");
+      ok(prn.includes("22x - sw - beidseitig - Reli2 - Arbeitsblatt Josef in Ägypten.pdf") && prn.includes("22x - sw - beidseitig - Reli2 - Rätsel Pyramide.pdf"), "Druckliste: die Blätter der Kinder mit 22 Exemplaren");
       ok((await tp.locator("#gs-parents").textContent()).includes("Eltern sehen von dieser Sitzung: „Arbeitsblatt Josef in Ägypten.pdf“, „Rätsel Pyramide.pdf“")
         && await tp.locator("#gs-summary").inputValue() === "Wir haben gehört, wie Josef nach Ägypten kam.", "Elternansicht-Karte nennt das Material; Inhalt der Unterrichtsstunde von Claude");
       // d) Zwischenstopp per Tastatur (Dialog „Wo haben Sie aufgehört?“): vor „4) Rätsel“
@@ -2670,7 +2676,7 @@ async function main() {
           const { CONC_WHY, CONC_RULES } = await import("../../public/gsplanning.js");
           ok(gp.includes("\n## Konzentrationsaufgabe (gehört zu jeder Sitzung)\n" + CONC_WHY) && CONC_RULES.every((r) => gp.includes("\n- " + r)) && gp.indexOf("## Konzentrationsaufgabe") < gp.indexOf("## Vorgehen")
             && gp.includes("Die Konzentrationsaufgabe speicherst du mit `add_material_pdf` (`bereich` \"druck\", `anzahl` 5, `beidseitig` true, `farbe` false, `titel` „Konzentrationsaufgabe – <Thema der Stunde>“")
-            && gp.includes("Dann steht sie nur auf meiner Druckliste („5x - beidseitig - sw - Konzentrationsaufgabe – ….pdf“), nie bei Eltern oder Kindern.")
+            && gp.includes("Dann steht sie nur auf meiner Druckliste („5x - sw - beidseitig - <Kurs> - Konzentrationsaufgabe – ….pdf“), nie bei Eltern oder Kindern.")
             && gp.indexOf("Die Konzentrationsaufgabe speicherst du") > gp.indexOf("`add_picture_cards`") && gp.indexOf("Die Konzentrationsaufgabe speicherst du") < gp.indexOf("Den Stundenverlauf speicherst du")
             && ["Höchstens zwei DIN-A4-Seiten", "mindestens zwei Ausmalbilder", "Symbol einer roten Karte", "Erst nach der roten Karte eine weitere, altersgerechte Aufgabe"].every((x) => gp.includes(x)),
           "Prompt (Grundschule): Konzentrationsaufgabe – Zweck, Aufbau (höchstens zwei Seiten, Ausmalbilder, rote Karte, Aufgabe) und Ablage (druck, 5x, beidseitig, sw) vor dem Verlaufsplan");
@@ -3102,7 +3108,7 @@ async function main() {
       r = await tool("add_material_pdf", { lesson_id: gsL, bereich: "druck", titel: "Ausmalbild Schoepfung", html: "<h1>Ausmalbild</h1><p>Licht und Dunkel</p>", anzahl: 22, beidseitig: false, farbe: false });
       ok(!r.isError, "Grundschule (Religion 2ab): PDF der Kinder mit „Auch ausdrucken (22×)“ und eine von Claude gestaltete Druckvorlage");
       // Nachtrag 27: Claude legt die Konzentrationsaufgabe der Sitzung ab (zwei Seiten: Ausmalbilder, rote Karte, Aufgabe) – gedruckt vom Chromium der Attrappe
-      const CONC_NAME = "5x - beidseitig - sw - Konzentrationsaufgabe – Die Schöpfung.pdf";
+      const CONC_NAME = "5x - sw - beidseitig - Reli2 - Konzentrationsaufgabe – Die Schöpfung.pdf";
       r = await tool("add_material_pdf", { lesson_id: gsL, bereich: "druck", titel: "Konzentrationsaufgabe – Die Schöpfung", html: CONC_HTML, anzahl: 5, beidseitig: true, farbe: false });
       const concId = r.structuredContent && r.structuredContent.file_id;
       ok(!r.isError && r.structuredContent.pages === 2 && r.structuredContent.konzentrationsaufgabe === true && r.structuredContent.zu_lang === false
@@ -3126,15 +3132,15 @@ async function main() {
       ok(await printTop() && await card.locator(".pn-ico svg").count() === 1 && (await card.locator("#pn-day").textContent()) === dayWant, "Startseite: Feld ganz oben mit Drucker-Symbol und Tag („" + dayWant + "“)");
       const gymNames = await gymG.locator(".pn-row .name").allTextContents(), gsNames = await gsG.locator(".pn-row .name").allTextContents();
       ok((await gymG.locator("h3").textContent()) === "07:50 PoWi 9D – Wählen ab 16?" && (await gsG.locator("h3").textContent()) === "09:40 Grundschule Religion 2ab – Die Schöpfung"
-        && JSON.stringify(gymNames) === JSON.stringify(["27x - einseitig - sw - Wahlplakat.pdf", "14x - einseitig - sw - Kaertchen Wahlrecht.pdf"])
-        && JSON.stringify(gsNames) === JSON.stringify(["22x - beidseitig - sw - Schoepfung Arbeitsblatt.pdf", "22x - einseitig - sw - Ausmalbild Schoepfung.pdf", CONC_NAME]),
+        && JSON.stringify(gymNames) === JSON.stringify(["27x - sw - einseitig - PoWi9 - Wahlplakat.pdf", "14x - sw - einseitig - PoWi9 - Kaertchen Wahlrecht.pdf"])
+        && JSON.stringify(gsNames) === JSON.stringify(["22x - sw - beidseitig - Reli2 - Schoepfung Arbeitsblatt.pdf", "22x - sw - einseitig - Reli2 - Ausmalbild Schoepfung.pdf", CONC_NAME]),
         "je Sitzung eine Gruppe (Beginn, Fach/Klasse bzw. Grundschulkurs, Titel) mit den Druck-Namen: " + gymNames.concat(gsNames).join(" | "));
       // einzeln herunterladen (PDF über den signierten Link, Textmaterial als A4-PDF) – Name wie in der Sitzung
-      let [dl] = await Promise.all([tp.waitForEvent("download", { timeout: 30000 }), gymG.getByRole("button", { name: "Herunterladen – 27x - einseitig - sw - Wahlplakat.pdf" }).click()]);
+      let [dl] = await Promise.all([tp.waitForEvent("download", { timeout: 30000 }), gymG.getByRole("button", { name: "Herunterladen – 27x - sw - einseitig - PoWi9 - Wahlplakat.pdf" }).click()]);
       const one = readFileSync(await dl.path());
-      ok(dl.suggestedFilename() === "27x - einseitig - sw - Wahlplakat.pdf" && one.subarray(0, 5).toString() === "%PDF-", "Einzel-Download: „" + dl.suggestedFilename() + "“");
-      [dl] = await Promise.all([tp.waitForEvent("download", { timeout: 30000 }), gymG.getByRole("button", { name: "Herunterladen – 14x - einseitig - sw - Kaertchen Wahlrecht.pdf" }).click()]);
-      ok(dl.suggestedFilename() === "14x - einseitig - sw - Kaertchen Wahlrecht.pdf" && readFileSync(await dl.path()).subarray(0, 5).toString() === "%PDF-", "Textmaterial als A4-PDF: „" + dl.suggestedFilename() + "“");
+      ok(dl.suggestedFilename() === "27x - sw - einseitig - PoWi9 - Wahlplakat.pdf" && one.subarray(0, 5).toString() === "%PDF-", "Einzel-Download: „" + dl.suggestedFilename() + "“");
+      [dl] = await Promise.all([tp.waitForEvent("download", { timeout: 30000 }), gymG.getByRole("button", { name: "Herunterladen – 14x - sw - einseitig - PoWi9 - Kaertchen Wahlrecht.pdf" }).click()]);
+      ok(dl.suggestedFilename() === "14x - sw - einseitig - PoWi9 - Kaertchen Wahlrecht.pdf" && readFileSync(await dl.path()).subarray(0, 5).toString() === "%PDF-", "Textmaterial als A4-PDF: „" + dl.suggestedFilename() + "“");
       // „Alle Dateien herunterladen“: nacheinander je eine Datei, keine ZIP-Datei, Fortschritt in der Statuszeile
       const got = [], onDl = (d) => got.push(d);
       tp.on("download", onDl);
@@ -3148,8 +3154,8 @@ async function main() {
       const allNames = got.map((d) => d.suggestedFilename()), heads = await Promise.all(got.map(async (d) => readFileSync(await d.path()).subarray(0, 5).toString()));
       // Chromium dieser Testumgebung (ohne UTF-8-Locale) speichert Namen mit Umlauten als „download“ – Dateien anderer Sitzungen dürfen so heißen
       const sameName = (n, want) => n === want || (n === "download" && /[^\x20-\x7e]/.test(want));
-      ok(during === "true" && allNames.length === ready.length && allNames.every((n, i) => sameName(n, ready[i])) && ["27x - einseitig - sw - Wahlplakat.pdf", "14x - einseitig - sw - Kaertchen Wahlrecht.pdf",
-        "22x - beidseitig - sw - Schoepfung Arbeitsblatt.pdf", "22x - einseitig - sw - Ausmalbild Schoepfung.pdf"].every((n) => allNames.includes(n)) && ready.includes(CONC_NAME) && !allNames.some((n) => /\.zip$/i.test(n)) && heads.every((x) => x === "%PDF-")
+      ok(during === "true" && allNames.length === ready.length && allNames.every((n, i) => sameName(n, ready[i])) && ["27x - sw - einseitig - PoWi9 - Wahlplakat.pdf", "14x - sw - einseitig - PoWi9 - Kaertchen Wahlrecht.pdf",
+        "22x - sw - beidseitig - Reli2 - Schoepfung Arbeitsblatt.pdf", "22x - sw - einseitig - Reli2 - Ausmalbild Schoepfung.pdf"].every((n) => allNames.includes(n)) && ready.includes(CONC_NAME) && !allNames.some((n) => /\.zip$/i.test(n)) && heads.every((x) => x === "%PDF-")
         && (await card.locator("#pn-status").textContent()).startsWith("Fertig: Alle " + ready.length + " Dateien sind einzeln heruntergeladen."),
         "„Alle Dateien herunterladen“: " + allNames.length + " einzelne PDF-Dateien nacheinander (keine ZIP-Datei), währenddessen gesperrt (" + during + "), Abschlussmeldung – " + allNames.join(" | "));
       await tp.screenshot({ ...SHOT, path: join(OUT, "druckauftraege-gymnasium.png") });
@@ -3209,7 +3215,7 @@ async function main() {
       await tp.goto(BASE + "/#/lk/s/" + gsL + "/druckliste");
       const crow = tp.locator("#printcard .printrow", { hasText: CONC_NAME });
       await crow.waitFor({ timeout: 15000 });
-      ok(await crow.locator("input.pcopies").inputValue() === "5" && await crow.locator("select").nth(0).inputValue() === "1" && await crow.locator("select").nth(1).inputValue() === "0"
+      ok(await crow.locator("input.pcopies").inputValue() === "5" && await crow.locator('select[aria-label^="Beidseitig oder einseitig"]').inputValue() === "1" && await crow.locator('select[aria-label^="Schwarz-weiß oder farbig"]').inputValue() === "0"
         && (await crow.locator(".meta").textContent()).includes("2 Seiten"), "Druckliste der Sitzung: „" + CONC_NAME + "“ – 5 Exemplare, beidseitig, schwarz-weiß, 2 Seiten");
       await tp.locator("#gsplan a.pdfref").first().waitFor({ timeout: 15000 });
       ok((await tp.locator("#gsplan a.pdfref").allTextContents()).some((t) => t.startsWith("Konzentrationsaufgabe – Die Schöpfung.pdf")) && !(await tp.locator("#gs-material").textContent()).includes("Konzentrationsaufgabe")
@@ -3251,6 +3257,10 @@ async function main() {
         const d1 = (sql) => execFileSync("npx", ["wrangler", "d1", "execute", "unterricks-db", "--local", "--persist-to", persist, "--command", sql], { cwd: ROOT, stdio: ["ignore", "pipe", "pipe"], env: { ...process.env, WRANGLER_SEND_METRICS: "false" } });
         await cardsPrintE2E({ tp, BASE, T, tool, ok, OUT, SHOT, gsL, printer, d1, horizontalIssues });
       }
+
+      /* ---------- Nachtrag 32: Dateinamen der Druckliste mit Kurs („21x - farbig - einseitig - Sach3 - Titel.pdf“) ---------- */
+      step("Dateinamen der Druckliste: Anzahl, schwarz-weiß/farbig, einseitig/beidseitig, Kurs, Titel – Grundschule (anderes Fach), Gymnasium (Kurs, E-Phase), Hinweis, Einzel-Download, ZIP ohne Überschreiben, Kurs geändert");
+      await printNamesE2E({ tp, BASE, T, token, ok, OUT, SHOT, cand, horizontalIssues });
 
       /* ---------- Nachtrag 30: belegter Speicher in der Fußzeile der Lehrkraft ---------- */
       step("Speicher in der Fußzeile der Lehrkraft: „Speicher: n % belegt“ auf jeder Seite der Lehrkraft (knapperer Wert von Dateien und Datenbank), aufklappbar, Hinweis ab 80 %, rot ab 95 %, nie bei Schüler:innen, Eltern und am Beamer");
@@ -3505,7 +3515,7 @@ async function main() {
       const tl = Date.now(); await ptp.getByRole("button", { name: "Anmelden" }).click(); await waitTeacherHome(ptp, tl, "Anmeldung auf Pages");
       { // Druckaufträge auf Pages: bei anderer Herkunft beachtet der Browser das download-Attribut nicht – trotzdem heißt jede Datei wie in der
         // Druckliste (Druckvorlage: Name vom Server; Arbeitsblatt der Kinder mit „Auch ausdrucken“: als Blob unter dem Druck-Namen)
-        const want = ["27x - einseitig - sw - Wahlplakat.pdf", "22x - beidseitig - sw - Schoepfung Arbeitsblatt.pdf"], got = [];
+        const want = ["27x - sw - einseitig - PoWi9 - Wahlplakat.pdf", "22x - sw - beidseitig - Reli2 - Schoepfung Arbeitsblatt.pdf"], got = [];
         const pcard = ptp.locator(".printnext");
         await pcard.locator(".pn-row").first().waitFor({ timeout: 20000 });
         for (const n of want) {

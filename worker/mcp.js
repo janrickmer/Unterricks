@@ -5,7 +5,7 @@
 import { HttpError, json, readJson, sha256Hex, timingSafeEqual, randomToken, LOCKS, lockedFor, registerFail, cleanText, cleanLine } from "./lib.js";
 import { getSetting, setSetting } from "./db.js";
 import { requireTeacher } from "./auth.js";
-import { getLesson, lessonCtx, chatMessages, updateLesson, savePortal, insertDraft, lessonOut, fileOut, LIMITS, previousLesson, cardData, cardVersion, prevStopInfo, openFilesOf, stopDecision, stopDecisionJson } from "./lessons.js";
+import { getLesson, lessonCtx, chatMessages, updateLesson, savePortal, insertDraft, lessonOut, fileOut, LIMITS, previousLesson, cardData, cardVersion, prevStopInfo, openFilesOf, stopDecision, stopDecisionJson, printNameOf } from "./lessons.js";
 import { getUnit, unitFull, applyPlan, updateRow, updateRows, extendUnit, ROWS_MAX, EXTEND_MAX } from "./units.js";
 import { loadFreeDays } from "./freedays.js";
 import { planningBasis } from "./bases.js";
@@ -17,7 +17,7 @@ import { paramsText, lessonSlots, WEEKDAYS, freeSlots, stopLessonLines, STOP_CHO
 import { insertTextMaterial, insertPrintText, saveDesign, renderDesign, getFile } from "./files.js";
 import { shortImages } from "./render.js";
 import { ESCAPE_FORMAT_HINT, PART_TYPES } from "../public/escape-data.js";
-import { SUBJECTS, ALL_CLASSES, subjectName, gradeInfo, formatCode, lessonContext, chatTranscript, PORTAL_RULES, PORTAL_EXAMPLE, PORTAL_TEACHER_RULE, SYSTEM_PROMPT_ROLE, FEIBEITSBLATT_INFO, FB_LINK_HINT, classShort, fmtDay, materialDesignText, printFileName, GS_SUBJECT,
+import { SUBJECTS, ALL_CLASSES, subjectName, gradeInfo, formatCode, lessonContext, chatTranscript, PORTAL_RULES, PORTAL_EXAMPLE, PORTAL_TEACHER_RULE, SYSTEM_PROMPT_ROLE, FEIBEITSBLATT_INFO, FB_LINK_HINT, classShort, fmtDay, materialDesignText, printFileName, printCourse, GS_SUBJECT,
   STOP_LINE, hasStop, planRefs, pdfRef, PLAN_REF_RE, NOTES_FILE, TEACHER_SUMMARY_TITLE, TEACHER_SUMMARY_MAX, teacherSummaryRules, summaryHead, summaryOutdated, fmtStampBerlin, addDays, berlinToday } from "../public/shared.js";
 import { gsLessonContext, GS_MATERIAL_RULES, CARD_DESIGN_RULES, VERLAUFSPLAN_EXAMPLE, VERLAUFSPLAN_RULES, CONC_TITLE, CONC_PRINT, CONC_PAGES_MAX, isConcName, concTitleOf, concSaveArgs, concSection, concMissingText, concUnplannedText,
   storyInPlan, cardsMissingText, CARD_PRINT_TEXT } from "../public/gsplanning.js";
@@ -130,6 +130,7 @@ const TOOLS = [
       "Du gestaltest es als HTML-Seite; Unterricks druckt sie unverändert mit Chromium als A4-PDF und legt die PDF ab. bereich: \"schueler\" (für die Schüler:innen, sichtbar sobald die PDF gedruckt ist; sie laden sie z. B. in GoodNotes), " +
       "\"lehrkraft\" (nur für die Lehrkraft, z. B. Erwartungshorizont, Lösungen, Tafelbild) oder \"druck\" (Liste „Von der Lehrkraft auszudrucken“: in Jg. 5/6 alles Material für die Schüler:innen, sonst Kärtchen, Karten, Plakate; " +
       "dazu anzahl – Standard: Schülerzahl laut Kurseinstellungen (siehe get_lesson); fehlt sie, frag nach der Klassengröße –, beidseitig (false, wenn geschnitten wird) und farbe (nur, wenn Farbe unbedingt nötig ist; gedruckt wird fast immer schwarz-weiß)). " +
+      "Den Namen auf der Druckliste setzt Unterricks selbst aus Anzahl, Druckart, Kurs und titel zusammen, z. B. „23x - sw - einseitig - Reli4 - Die Arche Noah.pdf“ – schreib Anzahl, Druckart, Kurs und Klasse deshalb nicht in den titel. " +
       "Mit file_id (aus get_lesson) ersetzt du die Gestaltung eines vorhandenen Materials – lies sie vorher mit get_material; eingebettete Bilder stehen dort als Platzhalter „data:unterricks-bild,n“ und bleiben erhalten, wenn du die Platzhalter stehen lässt. " +
       "Die Antwort nennt die Seitenzahl der gedruckten PDF oder die Meldung des Druckers. Ein Material = eine Datei (mehrere Materialien M1, M2 … für dieselbe Aufgabe dürfen in einer Datei stehen).\n\nGestaltungsregeln:\n" + materialDesignText() +
       "\n\nGrundschule: bereich \"schueler\" = Arbeitsblätter der Kinder (Eltern sehen sie nach der Stunde, wenn der Verlaufsplan sie vor einem Zwischenstopp nennt); gib dort anzahl an (und, wenn nötig, beidseitig und farbe), dann steht das Blatt auch auf der Druckliste. " +
@@ -178,7 +179,7 @@ const TOOLS = [
     description: "RÜCKFALL – nur verwenden, wenn add_material_pdf (bereich \"druck\") nicht funktioniert. Legt eine Vorlage in die Liste „Von der Lehrkraft auszudrucken“ der Sitzung (Markdown; die Plattform erzeugt daraus eine einfache A4-PDF – gedruckt wird nur A4). Für alles, was vor der Stunde ausgedruckt " +
       "werden muss: Arbeitsblätter in Jg. 5/6, Karten, Schaubilder oder Kärtchen für die Tafel. anzahl: wie oft (z. B. Zahl der Schüler:innen – frag die Lehrkraft, wenn du sie nicht kennst); " +
       "beidseitig: false, wenn geschnitten wird oder Rückseiten stören; farbe: nur true, wenn Farbe unbedingt nötig ist (an der Schule wird fast immer schwarz-weiß gedruckt). " +
-      "Der Dateiname entsteht automatisch, z. B. „28x - beidseitig - sw - Titel.pdf“.",
+      "Der Dateiname entsteht automatisch aus Anzahl, Druckart, Kurs und titel, z. B. „28x - sw - beidseitig - PoWi8 - Titel.pdf“.",
     inputSchema: { type: "object", properties: { lesson_id: ID_ARG, titel: { type: "string", maxLength: 160 }, markdown: { type: "string", maxLength: 200000 },
       anzahl: { type: "integer", minimum: 1, maximum: 500 }, beidseitig: { type: "boolean" }, farbe: { type: "boolean" } },
       required: ["lesson_id", "titel", "markdown", "anzahl", "beidseitig", "farbe"], additionalProperties: false } },
@@ -356,10 +357,11 @@ async function otherFilesSection(db, lessonId) {
 /* get_lesson einer Grundschul-Sitzung: Kurs statt Klasse, Verlaufsplan statt Schulportal-Eintrag, Inhalt und Hinweis für die Eltern, die PDF-Dateien
    des Kurses für Verweise – ohne Sitzungscode, Feibeitsblätter und Vertretung, nie ein Elternlink */
 const GS_AREA = { student: "für die Kinder – Eltern sehen sie nach der Stunde", teacher: "nur Lehrkraft", print: "zum Ausdrucken" };
-function gsFileLine(f) {
+// course = Kurs im Druck-Namen (Nachtrag 32, printCourse – alle Dateien des Abschnitts gehören zu Sitzungen desselben Kurses)
+function gsFileLine(f, course) {
   if (f.cards != null) return "- file_id " + f.id + ": „" + f.name + "“ (Bildkarten – " + (cardData(f).share ? "Eltern sehen sie nach der Stunde" : "Eltern dürfen sie nicht sehen") + "; siehe „Bildkarten“) → " + pdfRef(f.id);
   const st = f.status !== "ready" ? (f.render_error ? "Druck fehlgeschlagen: " + f.render_error : "wartet auf den Druck") : f.pages ? f.pages + (f.pages === 1 ? " Seite" : " Seiten") : "fertig";
-  const pr = f.area === "student" && f.print_copies != null ? "; auch auf der Druckliste: " + printFileName({ name: f.name, copies: f.print_copies, duplex: f.print_duplex !== 0, color: f.print_color === 1 }) : "";
+  const pr = f.area === "student" && f.print_copies != null ? "; auch auf der Druckliste: " + printNameOf(f, course) : "";
   return "- file_id " + f.id + ": „" + f.name + "“ (" + (GS_AREA[f.area] || f.area) + "; " + st + pr + ") → " + pdfRef(f.id);
 }
 // PDFs anderer Sitzungen des Kurses für get_lesson: die der vorigen Sitzung und alle, auf die der Verlaufsplan verweist – auch ältere als die vorige
@@ -387,6 +389,8 @@ async function gsLessonDump(c, l) {
   const before = prev ? others.filter((f) => f.lesson_id === prev.id) : [];
   const refOthers = others.filter((f) => (!prev || f.lesson_id !== prev.id) && refs.includes(f.id));
   const results = msgs.filter((m) => m.mode === "claude" && m.role === "assistant");
+  // Kurs im Druck-Namen (Nachtrag 32): aus dem schon geladenen Kurs (lessonCtx) – keine weitere Anweisung
+  const pc = printCourse(GS_SUBJECT, l.klass, ctx.course), fileLine = (f) => gsFileLine(f, pc);
   const parentsLine = l.cancelled ? "Eltern sehen zu diesem Termin nur, dass der Unterricht nicht stattfinden konnte" + (String(l.parent_note || "").trim() ? ", und den Hinweis der Lehrkraft." : ".")
     : "Eltern sehen nach der Stunde: " + ([...pf.cards, ...pf.files].map((f) => "„" + f.name + "“").join(", ") || "noch kein Material");
   const parts = [
@@ -404,8 +408,8 @@ async function gsLessonDump(c, l) {
   ];
   // Ausfall-Eintrag: nichts zu verweisen
   if (!l.cancelled) {
-    parts.push("", "## PDF-Dateien des Kurses für Verweise ([[pdf:<file_id>]])", "Diese Sitzung:", ...(own.length ? own.map(gsFileLine) : ["(noch keine)"]));
-    if (prev) parts.push("Vorige Sitzung „" + prev.title + "“" + (prev.lesson_date ? " (" + fmtDay(prev.lesson_date) + ")" : "") + ":", ...(before.length ? before.map(gsFileLine) : ["(keine)"]));
+    parts.push("", "## PDF-Dateien des Kurses für Verweise ([[pdf:<file_id>]])", "Diese Sitzung:", ...(own.length ? own.map(fileLine) : ["(noch keine)"]));
+    if (prev) parts.push("Vorige Sitzung „" + prev.title + "“" + (prev.lesson_date ? " (" + fmtDay(prev.lesson_date) + ")" : "") + ":", ...(before.length ? before.map(fileLine) : ["(keine)"]));
     // Verweise auf PDFs weiterer Sitzungen (z. B. aus einem früheren Zwischenstopp übernommen) – je Sitzung; Eltern sehen nur die früherer Sitzungen
     const groups = new Map();
     for (const f of refOthers) { if (!groups.has(f.lesson_id)) groups.set(f.lesson_id, []); groups.get(f.lesson_id).push(f); }
@@ -413,13 +417,13 @@ async function gsLessonDump(c, l) {
     for (const fs of groups.values()) {
       const f0 = fs[0], ok = refCounts(lessonOfRow(f0), l);
       parts.push("Sitzung „" + (f0.lesson_title || "") + "“ (" + (f0.lesson_date ? fmtDay(f0.lesson_date) : "ohne Termin") + ")" +
-        (ok ? ":" : " – liegt nicht vor dieser Sitzung, deshalb sehen Eltern diese Dateien hier nicht:"), ...fs.map(gsFileLine));
+        (ok ? ":" : " – liegt nicht vor dieser Sitzung, deshalb sehen Eltern diese Dateien hier nicht:"), ...fs.map(fileLine));
     }
   }
   // Konzentrationsaufgabe (Nachtrag 27): gibt es sie schon – sonst Zweck, Aufbau und Ablage (nicht bei einem Ausfall-Eintrag)
-  if (!l.cancelled) parts.push(...concSection(ctx.files, l.topic || l.title, printFileName));
+  if (!l.cancelled) parts.push(...concSection(ctx.files, l.topic || l.title, (p) => printFileName({ ...p, course: pc })));
   // Bildkarten (Nachtrag 31): je Satz auch die Druckliste; ohne Bildkarten die Regel bzw. – erzählt der Verlaufsplan eine Geschichte – die Erinnerung
-  parts.push(...cardsSection(ctx.files, { plan: l.portal, cancelled: !!l.cancelled, refCards: others.some((f) => f.cards != null && refs.includes(f.id)) }));
+  parts.push(...cardsSection(ctx.files, { plan: l.portal, cancelled: !!l.cancelled, refCards: others.some((f) => f.cards != null && refs.includes(f.id)), course: pc }));
   parts.push(...(await designedSection(db, l.id, (a) => (a === "student" ? "für die Kinder" : a === "teacher" ? "nur Lehrkraft" : "zum Ausdrucken"))));
   if (results.length) parts.push("", "## Gespeicherter Stundenentwurf (save_planning_result)", results[results.length - 1].content.slice(0, 20000));
   if (l.unit_id) parts.push("", "Unterrichtseinheit: " + l.unit_id + " (Details mit get_unit; Planungsgrundlagen mit get_planning_basis)");
@@ -442,10 +446,10 @@ function freeLessonLine(l, unit, now) {
 
 /* Abschnitt „Bildkarten“ von get_lesson (Grundschule): Zahl der Karten, Stand der Bilder, Freigabe für Eltern, Druckliste und die Erzähltexte. Ohne Bildkarten
    (Nachtrag 31): die Regel „zu jeder Geschichte im Sitzkreis Bildkarten“ bzw. – erzählt der Verlaufsplan eine Geschichte (storyInPlan) – die Erinnerung; nichts
-   bei einem Ausfall-Eintrag. refCards: der Verlaufsplan verweist auf Bildkarten einer anderen Sitzung. */
-const cardPrintLine = (f) => (f.print_copies != null ? "  Druckliste der Lehrkraft: „" + printFileName({ name: f.name, copies: f.print_copies, duplex: f.print_duplex !== 0, color: f.print_color === 1 }) + "“."
+   bei einem Ausfall-Eintrag. refCards: der Verlaufsplan verweist auf Bildkarten einer anderen Sitzung; course: Kurs im Druck-Namen (Nachtrag 32). */
+const cardPrintLine = (f, course) => (f.print_copies != null ? "  Druckliste der Lehrkraft: „" + printNameOf(f, course) + "“."
   : "  Nicht auf der Druckliste der Lehrkraft (heruntergenommen oder vor dem 16.11.2026 angelegt) – nur sie nimmt die Bildkarten in der Sitzung wieder auf.");
-export function cardsSection(files, { plan = "", cancelled = false, refCards = false } = {}) {
+export function cardsSection(files, { plan = "", cancelled = false, refCards = false, course = "" } = {}) {
   const sets = files.filter((f) => f.cards != null && f.area !== "archive");
   if (!sets.length) {
     if (cancelled) return [];
@@ -465,7 +469,7 @@ export function cardsSection(files, { plan = "", cancelled = false, refCards = f
       : current ? "Bilder bereit" : "Bilder werden erstellt, sobald die Lehrkraft Unterricks öffnet";
     out.push("- file_id " + f.id + ": „" + f.name + "“ (" + (f.designed ? "von dir gestaltet" : "von der Lehrkraft hochgeladen – die Bilder kannst du nicht sehen, die Gestaltung nicht ersetzen") + "; " + (n ? n + (n === 1 ? " Karte" : " Karten") + ", " : "") + state +
       "; Eltern sehen sie: " + (d.share ? "ja" : "nein") + ") → " + pdfRef(f.id));
-    out.push(cardPrintLine(f));
+    out.push(cardPrintLine(f, course));
     if (n && d.texts.length !== n) out.push("  Achtung: " + n + (n === 1 ? " Karte" : " Karten") + ", aber " + d.texts.length + " Erzähltext" + (d.texts.length === 1 ? "" : "e") + ".");
     out.push(...(d.texts.length ? d.texts.map((t, i) => "  " + (i + 1) + ". " + (t || "(kein Erzähltext)")) : ["  (noch keine Erzähltexte)"]));
   }
@@ -839,7 +843,7 @@ async function callTool(c, name, a) {
       }
       // Material einer Selbstlern-Phase (Nachtrag 29, nur Gymnasium): Schüler:innen sehen es erst nach dem Umstellen, „Wiederherstellen“ löscht es (beim Überarbeiten bleibt die Herkunft)
       const f = await saveDesign(c, a.lesson_id, { area, title, html: a.html, print, source: a.selbstlern === true && !gs ? SELBSTLERN : "claude", fileId: a.file_id || null, gsPrint: gs });
-      const pName = () => printFileName({ name: f.name, copies: f.print_copies, duplex: f.print_duplex !== 0, color: f.print_color === 1 });
+      const pName = () => printNameOf(f);   // Kurs der Sitzung aus der Zeile (getFile, Nachtrag 32)
       const where = gs && f.area === "student" ? "für die Kinder (Eltern sehen es nach der Stunde)" + (f.print_copies != null ? " und in der Liste „Von der Lehrkraft auszudrucken“ als „" + pName() + "“" : "")
         : f.area === "student" ? "für die Schüler:innen" : f.area === "teacher" ? "nur für die Lehrkraft" : "in der Liste „Von der Lehrkraft auszudrucken“ als „" + pName() + "“" + (conc ? " – nie für Eltern oder Kinder" : "");
       let ref = gs ? " Verweis im Verlaufsplan: " + pdfRef(f.id) + "." : "";
@@ -881,7 +885,7 @@ async function callTool(c, name, a) {
       const share = cardData(f).share ? "" : " Eltern sehen sie nicht (fuer_eltern: false).";
       const verb = a.file_id ? "überarbeitet" : "gespeichert";
       // Druckliste (Nachtrag 31): neue Bildkarten 1x, einseitig, farbig; beim Überarbeiten bleibt die Einstellung der Lehrkraft (auch „nicht auf der Liste“)
-      const pName = f.print_copies != null ? printFileName({ name: f.name, copies: f.print_copies, duplex: f.print_duplex !== 0, color: f.print_color === 1 }) : null;
+      const pName = f.print_copies != null ? printNameOf(f) : null;   // mit dem Kurs der Sitzung (Nachtrag 32)
       const onList = pName ? " Sie stehen auf der Druckliste der Lehrkraft als „" + pName + "“" + (a.file_id ? " (ihre Druckeinstellung bleibt)." : " (" + CARD_PRINT_TEXT + ").")
         : " Sie stehen nicht auf der Druckliste der Lehrkraft (heruntergenommen oder vor dem 16.11.2026 angelegt) – das bleibt so; nur sie nimmt sie in der Sitzung wieder auf.";
       const pc = { druckliste: pName };

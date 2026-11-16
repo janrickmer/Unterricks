@@ -65,10 +65,12 @@ export const CARD_DESIGN_RULES = [
 ];
 /* ---------- Bildkarten bei jeder Geschichte im Sitzkreis (Nachtrag 31 vom 16.11.2026: „Ja, immer Bildkarten“) ----------
  * Erzählt die Lehrkraft im Sitzkreis eine Geschichte, gehören Bildkarten dazu; neue Bildkarten stehen von selbst auf ihrer Druckliste (CARD_PRINT: 1x, einseitig,
- * farbig – „1x - einseitig - Farbe - <Titel>.pdf“). Prompt „Stunde mit Claude planen“, Überarbeitung der Einheit, get_lesson, add_picture_cards und
+ * farbig – „1x - farbig - einseitig - <Kurs> - <Titel>.pdf“, Nachtrag 32). Prompt „Stunde mit Claude planen“, Überarbeitung der Einheit, get_lesson, add_picture_cards und
  * save_verlaufsplan nutzen dieselben Bausteine. Die Konzentrationsaufgabe (Nachtrag 27) bleibt davon unberührt. */
 export const CARD_PRINT_TEXT = CARD_PRINT.copies + "x, einseitig, farbig";
-export const CARD_PRINT_NAME = printFileName({ name: "Titel", ...CARD_PRINT }).replace(/Titel\.pdf$/, "<Titel>.pdf");   // „1x - einseitig - Farbe - <Titel>.pdf“
+// Name auf der Druckliste mit Platzhaltern für Kurs und Titel (Nachtrag 32): „1x - farbig - einseitig - <Kurs> - <Titel>.pdf“
+export const printNamePattern = (p) => printFileName({ ...p, name: "Titel", course: "Kurs" }).replace(/ - Kurs - Titel\.pdf$/, " - <Kurs> - <Titel>.pdf");
+export const CARD_PRINT_NAME = printNamePattern(CARD_PRINT);
 // me: im Prompt spricht die Lehrkraft („meiner Druckliste“)
 export const cardsWhere = (me = false) => "Neue Bildkarten stehen von selbst auf " + (me ? "meiner Druckliste" : "der Druckliste der Lehrkraft") + " („" + CARD_PRINT_NAME + "“: " + CARD_PRINT_TEXT + ").";
 export const CARDS_METHOD = "Erzählung mit Bildkarten";   // vorher „Erzählung (gern mit Bildkarten)“
@@ -130,8 +132,8 @@ export const CONC_RULES = [
 export const concSaveArgs = (topic) => "`add_material_pdf` (`bereich` \"druck\", `anzahl` " + CONC_PRINT.copies + ", `beidseitig` true, `farbe` false, `titel` „" + CONC_TITLE + " – <Thema der Stunde>“" +
   (topic ? ", hier z. B. „" + CONC_TITLE + " – " + topic + "“" : "") + ")";
 // me: im Prompt spricht die Lehrkraft („meiner Druckliste“)
-export const concWhere = (me = false) => "Dann steht sie nur auf " + (me ? "meiner Druckliste" : "der Druckliste der Lehrkraft") + " („" + CONC_PRINT.copies + "x - beidseitig - sw - " + CONC_TITLE +
-  " – ….pdf“), nie bei Eltern oder Kindern.";
+export const concWhere = (me = false) => "Dann steht sie nur auf " + (me ? "meiner Druckliste" : "der Druckliste der Lehrkraft") + " („" + printNamePattern(CONC_PRINT).replace(/<Titel>\.pdf$/, CONC_TITLE + " – ….pdf") +
+  "“), nie bei Eltern oder Kindern.";
 // Name einer Datei (mit oder ohne .pdf) bzw. Titel: ist das die Konzentrationsaufgabe? (auch „Konzentrations-Aufgabe: …“)
 const CONC_RE = /^\s*konzentrations[\s-]*aufgabe(?![a-zäöüß])/i;
 export const isConcName = (name) => CONC_RE.test(typeof name === "string" ? name : "");

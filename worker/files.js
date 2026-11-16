@@ -3,8 +3,8 @@
 import { HttpError, bad, json, readJson, randomId, cleanLine, cleanText, isId, requireSecret, signLink, checkLink, contentDisposition, INLINE_SAFE } from "./lib.js";
 import { courseClassSize } from "./courses.js";
 import { requireTeacher } from "./auth.js";
-import { getLesson, fileOut, codeSlidesOf, LIMITS, printProps, onPrintList, cardVersion, notesData } from "./lessons.js";
-import { normalizeCode, isValidCode, cleanWebUrl, slidesUpTo, printFileName, cleanCopies, isAnalogClass, cleanCodeSlides, GS_SUBJECT, cleanSlideNotes, annotatedName, CARD_PRINT } from "../public/shared.js";
+import { getLesson, fileOut, codeSlidesOf, LIMITS, onPrintList, cardVersion, notesData, PRINT_COURSE_COL, printNameOf } from "./lessons.js";
+import { normalizeCode, isValidCode, cleanWebUrl, slidesUpTo, cleanCopies, isAnalogClass, cleanCodeSlides, GS_SUBJECT, cleanSlideNotes, annotatedName, CARD_PRINT } from "../public/shared.js";
 import { cleanDesignHtml, renderPdf, htmlText, keepImages, shortImages, HTML_MAX, RenderError, renderUsage, printerConfigured } from "./render.js";
 
 export const MAX_FILE = 100 * 1024 * 1024;         // Grenze einer Anfrage im Cloudflare-Free-Plan
@@ -78,9 +78,11 @@ export function uploadLength(c, max) {
   if (len > max) throw new HttpError(413, "too_large", "Die Datei ist zu groß (höchstens " + Math.round(max / 1024 ** 2) + " MB).");
   return len;
 }
+/* eine Datei samt Kurs ihrer Sitzung (print_course, Nachtrag 32: für den Namen auf der Druckliste – in derselben Anweisung) */
+export const fileRowStmt = (db, fileId) => db.prepare("SELECT *, " + PRINT_COURSE_COL + " FROM files WHERE id=?1").bind(fileId);
 export async function getFile(db, fileId) {
   if (!isId(fileId)) throw new HttpError(404, "not_found", "Datei nicht gefunden.");
-  const f = await db.prepare("SELECT * FROM files WHERE id=?1").bind(fileId).first();
+  const f = await fileRowStmt(db, fileId).first();
   if (!f) throw new HttpError(404, "not_found", "Datei nicht gefunden.");
   return f;
 }
@@ -179,7 +181,7 @@ export async function routeNotfallUpload(c, lessonId, codeRaw) {
   }
   const replaced = await deleteNotfallFiles(c, lessonId, code, id);
   // kam gleichzeitig eine neuere PDF desselben Blattes an (zweites Gerät), hat sie diese ersetzt: dann gilt die neuere
-  const own = await c.db.prepare("SELECT * FROM files WHERE id=?1").bind(id).first();
+  const own = await fileRowStmt(c.db, id).first();
   if (own) return json({ ok: true, file: fileOut(own), replaced });
   const newest = await c.db.prepare("SELECT * FROM files WHERE lesson_id=?1 AND fb_code=?2 AND area<>'archive' ORDER BY rowid DESC LIMIT 1").bind(lessonId, code).first();
   if (!newest) throw new HttpError(404, "not_found", "Dieses Feibeitsblatt ist mit der Sitzung nicht mehr verknüpft.");
@@ -195,7 +197,7 @@ export async function insertTextMaterial(db, lessonId, area, title, text, source
   return getFile(db, id);
 }
 /* ---------- Druckliste „Von der Lehrkraft auszudrucken“ (area = 'print'): nur PDF in A4 (der Browser rechnet andere Formate vorher um) ----------
- * Name beim Herunterladen „28x - beidseitig - sw - Name.pdf“; ohne Angabe gilt die Schülerzahl laut Kurseinstellungen, sonst die zuletzt verwendete
+ * Name beim Herunterladen „28x - sw - beidseitig - PoWi8 - Name.pdf“ (printNameOf, Kurs der Sitzung – Nachtrag 32); ohne Angabe gilt die Schülerzahl laut Kurseinstellungen, sonst die zuletzt verwendete
  * Anzahl dieser Klasse (sonst 1), beidseitig, schwarz-weiß. */
 async function lastCopies(db, lessonId) {
   const r = await db.prepare("SELECT f.print_copies AS n FROM files f JOIN lessons l ON l.id = f.lesson_id WHERE f.area='print' AND f.print_copies IS NOT NULL " +
@@ -308,14 +310,14 @@ export async function renderDesign(c, fileOrId, { waitMs = 25000 } = {}) {
   const now = await c.db.prepare("SELECT html_at, pdf_at FROM files WHERE id=?1").bind(f.id).first();
   if (!now) throw new HttpError(404, "not_found", "Das Material wurde inzwischen gelöscht.");
   if ((now.html_at || 0) !== at || (now.pdf_at || 0) >= at) {
-    const cur = await c.db.prepare("SELECT * FROM files WHERE id=?1").bind(f.id).first();
+    const cur = await fileRowStmt(c.db, f.id).first();
     return { file: cur, pages: cur.pages || out.pages, bytes: cur.size || out.bytes.length, current: (now.html_at || 0) === at };
   }
   const key = fileKey(f.lesson_id, f.id);
   await c.env.FILES.put(key, out.bytes, { httpMetadata: { contentType: "application/pdf" } });
   const done = await c.db.prepare("UPDATE files SET status='ready', size=?2, pages=?3, pdf_at=?4, render_error=NULL, updated_at=?5 WHERE id=?1 AND COALESCE(html_at,0)=?4")
     .bind(f.id, out.bytes.length, out.pages || null, at, Date.now()).run();
-  const cur = await c.db.prepare("SELECT * FROM files WHERE id=?1").bind(f.id).first();
+  const cur = await fileRowStmt(c.db, f.id).first();
   if (!cur) { await c.env.FILES.delete(key); throw new HttpError(404, "not_found", "Das Material wurde inzwischen gelöscht."); }
   return { file: cur, pages: out.pages, bytes: out.bytes.length, current: !!(done.meta && done.meta.changes) };
 }
@@ -621,7 +623,7 @@ export async function studentSlideUrl(secret, fileId, n, exp, now = Date.now()) 
 // so weit dürfen Schüler:innen nach der Freigabe (bei markierter letzter gezeigter Folie nur bis dorthin – wie die heruntergeladene PDF)
 export const studentSlideLimit = (f) => (f.shown_until && f.shown_until < f.pages ? f.shown_until : f.pages);
 // variant: "" = die Datei selbst, "cut" (bzw. true) = gekürzte Präsentation, "clean" = Präsentation ohne Notizen/Anhänge (Nachtrag 20),
-// "pr" = dieselbe Datei unter ihrem Namen auf der Druckliste („1x - einseitig - Farbe - Bildkarten – ….pdf“, Nachtrag 31 – auch wo der Browser das
+// "pr" = dieselbe Datei unter ihrem Namen auf der Druckliste („1x - farbig - einseitig - Reli2 - Bildkarten – ….pdf“, Nachtrag 31/32 – auch wo der Browser das
 // download-Attribut nicht beachtet, z. B. auf GitHub Pages)
 export async function downloadUrl(secret, f, inline, ttl = 10 * 60e3, now = Date.now(), variant = "") {
   const disp = inline && INLINE_SAFE.test(f.mime) ? "i" : "a", p = variant === true ? "cut" : variant === "cut" || variant === "clean" || variant === "pr" ? variant : "";
@@ -657,7 +659,7 @@ export async function routeDownload(c, fileId) {
   const inline = d === "i" && INLINE_SAFE.test(f.mime);
   return new Response(obj.body, { headers: {
     "Content-Type": f.mime || "application/octet-stream", "Content-Length": String(obj.size),
-    "Content-Disposition": contentDisposition(cut ? cutName(f) : f.area === "print" || (pr && onPrintList(f)) ? printFileName({ name: f.name, ...printProps(f) }) : f.name, !inline),
+    "Content-Disposition": contentDisposition(cut ? cutName(f) : f.area === "print" || (pr && onPrintList(f)) ? printNameOf(f) : f.name, !inline),
     "Cache-Control": "private, max-age=300", "X-Content-Type-Options": "nosniff", "Content-Security-Policy": "sandbox; default-src 'none'; style-src 'unsafe-inline'; img-src data:",
     "Referrer-Policy": "no-referrer",
   } });

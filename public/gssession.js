@@ -6,7 +6,7 @@
 import { h, clear, nn, toast, errToast, modal, confirmDialog, copyText, fmtTime, icon, pageHead, stateLine } from "./ui.js";
 import { render, go, onLeave } from "./app.js";
 import { tapi, teacherBar, teacherFoot, markNav } from "./teacher.js";
-import { fmtDay, insertStop, removeStops, hasStop, isStopLine, parsePlanMarkup, parentMaterial, parentOpensAt, pdfRef, lessonTimes, fmtClockBerlin, TEACHER_SUMMARY_TITLE, CARD_PRINT } from "./shared.js";
+import { fmtDay, insertStop, removeStops, hasStop, isStopLine, parsePlanMarkup, parentMaterial, parentOpensAt, pdfRef, lessonTimes, fmtClockBerlin, TEACHER_SUMMARY_TITLE, CARD_PRINT, printCourse, GS_SUBJECT } from "./shared.js";
 import { unitContext } from "./planning.js";
 import { claudeGsLessonPrompt, gsChatName, CONC_TITLE, CONC_PRINT } from "./gsplanning.js";
 import { claudeHandoff } from "./claude.js";
@@ -371,7 +371,7 @@ export async function gsSessionPage(id, d) {
   // diese Seite offen war (z. B. neben dem Chat, ohne Wechsel des Tabs), kämen sonst nicht bzw. mit den alten Karten in die ZIP-Datei
   const beforeZip = async () => { syncFiles(await tapi("GET", "/api/teacher/lessons/" + id)); };
   const box = materialBox({ lessonId: id, st, L, gs: true, fileBadge, printCopies: () => classSize, exclude: (f) => f.cards != null, onChange: () => repaintPlan(), onPrintChange: (f) => cardsBox.syncPrint(f.id), beforeZip,
-    subtitle: course ? course.label : "Grundschule", groupLabel: "Grundschule - " + (course ? course.short : "Kurs"),
+    subtitle: course ? course.label : "Grundschule", groupLabel: "Grundschule - " + (course ? course.short : "Kurs"), course: printCourse(GS_SUBJECT, L().klass, course),
     labels: { student: "Material für die Kinder (Eltern sehen die PDF-Dateien nach der Stunde)", teacher: "Nur für Sie", toStudent: "Für die Kinder", toTeacher: "Nur für Sie",
       nowStudent: "Jetzt im Material für die Kinder.", nowTeacher: "Jetzt nur noch für Sie.", teacherHint: "Sehen weder Kinder noch Eltern",
       hint: "Arbeitsblätter gestaltet Claude über den Connector selbst; Unterricks druckt sie als PDF (A4) und legt sie hier ab. Textmaterial und Links erscheinen nicht in der Elternansicht – nur PDF-Dateien. " +

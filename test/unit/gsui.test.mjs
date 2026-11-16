@@ -91,16 +91,16 @@ test("F09: ist die PDF gedruckt, verschwindet „(wird gedruckt …)“ im Verla
 });
 
 test("F33: Löschen und Umbenennen im Materialkasten – Druckliste, „Eltern sehen …“ und Verlaufsplan sofort aktuell", async () => {
-  const ab = pdf(B, "AB Josef.pdf", { print: { copies: 22, duplex: true, color: false }, printName: "22x - beidseitig - sw - AB Josef.pdf" });
+  const ab = pdf(B, "AB Josef.pdf", { print: { copies: 22, duplex: true, color: false }, printName: "22x - sw - beidseitig - AB Josef.pdf" });
   await page({ lesson: lessonOf({ portal: "- [[pdf:" + B + "]]" }), files: [ab] }, [
-    [/^PATCH \/api\/teacher\/files\/\w+$/, (m, b) => { const n = b.name.replace(/\.pdf$/, "") + ".pdf"; return { file: { ...ab, name: n, printName: "22x - beidseitig - sw - " + n } }; }],
+    [/^PATCH \/api\/teacher\/files\/\w+$/, (m, b) => { const n = b.name.replace(/\.pdf$/, "") + ".pdf"; return { file: { ...ab, name: n, printName: "22x - sw - beidseitig - " + n } }; }],
     [/^DELETE \/api\/teacher\/files\/\w+$/, () => ({})]]);
   await D.sleep(5);
   assert.ok($("#gs-parents").textContent.includes("„AB Josef.pdf“"));
   globalThis.prompt = () => "AB Josef neu";
   $('#gs-material button[aria-label="Umbenennen"]').click();
   await D.sleep(10);
-  assert.deepEqual($("#printcard").querySelectorAll(".printrow .name").map((x) => x.textContent), ["22x - beidseitig - sw - AB Josef neu.pdf"], "Druckliste mit dem neuen Namen");
+  assert.deepEqual($("#printcard").querySelectorAll(".printrow .name").map((x) => x.textContent), ["22x - sw - beidseitig - AB Josef neu.pdf"], "Druckliste mit dem neuen Namen");
   assert.ok($("#gsplan a.pdfref").textContent.startsWith("AB Josef neu.pdf"), "Verlaufsplan mit dem neuen Namen");
   assert.ok($("#gs-parents").textContent.includes("„AB Josef neu.pdf“"));
   // umgekehrt: in der Druckliste umbenannt – auch der Materialkasten zeigt den neuen Namen

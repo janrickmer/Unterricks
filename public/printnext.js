@@ -15,6 +15,7 @@ import { berlinToday, addDays, daysBetween, isIsoDate, isWeekend, printFileName,
 import { printDesignState as designState, printQueue } from "./designrender.js";   // Bildkarten (Nachtrag 31): erst die PDF ihrer aktuellen Gestaltung zählt
 import { freeScopeText } from "./planning.js";
 import { packList, placeLabel, placeText, BRING_BOX_TITLE } from "./bring.js";
+import { uniqueNames } from "./zip.js";
 
 /* Ein- und Ausgänge, die Unit-Tests ersetzen (Downloads, Abruf der PDF, Pause zwischen zwei Downloads – Browser blockieren schnelle
    Mehrfach-Downloads) */
@@ -47,8 +48,8 @@ export function dayText(r) {
     (!why ? " laut Stundenplan kein Unterricht" : why.all ? " unterrichtsfrei (" + why.text + ")" : " laut Stundenplan kein Unterricht (darin unterrichtsfrei: " + why.text + ")") +
     " – deshalb die Druckaufträge für " + day + ".";
 }
-/* Name einer Datei wie in der Druckliste der Sitzung */
-export const printNameOf = (f) => f.printName || printFileName({ name: f.name, ...(f.print || {}) });
+/* Name einer Datei wie in der Druckliste der Sitzung (den liefert der Server als printName; course = Kurs der Sitzung, nur wenn er fehlt – Nachtrag 32) */
+export const printNameOf = (f, course = "") => f.printName || printFileName({ name: f.name, ...(f.print || {}), course });
 /* „Alle Dateien herunterladen“: wie die ZIP-Datei der Sitzung ohne gestaltete Vorlagen, die noch nicht gedruckt sind (die werden genannt); Bildkarten erst mit der
    PDF ihrer aktuellen Gestaltung (shared.js printReady) */
 export const readyForAll = printReady;
@@ -127,13 +128,13 @@ export function printNextCards(load = () => tapi("GET", "/api/teacher/print-next
      Druck-Namen – das zählt auf GitHub Pages, wo der Browser das download-Attribut einer anderen Herkunft nicht beachtet. Textmaterial und
      Arbeitsblätter der Kinder mit „Auch ausdrucken“ (Grundschule; beim Server heißen sie wie im Material) als Blob unter dem Druck-Namen. */
   async function downloadOne(f, s) {
-    if (f.kind === "text" || f.area !== "print") io.blob(new Blob([await pdfBytes(f, s, new Map())], { type: "application/pdf" }), printNameOf(f));
-    else { const r = await tapi("POST", "/api/teacher/files/" + f.id + "/link", { body: {} }); io.url(r.url, printNameOf(f)); }
+    if (f.kind === "text" || f.area !== "print") io.blob(new Blob([await pdfBytes(f, s, new Map())], { type: "application/pdf" }), printNameOf(f, s.printCourse));
+    else { const r = await tapi("POST", "/api/teacher/files/" + f.id + "/link", { body: {} }); io.url(r.url, printNameOf(f, s.printCourse)); }
   }
   function fileRow(f, s) {
     const d = designState(f);
     if (d && d.need) rq.add(f);   // wie in der Sitzung: ausstehende Gestaltungen druckt die gemeinsame Warteschlange des Tabs
-    const name = printNameOf(f);
+    const name = printNameOf(f, s.printCourse);
     const meta = h("div", { class: "meta" });
     if (d) meta.append(designMeta(f), (f.cards ? " · Bildkarten" : "") + (d.ok ? " · " + fmtBytes(f.size) : "") + src(f, true));
     else meta.textContent = (f.cards ? "Bildkarten · " : "") + (f.kind === "text" ? "Text (als A4-PDF)" : fmtBytes(f.size)) + src(f, false);
@@ -249,15 +250,17 @@ export function printNextCards(load = () => tapi("GET", "/api/teacher/print-next
     running = true;
     const texts = new Map(), failed = [];
     let n = 0;
+    // gleiche Namen (Nachtrag 32: z. B. dasselbe Arbeitsblatt für 8A und 8B → beide „28x - sw - beidseitig - PoWi8 - …“) eindeutig wie in der ZIP-Datei: „… (2).pdf“
+    const names = uniqueNames(ready.map(({ f, s }) => printNameOf(f, s.printCourse)));
     await working(allBtn, async () => {
       for (let i = 0; i < ready.length; i++) {
         if (stopped || !card.isConnected) break;
         const { f, s } = ready[i];
-        status.textContent = "Lade " + (i + 1) + " von " + ready.length + ": „" + printNameOf(f) + "“ …";
+        status.textContent = "Lade " + (i + 1) + " von " + ready.length + ": „" + names[i] + "“ …";
         try {
           const bytes = await pdfBytes(f, s, texts);
           if (stopped || !card.isConnected) break;
-          io.blob(new Blob([bytes], { type: "application/pdf" }), printNameOf(f));
+          io.blob(new Blob([bytes], { type: "application/pdf" }), names[i]);
           n++;
         } catch (e) { failed.push({ f, msg: (e && e.message) || String(e) }); }
         if (i < ready.length - 1 && !stopped) await io.sleep(io.pauseMs);

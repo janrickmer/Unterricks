@@ -15,14 +15,14 @@ const { resetPrintQueue } = await import("../../public/designrender.js");
 
 const id = (n) => String(n).padStart(16, "a");
 const pfile = (n, name, extra = {}) => ({ id: id(n), area: "print", kind: "file", name, mime: "application/pdf", size: 2048, pages: 1, status: "ready", source: "upload", createdAt: n,
-  print: { copies: 28, duplex: true, color: false }, printName: "28x - beidseitig - sw - " + name.replace(/\.pdf$/, "") + ".pdf", ...extra });
+  print: { copies: 28, duplex: true, color: false }, printName: "28x - sw - beidseitig - PoWi8 - " + name.replace(/\.pdf$/, "") + ".pdf", ...extra });
 const DATA = () => ({ ok: true, today: "2026-11-17", candidate: "2026-11-18", date: "2026-11-18", sessions: [
-  { id: id("b1"), subject: "gs", klass: "gs1a2b3c4d", title: "Josef", date: "2026-11-18", startTime: "07:55", school: "gs", label: "Religion 2ab", subtitle: "Religion · Jahrgang 2", course: { id: "gs1a2b3c4d", short: "Religion 2ab", label: "Religion · Jahrgang 2" },
-    files: [pfile(1, "Arbeitsblatt Josef.pdf", { area: "student", print: { copies: 22, duplex: true, color: false }, printName: "22x - beidseitig - sw - Arbeitsblatt Josef.pdf" })] },
-  { id: id("b2"), subject: "powi", klass: "8A", title: "Gewaltenteilung", date: "2026-11-18", startTime: "08:00", school: "gym", label: "PoWi 8A", subtitle: "Politik und Wirtschaft · 8A",
-    files: [pfile(2, "AB Gewaltenteilung.pdf"), pfile(3, "Tafelbild", { kind: "text", size: 0, printName: "1x - einseitig - sw - Tafelbild.pdf", print: { copies: 1, duplex: false, color: false } }),
-      pfile(4, "Gestaltet.pdf", { status: "pending", source: "claude", design: { outdated: true, error: null, htmlAt: 5, pdfAt: null, text: "" }, printName: "2x - beidseitig - Farbe - Gestaltet.pdf" })] },
-  { id: id("b3"), subject: "ethik", klass: "10C", title: "Glück", date: "2026-11-18", startTime: "11:30", school: "gym", label: "Ethik 10C", subtitle: "Ethik · 10C", files: [] },
+  { id: id("b1"), subject: "gs", klass: "gs1a2b3c4d", title: "Josef", date: "2026-11-18", startTime: "07:55", school: "gs", label: "Religion 2ab", subtitle: "Religion · Jahrgang 2", printCourse: "Reli2", course: { id: "gs1a2b3c4d", short: "Religion 2ab", label: "Religion · Jahrgang 2" },
+    files: [pfile(1, "Arbeitsblatt Josef.pdf", { area: "student", print: { copies: 22, duplex: true, color: false }, printName: "22x - sw - beidseitig - Reli2 - Arbeitsblatt Josef.pdf" })] },
+  { id: id("b2"), subject: "powi", klass: "8A", title: "Gewaltenteilung", date: "2026-11-18", startTime: "08:00", school: "gym", label: "PoWi 8A", subtitle: "Politik und Wirtschaft · 8A", printCourse: "PoWi8",
+    files: [pfile(2, "AB Gewaltenteilung.pdf"), pfile(3, "Tafelbild", { kind: "text", size: 0, printName: "1x - sw - einseitig - PoWi8 - Tafelbild.pdf", print: { copies: 1, duplex: false, color: false } }),
+      pfile(4, "Gestaltet.pdf", { status: "pending", source: "claude", design: { outdated: true, error: null, htmlAt: 5, pdfAt: null, text: "" }, printName: "2x - farbig - beidseitig - PoWi8 - Gestaltet.pdf" })] },
+  { id: id("b3"), subject: "ethik", klass: "10C", title: "Glück", date: "2026-11-18", startTime: "11:30", school: "gym", label: "Ethik 10C", subtitle: "Ethik · 10C", printCourse: "Eth10", files: [] },
 ] });
 
 const $ = (s, root = document) => root.querySelector(s);
@@ -83,14 +83,16 @@ test("Texte: Tag (morgen, übersprungener Tag, Ferien bis Freitag), keine Drucka
   assert.equal(PN.doneText(3, [], []), "Fertig: Alle 3 Dateien sind einzeln heruntergeladen.");
   assert.equal(PN.doneText(1, [f("Gestaltet")], [{ f: f("Kaputt"), msg: "Fehler 404" }]),
     "Fertig: Eine Datei ist heruntergeladen. Noch nicht dabei (wird gerade als PDF gedruckt): „Gestaltet.pdf“. Nicht heruntergeladen: „Kaputt.pdf“ (Fehler 404).");
-  assert.equal(PN.printNameOf({ name: "AB.pdf", print: { copies: 3, duplex: false, color: true } }), "3x - einseitig - Farbe - AB.pdf", "ohne printName wie die ZIP-Datei der Sitzung");
+  assert.equal(PN.printNameOf({ name: "AB.pdf", print: { copies: 3, duplex: false, color: true } }), "3x - farbig - einseitig - AB.pdf", "ohne printName und ohne Kurs: ohne diesen Teil");
+  assert.equal(PN.printNameOf({ name: "AB.pdf", print: { copies: 3, duplex: false, color: true } }, "Eth10"), "3x - farbig - einseitig - Eth10 - AB.pdf", "ohne printName mit dem Kurs der Sitzung (Nachtrag 32)");
+  assert.equal(PN.printNameOf({ name: "AB.pdf", printName: "Vom Server.pdf" }, "Eth10"), "Vom Server.pdf", "der Name des Servers gilt");
 });
 
 test("Aufbau: Überschrift mit Drucker, Tag, je Sitzung eine Gruppe (Link zur Sitzung, „In der Sitzung bearbeiten“), Namen wie in der Druckliste", async () => {
   let release;
   const printed = new Promise((r) => { release = r; });
   const card = await page([[/^GET \/api\/teacher\/print-next$/, () => DATA()], link, lessonText,
-    [/^POST \/api\/teacher\/files\/(\w+)\/render$/, async () => { await printed; return { file: pfile(4, "Gestaltet.pdf", { status: "ready", source: "claude", pages: 2, design: { outdated: false, error: null, htmlAt: 5, pdfAt: 6, text: "" }, printName: "2x - beidseitig - Farbe - Gestaltet.pdf" }) }; }]]);
+    [/^POST \/api\/teacher\/files\/(\w+)\/render$/, async () => { await printed; return { file: pfile(4, "Gestaltet.pdf", { status: "ready", source: "claude", pages: 2, design: { outdated: false, error: null, htmlAt: 5, pdfAt: 6, text: "" }, printName: "2x - farbig - beidseitig - PoWi8 - Gestaltet.pdf" }) }; }]]);
   assert.equal($("h2", card).textContent, "Druckaufträge für den nächsten Arbeitstag");
   assert.equal($(".pn-ico", card).getAttribute("aria-hidden"), "true"); assert.ok($(".pn-ico svg", card), "Drucker-Symbol");
   assert.equal($("#pn-day", card).textContent, "für morgen, Mittwoch, 18.11.2026");
@@ -102,7 +104,7 @@ test("Aufbau: Überschrift mit Drucker, Tag, je Sitzung eine Gruppe (Link zur Si
   assert.equal(edit.getAttribute("href"), "#/lk/s/" + id("b2") + "/druckliste");
   assert.equal(edit.getAttribute("aria-label"), "Druckliste von „Gewaltenteilung“ (PoWi 8A) in der Sitzung bearbeiten");
   assert.deepEqual($$(".pn-row .name", card).map((x) => x.textContent),
-    ["22x - beidseitig - sw - Arbeitsblatt Josef.pdf", "28x - beidseitig - sw - AB Gewaltenteilung.pdf", "1x - einseitig - sw - Tafelbild.pdf", "2x - beidseitig - Farbe - Gestaltet.pdf"]);
+    ["22x - sw - beidseitig - Reli2 - Arbeitsblatt Josef.pdf", "28x - sw - beidseitig - PoWi8 - AB Gewaltenteilung.pdf", "1x - sw - einseitig - PoWi8 - Tafelbild.pdf", "2x - farbig - beidseitig - PoWi8 - Gestaltet.pdf"]);
   assert.equal($(".pn-none", card).textContent, "Ohne Druckaufträge: 11:30 Ethik 10C.");
   // gestaltete Vorlage noch nicht gedruckt: kein Download, Stand wie in der Sitzung; die gemeinsame Warteschlange druckt sie
   const des = $$(".pn-row", card)[3];
@@ -111,17 +113,17 @@ test("Aufbau: Überschrift mit Drucker, Tag, je Sitzung eine Gruppe (Link zur Si
   assert.ok(rec.calls.includes("POST /api/teacher/files/" + id(4) + "/render"), "Druck angestoßen");
   // Einzel-Download wie in der Sitzung: signierter Link unter dem Druck-Namen; Text als A4-PDF aus dem Text der Sitzung
   const b = $$(".pn-row", card)[1].querySelector("button");
-  assert.equal(b.getAttribute("aria-label"), "Herunterladen – 28x - beidseitig - sw - AB Gewaltenteilung.pdf");
+  assert.equal(b.getAttribute("aria-label"), "Herunterladen – 28x - sw - beidseitig - PoWi8 - AB Gewaltenteilung.pdf");
   D.userClick(b); await D.sleep(5);
-  assert.deepEqual(rec.urls, [["/api/dl/" + id(2) + "?d=a&e=1&s=x", "28x - beidseitig - sw - AB Gewaltenteilung.pdf"]]);
+  assert.deepEqual(rec.urls, [["/api/dl/" + id(2) + "?d=a&e=1&s=x", "28x - sw - beidseitig - PoWi8 - AB Gewaltenteilung.pdf"]]);
   assert.equal(document.activeElement, b, "Fokus bleibt auf dem Knopf – " + desc(document.activeElement));
-  D.userClick($$(".pn-row", card)[2].querySelector("button")); await until(() => rec.blobs.length === 1, "Text als PDF"); assert.equal(rec.blobs[0][1], "1x - einseitig - sw - Tafelbild.pdf");
+  D.userClick($$(".pn-row", card)[2].querySelector("button")); await until(() => rec.blobs.length === 1, "Text als PDF"); assert.equal(rec.blobs[0][1], "1x - sw - einseitig - PoWi8 - Tafelbild.pdf");
   assert.equal(new TextDecoder().decode(new Uint8Array(await rec.blobs[0][0].arrayBuffer()).subarray(0, 5)), "%PDF-");
   assert.ok(rec.calls.includes("GET /api/teacher/lessons/" + id("b2")), "Text aus der Sitzung geholt");
   // Arbeitsblatt der Kinder mit „Auch ausdrucken“: der Server nennt es wie im Material – auf GitHub Pages (andere Herkunft) zählt sein Name,
   // nicht das download-Attribut. Deshalb als Blob unter dem Druck-Namen, nie über den Link direkt
   D.userClick($$(".pn-row", card)[0].querySelector("button")); await until(() => rec.blobs.length === 2, "Arbeitsblatt der Kinder");
-  assert.equal(rec.blobs[1][1], "22x - beidseitig - sw - Arbeitsblatt Josef.pdf");
+  assert.equal(rec.blobs[1][1], "22x - sw - beidseitig - Reli2 - Arbeitsblatt Josef.pdf");
   assert.equal(new TextDecoder().decode(new Uint8Array(await rec.blobs[1][0].arrayBuffer())), "%PDF-1.7 /api/dl/" + id(1) + "?d=a&e=1&s=x", "Inhalt über den signierten Link");
   assert.equal(rec.urls.length, 1, "kein direkter Link-Download für das Arbeitsblatt der Kinder");
   // nach dem Druck: Zeile mit Download (nur diese Zeile neu)
@@ -156,12 +158,12 @@ test("„Alle Dateien herunterladen“: nacheinander je eine Datei (keine ZIP-Da
   D.userClick(all);   // zweiter Klick während des Laufs: wirkungslos
   open();
   await until(() => /^Fertig/.test(status.textContent), "Abschlussmeldung");
-  assert.deepEqual(rec.blobs.map((x) => x[1]), ["22x - beidseitig - sw - Arbeitsblatt Josef.pdf", "28x - beidseitig - sw - AB Gewaltenteilung.pdf", "1x - einseitig - sw - Tafelbild.pdf"]);
+  assert.deepEqual(rec.blobs.map((x) => x[1]), ["22x - sw - beidseitig - Reli2 - Arbeitsblatt Josef.pdf", "28x - sw - beidseitig - PoWi8 - AB Gewaltenteilung.pdf", "1x - sw - einseitig - PoWi8 - Tafelbild.pdf"]);
   assert.ok(rec.blobs.every(([b, n]) => b.type === "application/pdf" && !/\.zip$/i.test(n)), "einzelne PDF-Dateien");
   assert.equal(rec.urls.length, 0);
   assert.equal(rec.sleeps, 2, "Pause zwischen den Downloads (nicht nach dem letzten)");
-  assert.deepEqual(seen, ["Lade 1 von 3: „22x - beidseitig - sw - Arbeitsblatt Josef.pdf“ …", "Lade 2 von 3: „28x - beidseitig - sw - AB Gewaltenteilung.pdf“ …"]);
-  assert.equal(status.textContent, "Fertig: Alle 3 Dateien sind einzeln heruntergeladen. Noch nicht dabei (wird gerade als PDF gedruckt): „2x - beidseitig - Farbe - Gestaltet.pdf“.");
+  assert.deepEqual(seen, ["Lade 1 von 3: „22x - sw - beidseitig - Reli2 - Arbeitsblatt Josef.pdf“ …", "Lade 2 von 3: „28x - sw - beidseitig - PoWi8 - AB Gewaltenteilung.pdf“ …"]);
+  assert.equal(status.textContent, "Fertig: Alle 3 Dateien sind einzeln heruntergeladen. Noch nicht dabei (wird gerade als PDF gedruckt): „2x - farbig - beidseitig - PoWi8 - Gestaltet.pdf“.");
   assert.equal(all.getAttribute("aria-disabled"), null);
   const bytes = new TextDecoder().decode(new Uint8Array(await rec.blobs[1][0].arrayBuffer()));
   assert.equal(bytes, "%PDF-1.7 /api/dl/" + id(2) + "?d=a&e=1&s=x", "Inhalt über den signierten Link (apiUrl)");
@@ -170,7 +172,7 @@ test("„Alle Dateien herunterladen“: nacheinander je eine Datei (keine ZIP-Da
   rec.blobs = [];
   D.userClick(all); await until(() => /^Fertig/.test(status.textContent), "Abschlussmeldung");
   assert.equal(rec.blobs.length, 2);
-  assert.match(status.textContent, /^Fertig: Alle 2 Dateien sind einzeln heruntergeladen\. .* Nicht heruntergeladen: „22x - beidseitig - sw - Arbeitsblatt Josef\.pdf“ \(„Arbeitsblatt Josef\.pdf“ ließ sich nicht laden \(Fehler 404\)\.\)\.$/);
+  assert.match(status.textContent, /^Fertig: Alle 2 Dateien sind einzeln heruntergeladen\. .* Nicht heruntergeladen: „22x - sw - beidseitig - Reli2 - Arbeitsblatt Josef\.pdf“ \(„Arbeitsblatt Josef\.pdf“ ließ sich nicht laden \(Fehler 404\)\.\)\.$/);
 });
 
 test("Verlassen der Seite bricht „Alle Dateien herunterladen“ ab; nur gestaltete, noch nicht gedruckte Vorlagen → Hinweis statt Download", async () => {
@@ -220,7 +222,7 @@ test("gestaltete Vorlage, deren PDF-Druck scheitert bzw. am Tageskontingent hän
   D.userClick(button(card, "Alle Dateien herunterladen"));
   const status = $("#pn-status", card);
   await until(() => /^Fertig/.test(status.textContent), "Abschlussmeldung");
-  assert.equal(status.textContent, "Fertig: Alle 3 Dateien sind einzeln heruntergeladen. Nicht dabei, weil der PDF-Druck nicht geklappt hat (in der Sitzung „Erneut drucken“): „2x - beidseitig - Farbe - Gestaltet.pdf“.");
+  assert.equal(status.textContent, "Fertig: Alle 3 Dateien sind einzeln heruntergeladen. Nicht dabei, weil der PDF-Druck nicht geklappt hat (in der Sitzung „Erneut drucken“): „2x - farbig - beidseitig - PoWi8 - Gestaltet.pdf“.");
   // nur diese Vorlage: kein „bitte gleich noch einmal“ (es druckt nichts von selbst)
   const only = DATA();
   only.sessions = [{ ...only.sessions[1], files: [only.sessions[1].files[2]] }];
@@ -231,13 +233,27 @@ test("gestaltete Vorlage, deren PDF-Druck scheitert bzw. am Tageskontingent hän
   assert.equal(rec.blobs.length, 0);
   // Tageskontingent: die Warteschlange hört auf – ALLE gestalteten Zeilen sagen „Noch nicht gedruckt“, nicht nur die gerade gedruckte
   const two = DATA();
-  two.sessions[1].files.push(pfile(5, "Zweite.pdf", { status: "pending", source: "claude", design: { outdated: true, error: null, htmlAt: 7, pdfAt: null, text: "" }, printName: "1x - beidseitig - sw - Zweite.pdf" }));
+  two.sessions[1].files.push(pfile(5, "Zweite.pdf", { status: "pending", source: "claude", design: { outdated: true, error: null, htmlAt: 7, pdfAt: null, text: "" }, printName: "1x - sw - beidseitig - PoWi8 - Zweite.pdf" }));
   card = await page([[/^GET \/api\/teacher\/print-next$/, () => two], link, lessonText,
     [/^POST \/api\/teacher\/files\/(\w+)\/render$/, () => { throw new ApiError("Das Tageskontingent für den PDF-Druck ist aufgebraucht.", 429, { code: "render_quota" }); }]]);
   await until(() => $$(".pn-row .meta", card).filter((m) => /^Noch nicht gedruckt: Das Tageskontingent/.test(m.textContent)).length === 2, "beide Zeilen: noch nicht gedruckt");
   D.userClick(button(card, "Alle Dateien herunterladen"));
   await until(() => /^Fertig/.test($("#pn-status", card).textContent), "Abschlussmeldung");
-  assert.match($("#pn-status", card).textContent, /Nicht dabei, weil der PDF-Druck nicht geklappt hat \(in der Sitzung „Erneut drucken“\): „2x - beidseitig - Farbe - Gestaltet\.pdf“, „1x - beidseitig - sw - Zweite\.pdf“\.$/);
+  assert.match($("#pn-status", card).textContent, /Nicht dabei, weil der PDF-Druck nicht geklappt hat \(in der Sitzung „Erneut drucken“\): „2x - farbig - beidseitig - PoWi8 - Gestaltet\.pdf“, „1x - sw - beidseitig - PoWi8 - Zweite\.pdf“\.$/);
   assert.doesNotMatch($("#pn-status", card).textContent, /wird gerade als PDF gedruckt/);
   assert.equal(globalThis.__domErrors.length, 0, globalThis.__domErrors.join("\n"));
+});
+
+test("Nachtrag 32: dasselbe Arbeitsblatt für zwei Klassen desselben Jahrgangs (gleicher Kurs, gleicher Titel) – „Alle Dateien herunterladen“ überschreibt nichts („… (2).pdf“)", async () => {
+  const two = DATA();
+  const same = (n) => pfile(n, "Arbeitsblatt.pdf", { printName: "28x - sw - beidseitig - PoWi8 - Arbeitsblatt.pdf" });
+  two.sessions = [{ ...two.sessions[1], id: id("c1"), klass: "8A", label: "PoWi 8A", files: [same(11)] }, { ...two.sessions[1], id: id("c2"), klass: "8B", label: "PoWi 8B", startTime: "09:00", files: [same(12)] }];
+  PN.io.sleep = async () => {};
+  PN.io.fetch = async () => ({ ok: true, status: 200, arrayBuffer: async () => new TextEncoder().encode("%PDF-x").buffer });
+  const card = await page([[/^GET \/api\/teacher\/print-next$/, () => two], link, lessonText]);
+  // in der Liste steht bei beiden Sitzungen der Name der Druckliste (je Sitzung eine eigene Gruppe)
+  assert.deepEqual($$(".pn-row .name", card).map((x) => x.textContent), ["28x - sw - beidseitig - PoWi8 - Arbeitsblatt.pdf", "28x - sw - beidseitig - PoWi8 - Arbeitsblatt.pdf"]);
+  const status = $("#pn-status", card);
+  D.userClick(button(card, "Alle Dateien herunterladen")); await until(() => /^Fertig/.test(status.textContent), "Abschlussmeldung");
+  assert.deepEqual(rec.blobs.map((x) => x[1]), ["28x - sw - beidseitig - PoWi8 - Arbeitsblatt.pdf", "28x - sw - beidseitig - PoWi8 - Arbeitsblatt (2).pdf"], "eindeutig wie in der ZIP-Datei (uniqueNames)");
 });

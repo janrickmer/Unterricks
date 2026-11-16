@@ -122,9 +122,9 @@ test("Druckliste: PDFs der Kinder (Grundschule) mit Anzahl – an und aus; am Gy
   assert.equal(r.status, 400, "erst die Anzahl");
   r = await call(c, F.routeFilePatch, "PATCH", "/api/teacher/files/" + ab, { copies: 22 }, ab);
   assert.equal(r.status, 200);
-  assert.deepEqual([r.data.file.print, r.data.file.printName], [{ copies: 22, duplex: true, color: false }, "22x - beidseitig - sw - Arbeitsblatt.pdf"]);
+  assert.deepEqual([r.data.file.print, r.data.file.printName], [{ copies: 22, duplex: true, color: false }, "22x - sw - beidseitig - Reli2 - Arbeitsblatt.pdf"]);
   r = await call(c, F.routeFilePatch, "PATCH", "/api/teacher/files/" + ab, { duplex: false, color: true }, ab);
-  assert.equal(r.data.file.printName, "22x - einseitig - Farbe - Arbeitsblatt.pdf");
+  assert.equal(r.data.file.printName, "22x - farbig - einseitig - Reli2 - Arbeitsblatt.pdf");
   r = await call(c, F.routeFilePatch, "PATCH", "/api/teacher/files/" + ab, { copies: null }, ab);
   assert.ok(r.status === 200 && !("print" in r.data.file) && r.data.file.area === "student");
   const sekAb = await file(sek.id, "student", "AB.pdf");
@@ -157,7 +157,7 @@ test("Connector (Grundschule): get_lesson, save_verlaufsplan, update_lesson inha
   r = await mcp("add_material_pdf", { lesson_id: l2.id, bereich: "schueler", titel: "Arbeitsblatt Josef", html: "<h1>Josef</h1>", anzahl: 22 });
   assert.ok(!r.isError, JSON.stringify(r));
   const abId = r.structuredContent.file_id;
-  assert.ok(r.content[0].text.includes("für die Kinder (Eltern sehen es nach der Stunde) und in der Liste „Von der Lehrkraft auszudrucken“ als „22x - beidseitig - sw - Arbeitsblatt Josef.pdf“"), r.content[0].text);
+  assert.ok(r.content[0].text.includes("für die Kinder (Eltern sehen es nach der Stunde) und in der Liste „Von der Lehrkraft auszudrucken“ als „22x - sw - beidseitig - Reli2 - Arbeitsblatt Josef.pdf“"), r.content[0].text);
   assert.ok(r.content[0].text.includes("Verweis im Verlaufsplan: [[pdf:" + abId + "]]."));
   const ab = await F.getFile(c.db, abId);
   assert.deepEqual([ab.area, ab.print_copies, ab.print_duplex, ab.print_color], ["student", 22, 1, 0]);

@@ -156,13 +156,41 @@ export function studentHelpPrompt(l) {
     "8. Antworte nur mit der Erklärung als Fließtext, ohne Überschriften.",
   ].join("\n");
 }
-/* Druckliste „Von der Lehrkraft auszudrucken“ (nur PDF, A4): Dateiname „28x - beidseitig - sw - Name.pdf“ (Vorgabe der Lehrkraft) */
-export const PRINT_LIMITS = { copies: 500, name: 160 };
+/* Druckliste „Von der Lehrkraft auszudrucken“ (nur PDF, A4): Dateiname „23x - sw - einseitig - Reli4 - Titel.pdf“ – Anzahl, schwarz-weiß/farbig,
+   einseitig/beidseitig, Kurs, Titel (Vorgabe der Lehrkraft, Nachtrag 32 vom 16.11.2026; vorher „28x - beidseitig - sw - Titel.pdf“). Der Name entsteht immer
+   beim Ausliefern bzw. Herunterladen – auch ältere Dateien heißen so (nichts gespeichert, keine Umstellung). */
+export const PRINT_LIMITS = { copies: 500, name: 160, course: 24 };
 export const printBase = (name) => String(name == null ? "" : name).replace(/\.pdf$/i, "").replace(/[\\/:*?"<>|\u0000-\u001f]+/g, " ").replace(/\s+/g, " ").trim().replace(/[.\s-]+$/, "").slice(0, PRINT_LIMITS.name) || "Druckvorlage";
-export const printFileName = (p) => (Number(p.copies) || 1) + "x - " + (p.duplex ? "beidseitig" : "einseitig") + " - " + (p.color ? "Farbe" : "sw") + " - " + printBase(p.name) + ".pdf";
+/* Kurs im Dateinamen (Nachtrag 32): Kurzform des Fachs und Jahrgang ohne Leerzeichen. Gymnasium: Ev. Religion „Reli“, Politik und Wirtschaft „PoWi“, Ethik „Eth“;
+   Jahrgang aus der Klasse bzw. dem Kurs – Sek. I „8A“ und Kurs „8-K“ → „8“ (PoWi8, Reli8, Eth8), E-Phase „EA“–„EH“ und Kurs „E-K“ → „E“ (PoWiE, ReliE),
+   Qualifikationsphase Kurshalbjahr + Kursart „Q3-LK“ → „Q3LK“ (PoWiQ3LK, ReliQ1GK). Grundschule (subject „gs“, gs = Kurs: gsCourseOut {grade, religion,
+   subjectName} oder Zeile aus gs_courses {grade, religion, subject_name}): Religion „Reli“ + Jahrgang (Reli4), sonst die ersten 4 Buchstaben des Fachnamens
+   + Jahrgang (Sachunterricht → „Sach3“; nur Buchstaben, Umlaute bleiben, der erste groß; weniger als 4 Buchstaben: alle; keiner: „Fach“).
+   Unbekannt (kein Kurs, ungültige Klasse) → "" – printFileName lässt den Kurs dann weg. Browser und Worker nutzen dieselbe Funktion. */
+export const PRINT_SUBJECT_SHORT = { powi: "PoWi", evrel: "Reli", ethik: "Eth" };
+export function printCourse(subject, klass, gs = null) {
+  if (subject === GS_SUBJECT) {
+    const grade = gs ? Number(gs.grade) : NaN;
+    if (!Number.isInteger(grade) || grade < 1 || grade > 4) return "";
+    if (gs.religion === true || Number(gs.religion) === 1) return "Reli" + grade;
+    const raw = gs.subjectName != null ? gs.subjectName : gs.subject_name;
+    const letters = (String(raw == null ? "" : raw).normalize("NFC").match(/\p{L}/gu) || []).slice(0, 4);
+    if (!letters.length) return "Fach" + grade;
+    const up = letters[0].toLocaleUpperCase("de-DE");
+    return (up.length === 1 ? up : letters[0]) + letters.slice(1).join("") + grade;
+  }
+  const s = PRINT_SUBJECT_SHORT[subject];
+  if (!s || !isValidClass(klass)) return "";
+  const g = gradeKey(klass);
+  return s + (g === "Q" ? klass.replace("-", "") : g);
+}
+/* p = {name, copies, duplex, color, course} – course = printCourse(…) (leer: ohne Kurs, z. B. „1x - farbig - einseitig - Titel.pdf“) */
+const printCourseClean = (c) => String(c == null ? "" : c).normalize("NFC").replace(/[\\/:*?"<>|\u0000-\u001f\s]+/g, "").slice(0, PRINT_LIMITS.course);
+export const printFileName = (p) => { const k = printCourseClean(p.course);
+  return (Number(p.copies) || 1) + "x - " + (p.color ? "farbig" : "sw") + " - " + (p.duplex ? "beidseitig" : "einseitig") + " - " + (k ? k + " - " : "") + printBase(p.name) + ".pdf"; };
 export const cleanCopies = (v) => { const n = Number(v); return Number.isInteger(n) && n >= 1 && n <= PRINT_LIMITS.copies ? n : null; };
-/* Bildkarten der Grundschule (Nachtrag 31 vom 16.11.2026): neue Bildkarten stehen von selbst auf der Druckliste – 1x, einseitig, farbig („1x - einseitig - Farbe -
-   <Titel>.pdf“); die Lehrkraft kann sie herunternehmen (print_copies NULL) und wieder aufnehmen. Ältere Bildkarten bleiben, wie sie sind (nicht auf der Liste). */
+/* Bildkarten der Grundschule (Nachtrag 31 vom 16.11.2026): neue Bildkarten stehen von selbst auf der Druckliste – 1x, einseitig, farbig („1x - farbig - einseitig -
+   Reli2 - <Titel>.pdf“, Nachtrag 32); die Lehrkraft kann sie herunternehmen (print_copies NULL) und wieder aufnehmen. Ältere Bildkarten bleiben, wie sie sind (nicht auf der Liste). */
 export const CARD_PRINT = { copies: 1, duplex: false, color: true };
 /* Eine Datei der Druckliste ist fertig zum Herunterladen (ZIP, „Alle Dateien herunterladen“): gestaltetes Material erst mit gedruckter PDF – Bildkarten erst
    mit der PDF ihrer AKTUELLEN Gestaltung (die bisherige zeigt alte Karten); hochgeladene Bildkarten haben ihre PDF sofort (status processing heißt nur: die

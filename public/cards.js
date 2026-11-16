@@ -17,7 +17,7 @@ const SHARE_LABEL = "Eltern dürfen diese Bildkarten sehen";
 // Druckliste (Nachtrag 31): neue Bildkarten stehen von selbst darauf (1×, einseitig, farbig); der Schalter nimmt sie herunter bzw. wieder auf
 const PRINT_LABEL = "Auf der Druckliste „Von der Lehrkraft auszudrucken“";
 const PRINT_ON = CARD_PRINT.copies + "×, einseitig, farbig";
-const printDesc = (f) => (f.print ? "Steht dort als „" + f.printName + "“ – Anzahl, einseitig/beidseitig und Farbe ändern Sie in der Druckliste weiter unten."
+const printDesc = (f) => (f.print ? "Steht dort als „" + f.printName + "“ – Anzahl, schwarz-weiß/farbig und einseitig/beidseitig ändern Sie in der Druckliste weiter unten."
   : "Steht nicht auf der Druckliste – eingeschaltet kommt sie dazu (" + PRINT_ON + "). Die Bildkarten selbst und die Elternansicht ändert das nicht.");
 const MAX_CARDS = 40;   // wie der Server (worker/files.js)
 

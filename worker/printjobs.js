@@ -4,19 +4,19 @@
 // „Von der Lehrkraft auszudrucken“ – beide Schulformen, dieselbe Auswahl wie printFiles() in public/materialbox.js (Grundschule samt Bildkarten, Nachtrag 31).
 import { json } from "./lib.js";
 import { requireTeacher } from "./auth.js";
-import { fileOut } from "./lessons.js";
+import { fileOut, PRINT_COURSE_COL } from "./lessons.js";
 import { loadSubjectConfigs } from "./bases.js";
 import { scheduleUnit } from "./units.js";
 import { gsCourseOut } from "./gs.js";
-import { berlinToday, addDays, subjectName, subjectShort, classShort, GS_SUBJECT } from "../public/shared.js";
+import { berlinToday, addDays, subjectName, subjectShort, classShort, printCourse, GS_SUBJECT } from "../public/shared.js";
 import { nextWorkday, printTargetDay, PRINT_AHEAD_DAYS, withSchoolBreaks } from "../public/planning.js";
 import { freeDaysStmt, freeDaysOf } from "./freedays.js";
 import { bringRead } from "../public/bring.js";
 
 /* Spalten wie FILE_COLS (lessons.js) für fileOut – ohne den Text von Textmaterial (holt der Browser bei Bedarf über die Sitzung) und ohne
-   Claudes Gestaltung (nur das Kennzeichen „gestaltet“) */
+   Claudes Gestaltung (nur das Kennzeichen „gestaltet“); mit dem Kurs der Sitzung für den Druck-Namen (Nachtrag 32, Spalte in derselben Anweisung) */
 const PRINT_COLS = "id, lesson_id, area, kind, name, mime, size, pages, status, source, created_at, fb_code, fb_sig, print_copies, print_duplex, print_color, " +
-  "html_at, pdf_at, render_error, CASE WHEN html IS NULL THEN NULL ELSE '' END AS html, '' AS design_text, cards, card_pages, card_img_at";
+  "html_at, pdf_at, render_error, CASE WHEN html IS NULL THEN NULL ELSE '' END AS html, '' AS design_text, cards, card_pages, card_img_at, " + PRINT_COURSE_COL;
 /* Druckliste der Sitzungen eines Tages (?1 = Datum; Ausfall-Einträge der Grundschule zählen nie): alles im Bereich „print“, in der Grundschule
    zusätzlich PDFs der Kinder mit „Auch ausdrucken“ (print_copies) und – seit Nachtrag 31 – Bildkarten mit Druckangaben (Dateien der Lehrkraft mit cards
    und print_copies; heruntergenommene und ältere ohne print_copies nicht), wie in der Sitzung; Reihenfolge wie dort (created_at). Ohne html (PRINT_COLS). */
@@ -36,7 +36,7 @@ export const sessionOrder = (a, b) => (a.startTime || "99:99").localeCompare(b.s
 
 /* GET /api/teacher/print-next → {today, candidate (nomineller nächster Arbeitstag), date (Tag der Druckaufträge oder null), sessions: [{id, subject,
    klass, title, date, startTime, durationMin, school "gym"|"gs", label (wie im Wochenkalender), subtitle (Unterzeile einer Text-PDF wie in der Sitzung),
-   course? {id, short, label}, files: [fileOut ohne Text], bring? [{item, note}] (Gegenstände zum Mitbringen, Nachtrag 28 – nur wenn es welche gibt und keine Krankheitsvertretung aktiv ist)}], freeDays? [{from, to, label, scope}] (unterrichtsfreie Einträge im übersprungenen Zeitraum,
+   printCourse (Kurs im Druck-Namen, Nachtrag 32: „PoWi8“, „Reli4“ – den Namen selbst trägt jede Datei als printName), course? {id, short, label}, files: [fileOut ohne Text], bring? [{item, note}] (Gegenstände zum Mitbringen, Nachtrag 28 – nur wenn es welche gibt und keine Krankheitsvertretung aktiv ist)}], freeDays? [{from, to, label, scope}] (unterrichtsfreie Einträge im übersprungenen Zeitraum,
    nur wenn es welche gibt – Nachtrag 24)} – auch Sitzungen ohne Druckaufträge (files leer). 8 D1-Anweisungen. */
 /* Nächster Tag mit Unterricht nach heute (today, Europe/Berlin): nominell nextWorkday, dann der früheste Tag mit Sitzung oder Termin laut Stundenplan
    (printTargetDay; unterrichtsfreie Tage der Einstellungen zählen für ihre Schule nicht – Nachtrag 24) → {candidate, date (null = nichts in Sicht),
@@ -84,6 +84,7 @@ export async function routePrintNext(c) {
     return { id: l.id, subject: l.subject, klass: l.klass, title: l.title || "", date: l.lesson_date, startTime: l.start_time || null, durationMin: l.duration_min ?? null,
       school: isGs ? "gs" : "gym", label: isGs ? (course ? course.short : "Grundschule") : subjectShort(l.subject) + " " + classShort(l.klass),
       subtitle: isGs ? (course ? course.label : "Grundschule") : subjectName(l.subject) + " · " + classShort(l.klass),
+      printCourse: printCourse(l.subject, l.klass, course),
       ...(course ? { course: { id: course.id, short: course.short, label: course.label } } : {}), files: byLesson.get(l.id) || [], ...(bring.length ? { bring } : {}),
       ...(l.sub === "selbstlern" ? { selbstlern: true } : {}) };
   }).sort(sessionOrder);

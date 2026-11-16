@@ -10,7 +10,7 @@ import { courseSettingsStmt, courseSettingsOut, courseInfo, courseRef } from "./
 import { gsCourseStmt, gsCourseOut } from "./gs.js";
 import {
   isValidClass, isValidSubject, isValidCode, normalizeCode, greetingText, planningSystemPrompt, portalMessages, feibeitsblattMessages,
-  chatTranscript, extractJsonObject, validatePortalData, renderPortalEntry, normalizeFbDraft, isIsoDate, hasStop, gradeKey, isClockTime, printFileName, GS_SUBJECT,
+  chatTranscript, extractJsonObject, validatePortalData, renderPortalEntry, normalizeFbDraft, isIsoDate, hasStop, gradeKey, isClockTime, printFileName, printCourse, GS_SUBJECT,
   planRefs, parentOpensAt, stopParts, planFingerprint, PLAN_FINGERPRINT_STALE, TEACHER_SUMMARY_MAX, savedSinceDecision,
 } from "../public/shared.js";
 import { unitContext, STOP_CHOICE_TEXT, stopChatSection, freeDayOn, schoolOf } from "../public/planning.js";
@@ -33,6 +33,18 @@ export const lessonOut = (r, extra = {}) => ({
 });
 function bringOut(r) { const b = bringRead(r.bring); return { bring: b.items, bringRev: b.rev }; }
 export const printProps = (f) => ({ copies: f.print_copies || 1, duplex: f.print_duplex !== 0, color: f.print_color === 1 });
+/* Kurs im Dateinamen der Druckliste (Nachtrag 32): Fach und Klasse der Sitzung, in der Grundschule Jahrgang, Religion und Fachname des Kurses – als EINE
+   zusätzliche Spalte derselben Abfrage (JSON; nie eine eigene Anweisung je Datei). Für Abfragen „… FROM files“ ohne Alias (getFile, FILE_COLS, Druckaufträge). */
+export const PRINT_COURSE_COL = "(SELECT json_object('s', l.subject, 'k', l.klass, 'g', g.grade, 'r', g.religion, 'n', g.subject_name) FROM lessons l " +
+  "LEFT JOIN gs_courses g ON l.subject='" + GS_SUBJECT + "' AND g.id = l.klass WHERE l.id = files.lesson_id) AS print_course";
+/* Kurs einer Dateizeile mit PRINT_COURSE_COL („PoWi8“, „Reli4“ …; ohne die Spalte bzw. ohne Sitzung "") */
+export function rowCourse(f) {
+  let o = null;
+  try { o = f && typeof f.print_course === "string" ? JSON.parse(f.print_course) : null; } catch {}
+  return o && typeof o === "object" ? printCourse(o.s, o.k, o.g == null ? null : { grade: o.g, religion: o.r, subject_name: o.n }) : "";
+}
+/* Name einer Datei auf der Druckliste: course = Kurs, sonst aus der Spalte print_course der Zeile */
+export const printNameOf = (f, course) => printFileName({ name: f.name, ...printProps(f), course: course != null ? course : rowCourse(f) });
 /* steht die Datei auf der Druckliste „Von der Lehrkraft auszudrucken“? area print immer; Grundschule: PDFs der Kinder mit „Auch ausdrucken“ und Bildkarten
    mit Druckangaben (Nachtrag 31 – Bildkarten bleiben Dateien der Lehrkraft, print_copies NULL = nicht auf der Liste) */
 export const onPrintList = (f) => f.area === "print" || (f.print_copies != null && (f.area === "student" || (f.area === "teacher" && f.cards != null)));
@@ -42,7 +54,7 @@ export const FILE_COLS = "id, lesson_id, area, kind, name, mime, size, CASE WHEN
   "fb_code, fb_sig, shown_until, cut_size, code_slides, print_copies, print_duplex, print_color, html_at, pdf_at, render_error, CASE WHEN html IS NULL THEN NULL ELSE '' END AS html, " +
   "CASE WHEN html IS NOT NULL THEN substr(text, 1, 6000) END AS design_text, cards, card_pages, card_img_at, " +
   // Notizen der Präsentation (Nachtrag 20): nur Zahl und Stand – den Text selbst liefert GET …/notes bzw. …/slides
-  "CASE WHEN json_valid(notes) THEN json_array_length(notes, '$.slides') ELSE 0 END AS notes_n, CASE WHEN json_valid(notes) THEN json_extract(notes, '$.rev') END AS notes_rev, clean_size, notes_of";
+  "CASE WHEN json_valid(notes) THEN json_array_length(notes, '$.slides') ELSE 0 END AS notes_n, CASE WHEN json_valid(notes) THEN json_extract(notes, '$.rev') END AS notes_rev, clean_size, notes_of, " + PRINT_COURSE_COL;
 /* Notizen der Lehrkraft zu den Folien (Nachtrag 20): files.notes = {v:1, rev, slides:[{n, items}]} – tolerant gelesen */
 export function notesData(f) {
   let o = null;
@@ -70,7 +82,7 @@ export const fileOut = (f, withText = true) => ({
     // Notizen (nur Zahl und Stand) und die Fassung ohne Notizen für Schüler:innen (cleanNeeded: die hochgeladene PDF trägt Anhänge/Notizen)
     ...(() => { const ni = notesInfo(f); return { notes: ni.n, notesRev: ni.rev, cleanNeeded: f.clean_size != null, cleanReady: f.clean_size > 0 }; })() } : {}),
   ...(f.notes_of ? { notesOf: f.notes_of } : {}),
-  ...(onPrintList(f) ? { print: printProps(f), printName: printFileName({ name: f.name, ...printProps(f) }) } : {}),
+  ...(onPrintList(f) ? { print: printProps(f), printName: printNameOf(f) } : {}),
   createdAt: f.created_at, ...(withText && f.kind === "text" ? { text: f.text || "" } : {}), ...(f.kind === "link" ? { url: f.text || "" } : {}),
   // von Claude gestaltet (HTML → PDF): ob die PDF zur aktuellen Gestaltung passt und die letzte Meldung des Druckers
   // text = Klartext der Gestaltung (gekürzt) für die Prompts (z. B. Präsentation)

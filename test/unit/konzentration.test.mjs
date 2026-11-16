@@ -30,7 +30,7 @@ test("Name und Titel: erkennt die Konzentrationsaufgabe (auch Varianten), Titel 
   assert.equal(G.concTitleOf("konzentrationsaufgabe -", ""), "Konzentrationsaufgabe");
   // Druckliste: der Gedankenstrich bleibt im Namen (printBase ersetzt nur unzulässige Zeichen)
   assert.equal(S.printFileName({ name: "Konzentrationsaufgabe – Josef in Ägypten.pdf", copies: G.CONC_PRINT.copies, duplex: G.CONC_PRINT.duplex, color: G.CONC_PRINT.color }),
-    "5x - beidseitig - sw - Konzentrationsaufgabe – Josef in Ägypten.pdf");
+    "5x - sw - beidseitig - Konzentrationsaufgabe – Josef in Ägypten.pdf");
   assert.deepEqual(G.CONC_PRINT, { copies: 5, duplex: true, color: false });
   assert.equal(G.CONC_PAGES_MAX, 2);
 });
@@ -46,7 +46,7 @@ test("Regeln: höchstens zwei A4-Seiten, mindestens zwei Ausmalbilder zum Unterr
   // Zweck im Wortlaut der Lehrkraft
   assert.ok(G.CONC_WHY.startsWith("In jeder Klasse gibt es Kinder, die ihre Aufmerksamkeit nur bündeln können, wenn sie in Plenumsphasen den Sitzkreis verlassen und während des Zuhörens etwas ausmalen."));
   assert.ok(G.concSaveArgs("Josef").includes("`bereich` \"druck\", `anzahl` 5, `beidseitig` true, `farbe` false") && G.concSaveArgs("Josef").includes("hier z. B. „Konzentrationsaufgabe – Josef“") && !G.concSaveArgs("").includes("hier z. B."));
-  assert.ok(G.concWhere(true).includes("meiner Druckliste („5x - beidseitig - sw - Konzentrationsaufgabe – ….pdf“), nie bei Eltern oder Kindern.") && G.concWhere().includes("der Druckliste der Lehrkraft"));
+  assert.ok(G.concWhere(true).includes("meiner Druckliste („5x - sw - beidseitig - <Kurs> - Konzentrationsaufgabe – ….pdf“), nie bei Eltern oder Kindern.") && G.concWhere().includes("der Druckliste der Lehrkraft"));
 });
 
 test("Prompt „Stunde mit Claude planen“ (Grundschule): eigener Abschnitt mit Zweck und Regeln, Speicherschritt (druck, 5, beidseitig, sw) vor dem Verlaufsplan, im Verlaufsplan genannt", () => {
@@ -58,7 +58,7 @@ test("Prompt „Stunde mit Claude planen“ (Grundschule): eigener Abschnitt mit
   const v = p.slice(p.indexOf("## Vorgehen"));
   const step = v.slice(v.indexOf("   - Die Konzentrationsaufgabe speicherst du mit"), v.indexOf("   - Den Stundenverlauf speicherst du"));
   for (const s of ["`add_material_pdf` (`bereich` \"druck\", `anzahl` 5, `beidseitig` true, `farbe` false, `titel` „Konzentrationsaufgabe – <Thema der Stunde>“, hier z. B. „Konzentrationsaufgabe – Josef in Ägypten“)",
-    "Dann steht sie nur auf meiner Druckliste („5x - beidseitig - sw - Konzentrationsaufgabe – ….pdf“), nie bei Eltern oder Kindern.", "Im Verlaufsplan steht sie in der ersten Plenumsphase als eigener Stichpunkt",
+    "Dann steht sie nur auf meiner Druckliste („5x - sw - beidseitig - <Kurs> - Konzentrationsaufgabe – ….pdf“), nie bei Eltern oder Kindern.", "Im Verlaufsplan steht sie in der ersten Plenumsphase als eigener Stichpunkt",
     "„- Konzentrationsaufgabe [[pdf:<file_id>]] für Kinder, die beim Zuhören am Platz ausmalen“"]) assert.ok(step.includes(s), s);
   assert.ok(v.indexOf("`add_picture_cards`") < v.indexOf("Die Konzentrationsaufgabe speicherst du") && v.indexOf("Die Konzentrationsaufgabe speicherst du") < v.indexOf("`save_verlaufsplan`"), "nach den Bildkarten, vor dem Verlaufsplan (file_id für den Verweis)");
   // Thema der Sitzung (topic) geht vor dem Titel; ohne beides nur der Platzhalter
@@ -87,7 +87,7 @@ test("get_lesson-Abschnitt: fehlt → Zweck, Ablage und Aufbau; vorhanden → Dr
   for (const s of [G.concSaveArgs("Josef") + " ab. " + G.concWhere(), "Aufbau:", ...G.CONC_RULES.map((r) => "- " + r)]) assert.ok(miss.includes(s), s);
   const f = { id: "b".repeat(16), name: "Konzentrationsaufgabe – Josef.pdf", area: "print", status: "ready", pages: 2, designed: 1, print_copies: 5, print_duplex: 1, print_color: 0 };
   let t = G.concSection([f], "Josef", S.printFileName).join("\n");
-  assert.ok(t.includes("- file_id " + f.id + ": „Konzentrationsaufgabe – Josef.pdf“ (auf der Druckliste als „5x - beidseitig - sw - Konzentrationsaufgabe – Josef.pdf“; 2 Seiten) → [[pdf:" + f.id + "]]"), t);
+  assert.ok(t.includes("- file_id " + f.id + ": „Konzentrationsaufgabe – Josef.pdf“ (auf der Druckliste als „5x - sw - beidseitig - Konzentrationsaufgabe – Josef.pdf“; 2 Seiten) → [[pdf:" + f.id + "]]"), t);
   assert.ok(!t.includes("Fehlt noch") && !t.includes("Achtung") && t.endsWith("Ändert sich der Inhalt der Stunde, passe sie an (add_material_pdf mit ihrer file_id)."));
   t = G.concSection([{ ...f, pages: 3 }, { ...f, id: "c".repeat(16), area: "student", designed: 0, status: "pending", pages: null }, { ...f, id: "d".repeat(16), area: "archive" }], "Josef", S.printFileName).join("\n");
   assert.ok(t.includes("  Achtung: 3 Seiten – höchstens 2 A4-Seiten; kürze sie (add_material_pdf mit file_id " + f.id + ")."), t);
@@ -132,14 +132,14 @@ test("add_material_pdf (Grundschule): Konzentrationsaufgabe immer nur auf der Dr
   let f = await F.getFile(c.db, id);
   assert.deepEqual([f.area, f.name, f.print_copies, f.print_duplex, f.print_color, f.pages], ["print", "Konzentrationsaufgabe – Josef in Ägypten.pdf", 5, 1, 0, 2]);
   assert.equal(r.content[0].text, "„Konzentrationsaufgabe – Josef in Ägypten.pdf“ gespeichert und als PDF gedruckt: 2 Seiten, 1 KB, in der Liste „Von der Lehrkraft auszudrucken“ als " +
-    "„5x - beidseitig - sw - Konzentrationsaufgabe – Josef in Ägypten.pdf“ – nie für Eltern oder Kinder. Ändern: add_material_pdf mit file_id " + id + ". Verweis im Verlaufsplan: [[pdf:" + id + "]].");
+    "„5x - sw - beidseitig - Reli2 - Konzentrationsaufgabe – Josef in Ägypten.pdf“ – nie für Eltern oder Kinder. Ändern: add_material_pdf mit file_id " + id + ". Verweis im Verlaufsplan: [[pdf:" + id + "]].");
   assert.deepEqual([r.structuredContent.konzentrationsaufgabe, r.structuredContent.zu_lang], [true, false]);
   // Claude nimmt aus Gewohnheit die Schülerzahl und „für die Kinder“: Unterricks legt sie trotzdem nur auf die Druckliste (5x, beidseitig, sw), Titel einheitlich
   const { c: c2, l: l2, mcp: mcp2 } = await setup();
   r = await mcp2("add_material_pdf", { lesson_id: l2.id, bereich: "schueler", titel: "Konzentrations-Aufgabe: Josef", html: "<h1>x</h1>", anzahl: 22, farbe: true });
   f = await F.getFile(c2.db, r.structuredContent.file_id);
   assert.deepEqual([f.area, f.name, f.print_copies, f.print_duplex, f.print_color], ["print", "Konzentrationsaufgabe – Josef.pdf", 5, 1, 0]);
-  assert.ok(r.content[0].text.includes("„5x - beidseitig - sw - Konzentrationsaufgabe – Josef.pdf“ – nie für Eltern oder Kinder") &&
+  assert.ok(r.content[0].text.includes("„5x - sw - beidseitig - Reli2 - Konzentrationsaufgabe – Josef.pdf“ – nie für Eltern oder Kinder") &&
     r.content[0].text.includes("(Die Konzentrationsaufgabe legt Unterricks immer so auf die Druckliste: 5x, beidseitig, schwarz-weiß – die Lehrkraft kann das in der Sitzung ändern.)"), r.content[0].text);
   // ohne bereich: Druckliste
   r = await mcp2("add_material_pdf", { lesson_id: l2.id, titel: "Konzentrationsaufgabe", html: "<h1>x</h1>" });
@@ -185,7 +185,7 @@ test("get_lesson, save_verlaufsplan und Elternansicht: fehlt → Erinnerung; vor
   assert.equal(r.structuredContent.konzentrationsaufgabe, false);
   const cid = (await mcp("add_material_pdf", { lesson_id: l.id, bereich: "druck", titel: "Konzentrationsaufgabe – Josef in Ägypten", html: "<h1>x</h1>", anzahl: 5, beidseitig: true, farbe: false })).structuredContent.file_id;
   t = (await mcp("get_lesson", { lesson_id: l.id })).content[0].text;
-  assert.ok(t.includes("- file_id " + cid + ": „Konzentrationsaufgabe – Josef in Ägypten.pdf“ (auf der Druckliste als „5x - beidseitig - sw - Konzentrationsaufgabe – Josef in Ägypten.pdf“; 2 Seiten) → [[pdf:" + cid + "]]") && !t.includes("Fehlt noch"), t);
+  assert.ok(t.includes("- file_id " + cid + ": „Konzentrationsaufgabe – Josef in Ägypten.pdf“ (auf der Druckliste als „5x - sw - beidseitig - Reli2 - Konzentrationsaufgabe – Josef in Ägypten.pdf“; 2 Seiten) → [[pdf:" + cid + "]]") && !t.includes("Fehlt noch"), t);
   // vorhanden, aber nicht im Verlaufsplan
   r = await mcp("save_verlaufsplan", { lesson_id: l.id, text: "**1) Erzählung (15 Min., Sitzkreis)**\n**2) Arbeitsblatt (15 Min.)**\n- [[pdf:" + ab + "]]", base_version: 1 });
   assert.ok(r.content[0].text.includes("Eltern sehen nach der Stunde: „Arbeitsblatt Josef.pdf“." + G.concUnplannedText([cid])) && !r.content[0].text.includes("fehlt in dieser Sitzung noch (für Kinder"), r.content[0].text);
@@ -206,7 +206,7 @@ test("get_lesson, save_verlaufsplan und Elternansicht: fehlt → Erinnerung; vor
   assert.ok(t.includes("Eltern sehen nach der Stunde: „Arbeitsblatt Josef.pdf“\n"), t);
   // Druckaufträge für den nächsten Arbeitstag und Druckliste: Name wie dort (lessonOut/fileOut)
   const o = L.fileOut(await F.getFile(c.db, cid));
-  assert.equal(o.printName, "5x - beidseitig - sw - Konzentrationsaufgabe – Josef in Ägypten.pdf");
+  assert.equal(o.printName, "5x - sw - beidseitig - Reli2 - Konzentrationsaufgabe – Josef in Ägypten.pdf");
   // Ausfall-Eintrag: kein Abschnitt
   await c.db.prepare("UPDATE lessons SET cancelled=1 WHERE id=?1").bind(l.id).run();
   assert.ok(!(await mcp("get_lesson", { lesson_id: l.id })).content[0].text.includes("## Konzentrationsaufgabe"));
@@ -238,15 +238,15 @@ test("Prüfbefund: als Bildkarten abgelehnt (die sähen Eltern); Rückfall add_p
   r = await mcp("add_print_material", { lesson_id: l.id, titel: "Konzentrationsaufgabe Josef", markdown: "# Ausmalen", anzahl: 22, beidseitig: false });
   const pf = await F.getFile(c.db, r.structuredContent.file_id);
   assert.deepEqual([pf.area, pf.kind, pf.name, pf.print_copies, pf.print_duplex, pf.print_color], ["print", "text", "Konzentrationsaufgabe – Josef", 5, 1, 0]);
-  assert.equal(r.content[0].text, "Druckvorlage gespeichert: „5x - beidseitig - sw - Konzentrationsaufgabe – Josef.pdf“ (Liste „Von der Lehrkraft auszudrucken“ – nie für Eltern oder Kinder). " +
+  assert.equal(r.content[0].text, "Druckvorlage gespeichert: „5x - sw - beidseitig - Reli2 - Konzentrationsaufgabe – Josef.pdf“ (Liste „Von der Lehrkraft auszudrucken“ – nie für Eltern oder Kinder). " +
     "(Die Konzentrationsaufgabe legt Unterricks immer so auf die Druckliste: 5x, beidseitig, schwarz-weiß – die Lehrkraft kann das in der Sitzung ändern.)");
   // get_lesson: der Text-Rückfall ist da, aber nicht als [[pdf:]] verweisbar
   const g = (await mcp("get_lesson", { lesson_id: l.id })).content[0].text;
-  assert.ok(g.includes("- file_id " + pf.id + ": „Konzentrationsaufgabe – Josef“ (auf der Druckliste als „5x - beidseitig - sw - Konzentrationsaufgabe – Josef.pdf“; fertig) – Druckvorlage als Text (Rückfall, ohne Ausmalbilder; im Verlaufsplan nicht verweisbar)") &&
+  assert.ok(g.includes("- file_id " + pf.id + ": „Konzentrationsaufgabe – Josef“ (auf der Druckliste als „5x - sw - beidseitig - Reli2 - Konzentrationsaufgabe – Josef.pdf“; fertig) – Druckvorlage als Text (Rückfall, ohne Ausmalbilder; im Verlaufsplan nicht verweisbar)") &&
     !g.includes("[[pdf:" + pf.id + "]]"), g);
   // Gymnasium: add_print_material unverändert
   r = await mcp("add_print_material", { lesson_id: sek.id, titel: "Konzentrationsaufgabe", markdown: "# x", anzahl: 22, beidseitig: false });
-  assert.equal(r.content[0].text, "Druckvorlage gespeichert: „22x - einseitig - sw - Konzentrationsaufgabe.pdf“ (Liste „Von der Lehrkraft auszudrucken“).");
+  assert.equal(r.content[0].text, "Druckvorlage gespeichert: „22x - sw - einseitig - PoWi8 - Konzentrationsaufgabe.pdf“ (Liste „Von der Lehrkraft auszudrucken“).");
   // Elternansicht: weder Druckvorlage noch Bildkarten-Versuch – nur die erlaubten Bildkarten, wenn der Verlaufsplan sie nennt
   const les = await L.getLesson(c.db, l.id), course = (await GS.gsCourseMap(c.db)).get(les.klass);
   const pv = await PA.parentView(c, { ...les, portal: "**1) Erzählung**\n- [[pdf:" + pf.id + "]]" }, course, { preview: true });

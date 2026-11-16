@@ -109,9 +109,9 @@ test("GET /api/teacher/print-next: Dateien beider Schulformen wie in der Druckli
   assert.match(g.subtitle, /Religion/);
   assert.deepEqual([y.school, y.label, y.subtitle, y.title, y.course], ["gym", "PoWi 8A", "Politik und Wirtschaft · 8A", "Gewaltenteilung", undefined]);
   assert.deepEqual(e.files, []); assert.deepEqual(n.files, []); assert.equal(n.startTime, null);
-  assert.deepEqual(y.files.map((f) => [f.id, f.printName]), [[pdf, "28x - beidseitig - sw - AB Gewaltenteilung.pdf"], [txt, "1x - einseitig - sw - Tafelbild.pdf"], [des, "2x - beidseitig - Farbe - Gestaltet.pdf"]],
+  assert.deepEqual(y.files.map((f) => [f.id, f.printName]), [[pdf, "28x - sw - beidseitig - PoWi8 - AB Gewaltenteilung.pdf"], [txt, "1x - sw - einseitig - PoWi8 - Tafelbild.pdf"], [des, "2x - farbig - beidseitig - PoWi8 - Gestaltet.pdf"]],
     "Reihenfolge und Namen wie in der Sitzung");
-  assert.deepEqual(g.files.map((f) => [f.id, f.area, f.printName]), [[kid, "student", "22x - beidseitig - sw - Arbeitsblatt Josef.pdf"], [color, "print", "22x - einseitig - sw - Ausmalbild.pdf"]]);
+  assert.deepEqual(g.files.map((f) => [f.id, f.area, f.printName]), [[kid, "student", "22x - sw - beidseitig - Reli2 - Arbeitsblatt Josef.pdf"], [color, "print", "22x - sw - einseitig - Reli2 - Ausmalbild.pdf"]]);
   const t = y.files[1], d = y.files[2];
   assert.equal(t.kind, "text"); assert.equal("text" in t, false, "kein Text des Textmaterials");
   assert.deepEqual([d.status, d.design.outdated, d.design.error, d.design.text], ["pending", true, null, ""], "Stand der Gestaltung, ohne Claudes HTML");

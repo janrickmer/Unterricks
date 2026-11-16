@@ -144,7 +144,7 @@ test("Connector: get_lesson und get_unit nennen die Schülerzahl, add_material_p
   const orig = globalThis.fetch;
   globalThis.fetch = async () => new Response("busy", { status: 503 });   // Drucker ausgelastet – gespeichert wird trotzdem
   try { r = await mcp("add_material_pdf", { lesson_id: L, bereich: "druck", titel: "Kärtchen", html: "<p>x</p>" }); } finally { globalThis.fetch = orig; }
-  assert.match(r.content[0].text, /„24x - beidseitig - sw - Kärtchen\.pdf“/);
+  assert.match(r.content[0].text, /„24x - sw - beidseitig - Eth8 - Kärtchen\.pdf“/);
 });
 
 test("Umzug in einen Kurs (Ethik Jg. 7): der Kurs übernimmt die Kurseinstellungen der ersten Klasse, eigene bleiben", async () => {
