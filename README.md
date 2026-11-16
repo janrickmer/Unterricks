@@ -581,7 +581,10 @@ der **Podcast für den kommenden Unterricht** (derselbe wie auf der Startseite �
   Druckaufträgen der Startseite und in „Ich bin jetzt im Unterricht“. In der Zeile steht, aus welcher Sitzung sie kommen. Anzahl, Farbe und
   einseitig/beidseitig ändern Sie hier nur für diese Sitzung; **„Nicht ausdrucken“** nimmt sie nur hier herunter, darunter steht dann
   **„Wieder ausdrucken“**. Die Druckliste der Sitzung, der die Bildkarten gehören, bleibt unverändert. Entfernen Sie den Verweis aus dem
-  Verlaufsplan, verschwinden sie auch von dieser Druckliste. Das gilt für alle Bildkarten, auch ältere.
+  Verlaufsplan, verschwinden sie auch von dieser Druckliste. Das gilt für alle Bildkarten, auch ältere. Heruntergeladen (einzeln, als ZIP-Datei
+  und in „Ich bin jetzt im Unterricht“) heißt die Datei immer nach den Druckangaben dieser Sitzung – auch bei Bildkarten, die Claude gestaltet
+  hat. Stehen dieselben Bildkarten in zwei Sitzungen der Druckaufträge (z. B. heute in der Sitzung, der sie gehören, und morgen noch einmal),
+  hat jede Sitzung dort ihre eigene Zeile mit ihrem eigenen Namen.
 * **Konzentrationsaufgabe:** Zu jeder Sitzung, die Sie mit Claude planen („Stunde mit Claude planen“, auch wenn Claude beim Überarbeiten
   einer Einheit eine Sitzung neu plant), gestaltet Claude zusammen mit dem übrigen Material die **„Konzentrationsaufgabe“** – für Kinder, die
   ihre Aufmerksamkeit in Plenumsphasen nur bündeln können, wenn sie den Sitzkreis verlassen und beim Zuhören etwas ausmalen. Aufbau:

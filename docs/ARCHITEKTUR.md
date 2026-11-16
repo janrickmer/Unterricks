@@ -1796,6 +1796,34 @@ neue Bildkarten“.
   Ansicht); geänderte Erwartungen in `cardsprint.test.mjs` (PRINT_FILES_SQL liefert dahinter die Bildkarten des Kurses; Text in get_lesson);
   E2E `test/e2e/cardsprint.mjs` Abschnitt g.
 
+#### Zweitprüfung von Nachtrag 31b (16.11.2026): Befunde und Behebungen
+
+* **Einzel-Download gestalteter wiederverwendeter Bildkarten** (Druckliste und kompakte Ansicht): lief über den signierten Link – der Server nannte die
+  Datei nach der Druckliste der Sitzung, der sie gehören (bzw. – dort abgewählt, wie alle Bildkarten von vor dem 16.11.2026 – nur nach ihrem Titel); sein
+  `Content-Disposition` geht dem `download`-Attribut vor, auch bei gleicher Herkunft. Jetzt lädt `designBits` sie wie hochgeladene als Blob (`printBytes`,
+  also mit `print` – nie die alte Gestaltung) unter dem Namen dieser Sitzung; der Name wird erst beim Klick gelesen (die Druckangaben der Zeile können sich
+  geändert haben). Wiederverwendete Einträge tragen dafür einen eigenen `printName` (Druckangaben und Kurs dieser Sitzung) – den liest auch die kompakte Ansicht.
+* **Kein Neuaufbau der ganzen Druckliste:** War ihre neue Gestaltung gedruckt (Warteschlange `done`), schlug ihr Druck fehl oder hieß es „Erneut drucken“, baute
+  die Seite die ganze Liste neu – Fokus und eine halb getippte Anzahl in einer anderen Zeile gingen verloren (beim Entfernen des Felds speicherte der Browser die
+  halbe Zahl). Jetzt ersetzt `repaintFile` auch für wiederverwendete Bildkarten nur ihre Zeile (Stand am Eintrag in `st.courseCards`, „Erneut drucken“ setzt
+  dort zurück), Zwischenstände („wartet auf den PDF-Drucker …“) erreichen sie, und Änderungen der Druckangaben dieser Sitzung trägt die Zeile selbst nach.
+  Die Druckliste merkt sich, welchen Stand sie zeigt (`refKey`, `syncRefs()` statt `printRefKey` in gssession.js): Neu gezeichnet wird nur, wenn sich Verweise,
+  Druckangaben oder Gestaltung wirklich geändert haben (Verlaufsplan, anderes Fenster).
+* **Fokus:** „Nicht ausdrucken“ setzt ihn nur auf „Wieder ausdrucken“, wenn er sonst verloren wäre (hat die Lehrkraft ihn während der Anfrage woandershin gesetzt,
+  bleibt er dort); der Name von „Nicht ausdrucken – …“ folgt dem Druck-Namen (auch bei eigenen Bildkarten, seit Nachtrag 31).
+* **Verlaufsplan:** `fileOf` (gssession.js) kennt `st.courseCards` – ein getippter Verweis auf Bildkarten einer früheren (nicht der vorigen) Sitzung hieß sonst bis
+  zum Neuladen „PDF nicht gefunden“, obwohl die Druckliste die Karten schon zeigte.
+* **Druckaufträge der Startseite** (`printnext.js`): Zeilen, Fokusziele (`data-fk`) und die Rückmeldungen der Warteschlange sind je **Sitzung und Datei**
+  geschlüsselt (`rowKey`) – dieselben Bildkarten können in zwei Sitzungen des Feldes stehen. Vorher bauten sich beide Zeilen bei jedem Neuladen neu auf, der Fokus
+  sprang in die Zeile der anderen Sitzung, und nach dem Druck einer neuen Gestaltung trug die eine Zeile den Namen der anderen (die Antwort des Servers nennt
+  Druckangaben und Druck-Namen der Sitzung, der die Datei gehört – Einträge mit `refFrom` behalten ihre eigenen), die andere blieb ohne „Herunterladen“.
+* **save_verlaufsplan** nennt die Druckangaben dieser Sitzung (`printSettingsText` in gsplanning.js): alle gleich → derselbe Satz wie bisher, sonst je Bildkarten
+  („„Josef.pdf“ (3x, einseitig, schwarz-weiß), …“); abgewählte nicht.
+* **„Wieder ausdrucken“**: mindestens 44 px hoch und einzeilig (`.refoff .btn.small`).
+* **Tests:** Unit `test/unit/refcardsui.test.mjs` (Sitzungsseite im Browser-Ersatz – fake-dom kennt dafür `createComment` und `cloneNode`), `printnext.test.mjs`
+  (dieselben Bildkarten heute und morgen), `refcards.test.mjs` (save_verlaufsplan); E2E `cardsprint.mjs` Abschnitt g (gestaltete wiederverwendete Bildkarten:
+  Download-Namen, Antwort von save_verlaufsplan, kompakte Ansicht, Höhe von „Wieder ausdrucken“, zwei Sitzungen eines Tages auf der Startseite mit Druck).
+
 ## 4zb. Dateinamen der Druckliste mit Kurs (Nachtrag der Lehrkraft vom 16.11.2026, Nachtrag 32)
 
 Wortlaut: „Ändere bei den auszudruckenden Dateien die Vorgaben für die Dateinamen. Diese sollen nun bspw. so sein: "23x - sw - einseitig - Reli4 -

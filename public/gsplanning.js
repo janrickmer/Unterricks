@@ -68,6 +68,9 @@ export const CARD_DESIGN_RULES = [
  * farbig – „1x - farbig - einseitig - <Kurs> - <Titel>.pdf“, Nachtrag 32). Prompt „Stunde mit Claude planen“, Überarbeitung der Einheit, get_lesson, add_picture_cards und
  * save_verlaufsplan nutzen dieselben Bausteine. Die Konzentrationsaufgabe (Nachtrag 27) bleibt davon unberührt. */
 export const CARD_PRINT_TEXT = CARD_PRINT.copies + "x, einseitig, farbig";
+/* Druckangaben in Worten wie CARD_PRINT_TEXT („1x, einseitig, farbig“, „3x, beidseitig, schwarz-weiß“) – für die Antwort von save_verlaufsplan zu wiederverwendeten
+   Bildkarten: die Druckangaben DIESER Sitzung (Nachtrag 31b, Prüfung – vorher immer CARD_PRINT_TEXT, auch wenn die Lehrkraft sie geändert hatte) */
+export const printSettingsText = (p) => p.copies + "x, " + (p.duplex ? "beidseitig" : "einseitig") + ", " + (p.color ? "farbig" : "schwarz-weiß");
 // Name auf der Druckliste mit Platzhaltern für Kurs und Titel (Nachtrag 32): „1x - farbig - einseitig - <Kurs> - <Titel>.pdf“
 export const printNamePattern = (p) => printFileName({ ...p, name: "Titel", course: "Kurs" }).replace(/ - Kurs - Titel\.pdf$/, " - <Kurs> - <Titel>.pdf");
 export const CARD_PRINT_NAME = printNamePattern(CARD_PRINT);

@@ -215,6 +215,10 @@ export function printNextCards(load = () => tapi("GET", "/api/teacher/print-next
   }
   // Stand einer Zeile (ändert er sich beim Neuladen nicht, bleibt die Zeile dasselbe Element)
   const rowSig = (f, s) => JSON.stringify([f, s.id, s.printCourse, s.subtitle]);
+  // Schlüssel einer Zeile: Sitzung und Datei – seit Nachtrag 31b kann dieselbe Datei in zwei Sitzungen des Feldes stehen (wiederverwendete Bildkarten: in der Sitzung,
+  // der sie gehören, und in der, die sie wiederverwendet – je mit eigenem Druck-Namen); nach der Datei allein bauten sich beide Zeilen bei jedem Neuladen neu auf
+  // und der Fokus sprang in die Zeile der anderen Sitzung (Prüfung)
+  const rowKey = (f, s) => s.id + ":" + f.id;
   function fileRow(f, s) {
     const d = designState(f);
     if (d && d.need) rq.add(f);   // wie in der Sitzung: ausstehende Gestaltungen druckt die gemeinsame Warteschlange des Tabs
@@ -223,28 +227,32 @@ export function printNextCards(load = () => tapi("GET", "/api/teacher/print-next
     if (d) meta.append(designMeta(f), (f.cards ? " · Bildkarten" : "") + (d.ok ? " · " + fmtBytes(f.size) : "") + src(f, true));
     else meta.textContent = (f.cards ? "Bildkarten · " : "") + (f.kind === "text" ? "Text (als A4-PDF)" : fmtBytes(f.size)) + src(f, false);
     const can = !d || d.ok;
-    const btn = can ? h("button", { class: "btn pn-dl", type: "button", "aria-label": "Herunterladen – " + name, dataset: { fk: "dl:" + f.id },
+    const btn = can ? h("button", { class: "btn pn-dl", type: "button", "aria-label": "Herunterladen – " + name, dataset: { fk: "dl:" + rowKey(f, s) },
       onclick: (e) => work(e.currentTarget, async () => { try { await downloadOne(f, s); } catch (err) { errToast(err); } }, "Lade …") }, icon("download"), "Herunterladen") : null;
     const err = !!d && (d.error || (!!rq.failed(f) && d.need));
     const row = h("div", { class: "item printrow pn-row" + (err ? " design-err" : ""), dataset: { file: f.id } }, fileIcon(name, "application/pdf", "file"),   // auch Textmaterial kommt als PDF
       h("div", { class: "main" }, h("div", { class: "name", text: name }), meta), btn ? h("div", { class: "acts" }, btn) : null);
-    rowEls.set(f.id, { row, meta, sig: rowSig(f, s) });
+    rowEls.set(rowKey(f, s), { row, meta, sig: rowSig(f, s) });
     return row;
   }
-  // nur die Zeile einer Datei neu aufbauen (Fokus in den anderen Zeilen bleibt; war er in dieser Zeile, geht er an ihren neuen Knopf)
+  // nur die Zeilen einer Datei neu aufbauen – jede mit ihrer Sitzung (Fokus in den anderen Zeilen bleibt; war er in einer davon, geht er an ihren neuen Knopf)
   function repaintFile(fid) {
-    const hit = filesOf().find((x) => x.f.id === fid), el = rowEls.get(fid);
-    if (!hit || !el || !el.row.isConnected) return;
-    const had = el.row.contains(document.activeElement);
-    const row = fileRow(hit.f, hit.s);
-    el.row.replaceWith(row);
-    if (had) (row.querySelector("button") || heading).focus({ preventScroll: true });
-    paintAll();
+    let any = false;
+    for (const { f, s } of filesOf().filter((x) => x.f.id === fid)) {
+      const el = rowEls.get(rowKey(f, s));
+      if (!el || !el.row.isConnected) continue;
+      const had = el.row.contains(document.activeElement);
+      const row = fileRow(f, s);
+      el.row.replaceWith(row);
+      if (had) (row.querySelector("button") || heading).focus({ preventScroll: true });
+      any = true;
+    }
+    if (any) paintAll();
   }
   /* Zeile einer Datei beim Neuladen: dieselbe, wenn sich nichts geändert hat oder gerade ein Download in ihr läuft; sonst neu (der Fokus folgt danach
      über data-fk an denselben Knopf) */
   function rowFor(f, s) {
-    const el = rowEls.get(f.id);
+    const el = rowEls.get(rowKey(f, s));
     if (el && (el.sig === rowSig(f, s) || el.row.querySelector('[aria-busy="true"]'))) return el.row;
     return fileRow(f, s);
   }
@@ -392,7 +400,7 @@ export function printNextCards(load = () => tapi("GET", "/api/teacher/print-next
     const kids = two ? days.map(daySection) : dayContent(next, "h3");
     syncChildren(body, kids);
     // was nicht mehr gezeigt wird, vergessen (Gruppen, Zeilen, Tagesabschnitte)
-    const shown = new Set(days.flatMap((dd) => dd.sessions.map((s) => s.id))), fids = new Set(filesOf().map((x) => x.f.id));
+    const shown = new Set(days.flatMap((dd) => dd.sessions.map((s) => s.id))), fids = new Set(filesOf().map((x) => rowKey(x.f, x.s)));
     // (nach Lage im Feld, nicht nach isConnected: beim ersten Laden hängt das Feld womöglich noch nicht im Dokument)
     for (const k of Array.from(groupEls.keys())) if (!shown.has(k) || !card.contains(groupEls.get(k).sec)) groupEls.delete(k);
     for (const k of Array.from(rowEls.keys())) if (!fids.has(k) || !card.contains(rowEls.get(k).row)) rowEls.delete(k);
@@ -504,12 +512,25 @@ export function printNextCards(load = () => tapi("GET", "/api/teacher/print-next
     if (due) refresh();
   }
 
-  // gestaltete Vorlagen: Stand aus der gemeinsamen Druck-Warteschlange (gedruckt, Zwischenstand, Fehler)
+  // gestaltete Vorlagen: Stand aus der gemeinsamen Druck-Warteschlange (gedruckt, Zwischenstand, Fehler) – für jede Zeile dieser Datei (Nachtrag 31b: auch in
+  // mehreren Sitzungen). Die Antwort des Servers nennt Druckangaben und Druck-Namen der Sitzung, der die Datei gehört: Wiederverwendete Bildkarten (refFrom)
+  // behalten die der Sitzung, in deren Liste sie stehen (Prüfung)
   const off = rq.on({
-    done: (nf) => { const hit = filesOf().find((x) => x.f.id === nf.id); if (!hit) return; Object.assign(hit.f, nf); if (!nf.design) delete hit.f.design; delete hit.f.text; repaintFile(nf.id); },
-    note: (fid, t) => { if (t) rNotes.set(fid, t); else rNotes.delete(fid); const el = rowEls.get(fid), hit = filesOf().find((x) => x.f.id === fid); if (el && hit && el.meta.isConnected && el.meta.firstChild) el.meta.firstChild.textContent = designMeta(hit.f); },
+    done: (nf) => {
+      const hits = filesOf().filter((x) => x.f.id === nf.id);
+      if (!hits.length) return;
+      for (const { f } of hits) {
+        const own = f.refFrom ? { print: f.print, printName: f.printName, refFrom: f.refFrom } : null;
+        Object.assign(f, nf, own || {}); if (!nf.design) delete f.design; delete f.text;
+      }
+      repaintFile(nf.id);
+    },
+    note: (fid, t) => {
+      if (t) rNotes.set(fid, t); else rNotes.delete(fid);
+      for (const { f, s } of filesOf().filter((x) => x.f.id === fid)) { const el = rowEls.get(rowKey(f, s)); if (el && el.meta.isConnected && el.meta.firstChild) el.meta.firstChild.textContent = designMeta(f); }
+    },
     // Tageskontingent aufgebraucht: die Warteschlange druckt nichts mehr – alle gestalteten Zeilen sagen jetzt „Noch nicht gedruckt: …“
-    fail: (f0, e, quota) => { if (!quota) { repaintFile(f0.id); return; } for (const { f } of filesOf()) if (f.design) repaintFile(f.id); },
+    fail: (f0, e, quota) => { if (!quota) { repaintFile(f0.id); return; } for (const fid of new Set(filesOf().filter((x) => x.f.design).map((x) => x.f.id))) repaintFile(fid); },
   });
   /* zurück im Tab, nach dem Ruhezustand, beim Fokus des Fensters: ist das nächste Ende (bzw. ein neuer Tag – z. B. am nächsten Morgen) erreicht, neu laden */
   const check = () => {

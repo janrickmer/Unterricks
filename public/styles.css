@@ -808,6 +808,9 @@ body:has(> .presenter) #toasts { top: 1rem; bottom: auto; }   /* im Präsentatio
 .printrow .pset select { width: auto; max-width: 100%; min-width: 0; flex: 0 1 auto; }
 .printrow .pcount { display: inline-flex; align-items: center; gap: .35rem; font-weight: 700; }
 .printrow .pcopies { width: 5.2rem; }
+/* „Wieder ausdrucken“ (wiederverwendete Bildkarten, Nachtrag 31b): Ziel für den Finger mindestens 44px, Beschriftung in einer Zeile (neben dem langen Stand
+   brach sie sonst in „Wieder / ausdrucken“ um) */
+.refoff .btn.small { min-height: 44px; white-space: nowrap; }
 /* Feibeitsblatt-Verbindung: Kästchen „speichern“, Zeile mit dem Stand der gespeicherten Verbindung */
 .checkrow { display: flex; align-items: flex-start; gap: .5rem; cursor: pointer; }
 .checkrow input { margin-top: .18rem; flex: none; }

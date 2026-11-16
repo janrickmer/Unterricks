@@ -100,12 +100,14 @@ export async function gsSessionPage(id, d) {
   markNav("primary");
   // courseCards/cardPrints (Nachtrag 31b): Bildkarten des Kurses aus anderen Sitzungen und die Druckangaben dieser Sitzung für die, auf die der Verlaufsplan verweist
   const st = { lesson: d.lesson, files: d.files, refFiles: d.refFiles || [], courseCards: d.courseCards || [], cardPrints: d.cardPrints || {}, unit: d.unit, messages: d.messages || [], sheets: [], drafts: [] };
-  let box = null, printRefKey = "";   // Material und Druckliste (weiter unten angelegt – paintPlan läuft womöglich schon vorher)
+  let box = null;   // Material und Druckliste (weiter unten angelegt – paintPlan läuft womöglich schon vorher)
   const L = () => st.lesson;
   const course = (d.course && d.course.gs) || null, classSize = d.course ? d.course.classSize : null;
   const coursePage = "#/lk/grundschule/k/" + L().klass;
   const row = () => (st.unit && L().unitRow ? (st.unit.rows || []).find((r) => r.uid === L().unitRow) || null : null);
-  const fileOf = (fid) => { const f = st.files.find((x) => x.id === fid) || st.refFiles.find((x) => x.id === fid); return isPdf(f) ? f : null; };
+  // PDF zu einem Verweis: Datei dieser Sitzung, Bildkarten einer anderen Sitzung des Kurses (st.courseCards, Nachtrag 31b – stehen auch auf der Druckliste,
+  // also auch gleich nach dem Tippen eines Verweises mit Namen statt „PDF nicht gefunden“, Prüfung; ihr Stand folgt dem Drucken) bzw. verwiesene PDFs (refFiles)
+  const fileOf = (fid) => { const f = st.files.find((x) => x.id === fid) || st.courseCards.find((x) => x.id === fid) || st.refFiles.find((x) => x.id === fid); return isPdf(f) ? f : null; };
   const ctx = () => ({ lessonId: id, subject: L().subject, klass: L().klass, course, classSize,
     lesson: { title: L().title, topic: L().topic, durationMin: L().durationMin, date: L().date, startTime: L().startTime, ideas: L().ideas, homework: L().homework },
     materials: st.files.filter((f) => f.area !== "archive" && f.area !== "presentation").map((f) => ({ id: f.id, name: f.name, area: f.area, kind: f.kind, mime: f.mime, text: f.kind === "link" ? f.url || "" : "" })),
@@ -154,8 +156,9 @@ export async function gsSessionPage(id, d) {
     unstopBtn.classList.toggle("hidden", !hasStop(ta.value));
     paintStopNext(); paintParents(); paintSummaryHint();
     if (tsum) tsum.paintNote();
-    // ein Verweis auf Bildkarten einer anderen Sitzung kam dazu oder fiel weg (Nachtrag 31b): die Druckliste folgt sofort (nur dann – nicht bei jedem Tastendruck)
-    if (box && box.refKey() !== printRefKey) { printRefKey = box.refKey(); box.paintPrint(); }
+    // ein Verweis auf Bildkarten einer anderen Sitzung kam dazu oder fiel weg (Nachtrag 31b): die Druckliste folgt sofort (nur dann – nicht bei jedem Tastendruck;
+    // Änderungen einer einzelnen Zeile trägt die Druckliste selbst nach, ohne Neuaufbau)
+    if (box) box.syncRefs();
     icEmit("plan");
   }
   // von außen (eine PDF ist gedruckt, Bildkarten fertig, eine Datei gelöscht oder umbenannt): neu zeichnen, ohne den Fokus eines Verweises
@@ -535,14 +538,14 @@ export async function gsSessionPage(id, d) {
     st.courseCards = r.courseCards || []; st.cardPrints = r.cardPrints || {};
     const refChanged = box.refKey() !== before;
     const filesChanged = box.filesKey(r.files) !== box.filesKey(st.files) || refKey(r.refFiles || []) !== refKey(st.refFiles), cardsChanged = cardsBox.keyOf(r.files) !== cardsBox.keyOf(st.files);
-    if (refChanged && !filesChanged) { printRefKey = box.refKey(); box.paintPrint(); }
+    if (refChanged && !filesChanged) box.syncRefs();
     if (filesChanged || cardsChanged) {
       const old = st.files;
       st.files = r.files; st.refFiles = r.refFiles || [];
-      if (filesChanged) { printRefKey = box.refKey(); box.paintFiles(); box.paintPrint(); }
+      if (filesChanged) { box.paintFiles(); box.paintPrint(); }
       repaintPlan();
       if (cardsChanged) cardsBox.refresh(old);
-    }
+    } else if (refChanged) repaintPlan();   // Namen und Stand wiederverwendeter Bildkarten im Verlaufsplan (fileOf liest st.courseCards)
     return filesChanged;
   }
   // Änderungen von außen (Claude über den Connector, anderes Fenster) beim Zurückkehren übernehmen – nie in ein Feld, das gerade bearbeitet wird

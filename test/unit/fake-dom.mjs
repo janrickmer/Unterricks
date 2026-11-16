@@ -119,8 +119,16 @@ class FText extends FNode {
   set textContent(v) { this.data = String(v); }
   get nodeValue() { return this.data; }
   get nodeName() { return "#text"; }
+  cloneNode() { return new FText(this.ownerDocument, this.data); }
 }
 class FFragment extends FNode { constructor(doc) { super(doc); this.nodeType = 11; } }
+// Kommentar (z. B. Platzhalter der kompakten Ansicht, inclass.js borrow): zählt wie im Browser nicht zum textContent seines Elements
+class FComment extends FNode {
+  constructor(doc, data) { super(doc); this.nodeType = 8; this.data = String(data); }
+  get textContent() { return ""; }
+  get nodeName() { return "#comment"; }
+  cloneNode() { return new FComment(this.ownerDocument, this.data); }
+}
 
 class FClassList {
   constructor(el) { this.el = el; }
@@ -154,6 +162,14 @@ class FElement extends FNode {
     });
   }
   get nodeName() { return this.tagName; }
+  // Kopie mit Attributen (und Kindern) – ohne Zuhörer und Zustand wie im Browser (z. B. Statuszeilen, die die kompakte Ansicht spiegelt)
+  cloneNode(deep = false) {
+    const c = this.ownerDocument.createElement(this.localName);
+    for (const [k, v] of this._attrs) c._attrs.set(k, v);
+    Object.assign(c.style, this.style);
+    if (deep) c._insertBefore(this.childNodes.map((n) => n.cloneNode(true)), null);
+    return c;
+  }
   getAttribute(k) { return this._attrs.has(k) ? this._attrs.get(k) : null; }
   setAttribute(k, v) { const had = this._attrs.get(k); this._attrs.set(k, String(v)); if (had !== String(v)) this._attrChanged(k); }
   removeAttribute(k) { if (this._attrs.delete(k)) this._attrChanged(k); }
@@ -342,6 +358,7 @@ class FDocument extends FNode {
   createElement(tag) { return new FElement(this, tag); }
   createElementNS(_, tag) { return new FElement(this, tag); }
   createTextNode(t) { return new FText(this, t); }
+  createComment(t) { return new FComment(this, t); }
   createDocumentFragment() { return new FFragment(this); }
   createEvent() { return new FEvent(""); }
   get activeElement() {

@@ -332,6 +332,79 @@ export async function cardsPrintE2E({ tp, BASE, T, tool, ok, OUT, SHOT, gsL, pri
     await rowOf(NAMER).waitFor({ timeout: 10000 });
     ok((await pnFiles()).some((x) => x.id === aid2 && x.printName === NAMER), "„Wieder ausdrucken“: wieder auf der Liste (1x, einseitig, farbig)");
     await shots(tp, "#printcard", "wiederverwendet", { OUT, SHOT, ok, horizontalIssues });
+
+    /* Zweitprüfung von Nachtrag 31b: von Claude GESTALTETE wiederverwendete Bildkarten. Vorher lief ihr Einzel-Download über den signierten Link – der Server nannte die
+       Datei nach der Druckliste der Sitzung, der sie gehören („1x - …“ bzw., dort abgewählt, nur „Bildkarten Noah.pdf“; sein Content-Disposition geht dem
+       download-Attribut vor), auch in der kompakten Ansicht; die kompakte Ansicht nannte nur den Dateinamen; save_verlaufsplan sagte immer „1x, einseitig, farbig“ */
+    r = await tool("add_picture_cards", { lesson_id: prevL, titel: "Bildkarten Noah", html: cardsHtml(2, "Noah"), erzaehltexte: ["Noah baut eine Arche.", "Die Taube bringt einen Zweig."] });
+    const did = r.structuredContent && r.structuredContent.file_id;
+    const NAMED1 = "1x - farbig - einseitig - Reli2 - Bildkarten Noah.pdf", NAMED3 = "3x - farbig - einseitig - Reli2 - Bildkarten Noah.pdf";
+    ok(!r.isError && r.structuredContent.pages === 2 && r.structuredContent.druckliste === NAMED1, "Claude gestaltet Bildkarten in der früheren Sitzung (dort „" + NAMED1 + "“)");
+    const PLAN2 = "**1) Erzählung: Die Arche (15 Min., Sitzkreis)**\n- Lehrkraft erzählt mit den Bildkarten [[pdf:" + aid2 + "]]\n**2) Wiederholung (5 Min., Sitzkreis)**\n- Bildkarten [[pdf:" + did + "]]";
+    r = await tool("save_verlaufsplan", { lesson_id: gsL, text: PLAN2 });
+    ok(!r.isError && r.content[0].text.includes("Wiederverwendete Bildkarten „Arche Karten.pdf“, „Bildkarten Noah.pdf“ stehen auch auf der Druckliste dieser Sitzung (1x, einseitig, farbig)."),
+      "save_verlaufsplan: beide wiederverwendeten Bildkarten in einem Satz (gleiche Druckangaben, wie bisher)");
+    await openSession();
+    await rowOf(NAMED1).getByRole("button", { name: "Herunterladen" }).waitFor({ timeout: 30000 });
+    await rowOf(NAMED1).locator("input.pcopies").fill("3"); await rowOf(NAMED1).locator("input.pcopies").dispatchEvent("change");
+    await rowOf(NAMED3).waitFor({ timeout: 10000 });
+    ok(await rowOf(NAMED3).getByRole("button", { name: "Nicht ausdrucken – " + NAMED3 }).count() === 1, "3 Exemplare in dieser Sitzung – „Nicht ausdrucken“ nennt den neuen Namen");
+    [dl] = await Promise.all([tp.waitForEvent("download", { timeout: 30000 }), rowOf(NAMED3).getByRole("button", { name: "Herunterladen" }).click()]);
+    info = await pdfInfo(readFileSync(await dl.path()));
+    ok(dl.suggestedFilename() === NAMED3 && info.pages === 2 && info.landscape, "gestaltete wiederverwendete Bildkarten: Einzel-Download unter dem Namen dieser Sitzung „" + dl.suggestedFilename() + "“ (" + info.pages + " Seiten A4 quer)");
+    // die Sitzung, der sie gehören, nimmt sie von ihrer Liste (so stehen alle Bildkarten von vor dem 16.11.2026): der Name hier bleibt
+    await T("PATCH", "/api/teacher/files/" + did, { copies: null });
+    [dl] = await Promise.all([tp.waitForEvent("download", { timeout: 30000 }), rowOf(NAMED3).getByRole("button", { name: "Herunterladen" }).click()]);
+    ok(dl.suggestedFilename() === NAMED3, "… auch wenn ihre eigene Sitzung sie abgewählt hat: „" + dl.suggestedFilename() + "“");
+    r = await tool("save_verlaufsplan", { lesson_id: gsL, text: PLAN2 });
+    ok(r.content[0].text.includes("Wiederverwendete Bildkarten stehen auch auf der Druckliste dieser Sitzung: „Arche Karten.pdf“ (1x, einseitig, farbig), „Bildkarten Noah.pdf“ (3x, einseitig, farbig)."),
+      "save_verlaufsplan nennt die Druckangaben dieser Sitzung (vorher immer „1x, einseitig, farbig“)");
+    // kompakte Ansicht „Ich bin jetzt im Unterricht“: Druck-Name dieser Sitzung, Download ebenso
+    await tp.getByRole("button", { name: "Ich bin jetzt im Unterricht", exact: true }).click();
+    const icItem = tp.locator("#ic-material .ic-print", { has: tp.locator(".ic-name", { hasText: new RegExp("^" + esc(NAMED3) + "$") }) });
+    await icItem.waitFor({ timeout: 20000 });
+    ok(await tp.locator("#ic-material .ic-print .ic-name", { hasText: new RegExp("^" + esc(NAMER) + "$") }).count() === 1, "kompakte Ansicht: wiederverwendete Bildkarten mit dem Druck-Namen dieser Sitzung (vorher nur der Dateiname)");
+    [dl] = await Promise.all([tp.waitForEvent("download", { timeout: 30000 }), icItem.getByRole("button", { name: /^Herunterladen/ }).click()]);
+    ok(dl.suggestedFilename() === NAMED3, "kompakte Ansicht: Einzel-Download „" + dl.suggestedFilename() + "“");
+    await shots(tp, "#ic-material", "wiederverwendet-kompakt", { OUT, SHOT, ok, horizontalIssues }, SIZES4);
+    await tp.locator("#inclass-back").click();
+    // „Wieder ausdrucken“: am Handy mindestens 44px hoch, Beschriftung in einer Zeile
+    await rowOf(NAMED3).getByRole("button", { name: "Nicht ausdrucken – " + NAMED3 }).click();
+    const againD = card.getByRole("button", { name: "Wieder ausdrucken – Bildkarten Noah.pdf" });
+    await againD.waitFor({ timeout: 10000 });
+    await shots(tp, "#printcard", "wiederverwendet-abgewaehlt", { OUT, SHOT, ok, horizontalIssues }, SIZES4);
+    const vp1 = tp.viewportSize(), heights = [];
+    for (const [w, hh] of SIZES4) { await tp.setViewportSize({ width: w, height: hh }); await sleep(150); const bb = await againD.boundingBox(); heights.push(bb ? Math.round(bb.height) : 0); }
+    await tp.setViewportSize(vp1);
+    ok(heights.every((x) => x >= 44 && x <= 46), "„Wieder ausdrucken“ bei 1366/1180/820/390 px: " + heights.join("/") + " px hoch (mindestens 44, einzeilig – zweizeilig wären es 49)");
+    await againD.click();
+    await rowOf(NAMED1).waitFor({ timeout: 10000 });
+
+    /* Startseite: dieselben Bildkarten in zwei Sitzungen eines Tages (diese und eine zweite Sitzung des Kurses am selben Tag) – je Sitzung eine eigene Zeile; druckt das
+       Feld ihre neue Gestaltung, behält jede Zeile ihren Namen (vorher nach der Datei allein geschlüsselt: die eine Zeile bekam den Namen der anderen bzw. der Sitzung,
+       der die Bildkarten gehören, die andere blieb ohne „Herunterladen“) */
+    const twinL = "f31b" + Date.now().toString(16).slice(-12).padStart(12, "0");   // 16 Zeichen a–f/0–9 (isId) – sonst ließe sie sich nicht wieder löschen
+    d1("INSERT INTO lessons(id, subject, klass, title, lesson_date, code, portal, created_at, updated_at) VALUES('" + twinL + "', 'gs', '" + me.klass + "', 'Die Taube kehrt zurueck', '" + me.date + "', 'T31B" +
+      twinL.slice(-4).toUpperCase() + "', '- Bildkarten [[pdf:" + did + "]] zeigen', 2, 2)");
+    await T("PUT", "/api/teacher/lessons/" + gsL + "/card-prints", { fileId: did, copies: 3 });
+    await T("PATCH", "/api/teacher/files/" + did, { copies: 1 });   // wieder auf der Liste der Sitzung, der sie gehören – die Antwort des Druckers nennt dann „1x - …“
+    printer.mode = "busy";
+    r = await tool("add_picture_cards", { lesson_id: prevL, titel: "Bildkarten Noah", html: cardsHtml(3, "Noah"), erzaehltexte: ["Noah baut.", "Die Taube.", "Der Regenbogen."], file_id: did });
+    ok(!r.isError && r.content[0].text.includes("noch nicht als PDF gedruckt"), "Drucker ausgelastet: neue Gestaltung der Bildkarten gespeichert, noch nicht gedruckt");
+    await tp.goto(BASE + "/#/lk");
+    const pnRowOf = (lid, name) => tp.locator(".printnext .pn-group", { has: tp.locator('a[href="#/lk/s/' + lid + '"]') }).locator(".pn-row", { has: tp.locator(".name", { hasText: new RegExp("^" + esc(name) + "$") }) });
+    await pnRowOf(gsL, NAMED3).waitFor({ timeout: 20000 }); await pnRowOf(twinL, NAMED1).waitFor({ timeout: 20000 });
+    ok(await pnRowOf(gsL, NAMED3).getByRole("button").count() === 0 && await pnRowOf(twinL, NAMED1).getByRole("button").count() === 0,
+      "Startseite: dieselben Bildkarten in zwei Sitzungen – je eine Zeile mit eigenem Namen, beide warten auf den Druck");
+    printer.mode = "ok";
+    await pnRowOf(gsL, NAMED3).getByRole("button", { name: "Herunterladen – " + NAMED3 }).waitFor({ timeout: 90000 });
+    await pnRowOf(twinL, NAMED1).getByRole("button", { name: "Herunterladen – " + NAMED1 }).waitFor({ timeout: 20000 });
+    ok(true, "… gedruckt: beide Zeilen mit „Herunterladen“ unter ihrem eigenen Namen („" + NAMED3 + "“ bzw. „" + NAMED1 + "“)");
+    [dl] = await Promise.all([tp.waitForEvent("download", { timeout: 30000 }), pnRowOf(gsL, NAMED3).getByRole("button", { name: "Herunterladen – " + NAMED3 }).click()]);
+    info = await pdfInfo(readFileSync(await dl.path()));
+    ok(dl.suggestedFilename() === NAMED3 && info.pages === 3 && info.landscape, "… Download dort: „" + dl.suggestedFilename() + "“ mit der neuen Gestaltung (" + info.pages + " Seiten A4 quer)");
+    await shots(tp, ".printnext", "wiederverwendet-startseite", { OUT, SHOT, ok, horizontalIssues }, SIZES4);
+    ok((await T("DELETE", "/api/teacher/lessons/" + twinL)).status === 200, "aufgeräumt: die zweite Sitzung desselben Tages ist wieder gelöscht");
     // Verweis aus dem Verlaufsplan entfernt → nicht mehr auf der Druckliste dieser Sitzung
     r = await tool("save_verlaufsplan", { lesson_id: gsL, text: "**1) Bewegungslied (5 Min.)**" });
     await openSession();
@@ -354,10 +427,11 @@ export async function cardsPrintE2E({ tp, BASE, T, tool, ok, OUT, SHOT, gsL, pri
     "aufgeräumt: keine Bildkarten mehr in der Sitzung, Verlaufsplan wie vorher");
 }
 
-/* Bildschirmfotos eines Bereichs (Laptop 1366, iPad hochkant 820, Handy 390; hell und dunkel) – am Handy ohne seitliches Schieben */
-async function shots(tp, sel, name, { OUT, SHOT, ok, horizontalIssues }) {
+/* Bildschirmfotos eines Bereichs (Laptop 1366, iPad hochkant 820, Handy 390; hell und dunkel; sizes z. B. mit iPad quer 1180) – am Handy ohne seitliches Schieben */
+const SIZES4 = [[1366, 900], [1180, 820], [820, 1180], [390, 844]];
+async function shots(tp, sel, name, { OUT, SHOT, ok, horizontalIssues }, sizes = [[1366, 900], [820, 1180], [390, 844]]) {
   const vp0 = tp.viewportSize();
-  for (const [w, hh] of [[1366, 900], [820, 1180], [390, 844]]) for (const dark of [false, true]) {
+  for (const [w, hh] of sizes) for (const dark of [false, true]) {
     await tp.setViewportSize({ width: w, height: hh }); await tp.emulateMedia({ colorScheme: dark ? "dark" : "light" }); await sleep(250);
     const el = tp.locator(sel).first(); await el.scrollIntoViewIfNeeded();
     // die Kopfleiste der Seite ist sticky – im Foto eines hohen Bereichs läge sie sonst darüber

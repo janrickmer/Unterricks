@@ -156,6 +156,34 @@ test("Connector: get_lesson nennt wiederverwendete Bildkarten mit dem Druck-Name
   assert.ok(r.content[0].text.includes("Wiederverwendete Bildkarten „Josef.pdf“ stehen auch auf der Druckliste dieser Sitzung (1x, einseitig, farbig)."), r.content[0].text);
 });
 
+test("Prüfung: save_verlaufsplan nennt die Druckangaben DIESER Sitzung – gleiche in einem Satz wie bisher, verschiedene je Bildkarten, abgewählte nicht", async () => {
+  const { c, mcp, k, B, josef } = await setup();
+  const G = await import("../../public/gsplanning.js");
+  assert.equal(G.printSettingsText(S.CARD_PRINT), G.CARD_PRINT_TEXT, "Vorgabe in Worten wie bisher");
+  assert.equal(G.printSettingsText({ copies: 3, duplex: true, color: false }), "3x, beidseitig, schwarz-weiß");
+  const M = await L.createLesson(c.db, { subject: "gs", klass: k.id, title: "Mose", date: "2026-11-03" }, c.now - 20);
+  const mose = (await call(c, CA.routeCardsUpload, "POST", "/api/teacher/lessons/" + M.id + "/cards?name=" + encodeURIComponent("Mose.pdf") + "&share=0", PDF(3), M.id)).data.file;
+  let v = (await call(c, L.routeLessonGet, "GET", "/api/teacher/lessons/" + B.id, undefined, B.id)).data.lesson.portalVersion;
+  const save = async (text) => { const r = await mcp("save_verlaufsplan", { lesson_id: B.id, base_version: v, text }); assert.ok(!r.isError, JSON.stringify(r).slice(0, 300)); v = r.structuredContent.version; return r.content[0].text; };
+  const ONE = "**1) Sitzkreis (10 Min., Plenum)**\n- Lehrkraft erzählt mit den Bildkarten [[pdf:" + josef.id + "]]";
+  const TWO = ONE + "\n**2) Erinnerung (5 Min.)**\n- Bildkarten [[pdf:" + mose.id + "]]";
+  // in dieser Sitzung geändert: 3 Exemplare, schwarz-weiß – die Antwort sagt genau das (vorher immer „1x, einseitig, farbig“)
+  await put(c, B.id, { fileId: josef.id, copies: 3, color: false });
+  let t = await save(ONE);
+  assert.ok(t.includes("Wiederverwendete Bildkarten „Josef.pdf“ stehen auch auf der Druckliste dieser Sitzung (3x, einseitig, schwarz-weiß)."), t);
+  // zwei Bildkarten mit verschiedenen Druckangaben: je Bildkarten (Reihenfolge des Verlaufsplans)
+  t = await save(TWO);
+  assert.ok(t.includes("Wiederverwendete Bildkarten stehen auch auf der Druckliste dieser Sitzung: „Josef.pdf“ (3x, einseitig, schwarz-weiß), „Mose.pdf“ (1x, einseitig, farbig)."), t);
+  // wieder gleich: ein Satz wie bisher
+  await put(c, B.id, { fileId: josef.id, copies: 1, color: true });
+  t = await save(TWO);
+  assert.ok(t.includes("Wiederverwendete Bildkarten „Josef.pdf“, „Mose.pdf“ stehen auch auf der Druckliste dieser Sitzung (1x, einseitig, farbig)."), t);
+  // hier abgewählt: nicht genannt
+  await put(c, B.id, { fileId: mose.id, off: true });
+  t = await save(TWO);
+  assert.ok(t.includes("Wiederverwendete Bildkarten „Josef.pdf“ stehen auch auf der Druckliste dieser Sitzung (1x, einseitig, farbig).") && !t.includes("„Mose.pdf“ ("), t);
+});
+
 test("Kompakte Ansicht (Nachtrag 35): wiederverwendete Bildkarten stehen in Spalte 2 „zum Ausdrucken“ – abgewählte nicht", async () => {
   const IL = await import("../../public/inclasslib.js");
   const own = { id: "a".repeat(16), area: "print", kind: "file", name: "AB.pdf", print: { copies: 22 } };

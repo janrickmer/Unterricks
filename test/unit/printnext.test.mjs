@@ -573,3 +573,56 @@ test("Nachtrag 33 – das Feld hängt erst nach dem Laden im Dokument (wie auf d
   clock = at(9, 46); await fireTimers();
   assert.equal($$(".pn-group", card)[0], keep, "die 11:00-Gruppe bleibt dasselbe Element (gemerkt, obwohl beim ersten Aufbau nicht im Dokument)");
 });
+
+/* ---------- Prüfung von Nachtrag 31b: dieselben Bildkarten in zwei Sitzungen des Feldes ---------- */
+// heute die Sitzung, der sie gehören (1x auf ihrer Liste), morgen eine, die sie wiederverwendet (4x, refFrom) – vorher waren die Zeilen nur nach der Datei
+// geschlüsselt: beide bauten sich bei jedem Neuladen neu auf, der Fokus sprang in die Zeile von heute, und nach dem Druck einer neuen Gestaltung trug die Zeile von
+// morgen den Namen der Sitzung von heute, während die Zeile von heute auf „wird als PDF gedruckt …“ stehen blieb
+test("Prüfung von Nachtrag 31b: dieselben Bildkarten in zwei Sitzungen (heute die eigene, morgen wiederverwendet) – je Sitzung eine eigene Zeile mit eigenem Namen; Neuladen und Druck ändern nur, was sich ändert, der Fokus bleibt", async () => {
+  installClock();
+  const X = id("e1");
+  let design = { outdated: false, error: null, htmlAt: 5, pdfAt: 6, text: "" };
+  const cards = (extra) => ({ id: X, area: "teacher", kind: "file", name: "Bildkarten Arche.pdf", mime: "application/pdf", size: 4096, pages: 3, status: "ready", source: "claude", createdAt: 5,
+    cards: { texts: [], share: true, rev: 0, pages: 3, current: true, version: 6 }, design, ...extra });
+  const gs = { id: "gs1a2b3c4d", short: "Religion 2ab", label: "Religion · Jahrgang 2" };
+  const OWN_PRINT = { print: { copies: 1, duplex: false, color: true }, printName: "1x - farbig - einseitig - Reli2 - Bildkarten Arche.pdf" };
+  const OWN = () => ({ id: id("f1"), subject: "gs", klass: gs.id, title: "Noah baut die Arche", date: "2026-11-16", startTime: "11:00", durationMin: 45, endsAt: at(11, 45), school: "gs", label: gs.short,
+    subtitle: gs.label, printCourse: "Reli2", course: gs, files: [cards(OWN_PRINT)] });
+  const REUSE = () => ({ id: id("f2"), subject: "gs", klass: gs.id, title: "Die Taube", date: "2026-11-17", startTime: "08:00", school: "gs", label: gs.short, subtitle: gs.label, printCourse: "Reli2", course: gs,
+    files: [cards({ print: { copies: 4, duplex: false, color: true }, printName: "4x - farbig - einseitig - Reli2 - Bildkarten Arche.pdf", refFrom: { lessonId: id("f1") } })] });
+  let release = null;
+  clock = M0; timers = [];
+  const card = await page([[/^GET \/api\/teacher\/print-next$/, () => server(clock, [OWN()], [REUSE()])], link, lessonText,
+    // die Antwort des Druckers ist die Datei der Sitzung, der die Bildkarten gehören (mit IHRER Druckliste)
+    [/^POST \/api\/teacher\/files\/(\w+)\/render$/, async () => {
+      await new Promise((r) => { release = r; });
+      return { file: { ...cards(OWN_PRINT), pages: 4, design: { outdated: false, error: null, htmlAt: 7, pdfAt: 8, text: "" } } };
+    }]]);
+  const rows = () => $$(".pn-row", card), nameOf = (x) => $(".name", x).textContent;
+  assert.deepEqual(rows().map(nameOf), ["1x - farbig - einseitig - Reli2 - Bildkarten Arche.pdf", "4x - farbig - einseitig - Reli2 - Bildkarten Arche.pdf"], "je Sitzung ihr Name");
+  const [today0, tomorrow0] = rows();
+  assert.notEqual($("button", today0).dataset.fk, $("button", tomorrow0).dataset.fk, "eigene Fokus-Ziele je Sitzung");
+  // Neuladen im Hintergrund (nichts geändert): dieselben Zeilen, der Fokus bleibt in der Zeile von morgen
+  const btn = $("button", tomorrow0);
+  btn.focus();
+  for (const t of live()) { t.fired = true; t.fn(); }
+  await D.sleep(10);
+  assert.ok(rows()[0] === today0 && rows()[1] === tomorrow0, "beide Zeilen sind dieselben Elemente");
+  assert.ok(document.activeElement === btn, "Fokus bleibt auf „Herunterladen – 4x …“ – " + desc(document.activeElement));
+  // Claude gestaltet neu: beide Zeilen warten auf den Druck, die Warteschlange druckt (einmal)
+  design = { outdated: true, error: null, htmlAt: 7, pdfAt: 6, text: "" };
+  for (const t of live()) { t.fired = true; t.fn(); }
+  await until(() => rows().every((x) => !$("button", x)) && !!release, "neue Gestaltung wartet auf den Druck");
+  assert.equal(rec.calls.filter((c) => c === "POST /api/teacher/files/" + X + "/render").length, 1, "einmal gedruckt, nicht je Zeile");
+  release();
+  await until(() => rows().every((x) => !!$("button", x)), "beide Zeilen mit „Herunterladen“");
+  assert.deepEqual(rows().map((x) => [nameOf(x), $("button", x).getAttribute("aria-label")]), [
+    ["1x - farbig - einseitig - Reli2 - Bildkarten Arche.pdf", "Herunterladen – 1x - farbig - einseitig - Reli2 - Bildkarten Arche.pdf"],
+    ["4x - farbig - einseitig - Reli2 - Bildkarten Arche.pdf", "Herunterladen – 4x - farbig - einseitig - Reli2 - Bildkarten Arche.pdf"]], "jede Zeile behält den Namen ihrer Sitzung");
+  assert.ok(rows().every((x) => $(".meta", x).textContent.includes("4 Seiten")), "neuer Stand in beiden Zeilen");
+  // Einzel-Download der Zeile von morgen: unter ihrem Namen (Blob)
+  D.userClick($("button", rows()[1]));
+  await until(() => rec.blobs.length === 1, "Download");
+  assert.equal(rec.blobs[0][1], "4x - farbig - einseitig - Reli2 - Bildkarten Arche.pdf");
+  assert.equal(globalThis.__domErrors.length, 0, globalThis.__domErrors.join("\n"));
+});
