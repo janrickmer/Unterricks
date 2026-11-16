@@ -505,9 +505,13 @@ const unspace = (t) => {
 export function codeSlideLines(lines, pageH) {
   const all = (lines || []).filter((l) => l && typeof l.text === "string");
   if (!all.some((l) => MARK_RE.test(l.text))) return null;
+  // die unsichtbare Zeile „Unterricks-Phase: n“ (Nachtrag 34) gehört nie zur Überschrift – auch nicht als Stück einer umbrochenen Zeile
+  const phased = phaseMarkOf(all) !== null;
   const keep = [];
   for (const l of all) {
-    let t = unspace(l.text);
+    const own = stripPhaseMarks(l.text);
+    if (phased && isPhaseFragment(own)) continue;
+    let t = unspace(own);
     if (MARK_RE.test(t)) {
       t = t.replace(new RegExp(MARK_SRC, "gi"), " ").replace(/^[\s:·|–—-]+|[\s:·|–—-]+$/g, "");
       if (t.split(/\s+/).filter((w) => /\p{L}/u.test(w)).length < 2 || explains(t)) continue;   // Marke allein bzw. mit Erklärsatz
@@ -533,6 +537,47 @@ export function codeSlideLines(lines, pageH) {
   }
   return out.slice(0, CODE_SLIDE_LIMITS.lines).map((l) => l.text);
 }
+/* ---------- Phasen der Folien (Nachtrag 34) ----------
+ * Claude schreibt laut Präsentations-Prompt auf jede Folie eine unsichtbare Zeile „Unterricks-Phase: n“ (n = Nummer der Phase im Schulportal-Eintrag,
+ * „**3) Partnerarbeit**“) – als Text im Darstellungsmodus „unsichtbar“ oder winzig in der Farbe des Hintergrunds. Unterricks liest sie beim Hochladen
+ * aus dem Text der Seite (presenter.js): auch über mehrere Textstücke bzw. Zeilen verteilt, gesperrt gesetzt, in anderer Schreibung. Sie ist nie Teil
+ * der Überschrift einer Codefolie (codeSlideLines) und nie für Schüler:innen; daraus folgt der Zwischenstopp im Schulportal-Eintrag (stopForShown). */
+export const PHASE_MARK = "Unterricks-Phase";
+export const PHASE_MAX = 99;
+const PHASE_WORD = "u\\s*n\\s*t\\s*e\\s*r\\s*r\\s*i\\s*c\\s*k\\s*s\\s*[-\\u2010\\u2011\\u2013\\u2014]?\\s*p\\s*h\\s*a\\s*s\\s*e\\s*[:\\uFF1A]?\\s*";
+const PHASE_RE = new RegExp(PHASE_WORD + "(\\d{1,2})(?!\\d)", "gi");
+// ein Stück der Zeile (umbrochen bzw. in mehreren Textstücken): „Unterricks-“, „Phase: 3“, „-Phase:“ …
+const PHASE_PART_RE = /^[\s\-\u2010\u2011\u2013\u2014:\uFF1A]*(?:u\s*n\s*t\s*e\s*r\s*r\s*i\s*c\s*k\s*s)?[\s\-\u2010\u2011\u2013\u2014]*(?:p\s*h\s*a\s*s\s*e)?[\s:\uFF1A]*\d{0,2}\s*$/i;
+const lineText = (l) => (typeof l === "string" ? l : l && typeof l.text === "string" ? l.text : "");
+/* Phase einer Folie aus ihren Zeilen (Strings oder {text}, Reihenfolge des PDF) → 1–99 | null; mehrere Zeilen → die erste gültige */
+export function phaseMarkOf(lines) {
+  const s = (Array.isArray(lines) ? lines : []).map(lineText).join(" ").normalize("NFKC");
+  for (const m of s.matchAll(PHASE_RE)) { const n = Number(m[1]); if (n >= 1 && n <= PHASE_MAX) return n; }
+  return null;
+}
+export const stripPhaseMarks = (t) => String(t == null ? "" : t).replace(PHASE_RE, " ");
+const isPhaseFragment = (t) => /\S/.test(t) && PHASE_PART_RE.test(t);
+/* Phasen aller Folien aus fremden Daten (Browser → Server): genau pages Einträge, je eine Ganzzahl 1–99 oder null → Array; ohne eine einzige Phase
+   null; ungültig (anderes Format, andere Länge, andere Werte) undefined */
+export function cleanSlidePhases(raw, pages) {
+  if (raw === null) return null;
+  if (!Array.isArray(raw) || !Number.isInteger(pages) || pages < 1 || raw.length !== pages) return undefined;
+  for (const v of raw) if (!(v === null || (Number.isInteger(v) && v >= 1 && v <= PHASE_MAX))) return undefined;
+  return raw.some((v) => v !== null) ? raw.slice() : null;
+}
+/* gespeicherte Phasen einer Präsentation (files.slide_phases = {v:1, pdf, hand, auto}) tolerant gelesen: pdf = aus der PDF gelesen, hand = von der
+   Lehrkraft zugeordnet (gilt vor pdf), auto = wo Unterricks zuletzt selbst einen Zwischenstopp eingetragen hat ({phase, until}) */
+export function slidePhasesData(raw, pages) {
+  let o = null;
+  try { o = typeof raw === "string" ? JSON.parse(raw) : raw; } catch {}
+  if (!o || typeof o !== "object") o = {};
+  const list = (v) => { const x = cleanSlidePhases(v, pages); return x || null; };
+  const a = o.auto, auto = a && Number.isInteger(a.phase) && a.phase >= 1 && a.phase <= PHASE_MAX ? { phase: a.phase, until: Number.isInteger(a.until) ? a.until : null } : null;
+  return { pdf: list(o.pdf), hand: list(o.hand), auto };
+}
+/* geltende Phasen der Folien (von Hand vor der PDF) – null = keine */
+export const slidePhasesOf = (p) => (p && p.phases ? p.phases.hand || p.phases.pdf || null : null);
+
 /* Codefolien aus fremden Daten (Browser → Server, Server → DO): [{n (1…pages, eindeutig), lines (0–3 Zeilen ≤ 160 Zeichen)}], nach n sortiert */
 export function cleanCodeSlides(raw, pages) {
   if (!Array.isArray(raw) || !Number.isInteger(pages) || pages < 1) return [];
@@ -954,6 +999,63 @@ export function stopParts(text) {
 }
 /* Text für das Schulportal (ohne interne Markierungen) */
 export const portalForCopy = (text) => removeStops(text);
+
+/* ---------- Zwischenstopp aus der Präsentation (Nachtrag 34) ----------
+ * Phasen des Schulportal-Eintrags: nummerierte fette Überschriften „**3) Partnerarbeit**“ (auch „**3. …**“) → [{n, line (Index wie insertStop), title, label}]
+ * in der Reihenfolge des Eintrags (auch nach „--> Nächste Stunde“). */
+const PHASE_HEAD_RE = /^\s*\*\*\s*(\d{1,2})\s*[).]\s*(.*?)\s*$/;
+export function portalPhases(text) {
+  const out = [];
+  splitLines(text).forEach((line, i) => {
+    const m = PHASE_HEAD_RE.exec(line);
+    if (!m || Number(m[1]) < 1) return;
+    const title = m[2].replace(/\*\*|~~|__|`/g, "").replace(/\s+/g, " ").trim();
+    out.push({ n: Number(m[1]), line: i, title, label: m[1] + ")" + (title ? " " + title : "") });
+  });
+  return out;
+}
+/* Wohin gehört der Zwischenstopp, wenn n die letzte gezeigte Folie ist? slidePhases = Phase je Folie (1–99 | null), prevAuto = {phase} – wo Unterricks
+   selbst zuletzt einen eingetragen hat (sonst null). Regel der Lehrkraft (16.11.2026, „vor diese Phase“): Q = Phase der letzten zugeordneten Folie bis n
+   (keine → vor die erste Phase); gehört die erste zugeordnete Folie nach n auch zu Q, ist Q angefangen, aber nicht geschafft → vor Q; sonst vor die nächste
+   Phase des Eintrags nach Q (Phasen ohne Folien gelten als nicht geschafft); gibt es keine mehr, ist die Stunde vollständig. Einen Zwischenstopp, der
+   nicht von hier stammt (von Hand gesetzt oder verschoben), entfernt sie nie.
+   n = Zahl → {text, line, phase, label} (eingetragen; insertStop verschiebt einen vorhandenen) | {complete: true, phase, remove: true, text, removed (label)}
+     | {complete: true, phase, manual}
+     | {error: "nomarks" | "noheads" | "missing" | "twice", phase?}
+   n = null (Markierung aufgehoben) → {remove: true, text, phase, label} (der von Unterricks eingetragene steht noch an seiner Stelle) | {keep: true, manual}
+   manual = es bleibt ein Zwischenstopp stehen, den Unterricks nicht entfernt. */
+export function stopForShown(portalText, slidePhases, n, prevAuto = null) {
+  const text = String(portalText == null ? "" : portalText), heads = portalPhases(text), P = Array.isArray(slidePhases) ? slidePhases : [];
+  const headsOf = (k) => heads.filter((h) => h.n === k);
+  const lines = splitLines(text);
+  // steht der (erste) Zwischenstopp direkt vor der Überschrift der Phase k (Leerzeilen dazwischen zählen nicht)?
+  const sitsBefore = (k) => {
+    const s = lines.findIndex(isStopLine), hs = headsOf(k);
+    if (s < 0 || hs.length !== 1) return false;
+    let j = s + 1;
+    while (j < lines.length && !lines[j].trim()) j++;
+    return hs[0].line === j;
+  };
+  const auto = prevAuto && Number.isInteger(prevAuto.phase) && sitsBefore(prevAuto.phase) ? headsOf(prevAuto.phase)[0] : null;
+  const gone = () => (auto ? { remove: true, text: removeStops(text), phase: auto.n, label: auto.label } : { manual: hasStop(text) });
+  if (n === null || n === undefined) { const g = gone(); return g.remove ? g : { keep: true, manual: g.manual }; }
+  if (!P.some((v) => Number.isInteger(v))) return { error: "nomarks" };
+  if (!heads.length) return { error: "noheads" };
+  let q = null, r = null;
+  for (let i = Math.min(n, P.length); i >= 1; i--) if (Number.isInteger(P[i - 1])) { q = P[i - 1]; break; }
+  for (let i = Math.max(1, n + 1); i <= P.length; i++) if (Number.isInteger(P[i - 1])) { r = P[i - 1]; break; }
+  let target = heads[0];
+  if (q !== null) {
+    const hs = headsOf(q);
+    if (!hs.length) return { error: "missing", phase: q };
+    if (hs.length > 1) return { error: "twice", phase: q };
+    target = r === q ? hs[0] : heads[heads.indexOf(hs[0]) + 1] || null;
+  }
+  if (!target) { const g = gone(); return g.remove ? { complete: true, phase: q, remove: true, text: g.text, removed: g.label } : { complete: true, phase: q, manual: g.manual }; }
+  if (headsOf(target.n).length > 1) return { error: "twice", phase: target.n };
+  const ins = insertStop(text, target.line);
+  return { text: ins.text, line: ins.line, phase: target.n, label: target.label };
+}
 
 /* Schulportal-Markup für die Vorschau zerlegen: Zeilen → {type: "li"|"p"|"blank"|"stop", runs: [{text, b, i, u, s, code, sup, sub, href}]} */
 export function parsePortalMarkup(text) {
@@ -1453,7 +1555,7 @@ export function claudePresentationPrompt(ctx, portalText, messages) {
     "- genau diese Zeile als echten Text – unverändert, ohne Anführungszeichen und in einer einzigen Zeile (kein Umbruch, keine Silbentrennung; klein am unteren Rand genügt, im Unterricht ist sie nicht zu sehen): " + CODE_SLIDE_LINE,
     "- darüber höchstens drei kurze Zeilen, die Unterricks wörtlich als Überschrift über den Sitzungscode und den QR-Code setzt (bei Materialfolien die Aufforderung und den Titel des Materials, siehe unten); " +
       "ohne solche Zeilen zeigt Unterricks dort den Titel der Sitzung;",
-    "- sonst keinen Text und keine Schrift in Bildern: keine Fußzeile, keine Foliennummer, keinen Code und keinen QR-Code – weiterer Text würde Teil der Überschrift. " +
+    "- sonst keinen Text und keine Schrift in Bildern: keine Fußzeile, keine Foliennummer, keinen Code und keinen QR-Code – weiterer Text würde Teil der Überschrift (einzige Ausnahme: die unsichtbare Zeile „" + PHASE_MARK + ": …“, siehe „Phase jeder Folie“). " +
       "Gestalte die Folie trotzdem im Layout der übrigen Folien: In der PDF, die die Schüler:innen nach der Stunde selbst öffnen können, bleibt sie so stehen.",
     analog ? "In dieser Jahrgangsstufe brauchen die Schüler:innen den Code nur zu Hause: Setze höchstens nach der Hausaufgabe eine Unterricks-Codefolie mit der Überschrift „Zu Hause findest du diese Sitzung in Unterricks.“ ein – Materialfolien sind hier gewöhnliche Folien."
       : "Vor Folie 1 brauchst du keine (die zeigt Unterricks ohnehin). Jede Materialfolie mit Material aus Unterricks ist eine Unterricks-Codefolie (siehe unten); weitere setzt du nur dort ein, " +
@@ -1487,6 +1589,13 @@ export function claudePresentationPrompt(ctx, portalText, messages) {
     "- Zeitgebundenes (z. B. wer gerade regiert, neueste Zahlen) nicht als „aktuell“ oder „derzeit“, sondern mit Jahreszahl und Quelle („Stand " + new Date().getFullYear() + ": …“); fachliche Jahreszahlen und Daten (z. B. historische Ereignisse) bleiben selbstverständlich;",
     "- kein Sitzungscode und kein QR-Code zu Unterricks: Beides gehört zu einer einzigen Sitzung. Unterricks zeigt es selbst – vor Folie 1 und auf jeder Unterricks-Codefolie, immer mit dem Code der aktuellen Sitzung –, " +
       "so passt die Präsentation unverändert in jede spätere Sitzung.",
+    "",
+    "## Phase jeder Folie: unsichtbar in der PDF",
+    "Am Ende der Stunde markiere ich in Unterricks die zuletzt gezeigte Folie; daran erkennt Unterricks, bis zu welcher Phase die Stunde gekommen ist. Dafür steht auf jeder Folie – auch auf der Titelfolie, " +
+      "auf Materialfolien und Unterricks-Codefolien – genau eine Zeile „" + PHASE_MARK + ": 3“ als echter Text in einer Zeile; die Zahl ist die Nummer der Phase im verbindlichen Stundenverlauf unten " +
+      "(„**3) …**“), zu der die Folie gehört. Titelfolie und Agenda gehören zur Phase, in der sie zuerst gezeigt werden (meist 1); eine Folie, die zu keiner Phase gehört, bekommt keine Zeile.",
+    "- unsichtbar: am besten als unsichtbarer Text (Textdarstellungsmodus 3, z. B. mit reportlab `setTextRenderMode(3)`), sonst sehr klein (höchstens 2 pt) am unteren Rand in genau der Farbe des Hintergrunds an dieser Stelle – nie über anderem Inhalt;",
+    "- Unterricks nimmt sie nie in die Überschrift einer Unterricks-Codefolie, und die Schüler:innen sehen sie nicht.",
     "",
     "## Notizen für die Lehrkraft: unsichtbar in der PDF",
     "Schreibe zu jeder Folie Notizen für die Lehrkraft in Stichpunkten: was sie sagt, fragt oder beachtet – Impulse, erwartete Antworten der Schüler:innen, Zeit. " +

@@ -22,6 +22,7 @@ import { printNamesE2E } from "./printnames.mjs";
 import { printTodayE2E } from "./printtoday.mjs";
 import { storageE2E } from "./storage.mjs";
 import { selbstlernStopE2E } from "./selbstlernstop.mjs";
+import { phaseStopE2E } from "./phasestop.mjs";
 import { escapeFixture } from "./escape-fixture.mjs";
 
 const require = createRequire(import.meta.url);
@@ -2061,6 +2062,10 @@ async function main() {
     /* ---------- Abschlussprüfung Nr. 27–30: Selbstlern-Phase und Zwischenstopp der vorigen Stunde, nächste Stunde mit der Lehrkraft, „Mitbringen“ ---------- */
     step("Selbstlern-Phase nach einem Zwischenstopp: Prompt fragt nach dem offenen Teil, Hinweis erledigt nach Entscheidung + Umstellung, zurück nach „Wiederherstellen“; nächste Stunde mit der Lehrkraft kennt die Hausaufgabe; „Mitbringen“ und rechte Spalte");
     await selbstlernStopE2E({ tp, BASE, T, tool, ok, OUT, SHOT });
+
+    /* ---------- Nachtrag 34: Zwischenstopp nur in der Präsentation setzen – der Schulportal-Eintrag folgt ---------- */
+    step("Zwischenstopp aus der Präsentation (Nachtrag 34): Phasen der Folien aus der PDF (unsichtbar bzw. in Hintergrundfarbe), letzte gezeigte Folie über Auswahl, Kontextmenü und „Bis hier gezeigt“, Aufheben, von Hand gesetzter bleibt, Zuordnung von Hand, Sitzungsdatei");
+    await phaseStopE2E({ tp, BASE, T, ok, OUT, SHOT });
 
     step("Selbstlern-Phase mit Escape-Room: streng geprüft, Vorschau, Finale anlegen, Schüler:in spielt alle 6 Stationen, Überblick-PDF, Tunnel ins Feibeitsblatt");
     const escRoom = escapeFixture();

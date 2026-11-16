@@ -477,6 +477,15 @@ main.narrow .homework { background: var(--gelb-t); border-color: color-mix(in sr
 .shownbox { margin: .4rem 0 .2rem; display: grid; grid-template-columns: minmax(0, 1fr); gap: .3rem; }
 .shownbox label { font-weight: 700; font-size: .95rem; }
 .shownbox select { width: auto; max-width: 100%; min-width: 0; flex: 0 1 auto; }
+/* Zwischenstopp aus der Präsentation (Nachtrag 34): Rückmeldung unter der Auswahl; „Phasen der Folien“ – je Phase eine Zeile „beginnt bei Folie …“ */
+.shownbox .stopsync { margin: 0; }
+.phasebox { margin-bottom: .7rem; }
+.phasebox .phaserows { display: grid; gap: .45rem; }
+.phasebox .phaserow { display: flex; flex-wrap: wrap; align-items: center; gap: .3rem .9rem; }
+.phasebox .phaserow label { flex: 0 1 20rem; min-width: 0; font-weight: 600; overflow-wrap: anywhere; }
+.phasebox .phaserow select { width: auto; flex: 0 0 auto; min-width: 9rem; max-width: 100%; }
+.phasebox .ph-n { font-weight: 700; }
+.phasebox #phase-sum { color: var(--muted); }
 .presrel { margin: .3rem 0 .6rem; }
 /* Notizen der Lehrkraft zu den Folien (Nachtrag 20): je Folie Vorschaubild und Textfeld (ein Stichpunkt je Zeile) */
 .notesbox { margin: .5rem 0 .9rem; padding: .8rem .95rem .9rem; border-radius: var(--radius); background: var(--surface-2); display: grid; gap: .45rem; }

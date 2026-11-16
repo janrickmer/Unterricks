@@ -137,8 +137,9 @@ gleich in `public/_headers`, im Worker und – für GitHub Pages – in `scripts
   Claude in dem Fall um den JSON-Block für „JSON aus dem Chat einfügen“. Nicht entfernen lässt sich Text, der unsichtbar auf den Folien selbst steht (z. B. weiße
   Schrift oder ausgeblendete Ebenen) – deshalb bittet der Prompt ausdrücklich nur um den Dateianhang. Ältere Präsentationen
   mit einem Code auf den Folien: Unterricks ersetzt ihn beim Hochladen durch den Code dieser Sitzung (wo das nicht sicher geht, z. B.
-  bei einem unruhigen Foto hinter dem Code, bleibt die Folie unverändert und die Meldung nennt sie). Am Stundenende: Hausaufgabe eintragen und per
-  Rechtsklick im Schulportal-Eintrag „Zwischenstopp einfügen“, falls nicht alles geschafft wurde. In der nächsten Sitzung zeigt dann die Karte
+  bei einem unruhigen Foto hinter dem Code, bleibt die Folie unverändert und die Meldung nennt sie). Am Stundenende: Hausaufgabe eintragen und die letzte gezeigte Folie
+  markieren – den Zwischenstopp im Schulportal-Eintrag trägt Unterricks dann selbst ein (siehe „Zwischenstopp aus der Präsentation“ unten); von Hand
+  geht es weiter per Rechtsklick im Schulportal-Eintrag „Zwischenstopp einfügen“, falls nicht alles geschafft wurde. In der nächsten Sitzung zeigt dann die Karte
   „Die letzte Stunde wurde nicht vollständig beendet“, was nicht geschafft wurde. Beim Planen mit Claude („Stunde mit Claude planen“)
   erklärt Claude zuerst den offenen Teil und fragt, ob er in diese Stunde übernommen oder darauf verzichtet wird (die Karte zeigt danach
   „Entschieden am …“). Ist danach auch der Schulportal-Eintrag dieser Sitzung gespeichert (von Claude oder von Ihnen auf der Seite), ist der
@@ -320,6 +321,24 @@ gleich in `public/_headers`, im Worker und – für GitHub Pages – in `scripts
   Markierung „Folie 3 von 7“ und „So weit, wie ihr im Unterricht gekommen seid.“), darunter „Diese Präsentation herunterladen“ – die PDF
   bis zur Markierung als Datei. Folien nach der Markierung liefert der Server auch auf Umwegen nicht aus. „Für den Beamer zeigen“ zeigt neben dem
   Code einen QR-Code zu unterricks.janrickmer.de – dieselbe Codefolie erscheint beim Start der Präsentation vor Folie 1.
+* **Zwischenstopp aus der Präsentation (Nachtrag 34):** Den Zwischenstopp setzen Sie am Ende der Stunde nur noch einmal – mit der letzten gezeigten
+  Folie (Auswahl „Letzte im Unterricht gezeigte Folie“, Rechtsklick auf eine Folie oder „Bis hier gezeigt“ in der Präsentation; am iPad die Auswahl oder „Bis hier gezeigt“). Unterricks
+  trägt ihn dann selbst in den Schulportal-Eintrag ein und speichert ihn (mit demselben Hinweis zur nächsten Sitzung wie von Hand); die Meldung nennt
+  die Phase, z. B. „Zwischenstopp im Schulportal-Eintrag vor „3) Partnerarbeit“ eingetragen.“ (in der Präsentation steht es kurz neben „Bis hier
+  gezeigt“). Woher Unterricks die Phase einer Folie kennt: Der Präsentations-Prompt bittet Claude, auf jede Folie unsichtbar eine Zeile
+  „Unterricks-Phase: 3“ zu schreiben (die Nummer der Phase **3)** im Schulportal-Eintrag) – als unsichtbaren Text oder winzig in der Farbe des
+  Hintergrunds. Sie erscheint nicht in den Folienbildern (Beamer, Schüler:innen) und nie in der Überschrift einer Codefolie; nur in der Textebene der
+  PDF, die Schüler:innen nach der Stunde herunterladen können, steht sie weiter (z. B. beim Markieren von Text) – harmlos, kein Geheimnis.
+  **Regel** (Ihre Entscheidung „vor diese Phase“): Gehört die Folie nach der letzten gezeigten noch zur selben Phase, ist die Phase angefangen, aber nicht
+  geschafft – der Zwischenstopp kommt **vor** sie; sonst vor die nächste Phase des Eintrags (auch eine Phase ohne eigene Folien gilt dann als nicht
+  geschafft). Folien ohne Phase (z. B. Quellen) zählen nicht. Ist die letzte Phase gezeigt, ist die Stunde geschafft – kein Zwischenstopp. Heben Sie die
+  Markierung auf („Markierung aufheben“ bzw. „Letzte Folie: alle Folien freigeben“), entfernt Unterricks den Zwischenstopp nur, wenn er noch dort steht,
+  wo Unterricks ihn eingetragen hat; einen, den Sie selbst gesetzt oder verschoben haben, lässt es stehen. Eine neue Markierung setzt ihn immer neu.
+  Steht die Phase nicht (mehr) im Eintrag (z. B. umnummeriert), ändert Unterricks nichts und sagt es. **Präsentationen ohne diese Zeile** (ältere
+  oder eigene PowerPoint-Exporte): kein automatischer Zwischenstopp – das steht an der Auswahl der letzten Folie. Unter **„Phasen der Folien“** in der
+  Präsentationskarte legen Sie dann je Phase des Schulportal-Eintrags fest, bei welcher Folie sie beginnt (vorbelegt aus den Zeilen der PDF; auch
+  zum Korrigieren); „Phasen aus der PDF übernehmen“ macht das rückgängig. Die Zuordnung kommt mit in „Sitzung als Datei“ und in die Sicherung.
+  Den Zwischenstopp von Hand setzen und verschieben können Sie wie bisher; in der Grundschule (ohne Präsentation) ändert sich nichts.
 * **Arbeitsblätter und Material von Claude:** Claude gestaltet Arbeitsblätter, Texte, Schaubilder, Kärtchen und Erwartungshorizonte
   selbst als HTML-Seite und legt sie über den Connector ab (`add_material_pdf`); Unterricks druckt sie unverändert mit Chromium als
   A4-PDF (Cloudflare Browser Run, kostenlos bis 10 Minuten Browserzeit am Tag – das reicht für weit über hundert Seiten). Für

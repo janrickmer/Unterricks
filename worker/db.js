@@ -129,6 +129,10 @@ export const COLUMNS = [
   // t = Gegenstand, w = Hinweis (höchstens zwei Sätze: wo in der Stunde und in welcher Lerngruppe); rev zählt jede Speicherung (Schutz vor Überschreiben).
   // NULL = nie gesetzt. Die Startseite liest sie mit den Sitzungen des nächsten Arbeitstags (printjobs.js, keine zusätzliche Abfrage)
   ["lessons", "bring", "TEXT"],
+  // Phasen der Folien einer Präsentation (Nachtrag 34): {v:1, pdf, hand, auto} als JSON (slidePhasesData in public/shared.js) – pdf = je Folie die Phase aus der
+  // unsichtbaren Zeile „Unterricks-Phase: n“ (1–99 bzw. null), hand = von der Lehrkraft zugeordnet (gilt vor pdf), auto = wo Unterricks zuletzt selbst einen
+  // Zwischenstopp in den Schulportal-Eintrag geschrieben hat ({phase, until}). NULL = nie gesetzt (ältere Präsentation: keine Phasen)
+  ["files", "slide_phases", "TEXT"],
 ];
 
 // Indizes über nachträglich ergänzte Spalten (nach den Spalten angelegt; ein Fehler – z. B. alte Doppelungen – hält den Betrieb nicht auf)
@@ -142,7 +146,7 @@ export const INDEXES = [
 ];
 
 let ready = null, warm = false;
-/* true, sobald das Schema in diesem Isolate angelegt ist – vor ensureSchema abgefragt: false heißt, diese Anfrage legt es gerade an (bis zu 47
+/* true, sobald das Schema in diesem Isolate angelegt ist – vor ensureSchema abgefragt: false heißt, diese Anfrage legt es gerade an (bis zu 48
    Anweisungen), lange Abfragen (Beamer-Code) halten dann nicht (höchstens 50 D1-Anweisungen je Aufruf im Free-Plan) */
 export const schemaWarm = () => warm;
 export function ensureSchema(db) {

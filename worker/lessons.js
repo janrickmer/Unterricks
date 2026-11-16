@@ -1,6 +1,6 @@
 // lessons.js – Unterrichtssitzungen (Lehrkraft): anlegen, planen (Chat), Schulportal-Eintrag, Feibeitsblatt-Entwürfe und -Verknüpfungen.
 import { HttpError, bad, json, readJson, randomId, generateCode, cleanText, cleanLine, isId, isDate, isObj } from "./lib.js";
-import { cleanWebUrl, cleanCopies, cleanCodeSlides, cleanSlideNotes, NOTES_LIMITS } from "../public/shared.js";
+import { cleanWebUrl, cleanCopies, cleanCodeSlides, cleanSlideNotes, NOTES_LIMITS, slidePhasesData } from "../public/shared.js";
 import { requireTeacher } from "./auth.js";
 import { callTask, PROVIDERS } from "./ai.js";
 import { getUnit, unitOut } from "./units.js";
@@ -49,9 +49,11 @@ export const printNameOf = (f, course) => printFileName({ name: f.name, ...print
    mit Druckangaben (Nachtrag 31 – Bildkarten bleiben Dateien der Lehrkraft, print_copies NULL = nicht auf der Liste) */
 export const onPrintList = (f) => f.area === "print" || (f.print_copies != null && (f.area === "student" || (f.area === "teacher" && f.cards != null)));
 export const codeSlidesOf = (f) => { try { return cleanCodeSlides(JSON.parse(f.code_slides || "[]"), f.pages || 0); } catch { return []; } };
+/* Phasen der Folien (Nachtrag 34): {pdf, hand, auto} – nur Lehrkraft (fileOut, …/slides); Schüler:innen bekommen sie nie */
+export const slidePhasesOf = (f) => slidePhasesData(f.slide_phases, f.pages || 0);
 /* Spalten einer Dateiliste ohne Claudes Gestaltung (html bis 1,5 MB je Material – nur '' als Kennzeichen „gestaltet“) */
 export const FILE_COLS = "id, lesson_id, area, kind, name, mime, size, CASE WHEN kind IN ('text','link') THEN text END AS text, pages, status, source, created_at, updated_at, " +
-  "fb_code, fb_sig, shown_until, cut_size, code_slides, print_copies, print_duplex, print_color, html_at, pdf_at, render_error, CASE WHEN html IS NULL THEN NULL ELSE '' END AS html, " +
+  "fb_code, fb_sig, shown_until, cut_size, code_slides, slide_phases, print_copies, print_duplex, print_color, html_at, pdf_at, render_error, CASE WHEN html IS NULL THEN NULL ELSE '' END AS html, " +
   "CASE WHEN html IS NOT NULL THEN substr(text, 1, 6000) END AS design_text, cards, card_pages, card_img_at, " +
   // Notizen der Präsentation (Nachtrag 20): nur Zahl und Stand – den Text selbst liefert GET …/notes bzw. …/slides
   "CASE WHEN json_valid(notes) THEN json_array_length(notes, '$.slides') ELSE 0 END AS notes_n, CASE WHEN json_valid(notes) THEN json_extract(notes, '$.rev') END AS notes_rev, clean_size, notes_of, " + PRINT_COURSE_COL;
@@ -78,7 +80,7 @@ const cardsOut = (f) => { const d = cardData(f), v = cardVersion(f);
   return { texts: d.texts, share: d.share, rev: d.rev, pages: f.card_pages || 0, current: f.card_img_at != null && f.card_img_at === v && (f.card_pages || 0) > 0, version: v }; };
 export const fileOut = (f, withText = true) => ({
   id: f.id, area: f.area, kind: f.kind, name: f.name, mime: f.mime, size: f.size, pages: f.pages ?? null, status: f.status, source: f.source || null,
-  fbCode: f.fb_code || null, fbSig: f.fb_sig || null, ...(f.area === "presentation" ? { shownUntil: f.shown_until ?? null, cut: !!f.cut_size, codeSlides: codeSlidesOf(f),
+  fbCode: f.fb_code || null, fbSig: f.fb_sig || null, ...(f.area === "presentation" ? { shownUntil: f.shown_until ?? null, cut: !!f.cut_size, codeSlides: codeSlidesOf(f), phases: slidePhasesOf(f),
     // Notizen (nur Zahl und Stand) und die Fassung ohne Notizen für Schüler:innen (cleanNeeded: die hochgeladene PDF trägt Anhänge/Notizen)
     ...(() => { const ni = notesInfo(f); return { notes: ni.n, notesRev: ni.rev, cleanNeeded: f.clean_size != null, cleanReady: f.clean_size > 0 }; })() } : {}),
   ...(f.notes_of ? { notesOf: f.notes_of } : {}),

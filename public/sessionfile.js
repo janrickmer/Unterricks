@@ -2,7 +2,7 @@
 // um eine schon gehaltene Sitzung in einer anderen Lerngruppe erneut durchzuführen oder leicht abzuändern. Beim Laden kommen Datum, Beginn,
 // Dauer und Fälligkeit aus der geöffneten Sitzung; Datumsangaben in den Texten werden an sie angepasst (adaptDates).
 // Hier nur reine Funktionen (ohne Netz und DOM) – das Herunterladen und Hochladen steuert session.js.
-import { subjectName, subjectShort, groupShort, isIsoDate, isClockTime, cleanWebUrl, cleanCopies, normalizeFbDraft, cleanSlideNotes, NOTES_LIMITS, TEACHER_SUMMARY_MAX, isValidClass, isCourseClass, classShort } from "./shared.js";
+import { subjectName, subjectShort, groupShort, isIsoDate, isClockTime, cleanWebUrl, cleanCopies, normalizeFbDraft, cleanSlideNotes, NOTES_LIMITS, PHASE_MAX, TEACHER_SUMMARY_MAX, isValidClass, isCourseClass, classShort } from "./shared.js";
 import { cleanBring } from "./bring.js";
 
 export const SESSION_FILE = { kind: "unterricks-sitzung", v: 1, json: "sitzung.json" };
@@ -115,6 +115,11 @@ export function cleanSessionFile(raw) {
       if (d) { o.design = d; o.rendered = !!(f && f.rendered === true && o.path); }
       // Notizen der Lehrkraft zu den Folien (Nachtrag 20): nur an der Präsentation; fehlt das Feld (ältere Datei), gelten die in der PDF
       if (o.area === "presentation" && f && f.slideNotes !== undefined) o.slideNotes = cleanSlideNotes(f.slideNotes, NOTES_LIMITS.slides);
+      // Phasen der Folien, von der Lehrkraft zugeordnet (Nachtrag 34): je Folie 1–99 oder null; die Länge prüft beim Laden die Seitenzahl der PDF
+      if (o.area === "presentation" && f && Array.isArray(f.slidePhases) && f.slidePhases.length <= 300) {
+        const ph = f.slidePhases.map((v) => (Number.isInteger(v) && v >= 1 && v <= PHASE_MAX ? v : null));
+        if (ph.some((v) => v !== null)) o.slidePhases = ph;
+      }
     }
     if (kind === "text") o.text = str(f && f.text, SESSION_LIMITS.text);
     if (kind === "link") o.url = cleanWebUrl(f && f.url) || "";

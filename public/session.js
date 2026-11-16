@@ -6,7 +6,7 @@ import { T, tapi, teacherBar, teacherFoot, fbAutoConnect, fbUnlock, fbStore, fbF
 import { subjectName, gradeInfo, formatCode, claudePresentationPrompt, PORTAL_RULES, portalForCopy, insertStop, removeStops, hasStop, isStopLine,
   fmtDay, classShort, gradeKey, isAnalogClass, ANALOG_RULE, isCourseClass, courseMembers, homeworkForPortal, PUBLIC_URL,
   lessonTimes, fmtClockBerlin, fmtDayBerlin, HOMEWORK_BEFORE_END_MIN, PRESENTATION_AFTER_END_MIN, slidesUpTo, subjectShort,
-  withAgeExpectation, looksLikeSolution, isGsLesson, portalVerbatim, TEACHER_SUMMARY_TITLE } from "./shared.js";
+  withAgeExpectation, looksLikeSolution, isGsLesson, portalVerbatim, TEACHER_SUMMARY_TITLE, stopForShown, slidePhasesOf, portalPhases } from "./shared.js";
 import { extractUnitChange, stripUnitBlock, unitContext, claudeLessonPrompt, lessonChatName } from "./planning.js";
 import { claudeHandoff } from "./claude.js";
 import { leupoldView } from "./units.js";
@@ -419,7 +419,7 @@ export async function sessionPage(id) {
     hwHint);
 
   const presPromptCard = h("section", { class: "card" }, h("div", { class: "section-title" }, h("h2", { text: "Präsentation mit Claude erstellen" })),
-    h("p", { class: "small", text: "Erzeugt einen ausführlichen Prompt für Claude (claude.ai), der eine vollständige Präsentation für diese Stunde direkt als PDF anfordert – zum Hochladen hier in Unterricks, auf Grundlage des aktuellen Schulportal-Eintrags, der Materialien und Ihrer Planung. Die Präsentation wird zeitlos (ohne Datum, Klasse und Sitzungscode), damit sie in einer späteren Klasse desselben Jahrgangs wieder passt; Folie 1 ist eine Titelfolie. Den Sitzungscode und den QR-Code zu Unterricks zeigt Unterricks beim Start selbst vor Folie 1 – immer den der aktuellen Sitzung. " + (analog ? "Folien, auf denen die Schüler:innen mit Material arbeiten, zeigen nur die Aufforderung und den Titel des Materials (in Jahrgang 5/6 auf Papier)." : "Folien, auf denen die Schüler:innen mit Material aus Unterricks arbeiten, setzt Claude als Platzhalterfolien („Unterricks-Codefolie“) mit der Aufforderung und dem Titel des Materials – dort zeigt Unterricks live dieselbe Codefolie mit dieser Überschrift (Material auf Papier: nur Aufforderung und Titel).") }),
+    h("p", { class: "small", text: "Erzeugt einen ausführlichen Prompt für Claude (claude.ai), der eine vollständige Präsentation für diese Stunde direkt als PDF anfordert – zum Hochladen hier in Unterricks, auf Grundlage des aktuellen Schulportal-Eintrags, der Materialien und Ihrer Planung. Die Präsentation wird zeitlos (ohne Datum, Klasse und Sitzungscode), damit sie in einer späteren Klasse desselben Jahrgangs wieder passt; Folie 1 ist eine Titelfolie. Den Sitzungscode und den QR-Code zu Unterricks zeigt Unterricks beim Start selbst vor Folie 1 – immer den der aktuellen Sitzung. Auf jede Folie schreibt Claude unsichtbar ihre Phase im Schulportal-Eintrag – daraus trägt Unterricks den Zwischenstopp ein, wenn Sie die letzte gezeigte Folie markieren. " + (analog ? "Folien, auf denen die Schüler:innen mit Material arbeiten, zeigen nur die Aufforderung und den Titel des Materials (in Jahrgang 5/6 auf Papier)." : "Folien, auf denen die Schüler:innen mit Material aus Unterricks arbeiten, setzt Claude als Platzhalterfolien („Unterricks-Codefolie“) mit der Aufforderung und dem Titel des Materials – dort zeigt Unterricks live dieselbe Codefolie mit dieser Überschrift (Material auf Papier: nur Aufforderung und Titel).") }),
     presPromptBtn, presPromptOut);
 
   /* ======================= Materialien (materialbox.js) ======================= */
@@ -460,13 +460,144 @@ export async function sessionPage(id) {
       : h("span", { class: "warnc", text: "Ohne " + missingTimes() + " der Sitzung bleibt die Präsentation für Schüler:innen gesperrt – bitte bei den Sitzungsdaten eintragen." }));
   }
   onTimes.push(paintPresRel);
-  // letzte im Unterricht gezeigte Folie markieren (n) bzw. aufheben (null): gekürzte PDF im Browser erzeugen und hochladen (pdfcut.js)
-  async function setShown(n, onStep) {
-    const p = curPres(); if (!p) return false;
-    const { markShown } = await lazy(import("./pdfcut.js"));
-    const r = await markShown(p, n, T.token, onStep);
-    Object.assign(p, r.file);
-    return true;
+  // letzte im Unterricht gezeigte Folie markieren (n) bzw. aufheben (null): gekürzte PDF im Browser erzeugen und hochladen (pdfcut.js). Einziger Weg für die
+  // Auswahl, das Kontextmenü der Folie und „Bis hier gezeigt“ in der Präsentation – danach folgt der Zwischenstopp im Schulportal-Eintrag (Nachtrag 34).
+  // → Rückmeldung zum Zwischenstopp {text, short, kind} bzw. null. Nacheinander: eine zweite Markierung, während die erste noch läuft, wartet (sonst kennte
+  // sie den eben eingetragenen Zwischenstopp nicht)
+  let shownChain = Promise.resolve();
+  function setShown(n, onStep) {
+    const run = shownChain.then(async () => {
+      const p = curPres(); if (!p) return null;
+      const prevAuto = (p.phases && p.phases.auto) || null;
+      const { markShown } = await lazy(import("./pdfcut.js"));
+      const r = await markShown(p, n, T.token, onStep);
+      Object.assign(p, r.file);
+      return (stopSync = await syncStop(p, n, prevAuto));
+    });
+    shownChain = run.catch(() => {});
+    return run;
+  }
+  /* ---- Zwischenstopp aus der Präsentation (Nachtrag 34): die Phasen der Folien bestimmen, wo er im Schulportal-Eintrag steht (stopForShown) – gespeichert
+   * wie beim Einfügen von Hand (applyPortalText, danach sofort gespeichert), mit demselben Hinweis zur nächsten Sitzung. Einen Zwischenstopp, den die
+   * Lehrkraft selbst gesetzt oder verschoben hat, entfernt Unterricks nie; wo es selbst einen eingetragen hat, merkt sich der Server (phases.auto). ---- */
+  let stopSync = null;   // letzte Rückmeldung – steht unter der Auswahl der letzten gezeigten Folie
+  const q = (label) => "„" + label + "“";
+  async function syncStop(p, n, prevAuto) {
+    const phases = slidePhasesOf(p);
+    if (!phases && !prevAuto && n === null) return null;   // ohne Phasen hat Unterricks nie einen Zwischenstopp gesetzt
+    const res = stopForShown(portalTA ? portalTA.value : "", phases, n, prevAuto);
+    let auto = prevAuto, out = null;
+    const put = (text, set) => {
+      if (set) { stopJustSet = true; clear(stopNext).append(...stopNextHint(d.nextLesson)); }
+      if (text !== portalTA.value) applyPortalText(text); else updateStopBtns();
+      flushPortal();
+    };
+    if (res.error) {
+      out = res.error === "nomarks" ? { kind: "ok", short: "Zwischenstopp bitte selbst setzen (Folien ohne Phasen)",
+        text: "Den Zwischenstopp im Schulportal-Eintrag setzen Sie bitte selbst: Diese Präsentation trägt keine Phasen. Unter „Phasen der Folien“ können Sie die Folien zuordnen – dann trägt Unterricks ihn ein." }
+        : { kind: "err", short: "Zwischenstopp nicht eingetragen", text: "Den Zwischenstopp hat Unterricks nicht eingetragen: " +
+          (res.error === "noheads" ? "Im Schulportal-Eintrag stehen keine nummerierten Phasen wie „**3) Partnerarbeit**“."
+            : res.error === "missing" ? "Die Phase " + res.phase + " der Präsentation steht nicht im Schulportal-Eintrag."
+              : "Die Phase " + res.phase + " steht im Schulportal-Eintrag mehrmals.") + " Bitte setzen Sie ihn selbst" + (res.error === "noheads" ? "." : " oder passen Sie „Phasen der Folien“ an.") };
+      return out;   // nichts geändert – auch nicht, wo Unterricks zuletzt einen eingetragen hat
+    }
+    if (res.text !== undefined && !res.complete && !res.remove) {
+      put(res.text, true); auto = { phase: res.phase, until: n };
+      out = { kind: "ok", short: "Zwischenstopp vor " + q(res.label), text: "Zwischenstopp im Schulportal-Eintrag vor " + q(res.label) + " eingetragen." };
+    } else if (res.complete) {
+      auto = null;
+      if (res.remove) put(res.text, false);
+      out = { kind: "ok", short: res.remove ? "Stunde geschafft – Zwischenstopp entfernt" : "Stunde geschafft",
+        text: "Laut Präsentation ist die Stunde geschafft" + (res.remove ? " – den Zwischenstopp vor " + q(res.removed) + ", den Unterricks eingetragen hatte, hat es wieder entfernt."
+          : res.manual ? ". Ihren Zwischenstopp im Schulportal-Eintrag lässt Unterricks stehen (Sie haben ihn selbst gesetzt bzw. verschoben)." : " – im Schulportal-Eintrag ist kein Zwischenstopp nötig.") };
+    } else if (res.remove) {
+      auto = null; put(res.text, false);
+      out = { kind: "ok", short: "Zwischenstopp entfernt", text: "Den Zwischenstopp vor " + q(res.label) + ", den Unterricks eingetragen hatte, hat es wieder entfernt." };
+    } else {   // Markierung aufgehoben, kein Zwischenstopp von Unterricks (mehr) an seiner Stelle
+      auto = null;
+      out = res.manual ? { kind: "ok", short: "Zwischenstopp bleibt", text: "Ihr Zwischenstopp im Schulportal-Eintrag bleibt stehen – Sie haben ihn selbst gesetzt bzw. verschoben." } : null;
+    }
+    const same = (a, b) => (!a && !b) || (!!a && !!b && a.phase === b.phase && a.until === b.until);
+    if (!same(auto, prevAuto)) {
+      try { const r = await tapi("PUT", "/api/teacher/files/" + p.id + "/phases", { body: { auto } }); Object.assign(p, r.file); }
+      catch (e) { console.warn("Zwischenstopp nicht vermerkt:", e && e.message); }   // dann gilt er beim Aufheben als von Hand gesetzt – sicher
+    }
+    return out;
+  }
+  /* ---- „Phasen der Folien“ (Nachtrag 34): Rückfall für Präsentationen ohne die unsichtbare Zeile „Unterricks-Phase: n“ (ältere, eigene PowerPoint-Exporte)
+   * und zum Korrigieren – je Phase des Schulportal-Eintrags „beginnt bei Folie …“, vorbelegt aus den Phasen der PDF; gespeichert an der Präsentation (hand,
+   * gilt vor der PDF). Baut sich nur beim Aufklappen neu (nie unter dem Fokus); Speichern ändert nur Status und Übersicht. ---- */
+  const phaseUi = { open: false };
+  function phasesPanel(p, onSaved) {
+    const sum = h("summary"), body = h("div", { class: "stack phasebody" });
+    const box = h("details", { class: "box phasebox", id: "phases" }, sum, body);
+    box.open = phaseUi.open;
+    const paintSum = () => {
+      const ph = slidePhasesOf(p), k = ph ? ph.filter((v) => v !== null).length : 0;
+      clear(sum).append(h("span", null, "Phasen der Folien", h("span", { class: "muted small", text: " – " + (!ph ? "keine: bitte zuordnen, damit Unterricks den Zwischenstopp einträgt"
+        : (p.phases.hand ? "von Ihnen zugeordnet" : "aus der PDF") + ", " + k + " von " + p.pages + " Folien") })));
+    };
+    const rangeText = (ph) => {
+      if (!ph) return "Noch keine Folie ist einer Phase zugeordnet.";
+      const parts = [];
+      for (let i = 0; i < ph.length;) { let j = i; while (j + 1 < ph.length && ph[j + 1] === ph[i]) j++; parts.push("Folie " + (i === j ? i + 1 : i + 1 + "–" + (j + 1)) + ": " + (ph[i] ? "Phase " + ph[i] : "keine Phase")); i = j + 1; }
+      return parts.join(" · ");
+    };
+    function paint() {
+      const heads = portalPhases(portalTA ? portalTA.value : ""), ph = slidePhasesOf(p);
+      clear(body).append(h("p", { class: "hint", text: "Zu welcher Phase des Schulportal-Eintrags gehören die Folien? Daraus trägt Unterricks den Zwischenstopp ein, wenn Sie die letzte gezeigte Folie markieren. " +
+        "Claude schreibt die Phase laut Präsentations-Prompt unsichtbar auf jede Folie; hier prüfen Sie sie oder legen sie selbst fest – je Phase die Folie, mit der sie beginnt." }));
+      if (!heads.length) { body.append(h("p", { class: "small warnc", text: "Im Schulportal-Eintrag stehen noch keine nummerierten Phasen wie „**3) Partnerarbeit**“ – ohne sie gibt es nichts zuzuordnen." })); return; }
+      const sels = heads.map((hd) => {
+        const first = ph ? ph.indexOf(hd.n) + 1 : 0, id = "phase-" + hd.line;
+        const sel = h("select", { id, "data-phase": String(hd.n) }, h("option", { value: "" }, "keine Folie"),
+          Array.from({ length: p.pages }, (_, i) => h("option", { value: String(i + 1), selected: first === i + 1 ? true : null }, "Folie " + (i + 1))));
+        return { hd, sel, row: h("div", { class: "phaserow" }, h("label", { for: id }, h("span", { class: "ph-n", text: hd.label }), h("span", { class: "muted", text: " – beginnt bei" })), sel) };
+      });
+      const unknown = ph ? [...new Set(ph.filter((v) => v !== null && !heads.some((hd) => hd.n === v)))] : [];
+      const overview = h("p", { class: "small", id: "phase-sum", text: rangeText(ph) });
+      const state = h("span", { class: "save-state", role: "status" });
+      const err = h("p", { class: "small err hidden", id: "phase-err", role: "alert" });
+      const read = () => {
+        const starts = sels.map((x) => [x.hd.n, Number(x.sel.value) || 0]).filter((x) => x[1]);
+        let last = 0;
+        for (const [k, at] of starts) { if (at <= last) return { error: "Die Phase " + k + " beginnt bei Folie " + at + " – das liegt nicht hinter dem Beginn der Phase davor. Bitte wählen Sie die Folien in der Reihenfolge des Schulportal-Eintrags." }; last = at; }
+        if (!starts.length) return { list: null };
+        return { list: Array.from({ length: p.pages }, (_, i) => { let v = null; for (const [k, at] of starts) if (at <= i + 1) v = k; return v; }) };
+      };
+      const save = async (btn, hand) => {
+        err.classList.add("hidden");
+        const had = document.activeElement === btn;
+        await busy(btn, async () => {
+          try {
+            const r = await tapi("PUT", "/api/teacher/files/" + p.id + "/phases", { body: { hand } });
+            Object.assign(p, r.file);
+            if (st.slides) st.slides.phases = r.file.phases;
+            paintSum(); overview.textContent = rangeText(slidePhasesOf(p));
+            stateLine(state, hand ? "Gespeichert – Unterricks folgt jetzt Ihrer Zuordnung." : "Gespeichert – es gelten wieder die Phasen aus der PDF.", "ok");
+            if (!hand) for (const x of sels) { const f = slidePhasesOf(p); x.sel.value = f && f.indexOf(x.hd.n) >= 0 ? String(f.indexOf(x.hd.n) + 1) : ""; }
+            fromPdf.classList.toggle("hidden", !(p.phases && p.phases.hand && p.phases.pdf));
+            if (onSaved) onSaved();
+          } catch (e) { stateLine(state, "Nicht gespeichert: " + e.message, "err"); }
+        }, "Speichert …");
+        // der Fokus bleibt beim Knopf; ist er verschwunden („Phasen aus der PDF übernehmen“), geht er zu „Zuordnung speichern“ – nur, wenn er sonst verloren wäre
+        if (had && (!document.activeElement || document.activeElement === document.body || document.activeElement === btn)) (btn.classList.contains("hidden") ? saveBtn : btn).focus({ preventScroll: true });
+      };
+      const saveBtn = h("button", { class: "btn small primary", type: "button" }, "Zuordnung speichern");
+      saveBtn.addEventListener("click", () => { const r = read(); if (r.error) { err.textContent = r.error; err.classList.remove("hidden"); return; } save(saveBtn, r.list); });
+      const fromPdf = h("button", { class: "btn small ghost" + (p.phases && p.phases.hand && p.phases.pdf ? "" : " hidden"), type: "button" }, "Phasen aus der PDF übernehmen");
+      fromPdf.addEventListener("click", () => save(fromPdf, null));
+      // nur einmal „Nicht gespeichert“ (die Statuszeile ist live – nicht bei jeder Auswahl erneut ansagen)
+      for (const x of sels) x.sel.addEventListener("change", () => { err.classList.add("hidden"); if (state.textContent !== "Nicht gespeichert") stateLine(state, "Nicht gespeichert"); const r = read(); if (!r.error) overview.textContent = rangeText(r.list); });
+      body.append(...nn(h("div", { class: "phaserows" }, sels.map((x) => x.row)),
+        unknown.length ? h("p", { class: "small warnc", text: "Folien mit " + (unknown.length === 1 ? "der Phase " : "den Phasen ") + unknown.join(", ") + " passen zu keiner Phase des Schulportal-Eintrags." }) : null,
+        overview, err, h("div", { class: "row" }, saveBtn, fromPdf, state)));
+    }
+    paintSum();
+    if (box.open) paint();
+    // beim Aufklappen neu (der Schulportal-Eintrag kann sich inzwischen geändert haben) – nie, während der Fokus darin steht
+    box.addEventListener("toggle", () => { phaseUi.open = box.open; if (box.open && !body.contains(document.activeElement)) paint(); });
+    return box;
   }
   async function paintPres() {
     const p = st.files.find((f) => f.area === "presentation");
@@ -498,8 +629,9 @@ export async function sessionPage(id) {
     const applyShown = async (n) => {
       stateLine(shownState, n ? "Kürze die Präsentation …" : "…");
       try {
-        await setShown(n, (m) => stateLine(shownState, m));
-        toast(n ? "Schüler:innen sehen nach der Freigabe nur " + slidesUpTo(n) + "." : "Markierung aufgehoben – nach der Freigabe sehen Schüler:innen alle Folien.", "ok", 6000);
+        const sy = await setShown(n, (m) => stateLine(shownState, m));
+        toast((n ? "Schüler:innen sehen nach der Freigabe nur " + slidesUpTo(n) + "." : "Markierung aufgehoben – nach der Freigabe sehen Schüler:innen alle Folien.") + (sy ? " " + sy.text : ""),
+          sy && sy.kind === "err" ? "err" : "ok", sy ? 12000 : 6000);
       } catch (e) { errToast(e); }
       paintPres();
     };
@@ -507,10 +639,13 @@ export async function sessionPage(id) {
       { label: n === p.pages ? "Letzte Folie: alle Folien freigeben" : "Bis hier gezeigt (Folie " + n + " als letzte gezeigte Folie markieren)", onClick: () => applyShown(n === p.pages ? null : n) },
       ...(shown ? [{ label: "Markierung aufheben (alle Folien)", onClick: () => applyShown(null) }] : [])]);
     const holders = new Set(((st.slides && st.slides.codeSlides) || p.codeSlides || []).map((c) => c.n));   // Platzhalterfolien (live: Codefolie)
+    const phases = slidePhasesOf(p);   // Phase je Folie (Nachtrag 34)
+    const thumbLabel = (n, ph) => "Folie " + n + (ph && ph[n - 1] ? " (Phase " + ph[n - 1] + ")" : "") + (holders.has(n) ? " – Codefolie: live zeigt Unterricks hier den Sitzungscode" : "") +
+      (shown === n ? " – letzte gezeigte Folie" : !!shown && n > shown ? " – für Schüler:innen nicht freigegeben" : "") + ". Kontextmenü: als letzte gezeigte Folie markieren";
     const thumbs = h("div", { class: "thumbs", role: "list", "aria-label": "Folien der Präsentation" }, st.slides ? st.slides.urls.map((u, i) => {
       const n = i + 1, after = !!shown && n > shown;
-      return h("figure", { class: "thumb" + (after ? " after" : "") + (shown === n ? " mark" : ""), role: "listitem", tabindex: "0",
-        "aria-label": "Folie " + n + (holders.has(n) ? " – Codefolie: live zeigt Unterricks hier den Sitzungscode" : "") + (shown === n ? " – letzte gezeigte Folie" : after ? " – für Schüler:innen nicht freigegeben" : "") + ". Kontextmenü: als letzte gezeigte Folie markieren",
+      return h("figure", { class: "thumb" + (after ? " after" : "") + (shown === n ? " mark" : ""), role: "listitem", tabindex: "0", "data-n": String(n),
+        "aria-label": thumbLabel(n, phases),
         oncontextmenu: (e) => { e.preventDefault(); slideMenu(e.clientX, e.clientY, n); },
         onkeydown: (e) => { if (e.key === "ContextMenu" || (e.shiftKey && e.key === "F10")) { e.preventDefault(); const r = e.currentTarget.getBoundingClientRect(); slideMenu(r.left + 8, r.bottom - 8, n); } } },
         h("img", { src: apiUrl(u), alt: "", loading: "lazy" }), h("figcaption", null, String(n), holders.has(n) ? h("span", { class: "badge", text: "Code" }) : null, shown === n ? h("span", { class: "badge ink", text: "bis hier" }) : null));
@@ -518,8 +653,21 @@ export async function sessionPage(id) {
     const shownSel = h("select", { id: "shown-sel", "aria-describedby": "shown-hint" }, h("option", { value: "" }, "Keine Markierung – nach der Freigabe alle Folien"),
       Array.from({ length: Math.max(0, p.pages - 1) }, (_, i) => h("option", { value: String(i + 1), selected: shown === i + 1 ? true : null }, "Folie " + (i + 1))));
     shownSel.addEventListener("change", () => applyShown(shownSel.value ? Number(shownSel.value) : null));
+    const shownHintText = (ph) => "Am Ende der Stunde markieren – hier, per Rechtsklick auf eine Folie oder im Vollbild mit „Bis hier gezeigt“. Schüler:innen bekommen nach der Freigabe nur die Folien bis hier; Folien für die nächste Sitzung oder mit Musterlösungen sehen sie nicht. " +
+      (ph ? "Den Zwischenstopp im Schulportal-Eintrag trägt Unterricks dabei selbst ein: vor die erste Phase, die nicht vollständig gezeigt wurde (siehe „Phasen der Folien“)."
+        : "Diese Präsentation trägt keine Phasen – den Zwischenstopp im Schulportal-Eintrag setzen Sie deshalb selbst, oder Sie ordnen die Folien unter „Phasen der Folien“ zu.");
+    const shownHint = h("p", { class: "hint", id: "shown-hint", text: shownHintText(phases) });
+    const syncLine = stopSync ? h("p", { class: "small stopsync" + (stopSync.kind === "err" ? " warnc" : ""), id: "stop-sync", text: stopSync.text }) : null;
     const shownBox = h("div", { class: "shownbox" }, h("label", { for: "shown-sel" }, "Letzte im Unterricht gezeigte Folie"), h("div", { class: "row" }, shownSel, shownState),
-      h("p", { class: "hint", id: "shown-hint", text: "Am Ende der Stunde markieren – hier, per Rechtsklick auf eine Folie oder im Vollbild mit „Bis hier gezeigt“. Schüler:innen bekommen nach der Freigabe nur die Folien bis hier; Folien für die nächste Sitzung oder mit Musterlösungen sehen sie nicht." }));
+      shownHint, syncLine);
+    // „Phasen der Folien“ gespeichert: Hinweis und Namen der Vorschaubilder an Ort und Stelle angleichen (nichts neu aufbauen – der Fokus bleibt im Feld); eine
+    // ältere Rückmeldung zum Zwischenstopp gilt dann nicht mehr
+    const phasesBox = phasesPanel(p, () => {
+      const ph = slidePhasesOf(p);
+      shownHint.textContent = shownHintText(ph);
+      for (const fig of thumbs ? thumbs.querySelectorAll("figure.thumb") : []) fig.setAttribute("aria-label", thumbLabel(Number(fig.dataset.n), ph));
+      if (syncLine) { syncLine.remove(); stopSync = null; }
+    });
     paintPresRel();
     const liveLine = h("div", { class: "small" });
     const startBtn = h("button", { class: "btn onair big", type: "button" }, "Ich bin im Unterricht und starte die Präsentation für alle.");
@@ -549,7 +697,7 @@ export async function sessionPage(id) {
             if (!(await confirmDialog("Präsentation löschen", p.notes ? NOTES_DELETE_TEXT : "Präsentation und Folienbilder löschen? Eine laufende Live-Anzeige endet.", "Löschen", true))) return;
             try { await tapi("DELETE", "/api/teacher/files/" + p.id); st.files = st.files.filter((x) => x !== p); st.slides = null; swapAnnotated(p.id, null); paintPres(); } catch (e) { errToast(e); }
           } }, icon("trash")))),
-      ...nn(thumbs, cleanBox, shownBox, presRel, notesBox, startBtn, liveLine),
+      ...nn(thumbs, cleanBox, shownBox, phasesBox, presRel, notesBox, startBtn, liveLine),
       h("p", { class: "hint", text: "Startet das Vollbild hier und zeigt dieselbe Folie oben in der Schüleransicht aller freigeschalteten Schüler:innen. Beim Start erscheint zuerst die Codefolie mit dem Sitzungscode und dem QR-Code dieser Sitzung; läuft die Präsentation schon, geht es an der laufenden Stelle weiter. „Sitzungscode zeigen“ (Taste C) blendet die Codefolie jederzeit wieder ein. Weiter mit →, Leertaste, Bildtaste (Presenter) oder Tippen; Schüler:innen können nicht selbst blättern. Selbst öffnen können sie die Präsentation erst " + PRESENTATION_AFTER_END_MIN + " Minuten nach dem Ende der Sitzung – bei markierter letzter Folie nur bis dorthin." }),
       h("details", { class: "box" }, h("summary", null, "Andere Präsentation hochladen"), p.notes ? h("p", { class: "hint", text: NOTES_REPLACE_HINT }) : null, zone));
   }
@@ -567,7 +715,7 @@ export async function sessionPage(id) {
     }, "Öffne …");
   }
   // moreSheetCodes: Feibeitsblätter der Sitzung, aus der eine Sitzungsdatei stammt; notes: Notizen aus der Sitzungsdatei (sonst aus der PDF)
-  async function uploadPres(file, moreSheetCodes = [], notes) {
+  async function uploadPres(file, moreSheetCodes = [], notes, phases) {
     if (!file) return;
     if (!/\.pdf$/i.test(file.name) && file.type !== "application/pdf") { toast("Bitte eine PDF-Datei wählen.", "err"); return; }
     pendingPdf = file;
@@ -577,10 +725,10 @@ export async function sessionPage(id) {
     try {
       const r = await upload("/api/teacher/lessons/" + id + "/presentation?name=" + encodeURIComponent(file.name), file, T.token, (p) => { bar.style.width = Math.round(p * 30) + "%"; }, "application/pdf");
       const oldPres = st.files.filter((f) => f.area === "presentation").map((f) => f.id);   // samt ihrer Anmerkungs-PDF ersetzt (Server)
-      st.files = st.files.filter((f) => f.area !== "presentation" && !oldPres.includes(f.notesOf)); st.files.push(r.file); st.slides = null; paintFiles();
+      st.files = st.files.filter((f) => f.area !== "presentation" && !oldPres.includes(f.notesOf)); st.files.push(r.file); st.slides = null; stopSync = null; paintFiles();
       const { rasterizeAndUpload } = await lazy(import("./presenter.js"));
       const out = await rasterizeAndUpload(pendingPdf, r.file.id, T.token, (i, n) => { label.textContent = "Erzeuge Folie " + i + " von " + n + " …"; bar.style.width = (30 + Math.round((i / n) * 70)) + "%"; },
-        { code: L().code, exclude: [...st.sheets.map((s) => s.code), ...moreSheetCodes], notes });
+        { code: L().code, exclude: [...st.sheets.map((s) => s.code), ...moreSheetCodes], notes, phases });
       Object.assign(r.file, out.file);
       if (out.annotated && out.annotated.file) swapAnnotated(r.file.id, out.annotated.file, out.annotated.removed || []);
       const sw = out.swapped;   // stiller Rückfall: ältere Präsentation mit dem Code einer früheren Sitzung auf den Folien
@@ -591,7 +739,9 @@ export async function sessionPage(id) {
           (sw.slides.length === 1 ? "Folie " + sw.slides[0] : sw.slides.length + " Folien") + " durch den Code dieser Sitzung " + formatCode(sw.to) + " ersetzt." : "") +
           (sw.missed.length ? " Auf " + folien(sw.missed) + " steht noch der alte Sitzungscode " + formatCode(sw.from) + " – dort ließ er sich nicht sicher ersetzen; bitte die Folie ändern oder den Code dieser Sitzung (" + formatCode(sw.to) + ") ansagen." : "") : "");
       // Notizen (Nachtrag 20): „Notizen zu n Folien übernommen“ – bzw. nichts; Probleme ruhig dazu (die Präsentation bleibt nutzbar)
-      const nn0 = out.notes ? " Notizen zu " + out.notes + (out.notes === 1 ? " Folie" : " Folien") + " übernommen." : "";
+      const nn0 = (out.notes ? " Notizen zu " + out.notes + (out.notes === 1 ? " Folie" : " Folien") + " übernommen." : "") +
+        // Phasen der Folien (Nachtrag 34): Claude schreibt sie unsichtbar auf die Folien
+        (out.phases ? " Auf " + out.phases + " von " + out.pages + " Folien steht die Phase des Schulportal-Eintrags – den Zwischenstopp trägt Unterricks beim Markieren der letzten gezeigten Folie selbst ein." : "");
       const extra = (out.notesBad ? " " + NOTES_UNREADABLE : "") + (out.annotated && out.annotated.error ? " Die Anmerkungs-PDF ließ sich nicht erstellen (" + out.annotated.error + ") – speichern Sie die Notizen in der Präsentationskarte erneut." : "") +
         (out.clean && !out.clean.ok ? " Die Fassung ohne Notizen für Schüler:innen ließ sich nicht erzeugen (" + out.clean.error + ") – siehe Hinweis in der Präsentationskarte." : "");
       const bad = (sw && sw.missed.length) || !!extra;

@@ -1,7 +1,7 @@
 // presenter.js – Präsentation (PDF) in Folienbilder umwandeln und im Vollbild live für alle zeigen.
 import { lazy, lazyWorker } from "./update.js";
 import { h, clear, api, apiUrl, wsUrl, toast, errToast, icon, store, rand, busy, openLayer, keepTab, trackWork } from "./ui.js";
-import { isValidCode, formatCode, slideTextLines, slideCodeBoxes, slideSessionCode, codeCover, coverFill, codeFontStyle, codeSlideLines, cleanCodeSlides, cleanSlideNotes, notesFor,
+import { isValidCode, formatCode, slideTextLines, slideCodeBoxes, slideSessionCode, codeCover, coverFill, codeFontStyle, codeSlideLines, cleanCodeSlides, cleanSlideNotes, notesFor, phaseMarkOf, cleanSlidePhases,
   nextSlideOf, nextSlideLabel, presenterKey, BEAMER_CHANNEL, normBeamerCode, PUBLIC_URL, beamerWindowNote,
   TIMER_PICKS, TIMER_MAX_MIN, TIMER_TOTAL_MAX_MIN, TIMER_ADDS, TIMER_OVER, normTimerMin } from "./shared.js";
 import { codeSlideDom } from "./codeslide.js";
@@ -88,6 +88,8 @@ export async function pdfPageCount(file) {
    opt.cards (Bildkarten der Grundschule, cards.js): keine Codefolien und kein Ersetzen von Codes, längste Seite 1600 px, höchstens 40 Seiten;
    fertig über …/cards/ready mit opt.version (Stand der PDF, aus dem die Bilder stammen).
    Notizen der Lehrkraft (Nachtrag 20): der Anhang unterricks-notizen.json (bzw. opt.notes aus einer Sitzungsdatei) geht mit …/ready an den Server.
+   Phasen der Folien (Nachtrag 34): je Folie die Zahl aus der unsichtbaren Zeile „Unterricks-Phase: n“ (phaseMarkOf) geht als phases mit …/ready an den
+   Server, opt.phases (Zuordnung der Lehrkraft aus einer Sitzungsdatei bzw. Sicherung) als phasesHand. Ergebnis zusätzlich phases = Zahl der Folien mit Phase.
    Trägt die PDF Anhänge oder Notiz-Anmerkungen, bekommen Schüler:innen nur eine bereinigte Fassung (…/clean); die Folienbilder entstehen dann aus
    ihr. Mit Notizen entsteht danach die Anmerkungs-PDF (nur Lehrkraft). Ergebnis zusätzlich notes (Zahl), clean {needed, ok, error}, annotated
    {file, removed} | {error}. */
@@ -129,7 +131,7 @@ async function rasterize(file, fileId, token, onProgress, opt) {
   }
   const notes = cards ? [] : cleanSlideNotes(opt.notes !== undefined && opt.notes !== null ? opt.notes : scan.raw, n);
   const side = cards ? 1600 : 1920;
-  const thumbs = [];
+  const thumbs = [], marks = new Array(n).fill(null);
   for (let i = 1; i <= n; i++) {
     const page = await doc.getPage(i);
     const v1 = page.getViewport({ scale: 1 });
@@ -143,7 +145,9 @@ async function rasterize(file, fileId, token, onProgress, opt) {
     let items = null, placeholder = false;
     if (!cards) try {   // Platzhalterfolie für die Codefolie? (eigener Versuch: ein Fehler hier schaltet den Rückfall nicht ab)
       items = await pageItems(lib, page, vp);
-      const head = codeSlideLines(slideTextLines(items), canvas.height);
+      const lines = slideTextLines(items);
+      marks[i - 1] = phaseMarkOf(lines);   // Phase der Folie (Nachtrag 34): unsichtbare Zeile „Unterricks-Phase: n“
+      const head = codeSlideLines(lines, canvas.height);
       if (head) { placeholder = true; codeSlides.push({ n: i, lines: head }); }
     } catch {}
     if (want && items && !placeholder) {
@@ -179,7 +183,9 @@ async function rasterize(file, fileId, token, onProgress, opt) {
     return { pages: n, thumbs, file: done.file };
   }
   const sent = cleanCodeSlides(codeSlides, n);
-  const ready = await api("POST", "/api/teacher/files/" + fileId + "/ready", { token, body: { pages: n, codeSlides: sent, notes, clean: !!scan.needsClean } });
+  // Phasen der Folien (Nachtrag 34): aus der PDF; opt.phases = Zuordnung der Lehrkraft aus einer Sitzungsdatei bzw. Sicherung (gilt vor der PDF)
+  const phases = cleanSlidePhases(marks, n) || null, phasesHand = opt.phases ? cleanSlidePhases(opt.phases, n) || null : null;
+  const ready = await api("POST", "/api/teacher/files/" + fileId + "/ready", { token, body: { pages: n, codeSlides: sent, notes, clean: !!scan.needsClean, phases, phasesHand } });
   // Anmerkungs-PDF (nur Lehrkraft): ein Fehler hier lässt die Präsentation nutzbar
   let annotated = null;
   const rev = ready.file && ready.file.notesRev;
@@ -189,7 +195,7 @@ async function rasterize(file, fileId, token, onProgress, opt) {
   }
   // notesBad: die PDF trägt unterricks-notizen.json, daraus kam aber nichts (z. B. kein gültiges JSON oder ein anderes Format) – sonst bliebe das still
   const notesBad = !(opt.notes !== undefined && opt.notes !== null) && !!scan.notesFile && !notes.length;
-  return { pages: n, thumbs, file: ready.file, codeSlides: (ready.file && ready.file.codeSlides) || sent, notes: notes.length, notesBad, clean: cleanState, annotated,
+  return { pages: n, thumbs, file: ready.file, codeSlides: (ready.file && ready.file.codeSlides) || sent, notes: notes.length, notesBad, clean: cleanState, annotated, phases: phases ? phases.filter((v) => v !== null).length : 0,
     swapped: swappedOn.length || missedOn.length ? { from: oldCode, to: want, slides: swappedOn, missed: missedOn } : null };
 }
 
@@ -292,9 +298,10 @@ export async function startPresenter({ lessonId, file, token, startSlide = 0, on
     if (marking || cur === 0 || peek) return; marking = true; markBtn.disabled = true;
     const n = cur;
     try {
-      await onMark(n, (m) => { markState.textContent = m; });
+      const sy = await onMark(n, (m) => { markState.textContent = m; });
       marked = n >= pages ? null : n;
-      markState.textContent = marked ? "Bis Folie " + n + " markiert" : "Letzte Folie: alle Folien freigegeben";
+      // dazu kurz, was mit dem Zwischenstopp im Schulportal-Eintrag geschah (Nachtrag 34) – die Sitzungsseite darunter ist schon aktualisiert
+      markState.textContent = (marked ? "Bis Folie " + n + " markiert" : "Letzte Folie: alle Folien freigegeben") + (sy && sy.short ? " · " + sy.short : "");
     } catch (e) { markState.textContent = "Nicht markiert: " + (e && e.message ? e.message : e); }
     marking = false; paintMark();
   } }, "Bis hier gezeigt") : null;
