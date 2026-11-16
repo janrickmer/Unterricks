@@ -103,6 +103,10 @@ test("storyInPlan: erkennt erzählte und vorgelesene Geschichten (großzügig), 
     "- Die Kinder erzählen über ihre Haustiere", "- Erzählrunde: Was habe ich erlebt?", "**3) Arbeitsblatt (15 Min., Einzelarbeit)**\n- [[pdf:aaaaaaaaaaaaaaaa]]", "- Bewegungslied, Kerze anzünden",
     "⏸ Zwischenstopp", "- Partnerarbeit: Kinder erzählen einander von den Ferien"];
   for (const t of no) assert.equal(G.storyInPlan(t), null, String(t));
+  // Prüfung: vorgetragene Bibeltexte und das Erzählen mit Egli-Figuren zählen auch; Kinder, die Ergebnisse vortragen, nicht
+  for (const t of ["- __Lehrkraft trägt den Bibeltext (Lk 19,1–10) vor.__", "- Bodenbild mit Egli-Figuren legen", "**2) Bibeltext: Zachäus (10 Min., Sitzkreis)**", "- Psalm vorgetragen von der Lehrkraft"])
+    assert.ok(G.storyInPlan(t), t);
+  for (const t of ["- Die Kinder tragen ihre Ergebnisse vor", "- Rechnungen werden beglichen"]) assert.equal(G.storyInPlan(t), null, t);
   // die erste passende Zeile; lange Zeilen gekürzt
   assert.equal(G.storyInPlan("**1) Lied**\n**2) Erzählung: Josef (15 Min., Sitzkreis)**\n- Geschichte"), "2) Erzählung: Josef (15 Min., Sitzkreis)");
   const long = G.storyInPlan("- Geschichte " + "x".repeat(200));
@@ -116,7 +120,7 @@ test("Prompts: „Stunde mit Claude planen“ (Grundschule) macht Bildkarten zur
   assert.ok(G.CARDS_ALWAYS.includes("gehören immer Bildkarten dazu") && G.CARDS_ALWAYS.includes("`add_picture_cards`") && G.CARDS_ALWAYS.includes("meiner Druckliste („1x - einseitig - Farbe - <Titel>.pdf“: 1x, einseitig, farbig)"));
   const step = G.cardsPromptStep();
   assert.equal(p.split(step).length - 1, 1);
-  assert.ok(step.startsWith("   - Zu jeder Geschichte, die im Sitzkreis erzählt wird, gestaltest du Bildkarten") && step.includes("sie stehen dann von selbst auf meiner Druckliste (1x, einseitig, farbig)") && step.includes("[[pdf:<file_id>]]"));
+  assert.ok(step.startsWith("   - Zu jeder Geschichte, die im Sitzkreis erzählt oder vorgelesen wird, gestaltest du Bildkarten") && step.includes("sie stehen dann von selbst auf meiner Druckliste (1x, einseitig, farbig)") && step.includes("[[pdf:<file_id>]]"));
   assert.ok(!p.includes("Erzählst du eine Geschichte mit Bildkarten, gestaltest du sie"), "der alte, freiwillige Satz ist ersetzt");
   const v = p.slice(p.indexOf("## Vorgehen"));
   assert.ok(v.indexOf(step) < v.indexOf("Die Konzentrationsaufgabe speicherst du") && v.indexOf("Die Konzentrationsaufgabe speicherst du") < v.indexOf("   - Den Stundenverlauf speicherst du"), "Bildkarten vor Konzentrationsaufgabe und Verlaufsplan");
@@ -254,7 +258,7 @@ test("Elternansicht unverändert: keine Druckangaben in der Nutzlast; „Nicht a
 test("get_lesson und save_verlaufsplan: Druckliste je Satz; Geschichte ohne Bildkarten → Erinnerung (gespeichert wird trotzdem); keine bei Bildkarten, Verweis auf fremde Bildkarten, ohne Geschichte", async () => {
   const { c, k, l, mcp } = await setup();
   let t = (await mcp("get_lesson", { lesson_id: l.id })).content[0].text;
-  assert.ok(t.includes("\n## Bildkarten\nNoch keine. Erzählst du in dieser Stunde im Sitzkreis eine Geschichte (frei erzählt oder vorgelesen), gehören immer Bildkarten dazu – gestalte sie mit add_picture_cards; " +
+  assert.ok(t.includes("\n## Bildkarten\nNoch keine. Wird in dieser Stunde im Sitzkreis eine Geschichte erzählt oder vorgelesen, gehören immer Bildkarten dazu – gestalte sie mit add_picture_cards; " +
     "neue Bildkarten stehen von selbst auf der Druckliste der Lehrkraft (1x, einseitig, farbig)."), t);
   // Geschichte ohne Bildkarten
   let r = await mcp("save_verlaufsplan", { lesson_id: l.id, text: "**1) Erzählung: Josef (15 Min., Sitzkreis)**\n- Lehrkraft erzählt frei", base_version: 0 });
@@ -421,4 +425,150 @@ test("Sitzungsdatei und Sicherung: Bildkarten auf der Druckliste tragen „print
     assert.deepEqual(byName["Neu.pdf"].print, { copies: 1, duplex: false, color: true });
     assert.ok(byName["Neu.pdf"].cards && !("print" in byName["Alt.pdf"]) && byName["Alt.pdf"].cards);
   } finally { globalThis.fetch = real; }
+});
+
+/* ---------- Prüfung von Nachtrag 31 (16.11.2026): weitere Wege, auf denen Bildkarten fehlen konnten ---------- */
+test("Prüfung: aus der Druckliste (print) gibt der Server Bildkarten nur in ihrer aktuellen Gestaltung heraus – eine ältere Seite bekommt nie die alten Karten", async () => {
+  const { c, l, mcp } = await setup();
+  pages.n = 3;
+  const id = (await mcp("add_picture_cards", { lesson_id: l.id, titel: "Bildkarten – Josef", html: HTML, erzaehltexte: TEXTS })).structuredContent.file_id;
+  const link = (body) => call(c, F.routeTeacherFileLink, "POST", "/x", body, id);
+  assert.equal((await link({ print: true })).status, 200, "gedruckt: herunterladbar");
+  // neu gestaltet, der Drucker antwortet nicht – die gespeicherte PDF zeigt noch die alten Karten
+  const c2 = { ...c, env: { ...c.env, BROWSER: undefined } };
+  const req = new Request("https://unterricks.test/mcp/geheim", { method: "POST", body: JSON.stringify({ jsonrpc: "2.0", id: 1, method: "tools/call", params: { name: "add_picture_cards", arguments: { lesson_id: l.id, titel: "Bildkarten – Josef", html: HTML + "<section>4</section>", erzaehltexte: [...TEXTS, "Ende."], file_id: id } } }) });
+  await routeMcp({ ...c2, request: req, ip: "1.2.3.4", waitUntil: () => {} }, "geheim");
+  const r = await link({ print: true });
+  assert.equal(r.status, 409);
+  assert.equal(r.data.code, "cards_not_printed");
+  assert.equal(r.data.error, "Die Bildkarten „Bildkarten – Josef“ sind in ihrer neuen Gestaltung noch nicht als PDF gedruckt – bitte die Seite neu laden, dann druckt Unterricks sie.");
+  assert.equal((await link({})).status, 200, "ohne print (z. B. „Als PDF ansehen“, Sitzungsdatei) wie bisher");
+  // gedruckt: wieder herunterladbar
+  await F.renderDesign(c, id);
+  assert.equal((await link({ print: true })).status, 200);
+  // hochgeladene Bildkarten haben keine Gestaltung – immer herunterladbar
+  const up = (await upload(c, l.id)).data.file.id;
+  assert.equal((await call(c, F.routeTeacherFileLink, "POST", "/x", { print: true }, up)).status, 200);
+});
+
+test("Prüfung: cardsA4 – hochgeladene Bildkarten in einem anderen Format kommen für die Druckliste auf A4 (Ausrichtung bleibt); A4 und unlesbare PDFs unverändert", async () => {
+  const lib = await import("pdf-lib");
+  const { cardsA4 } = await import("../../public/a4.js");
+  const d = await lib.PDFDocument.create();
+  for (const size of [[595.28, 419.53], [595.28, 419.53], [300, 400]]) d.addPage(size).drawRectangle({ x: 20, y: 20, width: 100, height: 80, color: lib.rgb(0.8, 0.3, 0.2) });
+  const out = await lib.PDFDocument.load(await cardsA4(await d.save(), lib));
+  assert.deepEqual(out.getPages().map((p) => [Math.round(p.getWidth()), Math.round(p.getHeight())]), [[842, 595], [842, 595], [595, 842]], "A5 quer → A4 quer, hochkant → A4 hochkant, alle Karten");
+  const a4 = await lib.PDFDocument.create(); a4.addPage([841.89, 595.28]);
+  const raw = await a4.save();
+  assert.equal(await cardsA4(raw, lib), raw, "A4 bleibt byte-gleich");
+  const bad = new TextEncoder().encode("%PDF-kaputt");
+  assert.equal(await cardsA4(bad, lib), bad, "unlesbar: unverändert (der Download scheitert nicht)");
+});
+
+test("Prüfung: ZIP-Datei der Grundschule – holt vorher den Stand vom Server (neue Bildkarten aus dem Chat daneben sind dabei); hochgeladene auf A4; neu gestaltete, noch nicht gedruckte genannt statt alt", async () => {
+  const lib = await import("pdf-lib");
+  const a5 = await lib.PDFDocument.create(); for (let i = 0; i < 4; i++) a5.addPage([595.28, 419.53]).drawRectangle({ x: 20, y: 20, width: 100, height: 80, color: lib.rgb(0.2, 0.4, 0.8) });
+  const a5bytes = await a5.save(), a4 = await lib.PDFDocument.create(); a4.addPage([841.89, 595.28]); a4.addPage([841.89, 595.28]);
+  const a4bytes = await a4.save();
+  const uploaded = cardFile(7, "Verlag.pdf"), designed = cardFile(8, "Noah.pdf", { source: "claude", design: { outdated: false, error: null, htmlAt: 5, pdfAt: 5, text: "" } });
+  // seit dem Öffnen der Seite angelegt (Claude im Fenster daneben); „Noah“ hat Claude inzwischen neu gestaltet (der Server sagt 409)
+  const added = cardFile(9, "Arche.pdf", { source: "claude", design: { outdated: false, error: null, htmlAt: 6, pdfAt: 6, text: "" } });
+  const real = globalThis.fetch;
+  globalThis.fetch = async (u) => new Response(String(u).includes(uploaded.id) ? a5bytes : a4bytes);
+  const blobs = [];
+  let lessonGets = 0;
+  const UI = await import("../../public/ui.js");
+  const routes = [...cardsRoutes([{ ...uploaded }, { ...designed }, { ...added }]),
+    [/^GET \/api\/teacher\/lessons\/(\w+)$/, () => { lessonGets++; return { files: [{ ...uploaded }, { ...designed }, { ...added }] }; }],
+    [/^POST \/api\/teacher\/files\/(\w+)\/link$/, (m, b) => {
+      if (m[1] === designed.id) throw new UI.ApiError("Die Bildkarten „Noah“ sind in ihrer neuen Gestaltung noch nicht als PDF gedruckt – bitte die Seite neu laden, dann druckt Unterricks sie.", 409, { code: "cards_not_printed" });
+      return { url: "/api/dl/" + m[1] + (b && b.print ? "?p=pr" : "") };
+    }],
+    [/^POST \/api\/teacher\/files\/(\w+)\/render$/, () => new Promise(() => {})]];   // der Drucker druckt noch
+  if (globalThis.__leave) globalThis.__leave();
+  DR.resetPrintQueue();
+  const calls = server(routes);
+  const st = { files: [uploaded, designed] };
+  let box = null;
+  const sync = async () => { st.files = (await globalThis.__tapi("GET", "/api/teacher/lessons/" + fid(99))).files; box.paintPrint(); };
+  box = MB.materialBox({ lessonId: fid(99), st, L: () => ({ subject: "gs", klass: "gsx", date: "2026-11-24" }), gs: true, exclude: (f) => f.cards != null, printCopies: () => 22, beforeZip: sync, groupLabel: "Grundschule - Religion 2ab" });
+  const app = document.getElementById("app");
+  for (const x of [...app.childNodes]) app.removeChild(x);
+  app.append(box.filesCard, box.printCard);
+  const orig = URL.createObjectURL; URL.createObjectURL = (b) => { blobs.push(b); return "blob:x"; };
+  try {
+    await D.sleep(10);
+    assert.equal($$("#printcard .printrow").length, 2, "vor dem Packen: zwei Bildkarten");
+    D.userClick(button($("#printcard"), "Alle herunterladen (ZIP)"));
+    await until(() => blobs.length === 1, "ZIP heruntergeladen");
+    assert.equal(lessonGets, 1, "Stand vom Server geholt");
+    assert.equal($$("#printcard .printrow").length, 3, "die neuen Bildkarten stehen jetzt in der Liste");
+    const links = calls.filter((x) => x.path.endsWith("/link"));
+    assert.ok(links.length === 3 && links.every((x) => x.body && x.body.print === true), "Bildkarten immer mit print (der Server prüft die Gestaltung)");
+    const { readZip } = await import("../../public/zip.js");
+    const entries = await readZip(new Uint8Array(await blobs[0].arrayBuffer()));
+    assert.deepEqual(entries.map((e) => e.name).sort(), ["1x - einseitig - Farbe - Arche.pdf", "1x - einseitig - Farbe - Verlag.pdf"], "neue Bildkarten dabei, die alte Gestaltung nicht");
+    const up = await lib.PDFDocument.load(entries.find((e) => e.name.endsWith("Verlag.pdf")).data);
+    assert.deepEqual(up.getPages().map((p) => [Math.round(p.getWidth()), Math.round(p.getHeight())]), Array(4).fill([842, 595]), "hochgeladene A5-Karten: alle 4 auf A4 quer");
+    assert.equal($("#print-zip-note").textContent, "Nicht in der ZIP-Datei – die Bildkarten „1x - einseitig - Farbe - Noah.pdf“ (wird gerade als PDF gedruckt – bitte gleich noch einmal herunterladen).");
+    assert.ok(!$("#print-zip-note").classList.contains("hidden"));
+    const noah = $$("#printcard .printrow").find((r) => r.textContent.includes("Noah.pdf"));
+    assert.ok(!button(noah, "Herunterladen") && /wird als PDF gedruckt/.test(noah.textContent), "Zeile: neue Gestaltung wird gedruckt, kein Download der alten Karten – " + noah.textContent);
+    // Einzel-Download hochgeladener Bildkarten: ebenfalls auf A4, als Datei unter dem Namen der Druckliste
+    blobs.length = 0;
+    const verlag = $$("#printcard .printrow").find((r) => r.textContent.includes("Verlag.pdf"));
+    D.userClick(button(verlag, "Herunterladen"));
+    await until(() => blobs.length === 1, "Einzel-Download");
+    const one = await lib.PDFDocument.load(new Uint8Array(await blobs[0].arrayBuffer()));
+    assert.ok(one.getPageCount() === 4 && one.getPages().every((p) => Math.round(p.getWidth()) === 842 && Math.round(p.getHeight()) === 595), "Einzel-Download: 4 Seiten A4 quer");
+  } finally { globalThis.fetch = real; URL.createObjectURL = orig; }
+});
+
+test("Prüfung: „Druckaufträge für den nächsten Arbeitstag“ – Bildkarten mit print (nie die alte Gestaltung, sonst genannt), hochgeladene auf A4, unter dem Namen der Druckliste", async () => {
+  const lib = await import("pdf-lib");
+  const UI = await import("../../public/ui.js");
+  const a5 = await lib.PDFDocument.create(); for (let i = 0; i < 3; i++) a5.addPage([595.28, 419.53]).drawRectangle({ x: 20, y: 20, width: 100, height: 80, color: lib.rgb(0.2, 0.4, 0.8) });
+  const a5bytes = await a5.save();
+  const up = { ...cardFile(11, "Verlag.pdf"), lessonId: fid(98) }, des = { ...cardFile(12, "Noah.pdf", { source: "claude", design: { outdated: false, error: null, htmlAt: 5, pdfAt: 5, text: "" } }), lessonId: fid(98) };
+  const sessions = [{ id: fid(98), school: "gs", subject: "gs", klass: "gsx", label: "Religion 2ab", course: { short: "Religion 2ab" }, title: "Noah", startTime: "08:00", files: [up, des] }];
+  const bodies = [], blobs = [];
+  let loads = 0, later = null;
+  if (globalThis.__leave) globalThis.__leave();
+  DR.resetPrintQueue();
+  globalThis.__tapi = async (method, path, o = {}) => {
+    if (method === "GET" && path === "/api/teacher/print-next") { loads++; return { today: "2026-11-23", candidate: "2026-11-24", date: "2026-11-24", sessions: later || sessions, freeDays: [] }; }
+    const m = /^\/api\/teacher\/files\/(\w+)\/link$/.exec(path);
+    if (method === "POST" && m) {
+      bodies.push([m[1], o.body]);
+      if (m[1] === des.id) throw new UI.ApiError("Die Bildkarten „Noah“ sind in ihrer neuen Gestaltung noch nicht als PDF gedruckt – bitte die Seite neu laden, dann druckt Unterricks sie.", 409, { code: "cards_not_printed" });
+      return { url: "/api/dl/" + m[1] };
+    }
+    throw new UI.ApiError("nicht nachgebildet: " + method + " " + path, 404, { code: "not_found" });
+  };
+  const io0 = { ...PN.io };
+  Object.assign(PN.io, { blob: (b, n) => blobs.push([b, n]), sleep: async () => {}, fetch: async () => ({ ok: true, status: 200, arrayBuffer: async () => a5bytes.buffer.slice(a5bytes.byteOffset, a5bytes.byteOffset + a5bytes.byteLength) }) });
+  const app = document.getElementById("app");
+  for (const x of [...app.childNodes]) app.removeChild(x);
+  const card = PN.printNextCard();
+  app.append(card);
+  try {
+    await until(() => $$(".pn-row", card).length === 2, "zwei Zeilen");
+    const row = $$(".pn-row", card).find((r) => r.textContent.includes("Verlag.pdf"));
+    D.userClick($("button.pn-dl", row));
+    await until(() => blobs.length === 1, "Einzel-Download");
+    assert.equal(blobs[0][1], "1x - einseitig - Farbe - Verlag.pdf");
+    const one = await lib.PDFDocument.load(new Uint8Array(await blobs[0][0].arrayBuffer()));
+    assert.ok(one.getPageCount() === 3 && one.getPages().every((p) => Math.round(p.getWidth()) === 842 && Math.round(p.getHeight()) === 595), "hochgeladene A5-Karten: 3 Seiten A4 quer");
+    // „Alle Dateien herunterladen“ lädt in der Grundschule zuerst neu: Bildkarten, die Claude seit dem Öffnen der Startseite angelegt hat, sind dabei;
+    // die neu gestalteten (Server: noch nicht gedruckt) fehlen nicht stillschweigend
+    later = [{ ...sessions[0], files: [up, des, { ...cardFile(13, "Arche.pdf"), lessonId: fid(98) }] }];
+    blobs.length = 0;
+    D.userClick($("button.pn-all", card));
+    await until(() => /^Fertig|^Keine|Nicht heruntergeladen/.test($("#pn-status", card).textContent) && blobs.length >= 1, "fertig");
+    assert.equal(loads, 2, "vorher neu geladen");
+    assert.equal($$(".pn-row", card).length, 3, "die neuen Bildkarten stehen jetzt auch in der Liste");
+    assert.ok(bodies.every(([, b]) => b && b.print === true), "Bildkarten immer mit print");
+    assert.deepEqual(blobs.map((x) => x[1]), ["1x - einseitig - Farbe - Verlag.pdf", "1x - einseitig - Farbe - Arche.pdf"]);
+    assert.ok($("#pn-status", card).textContent.includes("Nicht heruntergeladen: „1x - einseitig - Farbe - Noah.pdf“ (Die Bildkarten „Noah“ sind in ihrer neuen Gestaltung noch nicht als PDF gedruckt"), $("#pn-status", card).textContent);
+  } finally { Object.assign(PN.io, io0); }
 });

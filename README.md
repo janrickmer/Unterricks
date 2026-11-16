@@ -488,7 +488,11 @@ der **Podcast für den kommenden Unterricht** (derselbe wie auf der Startseite �
   herunter und wieder auf – die Bildkarten, ihre Erzähltexte und die Elternansicht bleiben dabei unverändert. Gestaltet Claude Bildkarten
   neu, bleibt Ihre Einstellung (auch „nicht auf der Liste“). Ist die PDF neu gestalteter Bildkarten noch nicht gedruckt (oder der Druck
   ist fehlgeschlagen), sagt die Zeile das und bietet „Erneut drucken“ an; die ZIP-Datei nennt sie unter dem Knopf, statt sie stillschweigend
-  wegzulassen. Bildkarten, die vor dem 16.11.2026 angelegt wurden, stehen nicht auf der Liste – mit dem Schalter nehmen Sie sie bei Bedarf auf.
+  wegzulassen. Die ZIP-Datei und „Alle Dateien herunterladen“ holen vorher den aktuellen Stand – auch Bildkarten, die Claude angelegt
+  oder neu gestaltet hat, während die Seite offen war, sind dabei (bzw. werden genannt); die alten Karten einer neu gestalteten PDF kommen
+  nie in die Druckdateien. Hochgeladene Bildkarten in einem anderen Format (z. B. A5 vom Verlag) kommen in den Druckdateien auf A4
+  (Quer- bzw. Hochformat bleibt); gespeichert bleibt Ihre PDF, wie sie war. Bildkarten, die vor dem 16.11.2026 angelegt wurden, stehen
+  nicht auf der Liste – mit dem Schalter nehmen Sie sie bei Bedarf auf.
 * **Konzentrationsaufgabe:** Zu jeder Sitzung, die Sie mit Claude planen („Stunde mit Claude planen“, auch wenn Claude beim Überarbeiten
   einer Einheit eine Sitzung neu plant), gestaltet Claude zusammen mit dem übrigen Material die **„Konzentrationsaufgabe“** – für Kinder, die
   ihre Aufmerksamkeit in Plenumsphasen nur bündeln können, wenn sie den Sitzkreis verlassen und beim Zuhören etwas ausmalen. Aufbau:

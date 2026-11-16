@@ -113,10 +113,15 @@ export function printNextCards(load = () => tapi("GET", "/api/teacher/print-next
       const { markdownToPdf } = await lazy(import("./pdfmaker.js"));
       return new Uint8Array(await (await markdownToPdf(f.name, t, { subtitle: s.subtitle })).arrayBuffer());
     }
-    const r = await tapi("POST", "/api/teacher/files/" + f.id + "/link", { body: {} });
+    // Bildkarten (Nachtrag 31): mit print – der Server gibt nur die PDF ihrer aktuellen Gestaltung heraus (eine ältere Liste auf dieser Seite bekommt sonst die alten Karten)
+    const r = await tapi("POST", "/api/teacher/files/" + f.id + "/link", { body: f.cards ? { print: true } : {} });
     const res = await io.fetch(apiUrl(r.url), { credentials: "omit", cache: "no-store" });
     if (!res.ok) throw new Error("„" + f.name + "“ ließ sich nicht laden (Fehler " + res.status + ").");
-    return new Uint8Array(await res.arrayBuffer());
+    const buf = new Uint8Array(await res.arrayBuffer());
+    if (!f.cards || f.design) return buf;
+    // hochgeladene Bildkarten: Seiten in einem anderen Format auf A4 (wie in der Druckliste der Sitzung, a4.js cardsA4)
+    const { cardsA4 } = await lazy(import("./a4.js"));
+    return cardsA4(buf, await lazy(import("/vendor/pdf-lib.esm.min.js")));
   }
   /* eine Datei herunterladen wie in der Druckliste der Sitzung. Druckvorlagen über den signierten Link: der Server nennt sie selbst mit dem
      Druck-Namen – das zählt auf GitHub Pages, wo der Browser das download-Attribut einer anderen Herkunft nicht beachtet. Textmaterial und
@@ -228,6 +233,13 @@ export function printNextCards(load = () => tapi("GET", "/api/teacher/print-next
   let running = false;
   async function downloadAll() {
     if (running || !data) return;
+    // Grundschule (Prüfung von Nachtrag 31): vorher neu laden – Bildkarten, die Claude seit dem Öffnen der Startseite angelegt oder neu gestaltet hat, fehlten
+    // sonst ohne Hinweis (am Gymnasium bleibt es beim geladenen Stand)
+    if (data.sessions.some((s) => s.school === "gs")) {
+      running = true; status.textContent = "";
+      try { await working(allBtn, reload, "Lade die Druckaufträge …"); } finally { running = false; }
+      if (!data || stopped || !card.isConnected) return;
+    }
     const all = filesOf(), ready = all.filter((x) => readyForAll(x.f)), wait = all.filter((x) => !readyForAll(x.f)).map((x) => x.f);
     if (!ready.length) {
       status.textContent = wait.some((f) => !stuck(f)) ? "Die Vorlagen werden gerade noch als PDF gedruckt – bitte gleich noch einmal."

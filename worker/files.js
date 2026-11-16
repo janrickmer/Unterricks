@@ -636,7 +636,12 @@ export async function routeTeacherFileLink(c, fileId) {
   if (f.kind !== "file") throw bad(f.kind === "link" ? "Ein Link wird direkt geöffnet." : "Text-Material wird im Browser als PDF erzeugt.");
   const body = await readJson(c.request, 1000);
   // print: aus der Druckliste – Name wie dort (nur Dateien, die auf der Liste stehen; sonst wie bisher)
-  return json({ ok: true, url: await downloadUrl(requireSecret(c.env), f, !!body.inline, 10 * 60e3, c.now, body.print === true && onPrintList(f) ? "pr" : "") });
+  const pr = body.print === true && onPrintList(f);
+  // Bildkarten (Nachtrag 31, Prüfung): aus der Druckliste nur die PDF ihrer AKTUELLEN Gestaltung – auch wenn die Seite der Lehrkraft einen älteren Stand
+  // zeigt (zweites Fenster, Claude hat inzwischen neu gestaltet); die bisherige PDF zeigt die alten Karten und käme sonst still in die Druckdateien
+  if (pr && f.cards != null && f.html != null && (!f.pdf_at || (f.html_at || 0) > f.pdf_at))
+    throw new HttpError(409, "cards_not_printed", "Die Bildkarten „" + String(f.name).replace(/\.pdf$/i, "") + "“ sind in ihrer neuen Gestaltung noch nicht als PDF gedruckt – bitte die Seite neu laden, dann druckt Unterricks sie.");
+  return json({ ok: true, url: await downloadUrl(requireSecret(c.env), f, !!body.inline, 10 * 60e3, c.now, pr ? "pr" : "") });
 }
 
 /* ---------- Ausliefern (signierte Links, ohne Anmeldung im Kopf der Anfrage) ---------- */

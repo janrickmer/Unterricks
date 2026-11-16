@@ -34,3 +34,10 @@ export async function toA4(bytes, lib) {
   out.setProducer("Unterricks"); out.setCreator("Unterricks");
   return { bytes: await out.save(), changed, total };
 }
+
+/* Bildkarten, die die Lehrkraft hochgeladen hat (Grundschule, Prüfung von Nachtrag 31): ihre PDF bleibt gespeichert, wie sie ist (daraus entstehen die
+   Kartenbilder der Elternansicht); für die Druckliste – Einzel-Download, ZIP-Datei, „Druckaufträge für den nächsten Arbeitstag“ – rechnet der Browser Seiten
+   in einem anderen Format auf A4 um (Ausrichtung wie die Seite, z. B. A5 quer → A4 quer). Lässt sich die PDF im Browser nicht lesen, bleibt sie unverändert. */
+export async function cardsA4(bytes, lib) {
+  try { return (await toA4(bytes, lib)).bytes; } catch { return bytes; }
+}

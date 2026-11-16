@@ -367,7 +367,10 @@ export async function gsSessionPage(id, d) {
     if (!parentsQueued) { parentsQueued = true; queueMicrotask(() => { parentsQueued = false; paintParents(); }); }
     return h("div", { class: "gs-badge" }, el);
   };
-  const box = materialBox({ lessonId: id, st, L, gs: true, fileBadge, printCopies: () => classSize, exclude: (f) => f.cards != null, onChange: () => repaintPlan(), onPrintChange: (f) => cardsBox.syncPrint(f.id),
+  // ZIP-Datei der Druckliste (Prüfung von Nachtrag 31): vorher den Dateistand vom Server holen – Bildkarten, die Claude angelegt oder neu gestaltet hat, während
+  // diese Seite offen war (z. B. neben dem Chat, ohne Wechsel des Tabs), kämen sonst nicht bzw. mit den alten Karten in die ZIP-Datei
+  const beforeZip = async () => { syncFiles(await tapi("GET", "/api/teacher/lessons/" + id)); };
+  const box = materialBox({ lessonId: id, st, L, gs: true, fileBadge, printCopies: () => classSize, exclude: (f) => f.cards != null, onChange: () => repaintPlan(), onPrintChange: (f) => cardsBox.syncPrint(f.id), beforeZip,
     subtitle: course ? course.label : "Grundschule", groupLabel: "Grundschule - " + (course ? course.short : "Kurs"),
     labels: { student: "Material für die Kinder (Eltern sehen die PDF-Dateien nach der Stunde)", teacher: "Nur für Sie", toStudent: "Für die Kinder", toTeacher: "Nur für Sie",
       nowStudent: "Jetzt im Material für die Kinder.", nowTeacher: "Jetzt nur noch für Sie.", teacherHint: "Sehen weder Kinder noch Eltern",
@@ -504,12 +507,8 @@ export async function gsSessionPage(id, d) {
   setEditing(false);
   paintRevise();
 
-  // Änderungen von außen (Claude über den Connector, anderes Fenster) beim Zurückkehren übernehmen – nie in ein Feld, das gerade bearbeitet wird
-  const onVis = async () => {
-    if (document.visibilityState !== "visible") return;
-    let r;
-    try { r = await tapi("GET", "/api/teacher/lessons/" + id); } catch { return; }
-    const busyField = (el) => document.activeElement === el;
+  // Dateien (Material, Druckliste, Bildkarten) aus einer Antwort von GET /api/teacher/lessons/:id übernehmen – nur, was sich geändert hat → geändert?
+  function syncFiles(r) {
     const refKey = (fs) => fs.map((f) => f.id + ":" + f.status + ":" + f.name).join("|");
     const filesChanged = box.filesKey(r.files) !== box.filesKey(st.files) || refKey(r.refFiles || []) !== refKey(st.refFiles), cardsChanged = cardsBox.keyOf(r.files) !== cardsBox.keyOf(st.files);
     if (filesChanged || cardsChanged) {
@@ -519,6 +518,15 @@ export async function gsSessionPage(id, d) {
       repaintPlan();
       if (cardsChanged) cardsBox.refresh(old);
     }
+    return filesChanged;
+  }
+  // Änderungen von außen (Claude über den Connector, anderes Fenster) beim Zurückkehren übernehmen – nie in ein Feld, das gerade bearbeitet wird
+  const onVis = async () => {
+    if (document.visibilityState !== "visible") return;
+    let r;
+    try { r = await tapi("GET", "/api/teacher/lessons/" + id); } catch { return; }
+    const busyField = (el) => document.activeElement === el;
+    const filesChanged = syncFiles(r);
     if ((r.messages || []).length !== st.messages.length) { st.messages = r.messages; paintDraft(); }
     if (r.unit && (!st.unit || r.unit.version !== st.unit.version)) { st.unit = r.unit; paintUnit(); paintSubline(); if (!reviseEl || !reviseEl.contains(document.activeElement)) paintRevise(); }
     // Zwischenstopp der vorigen Sitzung: inzwischen gesetzt, verschoben oder (mit Claude) entschieden – auch der Prompt nimmt dann den neuen Stand

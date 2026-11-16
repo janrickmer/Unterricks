@@ -21,10 +21,10 @@ export const cardsHtml = (n, label = "Karte") => '<!doctype html><html lang="de"
   "section{width:297mm;height:209mm;overflow:hidden;display:grid;place-items:center;break-after:page}section:last-child{break-after:auto}h2{font:700 40pt sans-serif;margin:0}</style></head><body>" +
   Array.from({ length: n }, (_, i) => '<section><svg width="420" height="300" viewBox="0 0 420 300" role="img" aria-label="' + label + " " + (i + 1) + '"><circle cx="210" cy="150" r="' + (50 + i * 20) +
     '" fill="' + ["#e05d00", "#2557c7", "#2f9e44", "#c92a2a"][i % 4] + '"/></svg><h2>' + label + " " + (i + 1) + "</h2></section>").join("") + "</body></html>";
-// hochgeladene Bildkarten: eine PDF mit n Seiten A4 quer
-async function cardsPdf(n) {
+// hochgeladene Bildkarten: eine PDF mit n Seiten A4 quer (bzw. im Format size, z. B. A5 quer)
+async function cardsPdf(n, size = [841.89, 595.28]) {
   const d = await PDFDocument.create();
-  for (let i = 0; i < n; i++) { const p = d.addPage([841.89, 595.28]); p.drawRectangle({ x: 200, y: 150, width: 440, height: 300, color: rgb(0.2, 0.4, 0.8) }); p.drawText("Bild " + (i + 1), { x: 360, y: 60, size: 30 }); }
+  for (let i = 0; i < n; i++) { const p = d.addPage(size); p.drawRectangle({ x: size[0] * 0.24, y: size[1] * 0.25, width: size[0] * 0.52, height: size[1] * 0.5, color: rgb(0.2, 0.4, 0.8) }); p.drawText("Bild " + (i + 1), { x: size[0] * 0.43, y: 30, size: 24 }); }
   return Buffer.from(await d.save());
 }
 // alle Seiten A4 quer?
@@ -205,6 +205,29 @@ export async function cardsPrintE2E({ tp, BASE, T, tool, ok, OUT, SHOT, gsL, pri
   z = await zip(); ze = z.entries.find((e) => e.name === NAME3); info = ze ? await pdfInfo(Buffer.from(ze.data)) : { pages: 0 };
   ok(info.pages === 3 && info.landscape, "„Erneut drucken“: gedruckt – in der ZIP-Datei mit der neuen Gestaltung (3 Seiten A4 quer)");
 
+  /* ---------- c2) Prüfung: die Sitzung bleibt offen, Claude arbeitet im Fenster daneben (kein Wechsel des Tabs, kein Neuladen) ----------
+     vorher: die ZIP-Datei nahm den Stand beim Öffnen – neue Bildkarten fehlten, neu gestaltete kamen mit den alten Karten hinein, beides ohne Hinweis */
+  const NAME5 = "1x - einseitig - Farbe - Bildkarten Rut.pdf";
+  r = await tool("add_picture_cards", { lesson_id: gsL, titel: "Bildkarten Rut", html: cardsHtml(2, "Rut"), erzaehltexte: ["Rut geht mit Noomi.", "Rut sammelt Ähren."] });
+  const rid = r.structuredContent && r.structuredContent.file_id;
+  printer.mode = "busy";
+  r = await tool("add_picture_cards", { lesson_id: gsL, titel: "Bildkarten Arche", html: cardsHtml(4, "Arche"), erzaehltexte: ["Noah baut.", "Die Tiere.", "Der Regen.", "Der Regenbogen."], file_id: aid });
+  ok(!r.isError && r.content[0].text.includes("noch nicht als PDF gedruckt") && await rowOf(NAME5).count() === 0 && await rowOf(NAME3).getByRole("button", { name: "Herunterladen" }).count() === 1,
+    "Seite offen geblieben: neue Bildkarten noch nicht in der Liste, die Zeile „" + NAME3 + "“ zeigt noch die alte Gestaltung");
+  // Einzel-Download aus der veralteten Zeile: der Server gibt die alten Karten nicht heraus
+  await rowOf(NAME3).getByRole("button", { name: "Herunterladen" }).click();
+  await tp.locator("#toasts", { hasText: "„Bildkarten Arche“ sind in ihrer neuen Gestaltung noch nicht als PDF gedruckt" }).waitFor({ timeout: 10000 });
+  ok(true, "… Einzel-Download der alten Karten abgelehnt: „Die Bildkarten „Bildkarten Arche“ sind in ihrer neuen Gestaltung noch nicht als PDF gedruckt – bitte die Seite neu laden …“");
+  z = await zip();
+  ze = z.entries.find((e) => e.name === NAME5); info = ze ? await pdfInfo(Buffer.from(ze.data)) : { pages: 0 };
+  const note5 = await tp.locator("#print-zip-note").textContent();
+  ok(info.pages === 2 && info.landscape && !z.names.includes(NAME3) && note5.startsWith("Nicht in der ZIP-Datei – die Bildkarten „" + NAME3 + "“ (wird gerade als PDF gedruckt") && await rowOf(NAME5).count() === 1,
+    "ZIP-Datei ohne Neuladen: holt den Stand vom Server – die neuen Bildkarten sind dabei (2 Seiten A4 quer), die neu gestalteten nicht mit den alten Karten, sondern im Hinweis: „" + note5.slice(0, 100) + "…“");
+  printer.mode = "ok";
+  await rowOf(NAME3).getByRole("button", { name: "Herunterladen" }).waitFor({ timeout: 90000 });
+  z = await zip(); ze = z.entries.find((e) => e.name === NAME3); info = ze ? await pdfInfo(Buffer.from(ze.data)) : { pages: 0 };
+  ok(info.pages === 4 && info.landscape && z.names.includes(NAME5), "… gedruckt: die neue Gestaltung (4 Seiten A4 quer) in der ZIP-Datei");
+
   /* ---------- d) hochgeladene Bildkarten-PDF: ebenfalls auf der Druckliste ---------- */
   const NAME4 = "1x - einseitig - Farbe - Josef Bilder.pdf";
   await cbox.locator("#gs-cards-file").setInputFiles({ name: "Josef Bilder.pdf", mimeType: "application/pdf", buffer: await cardsPdf(5) });
@@ -218,6 +241,40 @@ export async function cardsPrintE2E({ tp, BASE, T, tool, ok, OUT, SHOT, gsL, pri
   ok(dl.suggestedFilename() === NAME4 && info.pages === 5 && info.landscape, "… Einzel-Download: „" + dl.suggestedFilename() + "“, 5 Seiten A4 quer");
   z = await zip(); ze = z.entries.find((e) => e.name === NAME4); info = ze ? await pdfInfo(Buffer.from(ze.data)) : { pages: 0 };
   ok(info.pages === 5 && info.landscape, "… in der ZIP-Datei: 5 Seiten A4 quer");
+  // Prüfung: eine hochgeladene Bildkarten-PDF in einem anderen Format (z. B. A5 quer vom Verlag) kommt in allen Druckdateien auf A4 (quer bleibt quer);
+  // gespeichert bleibt sie, wie sie war (daraus entstehen die Kartenbilder der Elternansicht)
+  const NAME6 = "1x - einseitig - Farbe - Verlag A5.pdf", A5Q = [595.28, 419.53];
+  await cbox.locator("#gs-cards-file").setInputFiles({ name: "Verlag A5.pdf", mimeType: "application/pdf", buffer: await cardsPdf(3, A5Q) });
+  const vrow = rowOf(NAME6);
+  await vrow.waitFor({ timeout: 30000 });
+  const vid = (await lessonFiles()).find((x) => x.name === "Verlag A5.pdf").id;
+  [dl] = await Promise.all([tp.waitForEvent("download", { timeout: 30000 }), vrow.getByRole("button", { name: "Herunterladen" }).click()]);
+  info = await pdfInfo(readFileSync(await dl.path()));
+  ok(dl.suggestedFilename() === NAME6 && info.pages === 3 && info.landscape, "Hochgeladen in A5 quer – Einzel-Download aus der Druckliste: „" + dl.suggestedFilename() + "“, " + info.pages + " Seiten A4 quer");
+  z = await zip(); ze = z.entries.find((e) => e.name === NAME6); info = ze ? await pdfInfo(Buffer.from(ze.data)) : { pages: 0 };
+  ok(info.pages === 3 && info.landscape, "… in der ZIP-Datei: 3 Seiten A4 quer");
+  const stored = await PDFDocument.load(await (await fetch(BASE + (await T("POST", "/api/teacher/files/" + vid + "/link", {})).data.url)).arrayBuffer());
+  ok(stored.getPages().every((p) => Math.abs(p.getWidth() - A5Q[0]) < 1 && Math.abs(p.getHeight() - A5Q[1]) < 1), "… gespeichert bleibt die PDF im Format der Lehrkraft (A5 quer)");
+  // Startseite: Einzel-Download ebenfalls A4; „Alle Dateien herunterladen“ lädt in der Grundschule erst neu – Bildkarten, die Claude seit dem Öffnen der Startseite
+  // angelegt hat, sind dabei
+  await tp.goto(BASE + "/#/lk");
+  const vpn = tp.locator(".printnext .pn-row", { hasText: NAME6 });
+  await vpn.waitFor({ timeout: 20000 });
+  [dl] = await Promise.all([tp.waitForEvent("download", { timeout: 30000 }), vpn.getByRole("button", { name: "Herunterladen – " + NAME6 }).click()]);
+  info = await pdfInfo(readFileSync(await dl.path()));
+  ok(dl.suggestedFilename() === NAME6 && info.pages === 3 && info.landscape, "Startseite: „" + NAME6 + "“ – " + info.pages + " Seiten A4 quer");
+  const NAME7 = "1x - einseitig - Farbe - Bildkarten Ester.pdf";
+  r = await tool("add_picture_cards", { lesson_id: gsL, titel: "Bildkarten Ester", html: cardsHtml(2, "Ester"), erzaehltexte: ["Ester wird Königin.", "Ester bittet den König."] });
+  const eid = r.structuredContent && r.structuredContent.file_id;
+  ok(await tp.locator(".printnext .pn-row", { hasText: NAME7 }).count() === 0, "… Startseite offen geblieben: die neuen Bildkarten stehen noch nicht in der Liste");
+  const got2 = [], onDl2 = (d) => got2.push(d);
+  tp.on("download", onDl2);
+  await tp.locator(".printnext button.pn-all").click();
+  await tp.locator(".printnext #pn-status", { hasText: /^Fertig/ }).waitFor({ timeout: 120000 });
+  await sleep(500); tp.off("download", onDl2);
+  const est = got2.find((d) => d.suggestedFilename() === NAME7);
+  info = est ? await pdfInfo(readFileSync(await est.path())) : { pages: 0 };
+  ok(!!est && info.pages === 2 && info.landscape && await tp.locator(".printnext .pn-row", { hasText: NAME7 }).count() === 1, "„Alle Dateien herunterladen“ ohne Neuladen der Seite: die neuen Bildkarten „" + NAME7 + "“ sind dabei (2 Seiten A4 quer)");
 
   /* ---------- e) ältere Bildkarten (vor der Änderung angelegt, ohne Druckangaben): bleiben herunter, lassen sich von Hand aufnehmen ---------- */
   const up = await fetch(BASE + "/api/teacher/lessons/" + gsL + "/cards?name=" + encodeURIComponent("Alte Karten.pdf"), { method: "POST", headers: { Authorization: "Bearer " + (await tp.evaluate(() => localStorage.getItem("u.ttoken"))), "Content-Type": "application/pdf" }, body: await cardsPdf(2) }).then((x) => x.json());
@@ -235,7 +292,7 @@ export async function cardsPrintE2E({ tp, BASE, T, tool, ok, OUT, SHOT, gsL, pri
   ok((await pnFiles()).some((x) => x.id === oid), "… von Hand aufgenommen: auf der Druckliste und bei den Druckaufträgen");
 
   /* ---------- f) Erinnerung: Geschichte im Verlaufsplan, aber keine Bildkarten ---------- */
-  for (const id of [cid, aid, uid, oid]) await T("DELETE", "/api/teacher/files/" + id);
+  for (const id of [cid, aid, uid, oid, rid, vid, eid]) await T("DELETE", "/api/teacher/files/" + id);
   r = await tool("save_verlaufsplan", { lesson_id: gsL, text: "**1) Erzählung: Die Arche Noah (15 Min., Sitzkreis)**\n- Lehrkraft erzählt frei" });
   ok(!r.isError && r.structuredContent.bildkarten_fehlen === true && r.content[0].text.includes("Der Verlaufsplan erzählt eine Geschichte („1) Erzählung: Die Arche Noah (15 Min., Sitzkreis)“), aber diese Sitzung hat noch keine Bildkarten"),
     "save_verlaufsplan: Erzählung ohne Bildkarten → gespeichert, die Antwort erinnert an Bildkarten");

@@ -72,8 +72,9 @@ export const CARD_PRINT_NAME = printFileName({ name: "Titel", ...CARD_PRINT }).r
 // me: im Prompt spricht die Lehrkraft („meiner Druckliste“)
 export const cardsWhere = (me = false) => "Neue Bildkarten stehen von selbst auf " + (me ? "meiner Druckliste" : "der Druckliste der Lehrkraft") + " („" + CARD_PRINT_NAME + "“: " + CARD_PRINT_TEXT + ").";
 export const CARDS_METHOD = "Erzählung mit Bildkarten";   // vorher „Erzählung (gern mit Bildkarten)“
-export const CARDS_ALWAYS = "Erzählst du im Sitzkreis eine Geschichte (frei erzählt oder vorgelesen), gehören immer Bildkarten dazu: Gestalte sie selbst und lege sie mit `add_picture_cards` ab. " + cardsWhere(true);
-export const cardsPromptStep = () => "   - Zu jeder Geschichte, die im Sitzkreis erzählt wird, gestaltest du Bildkarten und legst sie mit `add_picture_cards` ab – mit einem gekürzten Erzähltext je Karte " +
+// Prüfung: ohne „du“ formuliert – erzählt bzw. vorgelesen wird in der Stunde von der Lehrkraft; „Erzählst du …“ konnte Claude als „nicht meine Aufgabe“ lesen
+export const CARDS_ALWAYS = "Wird in der Stunde im Sitzkreis eine Geschichte erzählt oder vorgelesen (auch eine biblische Geschichte), gehören immer Bildkarten dazu: Du gestaltest sie selbst und legst sie mit `add_picture_cards` ab. " + cardsWhere(true);
+export const cardsPromptStep = () => "   - Zu jeder Geschichte, die im Sitzkreis erzählt oder vorgelesen wird, gestaltest du Bildkarten und legst sie mit `add_picture_cards` ab – mit einem gekürzten Erzähltext je Karte " +
   "(zum Nacherzählen mit den Kindern zu Hause); sie stehen dann von selbst auf meiner Druckliste (" + CARD_PRINT_TEXT + "). Im Verlaufsplan stehen sie in der Erzählphase ([[pdf:<file_id>]]).";
 // Überarbeitung der Einheit (Grundschule): plant Claude dabei eine Sitzung neu, gehören zu einer Geschichte im Sitzkreis Bildkarten
 export const CARDS_REVISION = " Erzählt eine neu geplante oder geänderte Stunde im Sitzkreis eine Geschichte, gehören Bildkarten dazu (`add_picture_cards`; sie stehen dann von selbst auf meiner Druckliste: " + CARD_PRINT_TEXT + ").";
@@ -81,8 +82,9 @@ export const CARDS_REVISION = " Erzählt eine neu geplante oder geänderte Stund
    ein deutliches Wort für eine erzählte oder vorgelesene Geschichte enthält (Geschichte, Erzählung, vorlesen, Bilderbuch, Kamishibai, Märchen, Legende, Gleichnis,
    Fabel, Kinderbibel, nacherzählen …) oder „erzähl…“ – außer die Kinder erzählen selbst von etwas (Erzählkreis, Erzählrunde, „Kinder erzählen von …“).
    Ein Sitzkreis wird nicht verlangt: Geschichten werden in der Grundschule fast immer im Kreis erzählt, und „Sitzkreis“ steht oft nur in der Überschrift der Phase.
-   Verweise [[pdf:…]] zählen nur mit ihrer Beschriftung („[[pdf:…|Vorlesetext – Die Arche Noah]]“). → die erste passende Zeile (gekürzt, ohne Zeichen) oder null */
-const STORY_STRONG = /geschicht|erzählung|vorles|vorgeles|\bliest\b.*\bvor\b|\blese\b.*\bvor\b|bilderbuch|kamishibai|erzähltheater|märchen|legende|gleichnis|fabel|kinderbibel|nacherzähl/;
+   Verweise [[pdf:…]] zählen nur mit ihrer Beschriftung („[[pdf:…|Vorlesetext – Die Arche Noah]]“). → die erste passende Zeile (gekürzt, ohne Zeichen) oder null
+   Prüfung: auch vorgetragene Texte („trägt … vor“, Vortrag), Bibeltexte und das Erzählen mit Egli- bzw. biblischen Erzählfiguren zählen. */
+const STORY_STRONG = /geschicht|erzählung|vorles|vorgeles|\bliest\b.*\bvor\b|\blese\b.*\bvor\b|bilderbuch|kamishibai|erzähltheater|märchen|legende|gleichnis|fabel|kinderbibel|nacherzähl|vortrag|vorgetragen|\bträgt\b.*\bvor\b|bibeltext|\begli/;
 const STORY_TELL = /erzähl/, STORY_KIDS = /erzählkreis|erzählrunde|erzählstein|kinder erzählen|erzählen (?:sie |die kinder |einander |sich )?(?:von|über)\b/;
 export function storyInPlan(text) {
   const lines = String(text == null ? "" : text).replace(/\[\[pdf:[a-f0-9]{16}\|([^\]\n]*)\]\]/g, "$1").replace(/\[\[pdf:[^\]\n]*\]\]/g, "").split(/\r?\n/);

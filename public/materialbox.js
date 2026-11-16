@@ -27,8 +27,10 @@ export function dropZone(label, hint, onFiles, accept, multiple = true) {
    solche PDFs stehen zusätzlich auf der Druckliste; subtitle/groupLabel für Text-PDFs und den Namen der ZIP-Datei; onChange() nach jeder Änderung
    an den Dateien, die Name, Stand oder Bereich einer PDF betrifft (gedruckt, gelöscht, umbenannt, verschoben – z. B. für den Verlaufsplan).
    Grundschule (Nachtrag 31): Bildkarten (f.cards) mit Druckangaben stehen auf der Druckliste – Anzahl, ein-/beidseitig und Farbe wie bei den anderen
-   Einträgen, „Nicht ausdrucken“ nimmt sie nur herunter (löscht nichts); onPrintChange(f) nach jeder Änderung ihrer Druckangaben (Karte „Bildkarten“). */
-export function materialBox({ lessonId: id, st, L, gs = false, labels = {}, exclude = null, fileBadge = null, printCopies = null, subtitle = null, groupLabel = null, onChange = null, onPrintChange = null }) {
+   Einträgen, „Nicht ausdrucken“ nimmt sie nur herunter (löscht nichts); onPrintChange(f) nach jeder Änderung ihrer Druckangaben (Karte „Bildkarten“).
+   beforeZip() (Grundschule, Prüfung von Nachtrag 31): holt vor dem Packen der ZIP-Datei den Dateistand vom Server – sonst fehlten Bildkarten, die Claude
+   angelegt oder neu gestaltet hat, während die Seite offen war (z. B. neben dem Chat), ohne Hinweis. */
+export function materialBox({ lessonId: id, st, L, gs = false, labels = {}, exclude = null, fileBadge = null, printCopies = null, subtitle = null, groupLabel = null, onChange = null, onPrintChange = null, beforeZip = null }) {
   const lb = { student: "Für Schüler:innen zugänglich", teacher: "Nur für Lehrkräfte", toStudent: "Für Schüler:innen", toTeacher: "Nur für Lehrkraft",
     nowStudent: "Jetzt für Schüler:innen sichtbar.", nowTeacher: "Jetzt nur noch für Lehrkräfte.", teacherHint: "Wird Schüler:innen nie angezeigt", hint: null, ...labels };
   const shown = (f) => !exclude || !exclude(f);
@@ -197,15 +199,22 @@ export function materialBox({ lessonId: id, st, L, gs = false, labels = {}, excl
   const printList = h("div", { class: "list" }), printProg = h("div", { class: "stack" });
   const printFiles = () => st.files.filter((f) => f.area === "print" || (gs && f.area === "student" && f.print && shown(f)) || (isCards(f) && f.print));
   const pdfLib = () => lazy(import("/vendor/pdf-lib.esm.min.js"));
+  // hochgeladene Bildkarten (ohne Gestaltung): ihre PDF hat das Format der Lehrkraft – für die Druckliste auf A4 umgerechnet (a4.js cardsA4, Ausrichtung bleibt);
+  // die gespeicherte PDF und die Kartenbilder der Elternansicht bleiben, wie sie sind (Prüfung von Nachtrag 31)
+  const upCards = (f) => isCards(f) && !f.design;
   async function printBytes(f) {
     if (f.kind === "text") {
       const { markdownToPdf } = await lazy(import("./pdfmaker.js"));
       return new Uint8Array(await (await markdownToPdf(f.name, f.text, { subtitle: subtitle || subjectName(L().subject) + " · " + classShort(L().klass) })).arrayBuffer());
     }
-    const r = await tapi("POST", "/api/teacher/files/" + f.id + "/link", { body: {} });
+    // Bildkarten mit print: Der Server gibt nur die PDF der aktuellen Gestaltung heraus (sonst 409 cards_not_printed)
+    const r = await tapi("POST", "/api/teacher/files/" + f.id + "/link", { body: isCards(f) ? { print: true } : {} });
     const res = await fetch(apiUrl(r.url), { credentials: "omit", cache: "no-store" });
     if (!res.ok) throw new Error("„" + f.name + "“ ließ sich nicht laden (Fehler " + res.status + ").");
-    return new Uint8Array(await res.arrayBuffer());
+    const buf = new Uint8Array(await res.arrayBuffer());
+    if (!upCards(f)) return buf;
+    const { cardsA4 } = await lazy(import("./a4.js"));
+    return cardsA4(buf, await pdfLib());
   }
   function printRow(f) {
     const p = f.print || { copies: 1, duplex: true, color: false };
@@ -230,8 +239,8 @@ export function materialBox({ lessonId: id, st, L, gs = false, labels = {}, excl
     const acts = h("div", { class: "acts" },
       ...(des ? des.acts : [h("button", { class: "btn small primary", type: "button", onclick: (e) => busy(e.currentTarget, async () => {
         try {
-          if (f.kind === "text") downloadBlob(new Blob([await printBytes(f)], { type: "application/pdf" }), f.printName);
-          else { const r = await tapi("POST", "/api/teacher/files/" + f.id + "/link", { body: isCards(f) ? { print: true } : {} }); downloadUrl(r.url, f.printName); }
+          if (f.kind === "text" || upCards(f)) downloadBlob(new Blob([await printBytes(f)], { type: "application/pdf" }), f.printName);
+          else { const r = await tapi("POST", "/api/teacher/files/" + f.id + "/link", { body: {} }); downloadUrl(r.url, f.printName); }
         } catch (err) { errToast(err); }
       }) }, icon("download"), "Herunterladen")]),
       // Bildkarten: der Name gehört zum Kartensatz (Karte „Bildkarten“) – hier nur die Druckangaben
@@ -302,6 +311,7 @@ export function materialBox({ lessonId: id, st, L, gs = false, labels = {}, excl
   }
   const zipBtn = h("button", { class: "btn", type: "button", onclick: (e) => busy(e.currentTarget, async () => {
     try {
+      if (beforeZip) { try { await beforeZip(); } catch {} }   // Grundschule: Stand vom Server (ein Fehler hier hält die ZIP-Datei nicht auf)
       const all = printFiles(); if (!all.length) return;
       // gestaltete Vorlagen, die noch nicht gedruckt sind, fehlen in der ZIP-Datei (Hinweis); Bildkarten erst mit der PDF ihrer aktuellen Gestaltung (printReady)
       const fs = all.filter(printReady), wait = all.filter((f) => !fs.includes(f) && !f.cards), cardsWait = all.filter((f) => !fs.includes(f) && f.cards);
@@ -309,11 +319,20 @@ export function materialBox({ lessonId: id, st, L, gs = false, labels = {}, excl
       setZipNote(cardsWait);
       if (!fs.length) { toast(cardsWait.length ? cardsMissingText(cardsWait) : "Die Vorlagen werden gerade noch als PDF gedruckt – bitte gleich noch einmal.", "err", cardsWait.length ? 9000 : 4200); return; }
       const entries = [];
-      for (const f of fs) entries.push({ name: f.printName || printFileName({ name: f.name, ...(f.print || {}) }), data: await printBytes(f) });
+      for (const f of fs) {
+        try { entries.push({ name: f.printName || printFileName({ name: f.name, ...(f.print || {}) }), data: await printBytes(f) }); }
+        catch (err) {
+          // Bildkarten, die inzwischen neu gestaltet und noch nicht gedruckt sind (der Server gibt die alte PDF nicht heraus): nicht dabei, aber genannt
+          if (!(f.cards && err && err.code === "cards_not_printed")) throw err;
+          if (f.design) f.design = { ...f.design, outdated: true };
+          cardsWait.push(f); setZipNote(cardsWait); repaintFile(f.id);
+        }
+      }
+      if (!entries.length) { toast(cardsMissingText(cardsWait), "err", 9000); return; }
       const { makeZip } = await lazy(import("./zip.js"));
       downloadBlob(new Blob([makeZip(entries)], { type: "application/zip" }), zipName());
       const late = wait.length || cardsWait.length;
-      toast((fs.length === 1 ? "Die Datei ist als ZIP-Datei heruntergeladen." : "Alle " + fs.length + " Dateien sind als eine ZIP-Datei heruntergeladen.") +
+      toast((entries.length === 1 ? "Die Datei ist als ZIP-Datei heruntergeladen." : "Alle " + entries.length + " Dateien sind als eine ZIP-Datei heruntergeladen.") +
         (wait.length ? " Noch nicht dabei (wird gerade als PDF gedruckt): " + wait.map((f) => "„" + f.name + "“").join(", ") + "." : "") + (cardsWait.length ? " " + cardsMissingText(cardsWait) : ""),
         late ? "" : "ok", late ? 9000 : 4200);
     } catch (err) { errToast(err); }
@@ -337,6 +356,6 @@ export function materialBox({ lessonId: id, st, L, gs = false, labels = {}, excl
     h("p", { class: "hint", text: "Claude gestaltet über den Connector auch Druckvorlagen selbst (mit Vorschlag für Anzahl, beidseitig und Farbe); Unterricks druckt sie als PDF – Sie prüfen sie hier." }));
   paintPrint();
   // Schlüssel des Dateistands: neue, gelöschte, umbenannte und (von Claude) neu gestaltete oder inzwischen gedruckte Dateien
-  const filesKey = (fs) => fs.map((f) => f.id + ":" + f.status + ":" + f.name + ":" + f.area + (f.design ? ":" + f.design.htmlAt + "/" + f.design.pdfAt + "/" + (f.design.error || "") : "") + (gs && f.print ? ":p" + f.print.copies : "")).join("|");
+  const filesKey = (fs) => fs.map((f) => f.id + ":" + f.status + ":" + f.name + ":" + f.area + (f.design ? ":" + f.design.htmlAt + "/" + f.design.pdfAt + "/" + (f.design.error || "") : "") + (gs && f.print ? ":p" + f.print.copies + "/" + f.print.duplex + "/" + f.print.color : "")).join("|");
   return { filesCard, printCard, paintFiles, paintPrint, repaintFile, filesKey };
 }

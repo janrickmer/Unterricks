@@ -452,7 +452,7 @@ export function cardsSection(files, { plan = "", cancelled = false, refCards = f
     const story = refCards ? null : storyInPlan(plan);
     return ["", "## Bildkarten", refCards ? "Diese Sitzung hat keine eigenen Bildkarten; der Verlaufsplan verweist auf Bildkarten einer anderen Sitzung (sie stehen auf deren Druckliste)."
       : story ? "Achtung:" + cardsMissingText(story)
-        : "Noch keine. Erzählst du in dieser Stunde im Sitzkreis eine Geschichte (frei erzählt oder vorgelesen), gehören immer Bildkarten dazu – gestalte sie mit add_picture_cards; " +
+        : "Noch keine. Wird in dieser Stunde im Sitzkreis eine Geschichte erzählt oder vorgelesen, gehören immer Bildkarten dazu – gestalte sie mit add_picture_cards; " +
           "neue Bildkarten stehen von selbst auf der Druckliste der Lehrkraft (" + CARD_PRINT_TEXT + ")."];
   }
   const out = ["", "## Bildkarten (eine Seite = eine Karte; Erzähltexte ändern mit set_picture_card_texts, die Gestaltung deiner eigenen Karten mit add_picture_cards und file_id – hochgeladene Karten lassen sich nicht neu gestalten)"];
