@@ -1548,9 +1548,11 @@ async function main() {
         "YouTube-Video mit dem Blatt angelegt (Kennung, Start, Titel) – nur bei Aufgabe 1");
       ok(await done37.locator(".notice", { hasText: "Material im Feibeitsblatt: 1 Bild, 1 PDF-Datei, 1 YouTube-Video." }).count() === 1, "Bestätigung nennt das übertragene Material");
       const nf37 = await waitNotfall(sheet37.code, () => true);
-      const nf37Pdf = nf37.length ? await pdfOf(nf37[0]) : "";
-      ok(nf37.length === 1 && nf37Pdf.includes("/Subtype /Image") && nf37Pdf.includes("watch?v=dQw4w9WgXcQ") && nf37Pdf.includes("M2 Wahlsysteme.pdf"),
-        "Notfall-Feibeitsblatt erst nach dem Übertragen: mit dem Bild, dem Video und dem Namen der PDF-Datei");
+      const nf37Buf = nf37.length ? Buffer.from(await (await fetch(BASE + (await T("POST", "/api/teacher/files/" + nf37[0].id + "/link", {})).data.url)).arrayBuffer()) : Buffer.alloc(0);
+      const nf37Text = pdfAllText(nf37Buf);   // Seiteninhalt ist komprimiert: entpackt suchen
+      ok(nf37.length === 1 && nf37Buf.toString("latin1").includes("/Subtype /Image"), "Notfall-Feibeitsblatt erst nach dem Übertragen: mit dem Bild");
+      ok(nf37Text.includes("watch?v=dQw4w9WgXcQ"), "… mit dem Video (Adresse bzw. QR-Code)");
+      ok(nf37Text.includes("Wahlsysteme.pdf"), "… und dem Namen der PDF-Datei („Material zum Herunterladen“)");
       await done37.getByRole("button", { name: "Fertig" }).click();
       // zweiter Entwurf: eine Datei ist inzwischen gelöscht → Anlegen verhindert, „Entfernen“ (Fokus bleibt in der Gruppe); das Bild scheitert einmal → „Erneut versuchen“
       const fGone = await upRaw("Wird gelöscht.pdf", "student", "application/pdf", await pdf(1, "Weg"));
@@ -1573,8 +1575,9 @@ async function main() {
       await tp.locator(".modal", { hasText: "erhält einen Code" }).getByRole("button", { name: "Anlegen", exact: true }).click();
       const done2 = tp.locator(".modal", { hasText: "Feibeitsblatt angelegt" });
       await done2.waitFor({ timeout: 60000 });
-      const warn2 = done2.locator(".notice.warn", { hasText: "Nicht übertragen: „Karikatur Wahlplakat.png“ (Aufgabe 1: Feibeitsblatt ist kurz nicht erreichbar.)" });
+      const warn2 = done2.locator(".notice.warn", { hasText: "Nicht übertragen: „Karikatur Wahlplakat.png“ (Aufgabe 1): Feibeitsblatt ist kurz nicht erreichbar." });
       ok(await warn2.count() === 1, "Bild scheiterte: die Bestätigung nennt es mit Grund");
+      ok(!(await warn2.textContent()).includes("Alles andere"), "ohne weiteres Material kein „Alles andere …“");
       await warn2.getByRole("button", { name: "Erneut versuchen" }).click();
       await done2.locator(".notice", { hasText: "Material im Feibeitsblatt: 1 Bild." }).waitFor({ timeout: 20000 });
       const sheet2 = [...fbm.sheets.values()].find((x) => x.title === "Zweiter Versuch");

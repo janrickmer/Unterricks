@@ -1131,8 +1131,10 @@ export async function sessionPage(id) {
       const sent = [imgs && count(imgs, "Bild", "Bilder"), pdfs && count(pdfs, "PDF-Datei", "PDF-Dateien"), media.videos && count(media.videos, "YouTube-Video", "YouTube-Videos")].filter(Boolean).join(", ");
       const noVideos = media.videos && typeof r.videoCount === "number" && r.videoCount < media.videos;
       clear(box).className = "notice" + (failed.length || noVideos ? " warn" : "");
-      box.append(h("p", { text: failed.length ? "Nicht übertragen: " + failed.map((f) => "„" + f.item.file.name + "“ (Aufgabe " + f.item.task + ": " + f.error + ")").join(", ") + ". Alles andere ist im Feibeitsblatt."
-        : "Material im Feibeitsblatt: " + sent + "." }));
+      // „Nicht übertragen: „Bild.png“ (Aufgabe 1): Grund.“ – je Datei ein Satzteil, „Alles andere …“ nur, wenn es noch anderes Material gibt
+      const others = media.prepared.length - failed.length + (media.videos || 0);
+      box.append(h("p", { text: failed.length ? "Nicht übertragen: " + failed.map((f) => "„" + f.item.file.name + "“ (Aufgabe " + f.item.task + "): " + String(f.error).replace(/[.\s]+$/, "")).join("; ") + "." +
+        (others ? " Alles andere ist im Feibeitsblatt." : "") : "Material im Feibeitsblatt: " + sent + "." }));
       if (noVideos) box.append(h("p", { text: "Ihr Feibeitsblatt hat die YouTube-Videos nicht übernommen – vermutlich eine ältere Version des Feibeitsblatts. Die Videos fehlen im Blatt." }));
       if (failed.length) box.append(h("button", { class: "btn small", type: "button", onclick: (e) => busy(e.currentTarget, async () => {
         const again = await uploadMedia(fb, r.code, failed.map((f) => f.item));
