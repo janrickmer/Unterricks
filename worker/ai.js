@@ -16,7 +16,7 @@ export const PROVIDERS = {
   openrouter: { label: "OpenRouter (nur Gratis-Modelle)", base: "https://openrouter.ai/api/v1", defaultModel: "openai/gpt-oss-120b:free", reasoning: "object", freeOnly: true,
     keyUrl: "https://openrouter.ai/keys", budget: 60000, note: "Vermittelt Gratis-Modelle verschiedener Anbieter; Verfügbarkeit schwankt." },
   cloudflare: { label: "Cloudflare Workers AI (ohne Schlüssel)", keyless: true, defaultModel: "@cf/google/gemma-4-26b-a4b-it", budget: 40000,
-    models: ["@cf/google/gemma-4-26b-a4b-it", "@cf/zai-org/glm-4.7-flash", "@cf/qwen/qwen3-30b-a3b-fp8"],
+    models: ["@cf/google/gemma-4-26b-a4b-it", "@cf/zai-org/glm-4.7-flash"],
     note: "Sofort nutzbar, aber kleineres Tageskontingent (10.000 Neurons für das ganze Konto) und schwächere Modelle." },
   custom: { label: "Anderer OpenAI-kompatibler Dienst", base: "", defaultModel: "", budget: 60000, note: "Eigene Basis-URL (…/v1) und Schlüssel." },
 };
@@ -24,8 +24,14 @@ export const PROVIDERS = {
 const CF_MODELS = {
   "@cf/google/gemma-4-26b-a4b-it": { maxField: "max_completion_tokens", think: true },
   "@cf/zai-org/glm-4.7-flash": { maxField: "max_completion_tokens", think: true },
-  "@cf/qwen/qwen3-30b-a3b-fp8": { maxField: "max_tokens", think: true },
 };
+/* Von Cloudflare abgeschaltete Workers-AI-Modelle: Qwen3-30B seit dem 20.11.2026 (Changelog vom 05.11.2026 – danach HTTP 410, Fehler 5028).
+   Nicht mehr in der Auswahl und nicht ersetzt (Entscheidung der Lehrkraft vom 17.11.2026: Cloudflares Vorschlag Qwen 3.8 27B kostet je Token etwa
+   zehnmal so viel und verbrauchte das Tageskontingent); Gemma 4 und GLM-4.7-Flash bleiben. Gespeicherte Einstellungen, Ausweichlisten und ältere,
+   noch geöffnete Seiten nennen es womöglich noch: dann gilt die Vorgabe (Gemma 4). */
+export const CF_RETIRED = new Set(["@cf/qwen/qwen3-30b-a3b-fp8"]);
+export const liveModel = (provider, model) => (provider === "cloudflare" && CF_RETIRED.has(model) ? PROVIDERS.cloudflare.defaultModel : model);
+const liveChoice = (x) => (isObj(x) && x.provider === "cloudflare" && CF_RETIRED.has(x.model) ? { ...x, model: PROVIDERS.cloudflare.defaultModel } : x);
 export const TASKS = {
   planning: { label: "Allgemeine Unterrichtsplanung (Chat)", maxTokens: 6000 },
   ideas: { label: "Entwicklung und Überarbeitung von Unterrichtsideen", maxTokens: 6000 },
@@ -52,7 +58,9 @@ export class AIError extends Error {
 // { keys: {provider: sealed}, custom: {base}, tasks: {task: {provider, model}}, fallbacks: [{provider, model}] }
 export async function loadAiConfig(db) {
   const s = (await getSetting(db, "ai")) || {};
-  return { keys: isObj(s.keys) ? s.keys : {}, custom: isObj(s.custom) ? s.custom : { base: "" }, tasks: isObj(s.tasks) ? s.tasks : {}, fallbacks: Array.isArray(s.fallbacks) ? s.fallbacks : [] };
+  // abgeschaltete Workers-AI-Modelle (CF_RETIRED) gelten als Vorgabe – Anzeige, Reihenfolge und das nächste Speichern sehen dasselbe
+  const tasks = isObj(s.tasks) ? Object.fromEntries(Object.entries(s.tasks).map(([k, v]) => [k, liveChoice(v)])) : {};
+  return { keys: isObj(s.keys) ? s.keys : {}, custom: isObj(s.custom) ? s.custom : { base: "" }, tasks, fallbacks: Array.isArray(s.fallbacks) ? s.fallbacks.map(liveChoice) : [] };
 }
 const usable = (cfg, p) => !!PROVIDERS[p] && (PROVIDERS[p].keyless ? true : !!cfg.keys[p]) && (p !== "custom" || !!cfg.custom.base);
 /* Reihenfolge der Lehrkraft: Claude (claude.ai, Connector) → Groq → Cloudflare Workers AI. Unter den kostenlosen Diensten steht Groq deshalb vorn. */
@@ -180,7 +188,7 @@ function parseWorkersAI(data) {
 export async function callOne(env, cfg, choice, messages, o = {}) {
   const p = PROVIDERS[choice.provider];
   if (!p) throw new AIError("CONFIG", "Unbekannter Anbieter.");
-  const model = choice.model || p.defaultModel;
+  const model = liveModel(choice.provider, choice.model || p.defaultModel);   // auch „Testen“ mit einem abgeschalteten Modell: die Antwort nennt das genutzte
   if (!model) throw new AIError("CONFIG", "Für " + p.label + " ist kein Modell eingetragen.");
   const msgs = fitMessages(messages, o.budget || p.budget);
   const inputChars = msgs.reduce((n, m) => n + str(m.content).length, 0);
@@ -280,7 +288,7 @@ export async function routeAiPut(c) {
   }
   const choice = (x) => {
     if (!isObj(x) || !PROVIDERS[x.provider]) throw bad("Bitte Anbieter und Modell wählen.");
-    return { provider: x.provider, model: cleanLine(x.model, 200) || PROVIDERS[x.provider].defaultModel };
+    return liveChoice({ provider: x.provider, model: cleanLine(x.model, 200) || PROVIDERS[x.provider].defaultModel });
   };
   if (isObj(body.tasks)) for (const id of TASK_IDS) if (body.tasks[id] !== undefined) {
     if (body.tasks[id] === null) delete cfg.tasks[id]; else cfg.tasks[id] = choice(body.tasks[id]);
