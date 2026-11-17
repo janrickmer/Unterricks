@@ -1773,6 +1773,29 @@ export function kiAuftragText(text) {
 
 /* Feibeitsblatt-Entwurf (aus KI oder Connector) in eine einheitliche Form bringen */
 /* opt.fromAi: Entwurf von einer KI oder vom Connector – eine als „Musterlösung: …“ gelieferte Antwort wird zum Auftrag (kiAuftragText) */
+/* Bilder, PDF-Dateien und YouTube-Videos einer Aufgabe im Feibeitsblatt-Entwurf (Nachtrag 37): Bilder und PDFs sind Dateien DER SITZUNG (Kennung der
+   Unterricks-Datei, file), Unterricks überträgt sie beim Anlegen ins Feibeitsblatt; Videos nur von YouTube (Kennung, Startsekunde, Titel – nie eine
+   Adresse). Grenzen wie im Feibeitsblatt (LIMITS imagesPerTask, filesPerTask, videosPerTask, imageAlt, videoTitle, fileBytes, sheetFileBytes; 24 Bilder
+   ≈ sheetImageBytes 12 MB bei höchstens 500 KB je verkleinertem Bild). */
+export const FB_MEDIA = { imagesPerTask: 5, filesPerTask: 3, videosPerTask: 3, imagesPerSheet: 24, imageAlt: 200, videoTitle: 120, videoStartMax: 86400,
+  fileBytes: 6 * 1024 * 1024, sheetFileBytes: 20 * 1024 * 1024 };
+const FB_FILE_RE = /^[a-f0-9]{16}$/, FB_YT_RE = /^[A-Za-z0-9_-]{11}$/;
+const fbLine = (v, n) => String(v == null ? "" : v).replace(/[\u0000-\u001f\u007f]+/g, " ").replace(/\s+/g, " ").trim().slice(0, n);
+/* Medien einer Aufgabe (fremde Daten: Entwurf, gespeicherter Stand) → {images?, files?, videos?}; doppelte Einträge entfallen */
+export function fbTaskMedia(t) {
+  const seen = new Set(), once = (k) => !seen.has(k) && !!seen.add(k);
+  const list = (k) => (t && Array.isArray(t[k]) ? t[k] : []);
+  const images = list("images").filter((m) => m && FB_FILE_RE.test(String(m.file || "")) && once("i" + m.file)).slice(0, FB_MEDIA.imagesPerTask)
+    .map((m) => { const alt = fbLine(m.alt, FB_MEDIA.imageAlt); return { file: String(m.file), mode: m.mode === "thumb" ? "thumb" : "inline", ...(alt ? { alt } : {}) }; });
+  const files = list("files").filter((m) => m && FB_FILE_RE.test(String(m.file || "")) && once("f" + m.file)).slice(0, FB_MEDIA.filesPerTask).map((m) => ({ file: String(m.file) }));
+  const videos = list("videos").filter((v) => v && FB_YT_RE.test(String(v.id || ""))).map((v) => {
+    const title = fbLine(v.title, FB_MEDIA.videoTitle);
+    return { id: String(v.id), ...(Number.isInteger(v.start) && v.start > 0 && v.start < FB_MEDIA.videoStartMax ? { start: v.start } : {}), ...(title ? { title } : {}) };
+  }).filter((v) => once("v" + v.id + "|" + (v.start || 0))).slice(0, FB_MEDIA.videosPerTask);
+  return { ...(images.length ? { images } : {}), ...(files.length ? { files } : {}), ...(videos.length ? { videos } : {}) };
+}
+export const fbMediaCount = (tasks) => (tasks || []).reduce((n, t) => n + ((t.images || []).length + (t.files || []).length + (t.videos || []).length), 0);
+
 export function normalizeFbDraft(obj, opt = {}) {
   if (!obj || typeof obj !== "object") throw new Error("Der Entwurf ist leer.");
   const tasks = (Array.isArray(obj.tasks) ? obj.tasks : Array.isArray(obj.aufgaben) ? obj.aufgaben : []).slice(0, 20).map((t) => {
@@ -1789,8 +1812,12 @@ export function normalizeFbDraft(obj, opt = {}) {
       material: String((t && t.material) || "").slice(0, 20000),
       solution: answer.type === "photo" ? "" : ((r) => (opt.fromAi ? kiAuftragText(r) : String(r)).slice(0, KI_AUFTRAG_MAX))((t && (t.ki_auftrag || t.solution || t.auftrag)) || ""),   // Fotos ohne KI-Feedback
       answer,
+      ...fbTaskMedia(t),   // Bilder, PDF-Dateien, YouTube-Videos (Nachtrag 37)
     };
   }).filter((t) => t.text.trim());
+  // höchstens FB_MEDIA.imagesPerSheet Bilder je Blatt (Speichergrenze des Feibeitsblatts): spätere entfallen
+  let imgs = 0;
+  for (const t of tasks) if (t.images) { t.images = t.images.slice(0, Math.max(0, FB_MEDIA.imagesPerSheet - imgs)); imgs += t.images.length; if (!t.images.length) delete t.images; }
   if (!tasks.length) throw new Error("Der Entwurf enthält keine Aufgabe.");
   const esc = obj.escape && typeof obj.escape === "object" ? { id: String(obj.escape.id || "").trim().toLowerCase(), name: String(obj.escape.name || "").replace(/\s+/g, " ").trim().slice(0, 80) } : null;
   return { title: String(obj.title || obj.titel || "Feibeitsblatt").slice(0, 120), tasks, ...(esc && /^[a-z0-9-]{3,60}$/.test(esc.id) && esc.name ? { escape: esc } : {}) };

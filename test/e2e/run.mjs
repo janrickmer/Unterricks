@@ -8,6 +8,7 @@ import { tmpdir } from "node:os";
 import { join, extname } from "node:path";
 import { createRequire } from "node:module";
 import { inflateSync } from "node:zlib";
+import { createHash } from "node:crypto";
 import { PDFDocument, StandardFonts, rgb, PDFName, PDFString } from "pdf-lib";
 import { startMockAI, startMockFeibeitsblatt, startMockPrinter } from "./mocks.mjs";
 import { readZip } from "../../public/zip.js";
@@ -1499,6 +1500,89 @@ async function main() {
     await tp.locator(".modal").getByRole("button", { name: "Entfernen" }).click();
     await fbSec.locator(".item", { hasText: "Blatt mit Bild" }).waitFor({ state: "detached" });
     ok((await notfallOf("MCKB23")).length === 0, "Blatt aus der Sitzung entfernt: sein Notfall-Feibeitsblatt ist auch weg");
+    // Nachtrag 37: Claude baut Bilder, PDF-Dateien und YouTube-Videos der Sitzung als Material in einen Entwurf ein; beim Anlegen überträgt Unterricks
+    // sie ins Feibeitsblatt (Bild verkleinert, PDF in Teilen), das Notfall-Feibeitsblatt entsteht danach (mit dem Bild); „Erneut versuchen“ ohne Doppelte
+    {
+      const upRaw = async (name, area, type, buf) => (await (await fetch(BASE + "/api/teacher/lessons/" + lessonId + "/files?area=" + area + "&name=" + encodeURIComponent(name),
+        { method: "POST", headers: { Authorization: "Bearer " + token, "Content-Type": type }, body: buf })).json()).file;
+      await tp.setViewportSize({ width: 1366, height: 900 });
+      const bigPng = await tp.screenshot({ type: "png" });   // 1366 × 900 → das Feibeitsblatt bekommt höchstens 1600 px und ≤ 500 KB
+      const fImg = await upRaw("Karikatur Wahlplakat.png", "student", "image/png", bigPng);
+      const bigPdf = Buffer.concat([await pdf(2, "Wahlsysteme"), Buffer.alloc(700 * 1024, 0x20)]);   // > 512 KB: zwei Teile
+      const fPdf = await upRaw("M2 Wahlsysteme.pdf", "teacher", "application/pdf", bigPdf);
+      const r37 = await tool("propose_feibeitsblatt", { lesson_id: lessonId, titel: "Wahlen mit Material", aufgaben: [
+        { text: "Beschreibe die Karikatur.", ki_auftrag: "Achte darauf, ob die Karikatur genau beschrieben wird.", bilder: [{ file_id: fImg.id, anzeige: "klein", beschreibung: "Wahlplakat mit Urne" }],
+          pdfs: [fPdf.id], videos: [{ url: "https://www.youtube.com/watch?v=dQw4w9WgXcQ&t=90", titel: "Wahlen erklärt" }] },
+        { text: "Vergleiche die Wahlsysteme.", ki_auftrag: "Achte darauf, ob beide Systeme genannt werden." }] });
+      const t37 = r37 && r37.content ? r37.content[0].text : "";
+      ok(!r37.isError && t37.includes("Material außer Text: 1 Bild, 1 PDF-Datei, 1 YouTube-Video") && t37.includes("Achtung: „M2 Wahlsysteme.pdf“ liegt bei „Nur für die Lehrkraft“"),
+        "Claude: Entwurf mit Bild, PDF-Datei und YouTube-Video aus der Sitzung; Hinweis zur Datei „Nur für die Lehrkraft“");
+      await tp.reload();
+      await fbSec.locator(".badge.ok", { hasText: "verbunden" }).first().waitFor({ timeout: 20000 });
+      await fbSec.locator(".item", { hasText: "Wahlen mit Material" }).getByRole("button", { name: "Prüfen und anlegen" }).click();
+      const dlg = tp.locator(".modal", { hasText: "Feibeitsblatt prüfen und anlegen" });
+      const media = dlg.locator("fieldset.fbmedia");
+      await media.waitFor();
+      ok(await media.count() === 1 && (await media.locator("legend").textContent()) === "Bilder, PDF-Dateien und Videos" && await media.locator(".fbm-item").count() === 3,
+        "Entwurf: Bild, PDF-Datei und Video der Aufgabe in einer eigenen Gruppe (nur bei Aufgabe 1)");
+      ok(await media.locator(".warnc", { hasText: "Liegt bei „Nur für die Lehrkraft“ – im Feibeitsblatt sehen alle Schüler:innen mit dem Code diese Datei." }).count() === 1, "Warnhinweis bei der Datei „Nur für die Lehrkraft“");
+      await tp.waitForFunction(() => { const im = document.querySelector(".modal img.fbm-prev"); return im && im.complete && im.naturalWidth > 0; }, null, { timeout: 15000 });
+      ok(true, "Entwurf: Vorschau des Bildes");
+      ok(await media.locator('select[aria-label="Anzeige von „Karikatur Wahlplakat.png“"]').inputValue() === "thumb" && await media.locator('input[aria-label="Bildbeschreibung von „Karikatur Wahlplakat.png“"]').inputValue() === "Wahlplakat mit Urne",
+        "Anzeige und Beschreibung wie von Claude vorgeschlagen (änderbar)");
+      ok(await media.locator("a", { hasText: "ansehen" }).getAttribute("href") === "https://www.youtube.com/watch?v=dQw4w9WgXcQ&t=90s" && (await media.textContent()).includes("YouTube-Video ab 1:30"), "Video mit Startzeit und Link zu YouTube");
+      await media.screenshot({ ...SHOT, path: join(OUT, "nr37-entwurf-medien.png") });
+      await media.locator('input[aria-label="Bildbeschreibung von „Karikatur Wahlplakat.png“"]').fill("Wahlplakat: Urne mit Stimmzetteln");
+      await dlg.getByRole("button", { name: "Feibeitsblatt jetzt anlegen" }).click();
+      await tp.locator(".modal", { hasText: "erhält einen Code" }).getByRole("button", { name: "Anlegen", exact: true }).click();
+      const done37 = tp.locator(".modal", { hasText: "Feibeitsblatt angelegt" });
+      await done37.waitFor({ timeout: 60000 });
+      const sheet37 = [...fbm.sheets.values()].find((x) => x.title === "Wahlen mit Material");
+      const ups = sheet37 ? fbm.uploads.filter((u) => u.code === sheet37.code) : [];
+      if (ups.length !== 2) console.log("    Uploads:", JSON.stringify(ups));
+      ok(ups.length === 2 && ups[0].kind === "image" && ups[0].task === 1 && ups[0].mode === "thumb" && ups[0].alt === "Wahlplakat: Urne mit Stimmzetteln" && Math.max(ups[0].w, ups[0].h) <= 1600 && ups[0].bytes <= 500 * 1024,
+        "Bild verkleinert übertragen – mit Anzeige und (geänderter) Beschreibung");
+      ok(ups[1] && ups[1].kind === "file" && ups[1].task === 1 && ups[1].name === "M2 Wahlsysteme.pdf" && ups[1].bytes === bigPdf.length && ups[1].sha === createHash("sha256").update(bigPdf).digest("hex"),
+        "PDF-Datei byte-genau in zwei Teilen übertragen");
+      ok(sheet37 && JSON.stringify(sheet37.tasks[0].videos) === JSON.stringify([{ id: "dQw4w9WgXcQ", start: 90, title: "Wahlen erklärt" }]) && !sheet37.tasks[1].videos && !("images" in (sheet37.tasks[1] || {})),
+        "YouTube-Video mit dem Blatt angelegt (Kennung, Start, Titel) – nur bei Aufgabe 1");
+      ok(await done37.locator(".notice", { hasText: "Material im Feibeitsblatt: 1 Bild, 1 PDF-Datei, 1 YouTube-Video." }).count() === 1, "Bestätigung nennt das übertragene Material");
+      const nf37 = await waitNotfall(sheet37.code, () => true);
+      const nf37Pdf = nf37.length ? await pdfOf(nf37[0]) : "";
+      ok(nf37.length === 1 && nf37Pdf.includes("/Subtype /Image") && nf37Pdf.includes("watch?v=dQw4w9WgXcQ") && nf37Pdf.includes("M2 Wahlsysteme.pdf"),
+        "Notfall-Feibeitsblatt erst nach dem Übertragen: mit dem Bild, dem Video und dem Namen der PDF-Datei");
+      await done37.getByRole("button", { name: "Fertig" }).click();
+      // zweiter Entwurf: eine Datei ist inzwischen gelöscht → Anlegen verhindert, „Entfernen“ (Fokus bleibt in der Gruppe); das Bild scheitert einmal → „Erneut versuchen“
+      const fGone = await upRaw("Wird gelöscht.pdf", "student", "application/pdf", await pdf(1, "Weg"));
+      await tool("propose_feibeitsblatt", { lesson_id: lessonId, titel: "Zweiter Versuch", aufgaben: [{ text: "Sieh dir das Bild an.", ki_auftrag: "Achte darauf, ob …", bilder: [{ file_id: fImg.id }], pdfs: [fGone.id] }] });
+      ok((await T("DELETE", "/api/teacher/files/" + fGone.id)).status === 200, "Datei des Entwurfs gelöscht");
+      await tp.reload();
+      await fbSec.locator(".badge.ok", { hasText: "verbunden" }).first().waitFor({ timeout: 20000 });
+      await fbSec.locator(".item", { hasText: "Zweiter Versuch" }).getByRole("button", { name: "Prüfen und anlegen" }).click();
+      await media.waitFor();
+      ok(await media.locator(".fbm-item.bad .err", { hasText: "Diese Datei gibt es in der Sitzung nicht mehr." }).count() === 1, "Entwurf: gelöschte Datei als Problem markiert");
+      const before37 = fbm.sheets.size;
+      await dlg.getByRole("button", { name: "Feibeitsblatt jetzt anlegen" }).click();
+      await tp.locator(".toast", { hasText: "Vor dem Anlegen bitte prüfen: „PDF-Datei“ (Aufgabe 1): Diese Datei gibt es in der Sitzung nicht mehr." }).waitFor({ timeout: 10000 });
+      ok(fbm.sheets.size === before37, "kein Blatt angelegt, solange eine Datei fehlt");
+      await media.getByRole("button", { name: "PDF-Datei „PDF-Datei“ aus Aufgabe 1 entfernen" }).click();
+      ok(await media.locator(".fbm-item").count() === 1 && await tp.evaluate(() => document.activeElement && document.activeElement.textContent === "Entfernen" && !!document.activeElement.closest(".fbmedia")),
+        "entfernt; Fokus auf dem „Entfernen“ der übrigen Datei (nie verloren)");
+      fbm.mediaFail.image = 1;
+      await dlg.getByRole("button", { name: "Feibeitsblatt jetzt anlegen" }).click();
+      await tp.locator(".modal", { hasText: "erhält einen Code" }).getByRole("button", { name: "Anlegen", exact: true }).click();
+      const done2 = tp.locator(".modal", { hasText: "Feibeitsblatt angelegt" });
+      await done2.waitFor({ timeout: 60000 });
+      const warn2 = done2.locator(".notice.warn", { hasText: "Nicht übertragen: „Karikatur Wahlplakat.png“ (Aufgabe 1: Feibeitsblatt ist kurz nicht erreichbar.)" });
+      ok(await warn2.count() === 1, "Bild scheiterte: die Bestätigung nennt es mit Grund");
+      await warn2.getByRole("button", { name: "Erneut versuchen" }).click();
+      await done2.locator(".notice", { hasText: "Material im Feibeitsblatt: 1 Bild." }).waitFor({ timeout: 20000 });
+      const sheet2 = [...fbm.sheets.values()].find((x) => x.title === "Zweiter Versuch");
+      ok(fbm.uploads.filter((u) => u.code === sheet2.code).length === 1 && sheet2.tasks[0].images.length === 1 && await tp.evaluate(() => !!document.activeElement.closest(".notice")),
+        "„Erneut versuchen“: Bild übertragen (nur einmal), Fokus auf der Meldung");
+      await done2.getByRole("button", { name: "Fertig" }).click();
+      for (const sh of [sheet37, sheet2]) await fbSec.locator(".item", { hasText: sh.title }).first().waitFor();
+    }
     // bestehende Sitzungen: Blatt verknüpft, bevor es Notfall-Feibeitsblätter gab (wie damals ohne PDF) → wird im Hintergrund nachgeholt
     fbm.sheets.set("MCK7Q4", { code: "MCK7Q4", title: "Altes Blatt", createdAt: Date.now(), escape: null, tasks: [{ text: "Erkläre die Gewaltenteilung.", solution: "" }] });
     const oldIds = [lessonId, byRow(3).id];

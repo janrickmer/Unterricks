@@ -84,6 +84,7 @@ implementiert und im End-to-End-Test geprüft (Ausnahmen unten ausdrücklich gen
 | „Alle Dateien herunterladen“ als ZIP-Datei (Nachtrag 36 vom 16.11.2026) | Wunsch der Lehrkraft: „Wenn ich in der Druckansicht auf "Alle Dateien herunterladen" klicke, soll ein ZIP-Ordner mit allen Dateien heruntergeladen werden und nicht mehr jede Datei einzeln nacheinander.“ Hebt Entscheidung 14 b („ausdrücklich keine ZIP-Datei“) auf. Je Tag des Feldes „Druckaufträge“ **eine ZIP-Datei** „Druckaufträge - Dienstag, 17.11.2026.zip“ (ohne Unterordner – der Kurs steht im Druck-Namen), Inhalt genau wie die Einzel-Downloads; gebaut im Browser mit `ZipBlob` (Einträge sofort als Blob – nie alles zugleich im Arbeitsspeicher, wichtig am iPad). Einzel-Downloads bleiben. Siehe 4zc |
 | Workers AI: Qwen3-30B abgeschaltet (Entscheidung vom 17.11.2026) | Cloudflare schaltet `@cf/qwen/qwen3-30b-a3b-fp8` am **20.11.2026** ab (Changelog vom 05.11.2026: danach HTTP 410, Fehler 5028). Es wird **gestrichen, nicht ersetzt**: Cloudflares Vorschlag `@cf/qwen/qwen3.8-27b` kostet je Token etwa zehnmal so viel (laut Katalog 0,45 $/3,20 $ je Mio. Ein-/Ausgabe-Token statt 0,05 $/0,34 $) und verbrauchte das kostenlose Tageskontingent. Es bleiben Gemma 4 (Vorgabe) und GLM-4.7-Flash. Gespeicherte Einstellungen, Ausweichlisten, ältere Seiten und „Testen“ mit dem alten Modell laufen über Gemma 4 (`CF_RETIRED`, `liveModel` in `worker/ai.js`). Feibeitsblatt nutzt dasselbe Modell und wird getrennt angepasst |
 | Kleine Knöpfe der Druckliste (Entscheidung vom 17.11.2026) | Rückfrage aus der Zweitprüfung von Nachtrag 31b: „Herunterladen“, „Nicht ausdrucken“ u. ä. bleiben `btn small` (36 px hoch), **auch am iPad**; nur „Wieder ausdrucken“ hat 44 px (DESIGN.md, Druckliste) |
+| Bilder, Videolinks und PDF-Dateien in Feibeitsblättern (Nachtrag 37 vom 17.11.2026) | Wunsch der Lehrkraft: „Bilder und andere beigefügte Dateien als Material lassen sich von Unterricks nicht in ein Feibeitsblatt einbauen. … Ändere das, damit Claude auch Bilder, Videolinks und PDF-Dateien als Material zu Aufgaben hinzufügen kann.“ Rückfragen beantwortet: Quelle = **Dateien der Sitzung** (hochgeladen oder mit add_material_pdf gestaltet; nicht: von Claude gezeichnete Bilder, Dateien aus dem Internet); Dateien aus „Nur für die Lehrkraft“ **erlaubt, mit Warnhinweis**. Videos nur von YouTube (das Feibeitsblatt bettet nur YouTube ein), andere als Link im Material. Siehe 4zf |
 
 ## 2. Gesamtarchitektur
 
@@ -2137,6 +2138,41 @@ Ausdrucken“; Grundschule „Auch Grundschule“ – kompakt mit Verlaufsplan u
   `unterricht-kompakt-hinweis-zwischenstopp-*.png`.
 * **Nicht prüfbar hier:** echtes iPad mit Safari (Download einer Datei mit `Content-Disposition: attachment` aus einem Tab, Antippen in der Vorschau), ein
   echter Beamer bzw. das Apple TV, und ob der Pfeil im Unterrichtsalltag (Schul-WLAN, Ruhezustand des iPads) stets rechtzeitig folgt.
+
+## 4zf. Bilder, YouTube-Videos und PDF-Dateien in Feibeitsblatt-Entwürfen (Nachtrag 37 vom 17.11.2026)
+
+* **Connector:** `propose_feibeitsblatt` nimmt je Aufgabe `bilder` (≤ 5: `{file_id, anzeige: gross|klein, beschreibung}`), `pdfs` (≤ 3 file_id)
+  und `videos` (≤ 3: `{url, titel}`). `fbDraftMedia` (mcp.js) prüft gegen die Dateien DIESER Sitzung (eine Abfrage): Art `file`, Bereich
+  `student`, `teacher` (erlaubt, die Antwort nennt sie mit „Achtung: … liegt bei „Nur für die Lehrkraft““) oder `print`; nie Präsentation,
+  Archiv, Bildkarten, Notizen, Notfall-Feibeitsblatt, Links oder Textmaterial. Bilder = `image/*` ohne Gestaltung; PDF = `application/pdf`
+  oder gestaltet (`html`) – ein gestaltetes PDF darf noch auf den Druck warten (Hinweis), sonst ≤ 6 MB; höchstens 24 Bilder und 20 MB PDF je
+  Blatt. YouTube über `parseYouTube` (selbstlern.js; Startzeit aus `t`, Playlists abgelehnt). Ein Fehler speichert nichts.
+  `get_lesson` nennt hochgeladene Dateien als „Bild“/„PDF“ und sagt in einem Satz, dass sie mit propose_feibeitsblatt eingebaut werden können.
+* **Entwurf (`normalizeFbDraft`, shared.js):** je Aufgabe optional `images: [{file, mode: inline|thumb, alt?}]`, `files: [{file}]`,
+  `videos: [{id, start?, title?}]` (`fbTaskMedia`, Grenzen `FB_MEDIA` wie im Feibeitsblatt, Doppelte entfallen, ohne Medien kein neues Feld –
+  alte Entwürfe bleiben gleich). Eine Sitzungsdatei trägt keine Dateien: beim Laden (`routeLessonImport`) entfallen `images`/`files`, Videos
+  bleiben; `sheetToDraft` nimmt die Videos eines Feibeitsblatts mit und nennt fehlende Bilder bzw. PDF-Dateien.
+* **Prüfen (session.js `editDraft`):** je Aufgabe `fieldset.fbmedia` „Bilder, PDF-Dateien und Videos“: Bilder mit Vorschau (signierter Link,
+  nur solange der Dialog offen ist), Anzeige und Beschreibung (änderbar), PDF-Dateien mit Größe, Videos mit Startzeit und Link zu YouTube,
+  je „Entfernen“ (Fokus danach auf das nächste „Entfernen“ bzw. das Materialfeld); bei Dateien aus „Nur für die Lehrkraft“ `.warnc`, bei
+  Problemen (`problemOf` in fbmedia.js: fehlt, falsche Art, wartet auf den Druck, Druck fehlgeschlagen, zu groß) eine Fehlerzeile.
+* **Anlegen:** (1) Probleme → kein Blatt, Toast „Vor dem Anlegen bitte prüfen: …“. (2) `prepareMedia` holt alle Dateien (signierter Link),
+  verkleinert Bilder wie `prepareImage` im Feibeitsblatt (längste Seite 1600 px, notfalls 1200/900, weiß hinterlegt, Grafiken zuerst PNG,
+  sonst JPEG mit sinkender Qualität bis ≤ 500 KB; HEIC u. ä., die der Browser nicht liest, → Meldung) und prüft PDF (`%PDF-`, ≤ 6 MB, zusammen
+  ≤ 20 MB, Bilder zusammen ≤ 12 MB) – scheitert etwas, gibt es noch kein Blatt. (3) `createSheet` schickt die Videos mit dem Blatt
+  (Bilder und PDF nicht). (4) `uploadMedia` überträgt nacheinander (`POST …/sheets/:code/images` bzw. `…/files` in Teilen zu 512 KB); die Kennung
+  ist SHA-256 aus Blatt, Aufgabe, Art und Datei – eine Wiederholung antwortet `existing`, nichts doppelt; ein PDF macht mit dem fehlenden Teil
+  weiter. Fehler je Datei gesammelt, nie ein Abbruch. (5) Erst danach `ensureNotfall` (das Notfall-Feibeitsblatt zeigt Bild, Video-QR und
+  Dateiname); die Bestätigung nennt „Material im Feibeitsblatt: …“ bzw. „Nicht übertragen: …“ mit „Erneut versuchen“ (danach Notfall neu).
+  Meldet das Feibeitsblatt weniger Videos (`videoCount`), sagt die Bestätigung es.
+* **Grenzen und offene Punkte:** Bilder und PDF-Dateien lassen sich nach dem Anlegen nicht mehr ändern (Feibeitsblätter sind unveränderlich);
+  „Erneut versuchen“ gibt es nur, solange die Bestätigung offen ist. Echte iPad-Prüfung (HEIC, Speicher bei 20 MB PDF) steht aus.
+* **Tests:** Unit `test/unit/fbmedia.test.mjs` (Entwurf, Connector samt Fehlern, get_lesson, Prüfen, Kennungen, Teile, Übertragen mit
+  Wiederholung, createSheet, Sitzungsdatei, echte Prüfung des Feibeitsblatts – `validateSheetInput`, `validateImageUpload`,
+  `validateFileUpload` –, falls sein Quelltext daneben liegt); E2E `run.mjs` (Feibeitsblatt-Schritt): Entwurf mit Bild, PDF in zwei Teilen und
+  Video, Warnhinweis, Vorschau, Anlegen, byte-genaue Übertragung, Notfall mit Bild; gelöschte Datei verhindert das Anlegen, „Entfernen“ mit
+  Fokus, ein vorgetäuschter Ausfall und „Erneut versuchen“. Die Feibeitsblatt-Attrappe (`mocks.mjs`) prüft Bilder und PDF-Teile wie das
+  Feibeitsblatt.
 
 ## 4i. Druckliste „Von der Lehrkraft auszudrucken“ (Ergänzung vom 10.11.2026)
 

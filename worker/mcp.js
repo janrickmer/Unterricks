@@ -11,14 +11,14 @@ import { loadFreeDays } from "./freedays.js";
 import { planningBasis } from "./bases.js";
 import { gsCourseMap, gsCourseOut, getGsCourse, planningBasisGs } from "./gs.js";
 import { getSubstitute, saveSelbstlern, selbstlernReply, selbstlernLines, selbstlernBeforeLines, OLD_TOOL_TEXT, isAbsent, GS_NO_SELBSTLERN } from "./substitute.js";
-import { SELBSTLERN, STATION_TYPES, SELBSTLERN_LIMITS, selbstlernHomeworkNow } from "../public/selbstlern.js";
+import { SELBSTLERN, STATION_TYPES, SELBSTLERN_LIMITS, selbstlernHomeworkNow, parseYouTube } from "../public/selbstlern.js";
 import { nextTeacherLessonDate } from "./lessons.js";
 import { paramsText, lessonSlots, WEEKDAYS, freeSlots, stopLessonLines, STOP_CHOICES, STOP_CHOICE_TEXT, normalizeParams, schoolOf, FREE_DAY_SCOPES, freeRangeText, schoolBreaks, freeBreakOf } from "../public/planning.js";
 import { insertTextMaterial, insertPrintText, saveDesign, renderDesign, getFile } from "./files.js";
 import { shortImages } from "./render.js";
 import { ESCAPE_FORMAT_HINT, PART_TYPES } from "../public/escape-data.js";
 import { SUBJECTS, ALL_CLASSES, subjectName, gradeInfo, formatCode, lessonContext, chatTranscript, PORTAL_RULES, PORTAL_EXAMPLE, PORTAL_TEACHER_RULE, SYSTEM_PROMPT_ROLE, FEIBEITSBLATT_INFO, FB_LINK_HINT, classShort, fmtDay, materialDesignText, printFileName, printCourse, GS_SUBJECT,
-  STOP_LINE, hasStop, planRefs, pdfRef, PLAN_REF_RE, NOTES_FILE, TEACHER_SUMMARY_TITLE, TEACHER_SUMMARY_MAX, teacherSummaryRules, summaryHead, summaryOutdated, fmtStampBerlin, addDays, berlinToday, cardPrintsOf, refCardsOf } from "../public/shared.js";
+  STOP_LINE, hasStop, planRefs, pdfRef, PLAN_REF_RE, NOTES_FILE, TEACHER_SUMMARY_TITLE, TEACHER_SUMMARY_MAX, teacherSummaryRules, summaryHead, summaryOutdated, fmtStampBerlin, addDays, berlinToday, cardPrintsOf, refCardsOf, FB_MEDIA } from "../public/shared.js";
 import { gsLessonContext, GS_MATERIAL_RULES, CARD_DESIGN_RULES, VERLAUFSPLAN_EXAMPLE, VERLAUFSPLAN_RULES, CONC_TITLE, CONC_PRINT, CONC_PAGES_MAX, isConcName, concTitleOf, concSaveArgs, concSection, concMissingText, concUnplannedText,
   storyInPlan, cardsMissingText, CARD_PRINT_TEXT, printSettingsText } from "../public/gsplanning.js";
 import { saveCardSet, setCardTexts } from "./cards.js";
@@ -184,12 +184,25 @@ const TOOLS = [
       anzahl: { type: "integer", minimum: 1, maximum: 500 }, beidseitig: { type: "boolean" }, farbe: { type: "boolean" } },
       required: ["lesson_id", "titel", "markdown", "anzahl", "beidseitig", "farbe"], additionalProperties: false } },
   { name: "propose_feibeitsblatt", title: "Feibeitsblatt vorschlagen", annotations: wr,
-    description: "Legt einen Feibeitsblatt-ENTWURF in der Sitzung ab. " + FEIBEITSBLATT_INFO + " Die Lehrkraft prüft und ändert den Entwurf in der Plattform und legt das Blatt dort selbst an (das Anlegen braucht ihr Feibeitsblatt-Passwort im Browser).",
+    description: "Legt einen Feibeitsblatt-ENTWURF in der Sitzung ab. " + FEIBEITSBLATT_INFO + " Die Lehrkraft prüft und ändert den Entwurf in der Plattform und legt das Blatt dort selbst an (das Anlegen braucht ihr Feibeitsblatt-Passwort im Browser). " +
+      "Material zu einer Aufgabe außer Text: Bilder (bilder) und PDF-Dateien (pdfs) sind Dateien DIESER Sitzung mit ihrer file_id aus get_lesson – hochgeladene Bilder und PDFs oder mit add_material_pdf gestaltete PDFs " +
+      "(ein PDF nur für das Feibeitsblatt legst du mit add_material_pdf im Bereich „lehrkraft“ an, dann erscheint es nicht zusätzlich im Material der Schüler:innen). Unterricks überträgt sie beim Anlegen ins Feibeitsblatt; " +
+      "dort sehen sie alle Schüler:innen mit dem Code – nie Lösungen, Vorlesetexte oder anderes, das nur die Lehrkraft haben soll. Videos nur von YouTube (videos, im Feibeitsblatt eingebettet, erst nach einem Klick geladen); " +
+      "Videos anderer Seiten und weitere Internetseiten setzt du als Link ins Material.",
     inputSchema: { type: "object", properties: { lesson_id: ID_ARG, titel: { type: "string", maxLength: 120 },
       aufgaben: { type: "array", minItems: 1, maxItems: 20, items: { type: "object", properties: {
         text: { type: "string", description: "Aufgabenstellung. " + FB_LINK_HINT + ".", maxLength: 4000 }, material: { type: "string", description: "optionaler Materialtext (**fett** möglich). " + FB_LINK_HINT + ".", maxLength: 8000 },
         ki_auftrag: { type: "string", description: "Auftrag an die korrigierende KI – KEINE Musterlösung: worauf sie beim Lesen der Schülerantwort achten soll (erwartete Inhalte, Kriterien, typische Fehler; als Anweisung, z. B. „Achte darauf, ob …“), damit ihre Rückmeldung zeigt, was schon gut ist und was verbessert werden sollte. Erwartungen passend zur Jahrgangsstufe (Unterricks ergänzt beim Anlegen einen Satz zur altersgemäßen Erwartung). Pflicht bei Text- und Tabellenaufgaben (ohne Auftrag kein KI-Feedback); bei Foto-Aufgaben weglassen.", maxLength: 8000 },
-        antwort: { description: "\"text\" (Normalfall), \"foto\" (Foto z. B. eines Lernprodukts; nie an die KI, ohne ki_auftrag; höchstens 3 je Blatt) oder Tabelle", oneOf: [{ type: "string", enum: ["text", "foto"] }, { type: "object", properties: { tabelle: { type: "array", items: { type: "string", maxLength: 60 }, minItems: 1, maxItems: 8 }, zeilen: { type: "integer", minimum: 1, maximum: 30 } }, required: ["tabelle"] }] } },
+        antwort: { description: "\"text\" (Normalfall), \"foto\" (Foto z. B. eines Lernprodukts; nie an die KI, ohne ki_auftrag; höchstens 3 je Blatt) oder Tabelle", oneOf: [{ type: "string", enum: ["text", "foto"] }, { type: "object", properties: { tabelle: { type: "array", items: { type: "string", maxLength: 60 }, minItems: 1, maxItems: 8 }, zeilen: { type: "integer", minimum: 1, maximum: 30 } }, required: ["tabelle"] }] },
+        bilder: { type: "array", maxItems: FB_MEDIA.imagesPerTask, description: "Bilder dieser Sitzung (file_id aus get_lesson) als Material der Aufgabe – höchstens " + FB_MEDIA.imagesPerTask + " je Aufgabe und " + FB_MEDIA.imagesPerSheet + " je Blatt; Unterricks verkleinert sie beim Anlegen.",
+          items: { type: "object", properties: { file_id: { type: "string", pattern: "^[a-f0-9]{16}$" },
+            anzeige: { type: "string", enum: ["gross", "klein"], description: "gross (Vorgabe): groß zwischen Aufgabenstellung und Antwortfeld; klein: Miniatur rechts neben der Aufgabe, ein Klick vergrößert" },
+            beschreibung: { type: "string", maxLength: FB_MEDIA.imageAlt, description: "kurze Bildbeschreibung (wird für blinde Schüler:innen vorgelesen)" } }, required: ["file_id"], additionalProperties: false } },
+        pdfs: { type: "array", maxItems: FB_MEDIA.filesPerTask, items: { type: "string", pattern: "^[a-f0-9]{16}$" },
+          description: "PDF-Dateien dieser Sitzung (file_id aus get_lesson) als „Material zum Herunterladen“ der Aufgabe – je Datei höchstens 6 MB, zusammen höchstens 20 MB je Blatt" },
+        videos: { type: "array", maxItems: FB_MEDIA.videosPerTask, description: "YouTube-Videos zur Aufgabe (eingebettet unter dem Material)",
+          items: { type: "object", properties: { url: { type: "string", maxLength: 2000, description: "Link zum YouTube-Video (watch, youtu.be, shorts, embed; Startzeit mit t=…)" },
+            titel: { type: "string", maxLength: FB_MEDIA.videoTitle, description: "optionaler Titel, den die Schüler:innen über dem Video sehen" } }, required: ["url"], additionalProperties: false } } },
         required: ["text"] } } }, required: ["lesson_id", "titel", "aufgaben"], additionalProperties: false } },
   { name: "list_units", title: "Unterrichtseinheiten auflisten", annotations: ro,
     description: "Listet die Unterrichtseinheiten, optional nach Fach und Klasse/Kurs bzw. Grundschulkurs.",
@@ -346,12 +359,15 @@ async function designedSection(db, lessonId, areaText) {
 /* get_lesson (Gymnasium): die übrigen Dateien der Sitzung mit file_id – hochgeladen, Text, Link, Notfall-Feibeitsblatt, Präsentation (Selbstlern-Phase,
    Nachtrag 29: Claude verweist in Stationen darauf bzw. nennt der Lehrkraft genau, was sie von Hand löschen soll); ohne solche Dateien kein Abschnitt */
 async function otherFilesSection(db, lessonId) {
-  const r = await db.prepare("SELECT id, area, kind, name, source FROM files WHERE lesson_id=?1 AND html IS NULL AND cards IS NULL AND notes_of IS NULL AND area IN ('student','teacher','print','presentation') ORDER BY created_at").bind(lessonId).all();
+  const r = await db.prepare("SELECT id, area, kind, name, source, mime FROM files WHERE lesson_id=?1 AND html IS NULL AND cards IS NULL AND notes_of IS NULL AND area IN ('student','teacher','print','presentation') ORDER BY created_at").bind(lessonId).all();
   const list = r.results || [];
   if (!list.length) return [];
   const area = { student: "für Schüler:innen", teacher: "nur Lehrkraft", print: "Druckliste", presentation: "Präsentation der Sitzung" };
-  const kind = (f) => (f.source === "notfall" ? "Notfall-Feibeitsblatt" : f.kind === "text" ? "Text" : f.kind === "link" ? "Link" : "Datei");
-  return ["", "## Weitere Dateien der Sitzung (file_id)", ...list.map((f) => "- file_id " + f.id + ": „" + f.name + "“ (" + area[f.area] + "; " + kind(f) + ")")];
+  // Bild/PDF (Nachtrag 37): so erkennt Claude, was es mit propose_feibeitsblatt (bilder, pdfs) in ein Feibeitsblatt einbauen kann
+  const kind = (f) => (f.source === "notfall" ? "Notfall-Feibeitsblatt" : f.kind === "text" ? "Text" : f.kind === "link" ? "Link" : /^image\//.test(String(f.mime || "")) ? "Bild" : f.mime === "application/pdf" ? "PDF" : "Datei");
+  const media = list.some((f) => f.kind === "file" && f.area !== "presentation" && f.source !== "notfall" && (/^image\//.test(String(f.mime || "")) || f.mime === "application/pdf"));
+  return ["", "## Weitere Dateien der Sitzung (file_id)", ...list.map((f) => "- file_id " + f.id + ": „" + f.name + "“ (" + area[f.area] + "; " + kind(f) + ")"),
+    ...(media ? ["Bilder und PDF-Dateien (außer Präsentation und Notfall-Feibeitsblatt) baust du mit propose_feibeitsblatt (bilder, pdfs) als Material in Aufgaben eines Feibeitsblatts ein."] : [])];
 }
 
 /* get_lesson einer Grundschul-Sitzung: Kurs statt Klasse, Verlaufsplan statt Schulportal-Eintrag, Inhalt und Hinweis für die Eltern, die PDF-Dateien
@@ -1001,13 +1017,78 @@ async function callTool(c, name, a) {
         { file_id: f.id, file_name: o.printName });
     }
     case "propose_feibeitsblatt": {
-      if ((await getLesson(c.db, a.lesson_id)).subject === GS_SUBJECT) return toolError("In der Grundschule gibt es keine Feibeitsblätter.");
-      const d = await insertDraft(c.db, a.lesson_id, { title: a.titel, tasks: a.aufgaben }, "claude", c.now);
+      const l = await getLesson(c.db, a.lesson_id);
+      if (l.subject === GS_SUBJECT) return toolError("In der Grundschule gibt es keine Feibeitsblätter.");
+      // Bilder, PDF-Dateien und YouTube-Videos (Nachtrag 37): geprüft gegen die Dateien dieser Sitzung, bevor etwas gespeichert wird
+      const media = await fbDraftMedia(c.db, l, Array.isArray(a.aufgaben) ? a.aufgaben : []);
+      if (media.error) return toolError(media.error);
+      const d = await insertDraft(c.db, a.lesson_id, { title: a.titel, tasks: media.tasks }, "claude", c.now);
       // die Kennung steht im Text (nicht nur in structuredContent): eine Station der Selbstlern-Phase verweist mit entwurf_id darauf (Prüfbefund)
-      return toolText("Entwurf gespeichert (" + d.data.tasks.length + (d.data.tasks.length === 1 ? " Aufgabe" : " Aufgaben") + ", entwurf_id " + d.id + "). Die Lehrkraft prüft ihn in der Plattform unter „Feibeitsblatt“ und legt das Blatt dort an.", { draft_id: d.id });
+      return toolText("Entwurf gespeichert (" + d.data.tasks.length + (d.data.tasks.length === 1 ? " Aufgabe" : " Aufgaben") + ", entwurf_id " + d.id + "). Die Lehrkraft prüft ihn in der Plattform unter „Feibeitsblatt“ und legt das Blatt dort an." +
+        media.notes.map((x) => " " + x).join(""), { draft_id: d.id });
     }
   }
   return null;
+}
+
+/* Material eines Feibeitsblatt-Entwurfs außer Text (Nachtrag 37): bilder/pdfs (Dateien DIESER Sitzung, file_id) und videos (nur YouTube) prüfen und ins
+   Format des Entwurfs bringen (images {file, mode, alt}, files {file}, videos {id, start, title}) → {tasks, notes} oder {error}. Erlaubt sind Dateien für
+   Schüler:innen, nur für die Lehrkraft (Entscheidung der Lehrkraft: mit Warnhinweis – z. B. ein PDF nur für das Feibeitsblatt) und der Druckliste; nie
+   Präsentation, Archiv, Bildkarten, Notizen oder das Notfall-Feibeitsblatt. Gestaltete PDFs dürfen noch auf den Druck warten (die Lehrkraft legt das Blatt
+   erst danach an); Größen prüft der Browser beim Anlegen noch einmal (die PDF einer neuen Gestaltung kennt ihre Größe erst nach dem Druck). */
+const FB_MEDIA_AREAS = { student: "für Schüler:innen", teacher: "nur für die Lehrkraft", print: "Druckliste" };
+async function fbDraftMedia(db, l, tasks) {
+  const has = (t, k) => t && Array.isArray(t[k]) && t[k].length;
+  if (!tasks.some((t) => has(t, "bilder") || has(t, "pdfs") || has(t, "videos"))) return { tasks, notes: [] };
+  const rows = (await db.prepare("SELECT id, area, kind, name, mime, size, html, html_at, pdf_at, status, source, cards, notes_of FROM files WHERE lesson_id=?1").bind(l.id).all()).results || [];
+  const byId = new Map(rows.map((f) => [f.id, f]));
+  const teacherOnly = new Set(), pending = new Set();
+  let images = 0, pdfBytes = 0, nImg = 0, nPdf = 0, nVid = 0;
+  const out = [];
+  for (const [i, t] of tasks.entries()) {
+    const where = "Aufgabe " + (i + 1) + ": ";
+    // file_id → Datei dieser Sitzung, die ins Feibeitsblatt darf (sonst eine Meldung für Claude)
+    const fileOf = (id, what) => {
+      const f = byId.get(String(id || ""));
+      if (!f) return { error: where + what + " " + id + " ist keine Datei dieser Sitzung – nimm die file_id aus get_lesson (Abschnitte „Weitere Dateien der Sitzung“ und „Gestaltete Materialien“)." };
+      if (f.kind !== "file" || !FB_MEDIA_AREAS[f.area] || f.cards != null || f.notes_of || f.source === "notfall")
+        return { error: where + "„" + f.name + "“ lässt sich nicht ins Feibeitsblatt übernehmen (" + (f.kind === "link" ? "ein Link – setze ihn als Link ins Material" : f.kind === "text" ? "Textmaterial – setze den Text ins Material" : f.source === "notfall" ? "Notfall-Feibeitsblatt" : f.area === "presentation" ? "Präsentation der Sitzung" : "weder Material noch Druckdatei") + ")." };
+      if (f.area === "teacher") teacherOnly.add(f.name);
+      return { f };
+    };
+    const task = { ...t, images: [], files: [], videos: [] };
+    for (const b of has(t, "bilder") ? t.bilder : []) {
+      const r = fileOf(b && b.file_id, "Bild"); if (r.error) return r;
+      if (r.f.html != null || !/^image\//.test(String(r.f.mime || ""))) return { error: where + "„" + r.f.name + "“ ist kein Bild – PDF-Dateien gehören in pdfs." };
+      task.images.push({ file: r.f.id, mode: b.anzeige === "klein" ? "thumb" : "inline", alt: b.beschreibung || "" });
+    }
+    for (const id of has(t, "pdfs") ? t.pdfs : []) {
+      const r = fileOf(id, "PDF-Datei"); if (r.error) return r;
+      if (r.f.html == null && r.f.mime !== "application/pdf") return { error: where + "„" + r.f.name + "“ ist keine PDF-Datei" + (/^image\//.test(String(r.f.mime || "")) ? " – Bilder gehören in bilder." : ".") };
+      if (r.f.html != null && (r.f.status !== "ready" || !r.f.pdf_at || (r.f.html_at || 0) > r.f.pdf_at)) pending.add(r.f.name);
+      else if ((r.f.size || 0) > FB_MEDIA.fileBytes) return { error: where + "„" + r.f.name + "“ ist zu groß für das Feibeitsblatt (höchstens 6 MB je PDF-Datei)." };
+      pdfBytes += r.f.size || 0;
+      task.files.push({ file: r.f.id });
+    }
+    for (const [k, v] of (has(t, "videos") ? t.videos : []).entries()) {
+      const y = parseYouTube(v && v.url);
+      if (y.error) return { error: where + "Video " + (k + 1) + ": " + y.error + " Videos anderer Seiten setzt du als Link ins Material ([Titel](https://…))." };
+      task.videos.push({ id: y.id, ...(y.start ? { start: y.start } : {}), ...(v.titel ? { title: v.titel } : {}) });
+    }
+    if (task.images.length > FB_MEDIA.imagesPerTask || task.files.length > FB_MEDIA.filesPerTask || task.videos.length > FB_MEDIA.videosPerTask)
+      return { error: where + "höchstens " + FB_MEDIA.imagesPerTask + " Bilder, " + FB_MEDIA.filesPerTask + " PDF-Dateien und " + FB_MEDIA.videosPerTask + " Videos je Aufgabe." };
+    images += task.images.length; nImg += task.images.length; nPdf += task.files.length; nVid += task.videos.length;
+    delete task.bilder; delete task.pdfs;
+    out.push(task);
+  }
+  if (images > FB_MEDIA.imagesPerSheet) return { error: "Höchstens " + FB_MEDIA.imagesPerSheet + " Bilder je Feibeitsblatt (Speichergrenze des Feibeitsblatts)." };
+  if (pdfBytes > FB_MEDIA.sheetFileBytes) return { error: "Die PDF-Dateien sind zusammen zu groß für ein Feibeitsblatt (höchstens 20 MB je Blatt)." };
+  const count = (n, one, many) => n + " " + (n === 1 ? one : many);
+  const notes = ["Material außer Text: " + [nImg && count(nImg, "Bild", "Bilder"), nPdf && count(nPdf, "PDF-Datei", "PDF-Dateien"), nVid && count(nVid, "YouTube-Video", "YouTube-Videos")].filter(Boolean).join(", ") +
+    " – Unterricks überträgt " + (nImg + nPdf ? "die Dateien beim Anlegen ins Feibeitsblatt" : "sie beim Anlegen") + "."];
+  if (teacherOnly.size) notes.push("Achtung: " + [...teacherOnly].map((n) => "„" + n + "“").join(", ") + (teacherOnly.size === 1 ? " liegt" : " liegen") + " bei „Nur für die Lehrkraft“ – im Feibeitsblatt sehen sie alle Schüler:innen mit dem Code. Nie Lösungen oder Vorlesetexte einbauen; der Entwurf zeigt der Lehrkraft denselben Hinweis.");
+  if (pending.size) notes.push([...pending].map((n) => "„" + n + "“").join(", ") + (pending.size === 1 ? " wird" : " werden") + " noch als PDF gedruckt – die Lehrkraft kann das Blatt anlegen, sobald der Druck fertig ist (das geschieht von selbst, wenn die Sitzung geöffnet ist).");
+  return { tasks: out, notes };
 }
 
 /* ---------- Transport ---------- */

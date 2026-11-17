@@ -11,7 +11,8 @@ import { extractUnitChange, stripUnitBlock, unitContext, claudeLessonPrompt, les
 import { claudeHandoff } from "./claude.js";
 import { leupoldView } from "./units.js";
 import { substituteCards } from "./substitute.js";
-import { SELBSTLERN_HW_WHEN, selbstlernTimesText, SELBSTLERN_AI_LABEL, SELBSTLERN_AI_HINT, SELBSTLERN_BUTTON } from "./selbstlern.js";
+import { SELBSTLERN_HW_WHEN, selbstlernTimesText, SELBSTLERN_AI_LABEL, SELBSTLERN_AI_HINT, SELBSTLERN_BUTTON, youtubeUrl, fmtVideoStart } from "./selbstlern.js";
+import { mediaItems, problemOf, prepareMedia, uploadMedia, itemName } from "./fbmedia.js";
 import { paintPortalPreview, portalPreview, contextMenu, prevStopCard, stopNextHint, prevStopShown, prevStopAfterSave, keepFocusOn, removeKeepingView } from "./portalview.js";
 import { renderMarkdown } from "./markdown.js";
 import { materialBox, dropZone } from "./materialbox.js";
@@ -984,6 +985,55 @@ export async function sessionPage(id) {
     for (const t of data.tasks) if (!(t.answer && t.answer.type === "photo")) t.solution = withAgeExpectation(t.solution, L().klass);
     const title = h("input", { value: data.title, maxlength: "200" });
     const tasksBox = h("div");
+    // Bilder, PDF-Dateien und YouTube-Videos einer Aufgabe (Nachtrag 37, von Claude über den Connector): prüfen, Anzeige und Beschreibung ändern, entfernen
+    const mstat = h("p", { class: "small muted fbm-status", role: "status" });
+    const prevUrls = new Map();   // Vorschau der Bilder: signierter Link je Datei, nur solange der Dialog offen ist
+    const preview = (f, img) => {
+      if (!f || problemOf("image", f)) return;
+      const got = prevUrls.get(f.id);
+      const p = got || tapi("POST", "/api/teacher/files/" + f.id + "/link", { body: { inline: true } }).then((r) => apiUrl(r.url));
+      if (!got) prevUrls.set(f.id, p);
+      p.then((u) => { img.src = u; }).catch(() => { prevUrls.delete(f.id); });
+    };
+    const fileOfId = (fid) => st.files.find((f) => f.id === fid) || null;
+    function mediaField(t, i) {
+      const n = i + 1, rows = [];
+      const drop = (key, k, what) => h("button", { class: "btn small ghost", type: "button", "aria-label": what + " aus Aufgabe " + n + " entfernen", onclick: () => {
+        t[key].splice(k, 1);
+        if (!t[key].length) delete t[key];
+        paintTasks();
+        // Fokus: das nächste „Entfernen“ derselben Aufgabe, sonst ihr Materialfeld (nie verloren)
+        const ed = tasksBox.querySelectorAll(".task-edit")[i], next = ed && (ed.querySelectorAll(".fbmedia button")[k] || [...ed.querySelectorAll(".fbmedia button")].pop());
+        (next || (ed && ed.querySelectorAll("textarea")[1]) || tasksBox).focus({ preventScroll: true });
+      } }, "Entfernen");
+      // Dateien aus „Nur für die Lehrkraft“ (Entscheidung der Lehrkraft: erlaubt, mit Hinweis) – im Feibeitsblatt sehen sie alle mit dem Code
+      const warn = (f) => (f && f.area === "teacher" ? h("p", { class: "small warnc", text: "Liegt bei „Nur für die Lehrkraft“ – im Feibeitsblatt sehen alle Schüler:innen mit dem Code diese Datei. Bitte prüfen, dass sie keine Lösung enthält." }) : null);
+      (t.images || []).forEach((m, k) => {
+        const f = fileOfId(m.file), prob = problemOf("image", f), name = f ? f.name : "Bild";
+        const img = h("img", { class: "fbm-prev", alt: "", width: "64", height: "64" });
+        preview(f, img);
+        const mode = h("select", { "aria-label": "Anzeige von „" + name + "“", onchange: (e) => { m.mode = e.target.value === "thumb" ? "thumb" : "inline"; } },
+          h("option", { value: "inline", selected: m.mode !== "thumb" ? true : null }, "groß unter der Aufgabenstellung"),
+          h("option", { value: "thumb", selected: m.mode === "thumb" ? true : null }, "klein rechts daneben (Klick vergrößert)"));
+        const alt = h("input", { value: m.alt || "", maxlength: "200", placeholder: "Bildbeschreibung (wird vorgelesen)", "aria-label": "Bildbeschreibung von „" + name + "“", oninput: (e) => { m.alt = e.target.value; } });
+        rows.push(h("li", { class: "fbm-item" + (prob ? " bad" : "") }, img, h("div", { class: "main" }, h("div", { class: "name", text: name }),
+          h("div", { class: "fbm-row" }, h("span", { class: "small muted", text: "Bild ·" }), mode), alt, warn(f), prob ? h("p", { class: "small err", text: prob }) : null), drop("images", k, "Bild „" + name + "“")));
+      });
+      (t.files || []).forEach((m, k) => {
+        const f = fileOfId(m.file), prob = problemOf("file", f), name = f ? f.name : "PDF-Datei";
+        rows.push(h("li", { class: "fbm-item" + (prob ? " bad" : "") }, fileIcon(name, "application/pdf", "file"), h("div", { class: "main" }, h("div", { class: "name", text: name }),
+          h("div", { class: "small muted", text: "PDF-Datei zum Herunterladen" + (f && f.size ? " · " + fmtBytes(f.size) : "") }), warn(f), prob ? h("p", { class: "small err", text: prob }) : null), drop("files", k, "PDF-Datei „" + name + "“")));
+      });
+      (t.videos || []).forEach((v, k) => {
+        const name = v.title || "YouTube-Video " + (k + 1);
+        rows.push(h("li", { class: "fbm-item" }, h("span", { class: "fbm-yt", "aria-hidden": "true", text: "▶" }), h("div", { class: "main" }, h("div", { class: "name", text: name }),
+          h("div", { class: "small muted" }, "YouTube-Video" + (v.start ? " ab " + fmtVideoStart(v.start) : "") + " · ",
+            h("a", { href: youtubeUrl(v), target: "_blank", rel: "noopener noreferrer" }, "ansehen", h("span", { class: "sr-only", text: " (öffnet in neuem Tab)" })))), drop("videos", k, "Video „" + name + "“")));
+      });
+      if (!rows.length) return null;
+      return h("fieldset", { class: "field fbmedia" }, h("legend", { text: "Bilder, PDF-Dateien und Videos" }), h("ul", { class: "fbm-list" }, ...rows),
+        h("p", { class: "hint", text: "Beim Anlegen überträgt Unterricks die Bilder (verkleinert) und PDF-Dateien ins Feibeitsblatt; dort sehen sie alle Schüler:innen mit dem Code. YouTube-Videos lädt das Feibeitsblatt erst, wenn die Schüler:innen darauf tippen." }));
+    }
     const paintTasks = () => {
       clear(tasksBox);
       data.tasks.forEach((t, i) => {
@@ -1011,6 +1061,7 @@ export async function sessionPage(id) {
           h("div", { class: "field" }, h("label", null, "Material (optional, Text)"), mat,
             h("p", { class: "hint", id: "fbmat-hint-" + i, text: "**fett** wird fett. Links zu anderen Internetseiten als [Linktext](https://…) oder vollständige Adresse (https://…) – im Feibeitsblatt werden sie anklickbar und öffnen sich in einem neuen Tab (auch in der Aufgabenstellung)." }),
             matLinks.box),
+          mediaField(t, i),
           solBox,
           h("div", { class: "row" }, h("span", { class: "small", text: "Antwort als:" }), typ), tableBox,
           h("p", { class: "hint" + (t.answer.type === "photo" ? "" : " hidden"), text: "Foto: Die Schüler:innen fotografieren z. B. ihr Lernprodukt und laden das Bild hoch (verkleinert, ohne Ortsdaten, verschlüsselt). Fotos gehen nie an die KI – deshalb gibt es hier keinen Auftrag an die KI." })));
@@ -1031,31 +1082,73 @@ export async function sessionPage(id) {
     };
     modal({ title: "Feibeitsblatt prüfen und anlegen", wide: true, onClose: opt.onClose, body: (el) => el.append(...nn(
       fb.connected ? null : h("div", { class: "notice warn" }, "Zum Anlegen bitte zuerst im Abschnitt „Feibeitsblatt“ verbinden (Türcode und Passwort). Speichern geht auch ohne."),
-      h("div", { class: "field", style: { marginTop: ".6rem" } }, h("label", null, "Titel"), title), tasksBox,
+      h("div", { class: "field", style: { marginTop: ".6rem" } }, h("label", null, "Titel"), title), tasksBox, mstat,
       h("button", { class: "btn small", type: "button", style: { marginTop: ".7rem" }, onclick: () => { data.tasks.push({ text: "", material: "", solution: "", answer: { type: "text" } }); paintTasks(); } }, "+ Aufgabe"))),
       actions: [
         { label: "Schließen" },
         { label: "Entwurf speichern", onClick: async () => { try { await save(); paintFb(); if (opt.onSaved) opt.onSaved(); toast("Entwurf gespeichert.", "ok"); } catch (e) { errToast(e); return false; } } },
         { label: "Feibeitsblatt jetzt anlegen", class: "primary", onClick: async (e) => {
           if (!fb.connected) { toast("Bitte zuerst mit Feibeitsblatt verbinden.", "err"); return false; }
+          // Bilder und PDF-Dateien (Nachtrag 37): was so nicht geht, verhindert das Anlegen – nie ein Blatt mit stillschweigend fehlendem Material
+          const bad = mediaItems(data.tasks, st.files).filter((x) => x.problem);
+          if (bad.length) { toast("Vor dem Anlegen bitte prüfen: " + bad.map((x) => "„" + itemName(x) + "“ (Aufgabe " + x.task + "): " + x.problem).join(" "), "err", 12000); return false; }
           if (!(await confirmDialog("Feibeitsblatt anlegen", "Das Blatt wird jetzt im Feibeitsblatt angelegt und erhält einen Code. Feibeitsblätter lassen sich danach nicht mehr ändern (nur neu anlegen).", "Anlegen"))) return false;
+          const step = (m) => { mstat.textContent = m; };
           try {
             const d2 = await save();
+            // erst alles vorbereiten (Bytes holen, Bilder verkleinern, PDF prüfen): ein Fehler hier legt noch kein Blatt an
+            const items = mediaItems(d2.data.tasks, st.files);
+            const prepared = items.length ? await prepareMedia(items, { blobOf: fileBlob, onStep: step }) : [];
+            if (items.length) step("Lege das Feibeitsblatt an …");
             const r = await fb.createSheet(d2.data, { klass: L().klass });
             await tapi("POST", "/api/teacher/fb-drafts/" + dr.id + "/created", { body: { code: r.code, title: r.title } });
             dr.status = "created"; dr.sheetCode = r.code; st.sheets.push({ code: r.code, title: r.title, createdAt: Date.now() }); paintFb();
             if (opt.onCreated) opt.onCreated(r);
-            ensureNotfall([r.code]);
-            afterCreate(r);
-          } catch (err) { errToast(err); return false; }
+            const up = prepared.length ? await uploadMedia(fb, r.code, prepared, { onStep: step }) : { done: 0, failed: [] };
+            step("");
+            ensureNotfall([r.code]);   // nach dem Übertragen: das Notfall-Feibeitsblatt zeigt die Bilder und QR-Codes der Videos
+            afterCreate(r, { prepared, up, videos: d2.data.tasks.reduce((x, t) => x + (t.videos || []).length, 0) });
+          } catch (err) { step(""); errToast(err); return false; }
         } },
       ] });
   }
 
   // Geführter Abschluss: optional KI-Checkliste vorschlagen lassen und bestätigen
-  function afterCreate(r) {
+  // Datei der Sitzung als Blob (signierter Link wie beim Herunterladen) – für das Übertragen ins Feibeitsblatt (Nachtrag 37)
+  async function fileBlob(f) {
+    const l = await tapi("POST", "/api/teacher/files/" + f.id + "/link", { body: {} });
+    const res = await fetch(apiUrl(l.url), { credentials: "omit", cache: "no-store" });
+    if (!res.ok) throw new Error("„" + f.name + "“ ließ sich nicht laden (Fehler " + res.status + ").");
+    return res.blob();
+  }
+  // Stand der Bilder, PDF-Dateien und Videos nach dem Anlegen (Nachtrag 37): alles übertragen bzw. was fehlt, mit „Erneut versuchen“
+  function mediaResult(r, media) {
+    const box = h("div", { role: "status" });
+    if (!media || (!media.prepared.length && !media.videos)) return box;
+    const count = (n, one, many) => n + " " + (n === 1 ? one : many);
+    const paint = () => {
+      const failed = media.up.failed, imgs = media.prepared.filter((x) => x.kind === "image").length, pdfs = media.prepared.length - imgs;
+      const sent = [imgs && count(imgs, "Bild", "Bilder"), pdfs && count(pdfs, "PDF-Datei", "PDF-Dateien"), media.videos && count(media.videos, "YouTube-Video", "YouTube-Videos")].filter(Boolean).join(", ");
+      const noVideos = media.videos && typeof r.videoCount === "number" && r.videoCount < media.videos;
+      clear(box).className = "notice" + (failed.length || noVideos ? " warn" : "");
+      box.append(h("p", { text: failed.length ? "Nicht übertragen: " + failed.map((f) => "„" + f.item.file.name + "“ (Aufgabe " + f.item.task + ": " + f.error + ")").join(", ") + ". Alles andere ist im Feibeitsblatt."
+        : "Material im Feibeitsblatt: " + sent + "." }));
+      if (noVideos) box.append(h("p", { text: "Ihr Feibeitsblatt hat die YouTube-Videos nicht übernommen – vermutlich eine ältere Version des Feibeitsblatts. Die Videos fehlen im Blatt." }));
+      if (failed.length) box.append(h("button", { class: "btn small", type: "button", onclick: (e) => busy(e.currentTarget, async () => {
+        const again = await uploadMedia(fb, r.code, failed.map((f) => f.item));
+        media.up = { done: media.up.done + again.done, failed: again.failed };
+        paint();
+        // der Knopf wird neu gebaut bzw. fällt weg: Fokus auf den neuen Knopf bzw. die Meldung (nie verloren)
+        if (again.failed.length) { const b = box.querySelector("button"); if (b) b.focus({ preventScroll: true }); }
+        else { ensureNotfall([r.code], true); box.setAttribute("tabindex", "-1"); box.focus({ preventScroll: true }); }
+      }) }, "Erneut versuchen"));
+    };
+    paint();
+    return box;
+  }
+  function afterCreate(r, media = null) {
     modal({ title: "Feibeitsblatt angelegt", wide: true, body: (el) => {
-      el.append(h("div", { class: "code-box" }, h("div", { class: "small muted", text: r.title }), h("div", { class: "code-big", text: formatCode(r.code) })),
+      el.append(h("div", { class: "code-box" }, h("div", { class: "small muted", text: r.title }), h("div", { class: "code-big", text: formatCode(r.code) })), mediaResult(r, media),
         h("p", { class: "small", style: { marginTop: ".8rem" }, text: "Das Blatt erscheint in der Schüleransicht dieser Sitzung mit Titel, Code und dem Knopf „Code kopieren und Feibeitsblatt öffnen“." }),
         h("h3", { text: "Optional: Checkliste bestätigen" }),
         h("p", { class: "small muted", text: "Im Feibeitsblatt schlägt die KI eine Checkliste vor (für die Lösungs-PDF und das analoge Arbeitsblatt). Das ist für die Schüler:innen nicht nötig." }));

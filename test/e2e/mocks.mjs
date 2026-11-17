@@ -81,9 +81,25 @@ export async function makeEnvelope(publicKeyB64, payload) {
 }
 export const answersDigest = (finals) => createHash("sha256").update(JSON.stringify(finals)).digest("hex");
 
+// Maße eines PNG bzw. JPEG aus dem Kopf (wie imageInfo im Feibeitsblatt, ohne WebP) – null, wenn es keines ist
+function imageInfo(b) {
+  if (b.length >= 24 && b.readUInt32BE(0) === 0x89504e47 && b.toString("latin1", 12, 16) === "IHDR") return { mime: "image/png", w: b.readUInt32BE(16), h: b.readUInt32BE(20) };
+  if (b.length >= 4 && b[0] === 0xff && b[1] === 0xd8) {
+    for (let i = 2; i + 9 < b.length;) {
+      if (b[i] !== 0xff) return null;
+      const mk = b[i + 1];
+      if (mk === 0xd8 || (mk >= 0xd0 && mk <= 0xd7) || mk === 0x01) { i += 2; continue; }
+      if (mk >= 0xc0 && mk <= 0xcf && ![0xc4, 0xc8, 0xcc].includes(mk)) return { mime: "image/jpeg", w: b.readUInt16BE(i + 7), h: b.readUInt16BE(i + 5) };
+      i += 2 + b.readUInt16BE(i + 2);
+    }
+  }
+  return null;
+}
 export async function startMockFeibeitsblatt(port, password, doorCode = "1104") {
   const teacher = await createFbTeacher(password);
   const sheets = new Map(), subs = [];
+  // Bilder und PDF-Dateien zu Aufgaben (Nachtrag 37): was ankam (für die Prüfungen) und vorgetäuschte kurze Ausfälle (n Mal 503)
+  const uploads = [], mediaFail = { image: 0, file: 0 };
   let nextId = 1, finalWaitSec = 60;
   const cors = { "Access-Control-Allow-Origin": "*", "Access-Control-Allow-Headers": "Content-Type, Authorization", "Access-Control-Allow-Methods": "GET, POST, PUT, DELETE, OPTIONS" };
   const send = (res, status, data) => { res.writeHead(status, { "content-type": "application/json", ...cors }); res.end(JSON.stringify(data)); };
@@ -110,7 +126,52 @@ export async function startMockFeibeitsblatt(port, password, doorCode = "1104") 
       return send(res, 200, { ok: true, code, title: body.title, createdAt: Date.now(), taskCount: body.tasks.length });
     }
     let m;
-    if ((m = /^\/api\/teacher\/sheets\/([A-Z0-9]+)$/.exec(p))) { const s = sheets.get(m[1]); return s ? send(res, 200, { ok: true, sheet: { ...s, submissionCount: 0 } }) : send(res, 404, { ok: false, error: "weg" }); }
+    if ((m = /^\/api\/teacher\/sheets\/([A-Z0-9]+)$/.exec(p))) { const s = sheets.get(m[1]); if (!s) return send(res, 404, { ok: false, error: "weg" }); const { imageData, fileParts, ...rest } = s; return send(res, 200, { ok: true, sheet: { ...rest, submissionCount: 0 } }); }
+    // Bild zu einer Aufgabe wie im Feibeitsblatt (validateImageUpload, routeImageUpload): Kennung, Aufgabe, Anzeige, Base64 eines PNG/JPEG ≤ 500 KB; gleiche Kennung → existing
+    if ((m = /^\/api\/teacher\/sheets\/([A-Z0-9]+)\/images$/.exec(p)) && req.method === "POST") {
+      const s = sheets.get(m[1]);
+      if (!s) return send(res, 404, { ok: false, error: "weg", code: "not_found" });
+      const { id, task, mode, alt = "", data } = body;
+      if (!/^[0-9a-f]{16}$/.test(String(id)) || !Number.isInteger(task) || task < 1 || task > s.tasks.length || !["thumb", "inline"].includes(mode) || typeof data !== "string" || typeof alt !== "string" || alt.length > 200)
+        return send(res, 400, { ok: false, error: "Ungültige Anfrage." });
+      const buf = Buffer.from(data, "base64"), info = imageInfo(buf);
+      if (buf.toString("base64") !== data || !info) return send(res, 400, { ok: false, error: "Das Bild konnte nicht gelesen werden (erlaubt sind JPG, PNG und WebP).", code: "bad_image" });
+      if (buf.length > 500 * 1024) return send(res, 413, { ok: false, error: "Das Bild ist zu groß.", code: "too_large" });
+      s.imageData = s.imageData || {};
+      if (s.imageData[id]) return send(res, 200, { ok: true, existing: true, image: { id, task, mode } });
+      if (mediaFail.image > 0) { mediaFail.image--; return send(res, 503, { ok: false, error: "Feibeitsblatt ist kurz nicht erreichbar." }); }
+      const t = s.tasks[task - 1];
+      if ((t.images || []).length >= 5) return send(res, 400, { ok: false, error: "Höchstens 5 Bilder je Aufgabe.", code: "too_many_images" });
+      s.imageData[id] = { mime: info.mime, w: info.w, h: info.h, data };
+      t.images = [...(t.images || []), { id, mode, w: info.w, h: info.h, alt }];
+      uploads.push({ kind: "image", code: s.code, id, task, mode, alt, mime: info.mime, w: info.w, h: info.h, bytes: buf.length });
+      return send(res, 200, { ok: true, image: { id, task, pos: t.images.length - 1, mode, mime: info.mime, w: info.w, h: info.h, bytes: buf.length, alt } });
+    }
+    // Teil einer PDF-Datei wie im Feibeitsblatt (validateFileUpload, routeFileUpload): je 512 KB, Teil 0 beginnt mit %PDF-, vollständig = alle Teile da
+    if ((m = /^\/api\/teacher\/sheets\/([A-Z0-9]+)\/files$/.exec(p)) && req.method === "POST") {
+      const s = sheets.get(m[1]), CH = 512 * 1024;
+      if (!s) return send(res, 404, { ok: false, error: "weg", code: "not_found" });
+      const { id, task, name, bytes, chunks, n, data } = body;
+      if (!/^[0-9a-f]{16}$/.test(String(id)) || !Number.isInteger(task) || task < 1 || task > s.tasks.length || !Number.isInteger(bytes) || bytes < 1 || bytes > 6 * 1024 * 1024
+        || chunks !== Math.ceil(bytes / CH) || !Number.isInteger(n) || n < 0 || n >= chunks || typeof name !== "string" || !name) return send(res, 400, { ok: false, error: "Ungültige Anfrage." });
+      const buf = Buffer.from(String(data), "base64");
+      if (buf.length !== (n < chunks - 1 ? CH : bytes - n * CH)) return send(res, 400, { ok: false, error: "Teil " + (n + 1) + " der Datei hat nicht die erwartete Größe.", code: "bad_file" });
+      if (n === 0 && buf.toString("latin1", 0, 5) !== "%PDF-") return send(res, 400, { ok: false, error: "Das ist keine PDF-Datei.", code: "bad_file" });
+      if (mediaFail.file > 0) { mediaFail.file--; return send(res, 503, { ok: false, error: "Feibeitsblatt ist kurz nicht erreichbar." }); }
+      s.fileParts = s.fileParts || {};
+      const fp = s.fileParts[id] || (n === 0 ? (s.fileParts[id] = { task, name, bytes, chunks, parts: [] }) : null);
+      if (!fp) return send(res, 400, { ok: false, error: "Zu dieser Datei fehlt der erste Teil.", code: "bad_request" });
+      const existing = !!fp.parts[n];
+      fp.parts[n] = buf;
+      const complete = fp.parts.filter(Boolean).length === chunks;
+      if (complete && !fp.done) {
+        fp.done = true;
+        const t = s.tasks[task - 1];
+        t.files = [...(t.files || []), { id, name, bytes }];
+        uploads.push({ kind: "file", code: s.code, id, task, name, bytes, sha: createHash("sha256").update(Buffer.concat(fp.parts)).digest("hex") });
+      }
+      return send(res, 200, { ok: true, ...(existing ? { existing: true } : {}), file: { id, task, n, chunks, complete } });
+    }
     if ((m = /^\/api\/teacher\/sheets\/([A-Z0-9]+)\/submissions$/.exec(p))) {
       const list = subs.filter((x) => x.code === m[1]).map((x) => ({ id: x.id, receivedAt: x.receivedAt, stage: x.stage, envelope: x.envelope, finalEnv: x.finalEnv }));
       return send(res, 200, { ok: true, submissions: list, next: null });
@@ -133,7 +194,7 @@ export async function startMockFeibeitsblatt(port, password, doorCode = "1104") 
     subs.push({ id: nextId++, code, stage: "final", receivedAt: Date.now(), envelope: await makeEnvelope(teacher.publicKey, payload), finalEnv: JSON.stringify(await makeEnvelope(teacher.publicKey, fin)) });
   }
   await new Promise((r) => srv.listen(port, "127.0.0.1", r));
-  return { srv, sheets, addSubmission };
+  return { srv, sheets, addSubmission, uploads, mediaFail };
 }
 
 /* ---------- Drucker-Attrappe für Cloudflare Browser Run (Quick Action „pdf“, siehe worker/render.js) ----------

@@ -433,6 +433,15 @@ gleich in `public/_headers`, im Worker und – für GitHub Pages – in `scripts
   vollständige Adresse `https://…` – im Feibeitsblatt werden sie anklickbar und öffnen sich für die Schüler:innen in einem neuen Tab; der
   Editor zeigt unter dem Feld, welche Links erkannt wurden (**fett** geht in beiden Feldern mit `**…**`). Schon angelegte Feibeitsblätter
   ändern sich dadurch nicht (Feibeitsblätter sind unveränderlich) – wer dort anklickbare Links möchte, legt das Blatt neu an.
+  **Bilder, PDF-Dateien und YouTube-Videos** (Nachtrag 37): Claude kann einer Aufgabe außer Text auch **Bilder und PDF-Dateien dieser
+  Sitzung** (hochgeladen oder von Claude als PDF gestaltet) und **YouTube-Videos** als Material mitgeben. Der Entwurf zeigt sie je Aufgabe
+  in einer eigenen Gruppe – Bilder mit Vorschau, Anzeige (groß unter der Aufgabenstellung oder klein daneben) und Bildbeschreibung zum
+  Vorlesen, PDF-Dateien mit Größe, Videos mit Startzeit und Link; alles lässt sich dort entfernen. Dateien aus **„Nur für die Lehrkraft“**
+  sind erlaubt (z. B. ein PDF, das Claude nur für das Feibeitsblatt gestaltet), tragen aber einen Warnhinweis: Im Feibeitsblatt sieht sie
+  jede:r mit dem Code. Beim Anlegen überträgt Unterricks die Bilder (verkleinert auf höchstens 1600 px und 500 KB) und die PDF-Dateien
+  (höchstens 6 MB je Datei, 20 MB je Blatt) ins Feibeitsblatt; fehlt eine Datei inzwischen oder wird ein gestaltetes PDF noch gedruckt,
+  wird das Blatt erst gar nicht angelegt. Scheitert das Übertragen einer Datei, nennt die Bestätigung sie mit „Erneut versuchen“. Videos
+  anderer Seiten bleiben Links im Material. Eine Sitzungsdatei nimmt nur die Videos eines Entwurfs mit, keine Bilder und PDF-Dateien.
 * **Notfall-Feibeitsblätter:** Zu jedem Feibeitsblatt der Sitzung legt Unterricks automatisch dessen analoges Arbeitsblatt
   (im Feibeitsblatt „Analoges Arbeitsblatt als PDF herunterladen“, dieselbe Datei) als PDF unter „Material – Für Schüler:innen
   zugänglich“ ab, sobald die Sitzung mit dem Feibeitsblatt verbunden ist. Nach dem Bestätigen der Checkliste wird es mit dem

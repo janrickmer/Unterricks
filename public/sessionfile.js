@@ -38,8 +38,10 @@ export function sheetToDraft(sheet) {
     else if (a.type === "photo") antwort = "foto";
     else if (a.type === "map") notes.push("Aufgabe " + (i + 1) + " (Weltkarte) kommt als Textaufgabe – die Karte bitte im Feibeitsblatt selbst neu anlegen.");
     if (Array.isArray(t && t.images) && t.images.length) notes.push("Aufgabe " + (i + 1) + ": Bilder werden nicht übernommen.");
+    if (Array.isArray(t && t.files) && t.files.length) notes.push("Aufgabe " + (i + 1) + ": PDF-Dateien werden nicht übernommen.");
     const fmt = runsText(t && t.textFmt);   // formatierte Aufgabenstellung: mit fett und Links (t.text hat keine Adressen)
-    return { text: fmt.trim() ? fmt : String((t && t.text) || ""), material: runsText(t && t.material), ki_auftrag: String((t && t.solution) || ""), antwort };
+    // YouTube-Videos (Nachtrag 37) sind nur Kennungen – sie kommen mit; Bilder und PDF-Dateien liegen im Feibeitsblatt, nicht in Unterricks
+    return { text: fmt.trim() ? fmt : String((t && t.text) || ""), material: runsText(t && t.material), ki_auftrag: String((t && t.solution) || ""), antwort, videos: t && t.videos };
   }).filter((t) => t.text.trim());
   return { draft: tasks.length ? normalizeFbDraft({ title: (sheet && sheet.title) || "Feibeitsblatt", tasks }) : null, notes };
 }

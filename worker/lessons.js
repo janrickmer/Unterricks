@@ -599,7 +599,9 @@ export async function routeLessonImport(c, id) {
   const prints = list(body.prints, 60).map((t) => ({ n: cleanLine(t && t.title, 200) || "Druckvorlage", t: cleanText(t && t.text, LIMITS.textMaterial).trim(), k: cleanCopies(t && t.copies) || 1, d: t && t.duplex === false ? 0 : 1, co: t && t.color === true ? 1 : 0 }))
     .filter((t) => t.t).map((t) => ({ ...t, s: new TextEncoder().encode(t.t).length }));
   const drafts = [];
-  for (const d of list(body.drafts, 20)) { try { drafts.push({ d: JSON.stringify(normalizeFbDraft(d)) }); } catch {} }
+  // Bilder und PDF-Dateien eines Entwurfs (Nachtrag 37) verweisen auf Dateien der alten Sitzung – eine Sitzungsdatei trägt keine Dateien, deshalb entfallen
+  // sie hier (sonst hieße es im Entwurf „Die Datei gibt es in dieser Sitzung nicht mehr“); YouTube-Videos bleiben
+  for (const d of list(body.drafts, 20)) { try { const nd = normalizeFbDraft(d); for (const t of nd.tasks) { delete t.images; delete t.files; } drafts.push({ d: JSON.stringify(nd) }); } catch {} }
   const ins = "INSERT INTO files(id, lesson_id, area, kind, name, mime, size, text, status, source, print_copies, print_duplex, print_color, created_at, updated_at) ";
   if (texts.length) stmts.push(c.db.prepare(ins + "SELECT lower(hex(randomblob(8))), ?1, json_extract(value,'$.a'), 'text', json_extract(value,'$.n'), 'text/markdown', json_extract(value,'$.s'), json_extract(value,'$.t'), 'ready', 'uebernommen', NULL, NULL, NULL, ?2, ?2 FROM json_each(?3)")
     .bind(id, c.now, JSON.stringify(texts)));

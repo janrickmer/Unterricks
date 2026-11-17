@@ -768,6 +768,22 @@ body:has(> .presenter) #toasts { top: 1rem; bottom: auto; }   /* im Präsentatio
 .fb-card { display: flex; gap: .8rem; align-items: center; flex-wrap: wrap; }
 .task-edit { border: 1px solid var(--line); border-radius: 12px; padding: .85rem; background: var(--surface-2); }
 .task-edit + .task-edit { margin-top: .75rem; }
+/* Feibeitsblatt-Entwurf: Bilder, PDF-Dateien und YouTube-Videos einer Aufgabe (Nachtrag 37) – eine Liste wie die übrigen Dateien, Vorschau 64px */
+.fbmedia { border: 1px solid var(--line); border-radius: var(--radius-s); padding: .45rem .75rem .6rem; margin: .6rem 0 0; background: var(--paper); }
+.fbmedia legend { font-weight: 700; padding: 0 .3rem; }
+.fbm-list { list-style: none; margin: 0; padding: 0; }
+.fbm-item { display: flex; align-items: flex-start; gap: .7rem; padding: .55rem 0; border-top: 1px solid var(--line); }
+.fbm-item:first-child { border-top: 0; }
+.fbm-item .main { flex: 1 1 auto; min-width: 0; display: grid; gap: .3rem; }
+.fbm-item .name { font-weight: 700; overflow-wrap: anywhere; }
+.fbm-item.bad .name { color: var(--err); }
+.fbm-prev, .fbm-yt { width: 64px; height: 64px; border-radius: 8px; flex: none; }
+.fbm-prev { object-fit: cover; background: var(--line); }
+.fbm-yt { display: grid; place-items: center; background: #b3261e; color: #fff; font-size: 1.4rem; }
+.fbm-row { display: flex; flex-wrap: wrap; align-items: center; gap: .4rem; }
+.fbm-row select { width: auto; max-width: 100%; }
+.fbm-status:empty { display: none; }
+@media (max-width: 560px) { .fbm-item { flex-wrap: wrap; } .fbm-item > .btn { margin-left: auto; } }
 .sub { border: 1px solid var(--line); border-radius: 12px; padding: .85rem .95rem; background: var(--surface); }
 .sub + .sub { margin-top: .6rem; }
 .sub .answer { white-space: pre-wrap; background: var(--surface-2); border-radius: 10px; padding: .55rem .75rem; margin: .3rem 0 .55rem; font-size: .96rem; }
