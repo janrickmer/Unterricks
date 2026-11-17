@@ -12,7 +12,8 @@
 // gesendet wird nur bei Änderungen (Start, Pause, Weiter, Verlängern, Ende), nie im Sekundentakt – den Ablauf zeigen die Seiten selbst.
 import { DurableObject } from "cloudflare:workers";
 import { HttpError, json, requireSecret, signLink, checkLink, isId } from "./lib.js";
-import { LIVE_IDLE as IDLE, liveReduce, liveView, liveNext, liveTimer } from "./livestate.js";
+import { LIVE_IDLE as IDLE, liveReduce, liveView, liveNext, liveTimer, liveVideo } from "./livestate.js";
+import { cleanVideoReport } from "../public/videoslides.js";
 import { requireTeacher } from "./auth.js";
 import { getLesson } from "./lessons.js";
 import { slideUrl } from "./files.js";
@@ -34,11 +35,15 @@ export class LiveRoom extends DurableObject {
     // Timer (Nachtrag 16): Restzeit zum Sendezeitpunkt nach der Uhr des Servers – nur, wenn einer läuft (sonst bleibt die Nachricht wie bisher)
     const timer = liveTimer(st, Date.now());
     if (timer) out.timer = timer;
+    // Video einer Videofolie (Nachtrag 38): nur Lehrkraft und Beamer – die Schüler:innen sehen live nur die Folie
+    const video = role === "student" ? null : liveVideo(st, Date.now());
+    if (video) out.video = video;
     if (role === "teacher") { out.fileId = st.fileId; out.students = this.ctx.getWebSockets("student").length; out.beamers = this.ctx.getWebSockets("beamer").filter((ws) => !gone.includes(ws)).length; }
     if (role === "beamer") { const k = liveNext(st); if (k) out.next = await slideUrl(requireSecret(this.env), st.fileId, k, SLIDE_TTL); }   // vorladen
     return out;
   }
-  async broadcast(st) {
+  // students: false = nur Lehrkraft und Beamer (Befehle zum Video – die Nachricht an die Schüler:innen änderte sich nicht)
+  async broadcast(st, { students = true } = {}) {
     // Beamer mit abgelaufenem Schlüssel: schließen statt weiter Folien schicken (das Gerät zeigt dann einen neuen Beamer-Code)
     const now = Date.now(), expired = this.ctx.getWebSockets("beamer").filter((ws) => beamerExpired(ws, now));
     for (const ws of expired) { try { ws.close(4001, "abgelaufen"); } catch {} }
@@ -48,6 +53,7 @@ export class LiveRoom extends DurableObject {
     const forBeamers = all.some((ws) => role(ws) === "beamer") ? JSON.stringify(await this.message("beamer", st)) : forStudents;
     for (const ws of all) {
       const r = role(ws);
+      if (r === "student" && !students) continue;
       try { ws.send(r === "teacher" ? forTeachers : r === "beamer" ? forBeamers : forStudents); } catch {}
     }
   }
@@ -96,7 +102,9 @@ export class LiveRoom extends DurableObject {
   }
   async webSocketMessage(ws, raw) {
     if (raw === "ping") { try { ws.send("pong"); } catch {} return; }
-    if (!this.ctx.getTags(ws).includes("teacher")) return;   // Schüler:innen können nichts steuern
+    const tags = this.ctx.getTags(ws);
+    if (tags.includes("beamer")) { this.relayVideo(ws, raw); return; }   // ein Beamer meldet nur, wie das Video bei ihm läuft (Nachtrag 38)
+    if (!tags.includes("teacher")) return;   // Schüler:innen können nichts steuern
     let m; try { m = JSON.parse(String(raw)); } catch { return; }
     if (!m || typeof m !== "object") return;
     const st = await this.state(), now = Date.now();
@@ -106,7 +114,17 @@ export class LiveRoom extends DurableObject {
     }
     if (!liveReduce(st, m, now)) return;
     await this.ctx.storage.put("state", st);
-    await this.broadcast(st);
+    await this.broadcast(st, { students: m.t !== "video" });
+  }
+  // Rückmeldung eines Beamergeräts zum Video (spielt, pausiert, blockiert, Fehler …) – geprüft an die Lehrkraft weitergereicht, nie gespeichert
+  relayVideo(ws, raw) {
+    if (beamerExpired(ws, Date.now()) || String(raw).length > 2000) return;
+    let m; try { m = JSON.parse(String(raw)); } catch { return; }
+    if (!m || m.t !== "vstate") return;
+    const r = cleanVideoReport(m);
+    if (!r) return;
+    const msg = JSON.stringify({ t: "vstate", ...r });
+    for (const t of this.ctx.getWebSockets("teacher")) { try { t.send(msg); } catch {} }
   }
   async webSocketClose(ws, code, reason) {
     const counted = !this.ctx.getTags(ws).includes("teacher");   // Schüler:innen und Beamer

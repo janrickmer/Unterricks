@@ -13,9 +13,14 @@
 //    Tippen, Klicken oder „Neuen Beamer-Code anzeigen“ holt wieder einen.
 //  Timer (Nachtrag 16): steht oben über der Folie, wie bei den Schüler:innen – lokal vom Präsentationsfenster (show bzw. timer mit dem Stand
 //  zum Sendezeitpunkt), am Beamergerät vom Server; nur solange eine Folie zu sehen ist (nicht über dem Beamer-Code).
+//  Videofolien (Nachtrag 38): Spielt die Lehrkraft das Video einer Videofolie hier ab, steht an Stelle der Folie der YouTube-Player (ytplayer.js) –
+//  lokal nach dem Stand aus dem Präsentationsfenster (show/video), am Beamergerät nach dem Stand vom Server (video); zurück meldet es, wie das Video läuft
+//  (vstate). Verlangt der Browser für den Ton eine Bedienung an diesem Gerät, steht über dem Player „Video abspielen“.
 import { h, api, apiUrl, wsUrl, setFach, rand, store } from "./ui.js";
 import { render, onLeave } from "./app.js";
 import { BEAMER_CHANNEL, beamerFollow, cleanBeamerView, presenterKey, beamerScreen, fmtBeamerCode, normBeamerCode, readBeamerLink, readBeamerPair } from "./shared.js";
+import { cleanVideoState, videoName } from "./videoslides.js";
+import { ytPlayer } from "./ytplayer.js";
 import { codeSlideDom } from "./codeslide.js";
 import { timerBand } from "./timerband.js";
 import { holdReload } from "./update.js";
@@ -33,7 +38,9 @@ export const BEAMER_PAIR_IDLE = "Seit zwei Stunden hat hier niemand einen Beamer
 export const BEAMER_PAIR_AGAIN = "Neuen Beamer-Code anzeigen";
 export const BEAMER_PAIR_IDLE_MS = 2 * 3600e3;
 export const BEAMER_DEV_HINT = "Dieses Gerät zeigt am Beamer nur die aktuelle Folie. Gesteuert wird auf dem Gerät der Lehrkraft – Tasten und Presenter wirken hier nicht. " +
-  "Am Beamer-iPad die „Automatische Sperre“ am besten auf „Nie“ stellen.";
+  "Am Beamer-iPad die „Automatische Sperre“ am besten auf „Nie“ stellen. Videos auf Videofolien spielt dieses Gerät ab, sobald Sie sie in der Präsentation starten.";
+export const BEAMER_VIDEO_BLOCKED = "Der Browser spielt das Video erst nach einer Bedienung an diesem Gerät ab.";
+export const BEAMER_VIDEO_PLAY = "Video abspielen";
 const LINK_KEY = "u.beamer";
 // noch nicht abgeholter Beamer-Code dieses Tabs: nach dem Neuladen bleibt er stehen (ein schon abgelesener Code koppelt sonst ein Gerät, das ihn
 // nicht mehr abfragt – die Lehrkraft sähe „Beamer gekoppelt – verbindet sich …“, der Beamer aber weiter einen anderen Code)
@@ -48,9 +55,10 @@ export function beamerPage() {
   const bid = hex(rand(8)), slideBase = apiUrl("/api/slide/");
   const multi = !!(window.screen && window.screen.isExtended === true && typeof window.getScreenDetails === "function");
   let st = null, idleT = null, waitT = null, alive = true, seq = 0;
+  let localVideo = null, localSlide = null, srvVideo = null, lastLocal = null, vp = null;   // Videofolien (Nachtrag 38, siehe unten)
   const img = h("img", { alt: "", draggable: "false" });
   const stage = h("div", { class: "bm-stage" });
-  const wait = (text) => { seq++; stage.replaceChildren(h("p", { class: "bm-wait", text })); syncTimer(); };
+  const wait = (text) => { seq++; dropVideo(); stage.replaceChildren(h("p", { class: "bm-wait", text })); syncTimer(); };
   const isFs = () => !!(document.fullscreenElement || document.webkitFullscreenElement);
   const note = h("p", { class: "bm-note", role: "status" });
   const fsLabel = () => (isFs() ? "Vollbild beenden" : multi ? "Vollbild auf dem Beamer" : "Vollbild");
@@ -64,8 +72,9 @@ export function beamerPage() {
   const root = h("main", { class: "beamer", "aria-label": "Beamerfenster von Unterricks" }, tband.el, stage, h("div", { class: "bm-bar" }, hint, note, fsBtn, closeBtn), tband.say);
   // Timer: je Quelle der zuletzt empfangene Stand mit seinem Empfangszeitpunkt; angezeigt nur über einer Folie
   let localTimer = null, srvTimer = null, tbSrc = null;
+  const showingSlide = () => stage.firstChild === img || !!(stage.firstChild && stage.firstChild.classList && (stage.firstChild.classList.contains("codeslide") || stage.firstChild.classList.contains("bm-video")));
   function syncTimer() {
-    const showing = stage.firstChild === img || !!(stage.firstChild && stage.firstChild.classList && stage.firstChild.classList.contains("codeslide"));
+    const showing = showingSlide();
     const src = !alive || !showing ? null : localOn() ? localTimer : dev && srvLive && srvLive.active ? srvTimer : null;
     if (src === tbSrc) return;   // dieselbe Nachricht: das Band zählt selbst weiter
     tbSrc = src;
@@ -73,18 +82,19 @@ export function beamerPage() {
   }
   render(root);
   // solange eine Folie zu sehen ist (die Präsentation läuft), lädt dieses Fenster nach einem Update nie von selbst neu (update.js)
-  onLeave(holdReload(() => alive && (stage.firstChild === img || !!(stage.firstChild && stage.firstChild.classList && stage.firstChild.classList.contains("codeslide")))));
+  onLeave(holdReload(() => alive && showingSlide()));
   document.title = "Unterricks – Beamerfenster";
   wait("Verbinde mit der Präsentation …");
   waitT = setTimeout(() => { if (!st) enterDevice(); }, 1500);
 
   function show(v) {
-    seq++;
+    seq++; lastLocal = v;
+    if (vp && !videoWanted()) dropVideo();
     if (v.kind === "code") { stage.replaceChildren(codeSlideDom(v)); syncTimer(); return; }
     if (img.getAttribute("src") !== v.src) img.src = v.src;
-    if (stage.firstChild !== img || stage.childNodes.length > 1) stage.replaceChildren(img);
+    if (!vp && (stage.firstChild !== img || stage.childNodes.length > 1)) stage.replaceChildren(img);   // läuft das Video dieser Folie: der Player bleibt
     if (v.next) { const p = new Image(); p.src = v.next; }   // nächste Folie vorab laden
-    syncTimer();
+    syncVideo(); syncTimer();
   }
   const localOn = () => !!(st && !st.ended);
   let localFach = null, localNote = "";
@@ -99,13 +109,17 @@ export function beamerPage() {
       if (st && !st.ended && st.id === m.id) { localTimer = { raw: m.timer || null, at: performance.now() }; syncTimer(); }
       return;
     }
+    if (m.t === "video") {   // Video der aktuellen Folie (Nachtrag 38): abspielen, pausieren, springen, schließen
+      if (st && !st.ended && st.id === m.id) { setLocalVideo(m); syncVideo(); }
+      return;
+    }
     if (m.t !== "claim" && m.t !== "show" && m.t !== "end") return;
     const before = st;
     st = beamerFollow(st, m);
     if (!st || st.id !== m.id) return;   // gehört zu einem anderen Präsentationsfenster
     if (m.t === "end") {
       if (before && !before.ended) {
-        localTimer = null;
+        localTimer = null; localVideo = null; localSlide = null; dropVideo();
         if (dev) { localNote = m.why === "stop" ? BEAMER_STOPPED : BEAMER_CLOSED; setFach(srvFach); paint(); }   // Beamergerät: wieder Server bzw. Code
         else { setFach(null); wait(m.why === "stop" ? BEAMER_STOPPED : BEAMER_CLOSED); }
         tell(); syncHold();
@@ -118,9 +132,51 @@ export function beamerPage() {
     if (m.t === "claim" || st !== before) tell();   // übernommen bzw. neu beansprucht: das Präsentationsfenster schickt dann die Folie
     if (m.t === "show") {
       const v = cleanBeamerView(m.view, slideBase);
-      if (v) { localFach = typeof m.fach === "string" ? m.fach : null; localNote = ""; localTimer = { raw: m.timer || null, at: performance.now() }; setFach(localFach); show(v); codeSince = null; stopPairing(); syncHold(); }
+      if (v) { localFach = typeof m.fach === "string" ? m.fach : null; localNote = ""; localTimer = { raw: m.timer || null, at: performance.now() }; setLocalVideo(m); setFach(localFach); show(v); codeSince = null; stopPairing(); syncHold(); }
     }
   };
+
+  /* ---------- Videofolien (Nachtrag 38): Player an Stelle der Folie, solange die Lehrkraft das Video hier abspielt ---------- */
+  function setLocalVideo(m) {
+    localSlide = Number.isInteger(m.slide) ? m.slide : null;
+    const v = cleanVideoState(m.video);
+    localVideo = v ? { ...v, at: performance.now() } : null;
+  }
+  // das Video, das gerade hier laufen soll: nur auf seiner Folie und nie über einer Codefolie
+  function videoWanted() {
+    if (!alive) return null;
+    if (localOn()) return localVideo && localVideo.n === localSlide && lastLocal && lastLocal.kind === "img" ? localVideo : null;
+    if (dev && srvLive && srvLive.active && srvVideo && srvVideo.n === srvLive.slide && srvLive.view !== "code") return srvVideo;
+    return null;
+  }
+  const vBlockBtn = h("button", { class: "btn primary bm-vplay", type: "button", onclick: () => { if (vp) vp.player.replay(); } }, BEAMER_VIDEO_PLAY);
+  const vBlock = h("div", { class: "bm-vnote", hidden: true }, h("p", { role: "status", text: BEAMER_VIDEO_BLOCKED }), vBlockBtn);
+  function dropVideo() { if (!vp) return false; vp.player.destroy(); vp.box.remove(); vp = null; vBlock.hidden = true; return true; }
+  function syncVideo() {
+    const w = videoWanted();
+    if (!w) { if (dropVideo()) redraw(); return; }
+    const key = w.n + "|" + w.id + "|" + (w.start || 0) + "|" + (w.end || 0);
+    // neues Video – oder der Player ist nicht mehr eingehängt (ein umgehängtes iframe lädt neu und begänne von vorn): neu aufbauen
+    if (!vp || vp.key !== key || !vp.box.isConnected) {
+      dropVideo();
+      const player = ytPlayer(w, { label: videoName(w), onChange: (x) => report(x) });
+      vp = { key, player, w, box: h("div", { class: "bm-video" }, player.el, vBlock) };
+      seq++;
+      stage.replaceChildren(vp.box);
+    }
+    vp.w = w;
+    vp.player.set({ playing: w.playing, pos: w.pos, at: w.at, rev: w.rev });
+    syncTimer();
+  }
+  function redraw() { if (localOn()) { if (lastLocal) show(lastLocal); } else if (dev) paint(); }
+  // an die Lehrkraft: wie das Video hier läuft (lokal über den BroadcastChannel, am Beamergerät über den WebSocket – beim Abfragen nicht)
+  function report(x) {
+    if (!vp) return;
+    vBlock.hidden = !x.blocked;
+    const r = { n: vp.w.n, id: vp.w.id, rev: vp.w.rev, state: x.state, time: x.time, dur: x.dur, blocked: x.blocked, err: x.err, noapi: x.noapi, muted: x.muted };
+    if (localOn()) { if (ch) try { ch.postMessage({ t: "vstate", bid, id: st.id, video: r }); } catch {} }
+    else if (dev && ws && ws.readyState === 1) { try { ws.send(JSON.stringify({ t: "vstate", ...r })); } catch {} }
+  }
 
   /* ---------- Beamergerät: Beamer-Code, Kopplung und Live-Verbindung über den Server ---------- */
   let dev = false, link = null, srvLive = null, srvWas = false, srvNote = "", srvFach = null;
@@ -161,7 +217,7 @@ export function beamerPage() {
     if (v) { codeSince = null; stopPairing(); setFach(srvFach); showSrv(v); syncTimer(); return; }
     if (link && !srvLive) { codeSince = null; stopPairing(); wait("Verbinde mit der Präsentation …"); return; }
     if (codeSince === null) codeSince = Date.now();
-    seq++;
+    seq++; dropVideo();
     pairMsg.textContent = srvNote || localNote || (link && srvLive && !srvWas ? BEAMER_LINKED : "");
     if (stage.firstChild !== pairBox) stage.replaceChildren(pairBox);
     syncTimer();
@@ -171,7 +227,9 @@ export function beamerPage() {
   // Folie vom Server: erst geladen anzeigen – ein spät geladenes Bild überschreibt nie einen neueren Stand
   function showSrv(v) {
     const my = ++seq;
+    if (vp && !videoWanted()) dropVideo();
     if (v.kind === "code") stage.replaceChildren(codeSlideDom(v));
+    else if (vp) { if (img.getAttribute("src") !== v.src) img.src = v.src; }   // das Video dieser Folie läuft: der Player bleibt (das Bild für danach)
     else if (img.getAttribute("src") === v.src && img.complete && img.naturalWidth > 0) { if (stage.firstChild !== img || stage.childNodes.length > 1) stage.replaceChildren(img); }
     else {
       const pre = new Image();
@@ -179,6 +237,7 @@ export function beamerPage() {
       pre.src = v.src;
     }
     if (v.next) { const p = new Image(); p.src = v.next; }   // nächste Folie vorab laden
+    syncVideo();
   }
 
   // Beamer-Code: nur solange er zu sehen ist (Seite sichtbar, keine Folie) und das Gerät nicht seit zwei Stunden unbeachtet Codes zeigt –
@@ -278,7 +337,9 @@ export function beamerPage() {
   function onLive(m) {
     if (!m || typeof m !== "object" || m.t !== "state") return;   // die Zahl der Verbundenen ist nur für die Lehrkraft
     srvTimer = { raw: m.active ? m.timer || null : null, at: performance.now() };   // vor der Prüfung von v: der Timer ändert v nicht
-    if (srvLive && m.v === srvLive.v && !!m.active === !!srvLive.active) { syncTimer(); return; }
+    const sv = m.active ? cleanVideoState(m.video) : null;   // Video (Nachtrag 38) – ändert v ebenfalls nicht
+    srvVideo = sv ? { ...sv, at: performance.now() } : null;
+    if (srvLive && m.v === srvLive.v && !!m.active === !!srvLive.active) { syncTimer(); if (!localOn()) syncVideo(); return; }
     const was = !!(srvLive && srvLive.active);
     srvLive = m;
     if (m.active) { srvWas = true; srvNote = ""; localNote = ""; } else if (was) srvNote = BEAMER_STOPPED;
@@ -382,7 +443,7 @@ export function beamerPage() {
   else { clearTimeout(waitT); enterDevice(); }   // ohne BroadcastChannel geht es nur über den Server
   onLeave(() => {
     alive = false;
-    tband.stop();
+    tband.stop(); dropVideo();
     bye(); if (ch) ch.close();
     clearTimeout(idleT); clearTimeout(waitT); stopPairing(); closeLive(); syncHold();
     document.removeEventListener("keydown", onKey);

@@ -154,6 +154,7 @@ const ROUTES = [
   ["POST", "/api/teacher/files/" + ID + "/ready", F.routePresentationReady],
   ["GET", "/api/teacher/files/" + ID + "/slides", F.routeTeacherSlides],
   ["PUT", "/api/teacher/files/" + ID + "/phases", F.routePhasesPut],
+  ["PUT", "/api/teacher/files/" + ID + "/videos", F.routeVideosPut],
   // Notizen der Lehrkraft zu den Folien (Nachtrag 20): Fassung ohne Notizen für Schüler:innen, Notizen, Anmerkungs-PDF – nur angemeldet
   ["PUT", "/api/teacher/files/" + ID + "/clean", F.routeCleanPut],
   ["GET", "/api/teacher/files/" + ID + "/notes", F.routeNotesGet],

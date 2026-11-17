@@ -97,7 +97,9 @@ export async function buildSessionZip(detail, { fb = T.fb, onStep = () => {}, ho
       }
       // Phasen der Folien (Nachtrag 34): nur die Zuordnung der Lehrkraft – die aus der PDF liest Unterricks beim Laden wieder aus der Datei selbst
       const hand = f.area === "presentation" && f.phases && Array.isArray(f.phases.hand) ? f.phases.hand : null;
-      entries.push({ name: path, data }); files.push({ ...base, path, ...(Array.isArray(slideNotes) ? { slideNotes } : {}), ...(hand ? { slidePhases: hand } : {}) });
+      // Videofolien (Nachtrag 38): ebenso nur die der Lehrkraft ([] = bewusst keine)
+      const vhand = f.area === "presentation" && f.videos && Array.isArray(f.videos.hand) ? f.videos.hand : null;
+      entries.push({ name: path, data }); files.push({ ...base, path, ...(Array.isArray(slideNotes) ? { slideNotes } : {}), ...(hand ? { slidePhases: hand } : {}), ...(vhand ? { slideVideos: vhand } : {}) });
     }
   }
   for (const d of detail.drafts || []) if (d.status === "draft" && d.data) drafts.push(d.data);
@@ -178,15 +180,16 @@ export function planSessionImport(data, target) {
 }
 
 /* Präsentation in eine Sitzung hochladen und in Folienbilder umwandeln (ohne Sitzungsseite) */
-export async function uploadPresentationTo(lessonId, file, { code, exclude = [], onProgress, notes, phases } = {}) {
+export async function uploadPresentationTo(lessonId, file, { code, exclude = [], onProgress, notes, phases, videos } = {}) {
   const r = await upload("/api/teacher/lessons/" + lessonId + "/presentation?name=" + encodeURIComponent(file.name), file, T.token, null, "application/pdf");
   const { rasterizeAndUpload } = await lazy(import("./presenter.js"));
-  return rasterizeAndUpload(file, r.file.id, T.token, onProgress, { code, exclude, notes, phases });
+  return rasterizeAndUpload(file, r.file.id, T.token, onProgress, { code, exclude, notes, phases, videos });
 }
 
 /* In die Sitzung lessonId übernehmen: Texte, Chat, Links, Druck-Texte, Entwürfe in einem Aufruf, danach jede Datei einzeln.
    uploadPres(file, sheetCodes, notes, phases) = eigene Übernahme der Präsentation (Sitzungsseite); sonst uploadPresentationTo mit target.code. notes = Notizen
-   der Lehrkraft aus der Datei (fehlen sie – ältere Datei –, gelten die in der PDF); phases = Phasen der Folien, die die Lehrkraft zugeordnet hat (Nachtrag 34).
+   der Lehrkraft aus der Datei (fehlen sie – ältere Datei –, gelten die in der PDF); phases = Phasen der Folien, die die Lehrkraft zugeordnet hat (Nachtrag 34);
+   videos = Videofolien, die die Lehrkraft festgelegt hat (Nachtrag 38).
    → {missing} (Dateien, die fehlen oder sich nicht hochladen ließen) */
 export async function applySessionImport(lessonId, plan, data, byPath, { onStep = () => {}, uploadPres = null, target = null } = {}) {
   onStep("Übernehme Planung, Texte und Entwürfe …");
@@ -214,8 +217,8 @@ export async function applySessionImport(lessonId, plan, data, byPath, { onStep 
       }
       if (f.area === "presentation") {
         const file = new File([bytes], f.name, { type: "application/pdf" });
-        if (uploadPres) await uploadPres(file, sheetCodes, f.slideNotes, f.slidePhases);
-        else await uploadPresentationTo(lessonId, file, { code: target && target.code, exclude: sheetCodes, notes: f.slideNotes, phases: f.slidePhases, onProgress: (i, n) => onStep("„" + f.name + "“: Folie " + i + " von " + n + " …") });
+        if (uploadPres) await uploadPres(file, sheetCodes, f.slideNotes, f.slidePhases, f.slideVideos);
+        else await uploadPresentationTo(lessonId, file, { code: target && target.code, exclude: sheetCodes, notes: f.slideNotes, phases: f.slidePhases, videos: f.slideVideos, onProgress: (i, n) => onStep("„" + f.name + "“: Folie " + i + " von " + n + " …") });
       } else if (f.area === "print") await upload("/api/teacher/lessons/" + lessonId + "/print?name=" + encodeURIComponent(f.name) + "&copies=" + f.print.copies + "&duplex=" + (f.print.duplex ? 1 : 0) + "&color=" + (f.print.color ? 1 : 0) + "&source=uebernommen", new Blob([bytes], { type: "application/pdf" }), T.token, null, "application/pdf");
       else await upload("/api/teacher/lessons/" + lessonId + "/files?area=" + f.area + "&name=" + encodeURIComponent(f.name) + "&source=uebernommen", new Blob([bytes], { type: f.mime || "application/octet-stream" }), T.token, null, f.mime || "application/octet-stream");
     } catch (e) { missing.push(f.name + " (" + e.message + ")"); }

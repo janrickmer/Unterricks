@@ -4,6 +4,7 @@
 // Hier nur reine Funktionen (ohne Netz und DOM) – das Herunterladen und Hochladen steuert session.js.
 import { subjectName, subjectShort, groupShort, isIsoDate, isClockTime, cleanWebUrl, cleanCopies, normalizeFbDraft, cleanSlideNotes, NOTES_LIMITS, PHASE_MAX, TEACHER_SUMMARY_MAX, isValidClass, isCourseClass, classShort } from "./shared.js";
 import { cleanBring } from "./bring.js";
+import { cleanVideoSlides } from "./videoslides.js";
 
 export const SESSION_FILE = { kind: "unterricks-sitzung", v: 1, json: "sitzung.json" };
 export const SESSION_LIMITS = { files: 60, chat: 200, drafts: 20, text: 200000 };
@@ -122,6 +123,8 @@ export function cleanSessionFile(raw) {
         const ph = f.slidePhases.map((v) => (Number.isInteger(v) && v >= 1 && v <= PHASE_MAX ? v : null));
         if (ph.some((v) => v !== null)) o.slidePhases = ph;
       }
+      // Videofolien, von der Lehrkraft festgelegt (Nachtrag 38): geprüft wie beim Server; Folien jenseits der PDF verwirft das Hochladen ([] = bewusst keine)
+      if (o.area === "presentation" && f && Array.isArray(f.slideVideos)) o.slideVideos = cleanVideoSlides(f.slideVideos, 300);
     }
     if (kind === "text") o.text = str(f && f.text, SESSION_LIMITS.text);
     if (kind === "link") o.url = cleanWebUrl(f && f.url) || "";

@@ -491,7 +491,7 @@ export const CODE_SLIDE_LINE = CODE_SLIDE_MARK + ": Hier zeigt Unterricks den QR
 export const CODE_SLIDE_LIMITS = { slides: 60, lines: 4, line: 160 };   // Prompt: höchstens drei Zeilen – eine umbrochene mehr geht noch
 const MARK_SRC = "u\\s?n\\s?t\\s?e\\s?r\\s?r\\s?i\\s?c\\s?k\\s?s\\s?[-\\u2010\\u2011\\u2013\\u2014]?\\s?c\\s?o\\s?d\\s?e\\s?f\\s?o\\s?l\\s?i\\s?e";   // auch gesperrt gesetzt (PDF.js fügt Leerzeichen ein)
 const MARK_RE = new RegExp(MARK_SRC, "i");
-const cleanSlideLine = (s, max) => String(s == null ? "" : s).normalize("NFC").replace(/[\u0000-\u001F\u007F-\u009F\u00AD\u200B-\u200F\u2028-\u202E\u2060-\u206F\uFEFF]/g, " ")
+export const cleanSlideLine = (s, max) => String(s == null ? "" : s).normalize("NFC").replace(/[\u0000-\u001F\u007F-\u009F\u00AD\u200B-\u200F\u2028-\u202E\u2060-\u206F\uFEFF]/g, " ")
   .replace(/\s+/g, " ").trim().slice(0, max).replace(/[\uD800-\uDBFF]$/, "").trim();
 // Erklärsatz zur Marke („Hier zeigt Unterricks den QR-Code und den Sitzungscode.“) – auch umbrochen: Zeilen, die nur ein Stück davon sind
 const EXPLAIN = " " + CODE_SLIDE_LINE.slice(CODE_SLIDE_MARK.length).toLowerCase().replace(/[^\p{L}\p{N}]+/gu, " ").trim() + " ";
@@ -1643,6 +1643,8 @@ export function claudePresentationPrompt(ctx, portalText, messages) {
     analog ? "Steht ein Material, mit dem die Schüler:innen arbeiten sollen, unten nicht als „von der Lehrkraft auszudrucken“, nenne es mir zusätzlich im Chat – dann lege ich es zum Ausdrucken an."
       : "Steht ein Material, mit dem die Schüler:innen arbeiten sollen, unten gar nicht oder nur als Material „nur Lehrkraft“, nenne es mir zusätzlich im Chat – dann stelle ich es in Unterricks bereit.",
     "",
+    // Videofolien (Nachtrag 38): Abschnitt aus public/videoslides.js (videoPromptSection) – nur, wenn der Stundenverlauf bzw. die Links der Sitzung YouTube-Videos nennen
+    ctx.videoSection ? ctx.videoSection + "\n" : "",
     "## Zeitlos gestalten",
     "Ziel ist eine zeitlose Präsentation: Sie soll auch in ein paar Jahren noch passen, wenn eine andere Klasse dieses Jahrgangs das Thema lernt. Deshalb steht auf den Folien:",
     "- kein Datum, das sich auf diese Lerngruppe bezieht – kein Datum der Stunde, keine Abgabe- oder Prüfungstermine, keine Wochentage („bis Donnerstag“), kein Schuljahr oder Halbjahr mit Jahreszahl; " +
@@ -1695,7 +1697,7 @@ export function claudePresentationPrompt(ctx, portalText, messages) {
     "- Aufbau genau entlang des verbindlichen Stundenverlaufs: Folie 1 ist die Titelfolie (siehe oben; die Codefolie davor zeigt Unterricks), dann eine kurze Stundenübersicht (Agenda), dann für jede Phase mindestens eine Folie in derselben Reihenfolge und Nummerierung; Phasen nach „--> Nächste Stunde“ als eigener, klar markierter Abschnitt am Ende.",
     "- Jede Arbeitsphase bekommt eine Auftragsfolie: Arbeiten die Schüler:innen dabei mit Material, ist das die Materialfolie (siehe oben); sonst Arbeitsauftrag mit Operatoren, " +
       "Sozialform (Einzel-, Partner-, Gruppenarbeit, Plenum) als Symbol und Wort, Zeitvorgabe in Minuten und erwartetes Ergebnis.",
-    "- Leitfragen, Diskussionsfragen und Impulse groß und gut lesbar; Feibeitsblätter und anderes Material nur mit ihrem Titel auf der Materialfolie; Links, die nicht als Material in Unterricks stehen, " +
+    "- Leitfragen, Diskussionsfragen und Impulse groß und gut lesbar; Feibeitsblätter und anderes Material nur mit ihrem Titel auf der Materialfolie; " + (ctx.videoSection ? "YouTube-Videos nur als Videofolie (siehe oben); andere " : "") + "Links, die nicht als Material in Unterricks stehen, " +
       "als kurze Adresse (einen eigenen QR-Code dazu nur deutlich getrennt und mit seinem Ziel beschriftet – nie auf einer Unterricks-Codefolie –, damit ihn niemand mit dem QR-Code zu Unterricks verwechselt).",
     "- Sicherungsfolien (Tafelbild/Ergebnis), die zunächst leer bzw. mit Lücken beginnen und auf einer Folgefolie die Musterlösung zeigen – keine Lösungen vor den Arbeitsphasen.",
     "- Gestaltung für den Beamer: hoher Kontrast, Schrift mindestens 24 pt (Fließtext) bzw. 36 pt (Überschriften), höchstens 6 Zeilen pro Folie (die Zeile „" + CODE_SLIDE_MARK + ": …“ zählt nicht mit und darf kleiner sein), " +

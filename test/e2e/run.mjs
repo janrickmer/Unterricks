@@ -24,6 +24,7 @@ import { printTodayE2E } from "./printtoday.mjs";
 import { storageE2E } from "./storage.mjs";
 import { selbstlernStopE2E } from "./selbstlernstop.mjs";
 import { phaseStopE2E } from "./phasestop.mjs";
+import { videoSlidesE2E, PLAYER_FAKE } from "./videoslides.mjs";
 import { inClassE2E } from "./inclass.mjs";
 import { escapeFixture } from "./escape-fixture.mjs";
 
@@ -173,7 +174,9 @@ async function main() {
     await ctx.route(YT_RE, async (route) => {
       const rq = route.request(), u = rq.url();
       ytReqs.push({ url: u, headers: await rq.allHeaders().catch(() => ({})) });
-      if (/^https:\/\/www\.youtube-nocookie\.com\/embed\/[A-Za-z0-9_-]{11}\?/.test(u)) return route.fulfill({ status: 200, contentType: "text/html", body: "<!doctype html><title>Attrappe</title><p>YouTube-Attrappe (Test)</p>" });
+      // Videofolien (Nachtrag 38): mit enablejsapi=1 eine Attrappe, die das Steuerprotokoll des Players nachspielt (videoslides.mjs)
+      if (/^https:\/\/www\.youtube-nocookie\.com\/embed\/[A-Za-z0-9_-]{11}\?/.test(u)) return route.fulfill({ status: 200, contentType: "text/html",
+        body: /[?&]enablejsapi=1(&|$)/.test(u) ? PLAYER_FAKE : "<!doctype html><title>Attrappe</title><p>YouTube-Attrappe (Test)</p>" });
       return route.abort();
     });
     return ctx;
@@ -2155,6 +2158,9 @@ async function main() {
     /* ---------- Nachtrag 34: Zwischenstopp nur in der Präsentation setzen – der Schulportal-Eintrag folgt ---------- */
     step("Zwischenstopp aus der Präsentation (Nachtrag 34): Phasen der Folien aus der PDF (unsichtbar bzw. in Hintergrundfarbe), letzte gezeigte Folie über Auswahl, Kontextmenü und „Bis hier gezeigt“, Aufheben, von Hand gesetzter bleibt, Zuordnung von Hand, Sitzungsdatei");
     await phaseStopE2E({ tp, BASE, T, ok, OUT, SHOT });
+    /* ---------- Nachtrag 38: YouTube-Video an der Stelle einer Videofolie eingebettet abspielen ---------- */
+    step("Videofolien (Nachtrag 38): Präsentations-Prompt mit Video, Erkennen beim Hochladen, „Videofolien“ prüfen und ändern, Sitzungsdatei, Abspielen hier, im Beamerfenster (auch blockiert, Einbetten verboten) und am Beamergerät; Schüler:innen live nur die Folie, danach der Link im Folienfenster");
+    await videoSlidesE2E({ browser, tctx, tp, BASE, T, ok, OUT, SHOT, devices, watch });
 
     step("Selbstlern-Phase mit Escape-Room: streng geprüft, Vorschau, Finale anlegen, Schüler:in spielt alle 6 Stationen, Überblick-PDF, Tunnel ins Feibeitsblatt");
     const escRoom = escapeFixture();

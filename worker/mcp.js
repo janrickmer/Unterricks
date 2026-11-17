@@ -24,6 +24,7 @@ import { gsLessonContext, GS_MATERIAL_RULES, CARD_DESIGN_RULES, VERLAUFSPLAN_EXA
 import { saveCardSet, setCardTexts } from "./cards.js";
 import { parentFiles, refCounts } from "./parents.js";
 import { BRING_LIMITS, bringSection, bringRead } from "../public/bring.js";
+import { videoSlidesData, videoSlidesOf, videoWatchUrl, videoClipText, VIDEO_MARK } from "../public/videoslides.js";
 
 const MODERN = "2026-07-28";
 const LEGACY = ["2025-11-25", "2025-06-18", "2025-03-26", "2024-11-05"];
@@ -323,9 +324,14 @@ async function lessonDump(db, l, now = Date.now()) {
   }
   parts.push(...(await designedSection(db, l.id, (a) => (a === "student" ? "für Schüler:innen" : a === "teacher" ? "nur Lehrkraft" : "zum Ausdrucken"))));
   // Notizen der Lehrkraft zur Präsentation (Nachtrag 20): nur kurz (Zahl), nur in diesem Werkzeug der Lehrkraft
-  const pn = await db.prepare("SELECT pages, CASE WHEN json_valid(notes) THEN json_array_length(notes, '$.slides') ELSE 0 END AS n FROM files WHERE lesson_id=?1 AND area='presentation' AND status='ready' LIMIT 1").bind(l.id).first();
+  const pn = await db.prepare("SELECT pages, CASE WHEN json_valid(notes) THEN json_array_length(notes, '$.slides') ELSE 0 END AS n, video_slides FROM files WHERE lesson_id=?1 AND area='presentation' AND status='ready' LIMIT 1").bind(l.id).first();
   if (pn && pn.n > 0) parts.push("", "## Notizen der Lehrkraft zur Präsentation", "Zu " + pn.n + " von " + pn.pages + " Folien gibt es Notizen (nur für die Lehrkraft: in ihrer Präsentationsansicht und in der „Präsentation mit Anmerkungen“ unter „Material nur für die Lehrkraft“). " +
     "Neue Notizen gehören als Dateianhang " + NOTES_FILE + " in eine neue PDF der Präsentation.");
+  // Videofolien der Präsentation (Nachtrag 38): dort spielt Unterricks im Unterricht das YouTube-Video eingebettet ab
+  const pv = pn ? videoSlidesOf({ videos: videoSlidesData(pn.video_slides, pn.pages) }) : [];
+  if (pv.length) parts.push("", "## Videofolien der Präsentation", "Auf diesen Folien spielt Unterricks im Unterricht das YouTube-Video eingebettet am Beamer ab (Schüler:innen sehen live nur die Folie, nach der Stunde einen Link):",
+    ...pv.map((v) => "- Folie " + v.n + ": " + (v.title ? "„" + v.title + "“ – " : "") + videoWatchUrl({ id: v.id }) + (videoClipText(v) ? " (" + videoClipText(v) + ")" : "")),
+    "Eine neue PDF der Präsentation braucht auf jeder Videofolie wieder die unsichtbare Zeile „" + VIDEO_MARK + ": <Link> | Titel: …“ (Aufbau wie im Präsentations-Prompt).");
   // Selbstlern-Phase (Nachtrag 29): Stationen, Hausaufgabe, Archiv – bzw. eine ältere Vertretung; dazu alle übrigen Dateien mit file_id (Stationen, Hinweis zum Löschen)
   parts.push(...(await otherFilesSection(db, l.id)));
   if (sub) {

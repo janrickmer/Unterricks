@@ -85,6 +85,7 @@ implementiert und im End-to-End-Test geprüft (Ausnahmen unten ausdrücklich gen
 | Workers AI: Qwen3-30B abgeschaltet (Entscheidung vom 17.11.2026) | Cloudflare schaltet `@cf/qwen/qwen3-30b-a3b-fp8` am **20.11.2026** ab (Changelog vom 05.11.2026: danach HTTP 410, Fehler 5028). Es wird **gestrichen, nicht ersetzt**: Cloudflares Vorschlag `@cf/qwen/qwen3.8-27b` kostet je Token etwa zehnmal so viel (laut Katalog 0,45 $/3,20 $ je Mio. Ein-/Ausgabe-Token statt 0,05 $/0,34 $) und verbrauchte das kostenlose Tageskontingent. Es bleiben Gemma 4 (Vorgabe) und GLM-4.7-Flash. Gespeicherte Einstellungen, Ausweichlisten, ältere Seiten und „Testen“ mit dem alten Modell laufen über Gemma 4 (`CF_RETIRED`, `liveModel` in `worker/ai.js`). Feibeitsblatt nutzt dasselbe Modell und wird getrennt angepasst |
 | Kleine Knöpfe der Druckliste (Entscheidung vom 17.11.2026) | Rückfrage aus der Zweitprüfung von Nachtrag 31b: „Herunterladen“, „Nicht ausdrucken“ u. ä. bleiben `btn small` (36 px hoch), **auch am iPad**; nur „Wieder ausdrucken“ hat 44 px (DESIGN.md, Druckliste) |
 | Bilder, Videolinks und PDF-Dateien in Feibeitsblättern (Nachtrag 37 vom 17.11.2026) | Wunsch der Lehrkraft: „Bilder und andere beigefügte Dateien als Material lassen sich von Unterricks nicht in ein Feibeitsblatt einbauen. … Ändere das, damit Claude auch Bilder, Videolinks und PDF-Dateien als Material zu Aufgaben hinzufügen kann.“ Rückfragen beantwortet: Quelle = **Dateien der Sitzung** (hochgeladen oder mit add_material_pdf gestaltet; nicht: von Claude gezeichnete Bilder, Dateien aus dem Internet); Dateien aus „Nur für die Lehrkraft“ **erlaubt, mit Warnhinweis**. Videos nur von YouTube (das Feibeitsblatt bettet nur YouTube ein), andere als Link im Material. Siehe 4zf |
+| YouTube-Video eingebettet in der Live-Präsentation (Nachtrag 38 vom 17.11.2026) | Wunsch der Lehrkraft: „Baue Unterricks so, dass ich in einer Präsentation ein YouTube-Video eingebettet abspielen kann. … dass Unterricks an der Stelle, an der die "Video-Folie" kommt, eine eigene Anzeige hat … In der Schüleransicht soll das YouTube-Video nicht live abgespielt werden, sondern hier wird die Folie mit dem Titel des Videos und dem YouTube-Link zum Video angezeigt.“ Der Präsentations-Prompt nennt Stelle, Link und Aufbau der Videofolie. Rückfragen beantwortet: **alle drei Aufbauten** (Beamergerät, Beamerfenster am Laptop, iPad gespiegelt); Videoquelle für den Prompt = **YouTube-Links im Schulportal-Eintrag (mit Phase) und in den Links der Sitzung**; Link für Schüler:innen **erst nach der Stunde** (live nur die Folie, danach im Folienfenster ein anklickbarer Link); **Start und Ende** (Ausschnitt). Siehe 4zg |
 
 ## 2. Gesamtarchitektur
 
@@ -2173,6 +2174,63 @@ Ausdrucken“; Grundschule „Auch Grundschule“ – kompakt mit Verlaufsplan u
   Video, Warnhinweis, Vorschau, Anlegen, byte-genaue Übertragung, Notfall mit Bild; gelöschte Datei verhindert das Anlegen, „Entfernen“ mit
   Fokus, ein vorgetäuschter Ausfall und „Erneut versuchen“. Die Feibeitsblatt-Attrappe (`mocks.mjs`) prüft Bilder und PDF-Teile wie das
   Feibeitsblatt.
+
+## 4zg. YouTube-Video eingebettet in der Live-Präsentation – Videofolien (Nachtrag 38 vom 17.11.2026)
+
+* **Videofolie in der PDF:** eine unsichtbare Zeile (wie „Unterricks-Phase: n“, 4zd) `Unterricks-Video: <YouTube-Link> | Start: m:ss | Ende: m:ss |
+  Titel: …` (Start, Ende, Titel freiwillig; Startzeit sonst aus `t=` im Link). `videoMarkOf` (public/videoslides.js) liest sie beim Hochladen
+  (presenter.js `rasterize`) aus den Textstücken, dann den Zeilen, zuletzt mit den zwei folgenden Zeilen (umbrochen); Wort auch gesperrt bzw. mit
+  Gedankenstrich, Link streng über `parseYouTube` (selbstlern.js, nur die bekannten Hosts, keine Playlists; von PDF.js mit Leerzeichen zerlegt wird
+  er zusammengezogen). Ohne Titel in der Zeile gilt die größte Überschrift der Folie ohne „Video:“ (`slideTitleOf`). Gespeichert wird nie eine
+  Adresse, nur `{n, id, start?, end?, title?}` – alle Adressen baut Unterricks aus der geprüften Kennung (`videoWatchUrl` = youtube.com zum Öffnen,
+  `videoPlayerUrl` = youtube-nocookie.com/embed mit `enablejsapi=1&autoplay=1&playsinline=1&rel=0&start&end&origin`).
+* **Speichern:** neue Spalte `files.video_slides` = `{v:1, pdf, hand}` (`videoSlidesData`); `…/ready` nimmt `videos` (aus der PDF, nachsichtig:
+  Ungültiges entfällt) und `videosHand` (aus einer Sitzungsdatei, streng); `PUT /api/teacher/files/:id/videos {hand}` (Liste der Lehrkraft, `[]` =
+  bewusst keine, `null` = wieder die der PDF; streng: Folie 1…Seitenzahl, je Folie eine, Ende hinter Start, ≤ 60) → `fileOut().videos`,
+  `GET …/slides` liefert sie ebenso. Die Sitzungsdatei trägt `slideVideos` (nur die der Lehrkraft, wie `slidePhases`). `get_lesson` (Connector)
+  nennt die Videofolien der Präsentation.
+* **Präsentations-Prompt:** `lessonVideos(Schulportal-Eintrag, Material)` sammelt YouTube-Links aus dem Eintrag (mit Phase; Titel aus ~~…~~, dem
+  Text der Zeile oder der Phasenüberschrift ohne „Video:“; Ausschnitt aus „(1:30–4:05)“ bzw. `t=`) und aus den Links der Sitzung (ohne festen Platz);
+  `videoPromptSection` → Abschnitt „## Videofolien: YouTube-Videos eingebettet abspielen“ vor „Zeitlos gestalten“ (session.js übergibt ihn als
+  `ctx.videoSection`, shared.js kann videoslides.js nicht importieren): je Video Stelle, Link, Ausschnitt und die genaue unsichtbare Zeile, dazu der
+  Aufbau (Titel, Link als Text und Link-Anmerkung, Ausschnitt, Beobachtungsauftrag ≤ 2 Zeilen, selbst gezeichnetes Abspielsymbol – kein Vorschaubild,
+  kein Logo, kein QR-Code –, Phasenzeile). Ohne Videos bleibt der Prompt unverändert.
+* **Abspielen (presenter.js):** auf einer Videofolie (nicht über einer Codefolie) steht unter der Folie `section.videopane` (Titel, Ausschnitt, Zeit,
+  „Video abspielen“/„Pause“/„Weiter abspielen“/„Noch einmal abspielen“, „−10 s“, „+10 s“, „Von vorn“, „Video schließen“, „Auf YouTube öffnen“,
+  Statuszeile `role=status`). „Weiter“ (`forward`) startet auf einer Videofolie zuerst das Video. **Ziel** beim ersten Abspielen: Beamergerät verbunden →
+  `device`; sonst ein sichtbares (bzw. auf einem zweiten Bildschirm liegendes) Beamerfenster → `window`; sonst `here` (Player in der Präsentation –
+  iPad/Laptop gespiegelt). Verschwindet das Ziel (Beamer getrennt, Beamerfenster zu), endet das Video mit Hinweis. Gewünschter Stand `vs = {n, id, start?,
+  end?, title?, playing, pos, rev}`; jeder Befehl erhöht `rev`. Folienwechsel, „Sitzungscode zeigen“ und das Ende der Präsentation schließen das Video.
+* **Player (public/ytplayer.js):** iframe youtube-nocookie.com (Sandbox und `referrerpolicy` wie die Selbstlern-Phase), gesteuert über **postMessage wie
+  die IFrame-API von YouTube** (deren Skript erlaubt die CSP nicht): „listening“ alle 250 ms bis zur ersten Antwort, dann `addEventListener`
+  onStateChange/onError; Befehle `playVideo`, `pauseVideo`, `seekTo [s, true]`, `unMute` (nur nach einer Bedienung der Seite). Antworten als JSON-Text:
+  `initialDelivery`, `onReady`, `infoDelivery {playerState, currentTime, duration, muted}`, `onStateChange`, `onError` – am 17.11.2026 am echten Player
+  beobachtet (Befehle kommen an; Wiedergabe gibt es in der Testumgebung nicht). **Blockiert:** abspielen gewünscht, aber nach 4 s weder „spielt“ noch
+  „lädt“ → `blocked` (Browser verlangt eine Bedienung für den Ton); **noapi:** nach 12 s keine Antwort; **err:** 101/150/153 = Einbetten nicht erlaubt,
+  100 = nicht (mehr) vorhanden, 2, 5.
+* **Beamerfenster (BroadcastChannel):** `show` trägt `slide` und `video`, dazu `{t:"video"}` bei jedem Befehl; das Fenster zeigt an Stelle der Folie
+  `div.bm-video` mit dem Player (ein umgehängtes iframe lädt neu – der Player bleibt eingehängt, das Folienbild wechselt dahinter) und meldet
+  `{t:"vstate", video: {n, id, rev, state, time, dur, blocked, err, noapi, muted}}` zurück. Blockiert: oben `div.bm-vnote` „Der Browser spielt das Video
+  erst nach einer Bedienung an diesem Gerät ab.“ mit „Video abspielen“ (`replay` mit der Bedienung); ein Tipp direkt auf das Video geht immer.
+* **Beamergerät (Durable Object):** `{t:"video", op:"set", n, video, playing, pos, rev}` bzw. `op:"close"` der Lehrkraft → `st.video` (livestate.js
+  `videoReduce`, nur auf der aktuellen Folie ohne Codefolie; `goto`, Codefolie, `stop` und ein neuer Start schließen es, `resume` auf derselben Folie
+  behält es; `v` bleibt wie beim Timer). `liveVideo` (Stelle zum Sendezeitpunkt) geht **nur an Lehrkraft und Beamer** – Befehle zum Video senden den
+  Schüler:innen nicht einmal eine Nachricht (`broadcast(st, {students: false})`); `?role=student` liefert es auch beim Abfragen nie. Ein Beamer darf
+  nur `{t:"vstate", …}` schicken (geprüft mit `cleanVideoReport`, ≤ 2000 Zeichen, nur an die Lehrkraft weitergereicht, nie gespeichert). Nach einer
+  Wiederverbindung setzt die Präsentation das Video erneut (`TeacherLive.onOpen`); eine wieder geöffnete Präsentation übernimmt ein laufendes Video.
+* **Schüler:innen:** live nur das Folienbild. Nach der Freigabe liefert `POST …/presentation-slides` je Videofolie `video: {url (youtube.com/watch,
+  mit &t=), title, clip}`; das Folienfenster zeigt darunter „Video auf YouTube ansehen: „…“ (Ausschnitt …)“ (neuer Tab, `noopener noreferrer`) und
+  „Der Link öffnet YouTube (Google) in einem neuen Tab.“ – nur Adressen der Form, die der Server baut.
+* **Sitzungsseite:** Vorschaubilder mit „Video“ (auch im Namen), `details#videos` „Videofolien“ (public/videopanel.js: je Video Folie, Link, Start,
+  Ende, Titel; Meldungen mit dem betroffenen Feld), Meldung nach dem Hochladen.
+* **Datenschutz:** YouTube lädt nur auf dem Gerät, auf dem das Video spielt (Beamergerät, Beamerfenster bzw. Gerät der Lehrkraft) und erst beim Abspielen;
+  nie auf den Geräten der Schüler:innen (E2E prüft: keine Anfrage, keine Nachricht).
+* **Grenzen:** Ob ein Browser am Beamer mit Ton startet, entscheidet er selbst (iOS: meist erst nach einem Tipp auf das Video) – Unterricks erkennt es
+  und sagt es. Echte Wiedergabe am iPad/Apple TV und im Beamerfenster mit einem echten Video steht aus (Testumgebung ohne Videowiedergabe).
+* **Tests:** Unit `test/unit/videoslides.test.mjs` (Zeitangaben, Zeile, echte PDF mit pdf-lib, Prüfen/Speichern, Adressen, Protokoll, Live-Stand,
+  Durable Object, Routen, Folienfenster, Sitzungsdatei, Prompt), `test/unit/videopanel.test.mjs`; E2E `test/e2e/videoslides.mjs` mit einer
+  Player-Attrappe (`PLAYER_FAKE`, spielt das Protokoll nach): Prompt, Hochladen, „Videofolien“, Sitzungsdatei, Abspielen hier / Beamerfenster
+  (blockiert, Einbetten verboten, Fenster geschlossen) / Beamergerät, Schüler:innen live ohne Video, Folienfenster mit Link.
 
 ## 4i. Druckliste „Von der Lehrkraft auszudrucken“ (Ergänzung vom 10.11.2026)
 

@@ -4,6 +4,8 @@
 // Die Folienbilder holt die Seite blockweise als kurzlebige, signierte Links (fetchSlides); der Server liefert nie eine Folie jenseits der
 // Markierung. Ein spät geladenes Bild überschreibt nie eine neuere Auswahl; Nachbarfolien werden vorgeladen. Ohne Folienbilder (ältere
 // Präsentation) bleibt nur der Hinweis mit dem Download.
+// Videofolien (Nachtrag 38): Bringt der Server zu einer Folie video {url, title, clip} mit, steht unter der Folie ein Link zu YouTube (neuer Tab) –
+// live im Unterricht sehen die Schüler:innen nur die Folie, eingebettet wird hier nichts.
 import { h, icon, busy, openLayer } from "./ui.js";
 import { STUDENT_SLIDE_BLOCK } from "./shared.js";
 
@@ -17,7 +19,10 @@ export const SV_TEXT = {
   retry: "Erneut versuchen",
   noSlides: "Die Folien lassen sich hier nicht anzeigen. Lade dir die Präsentation herunter, um sie durchzusehen.",
   fsOn: "Vollbild", fsOff: "Vollbild beenden",
+  video: "Video auf YouTube ansehen", videoNote: "Der Link öffnet YouTube (Google) in einem neuen Tab.",
 };
+// nur Links, die der Server selbst aus der Kennung baut (videoWatchUrl)
+const VIDEO_URL_RE = /^https:\/\/www\.youtube\.com\/watch\?v=[A-Za-z0-9_-]{11}(?:&t=\d{1,5}s)?$/;
 export const slideCount = (n, total) => "Folie " + n + " von " + total;
 const SWIPE_PX = 40, LOADING_DELAY_MS = 250, EXP_MARGIN_MS = 60e3;
 
@@ -46,9 +51,20 @@ export function slideViewer(o) {
   const fsBtn = h("button", { class: "btn sv-fs", type: "button" }, icon("expand"), SV_TEXT.fsOn);
   const exitBtn = h("button", { class: "btn sv-exit", type: "button", hidden: true }, icon("x"), lbl(SV_TEXT.fsOff));
   const bar = h("div", { class: "sv-bar" }, prev, count, next, exitBtn);
+  // Link zum Video der aktuellen Folie (Videofolie) – im Fenster, damit er auch im Vollbild erreichbar ist
+  const vLink = h("a", { class: "sv-vlink", target: "_blank", rel: "noopener noreferrer" });
+  const vBox = h("p", { class: "sv-video", hidden: true }, icon("play"), vLink, h("span", { class: "sv-vnote", text: SV_TEXT.videoNote }));
+  function paintVideo(s) {
+    const v = s && s.video && typeof s.video.url === "string" && VIDEO_URL_RE.test(s.video.url) ? s.video : null;
+    vBox.hidden = !v;
+    if (!v) { vLink.removeAttribute("href"); vLink.textContent = ""; return; }
+    const title = typeof v.title === "string" ? v.title.slice(0, 160) : "", clip = typeof v.clip === "string" ? v.clip.slice(0, 60) : "";
+    vLink.href = v.url;
+    vLink.replaceChildren(SV_TEXT.video + (title ? ": „" + title + "“" : "") + (clip ? " (" + clip + ")" : ""), h("span", { class: "sr-only", text: " (öffnet in neuem Tab)" }));
+  }
   const live = h("span", { class: "sr-only", role: "status" });
   // aria-live="off": die Seite (#app) ist eine Live-Region – Zähler und Bild sollen nicht doppelt angesagt werden (das macht live)
-  const stage = h("div", { class: "sv-stage", "aria-live": "off" }, frame, bar, h("span", { class: "sr-only", id: keysId, text: SV_TEXT.keys }));
+  const stage = h("div", { class: "sv-stage", "aria-live": "off" }, frame, bar, vBox, h("span", { class: "sr-only", id: keysId, text: SV_TEXT.keys }));
   const dl = h("button", { class: "btn primary sv-dl", type: "button" }, icon("download"), o.downloadText || SV_TEXT.download);
   const dlMsg = h("p", { class: "sv-dlmsg small", role: "status" });
   const headId = o.headId || "sv-h";
@@ -114,7 +130,7 @@ export function slideViewer(o) {
     n = Math.min(Math.max(1, k), total);
     paintBar();
     const my = ++seq, want = n;
-    err.hidden = true;
+    err.hidden = true; paintVideo(null);
     clearTimeout(loadT); loadT = setTimeout(() => { if (my === seq && alive) frame.classList.add("loading"); }, LOADING_DELAY_MS);
     if (say) live.textContent = slideCount(n, total);
     let s;
@@ -133,7 +149,7 @@ export function slideViewer(o) {
       if (first && first.noSlides && n <= B) return noSlidesFallback();   // ältere Präsentation ohne Folienbilder
       return fail(null);
     }
-    setRatio(s);
+    setRatio(s); paintVideo(s);
     const pre = makeImage();
     pre.onload = () => {
       if (my !== seq || !alive) return;   // inzwischen eine andere Folie gewählt: dieses Bild nicht mehr zeigen

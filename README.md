@@ -112,6 +112,26 @@ gleich in `public/_headers`, im Worker und – für GitHub Pages – in `scripts
   „+5 Min“ (der Timer beginnt dann mit dieser Zeit neu) und „Timer schließen“. Folienwechsel, „Sitzungscode zeigen“ und „Schließen“ des
   Präsentationsfensters lassen ihn weiterlaufen, „Präsentation für alle beenden“ beendet ihn. Die Restzeit rechnet der Server – falsch gehende
   Uhren der iPads spielen keine Rolle.
+  **YouTube-Videos in der Präsentation (Videofolien):** Steht im Schulportal-Eintrag (in einer Phase) oder bei den Links der Sitzung ein
+  YouTube-Video, nennt der Präsentations-Prompt es Claude mit der Phase, dem Link und – falls angegeben, z. B. „(1:30–4:05)“ hinter dem Link oder
+  `?t=90` im Link – dem Ausschnitt und beschreibt genau die **Videofolie**: oben „Video: <Titel>“, darunter der Link (auch anklickbar), bei einem
+  Ausschnitt „Ausschnitt: 1:30–4:05“, ein schlichtes Abspielsymbol und eine **unsichtbare Zeile**
+  `Unterricks-Video: https://www.youtube.com/watch?v=… | Start: 1:30 | Ende: 4:05 | Titel: …`, an der Unterricks die Folie beim Hochladen
+  erkennt (die Meldung nennt die Videofolien). Unter **„Videofolien“** in der Präsentationskarte prüfen und ändern Sie sie (Folie, Link, Start,
+  Ende, Titel) oder legen sie selbst fest – auch für eigene PDFs ohne die Zeile; „Videofolien aus der PDF übernehmen“ macht das rückgängig.
+  Im Unterricht steht auf einer Videofolie unter der Folie ein Feld mit Titel, Ausschnitt und den Knöpfen „Video abspielen“ bzw. „Pause“,
+  „−10 s“, „+10 s“, „Von vorn“, „Video schließen“ und „Auf YouTube öffnen“. **„Weiter“** (→, Leertaste, Presenter, Tippen rechts) startet auf
+  einer Videofolie zuerst das Video, ein weiteres „Weiter“ geht zur nächsten Folie. Wo das Video spielt, entscheidet Unterricks: an einem
+  **verbundenen Beamergerät** („Beamer verbinden“, über den Server), sonst in einem **verbundenen Beamerfenster**, sonst **in der Präsentation
+  selbst** (iPad bzw. Laptop gespiegelt) – nie doppelt. Das Feld sagt, wo, und meldet „Spielt am Beamer.“, „Pausiert.“, „Ausschnitt zu Ende.“.
+  Verlangt der Browser am Beamer für den Ton erst eine Bedienung an diesem Gerät (z. B. am iPad, das an Apple TV spiegelt), sagt das Feld es,
+  und am Beamer steht „Video abspielen“ – einmal dort tippen bzw. direkt auf das Video. Lässt YouTube das Einbetten eines Videos nicht zu, sagt
+  das Feld auch das; dann hilft „Auf YouTube öffnen“. Die **Schüler:innen** sehen live nur die Folie (mit Titel und Link) – auf ihren Geräten
+  lädt nichts von YouTube; nach der Stunde steht im Folienfenster unter der Videofolie „Video auf YouTube ansehen: „…““ (öffnet YouTube in
+  einem neuen Tab). Eingebettet wird nur der Player von youtube-nocookie.com, und erst, wenn Sie das Video abspielen: Google erhält dabei die
+  IP-Adresse des Geräts, auf dem es spielt (Beamergerät, Beamerfenster bzw. Ihr Gerät), nie die der Schüler:innen. Grenzen: abgespielt mit
+  einem echten YouTube-Video ließ es sich in der Testumgebung nicht (dort gibt es keine Videowiedergabe) – geprüft sind das Steuerprotokoll des
+  Players und alle Abläufe mit einer Attrappe; bitte einmal am Schul-iPad und am Beamer ausprobieren.
   **Notizen zu den Folien (nur für Sie):** Der Präsentations-Prompt bittet Claude, zu jeder Folie Stichpunkte für Sie zu schreiben (was Sie
   sagen, fragen oder beachten, Impulse, erwartete Antworten, Zeit) – nicht auf den Folien, sondern als **unsichtbaren Dateianhang** der PDF
   (`unterricks-notizen.json`); kann Claude keine Datei einbetten, steht der Block im Chat und Sie fügen ihn in Unterricks ein. Beim Hochladen

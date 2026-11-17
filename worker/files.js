@@ -3,9 +3,10 @@
 import { HttpError, bad, json, readJson, randomId, cleanLine, cleanText, isId, requireSecret, signLink, checkLink, contentDisposition, INLINE_SAFE } from "./lib.js";
 import { courseClassSize } from "./courses.js";
 import { requireTeacher } from "./auth.js";
-import { getLesson, fileOut, codeSlidesOf, slidePhasesOf, LIMITS, onPrintList, cardVersion, notesData, PRINT_COURSE_COL, printNameOf } from "./lessons.js";
+import { getLesson, fileOut, codeSlidesOf, slidePhasesOf, videoSlidesFileOf, LIMITS, onPrintList, cardVersion, notesData, PRINT_COURSE_COL, printNameOf } from "./lessons.js";
 import { normalizeCode, isValidCode, cleanWebUrl, slidesUpTo, cleanCopies, isAnalogClass, cleanCodeSlides, GS_SUBJECT, cleanSlideNotes, annotatedName, CARD_PRINT, printTitleOf, cleanSlidePhases, PHASE_MAX } from "../public/shared.js";
 import { cleanDesignHtml, renderPdf, htmlText, keepImages, shortImages, HTML_MAX, RenderError, renderUsage, printerConfigured } from "./render.js";
+import { cleanVideoSlides, videoSlidesStore, VIDEO_LIMITS } from "../public/videoslides.js";
 
 export const MAX_FILE = 100 * 1024 * 1024;         // Grenze einer Anfrage im Cloudflare-Free-Plan
 export const MAX_SLIDE = 4 * 1024 * 1024;
@@ -505,8 +506,11 @@ export async function routePresentationReady(c, fileId) {
   // je Folie eine Ganzzahl 1–99 oder null, genau so viele wie Folien. Fehlen beide (ältere offene Seite), bleibt die Spalte, wie sie ist
   const phasesJson = body.phases === undefined && body.phasesHand === undefined ? f.slide_phases ?? null
     : phasesStore({ pdf: checkPhases(body.phases, pages), hand: checkPhases(body.phasesHand, pages), auto: null });
-  await c.db.prepare("UPDATE files SET pages=?2, status='ready', code_slides=?4, notes=?5, clean_size=CASE WHEN ?6 THEN COALESCE(clean_size, 0) ELSE clean_size END, slide_phases=?7, updated_at=?3 WHERE id=?1")
-    .bind(f.id, pages, c.now, cs.length ? JSON.stringify(cs) : null, notesJson, body.clean === true ? 1 : 0, phasesJson).run();
+  // Videofolien (Nachtrag 38): videos = aus der PDF erkannt, videosHand = von der Lehrkraft festgelegt (Sitzungsdatei bzw. Sicherung); fehlen beide, bleibt die Spalte
+  const videosJson = body.videos === undefined && body.videosHand === undefined ? f.video_slides ?? null
+    : videoSlidesStore({ pdf: checkVideos(body.videos, pages), hand: body.videosHand === undefined || body.videosHand === null ? null : checkVideos(body.videosHand, pages, true) });
+  await c.db.prepare("UPDATE files SET pages=?2, status='ready', code_slides=?4, notes=?5, clean_size=CASE WHEN ?6 THEN COALESCE(clean_size, 0) ELSE clean_size END, slide_phases=?7, video_slides=?8, updated_at=?3 WHERE id=?1")
+    .bind(f.id, pages, c.now, cs.length ? JSON.stringify(cs) : null, notesJson, body.clean === true ? 1 : 0, phasesJson, videosJson).run();
   return json({ ok: true, file: fileOut(await getFile(c.db, f.id)) });
 }
 /* Phasen der Folien prüfen (fehlt/null = keine); ungültig → 400 */
@@ -517,6 +521,24 @@ function checkPhases(raw, pages) {
   return v;
 }
 const phasesStore = (o) => (o.pdf || o.hand || o.auto ? JSON.stringify({ v: 1, pdf: o.pdf || null, hand: o.hand || null, auto: o.auto || null }) : null);
+/* Videofolien prüfen (Nachtrag 38): aus der PDF gelesen nachsichtig (Ungültiges entfällt, leer = keine), von der Lehrkraft (keep: [] bleibt [] = bewusst keine) streng – ungültig → 400 */
+function checkVideos(raw, pages, keep = false) {
+  if (raw === undefined || raw === null) return null;
+  const v = cleanVideoSlides(raw, pages, keep);
+  if (v === undefined) throw bad("Ungültige Videofolien: je Eintrag eine Folie von 1 bis " + pages + " (jede nur einmal), ein YouTube-Video und – falls angegeben – Start vor Ende (höchstens " + VIDEO_LIMITS.slides + ").");
+  return keep ? v : v.length ? v : null;
+}
+/* Videofolien ändern (Nachtrag 38, nur Lehrkraft): hand = Liste der Lehrkraft ([] = keine Videofolien), null = wieder die aus der PDF */
+export async function routeVideosPut(c, fileId) {
+  await requireTeacher(c);
+  const f = await getFile(c.db, fileId);
+  if (f.area !== "presentation" || f.status !== "ready") throw bad("Die Präsentation ist noch nicht bereit.");
+  const body = await readJson(c.request, 60000);
+  if (body.hand === undefined) throw bad("Bitte die Videofolien angeben.");
+  const cur = videoSlidesFileOf(f), hand = body.hand === null ? null : checkVideos(body.hand, f.pages, true);
+  await c.db.prepare("UPDATE files SET video_slides=?2, updated_at=?3 WHERE id=?1").bind(f.id, videoSlidesStore({ pdf: cur.pdf, hand }), c.now).run();
+  return json({ ok: true, file: fileOut(await getFile(c.db, f.id)) });
+}
 /* Phasen der Folien ändern (Nachtrag 34, nur Lehrkraft): hand = Zuordnung der Lehrkraft (null = wieder die aus der PDF), auto = wo Unterricks zuletzt
    selbst einen Zwischenstopp eingetragen hat ({phase, until} bzw. null) – die Sitzungsseite schreibt es nach dem Markieren der letzten gezeigten Folie.
    Fehlt ein Feld, bleibt es, wie es ist. */
@@ -637,7 +659,7 @@ export async function routeTeacherSlides(c, fileId) {
   const secret = requireSecret(c.env), urls = [], nd = notesData(f);
   for (let n = 1; n <= f.pages; n++) urls.push(await slideUrl(secret, f.id, n, 12 * 3600e3, c.now));
   // Notizen (Nachtrag 20): nur hier und in …/notes – beide nur für die angemeldete Lehrkraft
-  return json({ ok: true, pages: f.pages, urls, codeSlides: codeSlidesOf(f), notes: nd.slides, notesRev: nd.rev, phases: slidePhasesOf(f) });
+  return json({ ok: true, pages: f.pages, urls, codeSlides: codeSlidesOf(f), notes: nd.slides, notesRev: nd.rev, phases: slidePhasesOf(f), videos: videoSlidesFileOf(f) });
 }
 export async function slideUrl(secret, fileId, n, ttl, now = Date.now()) {
   const { e, s } = await signLink(secret, ["slide", fileId, n], ttl, now);

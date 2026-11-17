@@ -240,8 +240,10 @@ input[type=checkbox]:focus-visible, input[type=radio]:focus-visible { outline: 3
 .badge.ok { background: var(--gruen-t); color: var(--ok); }
 .badge.stop { background: var(--rot-t); color: var(--err); }
 .badge.ink { background: var(--ink); color: #fff; }
+.badge.video { background: var(--violett-t); color: var(--violett); }   /* Videofolie (Nachtrag 38) */
 .badge.hw { background: var(--gelb-t); color: var(--text); box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--gelb-kante) 60%, transparent); }
 @media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) .badge.ink { background: #e8edf6; color: #13213b; } }
+@media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) .badge.video { color: #c9b3ff; } }
 .save-state { display: inline-flex; align-items: center; gap: .3rem; } .save-state[data-state="ok"] { color: var(--ok); } .save-state[data-state="err"] { color: var(--err); }
 .dot { width: .55rem; height: .55rem; border-radius: 50%; background: currentColor; display: inline-block; }
 .badge.onair .dot { animation: pulse 1.4s ease-in-out infinite; }
@@ -489,6 +491,17 @@ main.narrow .homework { background: var(--gelb-t); border-color: color-mix(in sr
 .phasebox .phaserow select { width: auto; flex: 0 0 auto; min-width: 9rem; max-width: 100%; }
 .phasebox .ph-n { font-weight: 700; }
 .phasebox #phase-sum { color: var(--muted); }
+/* Videofolien (Nachtrag 38): je Video eine Zeile Folie · Link · Start · Ende · Titel */
+.videobox { margin-bottom: .7rem; }
+.videobox .videorows { display: grid; gap: .6rem; }
+.videobox .videorow { display: grid; grid-template-columns: minmax(8rem, 10rem) minmax(12rem, 1fr) 6.5rem 6.5rem; gap: .45rem .75rem; align-items: end; margin: 0;
+  padding: .5rem .8rem .75rem; border: 1px solid var(--line-ui); border-radius: var(--radius-s); min-width: 0; }
+.videobox .videorow legend { font-weight: 700; padding: 0 .3rem; }
+.videobox .videorow .field { margin: 0; min-width: 0; }
+.videobox .vid-title { grid-column: 1 / 4; }
+.videobox .videorow > .btn { justify-self: start; }
+.videobox #video-sum { color: var(--muted); }
+@media (max-width: 40rem) { .videobox .videorow { grid-template-columns: 1fr 1fr; } .videobox .vid-url, .videobox .vid-title { grid-column: 1 / -1; } }
 .presrel { margin: .3rem 0 .6rem; }
 /* Notizen der Lehrkraft zu den Folien (Nachtrag 20): je Folie Vorschaubild und Textfeld (ein Stichpunkt je Zeile) */
 .notesbox { margin: .5rem 0 .9rem; padding: .8rem .95rem .9rem; border-radius: var(--radius); background: var(--surface-2); display: grid; gap: .45rem; }
@@ -554,6 +567,14 @@ main.narrow .homework { background: var(--gelb-t); border-color: color-mix(in sr
 .sv-dlrow { display: flex; flex-wrap: wrap; align-items: center; gap: .6rem; margin-top: 1rem; }
 .sv-dlmsg { margin: .55rem 0 0; } .sv-dlmsg:empty { margin: 0; }
 .sv-none { margin: .75rem 0 0; color: var(--muted); }
+/* Videofolien (Nachtrag 38): Link zum Video unter der Folie (nur nach der Stunde – live sehen die Schüler:innen nur die Folie) */
+.sv-video { display: flex; flex-wrap: wrap; align-items: center; gap: .15rem .45rem; margin: 0; font-weight: 700; }
+.sv-video[hidden] { display: none; }
+.sv-video > .ico { width: 1.15em; height: 1.15em; flex: none; color: var(--rot); }
+.sv-vlink { overflow-wrap: anywhere; }
+.sv-vnote { flex-basis: 100%; padding-left: 1.6em; color: var(--muted); font-weight: 400; font-size: .9rem; }
+.sv-stage.full .sv-video { color: #e8edf6; } .sv-stage.full .sv-vlink { color: #a9c6ff; } .sv-stage.full .sv-vnote { color: #9fb0cc; }
+.sv-stage.full .sv-video > .ico { color: #ff8a8a; }
 /* Vollbild (bzw. ohne Vollbild-Schnittstelle als Ebene über der Seite): Folie so groß wie möglich, die Knöpfe darunter hell auf dunkel */
 .sv-stage.full { margin: 0; width: 100vw; height: 100vh; height: 100dvh; padding: .75rem; grid-template-rows: minmax(0, 1fr) auto; background: #0b111e; }
 .sv-stage.max { position: fixed; inset: 0; z-index: 60; }
@@ -605,6 +626,30 @@ main.narrow .homework { background: var(--gelb-t); border-color: color-mix(in sr
 .presenter .pn-list li::marker { color: #f0a050; }
 .presenter .pn-none { margin: 0; color: #9fb0cc; font-size: clamp(.95rem, 1.4vw, 1.2rem); }
 .presenter .notehint { color: #e8edf6; }
+/* Videofolien (Nachtrag 38): Steuerung des Videos unter der aktuellen Folie – nur auf Videofolien; hell auf dunkel wie die Leiste, Kanten 3:1 */
+.presenter .videopane { display: none; }
+.presenter.with-video .curcol { grid-template-rows: minmax(0, 1fr) auto; gap: clamp(.4rem, 1vw, .8rem); }
+.presenter.with-video.with-notes .curcol { grid-template-rows: minmax(0, 1fr) auto minmax(0, 26%); }
+.presenter.with-video .videopane { display: grid; gap: .4rem; justify-self: center; width: min(100%, 62rem); padding: .55rem .9rem .65rem; background: #141c2e; color: #f1f4fa;
+  border-radius: 8px; box-shadow: 0 0 0 1px rgba(255, 255, 255, .14); transition: opacity .3s var(--ease); }
+.presenter.idle .videopane { opacity: 0; } .presenter.idle .videopane:focus-within { opacity: 1; }
+.presenter .pv-head { display: flex; align-items: baseline; gap: .55rem; flex-wrap: wrap; min-width: 0; }
+.presenter .pv-head > .ico { flex: none; align-self: center; color: #ff8a8a; }
+.presenter .pv-title { margin: 0; font-weight: 800; font-size: clamp(.98rem, 1.4vw, 1.15rem); line-height: 1.3; min-width: 0; overflow-wrap: anywhere; }
+.presenter .pv-clip { color: #9fb0cc; font-size: .9rem; }
+.presenter .pv-clip:empty { display: none; }
+.presenter .pv-time { margin-left: auto; font-variant-numeric: tabular-nums; font-weight: 800; color: #e8edf6; }
+.presenter .pv-ctl { display: flex; flex-wrap: wrap; gap: .45rem; align-items: center; }
+.presenter .videopane .btn { --ring: #fff; background: #1d2840; color: #fff; border-color: #6b7a96; }
+.presenter .videopane .btn:hover { background: #26324d; }
+.presenter .videopane .btn.primary { background: #2b4a8f; border-color: #8fb0f0; }
+.presenter .videopane .btn[hidden] { display: none; }
+.presenter .pv-yt { margin-left: auto; color: #a9c6ff; font-weight: 700; font-size: .92rem; text-underline-offset: .15em; }
+.presenter .pv-yt:focus-visible { outline: 3px solid #fff; outline-offset: 2px; border-radius: 3px; }
+.presenter .pv-msg { margin: 0; color: #c9d3e4; font-size: .92rem; line-height: 1.4; }
+/* Player (ytplayer.js): füllt die Folienfläche; schwarz, bis YouTube das Bild zeigt */
+.ytp { width: 100%; height: 100%; background: #000; }
+.ytp-frame { display: block; width: 100%; height: 100%; border: 0; }
 @media (max-aspect-ratio: 1 / 1) {   /* hochkant (z. B. iPad): die nächste Folie unter der aktuellen */
   .presenter.with-next .pview { grid-template-columns: minmax(0, 1fr); grid-template-rows: minmax(0, 1.7fr) minmax(0, 1fr); }
   .presenter.with-next .stagecell { place-items: end center; } .presenter.with-next .nextpane { place-items: start center; }   /* beide dicht beieinander */
@@ -656,6 +701,13 @@ main.narrow .homework { background: var(--gelb-t); border-color: color-mix(in sr
 .beamer { position: fixed; inset: 0; z-index: 100; max-width: none; margin: 0; padding: 0; background: #000; color: #cfd8e6; display: grid; grid-template: minmax(0, 1fr) / minmax(0, 1fr); }
 .beamer .bm-stage { display: grid; grid-template: minmax(0, 1fr) / minmax(0, 1fr); place-items: center; overflow: hidden; min-height: 0; }
 .beamer .bm-stage > img { width: 100%; height: 100%; object-fit: contain; user-select: none; -webkit-user-drag: none; }
+/* Videofolien (Nachtrag 38): Player an Stelle der Folie; braucht der Browser eine Bedienung für den Ton, oben ein Feld mit „Video abspielen“ */
+.beamer .bm-stage > .bm-video { position: relative; width: 100%; height: 100%; }
+.beamer .bm-vnote { position: absolute; top: .75rem; left: 50%; transform: translateX(-50%); display: flex; align-items: center; gap: .8rem; flex-wrap: wrap; justify-content: center;
+  max-width: calc(100% - 1.5rem); padding: .6rem .9rem; border-radius: 10px; background: rgba(11, 17, 30, .94); color: #fff; box-shadow: 0 0 0 1px rgba(255, 255, 255, .2); }
+.beamer .bm-vnote[hidden] { display: none; }
+.beamer .bm-vnote p { margin: 0; font-weight: 700; }
+.beamer .bm-vplay { --ring: #fff; }
 .beamer .bm-wait { max-width: 36rem; margin: 0; padding: 1.5rem; text-align: center; color: #9fb0cc; font-size: 1.05rem; }
 .beamer .bm-bar { position: absolute; left: 0; right: 0; bottom: 0; display: flex; gap: .6rem; align-items: center; flex-wrap: wrap; padding: .6rem .9rem; background: rgba(11, 17, 30, .94); color: #e8edf6; transition: opacity .3s var(--ease); }
 .beamer .bm-bar .btn { background: #1d2840; color: #fff; border-color: #34405a; --ring: #fff; }

@@ -136,6 +136,10 @@ export const COLUMNS = [
   // Grundschule (Nachtrag 31b): Druckangaben dieser Sitzung für Bildkarten ANDERER Sitzungen des Kurses, auf die ihr Verlaufsplan verweist – {"<file_id>":
   // {copies, duplex, color} | {off: true}} als JSON (cardPrintsOf in public/shared.js); ohne Eintrag 1x, einseitig, farbig (CARD_PRINT). NULL = nie geändert
   ["lessons", "card_prints", "TEXT"],
+  // Videofolien einer Präsentation (Nachtrag 38): {v:1, pdf, hand} als JSON (videoSlidesData in public/videoslides.js) – je Eintrag {n, id, start?, end?, title?}
+  // (Folie, YouTube-Kennung, Ausschnitt in Sekunden, Titel; nie eine Adresse); pdf = aus der unsichtbaren Zeile „Unterricks-Video: …“ erkannt, hand = von der
+  // Lehrkraft festgelegt (gilt vor pdf, [] = bewusst keine). NULL = keine
+  ["files", "video_slides", "TEXT"],
 ];
 
 // Indizes über nachträglich ergänzte Spalten (nach den Spalten angelegt; ein Fehler – z. B. alte Doppelungen – hält den Betrieb nicht auf)

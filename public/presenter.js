@@ -6,6 +6,8 @@ import { isValidCode, formatCode, slideTextLines, slideCodeBoxes, slideSessionCo
   TIMER_PICKS, TIMER_MAX_MIN, TIMER_TOTAL_MAX_MIN, TIMER_ADDS, TIMER_OVER, normTimerMin } from "./shared.js";
 import { codeSlideDom } from "./codeslide.js";
 import { timerBand } from "./timerband.js";
+import { videoMarkOf, cleanVideoSlides, videoSlidesOf, videoAt, videoName, videoClipText, videoWatchUrl, videoPosNow, clampPos, cleanVideoReport, ytErrorText, fmtClock, YT_STATE } from "./videoslides.js";
+import { ytPlayer } from "./ytplayer.js";
 
 let pdfjsP = null;
 async function pdfjs() {
@@ -90,6 +92,8 @@ export async function pdfPageCount(file) {
    Notizen der Lehrkraft (Nachtrag 20): der Anhang unterricks-notizen.json (bzw. opt.notes aus einer Sitzungsdatei) geht mit …/ready an den Server.
    Phasen der Folien (Nachtrag 34): je Folie die Zahl aus der unsichtbaren Zeile „Unterricks-Phase: n“ (phaseMarkOf) geht als phases mit …/ready an den
    Server, opt.phases (Zuordnung der Lehrkraft aus einer Sitzungsdatei bzw. Sicherung) als phasesHand. Ergebnis zusätzlich phases = Zahl der Folien mit Phase.
+   Videofolien (Nachtrag 38): je Folie mit der unsichtbaren Zeile „Unterricks-Video: …“ (videoMarkOf) {n, id, start?, end?, title?} als videos, opt.videos (aus einer
+   Sitzungsdatei) als videosHand. Ergebnis zusätzlich videos = die geltenden Videofolien.
    Trägt die PDF Anhänge oder Notiz-Anmerkungen, bekommen Schüler:innen nur eine bereinigte Fassung (…/clean); die Folienbilder entstehen dann aus
    ihr. Mit Notizen entsteht danach die Anmerkungs-PDF (nur Lehrkraft). Ergebnis zusätzlich notes (Zahl), clean {needed, ok, error}, annotated
    {file, removed} | {error}. */
@@ -131,7 +135,7 @@ async function rasterize(file, fileId, token, onProgress, opt) {
   }
   const notes = cards ? [] : cleanSlideNotes(opt.notes !== undefined && opt.notes !== null ? opt.notes : scan.raw, n);
   const side = cards ? 1600 : 1920;
-  const thumbs = [], marks = new Array(n).fill(null);
+  const thumbs = [], marks = new Array(n).fill(null), videos = [];
   for (let i = 1; i <= n; i++) {
     const page = await doc.getPage(i);
     const v1 = page.getViewport({ scale: 1 });
@@ -147,6 +151,8 @@ async function rasterize(file, fileId, token, onProgress, opt) {
       items = await pageItems(lib, page, vp);
       const lines = slideTextLines(items);
       marks[i - 1] = phaseMarkOf(lines, items);   // Phase der Folie (Nachtrag 34): unsichtbare Zeile „Unterricks-Phase: n“ (Textstücke zuerst)
+      const vid = videoMarkOf(lines, items);   // Videofolie (Nachtrag 38): unsichtbare Zeile „Unterricks-Video: …“
+      if (vid) videos.push({ n: i, ...vid });
       const head = codeSlideLines(lines, canvas.height);
       if (head) { placeholder = true; codeSlides.push({ n: i, lines: head }); }
     } catch {}
@@ -185,7 +191,9 @@ async function rasterize(file, fileId, token, onProgress, opt) {
   const sent = cleanCodeSlides(codeSlides, n);
   // Phasen der Folien (Nachtrag 34): aus der PDF; opt.phases = Zuordnung der Lehrkraft aus einer Sitzungsdatei bzw. Sicherung (gilt vor der PDF)
   const phases = cleanSlidePhases(marks, n) || null, phasesHand = opt.phases ? cleanSlidePhases(opt.phases, n) || null : null;
-  const ready = await api("POST", "/api/teacher/files/" + fileId + "/ready", { token, body: { pages: n, codeSlides: sent, notes, clean: !!scan.needsClean, phases, phasesHand } });
+  // Videofolien (Nachtrag 38): aus der PDF; opt.videos = von der Lehrkraft festgelegt (Sitzungsdatei bzw. Sicherung; [] = bewusst keine)
+  const vids = cleanVideoSlides(videos, n), videosHand = Array.isArray(opt.videos) ? cleanVideoSlides(opt.videos, n) : null;
+  const ready = await api("POST", "/api/teacher/files/" + fileId + "/ready", { token, body: { pages: n, codeSlides: sent, notes, clean: !!scan.needsClean, phases, phasesHand, videos: vids, videosHand } });
   // Anmerkungs-PDF (nur Lehrkraft): ein Fehler hier lässt die Präsentation nutzbar
   let annotated = null;
   const rev = ready.file && ready.file.notesRev;
@@ -196,6 +204,7 @@ async function rasterize(file, fileId, token, onProgress, opt) {
   // notesBad: die PDF trägt unterricks-notizen.json, daraus kam aber nichts (z. B. kein gültiges JSON oder ein anderes Format) – sonst bliebe das still
   const notesBad = !(opt.notes !== undefined && opt.notes !== null) && !!scan.notesFile && !notes.length;
   return { pages: n, thumbs, file: ready.file, codeSlides: (ready.file && ready.file.codeSlides) || sent, notes: notes.length, notesBad, clean: cleanState, annotated, phases: phases ? phases.filter((v) => v !== null).length : 0,
+    videos: videoSlidesOf(ready.file || { videos: { pdf: vids, hand: videosHand } }),
     swapped: swappedOn.length || missedOn.length ? { from: oldCode, to: want, slides: swappedOn, missed: missedOn } : null };
 }
 
@@ -213,6 +222,7 @@ export class TeacherLive {
         if (this.want) ws.send(JSON.stringify(this.want));   // nach Wiederverbindung den Stand der Lehrkraft erneut setzen
         else ws.send(JSON.stringify({ t: "hello" }));
         for (const m of this.queue.splice(0)) ws.send(m);
+        if (this.onOpen) { try { this.onOpen(); } catch {} }   // z. B. ein laufendes Video am Beamergerät (Nachtrag 38) erneut setzen
         clearInterval(this.pingT); this.pingT = setInterval(() => { try { ws.send("ping"); } catch {} }, 25000);
       };
       ws.onmessage = (ev) => { if (ev.data === "pong") return; try { this.onState(JSON.parse(ev.data)); } catch {} };
@@ -317,7 +327,7 @@ export async function startPresenter({ lessonId, file, token, startSlide = 0, on
     codeBtn.textContent = peek ? "Zurück zu Folie " + cur : "Sitzungscode zeigen";
     codeBtn.disabled = !peek && cur === 0;
   }
-  function setPeek(on) { if (on === peek || (on && cur === 0)) return; moved = true; peek = on; paint(); live.send({ t: "code", on }); }
+  function setPeek(on) { if (on === peek || (on && cur === 0)) return; moved = true; if (on) vEnd({ keep: true, paintNow: false }); peek = on; paint(); live.send({ t: "code", on }); }
   // Vorschau der nächsten Folie (nur hier, nie im Beamerfenster und nie bei den Schüler:innen) – bei gespiegeltem Bildschirm ausblenden
   const nextBtn = h("button", { class: "btn small", type: "button", "aria-pressed": String(showNext), "aria-label": "Vorschau der nächsten Folie",
     title: "Vorschau der nächsten Folie ein- oder ausblenden (Taste V)", onclick: () => setNext(!showNext) }, "Vorschau");
@@ -350,6 +360,141 @@ export async function startPresenter({ lessonId, file, token, startSlide = 0, on
     hintT = setTimeout(paintNotesHint, NOTES_HINT_MS + 50);
     paintNotesHint();
   }
+  /* ---------- Videofolien (Nachtrag 38): YouTube-Video an der Stelle der Folie abspielen ----------
+     Wo es spielt, entscheidet diese Seite beim Abspielen: an einem verbundenen Beamergerät (über den Server), sonst in einem verbundenen Beamerfenster
+     (BroadcastChannel), sonst hier in der Präsentation (iPad bzw. Laptop gespiegelt). Die Schüler:innen sehen live nur die Folie. „Weiter“ (→, Leertaste,
+     Presenter, Tippen rechts) startet auf einer Videofolie zuerst das Video, erst ein weiteres „Weiter“ geht zur nächsten Folie. vs = gewünschter Stand
+     {n, id, start?, end?, title?, target, playing, pos, at (Date.now()), rev}, vRep = letzte Rückmeldung des Players (mit at = performance.now()). */
+  const videos = videoSlidesOf(s);
+  const videoOf = (k) => (k >= 1 && !(withCode && holders.has(k)) ? videoAt(videos, k) : null);
+  let vs = null, vRep = null, vLocal = null, vRev = 0, vStarted = null, vNote = "", vTick = null;
+  const V_WHERE = { device: "am Beamer", window: "im Beamerfenster", here: "hier in der Präsentation" };
+  const vTitle = h("p", { class: "pv-title" }), vClip = h("span", { class: "pv-clip" }), vTime = h("span", { class: "pv-time", "aria-hidden": "true" });
+  const vMsg = h("p", { class: "pv-msg", role: "status" });
+  const vBtn = (label, aria, fn, cls = "") => h("button", { class: "btn small" + (cls ? " " + cls : ""), type: "button", "aria-label": aria || null, onclick: () => fn() }, label);
+  const vPlay = vBtn("Video abspielen", null, () => vToggle(), "pv-play");
+  const vBack = vBtn("−10 s", "10 Sekunden zurück", () => vSeekBy(-10)), vFwd = vBtn("+10 s", "10 Sekunden vor", () => vSeekBy(10));
+  const vRestart = vBtn("Von vorn", "Video von vorn abspielen", () => vSet(true, vs ? vs.start || 0 : 0));
+  const vClose = vBtn("Video schließen", "Video schließen und wieder die Folie zeigen", () => {
+    const had = document.activeElement === vClose;
+    vEnd({ keep: true });
+    if (had) { try { vPlay.focus({ preventScroll: true }); } catch {} }   // der Knopf ist jetzt verborgen – der Fokus bliebe sonst nirgends
+  });
+  const vYt = h("a", { class: "pv-yt", target: "_blank", rel: "noopener noreferrer" }, "Auf YouTube öffnen", h("span", { class: "sr-only", text: " (öffnet in neuem Tab)" }));
+  const videoPane = h("section", { class: "videopane", "aria-label": "Video dieser Folie" },
+    h("div", { class: "pv-head" }, icon("play"), vTitle, vClip, vTime), h("div", { class: "pv-ctl" }, vPlay, vBack, vFwd, vRestart, vClose, vYt), vMsg);
+  curCol.insertBefore(videoPane, notesBox);
+  const vTarget = () => (beamersN > 0 ? "device" : [...beamers].some((b) => beamVis.get(b) === true) ? "window" : beamers.size && !oneScreen() ? "window" : "here");
+  const vAvailable = (t) => (t === "device" ? beamersN > 0 : t === "window" ? beamers.size > 0 : true);
+  const vSpec = (v) => ({ id: v.id, ...(v.start ? { start: v.start } : {}), ...(v.end ? { end: v.end } : {}), ...(v.title ? { title: v.title } : {}) });
+  // Rückmeldung zum aktuellen Video (derselbe Film auf derselben Folie)
+  const vReport = () => (vs && vRep && vRep.n === vs.n && vRep.id === vs.id ? vRep : null);
+  // Stelle im Video: nach der Rückmeldung des Players, sonst nach dem gewünschten Stand
+  function vPosNow() {
+    const r = vReport();
+    if (r && Number.isFinite(r.time)) return clampPos(vs, r.time + (r.state === YT_STATE.playing ? (performance.now() - r.at) / 1000 : 0));
+    return vs ? videoPosNow(vs, Date.now()) : 0;
+  }
+  function vPhase() {
+    if (!vs) return "idle";
+    const r = vReport(), same = !!r && r.rev === vs.rev;
+    if (r && r.err) return "err";
+    if (same && r.blocked && vs.playing) return "blocked";
+    if (same && r.state === YT_STATE.ended) return "ended";
+    if (same && r.state === YT_STATE.playing) return "playing";
+    if (same && r.state === YT_STATE.buffering) return "loading";
+    if (same && r.state === YT_STATE.paused && r.time !== null) return "paused";
+    return vs.playing ? "starting" : "paused";
+  }
+  // gewünschten Stand setzen und dorthin schicken, wo das Video spielt (beim ersten Mal: Ziel festlegen)
+  function vSet(playing, pos) {
+    const v = videoOf(cur);
+    if (!v || peek) return;
+    if (!vs || vs.n !== cur) { vs = { n: cur, ...vSpec(v), target: vTarget(), playing: false, pos: v.start || 0, at: Date.now(), rev: 0 }; vRep = null; }
+    vNote = ""; vStarted = cur;
+    vs = { ...vs, playing, pos: clampPos(vs, pos === undefined ? vPosNow() : pos), at: Date.now(), rev: ++vRev };
+    vDispatch(); vPaint();
+  }
+  function vToggle() {
+    const p = vPhase();
+    if (p === "ended") vSet(true, vs.start || 0);
+    else vSet(!(p === "playing" || p === "loading" || p === "starting" || p === "blocked"));
+  }
+  function vSeekBy(d) { if (vs) vSet(vs.playing, vPosNow() + d); }
+  const vWire = () => (vs && vs.n === cur ? { n: vs.n, ...vSpec(vs), playing: vs.playing, pos: Math.round(videoPosNow(vs, Date.now()) * 10) / 10, rev: vs.rev } : null);
+  function sendVideoWin() { if (bc && beamers.size) try { bc.postMessage({ t: "video", id: pid, at: claimAt, slide: cur, video: vs && vs.target === "window" ? vWire() : null }); } catch {} }
+  function vDispatch() {
+    if (!vs) return;
+    if (vs.target === "device") { const w = vWire(); if (w) live.send({ t: "video", op: "set", n: w.n, video: vSpec(w), playing: w.playing, pos: w.pos, rev: w.rev }); return; }
+    if (vs.target === "window") { sendVideoWin(); return; }
+    if (!vLocal) {
+      const n0 = vs.n, id0 = vs.id;
+      vLocal = ytPlayer(vs, { label: videoName(vs), onChange: (x) => { if (!vs || vs.n !== n0 || vs.id !== id0) return; vRep = { ...x, n: n0, id: id0, rev: vs.rev, at: performance.now() }; vPaint(); } });
+      stage.replaceChildren(vLocal.el, tb.el);
+    }
+    vLocal.set({ playing: vs.playing, pos: videoPosNow(vs, Date.now()), at: performance.now(), rev: vs.rev });
+  }
+  // Video beenden (Folienwechsel, „Video schließen“, Codefolie, Ende der Präsentation): überall schließen, die Folie wieder zeigen
+  function vEnd({ keep = false, paintNow = true } = {}) {
+    if (!vs) return;
+    const t = vs.target;
+    vs = null; vRep = null;
+    if (vLocal) { vLocal.destroy(); vLocal = null; }
+    if (t === "device") live.send({ t: "video", op: "close" });
+    else if (t === "window") sendVideoWin();
+    if (!keep) vStarted = null;
+    if (paintNow) paint();
+  }
+  // Beamer getrennt bzw. Beamerfenster geschlossen, während das Video dort lief: beenden (es spielt nirgends mehr)
+  function vCheckTarget() {
+    if (!vs || vAvailable(vs.target)) return;
+    const was = vs.target;
+    vEnd({ keep: true });
+    vNote = (was === "device" ? "Der Beamer ist nicht mehr verbunden" : "Das Beamerfenster ist geschlossen") + " – das Video wurde beendet.";
+    vPaint();
+  }
+  // „Weiter“: auf einer Videofolie zuerst das Video starten
+  function forward() {
+    if (!peek && !vs && vStarted !== cur && videoOf(cur)) { vSet(true); return; }
+    goto(cur + 1);
+  }
+  function vPaint() {
+    const v = !peek ? videoOf(cur) : null;
+    root.classList.toggle("with-video", !!v);
+    if (!v) { clearInterval(vTick); vTick = null; return; }
+    const open = !!vs && vs.n === cur, ph = open ? vPhase() : "idle", r = open ? vReport() : null;
+    const where = V_WHERE[open ? vs.target : vTarget()];
+    vTitle.textContent = "Video: " + videoName(v);
+    vClip.textContent = videoClipText(v);
+    vYt.href = videoWatchUrl(v); vYt.setAttribute("aria-label", "Auf YouTube öffnen – " + videoName(v) + " (öffnet in neuem Tab)");
+    const running = ph === "playing" || ph === "loading" || ph === "starting";
+    const label = running ? "Pause" : ph === "ended" ? "Noch einmal abspielen" : ph === "paused" ? "Weiter abspielen" : ph === "blocked" ? "Pause" : "Video abspielen";
+    if (vPlay.textContent !== label) vPlay.textContent = label;
+    vPlay.classList.toggle("primary", !running && ph !== "blocked");
+    for (const b of [vBack, vFwd, vRestart, vClose]) b.hidden = !open;
+    let msg = ph === "idle" ? (vNote ? vNote + " " : "") + "Das Video spielt " + where + "; die Schüler:innen sehen nur die Folie. „Weiter“ startet es, noch einmal „Weiter“ geht zur nächsten Folie."
+      : ph === "starting" ? "Startet " + where + " …" : ph === "loading" ? "Lädt " + where + " …" : ph === "playing" ? "Spielt " + where + "."
+      : ph === "paused" ? "Pausiert." : ph === "ended" ? (v.end ? "Ausschnitt zu Ende." : "Video zu Ende.")
+      : ph === "blocked" ? (vs.target === "device" ? "Der Browser am Beamer hat das Abspielen mit Ton blockiert – tippen Sie dort einmal auf „Video abspielen“ bzw. auf das Video."
+        : vs.target === "window" ? "Der Browser hat das Abspielen im Beamerfenster blockiert – klicken Sie dort einmal auf „Video abspielen“ bzw. auf das Video."
+        : "Der Browser hat das Abspielen mit Ton blockiert – tippen Sie einmal auf das Video.")
+      : ytErrorText(r && r.err) + " Die Schüler:innen sehen weiter die Folie.";
+    if (r && r.noapi && ph !== "err") msg += " Die Steuerung erreicht den Player nicht – bedienen Sie das Video direkt " + where + ".";
+    if (r && r.muted && ph === "playing") msg += " Es läuft ohne Ton – schalten Sie ihn im Player ein.";
+    if (vMsg.textContent !== msg) vMsg.textContent = msg;   // Statuszeile: nur Änderungen ansagen
+    paintVideoTime();
+    const tick = open && (running || ph === "blocked");
+    if (tick && !vTick) vTick = setInterval(paintVideoTime, 500);
+    else if (!tick && vTick) { clearInterval(vTick); vTick = null; }
+  }
+  function paintVideoTime() {
+    const v = !peek ? videoOf(cur) : null;
+    if (!v) return;
+    const r = vs && vs.n === cur ? vReport() : null, end = v.end || (r && r.dur) || 0;
+    const t = vs && vs.n === cur ? fmtClock(vPosNow()) + (end ? " / " + fmtClock(end) : "") : "";
+    if (vTime.textContent !== t) vTime.textContent = t;
+  }
+
   // Beamerfenster: nicht auf Tablets und Handys (dort gibt es kein zweites Fenster neben dem Präsentationsfenster)
   const bc = typeof BroadcastChannel === "function" ? new BroadcastChannel(BEAMER_CHANNEL) : null;
   const pid = hex(rand(8)), beamers = new Set(), beamVis = new Map();   // beamVis: Beamerfenster gerade zu sehen (eigene Meldung, vis)
@@ -435,11 +580,16 @@ export async function startPresenter({ lessonId, file, token, startSlide = 0, on
   // Läuft diese Präsentation schon (Wiederöffnen), übernimmt die Seite einmal den laufenden Stand – solange noch nicht geblättert wurde
   let adopted = false, moved = false;
   const live = new TeacherLive(lessonId, token, (m) => {
+    if (m.t === "vstate") {   // Rückmeldung eines Beamergeräts zum Video (Nachtrag 38)
+      const r = cleanVideoReport(m);
+      if (r && vs && vs.target === "device" && r.n === vs.n && r.id === vs.id) { vRep = { ...r, at: performance.now() }; vPaint(); }
+      return;
+    }
     if ((m.t === "count" || m.t === "state") && Number.isInteger(m.beamers) && m.beamers >= 0 && m.beamers !== beamersN) {
       const was = separate();
       beamersN = m.beamers; if (beamersN) { devNote = ""; clearTimeout(devWaitT); } paintDev(); paintBeam();
       if (was && !separate()) showNotesHint();
-      paintNotes();
+      paintNotes(); vCheckTarget(); vPaint();
     }
     if (m.t === "count") students = m.students;
     else if (m.t === "state") {
@@ -449,11 +599,16 @@ export async function startPresenter({ lessonId, file, token, startSlide = 0, on
         adopted = true;
         const k = Math.min(Math.max(first, m.slide), n), pk = withCode && k >= 1 && m.codeShown === true;
         if (k !== cur || pk !== peek) { cur = k; peek = pk; paint(); }
+        // läuft am Beamergerät gerade das Video dieser Folie (Präsentation wieder geöffnet): weiter steuern
+        const mv = m.video && !pk && m.video.n === cur && videoOf(cur) ? m.video : null;
+        if (mv && !vs && Number.isInteger(mv.rev)) { vs = { n: mv.n, ...vSpec(mv), target: "device", playing: mv.playing === true, pos: Number(mv.pos) || 0, at: Date.now(), rev: mv.rev }; vRev = Math.max(vRev, mv.rev); vStarted = cur; vPaint(); }
       }
     }
     else if (m.t === "conn") connOk = m.ok;
     paintInfo();
   });
+  // nach einer Wiederverbindung: das Video am Beamergerät erneut setzen (der Server hat beim erneuten Start der Präsentation keins mehr)
+  live.onOpen = () => { if (vs && vs.target === "device") vDispatch(); };
   function paintInfo() { clear(info).append(...(connOk ? [] : [icon("alert"), "Verbindung wird wiederhergestellt … · "]), students + " Schüler:in" + (students === 1 ? "" : "nen") + " verbunden"); }
   /* ---------- Beamer über ein zweites Gerät (Nachtrag 15) ---------- */
   // verbunden: der Knopf selbst zeigt den Stand („Beamer verbunden“, öffnet „Beamer trennen“) – die Leiste bleibt so schmal wie bisher;
@@ -583,27 +738,29 @@ export async function startPresenter({ lessonId, file, token, startSlide = 0, on
   }
   function paint() {
     const cv = viewOf(cur, peek), nx = nextSlideOf({ cur, n, peek, holders, withCode }), nv = nx.end ? null : viewOf(nx.k, false);
-    put(stage, cv, img);
+    // Video hier in der Präsentation (Nachtrag 38): der Player bleibt eingehängt (ein umgehängtes iframe lädt neu)
+    if (vLocal && vs && vs.n === cur && !peek) { if (stage.firstChild !== vLocal.el) stage.replaceChildren(vLocal.el, tb.el); }
+    else put(stage, cv, img);
     counter.textContent = cur === 0 || peek ? "Sitzungscode" : cur + " / " + n;
     if (showNext) {
-      npHead.replaceChildren(h("span", { class: "np-k", text: "Als Nächstes" }), " ", h("span", { class: "np-l", text: nextSlideLabel(nx, n) }));
+      npHead.replaceChildren(h("span", { class: "np-k", text: "Als Nächstes" }), " ", h("span", { class: "np-l", text: nextSlideLabel(nx, n) + (!nx.end && !nx.code && !nx.back && videoOf(nx.k) ? " · Video" : "") }));
       if (nv) put(npFrame, nv, npImg);
       else npFrame.replaceChildren(h("div", { class: "np-end", text: "Keine weitere Folie" }));
       npFrame.classList.toggle("end", !nv);
     }
-    preload(cur + 1); preload(cur + 2); preload(cur - 1); paintMark(); paintCodeBtn(); paintNotes();
+    preload(cur + 1); preload(cur + 2); preload(cur - 1); paintMark(); paintCodeBtn(); paintNotes(); vPaint();
     sendShow(cv, nv);
   }
   function goto(k) {
     if (peek) { setPeek(false); return; }   // erst zurück von der eingeblendeten Codefolie
-    k = Math.min(Math.max(first, k), n); if (k === cur) return; moved = true; cur = k; paint(); live.send({ t: "goto", slide: cur });
+    k = Math.min(Math.max(first, k), n); if (k === cur) return; moved = true; vEnd({ paintNow: false }); vStarted = null; vNote = ""; cur = k; paint(); live.send({ t: "goto", slide: cur });
   }
   /* ---------- Beamerfenster (beamer.js): bekommt nur die aktuelle Folie, schickt Tasten zurück ---------- */
   function sendShow(cv = viewOf(cur, peek), nv) {
     if (!bc || !beamers.size) return;
     if (nv === undefined) { const nx = nextSlideOf({ cur, n, peek, holders, withCode }); nv = nx.end ? null : viewOf(nx.k, false); }
     const view = cv.kind === "img" ? { kind: "img", src: cv.src, next: nv && nv.kind === "img" ? nv.src : null } : { kind: "code", code: cv.code, title: cv.title, lines: cv.lines };
-    try { bc.postMessage({ t: "show", id: pid, at: claimAt, fach: document.documentElement.dataset.fach || null, view, timer: tb.snapshot() }); } catch {}
+    try { bc.postMessage({ t: "show", id: pid, at: claimAt, fach: document.documentElement.dataset.fach || null, view, timer: tb.snapshot(), slide: peek ? null : cur, video: vs && vs.target === "window" ? vWire() : null }); } catch {}
   }
   const claim = () => { try { bc.postMessage({ t: "claim", id: pid, at: claimAt }); } catch {} };
   function paintBeam() {
@@ -633,10 +790,14 @@ export async function startPresenter({ lessonId, file, token, startSlide = 0, on
       // ältere Beamerfenster ohne vis gelten als zu sehen; solange dieses Fenster nicht zu sehen ist, zählt keins (siehe onVis)
       if (m.id === pid) { beamers.add(m.bid); beamVis.set(m.bid, m.vis !== false && document.visibilityState !== "hidden"); sendShow(); }
       else { beamers.delete(m.bid); beamVis.delete(m.bid); }
-      paintBeam(); if ((was || fresh) && !separate()) showNotesHint(); paintNotes();
+      paintBeam(); if ((was || fresh) && !separate()) showNotesHint(); paintNotes(); vCheckTarget(); vPaint();
     }
-    else if (m.t === "bye") { const was = separate(); beamers.delete(m.bid); beamVis.delete(m.bid); paintBeam(); if (was && !separate()) showNotesHint(); paintNotes(); }
+    else if (m.t === "bye") { const was = separate(); beamers.delete(m.bid); beamVis.delete(m.bid); paintBeam(); if (was && !separate()) showNotesHint(); paintNotes(); vCheckTarget(); vPaint(); }
     else if (m.t === "cmd" && m.id === pid && beamers.has(m.bid)) run(m.cmd);
+    else if (m.t === "vstate" && m.id === pid && beamers.has(m.bid)) {   // Rückmeldung des Beamerfensters zum Video (Nachtrag 38)
+      const r = cleanVideoReport(m.video);
+      if (r && vs && vs.target === "window" && r.n === vs.n && r.id === vs.id) { vRep = { ...r, at: performance.now() }; vPaint(); }
+    }
   };
   const onHide = () => { if (bc) try { bc.postMessage({ t: "end", id: pid, why: "close" }); } catch {} };
   const onShow = (e) => { if (e.persisted && bc) { claimAt = Date.now(); claim(); } };   // aus dem Verlauf zurück: Beamerfenster wieder übernehmen
@@ -658,7 +819,7 @@ export async function startPresenter({ lessonId, file, token, startSlide = 0, on
     else { const f = root.requestFullscreen || root.webkitRequestFullscreen; if (f) Promise.resolve(f.call(root)).catch(() => {}); }
   }
   function run(a) {
-    if (a === "next") goto(cur + 1); else if (a === "prev") goto(cur - 1);
+    if (a === "next") forward(); else if (a === "prev") goto(cur - 1);
     else if (a === "first") goto(first); else if (a === "last") goto(n);
     else if (a === "code") { if (codeBtn) setPeek(!peek); }
     else if (a === "fs") toggleFs(); else if (a === "preview") setNext(!showNext);
@@ -685,10 +846,10 @@ export async function startPresenter({ lessonId, file, token, startSlide = 0, on
   let idleT = null;
   const wake = () => { root.classList.remove("idle"); clearTimeout(idleT); idleT = setTimeout(() => root.classList.add("idle"), 2500); };
   let tx = null;
-  stageCell.addEventListener("click", (e) => { const r = stageCell.getBoundingClientRect(); goto(e.clientX - r.left > r.width / 3 ? cur + 1 : cur - 1); });
+  stageCell.addEventListener("click", (e) => { const r = stageCell.getBoundingClientRect(); if (e.clientX - r.left > r.width / 3) forward(); else goto(cur - 1); });
   nextPane.addEventListener("click", () => goto(cur + 1));
   root.addEventListener("touchstart", (e) => { tx = dlgOpen() ? null : e.touches[0].clientX; }, { passive: true });
-  root.addEventListener("touchend", (e) => { if (tx == null || dlgOpen()) { tx = null; return; } const dx = e.changedTouches[0].clientX - tx; if (Math.abs(dx) > 50) goto(dx < 0 ? cur + 1 : cur - 1); tx = null; });
+  root.addEventListener("touchend", (e) => { if (tx == null || dlgOpen()) { tx = null; return; } const dx = e.changedTouches[0].clientX - tx; if (Math.abs(dx) > 50) { if (dx < 0) forward(); else goto(cur - 1); } tx = null; });
   root.addEventListener("mousemove", wake);
   root.addEventListener("focusin", wake);
   root.addEventListener("click", (e) => { const b = e.target.closest && e.target.closest("button"); if (b && e.detail > 0) b.blur(); });
@@ -700,6 +861,7 @@ export async function startPresenter({ lessonId, file, token, startSlide = 0, on
   document.addEventListener("visibilitychange", onVis);
   try { if (window.screen && typeof window.screen.addEventListener === "function") window.screen.addEventListener("change", onScreen); } catch {}
   function end(stopForAll) {
+    vEnd({ paintNow: false }); clearInterval(vTick);   // ein laufendes Video endet mit der Präsentation (auch am Beamer)
     document.removeEventListener("keydown", onKey); clearTimeout(idleT); clearTimeout(devWaitT); clearTimeout(hintT); tb.stop();
     window.removeEventListener("pagehide", onHide); window.removeEventListener("pageshow", onShow); document.removeEventListener("visibilitychange", onVis);
     try { if (window.screen && typeof window.screen.removeEventListener === "function") window.screen.removeEventListener("change", onScreen); } catch {}

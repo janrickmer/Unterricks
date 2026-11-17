@@ -11,6 +11,7 @@ import { liveTicket, liveState } from "./live.js";
 import { normalizeCode, isValidCode, subjectName, classShort, isCourseClass, courseMembers, cleanWebUrl, lessonTimes, fmtClockBerlin, fmtDayBerlin, studentHelpPrompt, STUDENT_HELP_LIMITS, GS_SUBJECT, STUDENT_SLIDE_BLOCK,
   isAnalogClass } from "../public/shared.js";
 import { loadSubjectConfigs } from "./bases.js";
+import { videoSlidesData, videoSlidesOf, videoAt, videoWatchUrl, videoClipText } from "../public/videoslides.js";
 
 /* Zeitpunkte der Sitzung (Vorgabe der Lehrkraft vom 10.11.2026): die Hausaufgabe erst ab 15 Minuten vor dem Ende, die ganze Präsentation
    erst 5 Minuten nach dem Ende – berechnet aus Datum, Beginn (Uhrzeit) und Dauer; ohne Beginn oder Dauer bleibt beides verborgen. */
@@ -160,7 +161,7 @@ export async function routeStudentPresentationLink(c, lessonId) {
    auf einmal (je Folie ein HMAC) und nie jenseits der markierten letzten gezeigten Folie (wie die heruntergeladene PDF). Ohne Folienbilder
    (ältere Präsentation) ist slides leer – die Seite bietet dann nur die PDF an. */
 export async function routeStudentPresentationSlides(c, lessonId) {
-  const f = await releasedPresentation(c, lessonId, "id, pages, shown_until");
+  const f = await releasedPresentation(c, lessonId, "id, pages, shown_until, video_slides");
   const body = await readJson(c.request, 1000);
   const total = studentSlideLimit(f), from = Number(body.from), to = body.to === undefined ? from : Number(body.to);
   if (!Number.isInteger(from) || !Number.isInteger(to) || from < 1 || to < from) throw bad("Ungültige Foliennummer.");
@@ -169,7 +170,13 @@ export async function routeStudentPresentationSlides(c, lessonId) {
   const last = Math.min(to, total, from + STUDENT_SLIDE_BLOCK - 1);
   const rows = await c.db.prepare("SELECT n, w, h FROM slides WHERE file_id=?1 AND n BETWEEN ?2 AND ?3 ORDER BY n").bind(f.id, from, last).all();
   const secret = requireSecret(c.env), exp = studentSlideExp(c.now), slides = [];
-  for (const r of rows.results || []) slides.push({ n: r.n, w: r.w || null, h: r.h || null, url: await studentSlideUrl(secret, f.id, r.n, exp, c.now) });
+  // Videofolien (Nachtrag 38): nach der Stunde unter der Folie der Link zu YouTube (live sehen die Schüler:innen nur die Folie)
+  const videos = videoSlidesOf({ videos: videoSlidesData(f.video_slides, f.pages) });
+  for (const r of rows.results || []) {
+    const v = videoAt(videos, r.n);
+    slides.push({ n: r.n, w: r.w || null, h: r.h || null, url: await studentSlideUrl(secret, f.id, r.n, exp, c.now),
+      ...(v ? { video: { url: videoWatchUrl(v), title: v.title || "", clip: videoClipText(v) } } : {}) });
+  }
   return json({ ok: true, authLeftMs: c.authLeftMs, total, from, to: last, exp, slides });
 }
 
