@@ -441,7 +441,11 @@ gleich in `public/_headers`, im Worker und – für GitHub Pages – in `scripts
     PowerPoint-Datei (jede Folie als Bild, Links anklickbar; Ihre Notizen zu den Folien stehen in den Notizen der Folie, also in der
     Referentenansicht von PowerPoint; den Folientext kann man in PowerPoint nicht ändern) –, den Notizen zu den Folien (eigene PDF), dem Verlaufsplan und allen PDF-Dateien der Sitzung (für Schüler:innen samt Notfall-Feibeitsblättern, Druckliste, Material für die
     Lehrkraft, in der Grundschule samt Bildkarten). In der Präsentation fallen reine Codefolien weg; Materialfolien bleiben, ihre kleine
-    Unterricks-Zeile wird überdeckt. Jede Folie trägt unten klein und blass „Copyright Jan-Rickmer Feindt“ (die erzeugten Dokumente ebenso).
+    Unterricks-Zeile wird überdeckt. Jede Folie trägt unten klein und blass „Copyright Jan-Rickmer Feindt“ (ebenso Leupold-Schema, Erklärung,
+    „Fehlende Sitzungen“ und die Verlaufspläne). Ältere Präsentationen mit aufgedrucktem Sitzungscode: der Code wird überdeckt; ein QR-Code zu
+    Unterricks kann noch zu sehen sein – das sagt ein Hinweis nach dem Herunterladen. Bei einer Selbstlern-Phase bzw. Vertretung kommt die
+    ursprüngliche Planung in den Ordner. Was fehlt (z. B. ein Notfall-Feibeitsblatt oder eine Präsentation), zählt der Dialog „Hinweise zum
+    Ordner“ nach dem Herunterladen auf.
   * **„Fehlende Sitzungen.pdf“**, wenn noch nicht alle Stunden geplant sind: die noch nicht geplanten Stunden mit Stundenfrage und grobem Ablauf.
 * **Unterricks zurücksetzen** (Einstellungen, ganz unten): **„Alle Unterrichtsinhalte löschen und Unterricks zurücksetzen“**.
   * Gelöscht werden alle Unterrichtseinheiten und Sitzungen mit allem, was dazugehört – in der Grundschule auch Verlaufspläne,

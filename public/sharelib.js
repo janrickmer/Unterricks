@@ -66,13 +66,18 @@ export function shareSessions(rows, lessons) {
 export const normWords = (t) => " " + str(t).toLowerCase().normalize("NFC").replace(/[^\p{L}\p{N}]+/gu, " ").trim() + " ";
 const UNTERRICKS_WORDS = /unterricks|sitzungscode|\bcode\b|qr/i;
 /* lines = Überschrift der Codefolie (wie gespeichert), titles = Namen der Materialien und Feibeitsblätter der Sitzung → true = Materialfolie (bleibt) */
+// allgemeine Wörter, die als Titel eines Materials allein nichts beweisen („Die Hausaufgabe und das Material findest du in Unterricks.“)
+const GENERIC_TITLES = new Set(["material", "materialien", "hausaufgabe", "hausaufgaben", "aufgabe", "aufgaben", "arbeitsauftrag", "text", "texte", "video", "link", "links", "unterricks", "code", "quellen", "tafelbild"]);
 export function isMaterialSlide(lines, titles = []) {
   const head = (lines || []).map(str).join(" ").trim();
   if (!head) return false;
   const h = normWords(head);
   const words = new Set(h.trim().split(" "));
+  // ein Feibeitsblatt bzw. Arbeitsblatt in der Überschrift: Aufforderung, damit zu arbeiten (bleibt, auch wenn der Titel nicht genau passt)
+  if (/ (feibeitsblatt|feibeitsblätter|arbeitsblatt|arbeitsblätter) /.test(h)) return true;
   for (const t of titles || []) {
     const n = normWords(str(t).replace(/\.(pdf|docx?|pptx?|odt|png|jpe?g|txt|html?)$/i, "")).trim();
+    if (GENERIC_TITLES.has(n)) continue;
     if (n.replace(/\s/g, "").length >= 4 && h.includes(" " + n + " ")) return true;   // Titel wörtlich
     const tok = n.split(" ").filter((w) => w.length >= 2);
     if (tok.length >= 2 && tok.every((w) => words.has(w))) return true;   // alle Wörter des Titels, in anderer Reihenfolge („Arbeitsblatt M1“)
@@ -98,17 +103,31 @@ export function shareSlidePlan(codeSlides, pages, titles = []) {
    direkt darunter bzw. darüber (ähnliche Schriftgröße) → [{x0, x1, top, bottom}] in denselben Koordinaten (y nach unten) */
 export function markBoxes(lines) {
   const L = (lines || []).filter((l) => l && typeof l.text === "string" && Array.isArray(l.map));
+  // eine Zeile in Abschnitte zerlegen, wo zwischen zwei Zeichen eine große Lücke ist (anderer Text auf derselben Grundlinie, z. B. eine Seitenzahl rechts)
+  const segments = (l) => {
+    const out = [];
+    let cur = null, prev = null;
+    for (let i = 0; i < l.text.length; i++) {
+      const c = l.map[i];
+      if (!c) { if (cur) { cur.text += l.text[i]; cur.map.push(null); } continue; }   // Text und Positionen bleiben deckungsgleich
+      const hh = c.h || l.h || 0;
+      if (!cur || (prev && c.x0 - prev.x1 > 2 * hh)) { cur = { text: "", map: [] }; out.push(cur); }
+      cur.text += l.text[i]; cur.map.push(c); prev = c;
+    }
+    return out.map((sg) => ({ text: sg.text, map: sg.map, base: l.base, h: l.h }));
+  };
   const box = (l) => {
-    const m = l.map.filter(Boolean);
+    const m = l.map.filter((c, i) => c && /\S/.test(l.text[i] || "x"));   // Leerraum am Rand gehört nicht zum Kasten
     if (!m.length) return null;
     const h = Math.max(...m.map((c) => c.h || 0)) || l.h || 0;
     return { x0: Math.min(...m.map((c) => c.x0)), x1: Math.max(...m.map((c) => c.x1)), top: l.base - h * 1.0, bottom: l.base + h * 0.3, h, base: l.base };
   };
-  const marks = L.filter((l) => codeMarkLine(l.text) === "mark").map(box).filter(Boolean);
+  const parts = L.flatMap(segments);
+  const marks = parts.filter((p) => codeMarkLine(p.text) === "mark").map(box).filter(Boolean);
   const out = [...marks];
-  for (const l of L) {
-    if (codeMarkLine(l.text) !== "explain") continue;
-    const b = box(l);
+  for (const p of parts) {
+    if (codeMarkLine(p.text) !== "explain") continue;
+    const b = box(p);
     if (b && marks.some((m) => Math.abs(m.h - b.h) <= 0.25 * Math.max(m.h, b.h) && Math.abs(m.base - b.base) <= 2.6 * Math.max(m.h, b.h))) out.push(b);
   }
   return out;
@@ -178,7 +197,7 @@ export function missingBlocks(list, steps, { unitTitle = "", gs = false } = {}) 
   const out = [{ t: "title", text: "Fehlende Sitzungen" }];
   if (unitTitle) out.push({ t: "muted", text: "Unterrichtseinheit: " + unitTitle });
   out.push({ t: "p", runs: [R("Noch nicht alle Sitzungen dieser Unterrichtseinheit sind bisher geplant und mit Material ausgestattet. Die folgenden " + (list.length === 1 ? "Sitzung gibt" : list.length + " Sitzungen gibt") +
-    " es bisher nur in der Reihenplanung – mit ihrer Stundenfrage und dem groben Ablauf laut Leupold-Schema; Präsentation, Verlaufsplan und Material fehlen noch.")] });
+    " es bisher nur in der Reihenplanung – mit ihrer Stundenfrage und dem groben Ablauf laut Leupold-Schema; " + (gs ? "Verlaufsplan und Material fehlen" : "Präsentation, Verlaufsplan und Material fehlen") + " noch.")] });
   for (const s of list) {
     const r = s.row || {}, st = Number.isInteger(r.schritt) && steps && steps[r.schritt] ? steps[r.schritt] : null;
     out.push({ t: "h", text: shareFolder(s.n) + (r.stundenfrage ? ": " + r.stundenfrage : s.lesson && s.lesson.title ? ": " + s.lesson.title : "") });
@@ -201,13 +220,16 @@ export { STOP_LINE };
 
 /* ---------- Prompt für Claude: Absätze für die Weitergabe schreiben ----------
    ctx = {unitId, title, subject, klass, gs, sessions: [{n, lessonId, title, planned, has}]} */
-/* src = competenceSource(…) (null = allgemein, für die Beschreibung im Connector), gs = Grundschule („Kinder“, Zeichen des Verlaufsplans) */
+/* src = competenceSource(…) (null = allgemein), gs = true (Grundschule: „Kinder“, Zeichen des Verlaufsplans), false (Gymnasium) oder "beide" (Beschreibung im
+   Connector, der für beide Schulformen gilt) */
+const kidsOf = (gs) => (gs === "beide" ? ["Schüler:innen bzw. Kinder", "Schüler:innen bzw. Kindern"] : gs ? ["Kinder", "Kindern"] : ["Schüler:innen", "Schüler:innen"]);
 export const shareRules = (src = null, gs = false) => "Je Sitzung drei Teile, sachlich und für eine Kollegin bzw. einen Kollegen geschrieben, die bzw. der nicht an der Planung beteiligt war: " +
   "passiert = in zwei bis drei Sätzen, was in der Sitzung passiert (Einstieg, Arbeitsphase mit Material und Sozialform, Sicherung); kompetenz = die zentrale Kompetenz der Sitzung, möglichst " +
-  "im Wortlaut der Planungsgrundlage mit dem Kompetenzbereich (" + (src ? "aus " + src.from : "in der Oberstufe aus dem KCGO, sonst aus der hinterlegten Planungsgrundlage") + ") – nie eine erfundene; ziel = in einem Satz, was die " +
-  "Lerngruppe am Ende der Sitzung kann („Die " + (gs ? "Kinder" : "Schüler:innen") + " …“). Ohne Namen von " + (gs ? "Kindern" : "Schüler:innen") + ", ohne Codes, ohne Hinweise auf Unterricks; kein Markdown, " +
-  (gs ? "keine Zeichen des Verlaufsplans, keine Verweise [[pdf:…]]." : "keine Schulportal-Zeichen.");
-export const SHARE_RULES = shareRules();
+  "im Wortlaut der Planungsgrundlage mit dem Kompetenzbereich (" + (src ? "aus " + src.from : gs === "beide" ? "in der Oberstufe aus dem KCGO, sonst aus der hinterlegten Planungsgrundlage bzw. dem Curriculum der Grundschule"
+    : "in der Oberstufe aus dem KCGO, sonst aus der hinterlegten Planungsgrundlage") + ") – nie eine erfundene; ziel = in einem Satz, was die " +
+  "Lerngruppe am Ende der Sitzung kann („Die " + kidsOf(gs)[0] + " …“). Ohne Namen von " + kidsOf(gs)[1] + ", ohne Codes, ohne Hinweise auf Unterricks; kein Markdown, " +
+  (gs === "beide" ? "keine Schulportal-Zeichen bzw. Zeichen des Verlaufsplans, keine Verweise [[pdf:…]]." : gs ? "keine Zeichen des Verlaufsplans, keine Verweise [[pdf:…]]." : "keine Schulportal-Zeichen.");
+export const SHARE_RULES = shareRules(null, "beide");
 export function claudeSharePrompt(ctx) {
   const src = competenceSource(ctx.subject, ctx.klass), planned = (ctx.sessions || []).filter((s) => s.planned), open = (ctx.sessions || []).filter((s) => !s.planned);
   const list = planned.map((s) => "- Sitzung " + s.n + ": „" + (s.title || "ohne Titel") + "“ (lesson_id " + s.lessonId + ")" + (s.has ? " – hat schon einen Absatz (prüfe und verbessere ihn nur, wenn nötig)" : "")).join("\n");
@@ -228,9 +250,13 @@ export function claudeSharePrompt(ctx) {
   ].filter((l) => l !== "").join("\n").replace(/\n{3,}/g, "\n\n");
 }
 /* Schritt im Prompt „Stunde mit Claude planen“ (Gymnasium und Grundschule): den Absatz beim Planen gleich mit (Wunsch der Lehrkraft vom 18.11.2026) */
-export const shareSaveStep = (subject, klass) => "   - Außerdem den „" + SHARE_TEXT_TITLE + "“ (für das Leupold-Schema, wenn ich die Einheit mit Kolleg:innen teile) → `update_lesson` mit `weitergabe` " +
-  "{passiert, kompetenz, ziel} – zusammen mit der Zusammenfassung. passiert: zwei bis drei Sätze, was in der Stunde passiert; kompetenz: die zentrale Kompetenz der Stunde aus " + competenceSource(subject, klass).from +
-  " (möglichst im Wortlaut, nie erfunden); ziel: ein Satz, was die Lerngruppe am Ende kann.";
+export const shareSaveStep = (subject, klass) => {
+  const gs = subject === GS_SUBJECT || isGsCourseId(klass), k = kidsOf(gs);
+  return "   - Außerdem den „" + SHARE_TEXT_TITLE + "“ (für das Leupold-Schema, wenn ich die Einheit mit Kolleg:innen teile) → `update_lesson` mit `weitergabe` " +
+    "{passiert, kompetenz, ziel} – zusammen mit der Zusammenfassung. passiert: zwei bis drei Sätze, was in der Stunde passiert; kompetenz: die zentrale Kompetenz der Stunde aus " + competenceSource(subject, klass).from +
+    " (möglichst im Wortlaut, nie erfunden – fehlt die Grundlage, aus der Einheit formuliert mit dem Zusatz „(ohne Vorlage formuliert)“); ziel: ein Satz, was die Lerngruppe am Ende kann. Ohne Namen von " + k[1] +
+    ", ohne Codes, kein Markdown, " + (gs ? "keine Zeichen des Verlaufsplans, keine Verweise [[pdf:…]]." : "keine Schulportal-Zeichen.");
+};
 
 /* ---------- Verlaufsplan einer Sitzung als Blöcke ----------
    L = lesson (portal, homework, teacherSummary, title, durationMin), n = Nummer der Stunde, files = Dateien der Sitzung (Verweise [[pdf:…]] im Verlaufsplan

@@ -25,7 +25,7 @@ import { saveCardSet, setCardTexts } from "./cards.js";
 import { parentFiles, refCounts } from "./parents.js";
 import { BRING_LIMITS, bringSection, bringRead } from "../public/bring.js";
 import { videoSlidesData, videoSlidesOf, videoWatchUrl, videoClipText, VIDEO_MARK } from "../public/videoslides.js";
-import { SHARE_LIMITS, SHARE_RULES, SHARE_TEXT_TITLE, cleanShareText, shareTextOf, shareTextStore, shareSessions, competenceSource } from "../public/sharelib.js";
+import { SHARE_LIMITS, SHARE_RULES, SHARE_TEXT_TITLE, cleanShareText, shareTextOf, shareTextStore, shareTextComplete, shareSessions, competenceSource } from "../public/sharelib.js";
 
 const MODERN = "2026-07-28";
 const LEGACY = ["2025-11-25", "2025-06-18", "2025-03-26", "2024-11-05"];
@@ -61,7 +61,7 @@ const WEITERGABE_ARG = { type: "object", description: "„" + SHARE_TEXT_TITLE +
   required: ["passiert", "kompetenz", "ziel"], additionalProperties: false };
 const ro = { readOnlyHint: true, destructiveHint: false, openWorldHint: false };
 // Speicher-Werkzeuge der Planung (Nachtrag 21): danach die Zusammenfassung für die Lehrkraft
-const SUMMARY_AFTER_SAVE = "Schreibe danach auch die „" + TEACHER_SUMMARY_TITLE + "“ mit update_lesson (zusammenfassung_lehrkraft) bzw. passe sie an.";
+const SUMMARY_AFTER_SAVE = "Schreibe danach auch die „" + TEACHER_SUMMARY_TITLE + "“ mit update_lesson (zusammenfassung_lehrkraft) bzw. passe sie an – ebenso den „" + SHARE_TEXT_TITLE + "“ (weitergabe).";
 const wr = { readOnlyHint: false, destructiveHint: false, openWorldHint: false };
 
 const T = (d) => ({ type: "string", description: d }), I = (d) => ({ type: "integer", description: d });
@@ -321,7 +321,8 @@ async function shareUnitLines(db, u) {
   const ls = await shareLessons(db, u.id), list = shareSessions(u.rows || [], ls).filter((s) => s.lesson);
   if (!list.length) return [];
   return ["", "## " + SHARE_TEXT_TITLE + " (für „Unterrichtseinheit mit KollegInnen teilen“; speichern mit save_weitergabe)",
-    ...list.map((s) => "- Sitzung " + s.n + " (lesson_id " + s.lesson.id + "): " + (s.planned ? "geplant" : "noch nicht geplant") + ", Absatz " + (s.lesson.shareText ? "vorhanden" : "fehlt"))];
+    ...list.map((s) => "- Sitzung " + s.n + " (lesson_id " + s.lesson.id + "): " + (s.planned ? "geplant" : "noch nicht geplant") + ", Absatz " +
+      (shareTextComplete(s.lesson.shareText) ? "vorhanden" : s.lesson.shareText ? "unvollständig (es fehlt ein Teil)" : "fehlt"))];
 }
 async function lessonDump(db, l, now = Date.now()) {
   const ctx = await lessonCtx(db, l);
@@ -876,9 +877,9 @@ async function callTool(c, name, a) {
       }
       await c.db.batch(clean.map(({ l, t }) => c.db.prepare("UPDATE lessons SET share_text=?2, updated_at=?3 WHERE id=?1").bind(l.id, shareTextStore(t, c.now), c.now)));
       const after = shareSessions(JSON.parse(u.rows || "[]"), await shareLessons(c.db, u.id)).filter((s) => s.lesson);
-      const missing = after.filter((s) => s.planned && !s.lesson.shareText).map((s) => "Sitzung " + s.n);
+      const missing = after.filter((s) => s.planned && !shareTextComplete(s.lesson.shareText)).map((s) => "Sitzung " + s.n);
       return toolText("Gespeichert: " + clean.length + (clean.length === 1 ? " Absatz" : " Absätze") + " für die Weitergabe (" + clean.map(({ l, t }) => "„" + l.title + "“" + (t ? "" : " gelöscht")).join(", ") + ")." +
-        (missing.length ? " Noch ohne Absatz, obwohl geplant: " + missing.join(", ") + "." : " Alle geplanten Sitzungen haben jetzt einen Absatz.") +
+        (missing.length ? " Noch ohne vollständigen Absatz, obwohl geplant: " + missing.join(", ") + "." : " Alle geplanten Sitzungen haben jetzt einen Absatz.") +
         " Die Lehrkraft prüft sie in Unterricks (Karte „Mit Kolleg:innen teilen“ ganz unten auf der Seite der Einheit).", { saved: clean.length });
     }
     case "save_planning_result": {

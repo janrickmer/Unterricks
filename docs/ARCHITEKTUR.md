@@ -2258,6 +2258,9 @@ Ausdrucken“; Grundschule „Auch Grundschule“ – kompakt mit Verlaufsplan u
 
 ## 4zh. Unterrichtseinheit mit KollegInnen teilen – ZIP-Ordner (Nachtrag 39 vom 18.11.2026)
 
+* **Schema (Prüfung):** `ensureSchema` legt die nachträglichen Spalten je Tabelle in einem Batch an (frische Datenbank: 14 statt 51 Aufrufe – über 50 wären die
+  Indizes still nicht angelegt worden); legt eine andere Instanz gleichzeitig eine Spalte an, wird neu nachgesehen und einzeln ergänzt.
+
 * **Knopf und Karte:** ganz unten auf der Seite jeder Einheit (Gymnasium und Grundschule) die Karte „Mit Kolleg:innen teilen“ (public/sharecard.js;
   dasselbe Element über jedes `paint()` hinweg, damit ungespeicherte Absätze bleiben): Stand („2 von 3 Sitzungen geplant (noch nicht geplant: …)“,
   fehlende Absätze), „Absätze mit Claude schreiben“ (`claudeHandoff`, Prompt `claudeSharePrompt`), `details` „Absätze prüfen und bearbeiten“ (je geplanter
@@ -2272,7 +2275,9 @@ Ausdrucken“; Grundschule „Auch Grundschule“ – kompakt mit Verlaufsplan u
   `share_conflict` mit `current`, die eigene Fassung bleibt in den Feldern). `GET /api/teacher/units/:id/share` → je Sitzung `{id, title, date, row,
   cancelled, planned, shareText}`. Connector: `save_weitergabe {unit_id, sitzungen: [{lesson_id, passiert, kompetenz, ziel}]}` (alle in einem Aufruf,
   streng geprüft, bei einem Fehler nichts gespeichert; Antwort nennt geplante Sitzungen ohne Absatz), `update_lesson` mit `weitergabe`; `get_lesson`
-  zeigt den Abschnitt „Absatz für die Weitergabe“, `get_unit` die Liste je Sitzung. Die Sitzungsdatei trägt `shareText` mit. Die Prompts „Stunde mit
+  zeigt den Abschnitt „Absatz für die Weitergabe“, `get_unit` die Liste je Sitzung (unvollständige als „unvollständig“). Die Sitzungsdatei trägt `shareText`
+  mit; beim Laden ersetzt er den bisherigen wie die übrige Planung (eine Datei ohne Absatz löscht ihn). Die Karte speichert mit Stand-Schutz; bei einem
+  Konflikt zeigt ein Dialog beide Fassungen („Gespeicherte Fassung übernehmen“ / „Meine Fassung speichern“); ungespeicherte Absätze schützt `beforeunload`. Die Prompts „Stunde mit
   Claude planen“ (Gymnasium und Grundschule) haben direkt nach dem Schritt zur Zusammenfassung den Schritt `shareSaveStep` (Absatz gleich mit).
 * **Kompetenz** (`competenceSource`): Oberstufe (E-Phase, Q-Phase) „Zentrale Kompetenz (KCGO)“ aus dem KCGO des Kurshalbjahres; Sekundarstufe I aus der
   hinterlegten Planungsgrundlage (ein KCGO gibt es dort nicht); Grundschule aus dem hinterlegten Curriculum. Claude soll möglichst im Wortlaut
@@ -2288,15 +2293,28 @@ Ausdrucken“; Grundschule „Auch Grundschule“ – kompakt mit Verlaufsplan u
   ohne Zwischenstopp, Hausaufgabe, Links, Zusammenfassung für die Lehrkraft; Verweise `[[pdf:…]]` der Grundschule als Dateiname, wiederverwendete
   Bildkarten mit „(im Ordner „Sitzung k“)“) und allen PDF-Dateien der Sitzung (Schüler:innen bzw. Kinder samt Notfall-Feibeitsblättern, Druckliste,
   Material für die Lehrkraft samt Bildkarten; Textmaterial als PDF; nicht: Links – sie stehen im Verlaufsplan –, andere Dateiarten, nicht fertige
-  Druckdateien, Anmerkungs-PDF, Archiv einer Vertretung – Hinweise dazu als Meldung). Alle erzeugten Dokumente tragen unten „Copyright Jan-Rickmer
-  Feindt“ und „Seite n von N“.
+  Druckdateien, Anmerkungs-PDF, Archiv einer Vertretung – Hinweise dazu als Meldung). Die Dokumente aus sharepdf.js (Leupold-Schema, Erklärung,
+  Fehlende Sitzungen, Verlaufspläne) tragen unten „Copyright Jan-Rickmer Feindt“ und „Seite n von N“, die Folien das Copyright; die Anmerkungsseiten der
+  Notizen-PDF (pdfnotes.js) und Textmaterial (markdownToPdf) bleiben wie in Unterricks.
+* **Zwei Durchgänge** (Prüfung): erst alle Präsentationen und Dateien aller geplanten Sitzungen (`placed`: Datei-ID → Ordner und tatsächlicher Name aus
+  `uniquePdfName`), dann die Verlaufspläne. Ein Verweis `[[pdf:…]]` nennt so den echten Namen („… (im Ordner „Sitzung k“)“); liegt die Datei in keinem
+  Ordner dieser Einheit (wiederverwendete Bildkarten einer anderen Einheit, Datei einer noch nicht geplanten Sitzung), kommt sie in den Ordner der
+  verweisenden Sitzung; übersprungene eigene Dateien heißen „… (nicht im Ordner)“. **Selbstlern-Phase bzw. Vertretung:** geteilt wird die ursprüngliche
+  Planung (Archiv: Schulportal-Eintrag, Hausaufgabe, Feibeitsblätter und Dateien mit ihrem ursprünglichen Bereich – `substitute.archive.fileAreas`), nicht die
+  Stationen. **Meldungen** (Dialog „Hinweise zum Ordner“, vollständig): Sitzung ohne bzw. mit nicht fertiger Präsentation, Feibeitsblatt ohne
+  Notfall-Feibeitsblatt, ältere Präsentation mit aufgedrucktem Sitzungscode, entfernte Codefolien, nicht überdeckte Zeile, fehlende PowerPoint-Fassung,
+  Dateien, die fehlen.
 * **Präsentation** (public/sharepres.js): Codefolien aus `codeSlides`. Eine Codefolie mit Material (Titel eines Materials bzw. Feibeitsblatts der Sitzung
   in der Überschrift – wörtlich oder alle Wörter – oder ohne Hinweis auf Unterricks/Code/QR) bleibt; die kleine Zeile „Unterricks-Codefolie: …“ (samt
   umbrochenem Erklärsatz, `markBoxes`) wird mit der Farbe ihres Hintergrunds überdeckt (Median eines Rings um die Zeile auf der gezeichneten Seite). Reine
   Codefolien (ohne Überschrift oder mit Hinweis auf Unterricks und ohne Material) fallen weg – nie alle. Jede Folie bekommt „Copyright Jan-Rickmer Feindt“
   (Helvetica, ≈ 1,3 % der Folienhöhe, grau 0,55, an einer freien Stelle: rechts unten, sonst links, sonst Mitte). Die Seiten werden wie die Fassung für
   Schüler:innen bereinigt kopiert (ohne Anhänge, also ohne die Notizen; nur Link-Anmerkungen). **Grenze:** überdeckt ist nur das Bild – der Text der
-  Zeile bleibt unsichtbar in der Datei; lässt sich die Zeile nicht finden bzw. die Seite nicht zeichnen, bleibt sie stehen (Meldung).
+  Zeile bleibt unsichtbar in der Datei; lässt sich die Zeile nicht finden bzw. die Seite nicht zeichnen, bleibt sie stehen (Meldung). Überdeckt wird nur der
+  Abschnitt der Zeile mit der Marke (anderer Text auf derselben Grundlinie, z. B. eine Seitenzahl, bleibt). „Feibeitsblatt“/„Arbeitsblatt“ in der
+  Überschrift hält eine Folie immer; allgemeine Einzelwörter („Material“, „Hausaufgabe“) zählen nicht als Titel. **Ältere Präsentationen** (vor dem
+  11.11.2026, ohne Marke): der große Sitzungscode auf Folie 1 (wie presenter.js: `slideSessionCode`, ohne die Codes der Feibeitsblätter) wird auf jeder Folie
+  überdeckt, auf der er steht; einen QR-Code erkennt Unterricks so nicht – die Meldung sagt es.
 * **PowerPoint-Fassung** (Ergänzung der Lehrkraft vom 18.11.2026; public/sharepptx.js, ohne Bibliothek): `Präsentation - Sitzung n.pptx` aus der fertigen
   PDF (also ebenfalls ohne reine Codefolien, überdeckt, mit Copyright). Entscheidung der Lehrkraft: **jede Folie ein Bild** (PDF.js zeichnet die Seite
   ≈ 1920 px breit, PNG, bei sehr großen Bildern JPEG) – den Folientext kann man in PowerPoint nicht ändern; Links der Seite (`getAnnotations`, Typ Link)

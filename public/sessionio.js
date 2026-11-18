@@ -172,7 +172,7 @@ export function planSessionImport(data, target) {
   const lesson = { title: data.lesson.title, topic: data.lesson.topic, ideas: fix(data.lesson.ideas, "Ideen und Wünsche"), homework: fix(data.lesson.homework, "Hausaufgabe"), portal: fix(data.lesson.portal, "Schulportal-Eintrag"),
     teacherSummary: fix(data.lesson.teacherSummary || "", "Zusammenfassung für die Lehrkraft"), ...(data.lesson.teacherSummaryOutdated ? { teacherSummaryOutdated: true } : {}), bring,
     // Absatz für die Weitergabe (Nachtrag 39): ohne Datumsangaben (keine Anpassung nötig)
-    ...(data.lesson.shareText ? { shareText: data.lesson.shareText } : {}) };
+    shareText: data.lesson.shareText || null };   // ohne Absatz in der Datei (auch ältere Dateien): ein bisheriger passt nicht mehr zur neuen Planung – wird gelöscht
   const texts = [], links = [], prints = [], bins = [];
   for (const f of data.files) {
     if (f.kind === "link") links.push({ area: f.area, title: f.name, url: f.url });

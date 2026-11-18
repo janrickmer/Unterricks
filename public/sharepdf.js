@@ -4,7 +4,7 @@
 // Fußzeile jeder Seite: „Copyright Jan-Rickmer Feindt“ und „Seite n von N“. Die Standardschriften kennen nur WinAnsi (sanitizer aus pdfmaker.js).
 import { pdfLib } from "./pdfcut.js";
 import { sanitizer } from "./pdfmaker.js";
-import { SHARE_COPYRIGHT, competenceSource, shareFolder } from "./sharelib.js";
+import { SHARE_COPYRIGHT, competenceSource, shareFolder, shareTextComplete } from "./sharelib.js";
 
 const INK = [0.09, 0.11, 0.16], MUTED = [0.38, 0.42, 0.5], ACCENT = [0.11, 0.3, 0.58], LINE = [0.78, 0.81, 0.87], FILL = [0.95, 0.96, 0.98], GOAL = [0.99, 0.95, 0.88];
 const A4 = [595.28, 841.89], A4Q = [841.89, 595.28];
@@ -119,7 +119,13 @@ function leupoldPage(D, plan, header) {
   const wl = CW * 0.24, wr = CW * 0.24, wm = CW - wl - wr - 2 * gap, pad = 8;
   const steps = (plan.schritte || []).filter((s) => s && (s.titel || s.beschreibung));
   const pg = plan.planungsgrundlage && plan.planungsgrundlage.name ? "Planungsgrundlage: " + plan.planungsgrundlage.name + (plan.planungsgrundlage.begruendung ? " – " + plan.planungsgrundlage.begruendung : "") : "";
-  const top = H - M - 22 - 16 - 10, bottom = M + 30;
+  // Kopf: Titel (18 pt, bei langen Titeln kleiner, umbrochen) und Kopfzeile der Einheit (umbrochen) – die Höhe zählt für den Platz darunter
+  const titleText = "Leupold-Schema: " + (header.title || "Unterrichtseinheit");
+  let ts = 18;
+  while (ts > 12 && wrapRuns(D, [{ text: titleText, b: true }], ts, CW).length > 1) ts -= 1;
+  const tLines = wrapRuns(D, [{ text: titleText, b: true }], ts, CW).slice(0, 3), mLines = header.meta ? wrapRuns(D, [{ text: header.meta }], 10, CW).slice(0, 3) : [];
+  const headH = tLines.length * ts * 1.2 + (mLines.length ? 4 + mLines.length * 13 : 0);
+  const top = H - M - headH - 14, bottom = M + 30;
   for (const size of [10, 9.5, 9, 8.5, 8, 7.5, 7]) {
     const cap = size + 2, capH = cap * 1.5;
     const hl = capH + textHeight(D, plan.ausgangslage || "–", D.F.r, size, wl - 2 * pad) + 2 * pad;
@@ -131,8 +137,9 @@ function leupoldPage(D, plan, header) {
     if (Math.max(hl, hr, hm) + hpg > top - bottom) continue;
     // passt: zeichnen
     const page = D.doc.addPage(A4Q); D.pages.push(page);
-    page.drawText(D.clean("Leupold-Schema: " + (header.title || "Unterrichtseinheit")), { x: M, y: H - M - 18, size: 18, font: D.F.b, color: D.c(INK) });
-    if (header.meta) page.drawText(D.clean(header.meta), { x: M, y: H - M - 36, size: 10, font: D.F.r, color: D.c(MUTED) });
+    let hy = H - M;
+    for (const ln of tLines) { drawLine(D, page, ln, M, hy - ts, ts, D.c(INK)); hy -= ts * 1.2; }
+    if (mLines.length) { hy -= 4; for (const ln of mLines) { drawLine(D, page, ln, M, hy - 10, 10, D.c(MUTED)); hy -= 13; } }
     const y0 = top;
     const box = (x, w, h, fill) => page.drawRectangle({ x, y: y0 - h, width: w, height: h, color: D.c(fill), borderColor: D.c(LINE), borderWidth: 0.8 });
     const caption = (x, t) => page.drawText(D.clean(t), { x: x + pad, y: y0 - pad - cap, size: cap, font: D.F.b, color: D.c(ACCENT) });
@@ -168,14 +175,14 @@ export function sessionBlocks(sessions, steps, unit) {
     const st = s.row && Number.isInteger(s.row.schritt) && steps[s.row.schritt] ? steps[s.row.schritt] : null;
     if (st) out.push({ t: "muted", text: "Lernschritt " + (s.row.schritt + 1) + ": " + (st.titel || "") });
     const t = s.lesson && s.lesson.shareText, ab = s.row && Array.isArray(s.row.ablauf) ? s.row.ablauf.filter(Boolean) : [];
+    // geplant: die Teile des Absatzes; fehlt einer (oder der ganze Absatz), dazu der grobe Ablauf aus der Tabelle der Einheit
     if (s.planned && t) {
       if (t.passiert) out.push({ t: "p", runs: [{ text: "Was passiert: ", b: true }, { text: t.passiert }] });
       if (t.kompetenz) out.push({ t: "p", runs: [{ text: src.label + ": ", b: true }, { text: t.kompetenz }] });
       if (t.ziel) out.push({ t: "p", runs: [{ text: "Ziel: ", b: true }, { text: t.ziel }] });
-    } else {
-      if (!s.planned) out.push({ t: "p", runs: [{ text: "Noch nicht geplant – siehe „Fehlende Sitzungen“.", i: true }] });
-      if (ab.length) out.push({ t: "p", runs: [{ text: "Grober Ablauf: ", b: true }, { text: ab.join(" · ") }] });
     }
+    if (!s.planned) out.push({ t: "p", runs: [{ text: "Noch nicht geplant – siehe „Fehlende Sitzungen“.", i: true }] });
+    if (!(s.planned && shareTextComplete(t)) && ab.length) out.push({ t: "p", runs: [{ text: "Grober Ablauf: ", b: true }, { text: ab.join(" · ") }] });
   }
   return out;
 }

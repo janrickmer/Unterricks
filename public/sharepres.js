@@ -5,7 +5,7 @@
 // eigene PDF dazu (pdfnotes.js, Folien wie in der geteilten Präsentation).
 // Grenze: Überdeckt ist nur das Bild – der Text der Zeile bleibt unsichtbar in der Datei (wie die unsichtbaren Zeilen „Unterricks-Phase“/„Unterricks-Video“).
 import { lazy, lazyWorker } from "./update.js";
-import { slideTextLines, codeMarkLine } from "./shared.js";
+import { slideTextLines, codeMarkLine, slideCodeBoxes, slideSessionCode, formatCode } from "./shared.js";
 import { pdfLib, stripPage, copyPagesSafe } from "./pdfcut.js";
 import { annotatedPdfBytes } from "./pdfnotes.js";
 import { SHARE_COPYRIGHT, shareSlidePlan, markBoxes } from "./sharelib.js";
@@ -89,7 +89,7 @@ const altText = (lines) => (lines || []).map((l) => String(l.text || "").trim())
 /* bytes = Präsentation (PDF), codeSlides = [{n, lines}], titles = Namen der Materialien und Feibeitsblätter der Sitzung, notes = [{n, items}] (Notizen der
    Lehrkraft) oder null. pptx: auch die PowerPoint-Fassung (Folienbilder + Notizen; libs.raster ersetzt im Test das Zeichnen).
    → {bytes, notesBytes|null, pptxBytes|null, pptxError, kept, dropped, covered, uncovered} (Nummern der ursprünglichen Folien) */
-export async function sharePresentation(bytes, { codeSlides = [], titles = [], notes = null, title = "", libs = null, pptx = true } = {}) {
+export async function sharePresentation(bytes, { codeSlides = [], titles = [], notes = null, title = "", libs = null, pptx = true, excludeCodes = [] } = {}) {
   const PL = libs && libs.pdfLib ? libs.pdfLib : await pdfLib(), PJ = libs && libs.pdfjs ? libs.pdfjs : await pdfjs();
   const { PDFDocument, StandardFonts, rgb, degrees } = PL;
   let src;
@@ -98,25 +98,35 @@ export async function sharePresentation(bytes, { codeSlides = [], titles = [], n
   const total = src.getPageCount(), plan = shareSlidePlan(codeSlides, total, titles), cover = new Set(plan.cover);
   const doc = await lazyWorker(PJ.getDocument({ data: new Uint8Array(bytes).slice(), isEvalSupported: false, verbosity: 0 }).promise);
   const out = await PDFDocument.create(), font = await out.embedFont(StandardFonts.Helvetica);
-  const info = [], uncovered = [], alts = [];
+  const info = [], uncovered = [], alts = [], legacy = { code: "", slides: [], missed: [] };
   try {
+    // ältere Präsentation (Prompt vor dem 11.11.2026): der Sitzungscode stand groß auf Folie 1 (und auf Materialfolien) – wie presenter.js der größte Code
+    // auf Folie 1 ohne die Codes der Feibeitsblätter; er wird auf jeder behaltenen Folie überdeckt, auf der er steht
+    try {
+      const p1 = await doc.getPage(1), v1 = p1.getViewport({ scale: 1 });
+      legacy.code = slideSessionCode(slideCodeBoxes(await textItems(PJ, p1, v1)), { exclude: excludeCodes, minH: v1.height * 0.06 });
+      p1.cleanup();
+    } catch {}
     for (const n of plan.keep) {
-      const page = await doc.getPage(n), vp = page.getViewport({ scale: 1 }), lines = slideTextLines(await textItems(PJ, page, vp));
-      alts.push(altText(lines));
+      const page = await doc.getPage(n), vp = page.getViewport({ scale: 1 }), items = await textItems(PJ, page, vp), lines = slideTextLines(items);
+      alts.push(altText(lines).replace(legacy.code ? new RegExp(formatCode(legacy.code).replace("-", "\\s*-?\\s*"), "gi") : /$^/, "").replace(/\s+/g, " ").trim());
       let rects = [];
-      if (cover.has(n)) {
-        const boxes = markBoxes(lines);
-        if (!boxes.length) uncovered.push(n);
+      const marks = cover.has(n) ? markBoxes(lines) : [];
+      if (cover.has(n) && !marks.length) uncovered.push(n);
+      const codes = legacy.code ? slideCodeBoxes(items).filter((b) => b.code === legacy.code).map((b) => ({ x0: b.x0, x1: b.x1, top: b.base - b.h, bottom: b.base + b.h * 0.3, h: b.h, base: b.base })) : [];
+      const boxes = [...marks, ...codes];
+      if (boxes.length) {
+        // Farbe des Hintergrunds aus der gezeichneten Seite; ohne Canvas (bzw. libs.color im Test) bleibt die Zeile lieber stehen als ein heller Kasten
+        const k = 2, ctx = libs && libs.color ? null : await renderPage(page, k).catch(() => null);
+        const colorOf = (b) => (libs && libs.color ? libs.color(n, b) : ctx ? ringColor(ctx, k, b) : null);
+        if (!ctx && !(libs && libs.color)) { if (marks.length) uncovered.push(n); if (codes.length) legacy.missed.push(n); }
         else {
-          // Farbe des Hintergrunds aus der gezeichneten Seite; ohne Canvas (bzw. libs.color im Test) bleibt die Zeile lieber stehen als ein heller Kasten
-          const k = 2, ctx = libs && libs.color ? null : await renderPage(page, k).catch(() => null);
-          const colorOf = (b) => (libs && libs.color ? libs.color(n, b) : ctx ? ringColor(ctx, k, b) : null);
-          if (!ctx && !(libs && libs.color)) uncovered.push(n);
-          else rects = boxes.map((b) => {
+          rects = boxes.map((b) => {
             const h = b.bottom - b.top, pb = { x0: b.x0 - h * 0.25, x1: b.x1 + h * 0.25, top: b.top - h * 0.2, bottom: b.bottom + h * 0.2 };
             const [ax, ay] = vp.convertToPdfPoint(pb.x0, pb.top), [bx, by] = vp.convertToPdfPoint(pb.x1, pb.bottom);
             return { x: Math.min(ax, bx), y: Math.min(ay, by), w: Math.abs(bx - ax), h: Math.abs(by - ay), color: colorOf(b) };
           });
+          if (codes.length) legacy.slides.push(n);
         }
       }
       // Copyright: Größe nach der Seitenhöhe (7 pt auf einer 540 pt hohen 16:9-Folie), an einer freien Stelle
@@ -168,5 +178,6 @@ export async function sharePresentation(bytes, { codeSlides = [], titles = [], n
     } catch (e) { pptxError = e && e.message ? e.message : "Fehler"; }
     finally { if (sdoc) try { await sdoc.destroy(); } catch {} }
   }
-  return { bytes: shared, notesBytes, pptxBytes, pptxError, kept: plan.keep, dropped: plan.drop, covered: plan.cover.filter((n) => !uncovered.includes(n)), uncovered };
+  return { bytes: shared, notesBytes, pptxBytes, pptxError, kept: plan.keep, dropped: plan.drop, covered: plan.cover.filter((n) => !uncovered.includes(n)), uncovered,
+    legacy: legacy.code ? { code: formatCode(legacy.code), slides: legacy.slides, missed: legacy.missed } : null };
 }

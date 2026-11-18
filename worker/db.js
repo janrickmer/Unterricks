@@ -154,19 +154,31 @@ export const INDEXES = [
 ];
 
 let ready = null, warm = false;
-/* true, sobald das Schema in diesem Isolate angelegt ist – vor ensureSchema abgefragt: false heißt, diese Anfrage legt es gerade an (bis zu 49 – seit Nachtrag 31b
-   Anweisungen), lange Abfragen (Beamer-Code) halten dann nicht (höchstens 50 D1-Anweisungen je Aufruf im Free-Plan) */
+/* true, sobald das Schema in diesem Isolate angelegt ist – vor ensureSchema abgefragt: false heißt, diese Anfrage legt es gerade an (1 Batch, je Tabelle mit
+   nachträglichen Spalten ein PRAGMA und höchstens ein Batch, 1 Batch Indizes – seit Nachtrag 39 je Tabelle gebündelt), lange Abfragen (Beamer-Code) halten
+   dann nicht (höchstens 50 D1-Anweisungen je Aufruf im Free-Plan) */
 export const schemaWarm = () => warm;
 export function ensureSchema(db) {
   if (!ready) ready = (async () => {
     await db.batch(SCHEMA.map((s) => db.prepare(s)));
-    for (const table of [...new Set(COLUMNS.map((c) => c[0]))]) {
+    // je Tabelle: Spalten nachsehen, fehlende in EINEM Batch anlegen – eine frische Datenbank braucht so 1 + 6 PRAGMA + 6 Batches + 1 = 14 Abfragen statt
+    // einer je Spalte (mit Nachtrag 39 wären es 51 gewesen – über der Grenze von 50 je Aufruf, die Indizes wären still nicht angelegt worden)
+    const missingOf = async (table) => {
       const info = await db.prepare("PRAGMA table_info(" + table + ")").all();
       const have = new Set((info.results || []).map((r) => r.name));
-      for (const [t, col, def] of COLUMNS) {
-        if (t !== table || have.has(col)) continue;
-        try { await db.prepare("ALTER TABLE " + t + " ADD COLUMN " + col + " " + def).run(); }
-        catch (e) { if (!/duplicate column/i.test(String(e && e.message))) throw e; }   // gleichzeitig von einer anderen Instanz angelegt
+      return COLUMNS.filter(([t, col]) => t === table && !have.has(col));
+    };
+    const alter = ([t, col, def]) => db.prepare("ALTER TABLE " + t + " ADD COLUMN " + col + " " + def);
+    for (const table of [...new Set(COLUMNS.map((c) => c[0]))]) {
+      const miss = await missingOf(table);
+      if (!miss.length) continue;
+      try { await db.batch(miss.map(alter)); }
+      catch (e) {
+        if (!/duplicate column/i.test(String(e && e.message))) throw e;
+        // gleichzeitig von einer anderen Instanz angelegt (der Batch ist eine Transaktion – nichts davon gilt): neu nachsehen, einzeln ergänzen
+        for (const c of await missingOf(table)) {
+          try { await alter(c).run(); } catch (e2) { if (!/duplicate column/i.test(String(e2 && e2.message))) throw e2; }
+        }
       }
     }
     try { await db.batch(INDEXES.map((s) => db.prepare(s))); } catch (e) { console.warn("Index nicht angelegt:", e && e.message); }

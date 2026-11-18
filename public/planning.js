@@ -788,7 +788,7 @@ export function claudeGymRevisionPrompt(ctx) {
     "3. Warte auf meine Entscheidung.",
     "4. Soll verlängert werden, rufe zuerst `extend_unit` auf (mit `base_version` aus `get_unit` und `termine` – so viele Termine, wie gebraucht werden, höchstens 3). Inhalte und Stundenfragen änderst du mit `update_unit_row` (`unit_id`, `base_version` und `stunden` mit der Nummer `nr` jeder geänderten Stunde aus `get_unit`) – in einer Speicherung. " +
       "Willst du den ganzen Plan neu speichern (`save_unit_plan`): Am Gymnasium ordnet die Plattform die Stunden nach ihrer Position den bestehenden Sitzungen zu – behalte deshalb Anzahl und Reihenfolge der Stunden mit Sitzung bei (Inhalt und Stundenfrage darfst du ändern) und streiche höchstens Stunden ohne Sitzung am Ende. Stunden ohne Termin bekommen die freien Termine.",
-    "5. Passe betroffene Sitzungen nur nach meiner Zustimmung an (`save_schulportal_entry`, danach mit `update_lesson` auch die „Zusammenfassung der Sitzung für die Lehrkraft“).",
+    "5. Passe betroffene Sitzungen nur nach meiner Zustimmung an (`save_schulportal_entry`, danach mit `update_lesson` auch die „Zusammenfassung der Sitzung für die Lehrkraft“ und den „Absatz für die Weitergabe“ (`weitergabe`)).",
     "",
     "Falls der Connector „Unterricks“ in diesem Chat nicht verfügbar ist, sage es mir sofort (er muss in claude.ai unter „Connectors“ eingerichtet und im Chat aktiviert sein).",
   ].filter((l) => l !== null).join("\n").replace(/\n{3,}/g, "\n\n");

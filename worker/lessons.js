@@ -317,7 +317,8 @@ export async function routeLessonGet(c, id) {
   let proposal = null, archive = null;
   if (sub) { try { proposal = JSON.parse(sub.proposal); } catch {} try { archive = sub.archive ? JSON.parse(sub.archive) : null; } catch {} }
   const substitute = sub ? { status: sub.status, proposal, createdAt: sub.created_at, updatedAt: sub.updated_at, confirmedAt: sub.confirmed_at ?? null,
-    archive: archive ? { portal: archive.portal || "", homework: archive.homework || "", sheets: archive.sheets || [], files: (archive.files || []).map((f) => f.id), at: archive.at || null } : null } : null;
+    archive: archive ? { portal: archive.portal || "", homework: archive.homework || "", sheets: archive.sheets || [], files: (archive.files || []).map((f) => f.id),
+      fileAreas: Object.fromEntries((archive.files || []).filter((f) => f && f.id).map((f) => [f.id, f.area || ""])), at: archive.at || null } : null } : null;   // fileAreas: ursprünglicher Bereich (Teilen, Nachtrag 39)
   // Selbstlern-Phase (Nachtrag 29, nur Gymnasium): nächste Sitzung mit der Lehrkraft – für den Prompt und die Fälligkeit der Hausaufgabe
   const teacherNext = l.subject !== GS_SUBJECT ? { teacherNextDate: await nextTeacherLessonDate(c.db, l) } : {};
   // … deren aktueller Termin auch im Standardtext der Hausaufgabe (wie bei den Schüler:innen; ein eigener Text bleibt)
@@ -605,7 +606,8 @@ export async function routeLessonImport(c, id) {
   // fremde Daten – Ungültiges entfällt, zu lange Hinweise werden gekürzt (cleanBring)
   if (Array.isArray(les.bring)) f.bring = bringStore(cleanBring(les.bring));
   // Absatz für die Weitergabe (Nachtrag 39): kommt mit aus der Datei (fremde Daten – gekürzt wie beim Lesen); fehlt er, bleibt der bisherige
-  if (les.shareText && typeof les.shareText === "object") { const t = cleanShareText(les.shareText); if (t) f.share_text = shareTextStore(t, c.now); }
+  // Absatz für die Weitergabe (Nachtrag 39): ersetzt wie die übrige Planung – null bzw. leer löscht einen bisherigen (er beschriebe die alte Planung)
+  if (les.shareText !== undefined) f.share_text = shareTextStore(les.shareText && typeof les.shareText === "object" ? cleanShareText(les.shareText) : null, c.now);
   const keys = Object.keys(f), stmts = [];
   if (keys.length) stmts.push(c.db.prepare("UPDATE lessons SET " + keys.map((k, i) => k + "=" + (k === "bring" ? "json_set(?" + (i + 2) + ", '$.rev', " + BRING_REV_SQL + " + 1)" : "?" + (i + 2))).join(", ") +
     ", updated_at=?" + (keys.length + 2) + " WHERE id=?1").bind(id, ...keys.map((k) => f[k]), c.now));

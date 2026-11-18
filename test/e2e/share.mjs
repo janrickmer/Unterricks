@@ -90,7 +90,7 @@ export async function shareE2E({ tp, BASE, T, tool, ok, OUT, SHOT }) {
   const TXT = { passiert: "Die Lerngruppe deutet eine Karikatur zur Wahlbeteiligung und erarbeitet mit dem Arbeitsblatt, wer wählen darf.",
     kompetenz: "Die Schülerinnen und Schüler analysieren politische Karikaturen (Analysekompetenz).", ziel: "Die Lerngruppe kann die Voraussetzungen des aktiven Wahlrechts erklären." };
   r = await tool("save_weitergabe", { unit_id: u.id, sitzungen: [{ lesson_id: L1.id, ...TXT }] });
-  ok(!r.isError && r.content[0].text.includes("Noch ohne Absatz, obwohl geplant: Sitzung 3."), "Claude speichert den Absatz zu Sitzung 1 (save_weitergabe) – " + r.content[0].text);
+  ok(!r.isError && r.content[0].text.includes("Noch ohne vollständigen Absatz, obwohl geplant: Sitzung 3."), "Claude speichert den Absatz zu Sitzung 1 (save_weitergabe) – " + r.content[0].text);
 
   /* ---------- Karte ganz unten ---------- */
   await tp.goto(BASE + "/#/lk/u/" + u.id);
@@ -98,7 +98,7 @@ export async function shareE2E({ tp, BASE, T, tool, ok, OUT, SHOT }) {
   await sc.locator("button", { hasText: "Unterrichtseinheit mit KollegInnen teilen" }).waitFor({ timeout: 15000 });
   ok(await tp.evaluate(() => { const s = [...document.querySelectorAll("main section.card")]; return s.length > 3 && s[s.length - 1].id === "unitshare"; }), "die Karte steht ganz unten auf der Seite der Einheit");
   const st = await sc.textContent();
-  ok(st.includes("2 von 3 Sitzungen geplant (noch nicht geplant: Sitzung 2 – sie stehen im Dokument „Fehlende Sitzungen“).") && st.includes("Absätze für das Leupold-Schema fehlen noch bei Sitzung 3.")
+  ok(st.includes("2 von 3 Sitzungen geplant (noch nicht geplant: Sitzung 2 – sie steht im Dokument „Fehlende Sitzungen“).") && st.includes("Der Absatz für das Leupold-Schema fehlt noch bei Sitzung 3.")
     && st.includes("zentrale Kompetenz des KCGO") && !/\bnull\b|undefined/.test(st), "Stand: geplante und fehlende Sitzungen, fehlende Absätze – " + st.slice(0, 400));
   // Prompt
   await sc.getByRole("button", { name: "Absätze mit Claude schreiben" }).click();
@@ -115,7 +115,7 @@ export async function shareE2E({ tp, BASE, T, tool, ok, OUT, SHOT }) {
   await sc.getByRole("button", { name: "Unterrichtseinheit mit KollegInnen teilen" }).click();
   const miss = tp.locator(".modal", { hasText: "Absätze fehlen" });
   await miss.waitFor();
-  ok((await miss.textContent()).includes("Zu Sitzung 3 gibt es noch keinen vollständigen Absatz – unter dem Leupold-Schema steht dort dann nur der grobe Ablauf"), "Rückfrage nennt die Sitzung ohne Absatz");
+  ok((await miss.textContent()).includes("Zu Sitzung 3 gibt es noch keinen vollständigen Absatz – unter dem Leupold-Schema steht dort dann nur, was schon da ist, und der grobe Ablauf"), "Rückfrage nennt die Sitzung ohne Absatz");
   await miss.getByRole("button", { name: "Abbrechen" }).click();
   // Absätze bearbeiten: Sitzung 3 ergänzen; zu Sitzung 1 ändert Claude inzwischen → 409, die eigene Fassung bleibt in den Feldern
   await sc.locator("summary", { hasText: "Absätze prüfen und bearbeiten (1 von 2)" }).click();
@@ -127,16 +127,38 @@ export async function shareE2E({ tp, BASE, T, tool, ok, OUT, SHOT }) {
   ok(await sc.locator("label[for='sh-" + L1.id + "-kompetenz']").textContent() === "Zentrale Kompetenz (KCGO)", "Feld der Kompetenz heißt „Zentrale Kompetenz (KCGO)“");
   await tool("update_lesson", { lesson_id: L1.id, weitergabe: { ...TXT, ziel: "Ziel von Claude, inzwischen gespeichert." } });
   await sc.getByRole("button", { name: "Absätze speichern" }).click();
-  await tp.locator(".toast", { hasText: "inzwischen an anderer Stelle geändert (z. B. von Claude)" }).waitFor({ timeout: 10000 });
+  // Claude hat inzwischen gespeichert: ein Dialog zeigt beide Fassungen – nichts wird still überschrieben
+  const cd = tp.locator(".modal", { hasText: "Absatz inzwischen geändert" });
+  await cd.waitFor({ timeout: 10000 });
+  const cdt = await cd.textContent();
+  ok(cdt.includes("Gespeicherte Fassung") && cdt.includes("Ziel von Claude, inzwischen gespeichert.") && cdt.includes("Ihre Fassung") && cdt.includes("Meine Fassung des Ziels."),
+    "Konflikt: der Dialog zeigt die von Claude gespeicherte und die eigene Fassung");
   let ls = (await T("GET", "/api/teacher/units/" + u.id + "/share")).data.lessons;
-  ok(ls.find((l) => l.id === L3.id).shareText.passiert.startsWith("Die Klasse zählt") && ls.find((l) => l.id === L1.id).shareText.ziel === "Ziel von Claude, inzwischen gespeichert.",
-    "Sitzung 3 gespeichert; Sitzung 1 nicht überschrieben (409), weil Claude inzwischen gespeichert hat");
-  ok(await sc.locator("#sh-" + L1.id + "-ziel").inputValue() === "Meine Fassung des Ziels.", "die eigene Fassung steht noch im Feld");
+  ok(ls.find((l) => l.id === L1.id).shareText.ziel === "Ziel von Claude, inzwischen gespeichert.", "Sitzung 1 nicht überschrieben (409), weil Claude inzwischen gespeichert hat");
+  await cd.getByRole("button", { name: "Gespeicherte Fassung übernehmen" }).click();
+  await sc.locator(".save-state", { hasText: "Absätze gespeichert" }).waitFor({ timeout: 10000 });
+  ls = (await T("GET", "/api/teacher/units/" + u.id + "/share")).data.lessons;
+  ok(ls.find((l) => l.id === L3.id).shareText && ls.find((l) => l.id === L3.id).shareText.passiert.startsWith("Die Klasse zählt"), "danach Sitzung 3 gespeichert (die Absätze werden nacheinander gespeichert)");
+  ok(await sc.locator("#sh-" + L1.id + "-ziel").inputValue() === "Ziel von Claude, inzwischen gespeichert." && await sc.locator("details.sharetexts").evaluate((d) => d.open),
+    "„Gespeicherte Fassung übernehmen“: die Felder zeigen Claudes Fassung, der Bereich bleibt aufgeklappt");
   await sc.locator("#sh-" + L1.id + "-ziel").fill(TXT.ziel);
   await sc.getByRole("button", { name: "Absätze speichern" }).click();
   await sc.locator(".save-state", { hasText: "Absätze gespeichert" }).waitFor({ timeout: 10000 });
+  await tp.waitForFunction(() => !document.querySelector("#unitshare [data-k=save]") || document.querySelector("#unitshare [data-k=save]").disabled, null, { timeout: 5000 });
   ls = (await T("GET", "/api/teacher/units/" + u.id + "/share")).data.lessons;
-  ok(ls.find((l) => l.id === L1.id).shareText.ziel === TXT.ziel, "nach dem Prüfen des neuen Stands gespeichert");
+  ok(ls.find((l) => l.id === L1.id).shareText.ziel === TXT.ziel, "danach die eigene Änderung gespeichert");
+  ok(await tp.evaluate(() => { const a = document.activeElement; return !!a && !!a.closest("#unitshare") && a.matches("summary, textarea, button"); }), "nach dem Speichern bleibt der Fokus in der Karte (nicht auf der Seite)");
+  // Meine Fassung gegen eine neue von Claude: „Meine Fassung speichern“ gewinnt bewusst
+  await sc.locator("#sh-" + L1.id + "-ziel").fill("Ziel – meine Fassung gewinnt.");
+  await tool("update_lesson", { lesson_id: L1.id, weitergabe: { ...TXT, ziel: "Claude noch einmal." } });
+  await sc.getByRole("button", { name: "Absätze speichern" }).click();
+  await cd.waitFor({ timeout: 10000 });
+  await cd.getByRole("button", { name: "Meine Fassung speichern" }).click();
+  await sc.locator(".save-state", { hasText: "Absätze gespeichert" }).waitFor({ timeout: 10000 });
+  ls = (await T("GET", "/api/teacher/units/" + u.id + "/share")).data.lessons;
+  ok(ls.find((l) => l.id === L1.id).shareText.ziel === "Ziel – meine Fassung gewinnt.", "„Meine Fassung speichern“ speichert nach dem Konflikt die eigene Fassung");
+  await tool("update_lesson", { lesson_id: L1.id, weitergabe: TXT });
+  await tp.evaluate(() => document.dispatchEvent(new Event("visibilitychange")));
   // Claude ändert einen Absatz, während die Seite offen ist (nichts ungespeichert): beim Zurückkehren zeigt die Karte den neuen Stand
   const P3 = "Die Klasse zählt eine Probewahl aus und vergleicht zwei Wahlsysteme.";
   r = await tool("update_lesson", { lesson_id: L3.id, weitergabe: { passiert: P3, kompetenz: "Die Schülerinnen und Schüler erklären Wahlsysteme (Urteilskompetenz).", ziel: "Die Lerngruppe kann eine Sitzverteilung nachvollziehen." } });
@@ -159,6 +181,12 @@ export async function shareE2E({ tp, BASE, T, tool, ok, OUT, SHOT }) {
   ok(dl.suggestedFilename().endsWith(" - zum Teilen.zip") && dl.suggestedFilename().includes("Wahlen in Deutschland"), "Download: " + dl.suggestedFilename());
   await sc.locator(".save-state", { hasText: "Heruntergeladen: " }).waitFor({ timeout: 10000 });
   ok((await sc.locator(".save-state").textContent()).includes("2 Sitzungen, 1 noch nicht geplant"), "Statuszeile nennt Sitzungen und noch nicht geplante");
+  // Hinweise vollständig in einem Dialog (hier: Sitzung 3 hat keine Präsentation)
+  const hm1 = tp.locator(".modal", { hasText: "Hinweise zum Ordner" });
+  await hm1.waitFor({ timeout: 10000 });
+  ok((await hm1.textContent()).includes("Sitzung 3: Zu dieser Sitzung gibt es keine Präsentation."), "Hinweise: Sitzung ohne Präsentation");
+  await hm1.getByRole("button", { name: "Fertig" }).click();
+  ok(await sc.getByRole("button", { name: "Unterrichtseinheit mit KollegInnen teilen" }).isEnabled(), "nach dem Herunterladen ist der Knopf wieder frei");
   const zip = await readZip(new Uint8Array(readFileSync(zipPath))), names = zip.map((e) => e.name).sort(), get = (n) => zip.find((e) => e.name === n).data;
   const EXPECT = ["Fehlende Sitzungen.pdf", "Leupold-Schema - Wahlen in Deutschland.pdf", "Sitzung 1/Lösung M1.pdf", "Sitzung 1/M1 Wer darf wählen.pdf",
     "Sitzung 1/Notizen zu den Folien - Sitzung 1.pdf", "Sitzung 1/Präsentation - Sitzung 1.pdf", "Sitzung 1/Präsentation - Sitzung 1.pptx", "Sitzung 1/Tafelbild Wahlrecht.pdf", "Sitzung 1/Verlaufsplan - Sitzung 1.pdf", "Sitzung 3/Verlaufsplan - Sitzung 3.pdf"];
@@ -222,7 +250,11 @@ export async function shareE2Epart2({ tp, BASE, T, tool, ok, OUT, SHOT, first, m
     const conf = tp.locator(".modal", { hasText: "Absätze fehlen" });
     const [dl] = await Promise.all([tp.waitForEvent("download", { timeout: 120000 }), (async () => { await click; if (await conf.isVisible().catch(() => false)) await conf.getByRole("button", { name: "Trotzdem teilen" }).click(); })()]);
     const p = join(first.dir, label + "-" + dl.suggestedFilename()); await dl.saveAs(p);
-    return { name: dl.suggestedFilename(), zip: await readZip(new Uint8Array(readFileSync(p))) };
+    const hint = tp.locator(".modal", { hasText: "Hinweise zum Ordner" });
+    await sc.locator(".save-state", { hasText: "Heruntergeladen: " }).waitFor({ timeout: 10000 });
+    const hints = await hint.isVisible().catch(() => false) ? await hint.textContent() : "";
+    if (hints) await hint.getByRole("button", { name: "Fertig" }).click();
+    return { name: dl.suggestedFilename(), zip: await readZip(new Uint8Array(readFileSync(p))), hints };
   };
   // Notfall-Feibeitsblatt → Erklärung
   await markNotfall(first.m1Id);

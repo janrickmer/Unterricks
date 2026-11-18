@@ -1641,3 +1641,5 @@ main.navwait p { opacity: 0; animation: navwait-zeigen .2s ease-out .5s forwards
 .sharecard fieldset.sharetext legend { font-weight: 700; padding: 0 .35rem; display: flex; flex-wrap: wrap; gap: .4rem; align-items: center; max-width: 100%; overflow-wrap: anywhere; }
 .sharecard .sharetext textarea { width: 100%; }
 .sharecard .sharego { margin-top: 1rem; }
+.sharecmp { display: grid; grid-template-columns: max-content 1fr; gap: .25rem .75rem; margin: .3rem 0 0; }
+.sharecmp dt { font-weight: 700; } .sharecmp dd { margin: 0; overflow-wrap: anywhere; }

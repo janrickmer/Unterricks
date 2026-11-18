@@ -409,9 +409,23 @@ test("Server: Stand für die Karte (geplant, Absatz), Absatz speichern mit Stand
   const del = await call(c, L.routeLessonPatch, "PATCH", "/x", { shareText: { passiert: "", kompetenz: "", ziel: "" } }, ids[2]);
   assert.equal(del.data.lesson.shareText, null);
   assert.equal(c.db.raw.prepare("SELECT share_text FROM lessons WHERE id=?").get(ids[2]).share_text, null);
-  // die Sitzungsdatei trägt den Absatz mit (neue Sitzung aus Datei behält ihn)
-  const f = SF.cleanSessionFile({ kind: "unterricks-sitzung", v: 1, lesson: { title: "x", subject: "powi", klass: "Q2-GK", shareText: TEXT }, materials: [], sheets: [] });
-  assert.deepEqual(f && f.lesson && f.lesson.shareText, TEXT);
+  // Sitzungsdatei: Absatz bereinigt in der Datei, beim Laden ersetzt er den bisherigen; eine Datei ohne Absatz (auch eine ältere) löscht ihn
+  const IO = await import("../../public/sessionio.js");
+  const file = (lesson) => SF.cleanSessionFile({ kind: SF.SESSION_FILE.kind, v: SF.SESSION_FILE.v, source: { subject: "powi", klass: "Q2-GK", date: "2026-11-24", nextDate: "2026-12-01" }, lesson });
+  const withText = file({ title: "Mit Absatz", shareText: { ...TEXT, passiert: "  " + TEXT.passiert + " " } }), without = file({ title: "Ohne Absatz" });
+  assert.deepEqual(withText.lesson.shareText, TEXT);
+  const pw = IO.planSessionImport(withText, { date: "2026-11-24", klass: "Q2-GK" }), po = IO.planSessionImport(without, { date: "2026-11-24", klass: "Q2-GK" });
+  assert.deepEqual([pw.lesson.shareText, po.lesson.shareText], [TEXT, null], "die Datei ersetzt den Absatz (ohne Absatz: null)");
+  c.now = NOW + 9000;
+  let im = await call(c, L.routeLessonImport, "POST", "/x", { lesson: pw.lesson, chat: [] }, ids[1]);
+  assert.equal(im.status, 200, JSON.stringify(im.data));
+  assert.deepEqual(JSON.parse(c.db.raw.prepare("SELECT share_text FROM lessons WHERE id=?").get(ids[1]).share_text), { v: 1, ...TEXT, at: NOW + 9000 });
+  im = await call(c, L.routeLessonImport, "POST", "/x", { lesson: po.lesson, chat: [] }, ids[1]);
+  assert.equal(im.status, 200);
+  assert.equal(c.db.raw.prepare("SELECT share_text FROM lessons WHERE id=?").get(ids[1]).share_text, null, "Datei ohne Absatz: der bisherige passt nicht mehr und ist weg");
+  await call(c, L.routeLessonPatch, "PATCH", "/x", { shareText: TEXT }, ids[1]);
+  im = await call(c, L.routeLessonImport, "POST", "/x", { lesson: { title: "Ohne Feld" }, chat: [] }, ids[1]);
+  assert.ok(c.db.raw.prepare("SELECT share_text FROM lessons WHERE id=?").get(ids[1]).share_text, "ohne das Feld (ältere Seite) bleibt er");
 });
 
 test("Connector: save_weitergabe (alle Sitzungen einer Einheit auf einmal, streng geprüft), update_lesson weitergabe, get_lesson und get_unit nennen den Absatz", async () => {
@@ -448,7 +462,11 @@ test("Connector: save_weitergabe (alle Sitzungen einer Einheit auf einmal, stren
   assert.ok(!(await tool(c, "update_lesson", { lesson_id: ids[0], weitergabe: { passiert: "", kompetenz: "", ziel: "" } })).isError);
   assert.equal(c.db.raw.prepare("SELECT share_text FROM lessons WHERE id=?").get(ids[0]).share_text, null);
   const miss = await tool(c, "save_weitergabe", { unit_id: u.id, sitzungen: [{ lesson_id: ids[2], ...TEXT }] });
-  assert.ok(miss.text.includes("Noch ohne Absatz, obwohl geplant: Sitzung 1."));
+  assert.ok(miss.text.includes("Noch ohne vollständigen Absatz, obwohl geplant: Sitzung 1."));
+  // unvollständig zählt nicht als vorhanden (wie in der Karte)
+  await tool(c, "update_lesson", { lesson_id: ids[0], weitergabe: { passiert: TEXT.passiert, kompetenz: "", ziel: "" } });
+  const gu2 = await tool(c, "get_unit", { unit_id: u.id });
+  assert.ok(gu2.text.includes("- Sitzung 1 (lesson_id " + ids[0] + "): geplant, Absatz unvollständig (es fehlt ein Teil)"), gu2.text.slice(-400));
 });
 
 /* ---------- ZIP-Ordner (share.js) im Browser-Ersatz ---------- */
@@ -529,4 +547,127 @@ test("ZIP-Ordner: Leupold-Schema, Erklärung, Fehlende Sitzungen, je geplanter S
     assert.ok(g.name.includes("Religion 2ab"));
     await assert.rejects(() => SZ.buildShareZip(UNIT, { cancelled: () => true }), (e) => e.cancelled === true);
   } finally { delete globalThis.__tapi; }
+});
+
+/* ---------- Schema (Prüfung Nachtrag 39): eine frische Datenbank bleibt unter 50 D1-Aufrufen ---------- */
+test("Schema: frische Datenbank mit wenigen Aufrufen (Spalten je Tabelle in einem Batch), Indizes angelegt; gleichzeitig angelegte Spalte stört nicht", async () => {
+  const { fakeD1 } = await import("./fake-d1.mjs");
+  const count = (db, race = null) => {
+    const c = { calls: 0, inBatch: false }, prep = db.prepare.bind(db), batch = db.batch.bind(db);
+    db.prepare = (sql) => { const s = prep(sql); for (const k of ["run", "all", "first"]) { const f = s[k]; s[k] = (...a) => { if (!c.inBatch) c.calls++; return f(...a); }; } return s; };
+    db.batch = async (list) => { c.calls++; if (race) { const r = race; race = null; r(db); } c.inBatch = true; try { return await batch(list); } finally { c.inBatch = false; } };   // ein Batch = ein Aufruf
+    return c;
+  };
+  const fresh = fakeD1(), c = count(fresh);
+  const D = await import("../../worker/db.js?schema39a");
+  await D.ensureSchema(fresh);
+  assert.ok(c.calls <= 20, "höchstens 20 Aufrufe, waren " + c.calls);
+  const cols = (t) => new Set(fresh.raw.prepare("PRAGMA table_info(" + t + ")").all().map((r) => r.name));
+  for (const [t, col] of D.COLUMNS) assert.ok(cols(t).has(col), t + "." + col);
+  const idx = new Set(fresh.raw.prepare("SELECT name FROM sqlite_master WHERE type='index'").all().map((r) => r.name));
+  for (const name of ["lessons_unit_row", "lessons_parent_hash", "lessons_date", "files_cards", "lessons_day"]) assert.ok(idx.has(name), "Index " + name);
+  // eine andere Instanz legt die erste nachträgliche Spalte von „lessons“ gerade an: der Batch scheitert, danach einzeln ergänzt
+  const raced = fakeD1(), first = D.COLUMNS.find((x) => x[0] === "lessons");
+  let n = 0;
+  count(raced, () => {});   // der Schema-Batch selbst läuft unverändert
+  const keep = raced.batch;
+  raced.batch = async (list) => { if (++n === 2) raced.raw.exec("ALTER TABLE " + first[0] + " ADD COLUMN " + first[1] + " " + first[2]); return keep(list); };
+  const D2 = await import("../../worker/db.js?schema39b");
+  await D2.ensureSchema(raced);
+  for (const [t, col] of D2.COLUMNS) assert.ok(new Set(raced.raw.prepare("PRAGMA table_info(" + t + ")").all().map((r) => r.name)).has(col), "nach dem Wettlauf: " + t + "." + col);
+});
+
+/* ---------- Befunde der Prüfung (Nachtrag 39) ---------- */
+test("Prüfung: Materialfolien mit „Feibeitsblatt“/„Arbeitsblatt“ bleiben, allgemeine Einzelwörter retten keine Codefolie; die Überdeckung trifft nur den Abschnitt der Unterricks-Zeile", () => {
+  assert.equal(SH.isMaterialSlide(["Öffnet das Feibeitsblatt in Unterricks"], ["Wer darf wählen?"]), true, "Feibeitsblatt in der Überschrift: bleibt");
+  assert.equal(SH.isMaterialSlide(["Die Hausaufgabe und das Material findest du in Unterricks."], ["Hausaufgabe", "Material"]), false, "allgemeine Titel zählen nicht");
+  assert.equal(SH.isMaterialSlide(["Bearbeitet die Quelle Grundgesetz in Unterricks"], ["Grundgesetz Artikel 38"]), false, "Titel nur zum Teil: weiterhin Codefolie");
+  const line = (text, base, h = 9, x0 = 60, gapAt = -1, gap = 0) => ({ text, base, h, map: Array.from(text, (_, i) => ({ x0: x0 + i * 4 + (gapAt >= 0 && i >= gapAt ? gap : 0), x1: x0 + i * 4 + 4 + (gapAt >= 0 && i >= gapAt ? gap : 0), h })) });
+  const t = S.CODE_SLIDE_LINE + "   Seite 2", b = SH.markBoxes([line(t, 526, 9, 60, S.CODE_SLIDE_LINE.length + 3, 500)]);
+  assert.equal(b.length, 1);
+  assert.ok(b[0].x1 <= 60 + S.CODE_SLIDE_LINE.length * 4 + 4, "die Seitenzahl rechts auf derselben Grundlinie bleibt sichtbar");
+});
+
+test("Prüfung: unvollständiger Absatz – vorhandene Teile und grober Ablauf; „Fehlende Sitzungen“ der Grundschule ohne Präsentation; Regeln der Grundschule; langer Titel umbrochen", async () => {
+  const rows = [{ uid: "r1", stundenfrage: "Warum?", ablauf: ["Karikatur"], schritt: 0 }];
+  const part = SP.sessionBlocks(SH.shareSessions(rows, [{ id: "a", row: "r1", planned: true, shareText: { passiert: "Nur dieser Teil.", kompetenz: "", ziel: "" } }]), [], UNIT);
+  const pj = JSON.stringify(part);
+  assert.ok(pj.includes("Nur dieser Teil.") && pj.includes("Grober Ablauf: ") && pj.includes("Karikatur"), "vorhandene Teile und der grobe Ablauf");
+  const full = JSON.stringify(SP.sessionBlocks(SH.shareSessions(rows, [{ id: "a", row: "r1", planned: true, shareText: TEXT }]), [], UNIT));
+  assert.ok(!full.includes("Grober Ablauf"), "vollständig: nur der Absatz");
+  const gm = JSON.stringify(SH.missingBlocks(SH.shareSessions(rows, []), [], { gs: true })), ym = JSON.stringify(SH.missingBlocks(SH.shareSessions(rows, []), []));
+  assert.ok(gm.includes("Verlaufsplan und Material fehlen noch.") && !gm.includes("Präsentation") && ym.includes("Präsentation, Verlaufsplan und Material fehlen noch."));
+  const gstep = SH.shareSaveStep("gs", "gs12345678");
+  assert.ok(gstep.includes("Ohne Namen von Kindern") && gstep.includes("keine Verweise [[pdf:…]]") && gstep.includes("(ohne Vorlage formuliert)"));
+  assert.ok(SH.shareSaveStep("powi", "8B").includes("Ohne Namen von Schüler:innen") && SH.shareSaveStep("powi", "8B").includes("keine Schulportal-Zeichen"));
+  assert.ok(SH.SHARE_RULES.includes("Schüler:innen bzw. Kinder") && SH.SHARE_RULES.includes("keine Verweise [[pdf:…]]"), "Connector: Regeln für beide Schulformen");
+  // langer Titel: umbrochen bzw. kleiner, nichts über den rechten Rand
+  const long = { ...UNIT, title: "Wahlen in Deutschland – Beteiligung, Wahlrecht, Wahlsysteme und die Frage, ob eine Wahlpflicht die Demokratie stärken würde" };
+  const bytes = await SP.leupoldPdf(long, [], { title: long.title, meta: SH.unitMeta(long) }, { lib: PL });
+  const doc = await pdfjs.getDocument({ data: new Uint8Array(bytes).slice(), verbosity: 0 }).promise, pg = await doc.getPage(1), W = pg.getViewport({ scale: 1 }).width;
+  const items = (await pg.getTextContent()).items.filter((x) => x.str.trim());
+  assert.ok(items.every((x) => x.transform[4] + x.width <= W - 30), "kein Text über den rechten Rand");
+  assert.ok(items.map((x) => x.str).join(" ").replace(/\s+/g, " ").includes("die Demokratie stärken würde"), "der ganze Titel steht da");
+  await doc.destroy();
+});
+
+test("Prüfung: ältere Präsentation mit aufgedrucktem Sitzungscode – auf allen Folien überdeckt, Feibeitsblatt-Codes bleiben, Hinweis", async () => {
+  const d = await PL.PDFDocument.create(), f = await d.embedFont(PL.StandardFonts.HelveticaBold);
+  const slide = (lines) => { const p = d.addPage([960, 540]); p.drawRectangle({ x: 0, y: 0, width: 960, height: 540, color: PL.rgb(1, 1, 1) }); lines.forEach(([t, y, s]) => p.drawText(t, { x: 60, y, size: s, font: f, color: PL.rgb(0, 0, 0) })); };
+  slide([["Wahlen", 420, 40], ["AEH-4VY", 250, 96]]);
+  slide([["Bearbeitet das Feibeitsblatt KLM-3PQ", 330, 30], ["Code: AEH-4VY", 200, 30]]);
+  slide([["Diskussion", 300, 40]]);
+  const colored = [];
+  const r = await SR.sharePresentation(await d.save(), { excludeCodes: ["KLM3PQ"], pptx: false, libs: { pdfLib: PL, pdfjs, color: (n, b) => { colored.push([n, Math.round(b.h)]); return [1, 1, 1]; } } });
+  assert.deepEqual(r.legacy, { code: "AEH-4VY", slides: [1, 2], missed: [] });
+  assert.ok(colored.some(([n]) => n === 1) && colored.some(([n]) => n === 2) && !colored.some(([n]) => n === 3));
+  const t = await pdfText(r.bytes);
+  assert.ok(t.pages[1].includes("KLM-3PQ"), "der Code des Feibeitsblatts bleibt (Text ohnehin; überdeckt wird nur der Sitzungscode)");
+  // ohne Farbe/Canvas: gemeldet statt überdeckt
+  const r2 = await SR.sharePresentation(await d.save(), { pptx: false, libs: { pdfLib: PL, pdfjs } });
+  assert.deepEqual([r2.legacy.slides, r2.legacy.missed], [[], [1, 2]]);
+  // neue Präsentation ohne großen Code: kein Hinweis
+  assert.equal((await SR.sharePresentation(await deck(), { codeSlides: CODE_SLIDES, pptx: false, libs: { pdfLib: PL, pdfjs, color: () => [0, 0, 0] } })).legacy, null);
+});
+
+test("Prüfung: ZIP – Verweise auf Dateien anderer Einheiten werden mitgenommen, auf Dateien anderer Ordner mit dem echten Namen genannt; fehlendes Notfall-Feibeitsblatt, Sitzung ohne Präsentation, Selbstlern-Phase (ursprüngliche Planung)", async () => {
+  const A = "a".repeat(16), B = "b".repeat(16), F1 = "1".repeat(16), F2 = "2".repeat(16), F3 = "3".repeat(16), F4 = "4".repeat(16);
+  const pdf = async (label) => { const d = await PL.PDFDocument.create(); d.addPage().drawText(label); return d.save(); };
+  const blobs = { [F1]: await pdf("Karten aus Sitzung 1"), [F2]: await pdf("Karten anderer Einheit"), [F3]: await pdf("Archiviertes Blatt"), [F4]: await pdf("Selbstlern-Station") };
+  const GSU = { ...UNIT, subject: "gs", klass: "gs12345678", rows: UNIT.rows.slice(0, 2), course: { gs: { short: "Religion 2c", label: "Religion", gradeText: "Jahrgang 2" } } };
+  const lessons = [{ id: A, row: "r1", title: "Eins", planned: true, shareText: TEXT }, { id: B, row: "r2", title: "Zwei", planned: true, shareText: TEXT }];
+  const det = {
+    [A]: { lesson: { title: "Eins", portal: "**Sitzkreis**\n- " + S.pdfRef(F1) + " zeigen", homework: "" }, files: [{ id: F1, kind: "file", area: "teacher", name: "Bildkarten: Josef?.pdf", mime: "application/pdf", status: "ready" }], sheets: [] },
+    [B]: { lesson: { title: "Zwei", portal: "**Erzählung**\n- " + S.pdfRef(F1) + " und " + S.pdfRef(F2) + " zeigen", homework: "" }, files: [], sheets: [],
+      courseCards: [{ id: F1, name: "Bildkarten: Josef?.pdf", lessonId: A, mime: "application/pdf", kind: "file" }, { id: F2, name: "Arche Noah.pdf", lessonId: "x".repeat(16), mime: "application/pdf", kind: "file" }] },
+  };
+  globalThis.__tapi = async (m, path) => {
+    if (path.endsWith("/share")) return { lessons };
+    const x = /lessons\/(\w+)\?full=1$/.exec(path); if (x) return det[x[1]];
+    const f = /files\/(\w+)\/link$/.exec(path); if (f) return { url: "/dl/" + f[1] };
+    throw new Error("unerwartet " + path);
+  };
+  const realFetch = globalThis.fetch;
+  globalThis.fetch = async (url) => new Response(blobs[String(url).split("/dl/")[1]]);
+  try {
+    const r = await SZ.buildShareZip(GSU);
+    const z = await readZip(new Uint8Array(await r.blob.arrayBuffer())), names = z.map((e) => e.name).sort();
+    assert.deepEqual(names, ["Leupold-Schema - Wahlen in Deutschland.pdf", "Sitzung 1/Bildkarten Josef.pdf", "Sitzung 1/Verlaufsplan - Sitzung 1.pdf", "Sitzung 2/Arche Noah.pdf", "Sitzung 2/Verlaufsplan - Sitzung 2.pdf"]);
+    const vp2 = (await pdfText(z.find((e) => e.name === "Sitzung 2/Verlaufsplan - Sitzung 2.pdf").data)).all;
+    assert.ok(vp2.includes("„Bildkarten Josef.pdf (im Ordner „Sitzung 1“)“") && vp2.includes("„Arche Noah.pdf“"), "echter Name im anderen Ordner; Datei einer anderen Einheit liegt im eigenen Ordner – " + vp2);
+    // Gymnasium: Feibeitsblatt ohne Notfall-Feibeitsblatt, Sitzung ohne Präsentation, Selbstlern-Phase mit Archiv
+    det[A] = { lesson: { title: "Eins", portal: "**Selbstlern-Stationen**", homework: "" }, sheets: [{ code: "KLM-3PQ", title: "Wer darf wählen?", kind: "" }],
+      files: [{ id: F3, kind: "file", area: "archive", name: "M1 Original.pdf", mime: "application/pdf", status: "ready" }, { id: F4, kind: "file", area: "student", name: "Station 1.pdf", mime: "application/pdf", status: "ready" }],
+      substitute: { status: "selbstlern", archive: { portal: "**1) Einstieg**\n- Original geplant", homework: "", sheets: [{ code: "KLM-3PQ", title: "Wer darf wählen?", kind: "" }], files: [F3], fileAreas: { [F3]: "student" } } } };
+    det[B] = { lesson: { title: "Zwei", portal: "**1) Einstieg**", homework: "" }, files: [], sheets: [] };
+    const g = await SZ.buildShareZip({ ...UNIT, rows: UNIT.rows.slice(0, 2) });
+    const gz = await readZip(new Uint8Array(await g.blob.arrayBuffer())), gn = gz.map((e) => e.name).sort();
+    assert.ok(gn.includes("Sitzung 1/M1 Original.pdf") && !gn.includes("Sitzung 1/Station 1.pdf"), "Selbstlern-Phase: ursprüngliches Material, nicht die Stationen – " + gn.join(", "));
+    const v1 = (await pdfText(gz.find((e) => e.name === "Sitzung 1/Verlaufsplan - Sitzung 1.pdf").data)).all;
+    assert.ok(v1.includes("Original geplant") && !v1.includes("Selbstlern-Stationen"), "Verlaufsplan aus der ursprünglichen Planung");
+    const n = g.notes.join(" ");
+    for (const s of ["Sitzung 1: Für diese Sitzung gilt eine Selbstlern-Phase – im Ordner steht die ursprüngliche Planung.", "Sitzung 1: Zum Feibeitsblatt „Wer darf wählen?“ fehlt das Notfall-Feibeitsblatt",
+      "Sitzung 2: Zu dieser Sitzung gibt es keine Präsentation."]) assert.ok(n.includes(s), s);
+    assert.ok(gn.includes("Erklärung - Das ist ein Feibeitsblatt.pdf"));
+  } finally { globalThis.fetch = realFetch; delete globalThis.__tapi; }
 });
