@@ -4,6 +4,7 @@ import { subjectName, gradeInfo, classShort, isAnalogClass, ANALOG_RULE, fmtDay,
   SYSTEM_PROMPT_ROLE, UNIT_RULE_BASE, STOP_LINE, lessonContext, teacherWishes, groupShort, subjectShort, isValidSubject, isValidClass, clockMinutes, minutesClock, mondayOf, isWeekend,
   GS_SUBJECT, isGsCourseId, parentOpensAt, berlinToday, stopParts, STOP_CHOICE_TEXT, STOP_CHOICES, stopDecidedOn, summarySaveStep, SUMMARY_FALLBACK, daysBetween } from "./shared.js";
 import { bringSaveStep } from "./bring.js";
+import { shareSaveStep } from "./sharelib.js";
 export { UNIT_RULE } from "./shared.js";
 
 export const WEEKDAYS = [{ d: 1, n: "Montag" }, { d: 2, n: "Dienstag" }, { d: 3, n: "Mittwoch" }, { d: 4, n: "Donnerstag" }, { d: 5, n: "Freitag" }];
@@ -690,6 +691,7 @@ export function claudeLessonPrompt(ctx) {
     bringSaveStep(false),   // Nachtrag 28: Gegenstände, die ich mitbringen muss
     unit ? "   - Abgestimmte Abweichung von der Einheit (Stundenfrage, grober Ablauf) → `update_unit_row`." : null,
     summarySaveStep(false, analog),
+    shareSaveStep(ctx.subject, ctx.klass),   // Nachtrag 39: Absatz für die Weitergabe an Kolleg:innen
   ];
   return [
     "Chat-Name: " + chatName,

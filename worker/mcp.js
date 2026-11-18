@@ -6,7 +6,7 @@ import { HttpError, json, readJson, sha256Hex, timingSafeEqual, randomToken, LOC
 import { getSetting, setSetting } from "./db.js";
 import { requireTeacher } from "./auth.js";
 import { getLesson, lessonCtx, chatMessages, updateLesson, savePortal, insertDraft, lessonOut, fileOut, LIMITS, previousLesson, cardData, cardVersion, prevStopInfo, openFilesOf, stopDecision, stopDecisionJson, printNameOf } from "./lessons.js";
-import { getUnit, unitFull, applyPlan, updateRow, updateRows, extendUnit, ROWS_MAX, EXTEND_MAX } from "./units.js";
+import { getUnit, unitFull, applyPlan, updateRow, updateRows, extendUnit, ROWS_MAX, EXTEND_MAX, shareLessons } from "./units.js";
 import { loadFreeDays } from "./freedays.js";
 import { planningBasis } from "./bases.js";
 import { gsCourseMap, gsCourseOut, getGsCourse, planningBasisGs } from "./gs.js";
@@ -25,6 +25,7 @@ import { saveCardSet, setCardTexts } from "./cards.js";
 import { parentFiles, refCounts } from "./parents.js";
 import { BRING_LIMITS, bringSection, bringRead } from "../public/bring.js";
 import { videoSlidesData, videoSlidesOf, videoWatchUrl, videoClipText, VIDEO_MARK } from "../public/videoslides.js";
+import { SHARE_LIMITS, SHARE_RULES, SHARE_TEXT_TITLE, cleanShareText, shareTextOf, shareTextStore, shareSessions, competenceSource } from "../public/sharelib.js";
 
 const MODERN = "2026-07-28";
 const LEGACY = ["2025-11-25", "2025-06-18", "2025-03-26", "2024-11-05"];
@@ -54,6 +55,10 @@ const KURS_ARG = { type: "string", description: "Grundschulkurs (Kennung gs…, 
 const CLASS_ARG = { type: "string", description: "Klasse/Kurs, z. B. 7B, EA, Q2-GK oder 8-K (Kurs Jg. 8 in Ev. Religion/Ethik)", enum: ALL_CLASSES };
 const UNIT_ID = { type: "string", description: "ID der Unterrichtseinheit (16 Hex-Zeichen, aus list_units)", pattern: "^[a-f0-9]{16}$" };
 const ID_ARG = { type: "string", description: "Sitzungs-ID (16 Hex-Zeichen, aus list_lessons)", pattern: "^[a-f0-9]{16}$" };
+// Absatz für die Weitergabe an Kolleg:innen (Nachtrag 39): drei Teile; alle leer = löschen
+const WEITERGABE_ARG = { type: "object", description: "„" + SHARE_TEXT_TITLE + "“ (Leupold-Schema-PDF, wenn die Lehrkraft die Einheit mit Kolleg:innen teilt): " + SHARE_RULES + " Drei leere Teile = löschen.",
+  properties: { passiert: { type: "string", maxLength: SHARE_LIMITS.passiert }, kompetenz: { type: "string", maxLength: SHARE_LIMITS.kompetenz }, ziel: { type: "string", maxLength: SHARE_LIMITS.ziel } },
+  required: ["passiert", "kompetenz", "ziel"], additionalProperties: false };
 const ro = { readOnlyHint: true, destructiveHint: false, openWorldHint: false };
 // Speicher-Werkzeuge der Planung (Nachtrag 21): danach die Zusammenfassung für die Lehrkraft
 const SUMMARY_AFTER_SAVE = "Schreibe danach auch die „" + TEACHER_SUMMARY_TITLE + "“ mit update_lesson (zusammenfassung_lehrkraft) bzw. passe sie an.";
@@ -97,7 +102,8 @@ const TOOLS = [
       "Mit zwischenstopp hältst du die Entscheidung der Lehrkraft zum offenen Teil der vorigen Sitzung fest (get_lesson, Abschnitt „Vorige Stunde nicht vollständig beendet“). " +
       "Mit zusammenfassung_lehrkraft speicherst du die „" + TEACHER_SUMMARY_TITLE + "“ (Gymnasium und Grundschule; Unterricks zeigt sie ganz oben in der Sitzung, nur der Lehrkraft) – " +
       "immer, wenn du Unterrichtsinhalte der Sitzung ablegst, als letzten Speicherschritt (auch wenn die Lehrkraft nur einen Teil freigibt, ohne eigene Rückfrage), und erneut, wenn du die Planung später überarbeitest – nicht für eine Selbstlern-Phase. " +
-      "Mit mitbringen hältst du fest, welche Gegenstände die Lehrkraft für die Stunde mitbringen muss (Gymnasium und Grundschule; Unterricks zeigt sie ihr am Vortag auf der Startseite).",
+      "Mit mitbringen hältst du fest, welche Gegenstände die Lehrkraft für die Stunde mitbringen muss (Gymnasium und Grundschule; Unterricks zeigt sie ihr am Vortag auf der Startseite). " +
+      "Mit weitergabe speicherst du den „" + SHARE_TEXT_TITLE + "“ (was passiert, zentrale Kompetenz, Ziel) – zusammen mit der Zusammenfassung, wenn du eine Stunde planst; für viele Sitzungen einer Einheit auf einmal gibt es save_weitergabe.",
     inputSchema: { type: "object", properties: { lesson_id: ID_ARG, titel: { type: "string", maxLength: 200 }, thema: { type: "string", maxLength: 500 },
       dauer_minuten: { type: "integer", minimum: 5, maximum: 600 }, datum: { type: "string", pattern: "^\\d{4}-\\d{2}-\\d{2}$" },
       beginn: { type: "string", pattern: "^([01]\\d|2[0-3]):[0-5]\\d$", description: "Uhrzeit des Unterrichtsbeginns, z. B. 07:45" }, ideen: { type: "string", maxLength: 20000 },
@@ -105,12 +111,20 @@ const TOOLS = [
       inhalt_eltern: { type: "string", maxLength: 800, description: "nur Grundschule: Inhalt der Unterrichtsstunde für die Eltern – 2–3 Sätze, elternverständlich: worum es ging und was die Kinder lernen sollten; nie Namen von Kindern" },
       zwischenstopp: { type: "string", enum: STOP_CHOICES, description: "Entscheidung der Lehrkraft zum offenen Teil der vorigen Sitzung nach ihrem Zwischenstopp: \"uebernehmen\" (in diese Stunde einbauen) oder \"verzichten\" – nur, was die Lehrkraft entschieden hat; halte sie gleich nach ihrer Antwort fest, vor dem Speichern der Planung dieser Stunde (erst eine danach gespeicherte Planung erledigt den Hinweis darauf in Unterricks)" },
       zusammenfassung_lehrkraft: { type: "string", maxLength: TEACHER_SUMMARY_MAX, description: TEACHER_SUMMARY_TITLE + " (nie für Schüler:innen oder Eltern sichtbar). " + teacherSummaryRules("beide") + " Leer = löschen." },
+      weitergabe: WEITERGABE_ARG,
       mitbringen: { type: "array", maxItems: BRING_LIMITS.items, description: "Gegenstände, die die Lehrkraft für diese Stunde mitbringen muss – nur, was sie von zu Hause oder aus dem Lehrerzimmer mitnimmt (z. B. eine Bibel oder einen Beutel), " +
         "nicht die übliche Ausstattung des Klassenraums und nicht das Material ihrer Druckliste; nur nach ihrer Freigabe. Ersetzt die bisherige Liste (siehe get_lesson); [] leert sie. Nie Namen von Schüler:innen oder Kindern.",
         items: { type: "object", properties: { gegenstand: { type: "string", maxLength: BRING_LIMITS.item, description: "z. B. „Bibel“" },
           wofuer: { type: "string", maxLength: BRING_LIMITS.note, description: "höchstens zwei Sätze: an welcher Stelle der Stunde (Phase) und in welcher Lerngruppe der Gegenstand gebraucht wird, z. B. „In Phase 2 (Erzählung) im Kurs 8-K zum Vorlesen der Schöpfungsgeschichte.“" } },
           required: ["gegenstand", "wofuer"], additionalProperties: false } } },
       required: ["lesson_id"], additionalProperties: false } },
+  { name: "save_weitergabe", title: "Absätze für die Weitergabe speichern", annotations: wr,
+    description: "Speichert zu Sitzungen einer Unterrichtseinheit den „" + SHARE_TEXT_TITLE + "“: Teilt die Lehrkraft die Einheit mit Kolleg:innen („Unterrichtseinheit mit KollegInnen teilen“), steht er " +
+      "in der PDF-Datei mit dem Leupold-Schema unter dem Schema – je Sitzung ein kurzer Absatz. " + SHARE_RULES + " Nur nach Freigabe der Lehrkraft; nur für geplante Sitzungen (get_unit nennt sie). " +
+      "Alle Absätze in einem Aufruf; ein Eintrag mit drei leeren Teilen löscht den Absatz der Sitzung.",
+    inputSchema: { type: "object", properties: { unit_id: UNIT_ID, sitzungen: { type: "array", minItems: 1, maxItems: 150, items: { type: "object", properties: { lesson_id: ID_ARG,
+      passiert: { type: "string", maxLength: SHARE_LIMITS.passiert }, kompetenz: { type: "string", maxLength: SHARE_LIMITS.kompetenz }, ziel: { type: "string", maxLength: SHARE_LIMITS.ziel } },
+      required: ["lesson_id", "passiert", "kompetenz", "ziel"], additionalProperties: false } } }, required: ["unit_id", "sitzungen"], additionalProperties: false } },
   { name: "save_planning_result", title: "Planungsergebnis in der Sitzung speichern", annotations: wr,
     description: "Speichert ein Planungsergebnis (z. B. den ausgearbeiteten Stundenentwurf) als Nachricht „Claude“ im Planungsverlauf der Sitzung, damit Schulportal-Eintrag und Präsentations-Prompt der Plattform darauf aufbauen.",
     inputSchema: { type: "object", properties: { lesson_id: ID_ARG, text: { type: "string", description: "Markdown", maxLength: 100000 } }, required: ["lesson_id", "text"], additionalProperties: false } },
@@ -295,6 +309,20 @@ function summarySection(l, course, { substitute = false, selbstlern = false } = 
   else if (summaryOutdated(t, l.teacher_summary_plan, l.portal)) out.push("Achtung: Der " + (gs ? "Verlaufsplan" : "Schulportal-Eintrag") + " wurde danach geändert – passe die Zusammenfassung mit update_lesson (zusammenfassung_lehrkraft) an, wenn du die Planung überarbeitest.");
   return out;
 }
+/* Abschnitt „Absatz für die Weitergabe“ von get_lesson (Nachtrag 39) */
+function shareSection(l) {
+  const t = shareTextOf(l.share_text);
+  if (!t) return ["", "## " + SHARE_TEXT_TITLE, "(noch keiner – schreibe ihn mit update_lesson und weitergabe, zusammen mit der Zusammenfassung; die zentrale Kompetenz aus " + competenceSource(l.subject, l.klass).from + ")"];
+  return ["", "## " + SHARE_TEXT_TITLE, "Was passiert: " + (t.passiert || "(leer)"), competenceSource(l.subject, l.klass).label + ": " + (t.kompetenz || "(leer)"), "Ziel: " + (t.ziel || "(leer)"),
+    "(Stand: " + (t.at ? fmtStampBerlin(t.at) : "unbekannt") + ")"];
+}
+/* Liste „Absätze für die Weitergabe“ in get_unit (Nachtrag 39): je Stunde mit Sitzung, ob sie geplant ist und ob es einen Absatz gibt */
+async function shareUnitLines(db, u) {
+  const ls = await shareLessons(db, u.id), list = shareSessions(u.rows || [], ls).filter((s) => s.lesson);
+  if (!list.length) return [];
+  return ["", "## " + SHARE_TEXT_TITLE + " (für „Unterrichtseinheit mit KollegInnen teilen“; speichern mit save_weitergabe)",
+    ...list.map((s) => "- Sitzung " + s.n + " (lesson_id " + s.lesson.id + "): " + (s.planned ? "geplant" : "noch nicht geplant") + ", Absatz " + (s.lesson.shareText ? "vorhanden" : "fehlt"))];
+}
 async function lessonDump(db, l, now = Date.now()) {
   const ctx = await lessonCtx(db, l);
   const [msgs, drafts, prev, sub] = await Promise.all([chatMessages(db, l.id, 80), db.prepare("SELECT id, data, status, sheet_code FROM fb_drafts WHERE lesson_id=?1 ORDER BY created_at DESC LIMIT 10").bind(l.id).all(),
@@ -314,6 +342,7 @@ async function lessonDump(db, l, now = Date.now()) {
     ...(ps ? stopLessonLines(ps, { gs: false, unitId: ctx.unit ? ctx.unit.id : null, unit: ctx.unit, now }) : []),
     ...slBefore,
     ...summarySection(l, null, { substitute: !!sub && sub.status === "aktiv", selbstlern: !!sub && sub.status === SELBSTLERN }),
+    ...shareSection(l),
     ...bringSection(bringRead(l.bring).items),
     "", "## Planungsverlauf", chatTranscript(msgs, 60000) || "(leer)",
   ];
@@ -424,6 +453,7 @@ async function gsLessonDump(c, l) {
     parentsLine,
     ...(ps ? stopLessonLines({ ...ps, openFiles: openFilesOf(ps, [...ctx.files, ...others]) }, { gs: true, unitId: ctx.unit ? ctx.unit.id : null, unit: ctx.unit, now: c.now }) : []),
     ...(l.cancelled ? [] : summarySection(l, ctx.course)),
+    ...(l.cancelled ? [] : shareSection(l)),
     ...(l.cancelled ? [] : bringSection(bringRead(l.bring).items)),
     "", "## Inhalt der Unterrichtsstunde (für die Eltern)", l.parent_summary || (l.cancelled ? "(Ausfall-Eintrag – keiner)" : "(noch leer – formuliere ihn mit update_lesson und inhalt_eltern)"),
     "", "## Hinweis der Lehrkraft für die Eltern (nur lesen)", l.parent_note || "(keiner)",
@@ -654,7 +684,8 @@ async function callTool(c, name, a) {
     }
     case "get_unit": {
       const u = await unitFull(c.db, await getUnit(c.db, a.unit_id));
-      if (u.subject === GS_SUBJECT) return toolText(gsUnitText(u, c.now), { unit_id: u.id, version: u.version });
+      const shareL = await shareUnitLines(c.db, u);   // Absätze für die Weitergabe (Nachtrag 39)
+      if (u.subject === GS_SUBJECT) return toolText([gsUnitText(u, c.now), ...shareL].join("\n"), { unit_id: u.id, version: u.version });
       const lines = ["# Unterrichtseinheit " + u.id + " (" + subjectName(u.subject) + ", " + classShort(u.klass) + " – " + gradeInfo(u.klass).text + ", Status: " + u.status + ", Version " + u.version + ")",
         "Titel: " + (u.title || "(offen)"), ...(u.course && Number.isInteger(u.course.classSize) ? ["Schülerzahl laut Kurseinstellungen: " + u.course.classSize] : []), paramsText(u.params), "Verfügbare Sitzungen: " + lessonSlots(u.slots).length, ...lessonSlots(u.slots).map((x, i) => "  " + (i + 1) + ". " + fmtDay(x.date) + " (" + x.minutes + " min)"),
         "", "## Plan", JSON.stringify(u.plan, null, 1), "", "## Ablauf (Zeilen)", ...u.rows.map((r, i) => (i + 1) + ". " + (r.date ? fmtDay(r.date) + ": " : "") + r.stundenfrage + (r.schritt != null ? " [Lernschritt " + (r.schritt + 1) + "]" : "") + "\n   - " + r.ablauf.join("\n   - ")),
@@ -672,7 +703,7 @@ async function callTool(c, name, a) {
           "Muss überarbeitet werden: " + (rv.open ? "ja (Hinweis in der Einheit – überarbeite sie nur nach Rücksprache mit der Lehrkraft; Inhalte und Stundenfragen mit update_unit_row und der Nummer nr jeder Stunde, " +
             "verlängern nur nach Zustimmung mit extend_unit; save_unit_plan ordnet am Gymnasium die Stunden nach ihrer Position den Sitzungen zu – Anzahl und Reihenfolge der Stunden mit Sitzung beibehalten)" : "nein"));
       }
-      return toolText(lines.join("\n"), { unit_id: u.id, version: u.version });
+      return toolText([...lines, ...shareL].join("\n"), { unit_id: u.id, version: u.version });
     }
     case "get_planning_basis": {
       let subject, klass;
@@ -800,6 +831,10 @@ async function callTool(c, name, a) {
         if (typeof a.zusammenfassung_lehrkraft !== "string") return toolError("zusammenfassung_lehrkraft ist ein Text (leer = löschen).");
         b.teacherSummary = a.zusammenfassung_lehrkraft;
       }
+      if (a.weitergabe !== undefined) {
+        try { cleanShareText(a.weitergabe, true); } catch (e) { return toolError("weitergabe: " + e.message); }
+        b.shareText = a.weitergabe;
+      }
       // Gegenstände zum Mitbringen (Nachtrag 28): die ganze Liste; geprüft wie auf der Sitzungsseite (Länge, höchstens zwei Sätze, doppelt) – Fehler als Meldung
       if (a.mitbringen !== undefined) {
         if (!Array.isArray(a.mitbringen)) return toolError("mitbringen ist eine Liste [{gegenstand, wofuer}] ([] leert sie).");
@@ -825,6 +860,26 @@ async function callTool(c, name, a) {
         (away ? " – gespeichert; solange für diese Sitzung eine Selbstlern-Phase gilt (die Lehrkraft kommt nicht), zeigt Unterricks sie nicht auf der Startseite (nach „Wiederherstellen“ wieder)."
           : " – Unterricks zeigt sie der Lehrkraft am Vortag auf der Startseite („Für den nächsten Arbeitstag einpacken“).") : " Die Liste „Mitbringen“ ist leer.";
       return toolText("Gespeichert." + stopNote + sumNote + bringNote, { lesson: lessonOut(l), ...(stopPrev ? { zwischenstopp: a.zwischenstopp } : {}) });
+    }
+    case "save_weitergabe": {
+      const u = await getUnit(c.db, a.unit_id);
+      if (!Array.isArray(a.sitzungen) || !a.sitzungen.length) return toolError("sitzungen ist eine Liste [{lesson_id, passiert, kompetenz, ziel}].");
+      const ls = await shareLessons(c.db, u.id), byId = new Map(ls.map((l) => [l.id, l])), seen = new Set(), clean = [];
+      for (const [i, x] of a.sitzungen.entries()) {
+        const l = x && byId.get(x.lesson_id);
+        if (!l || l.cancelled) return toolError("Eintrag " + (i + 1) + ": Die Sitzung " + (x && x.lesson_id) + " gehört nicht (mehr) zu dieser Einheit – nimm die lesson_id aus get_unit.");
+        if (seen.has(l.id)) return toolError("Eintrag " + (i + 1) + ": Die Sitzung " + l.id + " steht doppelt in der Liste.");
+        seen.add(l.id);
+        let t;
+        try { t = cleanShareText({ passiert: x.passiert, kompetenz: x.kompetenz, ziel: x.ziel }, true); } catch (e) { return toolError("Eintrag " + (i + 1) + " (" + l.title + "): " + e.message); }
+        clean.push({ l, t });
+      }
+      await c.db.batch(clean.map(({ l, t }) => c.db.prepare("UPDATE lessons SET share_text=?2, updated_at=?3 WHERE id=?1").bind(l.id, shareTextStore(t, c.now), c.now)));
+      const after = shareSessions(JSON.parse(u.rows || "[]"), await shareLessons(c.db, u.id)).filter((s) => s.lesson);
+      const missing = after.filter((s) => s.planned && !s.lesson.shareText).map((s) => "Sitzung " + s.n);
+      return toolText("Gespeichert: " + clean.length + (clean.length === 1 ? " Absatz" : " Absätze") + " für die Weitergabe (" + clean.map(({ l, t }) => "„" + l.title + "“" + (t ? "" : " gelöscht")).join(", ") + ")." +
+        (missing.length ? " Noch ohne Absatz, obwohl geplant: " + missing.join(", ") + "." : " Alle geplanten Sitzungen haben jetzt einen Absatz.") +
+        " Die Lehrkraft prüft sie in Unterricks (Karte „Mit Kolleg:innen teilen“ ganz unten auf der Seite der Einheit).", { saved: clean.length });
     }
     case "save_planning_result": {
       if ((await getLesson(c.db, a.lesson_id)).cancelled) return toolError(NO_PLANNING);

@@ -241,7 +241,7 @@ input[type=checkbox]:focus-visible, input[type=radio]:focus-visible { outline: 3
 .badge.stop { background: var(--rot-t); color: var(--err); }
 .badge.ink { background: var(--ink); color: #fff; }
 .badge.video { background: var(--violett-t); color: var(--violett); }   /* Videofolie (Nachtrag 38) */
-.badge.hw { background: var(--gelb-t); color: var(--text); box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--gelb-kante) 60%, transparent); }
+.badge.hw, .badge.warn { background: var(--gelb-t); color: var(--text); box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--gelb-kante) 60%, transparent); }
 @media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) .badge.ink { background: #e8edf6; color: #13213b; } }
 @media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) .badge.video { color: #c9b3ff; } }
 .save-state { display: inline-flex; align-items: center; gap: .3rem; } .save-state[data-state="ok"] { color: var(--ok); } .save-state[data-state="err"] { color: var(--err); }
@@ -1630,3 +1630,14 @@ main.navwait p { opacity: 0; animation: navwait-zeigen .2s ease-out .5s forwards
   .ic-col + .ic-col { border-left: 0; border-top: 2px solid var(--line-ui); }
 }
 @media (max-width: 560px) { .portal-preview.ic-arrowed { padding-right: 5.1rem; } .portal-preview.ic-arrowed .covered { margin-right: -5.1rem; padding-right: 5.1rem; } .phasearrow { padding: 0 .55rem 0 1rem; } }
+
+/* Mit Kolleg:innen teilen (Nachtrag 39): Karte ganz unten auf der Seite einer Unterrichtseinheit */
+.sharecard .sharetexts { margin-top: .5rem; }
+.sharecard .sharetexts > summary { cursor: pointer; font-weight: 700; min-height: 44px; display: flex; align-items: center; gap: .55rem; list-style: none; border-radius: var(--radius-s); }
+.sharecard .sharetexts > summary::-webkit-details-marker { display: none; }
+.sharecard .sharetexts > summary::before { content: ""; width: .55em; height: .55em; border-right: 2px solid currentColor; border-bottom: 2px solid currentColor; transform: rotate(-45deg); transition: transform .2s var(--ease); flex: none; }
+.sharecard .sharetexts[open] > summary::before { transform: rotate(45deg); }
+.sharecard fieldset.sharetext { border: 1px solid var(--line); border-radius: var(--radius-s); padding: .7rem .9rem .2rem; margin: .7rem 0; min-width: 0; }
+.sharecard fieldset.sharetext legend { font-weight: 700; padding: 0 .35rem; display: flex; flex-wrap: wrap; gap: .4rem; align-items: center; max-width: 100%; overflow-wrap: anywhere; }
+.sharecard .sharetext textarea { width: 100%; }
+.sharecard .sharego { margin-top: 1rem; }

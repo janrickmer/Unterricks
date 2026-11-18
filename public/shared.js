@@ -502,6 +502,9 @@ const unspace = (t) => {
   if (tok.length < 4 || tok.filter((w) => [...w].length === 1).length < tok.length * 0.7) return t;
   return /\s{2,}/.test(t.trim()) ? t.trim().split(/\s{2,}/).map((w) => w.replace(/\s+/g, "")).join(" ") : t;   // ohne erkennbare Wortlücken bleibt die Sperrung
 };
+/* Gehört eine Textzeile einer Codefolie zur Zeile „Unterricks-Codefolie: Hier zeigt Unterricks …“ (die Marke selbst bzw. ein umbrochenes Stück
+   des Erklärsatzes)? – zum Überdecken in der geteilten Präsentation (Nachtrag 39, sharelib.js) */
+export const codeMarkLine = (t) => { const u = unspace(String(t == null ? "" : t)); return MARK_RE.test(u) ? "mark" : explains(u) ? "explain" : null; };
 export function codeSlideLines(lines, pageH) {
   const all = (lines || []).filter((l) => l && typeof l.text === "string");
   if (!all.some((l) => MARK_RE.test(l.text))) return null;

@@ -120,7 +120,9 @@ export async function buildSessionZip(detail, { fb = T.fb, onStep = () => {}, ho
       ...(String(L.teacherSummary || "").trim() ? { teacherSummary: L.teacherSummary,
         ...(summaryOutdated(L.teacherSummary, L.teacherSummaryPlan, portal !== undefined ? portal : L.portal || "") ? { teacherSummaryOutdated: true } : {}) } : {}),
       // Gegenstände zum Mitbringen (Nachtrag 28) – nur, wenn es welche gibt (sonst bleibt die Datei, wie sie war)
-      ...(Array.isArray(L.bring) && L.bring.length ? { bring: L.bring.map((x) => ({ item: x.item, note: x.note || "" })) } : {}) },
+      ...(Array.isArray(L.bring) && L.bring.length ? { bring: L.bring.map((x) => ({ item: x.item, note: x.note || "" })) } : {}),
+      // Absatz für die Weitergabe (Nachtrag 39) – nur, wenn es einen gibt
+      ...(L.shareText && (L.shareText.passiert || L.shareText.kompetenz || L.shareText.ziel) ? { shareText: { passiert: L.shareText.passiert || "", kompetenz: L.shareText.kompetenz || "", ziel: L.shareText.ziel || "" } } : {}) },
     chat: (detail.messages || []).filter((m) => (m.role === "user" || m.role === "assistant") && m.model !== "begruessung").map((m) => ({ role: m.role, content: m.content, model: m.model || null, mode: m.mode || null })),
     files, drafts, sheets, notes };
   // Grundschule: Inhalt und Hinweis für die Eltern, Ausfall-Eintrag (nie der Elternlink); am Gymnasium bleibt die Datei, wie sie war
@@ -168,7 +170,9 @@ export function planSessionImport(data, target) {
   const g = adaptBringGroup(data.lesson.bring || [], src.klass, target.klass);
   const bring = g.items.map((x) => ({ item: x.item, note: fix(x.note, "Mitbringen „" + x.item + "“") }));
   const lesson = { title: data.lesson.title, topic: data.lesson.topic, ideas: fix(data.lesson.ideas, "Ideen und Wünsche"), homework: fix(data.lesson.homework, "Hausaufgabe"), portal: fix(data.lesson.portal, "Schulportal-Eintrag"),
-    teacherSummary: fix(data.lesson.teacherSummary || "", "Zusammenfassung für die Lehrkraft"), ...(data.lesson.teacherSummaryOutdated ? { teacherSummaryOutdated: true } : {}), bring };
+    teacherSummary: fix(data.lesson.teacherSummary || "", "Zusammenfassung für die Lehrkraft"), ...(data.lesson.teacherSummaryOutdated ? { teacherSummaryOutdated: true } : {}), bring,
+    // Absatz für die Weitergabe (Nachtrag 39): ohne Datumsangaben (keine Anpassung nötig)
+    ...(data.lesson.shareText ? { shareText: data.lesson.shareText } : {}) };
   const texts = [], links = [], prints = [], bins = [];
   for (const f of data.files) {
     if (f.kind === "link") links.push({ area: f.area, title: f.name, url: f.url });

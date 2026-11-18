@@ -86,6 +86,7 @@ implementiert und im End-to-End-Test geprüft (Ausnahmen unten ausdrücklich gen
 | Kleine Knöpfe der Druckliste (Entscheidung vom 17.11.2026) | Rückfrage aus der Zweitprüfung von Nachtrag 31b: „Herunterladen“, „Nicht ausdrucken“ u. ä. bleiben `btn small` (36 px hoch), **auch am iPad**; nur „Wieder ausdrucken“ hat 44 px (DESIGN.md, Druckliste) |
 | Bilder, Videolinks und PDF-Dateien in Feibeitsblättern (Nachtrag 37 vom 17.11.2026) | Wunsch der Lehrkraft: „Bilder und andere beigefügte Dateien als Material lassen sich von Unterricks nicht in ein Feibeitsblatt einbauen. … Ändere das, damit Claude auch Bilder, Videolinks und PDF-Dateien als Material zu Aufgaben hinzufügen kann.“ Rückfragen beantwortet: Quelle = **Dateien der Sitzung** (hochgeladen oder mit add_material_pdf gestaltet; nicht: von Claude gezeichnete Bilder, Dateien aus dem Internet); Dateien aus „Nur für die Lehrkraft“ **erlaubt, mit Warnhinweis**. Videos nur von YouTube (das Feibeitsblatt bettet nur YouTube ein), andere als Link im Material. Siehe 4zf |
 | YouTube-Video eingebettet in der Live-Präsentation (Nachtrag 38 vom 17.11.2026) | Wunsch der Lehrkraft: „Baue Unterricks so, dass ich in einer Präsentation ein YouTube-Video eingebettet abspielen kann. … dass Unterricks an der Stelle, an der die "Video-Folie" kommt, eine eigene Anzeige hat … In der Schüleransicht soll das YouTube-Video nicht live abgespielt werden, sondern hier wird die Folie mit dem Titel des Videos und dem YouTube-Link zum Video angezeigt.“ Der Präsentations-Prompt nennt Stelle, Link und Aufbau der Videofolie. Rückfragen beantwortet: **alle drei Aufbauten** (Beamergerät, Beamerfenster am Laptop, iPad gespiegelt); Videoquelle für den Prompt = **YouTube-Links im Schulportal-Eintrag (mit Phase) und in den Links der Sitzung**; Link für Schüler:innen **erst nach der Stunde** (live nur die Folie, danach im Folienfenster ein anklickbarer Link); **Start und Ende** (Ausschnitt). Siehe 4zg |
+| Unterrichtseinheit mit KollegInnen teilen (Nachtrag 39 vom 18.11.2026) | Wunsch der Lehrkraft: ein Knopf ganz unten in jeder Einheit „Untereichtseinheit mit KollegInnen teilen“ (Tippfehler berichtigt) → ZIP-Ordner mit Leupold-Schema-PDF (darunter je Sitzung ein Absatz: was passiert, zentrale Kompetenz des KCGO, Ziel), Erklärung „Das ist ein Feibeitsblatt“ (fett: Notfall-Feibeitsblatt als Dokument genügt), je geplanter Sitzung ein Ordner „Sitzung n“ mit Präsentation (ohne Folien, die Unterricks verlangen, mit „Copyright Jan-Rickmer Feindt“ klein und blass in der Fußzeile), Verlaufsplan und allen PDF-Dateien für Schüler:innen, sowie „Fehlende Sitzungen“. Rückfragen beantwortet: die Absätze **schreibt Claude** (Prompt neben dem Knopf, Absätze in Unterricks prüfbar, künftig beim Planen jeder Stunde gleich mit); Feibeitsblatt **digital nur nach Absprache** (Abgaben kämen bei der Lehrkraft an); **alle Materialfolien bleiben** (nur die kleine Unterricks-Zeile wird überdeckt), nur reine Codefolien fallen weg; zusätzlich **Druckliste, Material für die Lehrkraft, Notizen zu den Folien (eigene PDF) und Grundschul-Einheiten** (dort ohne Präsentation und ohne Erklärung). Siehe 4zh |
 
 ## 2. Gesamtarchitektur
 
@@ -150,6 +151,7 @@ implementiert und im End-to-End-Test geprüft (Ausnahmen unten ausdrücklich gen
 | | `public/bring.js`, `public/bringcard.js` | Gegenstände zum Mitbringen (Nachtrag 28): Prüfung (Länge, höchstens zwei Sätze), Speicherform mit Stand, Zusammenfassen für die Startseite, Bausteine für Prompt und `get_lesson` (Browser und Worker); Karte „Mitbringen“ auf beiden Sitzungsseiten, siehe 4v |
 | | `worker/podcast.js`, `public/podcast.js`, `public/podcastlib.js` | Podcast für den kommenden Unterricht (Nachtrag 22): Grundlage des Tages, Auftrag für Claude in Chrome, Ablage der Audiodatei in R2, Player mit Range-Anfragen, Löschen zwei Tage nach dem Unterricht – Knopf bzw. Player unter dem Wochenkalender beider Startseiten, siehe 4q |
 | | `worker/substitute.js`, `public/selbstlern.js` | Selbstlern-Phase (Nachtrag 29): Speichern mit Archiv (`save_selbstlern`), Wiederherstellen, Übertragen, Schülerdaten, Escape-Room; ältere Vertretungen lesen. `public/selbstlern.js`: Prüfen der Stationen, YouTube, Hausaufgabe, Prompt für Claude, System-Prompt des Erklär-Chatbots (gemeinsam für Browser und Worker) |
+| | `public/sharelib.js`, `public/share.js`, `public/sharepdf.js`, `public/sharepres.js`, `public/sharecard.js` | Unterrichtseinheit mit KollegInnen teilen (Nachtrag 39, 4zh): Absatz für die Weitergabe (gemeinsam für Browser und Worker), Prompt, ZIP-Ordner im Browser, PDF-Dokumente (Leupold-Schema, Erklärung, Fehlende Sitzungen, Verlaufsplan), Präsentation ohne reine Codefolien mit Copyright, Karte auf der Seite der Einheit |
 | | `public/storagefoot.js` (+ `GET /api/teacher/storage` in `worker/files.js`) | Speicher in der Fußzeile jeder Seite der Lehrkraft (Nachtrag 30): Anteil, Stufen, Einzelheiten, im Tab gemerkter Stand; Server: Summe der Dateien (wie beim Hochladen) und Größe der Datenbank (`meta.size_after`), siehe 4y |
 | Oberfläche | `public/boot.js` | Startdatei (unversioniert, bleibt über Deploys gleich): aktuellen Stand erfragen, `/v/<Stand>/app.js` laden, Hinweis bei einem Ladefehler, siehe 4t |
 | | `public/update.js` | Nach einem Update: Prüfung beim Seitenwechsel, sicheres Neuladen, `lazy()` für jedes Nachladen, Hinweis „Unterricks wurde aktualisiert“, siehe 4t |
@@ -2253,6 +2255,51 @@ Ausdrucken“; Grundschule „Auch Grundschule“ – kompakt mit Verlaufsplan u
   das Ende des Ausschnitts): Prompt, Hochladen, „Videofolien“, Sitzungsdatei, Abspielen hier (kein Überspringen beim Start, Ende selbst eingehalten,
   Fokus nach einem Tipp ins Video) / Beamerfenster (blockiert, Einbetten verboten, Fenster geschlossen) / Beamergerät (kurzer Verbindungsabbruch: derselbe
   Player läuft weiter; „Beamer trennen“ beendet sofort), Schüler:innen live ohne Video, Folienfenster mit Link (Fokus beim Weiterblättern).
+
+## 4zh. Unterrichtseinheit mit KollegInnen teilen – ZIP-Ordner (Nachtrag 39 vom 18.11.2026)
+
+* **Knopf und Karte:** ganz unten auf der Seite jeder Einheit (Gymnasium und Grundschule) die Karte „Mit Kolleg:innen teilen“ (public/sharecard.js;
+  dasselbe Element über jedes `paint()` hinweg, damit ungespeicherte Absätze bleiben): Stand („2 von 3 Sitzungen geplant (noch nicht geplant: …)“,
+  fehlende Absätze), „Absätze mit Claude schreiben“ (`claudeHandoff`, Prompt `claudeSharePrompt`), `details` „Absätze prüfen und bearbeiten“ (je geplanter
+  Sitzung drei Felder: Was passiert ≤ 900, Zentrale Kompetenz bzw. „Zentrale Kompetenz (KCGO)“ ≤ 500, Ziel der Sitzung ≤ 400 Zeichen) und der Knopf
+  **„Unterrichtseinheit mit KollegInnen teilen“**. Ungespeicherte Änderungen der Einheit bzw. der Absätze werden zuerst gespeichert (Rückfrage); fehlen
+  Absätze, fragt die Karte „Absätze fehlen“. Beim Zurückkehren (`visibilitychange`) lädt die Karte den Stand neu, außer es gibt ungespeicherte Absätze.
+* **Geplant** heißt: der Schulportal-Eintrag (Grundschule: Verlaufsplan) hat Inhalt außer der Zeile „⏸ Zwischenstopp“ (`isPlannedText`). Nummer der
+  Sitzung = Nummer der Stunde in der Tabelle der Einheit (`shareSessions`; Ausfall-Einträge der Grundschule zählen nicht).
+* **Absatz für die Weitergabe:** neue Spalte `lessons.share_text` = `{v:1, passiert, kompetenz, ziel, at}` (`cleanShareText`, `shareTextStore`,
+  `shareTextOf` in public/sharelib.js, gemeinsam für Worker und Browser). `PATCH /api/teacher/lessons/:id {shareText, shareTextBase?}` (streng: zu lang →
+  400 mit Meldung, drei leere Teile = löschen; `shareTextBase` = Zeitpunkt, auf dem die Bearbeitung beruht – hat inzwischen Claude gespeichert, 409
+  `share_conflict` mit `current`, die eigene Fassung bleibt in den Feldern). `GET /api/teacher/units/:id/share` → je Sitzung `{id, title, date, row,
+  cancelled, planned, shareText}`. Connector: `save_weitergabe {unit_id, sitzungen: [{lesson_id, passiert, kompetenz, ziel}]}` (alle in einem Aufruf,
+  streng geprüft, bei einem Fehler nichts gespeichert; Antwort nennt geplante Sitzungen ohne Absatz), `update_lesson` mit `weitergabe`; `get_lesson`
+  zeigt den Abschnitt „Absatz für die Weitergabe“, `get_unit` die Liste je Sitzung. Die Sitzungsdatei trägt `shareText` mit. Die Prompts „Stunde mit
+  Claude planen“ (Gymnasium und Grundschule) haben direkt nach dem Schritt zur Zusammenfassung den Schritt `shareSaveStep` (Absatz gleich mit).
+* **Kompetenz** (`competenceSource`): Oberstufe (E-Phase, Q-Phase) „Zentrale Kompetenz (KCGO)“ aus dem KCGO des Kurshalbjahres; Sekundarstufe I aus der
+  hinterlegten Planungsgrundlage (ein KCGO gibt es dort nicht); Grundschule aus dem hinterlegten Curriculum. Claude soll möglichst im Wortlaut
+  zitieren, nie erfinden (fehlt die Grundlage: „(ohne Vorlage formuliert)“).
+* **ZIP-Ordner** (public/share.js, im Browser; pdf-lib/PDF.js erst beim Klick): `<Einheit> - zum Teilen.zip` mit
+  `Leupold-Schema - <Titel>.pdf` (sharepdf.js: Schema im Querformat wie in Unterricks, passt es nicht, als Fließtext; danach „Die Sitzungen der Einheit“
+  je Stunde mit Lernschritt und dem Absatz bzw. – ohne Absatz – dem groben Ablauf), `Erklärung - Das ist ein Feibeitsblatt.pdf` (nur Gymnasium und nur,
+  wenn eine geplante Sitzung ein Feibeitsblatt oder ein Notfall-Feibeitsblatt hat; Sie-Form, fett: digital nach Absprache – sonst das
+  Notfall-Feibeitsblatt auf dem Tablet als Dokument), `Fehlende Sitzungen.pdf` (nur wenn nicht alle geplant sind: Erklärung, je Stunde Stundenfrage,
+  Lernschritt und grober Ablauf) und je geplanter Sitzung `Sitzung n/` mit `Präsentation - Sitzung n.pdf`, `Notizen zu den Folien - Sitzung n.pdf`
+  (nur mit Notizen; Anmerkungs-PDF wie 4o, Folien wie in der geteilten Präsentation), `Verlaufsplan - Sitzung n.pdf` (Stundenverlauf bzw. Verlaufsplan
+  ohne Zwischenstopp, Hausaufgabe, Links, Zusammenfassung für die Lehrkraft; Verweise `[[pdf:…]]` der Grundschule als Dateiname, wiederverwendete
+  Bildkarten mit „(im Ordner „Sitzung k“)“) und allen PDF-Dateien der Sitzung (Schüler:innen bzw. Kinder samt Notfall-Feibeitsblättern, Druckliste,
+  Material für die Lehrkraft samt Bildkarten; Textmaterial als PDF; nicht: Links – sie stehen im Verlaufsplan –, andere Dateiarten, nicht fertige
+  Druckdateien, Anmerkungs-PDF, Archiv einer Vertretung – Hinweise dazu als Meldung). Alle erzeugten Dokumente tragen unten „Copyright Jan-Rickmer
+  Feindt“ und „Seite n von N“.
+* **Präsentation** (public/sharepres.js): Codefolien aus `codeSlides`. Eine Codefolie mit Material (Titel eines Materials bzw. Feibeitsblatts der Sitzung
+  in der Überschrift – wörtlich oder alle Wörter – oder ohne Hinweis auf Unterricks/Code/QR) bleibt; die kleine Zeile „Unterricks-Codefolie: …“ (samt
+  umbrochenem Erklärsatz, `markBoxes`) wird mit der Farbe ihres Hintergrunds überdeckt (Median eines Rings um die Zeile auf der gezeichneten Seite). Reine
+  Codefolien (ohne Überschrift oder mit Hinweis auf Unterricks und ohne Material) fallen weg – nie alle. Jede Folie bekommt „Copyright Jan-Rickmer Feindt“
+  (Helvetica, ≈ 1,3 % der Folienhöhe, grau 0,55, an einer freien Stelle: rechts unten, sonst links, sonst Mitte). Die Seiten werden wie die Fassung für
+  Schüler:innen bereinigt kopiert (ohne Anhänge, also ohne die Notizen; nur Link-Anmerkungen). **Grenze:** überdeckt ist nur das Bild – der Text der
+  Zeile bleibt unsichtbar in der Datei; lässt sich die Zeile nicht finden bzw. die Seite nicht zeichnen, bleibt sie stehen (Meldung).
+* **Tests:** Unit `test/unit/share.test.mjs` (Absatz, Sitzungen, Folienplan, Zeile, Namen, Kompetenz, Begleitdokumente, Prompt, PDF-Dateien, Präsentation
+  mit pdf-lib/PDF.js, Server samt Stand-Schutz, Connector, ganzer ZIP-Ordner im Browser-Ersatz); E2E `test/e2e/share.mjs` (eigene Einheiten PoWi Q3-GK
+  und Grundschule: Karte, Prompt, 409, Rückfrage, ZIP-Inhalt, überdeckte Zeile an den Pixeln nachgemessen, Copyright, Notizen, Erklärung fett, Verweis
+  der Grundschule als Dateiname).
 
 ## 4i. Druckliste „Von der Lehrkraft auszudrucken“ (Ergänzung vom 10.11.2026)
 

@@ -25,6 +25,7 @@ import { storageE2E } from "./storage.mjs";
 import { selbstlernStopE2E } from "./selbstlernstop.mjs";
 import { phaseStopE2E } from "./phasestop.mjs";
 import { videoSlidesE2E, PLAYER_FAKE } from "./videoslides.mjs";
+import { shareE2E, shareE2Epart2 } from "./share.mjs";
 import { inClassE2E } from "./inclass.mjs";
 import { escapeFixture } from "./escape-fixture.mjs";
 
@@ -4147,6 +4148,17 @@ async function main() {
       const tok = await tp.evaluate(() => localStorage.getItem("u.ttoken"));
       const TF = (method, path, body) => fetch(BASE + path, { method, headers: { Authorization: "Bearer " + tok, ...(body ? { "Content-Type": "application/json" } : {}) }, body: body ? JSON.stringify(body) : undefined }).then(async (r) => ({ status: r.status, data: await r.json().catch(() => null) }));
       await freeDaysE2E({ browser, BASE, T: TF, storage: await tp.context().storageState(), ok, OUT, tool, shots: process.env.FREEDAYS_SHOTS ? join(OUT, "unterrichtsfrei") : null, watch });
+    }
+
+    /* ---------- Nachtrag 39: Unterrichtseinheit mit KollegInnen teilen (ZIP-Ordner) – eigene Einheiten beider Schulformen, danach gelöscht ---------- */
+    step("Unterrichtseinheit mit KollegInnen teilen (Nachtrag 39): Karte ganz unten, Prompt, Absätze prüfen (Stand-Schutz), Rückfrage, ZIP-Ordner (Leupold-Schema mit Absätzen, Präsentation ohne reine Codefolie mit überdeckter Zeile und Copyright, Notizen, Verlaufsplan, Material, Fehlende Sitzungen, Erklärung zum Feibeitsblatt), Grundschule");
+    {
+      const tok = await tp.evaluate(() => localStorage.getItem("u.ttoken"));
+      const TS = (method, path, body) => fetch(BASE + path, { method, headers: { Authorization: "Bearer " + tok, ...(body ? { "Content-Type": "application/json" } : {}) }, body: body ? JSON.stringify(body) : undefined })
+        .then(async (x) => ({ status: x.status, data: await x.json().catch(() => null) }));
+      const d1 = (sql) => execFileSync("npx", ["wrangler", "d1", "execute", "unterricks-db", "--local", "--persist-to", persist, "--command", sql], { cwd: ROOT, stdio: ["ignore", "pipe", "pipe"], env: { ...process.env, WRANGLER_SEND_METRICS: "false" } });
+      const first = await shareE2E({ tp, BASE, T: TS, tool, ok, OUT, SHOT });
+      await shareE2Epart2({ tp, BASE, T: TS, tool, ok, OUT, SHOT, first, markNotfall: (id) => d1("UPDATE files SET source='notfall' WHERE id='" + String(id).replace(/[^a-f0-9]/g, "") + "'") });
     }
   } finally {
     await browser.close();

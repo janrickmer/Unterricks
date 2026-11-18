@@ -427,6 +427,21 @@ gleich in `public/_headers`, im Worker und – für GitHub Pages – in `scripts
     verteilt. Die gesicherten Sitzungen warten auf diesem Gerät. Bei „Einheit festlegen und Sitzungen anlegen“ bekommt jede Sitzung
     ihren Inhalt (Materialien, Präsentation, Planungsverlauf, Hausaufgabe, Feibeitsblatt-Entwürfe), mit angepassten Datumsangaben.
   * Geladen werden kann auch nur die Einheitsdatei (.json) aus einer Sicherung. Dann kommt nur die Planung.
+* **Mit Kolleg:innen teilen:** Ganz unten auf der Seite jeder Einheit (Gymnasium und Grundschule) erzeugt **„Unterrichtseinheit mit KollegInnen
+  teilen“** einen ZIP-Ordner zum Weitergeben:
+  * **„Leupold-Schema - <Titel>.pdf“** – das Schema, darunter zu jeder Sitzung ein kurzer Absatz: was passiert, die zentrale Kompetenz (in der
+    Oberstufe aus dem KCGO, sonst aus der hinterlegten Planungsgrundlage bzw. dem Curriculum der Grundschule) und das Ziel der Sitzung. Die Absätze
+    schreibt Claude: **„Absätze mit Claude schreiben“** kopiert den Prompt; Claude liest Einheit, Planungsgrundlagen und Sitzungen über den Connector,
+    zeigt Ihnen die Absätze und speichert sie nach Ihrer Zustimmung. Unter **„Absätze prüfen und bearbeiten“** ändern Sie sie. Beim Planen einer
+    Stunde mit Claude entsteht der Absatz künftig gleich mit.
+  * **„Erklärung - Das ist ein Feibeitsblatt.pdf“** (nur wenn die Einheit Feibeitsblätter nutzt): was ein Feibeitsblatt ist und wie es funktioniert;
+    fett der Hinweis, dass Kolleg:innen das digitale Feibeitsblatt nach Absprache mit Ihnen nutzen können (die Abgaben kämen bei Ihnen an) – sonst
+    bearbeiten die Schüler:innen das Notfall-Feibeitsblatt auf dem Tablet als Dokument.
+  * je geplanter Sitzung ein Ordner **„Sitzung 1“, „Sitzung 2“ …** (Nummer der Stunde in der Einheit) mit der Präsentation, den Notizen zu den Folien
+    (eigene PDF), dem Verlaufsplan und allen PDF-Dateien der Sitzung (für Schüler:innen samt Notfall-Feibeitsblättern, Druckliste, Material für die
+    Lehrkraft, in der Grundschule samt Bildkarten). In der Präsentation fallen reine Codefolien weg; Materialfolien bleiben, ihre kleine
+    Unterricks-Zeile wird überdeckt. Jede Folie trägt unten klein und blass „Copyright Jan-Rickmer Feindt“ (die erzeugten Dokumente ebenso).
+  * **„Fehlende Sitzungen.pdf“**, wenn noch nicht alle Stunden geplant sind: die noch nicht geplanten Stunden mit Stundenfrage und grobem Ablauf.
 * **Unterricks zurücksetzen** (Einstellungen, ganz unten): **„Alle Unterrichtsinhalte löschen und Unterricks zurücksetzen“**.
   * Gelöscht werden alle Unterrichtseinheiten und Sitzungen mit allem, was dazugehört – in der Grundschule auch Verlaufspläne,
     Bildkarten und Elternlinks (die verteilten Links funktionieren danach nicht mehr).

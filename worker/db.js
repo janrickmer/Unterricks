@@ -120,6 +120,7 @@ export const COLUMNS = [
   // (NULL = nie bzw. gelöscht) und Fingerabdruck der Planung zu diesem Zeitpunkt (planFingerprint, NULL = unbekannt) für den Hinweis „danach geändert“
   ["lessons", "teacher_summary", "TEXT NOT NULL DEFAULT ''"],
   ["lessons", "teacher_summary_at", "INTEGER"],
+  ["lessons", "share_text", "TEXT"],   // Absatz für die Weitergabe (Nachtrag 39): JSON {v:1, passiert, kompetenz, ziel, at}
   ["lessons", "teacher_summary_plan", "TEXT"],
   // Zeitpunkt, zu dem die Planung dieser Sitzung zuletzt wirklich gespeichert wurde (Nachtrag 26): Schulportal-Eintrag bzw. Verlaufsplan von der
   // Lehrkraft auf der Sitzungsseite, „Mit KI neu erstellen“, save_schulportal_entry, save_verlaufsplan – nicht beim Laden einer Sitzungsdatei und nicht

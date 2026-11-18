@@ -18,6 +18,7 @@ import { loadFreeDays, assertNotFree } from "./freedays.js";
 import { validateBring, cleanBring, bringStore, bringRead, BRING_REV_SQL } from "../public/bring.js";
 import { selbstlernHomeworkNow } from "../public/selbstlern.js";
 import { videoSlidesData } from "../public/videoslides.js";
+import { cleanShareText, shareTextOf, shareTextStore } from "../public/sharelib.js";
 
 export const LIMITS = { title: 200, topic: 500, ideas: 20000, homework: 10000, portal: 30000, message: 30000, answer: 100000, textMaterial: 200000, parentSummary: 800, parentNote: 2000, teacherSummary: TEACHER_SUMMARY_MAX };
 
@@ -27,6 +28,8 @@ export const lessonOut = (r, extra = {}) => ({
   createdAt: r.created_at, updatedAt: r.updated_at,
   // Zusammenfassung der Sitzung für die Lehrkraft (Nachtrag 21) – nur in Routen der Lehrkraft (lessonOut gibt es nur dort)
   teacherSummary: r.teacher_summary || "", teacherSummaryAt: r.teacher_summary_at ?? null, teacherSummaryPlan: r.teacher_summary_plan || null,
+  // Absatz für die Weitergabe an Kolleg:innen (Nachtrag 39; nur Lehrkraft): was passiert, zentrale Kompetenz, Ziel
+  shareText: shareTextOf(r.share_text),
   // Gegenstände zum Mitbringen (Nachtrag 28, beide Schulformen; nur Lehrkraft) und ihr Stand (Schutz vor Überschreiben)
   ...bringOut(r),
   // Grundschule: Inhalt und Hinweis für die Eltern, Ausfall-Eintrag, ob es einen Elternlink gibt (nie der Link selbst)
@@ -170,6 +173,10 @@ function lessonFields(body, partial) {
     const t = cleanText(body.teacherSummary).trim();
     if (t.length > LIMITS.teacherSummary) throw bad("Die Zusammenfassung der Sitzung für die Lehrkraft ist zu lang (" + t.length + " Zeichen, höchstens " + LIMITS.teacherSummary + ") – bitte kürzen.");
     f.teacher_summary = t;
+  }
+  // Absatz für die Weitergabe (Nachtrag 39): {passiert, kompetenz, ziel}; alle leer bzw. null = löschen; zu lang → Meldung statt still zu kürzen
+  if (partial && body.shareText !== undefined) {
+    try { f.share_text = cleanShareText(body.shareText, true); } catch (e) { throw bad(e.message); }
   }
   // Gegenstände zum Mitbringen (Nachtrag 28): die ganze Liste [{item, note}] – geprüft wie im Browser (bring.js), Fehler als Meldung statt still zu kürzen
   if (partial && body.bring !== undefined) {
@@ -481,6 +488,7 @@ export async function updateLesson(db, id, body, now) {
   if (old.cancelled && keys.some((k) => k !== "parent_note")) throw bad("Bei einem Ausfall-Eintrag lässt sich nur der Hinweis der Lehrkraft für die Eltern ändern.");
   // ein neues Datum nie an einem unterrichtsfreien Tag der Schule (Nachtrag 24) – ein bisheriges bleibt, auch wenn es inzwischen frei ist
   if (f.lesson_date && f.lesson_date !== old.lesson_date) await assertNotFree(db, f.lesson_date, old.subject);
+  if (f.share_text !== undefined) f.share_text = shareTextStore(f.share_text, now);   // mit Zeitpunkt (Stand in der Karte der Einheit)
   // Zusammenfassung für die Lehrkraft (Nachtrag 21): mit Zeitpunkt und Fingerabdruck der Planung (Hinweis, wenn die Planung danach geändert wird).
   // teacherSummaryBase (Sitzungsseite): Stand, auf dem die Bearbeitung beruht – hat inzwischen jemand anderes (z. B. Claude) gespeichert, meldet der
   // Server 409 statt still zu überschreiben (wie beim Schulportal-Eintrag); ohne Base (Connector, „Meine Fassung speichern“) wird gespeichert
@@ -495,6 +503,13 @@ export async function updateLesson(db, id, body, now) {
   }
   // Gegenstände zum Mitbringen (Nachtrag 28): bringBase (Sitzungsseite) = Stand, auf dem die Änderung beruht – sonst 409 mit der aktuellen Liste;
   // der Stand zählt in derselben Anweisung weiter (BRING_REV_SQL), ohne Base (Connector) wird gespeichert
+  // Absatz für die Weitergabe (Nachtrag 39): shareTextBase (Karte der Einheit) = Zeitpunkt des Absatzes, auf dem die Bearbeitung beruht (null = keiner) –
+  // hat inzwischen Claude gespeichert, meldet der Server 409 statt still zu überschreiben; ohne Base (Connector) wird gespeichert
+  let shareBase;
+  if (f.share_text !== undefined && body.shareTextBase !== undefined) {
+    shareBase = body.shareTextBase;
+    if (shareBase !== null && !Number.isInteger(shareBase)) throw bad("Stand des Absatzes für die Weitergabe fehlt.");
+  }
   let bringBase = null;
   if (f.bring !== undefined && body.bringBase !== undefined) {
     bringBase = body.bringBase;
@@ -503,6 +518,7 @@ export async function updateLesson(db, id, body, now) {
   const cols = Object.keys(f), guards = [], extra = [];
   if (body.teacherSummaryBase !== undefined && f.teacher_summary !== undefined) { extra.push(base); guards.push(" AND teacher_summary_at IS ?" + (cols.length + 2 + extra.length)); }
   if (bringBase !== null) { extra.push(bringBase); guards.push(" AND " + BRING_REV_SQL + "=?" + (cols.length + 2 + extra.length)); }
+  if (shareBase !== undefined) { extra.push(shareBase); guards.push(" AND json_extract(CASE WHEN json_valid(share_text) THEN share_text END, '$.at') IS ?" + (cols.length + 2 + extra.length)); }
   guard = guards.join("");
   const sets = cols.map((k, i) => k + "=" + (k === "bring" ? "json_set(?" + (i + 2) + ", '$.rev', " + BRING_REV_SQL + " + 1)" : "?" + (i + 2))).join(", ");
   const r = await db.prepare("UPDATE lessons SET " + sets + ", updated_at=?" + (cols.length + 2) + " WHERE id=?1" + guard).bind(id, ...cols.map((k) => f[k]), now, ...extra).run();
@@ -512,6 +528,9 @@ export async function updateLesson(db, id, body, now) {
       const b = bringRead(cur.bring);
       throw new HttpError(409, "bring_conflict", "Die Liste „Mitbringen“ wurde inzwischen an anderer Stelle geändert.", { current: { items: b.items, rev: b.rev } });
     }
+    const curShare = shareTextOf(cur.share_text);
+    if (shareBase !== undefined && (curShare ? curShare.at : null) !== shareBase)
+      throw new HttpError(409, "share_conflict", "Der Absatz für die Weitergabe wurde inzwischen an anderer Stelle geändert (z. B. von Claude).", { current: curShare });
     throw new HttpError(409, "summary_conflict", "Die Zusammenfassung der Sitzung für die Lehrkraft wurde inzwischen an anderer Stelle geändert.",
       { current: { text: cur.teacher_summary || "", at: cur.teacher_summary_at ?? null, plan: cur.teacher_summary_plan || null } });
   }
@@ -585,6 +604,8 @@ export async function routeLessonImport(c, id) {
   // Gegenstände zum Mitbringen (Nachtrag 28): ersetzen die Liste dieser Sitzung (der Browser hat Datum und Lerngruppe in den Hinweisen angepasst);
   // fremde Daten – Ungültiges entfällt, zu lange Hinweise werden gekürzt (cleanBring)
   if (Array.isArray(les.bring)) f.bring = bringStore(cleanBring(les.bring));
+  // Absatz für die Weitergabe (Nachtrag 39): kommt mit aus der Datei (fremde Daten – gekürzt wie beim Lesen); fehlt er, bleibt der bisherige
+  if (les.shareText && typeof les.shareText === "object") { const t = cleanShareText(les.shareText); if (t) f.share_text = shareTextStore(t, c.now); }
   const keys = Object.keys(f), stmts = [];
   if (keys.length) stmts.push(c.db.prepare("UPDATE lessons SET " + keys.map((k, i) => k + "=" + (k === "bring" ? "json_set(?" + (i + 2) + ", '$.rev', " + BRING_REV_SQL + " + 1)" : "?" + (i + 2))).join(", ") +
     ", updated_at=?" + (keys.length + 2) + " WHERE id=?1").bind(id, ...keys.map((k) => f[k]), c.now));

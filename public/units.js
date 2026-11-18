@@ -11,6 +11,7 @@ import { claudeHandoff } from "./claude.js";
 import { claudeGsUnitPrompt } from "./gsplanning.js";
 import { baseLink } from "./bases.js";
 import { reviseBox } from "./grundschule.js";
+import { shareCard } from "./sharecard.js";
 
 /* ---------- Leupold-Schema (links Ausgangslage, Mitte Lernschritte, rechts Lernaufgabe) ---------- */
 export function leupoldView(unit, highlight) {
@@ -48,6 +49,8 @@ export async function unitPage(id) {
   const unitInput = h("input", { type: "file", class: "hidden", accept: ".zip,.json,application/zip,application/json", "aria-label": "Gesicherte Unterrichtseinheit (ZIP- oder JSON-Datei) auswählen" });
   unitInput.addEventListener("change", () => { const f = unitInput.files[0]; unitInput.value = ""; if (f) importUnit(f); });
   const markDirty = () => { dirty = true; saveState.textContent = "Ungespeicherte Änderungen"; };
+  // 8) Mit Kolleg:innen teilen (Nachtrag 39) – ganz unten; dasselbe Element über paint() hinweg (ungespeicherte Absätze bleiben)
+  const share = shareCard({ getUnit: () => u, gs, isDirty: () => dirty, saveUnit: () => save(false) });
 
   const paint = () => {
     clear(main);
@@ -61,7 +64,8 @@ export async function unitPage(id) {
       // „Erledigt“ ändert die Zeilen nicht: ungespeicherte Änderungen der Tabelle bleiben; nach „rückgängig“ neu laden. Am Gymnasium gibt es den
       // Hinweis nur nach dem Verschieben wegen unterrichtsfreier Tage (Nachtrag 24)
       reviseBox(u, { onChange: (nu) => { if (nu && JSON.stringify(nu.rows) === JSON.stringify(u.rows)) { u = nu; if (!dirty) { rows = u.rows.map((x) => ({ ...x })); plan = JSON.parse(JSON.stringify(u.plan || {})); } paint(); } else unitPage(id); } }),
-      paramsCard(), basisCard(), claudeCard(), schemaCard(), tableCard(), finishCard(), gs ? null : ioCard()));
+      paramsCard(), basisCard(), claudeCard(), schemaCard(), tableCard(), finishCard(), gs ? null : ioCard(), share.el));
+    share.refresh();
   };
 
   /* 1) Rahmendaten */
@@ -401,6 +405,7 @@ export async function unitPage(id) {
   paint();
   // Ergebnisse von Claude (Connector) beim Zurückkehren übernehmen, wenn hier nichts ungespeichert ist
   const onVis = async () => {
+    if (document.visibilityState === "visible") share.refresh();   // von Claude gespeicherte Absätze (ändern die Einheit nicht)
     if (document.visibilityState !== "visible" || dirty) return;
     try { const r = (await tapi("GET", "/api/teacher/units/" + id)).unit; if (r.version !== u.version) { u = r; rows = u.rows.map((x) => ({ ...x })); plan = JSON.parse(JSON.stringify(u.plan || {})); paint(); toast("Die Einheit wurde aktualisiert" + (u.source === "claude" ? " (von Claude)." : "."), "ok"); } } catch {}
   };

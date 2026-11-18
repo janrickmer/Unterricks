@@ -5,6 +5,7 @@
 import { subjectName, subjectShort, groupShort, isIsoDate, isClockTime, cleanWebUrl, cleanCopies, normalizeFbDraft, cleanSlideNotes, NOTES_LIMITS, PHASE_MAX, TEACHER_SUMMARY_MAX, isValidClass, isCourseClass, classShort } from "./shared.js";
 import { cleanBring } from "./bring.js";
 import { cleanVideoSlides } from "./videoslides.js";
+import { cleanShareText } from "./sharelib.js";
 
 export const SESSION_FILE = { kind: "unterricks-sitzung", v: 1, json: "sitzung.json" };
 export const SESSION_LIMITS = { files: 60, chat: 200, drafts: 20, text: 200000 };
@@ -140,7 +141,9 @@ export function cleanSessionFile(raw) {
     lesson: { title: str(l.title, 200), topic: str(l.topic, 500), ideas: str(l.ideas, 20000), homework: str(l.homework, 10000), portal: str(l.portal, 30000),
       teacherSummary: str(l.teacherSummary, TEACHER_SUMMARY_MAX), ...(l.teacherSummaryOutdated === true ? { teacherSummaryOutdated: true } : {}),
       // Gegenstände zum Mitbringen (Nachtrag 28) – nur, wenn die Datei welche hat (ältere Dateien bleiben, wie sie waren)
-      ...(cleanBring(l.bring).length ? { bring: cleanBring(l.bring) } : {}) },
+      ...(cleanBring(l.bring).length ? { bring: cleanBring(l.bring) } : {}),
+      // Absatz für die Weitergabe (Nachtrag 39) – nur, wenn die Datei einen hat
+      ...(cleanShareText(l.shareText) ? { shareText: cleanShareText(l.shareText) } : {}) },
     chat: (Array.isArray(raw.chat) ? raw.chat : []).slice(-SESSION_LIMITS.chat).filter((m) => m && (m.role === "user" || m.role === "assistant") && typeof m.content === "string" && m.content.trim())
       .map((m) => ({ role: m.role, content: m.content.slice(0, 100000), model: str(m.model, 200) || null, mode: str(m.mode, 20) || null })),
     files, drafts,

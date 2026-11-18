@@ -104,6 +104,7 @@ const ROUTES = [
   ["PATCH", "/api/teacher/units/" + ID, U.routeUnitPatch],
   ["DELETE", "/api/teacher/units/" + ID, U.routeUnitDelete],
   ["POST", "/api/teacher/units/" + ID + "/sessions", U.routeUnitSessions],
+  ["GET", "/api/teacher/units/" + ID + "/share", U.routeUnitShare],   // Nachtrag 39: Sitzungen und Absätze für „mit KollegInnen teilen“
   ["PUT", "/api/teacher/units/" + ID + "/rows/([a-f0-9]{8})", U.routeUnitRowPut],
   ["POST", "/api/teacher/units/" + ID + "/cancel/undo", GS.routeCancelUndo],
   ["POST", "/api/teacher/lessons/" + ID + "/cancel", GS.routeLessonCancel],

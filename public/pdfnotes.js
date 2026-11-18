@@ -69,9 +69,10 @@ function wrap(text, font, size, maxW) {
 }
 /* Anmerkungsfolie(n) hinter Folie n zeichnen; → Zahl der Seiten (1 + Fortsetzungen). Schrift wird bis 14 pt (bezogen auf 960 × 540) kleiner, bevor
    eine Fortsetzung folgt. */
-function addNotePages(out, F, clean, rgb, W, H, n, isCode, items) {
+const NOTES_LABEL = "Unterricks · Präsentation mit Anmerkungen · nur für die Lehrkraft";
+function addNotePages(out, F, clean, rgb, W, H, n, isCode, items, label = NOTES_LABEL) {
   const u = Math.max(0.4, Math.min(W / 960, H / 540)), M = 48 * u, c = (a) => rgb(a[0], a[1], a[2]);
-  const head = "Anmerkungen zu Folie " + n + (isCode ? " (Codefolie)" : ""), label = "Unterricks · Präsentation mit Anmerkungen · nur für die Lehrkraft";
+  const head = "Anmerkungen zu Folie " + n + (isCode ? " (Codefolie)" : "");
   const top = H - M - 13 * u - 10 * u - 30 * u - 18 * u, bottom = M, maxW = W - 2 * M;
   const texts = items.map((t) => clean(t));
   const layout = (s) => texts.map((t) => wrap(t, F.r, s, maxW - s * 1.1));
@@ -108,7 +109,8 @@ function addNotePages(out, F, clean, rgb, W, H, n, isCode, items) {
 }
 /* bytes = Präsentation (PDF), notes = [{n, items}], lib = pdf-lib; codeSlides = [{n}] (Unterricks-Codefolien), title für die Dokumenteigenschaften.
    → PDF-Bytes: Folie 1, Anmerkungen zu Folie 1, Folie 2, … (Seiten der Präsentation bereinigt kopiert: ohne Anhänge, nur Link-Anmerkungen) */
-export async function annotatedPdfBytes(bytes, notes, lib, { codeSlides = [], title = "" } = {}) {
+// label: Kopfzeile der Anmerkungsfolien (geteilte Einheit, Nachtrag 39: ohne „Unterricks“)
+export async function annotatedPdfBytes(bytes, notes, lib, { codeSlides = [], title = "", label = NOTES_LABEL } = {}) {
   const { PDFDocument, StandardFonts, rgb } = lib;
   let src;
   try { src = await PDFDocument.load(bytes, { updateMetadata: false }); }
@@ -125,7 +127,7 @@ export async function annotatedPdfBytes(bytes, notes, lib, { codeSlides = [], ti
     let box = { width: 960, height: 540 };
     try { box = pg.getCropBox(); } catch {}
     const rot = (((pg.getRotation().angle || 0) % 360) + 360) % 360, sw = rot === 90 || rot === 270;
-    addNotePages(out, F, clean, rgb, sw ? box.height : box.width, sw ? box.width : box.height, i + 1, holders.has(i + 1), byN.get(i + 1) || []);
+    addNotePages(out, F, clean, rgb, sw ? box.height : box.width, sw ? box.width : box.height, i + 1, holders.has(i + 1), byN.get(i + 1) || [], label);
   }
   out.setTitle("Präsentation mit Anmerkungen" + (title ? " – " + title : "")); out.setSubject("Nur für die Lehrkraft");
   out.setCreator("Unterricks"); out.setProducer("Unterricks (pdf-lib)");

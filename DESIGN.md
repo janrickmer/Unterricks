@@ -777,6 +777,7 @@ Der Kopf jeder Seite: Fach, Kurs und Stand auf einen Blick.
 ### Leupold-Schema und Einheit
 - **Leupold-Schema (`.lp-grid`):** drei Spalten – Ausgangslage (`--fach-t`), Lernschritte (Zeilen Beschreibung | Titel, 1px `--line`, Radius 8px, `--surface`) und Lernaufgabe (`--gelb-t`); der Lernschritt der aktuellen Stunde als volle Fachfläche mit weißer Schrift in 800. Beschriftungen `.lp-cap` in 800/.85rem und `--fach-text`.
 - **Einheitstabelle (`.unit-table`):** Haarlinien-Zeilen, Kopf in `--fach-t` mit 800/.85rem in `--fach-text`; Rahmen `.table-wrap` (1px `--line`, Radius 12px, waagerecht scrollbar).
+- **Mit Kolleg:innen teilen (`.sharecard`, Nachtrag 39):** letzte Karte der Einheit. Stand als `.small` (mit fehlenden Absätzen bzw. Sitzungen als `.warnc`), „Absätze mit Claude schreiben“ (`btn`), `details.sharetexts` mit eigenem Pfeil (wie `.nfdetails`, ≥ 44px) und je Sitzung `fieldset.sharetext` (1px `--line`, Radius `--radius-s`; Legende mit `.badge` „Absatz vorhanden“ in `ok` bzw. „unvollständig“/„noch kein Absatz“ in `warn` = `--gelb-t`), darunter der Hauptknopf `btn primary big` mit Download-Symbol und ein `.hint`.
 - **Einheit in der Sitzung (`.unit-row`):** Stundenfrage und grober Ablauf als Tönungsflächen (`--fach-t`, Radius 12px); ein Änderungsvorschlag der KI steht gestrichelt in `--fach-text` (`.unit-change`) und gilt erst nach Bestätigung.
 
 ### Escape-Room (begrenzte Ausnahme)

@@ -3,6 +3,7 @@
 import { fmtDay, SYSTEM_PROMPT_ROLE, UNIT_RULE_BASE, materialDesignText, summarySaveStep, SUMMARY_FALLBACK, berlinToday, CARD_PRINT, printFileName } from "./shared.js";
 import { lessonSlots, paramsText, freeSlots, normalizeParams, stopCarrySection, stopCarryStep, stopFallbackText, freeShiftText, freeDaysInRange, freeBreakOf, freeRowNote } from "./planning.js";
 import { bringSaveStep } from "./bring.js";
+import { shareSaveStep } from "./sharelib.js";
 
 export const GS_RULE = "In der Grundschule arbeiten die Kinder nicht digital: Plane ausschließlich analoges Material (ausdruckbare Arbeitsblätter, Bildkarten, Tafel- und Bodenbilder) – keine Feibeitsblätter, keine Escape-Rooms, keine Online-Aufgaben, keine Präsentation zum Mitverfolgen.";
 
@@ -283,6 +284,7 @@ export function claudeGsLessonPrompt(ctx) {
     "   - Den ausgearbeiteten Stundenentwurf (Verlauf mit Minuten, Begründung, Erwartungen) speicherst du mit `save_planning_result`.",
     unit ? "   - Eine abgestimmte Abweichung von der Einheit (Stundenfrage, grober Ablauf) hältst du mit `update_unit_row` fest." : null,
     summarySaveStep(true),
+    shareSaveStep("gs", "gs"),   // Nachtrag 39: Absatz für die Weitergabe an Kolleg:innen
     k(5) + "Sage mir zum Schluss kurz, was du gespeichert hast.",
     "",
     "Vorlage für den Verlaufsplan (so sieht er aus; <file_id> durch die Kennungen deiner Dateien ersetzen):",

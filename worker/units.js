@@ -7,6 +7,7 @@ import { createLessonsBulk, lessonOut } from "./lessons.js";
 import { loadSubjectConfigs } from "./bases.js";
 import { courseInfo, getCourseSettings, courseRef } from "./courses.js";
 import { gsCourseOut } from "./gs.js";
+import { isPlannedText, shareTextOf } from "../public/sharelib.js";
 import { isValidSubject, isValidClass, classAllowed, subjectName, classShort, GS_SUBJECT, greetingText, fmtDay } from "../public/shared.js";
 import { normalizeParams, computeSlots, normalizePlan, normalizeRows, assignDates, lessonSlots, repackFuture, slotsAfterEnd, occupy, storeParams, withSchoolBreaks,
   freeDateError } from "../public/planning.js";
@@ -274,6 +275,18 @@ export async function routeUnitCreate(c) {
 export async function routeUnitGet(c, id) {
   await requireTeacher(c);
   return json({ ok: true, unit: await unitFull(c.db, await getUnit(c.db, id)) });
+}
+/* Teilen mit Kolleg:innen (Nachtrag 39): je Sitzung der Einheit, ob sie geplant ist (Verlaufsplan bzw. Schulportal-Eintrag mit Inhalt) und ihr Absatz für
+   die Weitergabe – für die Karte „Unterrichtseinheit mit KollegInnen teilen“ (den ZIP-Ordner baut der Browser) */
+export async function shareLessons(db, unitId) {
+  const r = await db.prepare("SELECT id, title, lesson_date, unit_row, cancelled, portal, share_text FROM lessons WHERE unit_id=?1").bind(unitId).all();
+  return (r.results || []).map((l) => ({ id: l.id, title: l.title, date: l.lesson_date || null, row: l.unit_row || null, cancelled: !!l.cancelled,
+    planned: isPlannedText(l.portal), shareText: shareTextOf(l.share_text) }));
+}
+export async function routeUnitShare(c, id) {
+  await requireTeacher(c);
+  const u = await getUnit(c.db, id);
+  return json({ ok: true, lessons: await shareLessons(c.db, u.id) });
 }
 export async function routeUnitPatch(c, id) {
   await requireTeacher(c);
