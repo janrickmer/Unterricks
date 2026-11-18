@@ -55,19 +55,23 @@ export function shareCard(ctx) {
   }
   // ungespeicherte Absätze bleiben beim Neuzeichnen (paint); nur während des Speicherns bzw. Erstellens wird nicht neu geladen. Kommt ein Wunsch
   // während eines Abrufs, wird danach noch einmal geladen (der laufende kann vor einer Änderung von Claude begonnen haben)
+  // Beim ersten Laden ist ein zweiter Wunsch überflüssig (units.js zeichnet die Seite gleich nach dem Anlegen der Karte); Speichern bzw. Erstellen
+  // beendet die Wiederholung (es lädt selbst neu). Was schon geladen ist, wird gezeichnet, auch wenn ein weiterer Abruf scheitert.
   function refresh(force = false) {
     if (!force && (saving || building)) return Promise.resolve();
-    if (loading) { again = true; return loading; }
+    if (loading) { if (data) again = true; return loading; }
     loading = (async () => {
-      let fresh = false;
+      let fresh = false, err = null;
+      try { do { again = false; fresh = (await load()) || fresh; } while (again && !saving && !building); }
+      catch (e) { err = e; }
+      finally { loading = null; }
       try {
-        do { again = false; fresh = (await load()) || fresh; } while (again);
         if (fresh && !saving && !building) paint();
+        else if (err && !data) throw err;   // Stand schon da: still weiter mit ihm (z. B. kurz kein Netz beim Zurückkehren)
       } catch (e) {
-        if (data) return;   // Stand schon da: still weiter mit ihm (z. B. kurz kein Netz beim Zurückkehren)
         clear(body).append(h("p", { class: "err small", text: "Der Stand der Sitzungen ließ sich nicht laden: " + (e && e.message ? e.message : "Fehler") }),
           h("button", { class: "btn small", type: "button", "data-k": "retry", onclick: () => refresh(true) }, "Erneut versuchen"));
-      } finally { loading = null; }
+      }
     })();
     return loading;
   }
@@ -111,6 +115,8 @@ export function shareCard(ctx) {
           "Feibeitsblätter stecken als Notfall-Feibeitsblatt (PDF) im Ordner; das digitale Feibeitsblatt nutzen Kolleg:innen nur nach Absprache mit Ihnen (die Abgaben kämen bei Ihnen an)." })));
     if (focusKey) focusBy(focusKey);
     if (caret) restoreCaret(caret);
+    // übernommene Absätze (keep) kann die vorige Karte inzwischen gespeichert haben
+    if (!dirtyTexts().length && state.textContent === "Ungespeicherte Absätze") stateLine(state, "");
   }
   // Fokus über das Neuzeichnen hinweg: über die id (Felder) bzw. data-k (Knöpfe, Zusammenfassung); im Feld auch die Schreibmarke
   function activeKey() { const a = document.activeElement; return a && el.contains(a) ? a.id || (a.dataset && a.dataset.k) || null : null; }
@@ -177,21 +183,22 @@ export function shareCard(ctx) {
           const r = await tapi("PATCH", "/api/teacher/lessons/" + id, { body: { shareText: sent, shareTextBase: e.base } });
           const t = (r.lesson && r.lesson.shareText) || null;
           if (L) L.shareText = t;
-          if (same(e, sent)) edits.delete(id); else { e.base = t ? t.at : null; }
+          // gespeichert: auch e selbst gilt nicht mehr als geändert (keep() kann es schon an eine neue Karte gegeben haben)
+          if (same(e, sent)) { e.changed = false; edits.delete(id); } else { e.base = t ? t.at : null; }
         } catch (err) {
           if (err && err.status === 409) {
             const cur = err.data && err.data.current ? err.data.current : null;
             if (L) L.shareText = cur;
             paint();   // die Felder bleiben gesperrt; das Abzeichen zeigt den gespeicherten Stand
             const u = ctx.getUnit(), choice = await conflictDialog(L ? L.title : "einer Sitzung", sent, cur, competenceSource(u.subject, u.klass).label);
-            if (choice === "theirs") edits.delete(id);
+            if (choice === "theirs") { e.changed = false; edits.delete(id); }
             paint();   // nach „Gespeicherte Fassung übernehmen“ zeigen die Felder sie sofort
             if (choice === "mine") {
               e.base = cur ? cur.at : null;
               try {
                 const r2 = await tapi("PATCH", "/api/teacher/lessons/" + id, { body: { shareText: sent, shareTextBase: e.base } });
                 if (L) L.shareText = (r2.lesson && r2.lesson.shareText) || null;
-                if (same(e, sent)) edits.delete(id); else e.base = L && L.shareText ? L.shareText.at : null;
+                if (same(e, sent)) { e.changed = false; edits.delete(id); } else e.base = L && L.shareText ? L.shareText.at : null;
               } catch (err2) { failed = true; errToast(err2); break; }
             }
           } else { failed = true; errToast(err); break; }

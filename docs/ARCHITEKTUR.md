@@ -2330,8 +2330,10 @@ Ausdrucken“; Grundschule „Auch Grundschule“ – kompakt mit Verlaufsplan u
   Rückfrage bleiben die Felder gesperrt, danach zeigen sie die übernommene Fassung; ein Abruf, der vor dem Speichern begann, wird verworfen (Zähler `gen` –
   sonst falscher Konflikt beim nächsten Speichern); die Karte lädt auch mit ungespeicherten Absätzen neu (sie bleiben, Fokus und Schreibmarke ebenso), nach
   dem Speichern und vor der Rückfrage „Absätze fehlen“ ausdrücklich; ein Wunsch während eines Abrufs lädt danach noch einmal; ein Fehler bei vorhandenem
-  Stand lässt die Karte stehen; units.js legt ungespeicherte Absätze vor einem Neuaufbau der Seite (`unitPage(id)` nach „rückgängig“ bzw. nach einem
-  Konflikt der Tabelle) mit `share.keep()` ab, die neue Karte derselben Einheit übernimmt sie; nach dem Erstellen geht der Fokus auf den neu gezeichneten
+  Stand lässt die Karte stehen (was schon geladen ist, wird trotzdem gezeichnet); beim ersten Laden gibt es keinen zweiten Abruf, und Speichern bzw.
+  Erstellen beendet die Wiederholung (Gegenprüfung); units.js legt ungespeicherte Absätze vor einem Neuaufbau der Seite (`unitPage(id)` nach „rückgängig“ bzw. nach einem
+  Konflikt der Tabelle) mit `share.keep()` ab, die neue Karte derselben Einheit übernimmt sie (speichert die vorige Karte sie noch, gelten sie danach
+  auch in der neuen als gespeichert – `changed` am selben Eintrag); nach dem Erstellen geht der Fokus auf den neu gezeichneten
   Knopf, „Hinweise zum Ordner“ (alle, nicht nur 60) öffnet erst danach, „Fertig“ gibt ihn dorthin zurück. Ordner – Selbstlern-Phase: auch was eine Station
   unarchiviert weiterverwendet (Herkunft nicht „selbstlern“/„vertretung“) und Notfall-Feibeitsblätter der ursprünglichen Feibeitsblätter gehören dazu
   (vorher fehlten sie, und das Notfall-Feibeitsblatt galt fälschlich als fehlend). Präsentation – ein Bindestrich ohne Unicode (leeres Stück bzw. privater

@@ -184,3 +184,57 @@ test("Erneut versuchen nach einem Ladefehler: danach Fokus in der Karte (nicht a
     assert.ok(s.gets >= 1);
   } finally { clean(); }
 });
+
+test("Gegenprüfung: beim Öffnen nur ein Abruf (Karte + Neuzeichnen der Seite); scheitert ein weiterer Abruf, wird der geladene Stand trotzdem gezeichnet", async () => {
+  const s = server([{ id: L1, row: "r1", title: "Eins", planned: true, shareText: T("eins") }]);
+  try {
+    const card = mount();
+    const p = card.refresh();   // wie units.js paint() gleich nach dem Anlegen
+    await p;
+    assert.ok(await until(() => field(L1, "passiert")));
+    assert.equal(s.gets, 1, "ein Abruf beim Öffnen");
+    // Zurückkehren: zwei Wünsche, der zweite Abruf scheitert – der erste (mit Claudes neuem Absatz) wird gezeichnet
+    s.lessons[0].shareText = T("eins von Claude");
+    const real = globalThis.__tapi;
+    let n = 0, release;
+    const hold = new Promise((r) => { release = r; });
+    globalThis.__tapi = async (m, path, o) => { if (path.endsWith("/share") && ++n === 1) { const r = await real(m, path, o); await hold; return r; } if (path.endsWith("/share")) throw new Error("Keine Verbindung"); return real(m, path, o); };
+    const a = card.refresh(); await D.sleep(5); const b = card.refresh();
+    release(); await Promise.all([a, b]);
+    assert.equal(n, 2);
+    assert.equal(field(L1, "passiert").value, "Die Klasse eins von Claude.", "der geladene Stand ist sichtbar");
+    assert.ok(!btn("Erneut versuchen"));
+    globalThis.__tapi = real;
+  } finally { clean(); }
+});
+
+test("Gegenprüfung: Speichern beendet die Wiederholung (kein Abruf während des Speicherns); keep() während des Speicherns – die neue Karte gilt danach nicht mehr als ungespeichert", async () => {
+  const s = server([{ id: L1, row: "r1", title: "Eins", planned: true, shareText: T("eins") }]);
+  try {
+    const card = mount();
+    assert.ok(await until(() => field(L1, "passiert")));
+    openDetails();
+    let release; s.hold = new Promise((r) => { release = r; });
+    const a = card.refresh(); await D.sleep(5); card.refresh();   // ein Wunsch während des Abrufs
+    const g0 = s.gets;
+    type(field(L1, "passiert"), "Die Klasse zählt neu aus.");
+    // PATCH anhalten, damit keep() während des Speicherns kommt
+    const real = globalThis.__tapi; let go;
+    const patchHold = new Promise((r) => { go = r; });
+    globalThis.__tapi = async (m, path, o) => { if (m === "PATCH") await patchHold; return real(m, path, o); };
+    D.userClick(btn("Absätze speichern"));
+    s.hold = null; release(); await a;
+    assert.equal(s.gets, g0, "nach Beginn des Speicherns startet die Wiederholung keinen Abruf mehr");
+    card.keep(); clean();
+    const b = mount();
+    go();
+    assert.ok(await until(() => s.patches.length === 1 && s.lessons[0].shareText.at === 1001));
+    await D.sleep(30);
+    assert.equal(b.dirty(), false, "die übernommene Eingabe ist inzwischen gespeichert");
+    assert.ok(await until(() => field(L1, "passiert")));
+    await b.refresh();
+    assert.equal(field(L1, "passiert").value, "Die Klasse zählt neu aus.");
+    assert.notEqual(document.querySelector(".save-state").textContent, "Ungespeicherte Absätze");
+    globalThis.__tapi = real;
+  } finally { clean(); }
+});
