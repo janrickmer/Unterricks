@@ -18,6 +18,7 @@ const SH = await import("../../public/sharelib.js");
 const SP = await import("../../public/sharepdf.js");
 const SR = await import("../../public/sharepres.js");
 const SZ = await import("../../public/share.js");
+const PX = await import("../../public/sharepptx.js");
 const SF = await import("../../public/sessionfile.js");
 const P = await import("../../public/planning.js");
 const G = await import("../../public/gsplanning.js");
@@ -229,14 +230,75 @@ async function deck() {
   slide([["Bearbeitet in Partnerarbeit die Aufgaben 1 bis 3.", 330, 30], ["Feibeitsblatt „Wer darf wählen?“", 270, 36]], true);
   slide([["Die Hausaufgabe und das Material findest du in Unterricks.", 300, 28]], true);
   slide([["Diskussion", 300, 40], ["Rechts unten steht etwas", 14, 9]]);
+  const ctx = d.context, link = ctx.register(ctx.obj({ Type: "Annot", Subtype: "Link", Rect: [60, 290, 360, 340], Border: [0, 0, 0], A: { Type: "Action", S: "URI", URI: PL.PDFString.of("https://example.org/wahl") } }));
+  d.getPage(3).node.set(PL.PDFName.of("Annots"), ctx.obj([link]));
   await d.attach(new TextEncoder().encode('{"folien":[{"folie":1,"notizen":["Begrüßen"]}]}'), "unterricks-notizen.json", { mimeType: "application/json" });
   return d.save();
 }
+/* PowerPoint-Datei lesen und prüfen: jedes XML wohlgeformt (Tags geschachtelt, & nur als Entität), jedes Ziel einer Beziehung vorhanden, jeder Teil mit Inhaltstyp */
+const PNG1 = Uint8Array.from([137, 80, 78, 71, 13, 10, 26, 10, 0, 0, 0, 13, 73, 72, 68, 82, 0, 0, 0, 1, 0, 0, 0, 1, 8, 6, 0, 0, 0, 31, 21, 196, 137]);
+function wellFormed(xml, name) {
+  const stack = [];
+  assert.ok(!/&(?!(amp|lt|gt|quot|apos|#\d+|#x[0-9a-f]+);)/i.test(xml), name + ": & nur als Entität");
+  for (const m of xml.replace(/^<\?xml[^>]*\?>\s*/, "").matchAll(/<(\/?)([A-Za-z_][\w:.-]*)((?:\s+[\w:.-]+="[^"<]*")*)\s*(\/?)>|<[^>]*>/g)) {
+    assert.ok(m[2], name + ": unbekanntes Tag " + m[0].slice(0, 60));
+    if (m[1]) assert.equal(stack.pop(), m[2], name + ": schließendes Tag " + m[2]);
+    else if (!m[4]) stack.push(m[2]);
+  }
+  assert.deepEqual(stack, [], name + ": alle Tags geschlossen");
+}
+async function readPptx(bytes) {
+  const z = await readZip(new Uint8Array(bytes)), by = new Map(z.map((e) => [e.name, e.data])), txt = (n) => new TextDecoder().decode(by.get(n));
+  const ct = txt("[Content_Types].xml");
+  for (const [n, d] of by) if (/\.(xml|rels)$/.test(n)) wellFormed(new TextDecoder().decode(d), n);
+  for (const [n] of by) if (!n.endsWith(".rels") && n !== "[Content_Types].xml") assert.ok(ct.includes('PartName="/' + n + '"') || ct.includes('Extension="' + n.split(".").pop() + '"'), "Inhaltstyp für " + n);
+  for (const m of ct.matchAll(/PartName="\/([^"]+)"/g)) assert.ok(by.has(m[1]), "Teil vorhanden: " + m[1]);
+  for (const [n, d] of by) {
+    if (!n.endsWith(".rels")) continue;
+    const dir = n.replace(/_rels\/[^/]+$/, "");
+    for (const m of new TextDecoder().decode(d).matchAll(/Target="([^"]+)"(\s+TargetMode="External")?/g)) {
+      if (m[2]) continue;
+      const parts = (dir + m[1]).split("/"), out = [];
+      for (const p of parts) { if (p === "..") out.pop(); else if (p && p !== ".") out.push(p); }
+      assert.ok(by.has(out.join("/")), n + " → " + m[1]);
+    }
+  }
+  return { by, txt, slides: [...by.keys()].filter((n) => /^ppt\/slides\/slide\d+\.xml$/.test(n)).length };
+}
+test("PowerPoint-Datei (sharepptx.js): vollständiges Paket, Folienbild über die ganze Folie, Link-Flächen, Notizen als Aufzählung, Maskierung, Foliengröße", async () => {
+  const bytes = PX.buildPptx({ title: "Wahlen & Co <Test>", author: "Jan-Rickmer Feindt", when: new Date("2026-11-18T10:00:00Z"), slides: [
+    { image: { data: PNG1, mime: "image/png" }, w: 960, h: 540, notes: ["Begrüßen und die „Karikatur“ zeigen", "A & B < C\nzweite Zeile", " "], alt: "Wahlen in Deutschland" },
+    { image: { data: PNG1, mime: "image/jpeg" }, w: 960, h: 540, links: [{ x: 60, y: 200, w: 300, h: 40, url: "https://www.youtube.com/watch?v=Fk1u8VKrJGA&t=30s" }, { x: 0, y: 0, w: 10, h: 10, url: "javascript:alert(1)" }], notes: [] },
+    { image: { data: PNG1, mime: "image/png" }, w: 595, h: 842, notes: ["Hochformat"] }] });
+  const p = await readPptx(bytes);
+  assert.equal(p.slides, 3);
+  assert.ok(p.by.has("ppt/media/image1.png") && p.by.has("ppt/media/image2.jpeg") && p.by.has("ppt/notesSlides/notesSlide1.xml") && !p.by.has("ppt/notesSlides/notesSlide2.xml") && p.by.has("ppt/notesSlides/notesSlide3.xml"),
+    "Notizenseite nur zu Folien mit Notizen");
+  const pres = p.txt("ppt/presentation.xml");
+  assert.ok(pres.includes('<p:sldSz cx="12192000" cy="6858000"/>'), "16:9 wie in PowerPoint (13,33 × 7,5 Zoll)");
+  assert.ok(pres.indexOf("<p:sldMasterIdLst>") < pres.indexOf("<p:notesMasterIdLst>") && pres.indexOf("<p:notesMasterIdLst>") < pres.indexOf("<p:sldIdLst>"), "Reihenfolge nach Schema");
+  const s1 = p.txt("ppt/slides/slide1.xml"), n1 = p.txt("ppt/notesSlides/notesSlide1.xml");
+  assert.ok(s1.includes('<a:off x="0" y="0"/><a:ext cx="12192000" cy="6858000"/>') && s1.includes('descr="Wahlen in Deutschland"'), "Bild über die ganze Folie, Bildbeschreibung");
+  assert.ok(n1.includes('<p:ph type="body" sz="quarter" idx="3"/>') && n1.includes("<a:t>Begrüßen und die „Karikatur“ zeigen</a:t>") && n1.includes("<a:t>A &amp; B &lt; C</a:t><" ) && n1.includes("<a:br>"));
+  assert.equal((n1.match(/<a:buChar char="•"\/>/g) || []).length, 2, "je Notiz ein Aufzählungspunkt, leere entfallen");
+  const r2 = p.txt("ppt/slides/_rels/slide2.xml.rels"), s2 = p.txt("ppt/slides/slide2.xml");
+  assert.ok(r2.includes('Target="https://www.youtube.com/watch?v=Fk1u8VKrJGA&amp;t=30s" TargetMode="External"') && !r2.includes("javascript"), "nur sichere Links");
+  assert.ok(s2.includes('<a:hlinkClick r:id="rId10"/>') && s2.includes('<a:alpha val="0"/>') && s2.includes('<a:off x="762000" y="2540000"/><a:ext cx="3810000" cy="508000"/>'), "Link-Fläche an der Stelle des Links, durchsichtig");
+  const s3 = p.txt("ppt/slides/slide3.xml"), k = 6858000 / (842 * 12700), w3 = Math.round(595 * 12700 * k);
+  assert.ok(s3.includes('<a:ext cx="' + w3 + '" cy="6858000"/>') && s3.includes('<a:off x="' + Math.round((12192000 - w3) / 2) + '" y="0"/>'), "andere Seitengröße: mittig eingepasst");
+  assert.ok(p.txt("docProps/core.xml").includes("<dc:title>Wahlen &amp; Co &lt;Test&gt;</dc:title>") && p.txt("docProps/core.xml").includes("2026-11-18T10:00:00Z"));
+  assert.ok(p.txt("ppt/notesMasters/notesMaster1.xml").includes("<p:notesStyle>") && (p.txt("ppt/theme/theme1.xml").match(/<a:effectStyle>/g) || []).length === 3);
+  assert.deepEqual(PX.slideSize(960, 540), { cx: 12192000, cy: 6858000 });
+  assert.deepEqual(PX.slideSize(20, 10), { cx: 1828800, cy: 914400 }, "zu klein → auf die Mindestgröße");
+  assert.ok(PX.slideSize(10000, 5000).cx <= 51206400, "zu groß → auf die Höchstgröße");
+  assert.throws(() => PX.buildPptx({ slides: [] }), /Keine Folien/);
+  assert.equal(PX.xmlText("a" + String.fromCharCode(1) + "b\tc"), "ab\tc", "Steuerzeichen außer Tab entfallen");
+});
 const CODE_SLIDES = [{ n: 2, lines: ["Bearbeitet in Partnerarbeit die Aufgaben 1 bis 3.", "Feibeitsblatt „Wer darf wählen?“"] }, { n: 3, lines: ["Die Hausaufgabe und das Material findest du in Unterricks."] }];
 test("Präsentation teilen: reine Codefolie entfernt, Materialfolie bleibt mit überdeckter Unterricks-Zeile, Copyright auf jeder Folie, ohne Anhänge; Notizen als eigene PDF", async () => {
   const colors = [];
   const r = await SR.sharePresentation(await deck(), { codeSlides: CODE_SLIDES, titles: ["Wer darf wählen?"], notes: [{ n: 1, items: ["Begrüßen"] }, { n: 3, items: ["Weg"] }, { n: 4, items: ["Pro und Contra"] }],
-    title: "Wahlen", libs: { pdfLib: PL, pdfjs, color: (n, b) => { colors.push([n, Math.round(b.x0), Math.round(b.base)]); return [0.12, 0.23, 0.37]; } } });
+    title: "Wahlen", libs: { pdfLib: PL, pdfjs, raster: async (page, i) => ({ data: PNG1, mime: "image/png", n: i }), color: (n, b) => { colors.push([n, Math.round(b.x0), Math.round(b.base)]); return [0.12, 0.23, 0.37]; } } });
   assert.deepEqual([r.kept, r.dropped, r.covered, r.uncovered], [[1, 2, 4], [3], [2], []]);
   assert.deepEqual(colors, [[2, 60, 526]], "die Farbe wird für die Zeile der Materialfolie bestimmt");
   const t = await pdfText(r.bytes);
@@ -257,9 +319,21 @@ test("Präsentation teilen: reine Codefolie entfernt, Materialfolie bleibt mit �
   const nt = await pdfText(r.notesBytes);
   assert.ok(nt.all.includes("Begrüßen") && nt.all.includes("Pro und Contra") && !nt.all.includes("Weg"));
   assert.ok(nt.all.includes("Präsentation mit Anmerkungen · für die Lehrkraft"));
+  // PowerPoint-Fassung: dieselben drei Folien, Notizen an Folie 1 und 3 (ursprünglich 1 und 4), der Link der Diskussionsfolie als Fläche
+  const pp = await readPptx(r.pptxBytes);
+  assert.equal(pp.slides, 3);
+  assert.deepEqual([...pp.by.keys()].filter((x) => x.startsWith("ppt/notesSlides/notesSlide")).sort(), ["ppt/notesSlides/notesSlide1.xml", "ppt/notesSlides/notesSlide3.xml"]);
+  assert.ok(pp.txt("ppt/notesSlides/notesSlide1.xml").includes("<a:t>Begrüßen</a:t>") && pp.txt("ppt/notesSlides/notesSlide3.xml").includes("<a:t>Pro und Contra</a:t>"));
+  assert.ok(pp.txt("ppt/slides/_rels/slide3.xml.rels").includes('Target="https://example.org/wahl" TargetMode="External"'), "Link der Folie bleibt anklickbar");
+  assert.ok(pp.txt("ppt/slides/slide3.xml").includes('<a:off x="762000" y="2540000"/><a:ext cx="3810000" cy="635000"/>'), "Fläche genau über dem Link (umgerechnet von unten nach oben)");
+  assert.ok(pp.txt("ppt/slides/slide2.xml").includes('descr="Bearbeitet in Partnerarbeit die Aufgaben 1 bis 3. Feibeitsblatt „Wer darf wählen?“'), "Bildbeschreibung = sichtbarer Text");
+  assert.ok(!pp.txt("ppt/slides/slide2.xml").includes("Unterricks-Codefolie"), "ohne die überdeckte Unterricks-Zeile");
+  assert.ok(pp.txt("docProps/core.xml").includes("<dc:creator>Jan-Rickmer Feindt</dc:creator>"));
   // ohne Notizen keine zweite Datei; ohne Canvas (und ohne Farbe) wird nichts überdeckt – lieber die Zeile stehen lassen als ein heller Kasten
   const r2 = await SR.sharePresentation(await deck(), { codeSlides: CODE_SLIDES, titles: ["Wer darf wählen?"], libs: { pdfLib: PL, pdfjs } });
   assert.deepEqual([r2.notesBytes, r2.covered, r2.uncovered], [null, [], [2]]);
+  assert.equal(r2.pptxBytes, null, "ohne Zeichnen keine PowerPoint-Fassung – die PDF bleibt");
+  assert.ok(r2.pptxError.length > 0);
   // nur Codefolien → alles bleibt (überdeckt)
   const only = await SR.sharePresentation(await deck(), { codeSlides: [1, 2, 3, 4].map((n) => ({ n, lines: [] })), libs: { pdfLib: PL, pdfjs, color: () => [1, 1, 1] } });
   assert.deepEqual(only.kept, [1, 2, 3, 4]);
@@ -415,7 +489,7 @@ test("ZIP-Ordner: Leupold-Schema, Erklärung, Fehlende Sitzungen, je geplanter S
   globalThis.fetch = async (url) => { const id = String(url).split("/dl/")[1]; return blobs[id] ? new Response(blobs[id]) : new Response("nein", { status: 404 }); };
   const steps = [];
   let r;
-  try { r = await SZ.buildShareZip(UNIT, { onStep: (m) => steps.push(m) }); }
+  try { r = await SZ.buildShareZip(UNIT, { onStep: (m) => steps.push(m), presLibs: { raster: async () => ({ data: PNG1, mime: "image/png" }) } }); }
   finally { globalThis.fetch = realFetch; delete globalThis.__tapi; }
   assert.equal(r.name, SZ.shareZipName(UNIT));
   assert.ok(r.name.endsWith(" - zum Teilen.zip") && r.name.includes("Wahlen in Deutschland"), r.name);
@@ -423,13 +497,16 @@ test("ZIP-Ordner: Leupold-Schema, Erklärung, Fehlende Sitzungen, je geplanter S
   const zip = await readZip(new Uint8Array(await r.blob.arrayBuffer())), names = zip.map((e) => e.name).sort();
   assert.deepEqual(names, ["Erklärung - Das ist ein Feibeitsblatt.pdf", "Fehlende Sitzungen.pdf", "Leupold-Schema - Wahlen in Deutschland.pdf",
     "Sitzung 1/28x - sw - beidseitig - PoWiQ2 - M1.pdf", "Sitzung 1/Lösung M1.pdf", "Sitzung 1/M1 Arbeitsblatt.pdf", "Sitzung 1/Notfall-Feibeitsblatt Wer darf wählen.pdf",
-    "Sitzung 1/Notizen zu den Folien - Sitzung 1.pdf", "Sitzung 1/Präsentation - Sitzung 1.pdf", "Sitzung 1/Tafelbild.pdf", "Sitzung 1/Verlaufsplan - Sitzung 1.pdf",
+    "Sitzung 1/Notizen zu den Folien - Sitzung 1.pdf", "Sitzung 1/Präsentation - Sitzung 1.pdf", "Sitzung 1/Präsentation - Sitzung 1.pptx", "Sitzung 1/Tafelbild.pdf", "Sitzung 1/Verlaufsplan - Sitzung 1.pdf",
     "Sitzung 3/Verlaufsplan - Sitzung 3.pdf"].sort());
   const get = (n) => zip.find((e) => e.name === n).data;
   assert.deepEqual([...get("Sitzung 1/M1 Arbeitsblatt.pdf")], [...ab], "PDF-Dateien unverändert");
   const pt = await pdfText(get("Sitzung 1/Präsentation - Sitzung 1.pdf"));
   assert.equal(pt.pages.length, 3);
   assert.ok(pt.pages.every((p) => p.includes("Copyright Jan-Rickmer Feindt")));
+  const zp = await readPptx(get("Sitzung 1/Präsentation - Sitzung 1.pptx"));
+  assert.equal(zp.slides, 3, "PowerPoint mit denselben Folien wie die PDF");
+  assert.ok(zp.txt("ppt/notesSlides/notesSlide1.xml").includes("<a:t>Begrüßen</a:t>"), "Notizen der Lehrkraft in den Notizen der Folie");
   const lp = await pdfText(get("Leupold-Schema - Wahlen in Deutschland.pdf"));
   assert.ok(lp.all.includes(TEXT.kompetenz) && lp.all.includes("Sitzung 2: Wer darf wählen?"));
   const mt = await pdfText(get("Fehlende Sitzungen.pdf"));

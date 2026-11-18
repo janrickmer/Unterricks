@@ -161,7 +161,7 @@ export async function shareE2E({ tp, BASE, T, tool, ok, OUT, SHOT }) {
   ok((await sc.locator(".save-state").textContent()).includes("2 Sitzungen, 1 noch nicht geplant"), "Statuszeile nennt Sitzungen und noch nicht geplante");
   const zip = await readZip(new Uint8Array(readFileSync(zipPath))), names = zip.map((e) => e.name).sort(), get = (n) => zip.find((e) => e.name === n).data;
   const EXPECT = ["Fehlende Sitzungen.pdf", "Leupold-Schema - Wahlen in Deutschland.pdf", "Sitzung 1/Lösung M1.pdf", "Sitzung 1/M1 Wer darf wählen.pdf",
-    "Sitzung 1/Notizen zu den Folien - Sitzung 1.pdf", "Sitzung 1/Präsentation - Sitzung 1.pdf", "Sitzung 1/Tafelbild Wahlrecht.pdf", "Sitzung 1/Verlaufsplan - Sitzung 1.pdf", "Sitzung 3/Verlaufsplan - Sitzung 3.pdf"];
+    "Sitzung 1/Notizen zu den Folien - Sitzung 1.pdf", "Sitzung 1/Präsentation - Sitzung 1.pdf", "Sitzung 1/Präsentation - Sitzung 1.pptx", "Sitzung 1/Tafelbild Wahlrecht.pdf", "Sitzung 1/Verlaufsplan - Sitzung 1.pdf", "Sitzung 3/Verlaufsplan - Sitzung 3.pdf"];
   ok(JSON.stringify(names) === JSON.stringify(EXPECT.sort()), "Inhalt des Ordners (ohne Feibeitsblatt keine Erklärung; keine Anmerkungs-PDF, kein Archiv) – " + JSON.stringify(names));
   for (const e of zip) writeFileSync(join(dir, e.name.replace(/\//g, " – ")), e.data);
   // Präsentation: Folie 3 (reine Codefolie) weg, Copyright auf jeder Folie, keine Notizen als Anhang
@@ -179,6 +179,13 @@ export async function shareE2E({ tp, BASE, T, tool, ok, OUT, SHOT }) {
   const cr = (await (await doc.getPage(2)).getTextContent()).items.find((x) => x.str.includes("Copyright"));
   ok(cr && Math.hypot(cr.transform[0], cr.transform[1]) <= 8 && cr.transform[4] > 700 && cr.transform[5] < 20, "Copyright: klein, rechts unten in der Fußzeile");
   await doc.destroy();
+  // PowerPoint-Fassung: dieselben 3 Folien als Bild (≈ 1920 px breit), Notizen der Lehrkraft in den Notizen der Folien 1 und 3 (Folie 3 der PDF fiel weg)
+  const px = await readZip(new Uint8Array(get("Sitzung 1/Präsentation - Sitzung 1.pptx"))), pxs = new Map(px.map((e) => [e.name, e.data])), pxt = (n) => new TextDecoder().decode(pxs.get(n));
+  const media = px.filter((e) => e.name.startsWith("ppt/media/")), png = media[0] && media[0].data, pw = png && png[0] === 0x89 ? new DataView(png.buffer, png.byteOffset).getUint32(16) : 0;
+  ok(px.filter((e) => /^ppt\/slides\/slide\d+\.xml$/.test(e.name)).length === 3 && media.length === 3 && pw >= 1900 && pw <= 1930
+    && pxt("ppt/notesSlides/notesSlide1.xml").includes("<a:t>Begrüßen und die Karikatur zeigen</a:t>") && pxt("ppt/notesSlides/notesSlide3.xml").includes("<a:t>Pro und Contra sammeln</a:t>")
+    && !pxs.has("ppt/notesSlides/notesSlide2.xml") && !px.some((e) => /Diese Folie fällt weg/.test(new TextDecoder().decode(e.data))),
+    "PowerPoint: 3 Folien als Bild (" + pw + " px breit), Notizen der Lehrkraft in den Notizen der Folien 1 und 3, nichts von der entfernten Folie");
   const nt = await textOf(get("Sitzung 1/Notizen zu den Folien - Sitzung 1.pdf"));
   ok(nt.all.includes("Begrüßen und die Karikatur zeigen") && nt.all.includes("Pro und Contra sammeln") && !nt.all.includes("Diese Folie fällt weg"), "Notizen zu den Folien: nur gebliebene Folien");
   const lp = await textOf(get("Leupold-Schema - Wahlen in Deutschland.pdf"));

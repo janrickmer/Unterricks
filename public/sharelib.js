@@ -138,6 +138,7 @@ export const SHARE_DOCS = {
   plan: (n) => "Verlaufsplan - Sitzung " + n + ".pdf",
   pres: (n) => "Präsentation - Sitzung " + n + ".pdf",
   notes: (n) => "Notizen zu den Folien - Sitzung " + n + ".pdf",
+  pptx: (n) => "Präsentation - Sitzung " + n + ".pptx",   // PowerPoint-Fassung (Folienbilder, Notizen der Lehrkraft in den Notizen der Folie)
 };
 
 /* ---------- Kompetenz: KCGO (Oberstufe), sonst die hinterlegte Planungsgrundlage ---------- */

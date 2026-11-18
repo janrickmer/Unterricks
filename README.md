@@ -437,8 +437,9 @@ gleich in `public/_headers`, im Worker und – für GitHub Pages – in `scripts
   * **„Erklärung - Das ist ein Feibeitsblatt.pdf“** (nur wenn die Einheit Feibeitsblätter nutzt): was ein Feibeitsblatt ist und wie es funktioniert;
     fett der Hinweis, dass Kolleg:innen das digitale Feibeitsblatt nach Absprache mit Ihnen nutzen können (die Abgaben kämen bei Ihnen an) – sonst
     bearbeiten die Schüler:innen das Notfall-Feibeitsblatt auf dem Tablet als Dokument.
-  * je geplanter Sitzung ein Ordner **„Sitzung 1“, „Sitzung 2“ …** (Nummer der Stunde in der Einheit) mit der Präsentation, den Notizen zu den Folien
-    (eigene PDF), dem Verlaufsplan und allen PDF-Dateien der Sitzung (für Schüler:innen samt Notfall-Feibeitsblättern, Druckliste, Material für die
+  * je geplanter Sitzung ein Ordner **„Sitzung 1“, „Sitzung 2“ …** (Nummer der Stunde in der Einheit) mit der Präsentation – als PDF und als
+    PowerPoint-Datei (jede Folie als Bild, Links anklickbar; Ihre Notizen zu den Folien stehen in den Notizen der Folie, also in der
+    Referentenansicht von PowerPoint; den Folientext kann man in PowerPoint nicht ändern) –, den Notizen zu den Folien (eigene PDF), dem Verlaufsplan und allen PDF-Dateien der Sitzung (für Schüler:innen samt Notfall-Feibeitsblättern, Druckliste, Material für die
     Lehrkraft, in der Grundschule samt Bildkarten). In der Präsentation fallen reine Codefolien weg; Materialfolien bleiben, ihre kleine
     Unterricks-Zeile wird überdeckt. Jede Folie trägt unten klein und blass „Copyright Jan-Rickmer Feindt“ (die erzeugten Dokumente ebenso).
   * **„Fehlende Sitzungen.pdf“**, wenn noch nicht alle Stunden geplant sind: die noch nicht geplanten Stunden mit Stundenfrage und grobem Ablauf.

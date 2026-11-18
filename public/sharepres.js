@@ -5,10 +5,11 @@
 // eigene PDF dazu (pdfnotes.js, Folien wie in der geteilten Präsentation).
 // Grenze: Überdeckt ist nur das Bild – der Text der Zeile bleibt unsichtbar in der Datei (wie die unsichtbaren Zeilen „Unterricks-Phase“/„Unterricks-Video“).
 import { lazy, lazyWorker } from "./update.js";
-import { slideTextLines } from "./shared.js";
+import { slideTextLines, codeMarkLine } from "./shared.js";
 import { pdfLib, stripPage, copyPagesSafe } from "./pdfcut.js";
 import { annotatedPdfBytes } from "./pdfnotes.js";
 import { SHARE_COPYRIGHT, shareSlidePlan, markBoxes } from "./sharelib.js";
+import { buildPptx } from "./sharepptx.js";
 
 let pdfjsP = null;
 async function pdfjs() {
@@ -64,9 +65,31 @@ async function renderPage(page, k) {
   return ctx;
 }
 
+/* Folienbild für die PowerPoint-Fassung: ≈ 1920 px breit (kleine Seiten höchstens 4-fach), PNG – ist es sehr groß (Fotos), JPEG.
+   → {data: Uint8Array, mime} oder null (ohne Canvas) */
+async function rasterPage(page) {
+  if (typeof document === "undefined") return null;
+  const vp0 = page.getViewport({ scale: 1 }), k = Math.min(4, Math.max(1, 1920 / Math.max(1, vp0.width))), vp = page.getViewport({ scale: k });
+  const canvas = document.createElement("canvas");
+  canvas.width = Math.ceil(vp.width); canvas.height = Math.ceil(vp.height);
+  const ctx = canvas.getContext("2d");
+  ctx.fillStyle = "#ffffff"; ctx.fillRect(0, 0, canvas.width, canvas.height);
+  await page.render({ canvasContext: ctx, viewport: vp }).promise;
+  const blob = (type, q) => new Promise((res) => canvas.toBlob(res, type, q));
+  let b = await blob("image/png"), mime = "image/png";
+  if (!b || b.size > 1.5e6) { const j = await blob("image/jpeg", 0.88); if (j) { b = j; mime = "image/jpeg"; } }
+  if (!b) return null;
+  const data = new Uint8Array(await b.arrayBuffer());
+  canvas.width = canvas.height = 0;   // Speicher gleich frei
+  return { data, mime };
+}
+// sichtbarer Text einer Folie (Bildbeschreibung in PowerPoint): ohne die Unterricks-Zeile und die unsichtbaren Zeilen „Unterricks-Phase/-Video“
+const altText = (lines) => (lines || []).map((l) => String(l.text || "").trim()).filter((t) => t && !codeMarkLine(t) && !/^Unterricks-(Phase|Video)\b/i.test(t)).join(" ");
+
 /* bytes = Präsentation (PDF), codeSlides = [{n, lines}], titles = Namen der Materialien und Feibeitsblätter der Sitzung, notes = [{n, items}] (Notizen der
-   Lehrkraft) oder null. → {bytes, notesBytes|null, kept, dropped, covered, uncovered} (Nummern der ursprünglichen Folien) */
-export async function sharePresentation(bytes, { codeSlides = [], titles = [], notes = null, title = "", libs = null } = {}) {
+   Lehrkraft) oder null. pptx: auch die PowerPoint-Fassung (Folienbilder + Notizen; libs.raster ersetzt im Test das Zeichnen).
+   → {bytes, notesBytes|null, pptxBytes|null, pptxError, kept, dropped, covered, uncovered} (Nummern der ursprünglichen Folien) */
+export async function sharePresentation(bytes, { codeSlides = [], titles = [], notes = null, title = "", libs = null, pptx = true } = {}) {
   const PL = libs && libs.pdfLib ? libs.pdfLib : await pdfLib(), PJ = libs && libs.pdfjs ? libs.pdfjs : await pdfjs();
   const { PDFDocument, StandardFonts, rgb, degrees } = PL;
   let src;
@@ -75,10 +98,11 @@ export async function sharePresentation(bytes, { codeSlides = [], titles = [], n
   const total = src.getPageCount(), plan = shareSlidePlan(codeSlides, total, titles), cover = new Set(plan.cover);
   const doc = await lazyWorker(PJ.getDocument({ data: new Uint8Array(bytes).slice(), isEvalSupported: false, verbosity: 0 }).promise);
   const out = await PDFDocument.create(), font = await out.embedFont(StandardFonts.Helvetica);
-  const info = [], uncovered = [];
+  const info = [], uncovered = [], alts = [];
   try {
     for (const n of plan.keep) {
       const page = await doc.getPage(n), vp = page.getViewport({ scale: 1 }), lines = slideTextLines(await textItems(PJ, page, vp));
+      alts.push(altText(lines));
       let rects = [];
       if (cover.has(n)) {
         const boxes = markBoxes(lines);
@@ -118,5 +142,31 @@ export async function sharePresentation(bytes, { codeSlides = [], titles = [], n
   const pos = new Map(plan.keep.map((n, i) => [n, i + 1]));
   const kept = (notes || []).filter((x) => x && pos.has(x.n) && Array.isArray(x.items) && x.items.length).map((x) => ({ n: pos.get(x.n), items: x.items }));
   if (kept.length) notesBytes = await annotatedPdfBytes(shared, kept, PL, { codeSlides: [], title, label: "Präsentation mit Anmerkungen · für die Lehrkraft" });
-  return { bytes: shared, notesBytes, kept: plan.keep, dropped: plan.drop, covered: plan.cover.filter((n) => !uncovered.includes(n)), uncovered };
+  // PowerPoint-Fassung (Ergänzung der Lehrkraft vom 18.11.2026): Bilder der fertigen Seiten, ihre Links als anklickbare Flächen, Notizen der Lehrkraft
+  // in den Notizen der Folie (Referentenansicht). Scheitert das Zeichnen, fehlt nur sie – die PDF bleibt.
+  let pptxBytes = null, pptxError = "";
+  if (pptx) {
+    const byPos = new Map(kept.map((x) => [x.n, x.items]));
+    let sdoc = null;
+    try {
+      sdoc = await lazyWorker(PJ.getDocument({ data: new Uint8Array(shared).slice(), isEvalSupported: false, verbosity: 0 }).promise);
+      const slides = [];
+      for (let i = 1; i <= sdoc.numPages; i++) {
+        const page = await sdoc.getPage(i), vp = page.getViewport({ scale: 1 });
+        const image = libs && libs.raster ? await libs.raster(page, i) : await rasterPage(page);
+        if (!image) throw new Error("Die Folien ließen sich in diesem Browser nicht als Bild zeichnen");
+        const links = [];
+        for (const a of await page.getAnnotations().catch(() => [])) {
+          if (!a || a.subtype !== "Link" || typeof a.url !== "string" || !Array.isArray(a.rect)) continue;
+          const [x1, y1, x2, y2] = vp.convertToViewportRectangle(a.rect);
+          links.push({ x: Math.min(x1, x2), y: Math.min(y1, y2), w: Math.abs(x2 - x1), h: Math.abs(y2 - y1), url: a.url });
+        }
+        slides.push({ image, w: vp.width, h: vp.height, links, notes: byPos.get(i) || [], alt: alts[i - 1] || "" });
+        page.cleanup();
+      }
+      pptxBytes = buildPptx({ slides, title, author: SHARE_COPYRIGHT.replace(/^Copyright /, "") });
+    } catch (e) { pptxError = e && e.message ? e.message : "Fehler"; }
+    finally { if (sdoc) try { await sdoc.destroy(); } catch {} }
+  }
+  return { bytes: shared, notesBytes, pptxBytes, pptxError, kept: plan.keep, dropped: plan.drop, covered: plan.cover.filter((n) => !uncovered.includes(n)), uncovered };
 }

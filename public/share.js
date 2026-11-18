@@ -4,6 +4,7 @@
 //   Fehlende Sitzungen.pdf                  nur, wenn noch nicht alle Stunden geplant sind (Stundenfrage und grober Ablauf aus der Einheit)
 //   Sitzung n/                              je geplanter Stunde (n = Nummer der Stunde in der Einheit):
 //     Präsentation - Sitzung n.pdf          ohne reine Codefolien, Unterricks-Zeile auf Materialfolien überdeckt, mit „Copyright Jan-Rickmer Feindt“ (sharepres.js)
+//     Präsentation - Sitzung n.pptx         dieselben Folien als Bild, Notizen der Lehrkraft in den Notizen der Folie (sharepptx.js)
 //     Notizen zu den Folien - Sitzung n.pdf nur mit Notizen der Lehrkraft
 //     Verlaufsplan - Sitzung n.pdf          Stundenverlauf (Schulportal-Eintrag bzw. Verlaufsplan der Grundschule), Hausaufgabe, Links, Zusammenfassung für die Lehrkraft
 //     … alle PDF-Dateien der Sitzung: für Schüler:innen bzw. Kinder (auch Notfall-Feibeitsblätter), Druckliste, Material nur für die Lehrkraft (auch Bildkarten);
@@ -23,7 +24,7 @@ export const shareZipName = (unit, gsShort = null) => unitBaseName(unit, 80, gsS
 export class Cancelled extends Error { constructor() { super("Abgebrochen."); this.cancelled = true; } }
 
 /* unit = unitFull (GET /api/teacher/units/:id). → {blob, name, sessions (Ordner), missing (Stunden ohne Planung), notes (Hinweise), noText (geplant, ohne Absatz)} */
-export async function buildShareZip(unit, { onStep = () => {}, cancelled = () => false } = {}) {
+export async function buildShareZip(unit, { onStep = () => {}, cancelled = () => false, presLibs = null } = {}) {   // presLibs: nur für Tests (sharepres.js)
   const check = () => { if (cancelled()) throw new Cancelled(); };
   const gs = unit.subject === GS_SUBJECT, gsc = unit.course && unit.course.gs ? unit.course.gs : null, gsShort = gsc ? gsc.short : null;
   const meta = unitMeta(unit, gsc ? gsc.label + (gsc.gradeText ? " · " + gsc.gradeText : "") : "");
@@ -51,9 +52,11 @@ export async function buildShareZip(unit, { onStep = () => {}, cancelled = () =>
         let slideNotes = null;
         if (f.notes > 0 || f.notesRev > 0) { try { slideNotes = (await retry(() => tapi("GET", "/api/teacher/files/" + f.id + "/notes"))).notes; } catch { notes.push(folder + ": Die Notizen zu „" + f.name + "“ ließen sich nicht laden."); } }
         const titles = [...files.filter((x) => x.area !== "presentation" && x.area !== "archive").map((x) => x.name), ...(detail.sheets || []).map((x) => x.title)];
-        const r = await sharePresentation(bytes, { codeSlides: f.codeSlides || [], titles, notes: slideNotes, title: (L.title || "Präsentation") });
+        const r = await sharePresentation(bytes, { codeSlides: f.codeSlides || [], titles, notes: slideNotes, title: (L.title || "Präsentation"), libs: presLibs });
         const suffix = pres.length > 1 ? " (" + (k + 1) + ")" : "";
         add(SHARE_DOCS.pres(s.n).replace(/\.pdf$/, suffix + ".pdf"), r.bytes);
+        if (r.pptxBytes) add(SHARE_DOCS.pptx(s.n).replace(/\.pptx$/, suffix + ".pptx"), r.pptxBytes);
+        else notes.push(folder + ": Die PowerPoint-Fassung von „" + f.name + "“ fehlt – " + (r.pptxError || "Fehler") + ".");
         if (r.notesBytes) add(SHARE_DOCS.notes(s.n).replace(/\.pdf$/, suffix + ".pdf"), r.notesBytes);
         if (r.dropped.length) notes.push(folder + ": " + (r.dropped.length === 1 ? "eine Codefolie" : r.dropped.length + " Codefolien") + " ohne Material entfernt (Folie " + r.dropped.join(", ") + ").");
         if (r.uncovered.length) notes.push(folder + ": Auf Folie " + r.uncovered.join(", ") + " ließ sich die Zeile „Unterricks-Codefolie …“ nicht finden bzw. überdecken.");
