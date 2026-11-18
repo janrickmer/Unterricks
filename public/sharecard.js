@@ -2,7 +2,7 @@
 // Stand der Sitzungen (geplant / noch nicht geplant), „Absätze mit Claude schreiben“ (Prompt), Absätze prüfen und bearbeiten (je geplanter Sitzung
 // drei Felder) und der Knopf „Unterrichtseinheit mit KollegInnen teilen“ → ZIP-Ordner (share.js, erst beim Klick geladen).
 import { lazy } from "./update.js";
-import { h, clear, toast, errToast, busy, confirmDialog, icon, stateLine, downloadBlob, fmtBytes, fmtTime } from "./ui.js";
+import { h, clear, nn, toast, errToast, busy, confirmDialog, icon, stateLine, downloadBlob, fmtBytes, fmtTime } from "./ui.js";
 import { tapi } from "./teacher.js";
 import { claudeHandoff } from "./claude.js";
 import { SHARE_BUTTON, SHARE_PARTS, SHARE_LIMITS, SHARE_TEXT_TITLE, shareSessions, shareTextComplete, claudeSharePrompt, competenceSource } from "./sharelib.js";
@@ -54,7 +54,7 @@ export function shareCard(ctx) {
       "Absätze mit Claude schreiben");
     const shareBtn = h("button", { class: "btn primary big", type: "button", disabled: sessions.length && !building ? null : true, "aria-describedby": "unitshare-hint", onclick: (e) => busy(e.currentTarget, () => share(sessions, planned, missingText), "Stelle den Ordner zusammen …") },
       icon("download"), SHARE_BUTTON);
-    clear(body).append(
+    clear(body).append(...nn(
       h("p", { class: "small", text: what }),
       h("p", { class: "small" + (missingText.length || open.length ? " warnc" : ""), text: status }),
       planned.length ? h("div", { class: "row" }, claudeBtn, h("span", { class: "hint", text: "Claude schreibt die Absätze; Sie prüfen sie hier." })) : null,
@@ -63,7 +63,7 @@ export function shareCard(ctx) {
       h("p", { class: "hint", id: "unitshare-hint", text: gs
         ? "Der Ordner entsteht auf diesem Gerät aus dem gespeicherten Stand. Verweise im Verlaufsplan nennen den Namen der Datei im Ordner."
         : "Der Ordner entsteht auf diesem Gerät aus dem gespeicherten Stand – bei vielen Präsentationen kann das eine Minute dauern. Codefolien ohne Material fallen weg; auf Materialfolien wird die Zeile mit dem Unterricks-Code überdeckt. " +
-          "Feibeitsblätter stecken als Notfall-Feibeitsblatt (PDF) im Ordner; das digitale Feibeitsblatt nutzen Kolleg:innen nur nach Absprache mit Ihnen (die Abgaben kämen bei Ihnen an)." }));
+          "Feibeitsblätter stecken als Notfall-Feibeitsblatt (PDF) im Ordner; das digitale Feibeitsblatt nutzen Kolleg:innen nur nach Absprache mit Ihnen (die Abgaben kämen bei Ihnen an)." })));
   }
 
   function editor(planned, src) {

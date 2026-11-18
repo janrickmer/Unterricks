@@ -99,7 +99,7 @@ export async function shareE2E({ tp, BASE, T, tool, ok, OUT, SHOT }) {
   ok(await tp.evaluate(() => { const s = [...document.querySelectorAll("main section.card")]; return s.length > 3 && s[s.length - 1].id === "unitshare"; }), "die Karte steht ganz unten auf der Seite der Einheit");
   const st = await sc.textContent();
   ok(st.includes("2 von 3 Sitzungen geplant (noch nicht geplant: Sitzung 2 – sie stehen im Dokument „Fehlende Sitzungen“).") && st.includes("Absätze für das Leupold-Schema fehlen noch bei Sitzung 3.")
-    && st.includes("zentrale Kompetenz des KCGO"), "Stand: geplante und fehlende Sitzungen, fehlende Absätze – " + st.slice(0, 400));
+    && st.includes("zentrale Kompetenz des KCGO") && !/\bnull\b|undefined/.test(st), "Stand: geplante und fehlende Sitzungen, fehlende Absätze – " + st.slice(0, 400));
   // Prompt
   await sc.getByRole("button", { name: "Absätze mit Claude schreiben" }).click();
   const hm = tp.locator(".modal", { hasText: "Absätze für die Weitergabe mit Claude schreiben" });
@@ -246,11 +246,17 @@ export async function shareE2Epart2({ tp, BASE, T, tool, ok, OUT, SHOT, first, m
   await T("PATCH", "/api/teacher/units/" + gu.id, { plan: { titel: "Josef und seine Brüder", ausgangslage: "Die Kinder kennen Streit unter Geschwistern.", lernaufgabe: "Ein Bild zur Versöhnung malen", schritte: [{ titel: "Josef erzählen", beschreibung: "Erzählung im Sitzkreis" }] },
     rows: [{ stundenfrage: "Warum streiten Josef und seine Brüder?", ablauf: ["Erzählung", "Gespräch"], schritt: 0, date: days[0], time: "08:00", minutes: 45 }, { stundenfrage: "Wie versöhnen sie sich?", ablauf: ["Erzählung", "Bild malen"], schritt: 0, date: days[1], time: "08:00", minutes: 45 }] });
   const gunit = (await T("POST", "/api/teacher/units/" + gu.id + "/sessions")).data.unit, G1 = gunit.lessons.find((l) => l.row === gunit.rows[0].uid);
+  // noch keine geplante Sitzung: Karte ohne Prompt und ohne Absätze – und ohne Textreste
+  await tp.goto(BASE + "/#/lk/u/" + gu.id);
+  await tp.locator("#unitshare button", { hasText: "Unterrichtseinheit mit KollegInnen teilen" }).waitFor({ timeout: 15000 });
+  const g0 = await tp.locator("#unitshare").textContent();
+  ok(g0.includes("0 von 2 Sitzungen geplant") && !/\bnull\b|undefined/.test(g0) && await tp.locator("#unitshare button", { hasText: "Absätze mit Claude schreiben" }).count() === 0,
+    "Grundschule ohne geplante Sitzung: Stand ohne Textreste, kein Prompt – " + g0.slice(0, 200));
   const ab = (await (await fetch(BASE + "/api/teacher/lessons/" + G1.id + "/files?area=teacher&name=" + encodeURIComponent("Vorlesetext Josef.pdf"),
     { method: "POST", headers: { Authorization: "Bearer " + token, "Content-Type": "application/pdf" }, body: Buffer.from(await (await import("pdf-lib")).PDFDocument.create().then(async (d) => { d.addPage().drawText("Josef"); return d.save(); })) })).json()).file;
   let r = await tool("save_verlaufsplan", { lesson_id: G1.id, text: "**1) Sitzkreis**\n- __Lehrkraft liest " + pdfRef(ab.id) + " vor.__\n**2) Gespräch**\n- Warum ist Josef traurig?" });
   ok(r && !r.isError, "Verlaufsplan der Grundschul-Sitzung gespeichert" + (r && r.isError ? ": " + r.content[0].text : ""));
-  await tp.goto(BASE + "/#/lk/u/" + gu.id);
+  await tp.reload();
   await tp.locator("#unitshare button", { hasText: "Unterrichtseinheit mit KollegInnen teilen" }).waitFor({ timeout: 15000 });
   const gst = await tp.locator("#unitshare").textContent();
   ok(gst.includes("1 von 2 Sitzungen geplant") && gst.includes("Verlaufsplan") && !gst.includes("Präsentation") && !gst.includes("KCGO"), "Grundschule: Karte ohne Präsentation und KCGO – " + gst.slice(0, 300));
