@@ -47,8 +47,14 @@ export async function buildShareZip(unit, { onStep = () => {}, cancelled = () =>
     if (away) {
       const keep = new Set(sub.archive.files || []);
       L = { ...L, portal: sub.archive.portal || "", homework: sub.archive.homework || "" };
-      const areas = sub.archive.fileAreas || {};
-      files = files.filter((f) => f.area === "presentation" || keep.has(f.id)).map((f) => (f.area === "archive" ? { ...f, area: areas[f.id] || "student" } : f));
+      const areas = sub.archive.fileAreas || {}, sheetKey = (c) => String(c || "").replace(/[^A-Za-z0-9]/g, "").toUpperCase();
+      const origCodes = new Set((sub.archive.sheets || []).map((x) => sheetKey(x && x.code)).filter(Boolean));
+      // ursprüngliches Material: archiviert (mit seinem Bereich) und – nicht archiviert – was eine Station weiterverwendet (es bleibt sichtbar, mit seiner
+      // ursprünglichen Herkunft); nie das für die Abwesenheit Erstellte (Herkunft „selbstlern“ bzw. bei älteren Vertretungen „vertretung“), Notfall-
+      // Feibeitsblätter nur zu den ursprünglichen Feibeitsblättern
+      const original = (f) => ["student", "teacher", "print"].includes(f.area) && f.source !== "selbstlern" && f.source !== "vertretung" &&
+        (f.source !== "notfall" || origCodes.has(sheetKey(f.fbCode)));
+      files = files.filter((f) => f.area === "presentation" || keep.has(f.id) || original(f)).map((f) => (f.area === "archive" ? { ...f, area: areas[f.id] || "student" } : f));
       notes.push(folder + ": Für diese Sitzung gilt eine " + (sub.status === "selbstlern" ? "Selbstlern-Phase" : "Vertretung") + " – im Ordner steht die ursprüngliche Planung.");
     }
     const used = new Set([SHARE_DOCS.pres(s.n), SHARE_DOCS.notes(s.n), SHARE_DOCS.plan(s.n)].map((x) => x.toLowerCase()));   // eigene Namen gehen vor

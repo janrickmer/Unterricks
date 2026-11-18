@@ -49,7 +49,8 @@ export async function unitPage(id) {
   const unitInput = h("input", { type: "file", class: "hidden", accept: ".zip,.json,application/zip,application/json", "aria-label": "Gesicherte Unterrichtseinheit (ZIP- oder JSON-Datei) auswählen" });
   unitInput.addEventListener("change", () => { const f = unitInput.files[0]; unitInput.value = ""; if (f) importUnit(f); });
   const markDirty = () => { dirty = true; saveState.textContent = "Ungespeicherte Änderungen"; };
-  // 8) Mit Kolleg:innen teilen (Nachtrag 39) – ganz unten; dasselbe Element über paint() hinweg (ungespeicherte Absätze bleiben)
+  // 8) Mit Kolleg:innen teilen (Nachtrag 39) – ganz unten; dasselbe Element über paint() hinweg (ungespeicherte Absätze bleiben, auch über
+  // einen Neuaufbau der Seite mit unitPage(id): share.keep() legt sie vorher ab)
   const share = shareCard({ getUnit: () => u, gs, isDirty: () => dirty, saveUnit: () => save(false) });
 
   const paint = () => {
@@ -63,7 +64,7 @@ export async function unitPage(id) {
         sub: subjectName(u.subject) + " · " + classShort(u.klass) + " · " + gradeInfo(u.klass).text }),
       // „Erledigt“ ändert die Zeilen nicht: ungespeicherte Änderungen der Tabelle bleiben; nach „rückgängig“ neu laden. Am Gymnasium gibt es den
       // Hinweis nur nach dem Verschieben wegen unterrichtsfreier Tage (Nachtrag 24)
-      reviseBox(u, { onChange: (nu) => { if (nu && JSON.stringify(nu.rows) === JSON.stringify(u.rows)) { u = nu; if (!dirty) { rows = u.rows.map((x) => ({ ...x })); plan = JSON.parse(JSON.stringify(u.plan || {})); } paint(); } else unitPage(id); } }),
+      reviseBox(u, { onChange: (nu) => { if (nu && JSON.stringify(nu.rows) === JSON.stringify(u.rows)) { u = nu; if (!dirty) { rows = u.rows.map((x) => ({ ...x })); plan = JSON.parse(JSON.stringify(u.plan || {})); } paint(); } else { share.keep(); unitPage(id); } } }),
       paramsCard(), basisCard(), claudeCard(), schemaCard(), tableCard(), finishCard(), gs ? null : ioCard(), share.el));
     share.refresh();
   };
@@ -267,7 +268,7 @@ export async function unitPage(id) {
       u = r.unit; rows = u.rows.map((x) => ({ ...x })); plan = JSON.parse(JSON.stringify(u.plan || {})); dirty = false;
       toast("Einheit gespeichert.", "ok"); paint();
     } catch (e) {
-      if (e.status === 409) { if (await confirmDialog("Einheit wurde geändert", "Die Einheit wurde inzwischen an anderer Stelle geändert (z. B. von Claude). Neu laden? Ihre ungespeicherten Änderungen gehen dann verloren.", "Neu laden")) unitPage(id); }
+      if (e.status === 409) { if (await confirmDialog("Einheit wurde geändert", "Die Einheit wurde inzwischen an anderer Stelle geändert (z. B. von Claude). Neu laden? Ihre ungespeicherten Änderungen an der Einheit gehen dann verloren" + (share.dirty() ? " (ungespeicherte Absätze unter „Mit Kolleg:innen teilen“ bleiben)." : "."), "Neu laden")) { share.keep(); unitPage(id); } }
       else errToast(e);
     }
   }

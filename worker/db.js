@@ -155,13 +155,13 @@ export const INDEXES = [
 
 let ready = null, warm = false;
 /* true, sobald das Schema in diesem Isolate angelegt ist – vor ensureSchema abgefragt: false heißt, diese Anfrage legt es gerade an (1 Batch, je Tabelle mit
-   nachträglichen Spalten ein PRAGMA und höchstens ein Batch, 1 Batch Indizes – seit Nachtrag 39 je Tabelle gebündelt), lange Abfragen (Beamer-Code) halten
+   nachträglichen Spalten ein PRAGMA und höchstens ein Batch – seit Nachtrag 39 je Tabelle gebündelt –, die Indizes einzeln), lange Abfragen (Beamer-Code) halten
    dann nicht (höchstens 50 D1-Anweisungen je Aufruf im Free-Plan) */
 export const schemaWarm = () => warm;
 export function ensureSchema(db) {
   if (!ready) ready = (async () => {
     await db.batch(SCHEMA.map((s) => db.prepare(s)));
-    // je Tabelle: Spalten nachsehen, fehlende in EINEM Batch anlegen – eine frische Datenbank braucht so 1 + 6 PRAGMA + 6 Batches + 1 = 14 Abfragen statt
+    // je Tabelle: Spalten nachsehen, fehlende in EINEM Batch anlegen – eine frische Datenbank braucht so 1 + 6 PRAGMA + 6 Batches + 5 Indizes = 18 Aufrufe statt
     // einer je Spalte (mit Nachtrag 39 wären es 51 gewesen – über der Grenze von 50 je Aufruf, die Indizes wären still nicht angelegt worden)
     const missingOf = async (table) => {
       const info = await db.prepare("PRAGMA table_info(" + table + ")").all();
@@ -181,7 +181,8 @@ export function ensureSchema(db) {
         }
       }
     }
-    try { await db.batch(INDEXES.map((s) => db.prepare(s))); } catch (e) { console.warn("Index nicht angelegt:", e && e.message); }
+    // jeder Index einzeln: ein Batch ist eine Transaktion – scheiterte ein eindeutiger Index an alten Doppelungen, fehlten sonst auch alle übrigen
+    for (const s of INDEXES) { try { await db.prepare(s).run(); } catch (e) { console.warn("Index nicht angelegt:", e && e.message); } }
     warm = true;
   })().catch((e) => { ready = null; throw e; });
   return ready;

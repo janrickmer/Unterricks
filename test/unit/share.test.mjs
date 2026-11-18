@@ -237,8 +237,10 @@ async function deck() {
 }
 /* PowerPoint-Datei lesen und prüfen: jedes XML wohlgeformt (Tags geschachtelt, & nur als Entität), jedes Ziel einer Beziehung vorhanden, jeder Teil mit Inhaltstyp */
 const PNG1 = Uint8Array.from([137, 80, 78, 71, 13, 10, 26, 10, 0, 0, 0, 13, 73, 72, 68, 82, 0, 0, 0, 1, 0, 0, 0, 1, 8, 6, 0, 0, 0, 31, 21, 196, 137]);
+const XML_BAD = new RegExp("(?![\\t\\n\\r])\\p{Cc}|\\p{Cs}|[" + String.fromCharCode(0xfffe, 0xffff) + "]", "u");
 function wellFormed(xml, name) {
   const stack = [];
+  assert.ok(!XML_BAD.test(xml), name + ": keine in XML verbotenen Zeichen");
   assert.ok(!/&(?!(amp|lt|gt|quot|apos|#\d+|#x[0-9a-f]+);)/i.test(xml), name + ": & nur als Entität");
   for (const m of xml.replace(/^<\?xml[^>]*\?>\s*/, "").matchAll(/<(\/?)([A-Za-z_][\w:.-]*)((?:\s+[\w:.-]+="[^"<]*")*)\s*(\/?)>|<[^>]*>/g)) {
     assert.ok(m[2], name + ": unbekanntes Tag " + m[0].slice(0, 60));
@@ -293,6 +295,11 @@ test("PowerPoint-Datei (sharepptx.js): vollständiges Paket, Folienbild über di
   assert.ok(PX.slideSize(10000, 5000).cx <= 51206400, "zu groß → auf die Höchstgröße");
   assert.throws(() => PX.buildPptx({ slides: [] }), /Keine Folien/);
   assert.equal(PX.xmlText("a" + String.fromCharCode(1) + "b\tc"), "ab\tc", "Steuerzeichen außer Tab entfallen");
+  // Prüfbefund: die Nichtzeichen U+FFFE/U+FFFF (z. B. aus dem Text einer PDF-Folie oder einem Titel) machten das XML ungültig
+  const NC = String.fromCharCode(0xffff) + String.fromCharCode(0xfffe), BOM = String.fromCharCode(0xfeff);
+  assert.equal(PX.xmlText("x" + NC + "y" + BOM), "xy" + BOM, "U+FFFE/U+FFFF entfallen (U+FEFF ist in XML erlaubt)");
+  const bad = await readPptx(PX.buildPptx({ title: "Titel" + NC, slides: [{ image: { data: PNG1, mime: "image/png" }, w: 960, h: 540, notes: ["Notiz" + NC], alt: "Bild" + NC }] }));
+  assert.ok(bad.txt("ppt/slides/slide1.xml").includes('descr="Bild"') && bad.txt("ppt/notesSlides/notesSlide1.xml").includes("<a:t>Notiz</a:t>") && bad.txt("docProps/core.xml").includes("<dc:title>Titel</dc:title>"));
 });
 const CODE_SLIDES = [{ n: 2, lines: ["Bearbeitet in Partnerarbeit die Aufgaben 1 bis 3.", "Feibeitsblatt „Wer darf wählen?“"] }, { n: 3, lines: ["Die Hausaufgabe und das Material findest du in Unterricks."] }];
 test("Präsentation teilen: reine Codefolie entfernt, Materialfolie bleibt mit überdeckter Unterricks-Zeile, Copyright auf jeder Folie, ohne Anhänge; Notizen als eigene PDF", async () => {
@@ -575,6 +582,13 @@ test("Schema: frische Datenbank mit wenigen Aufrufen (Spalten je Tabelle in eine
   const D2 = await import("../../worker/db.js?schema39b");
   await D2.ensureSchema(raced);
   for (const [t, col] of D2.COLUMNS) assert.ok(new Set(raced.raw.prepare("PRAGMA table_info(" + t + ")").all().map((r) => r.name)).has(col), "nach dem Wettlauf: " + t + "." + col);
+  // Prüfbefund: scheitert ein eindeutiger Index an alten Doppelungen, entstehen die übrigen trotzdem (jeder für sich, kein gemeinsamer Batch)
+  const dup = fakeD1(), prep = dup.prepare.bind(dup);
+  dup.prepare = (sql) => { const st = prep(sql); if (/lessons_unit_row/.test(sql)) st.run = async () => { throw new Error("UNIQUE constraint failed: lessons.unit_id, lessons.unit_row"); }; return st; };
+  const warn = console.warn; console.warn = () => {};
+  try { await (await import("../../worker/db.js?schema39c")).ensureSchema(dup); } finally { console.warn = warn; }
+  const idx3 = new Set(dup.raw.prepare("SELECT name FROM sqlite_master WHERE type='index'").all().map((r) => r.name));
+  assert.ok(!idx3.has("lessons_unit_row") && ["lessons_parent_hash", "lessons_date", "files_cards", "lessons_day"].every((x) => idx3.has(x)), [...idx3].join(", "));
 });
 
 /* ---------- Befunde der Prüfung (Nachtrag 39) ---------- */
@@ -631,9 +645,10 @@ test("Prüfung: ältere Präsentation mit aufgedrucktem Sitzungscode – auf all
 });
 
 test("Prüfung: ZIP – Verweise auf Dateien anderer Einheiten werden mitgenommen, auf Dateien anderer Ordner mit dem echten Namen genannt; fehlendes Notfall-Feibeitsblatt, Sitzung ohne Präsentation, Selbstlern-Phase (ursprüngliche Planung)", async () => {
-  const A = "a".repeat(16), B = "b".repeat(16), F1 = "1".repeat(16), F2 = "2".repeat(16), F3 = "3".repeat(16), F4 = "4".repeat(16);
+  const A = "a".repeat(16), B = "b".repeat(16), F1 = "1".repeat(16), F2 = "2".repeat(16), F3 = "3".repeat(16), F4 = "4".repeat(16), F5 = "5".repeat(16), F6 = "6".repeat(16), F7 = "7".repeat(16), F8 = "8".repeat(16);
   const pdf = async (label) => { const d = await PL.PDFDocument.create(); d.addPage().drawText(label); return d.save(); };
-  const blobs = { [F1]: await pdf("Karten aus Sitzung 1"), [F2]: await pdf("Karten anderer Einheit"), [F3]: await pdf("Archiviertes Blatt"), [F4]: await pdf("Selbstlern-Station") };
+  const blobs = { [F1]: await pdf("Karten aus Sitzung 1"), [F2]: await pdf("Karten anderer Einheit"), [F3]: await pdf("Archiviertes Blatt"), [F4]: await pdf("Selbstlern-Station"),
+    [F5]: await pdf("Original, von einer Station weiterverwendet"), [F6]: await pdf("Notfall zum ursprünglichen Blatt"), [F7]: await pdf("Notfall zum Blatt der Selbstlern-Phase"), [F8]: await pdf("Alte Vertretung") };
   const GSU = { ...UNIT, subject: "gs", klass: "gs12345678", rows: UNIT.rows.slice(0, 2), course: { gs: { short: "Religion 2c", label: "Religion", gradeText: "Jahrgang 2" } } };
   const lessons = [{ id: A, row: "r1", title: "Eins", planned: true, shareText: TEXT }, { id: B, row: "r2", title: "Zwei", planned: true, shareText: TEXT }];
   const det = {
@@ -656,18 +671,47 @@ test("Prüfung: ZIP – Verweise auf Dateien anderer Einheiten werden mitgenomme
     const vp2 = (await pdfText(z.find((e) => e.name === "Sitzung 2/Verlaufsplan - Sitzung 2.pdf").data)).all;
     assert.ok(vp2.includes("„Bildkarten Josef.pdf (im Ordner „Sitzung 1“)“") && vp2.includes("„Arche Noah.pdf“"), "echter Name im anderen Ordner; Datei einer anderen Einheit liegt im eigenen Ordner – " + vp2);
     // Gymnasium: Feibeitsblatt ohne Notfall-Feibeitsblatt, Sitzung ohne Präsentation, Selbstlern-Phase mit Archiv
-    det[A] = { lesson: { title: "Eins", portal: "**Selbstlern-Stationen**", homework: "" }, sheets: [{ code: "KLM-3PQ", title: "Wer darf wählen?", kind: "" }],
-      files: [{ id: F3, kind: "file", area: "archive", name: "M1 Original.pdf", mime: "application/pdf", status: "ready" }, { id: F4, kind: "file", area: "student", name: "Station 1.pdf", mime: "application/pdf", status: "ready" }],
-      substitute: { status: "selbstlern", archive: { portal: "**1) Einstieg**\n- Original geplant", homework: "", sheets: [{ code: "KLM-3PQ", title: "Wer darf wählen?", kind: "" }], files: [F3], fileAreas: { [F3]: "student" } } } };
+    // Prüfbefund: was eine Station weiterverwendet, bleibt unarchiviert sichtbar (mit seiner ursprünglichen Herkunft) – auch das gehört zur ursprünglichen
+    // Planung, ebenso das Notfall-Feibeitsblatt eines ursprünglichen Blattes; nicht aber, was für die Abwesenheit entstand
+    const SH = [{ code: "KLM-3PQ", title: "Wer darf wählen?", kind: "" }, { code: "XYZ-2AB", title: "Zweites Blatt", kind: "" }];
+    det[A] = { lesson: { title: "Eins", portal: "**Selbstlern-Stationen**", homework: "" }, sheets: [...SH, { code: "SRF-9ZZ", title: "Blatt der Selbstlern-Phase", kind: "" }],
+      files: [{ id: F3, kind: "file", area: "archive", name: "M1 Original.pdf", mime: "application/pdf", status: "ready" },
+        { id: F4, kind: "file", area: "student", name: "Station 1.pdf", mime: "application/pdf", status: "ready", source: "selbstlern" },
+        { id: F5, kind: "file", area: "student", name: "M2 Original.pdf", mime: "application/pdf", status: "ready", source: "claude" },
+        { id: F6, kind: "file", area: "student", name: "Notfall-Feibeitsblatt Zweites Blatt.pdf", mime: "application/pdf", status: "ready", source: "notfall", fbCode: "XYZ2AB" },
+        { id: F7, kind: "file", area: "student", name: "Notfall-Feibeitsblatt Selbstlern.pdf", mime: "application/pdf", status: "ready", source: "notfall", fbCode: "SRF-9ZZ" },
+        { id: F8, kind: "file", area: "print", name: "Alte Vertretung.pdf", mime: "application/pdf", status: "ready", source: "vertretung" }],
+      substitute: { status: "selbstlern", archive: { portal: "**1) Einstieg**\n- Original geplant", homework: "", sheets: SH, files: [F3], fileAreas: { [F3]: "student" } } } };
     det[B] = { lesson: { title: "Zwei", portal: "**1) Einstieg**", homework: "" }, files: [], sheets: [] };
     const g = await SZ.buildShareZip({ ...UNIT, rows: UNIT.rows.slice(0, 2) });
     const gz = await readZip(new Uint8Array(await g.blob.arrayBuffer())), gn = gz.map((e) => e.name).sort();
     assert.ok(gn.includes("Sitzung 1/M1 Original.pdf") && !gn.includes("Sitzung 1/Station 1.pdf"), "Selbstlern-Phase: ursprüngliches Material, nicht die Stationen – " + gn.join(", "));
+    assert.ok(gn.includes("Sitzung 1/M2 Original.pdf") && gn.includes("Sitzung 1/Notfall-Feibeitsblatt Zweites Blatt.pdf"), "von einer Station weiterverwendetes Original und sein Notfall-Feibeitsblatt – " + gn.join(", "));
+    assert.ok(!gn.includes("Sitzung 1/Notfall-Feibeitsblatt Selbstlern.pdf") && !gn.includes("Sitzung 1/Alte Vertretung.pdf"), "nichts, was für die Abwesenheit entstand");
     const v1 = (await pdfText(gz.find((e) => e.name === "Sitzung 1/Verlaufsplan - Sitzung 1.pdf").data)).all;
     assert.ok(v1.includes("Original geplant") && !v1.includes("Selbstlern-Stationen"), "Verlaufsplan aus der ursprünglichen Planung");
     const n = g.notes.join(" ");
     for (const s of ["Sitzung 1: Für diese Sitzung gilt eine Selbstlern-Phase – im Ordner steht die ursprüngliche Planung.", "Sitzung 1: Zum Feibeitsblatt „Wer darf wählen?“ fehlt das Notfall-Feibeitsblatt",
       "Sitzung 2: Zu dieser Sitzung gibt es keine Präsentation."]) assert.ok(n.includes(s), s);
+    assert.ok(!n.includes("„Zweites Blatt“ fehlt") && !n.includes("Blatt der Selbstlern-Phase"), "das Notfall-Feibeitsblatt des zweiten Blattes liegt im Ordner – kein falscher Hinweis");
     assert.ok(gn.includes("Erklärung - Das ist ein Feibeitsblatt.pdf"));
   } finally { globalThis.fetch = realFetch; delete globalThis.__tapi; }
+});
+
+test("Prüfung 2: ältere Präsentation – Bindestrich ohne Unicode (leeres Stück bzw. privater Bereich, z. B. Inter) wird erkannt; der Code fehlt in der Bildbeschreibung jeder Schreibweise", async () => {
+  const mul = (m, n) => [m[0] * n[0] + m[2] * n[1], m[1] * n[0] + m[3] * n[1], m[0] * n[2] + m[2] * n[3], m[1] * n[2] + m[3] * n[3], m[0] * n[4] + m[2] * n[5] + m[4], m[1] * n[4] + m[3] * n[5] + m[5]];
+  const lib = { Util: { transform: mul } }, vp = { transform: [1, 0, 0, -1, 0, 540] };
+  const it = (str, x, w, eol = false) => ({ str, transform: [40, 0, 0, 40, x, 300], width: w, hasEOL: eol });
+  for (const dash of ["", String.fromCharCode(0xe001)]) {
+    const page = { getTextContent: async () => ({ items: [it("AEH", 100, 75), it(dash, 175, 14), it("4VY", 189, 75, true)] }) };
+    const items = await SR.textItems(lib, page, vp);
+    assert.deepEqual(S.slideCodeBoxes(items).map((b) => b.code), ["AEH4VY"], "Bindestrich " + JSON.stringify(dash) + " → Code erkannt");
+  }
+  // breites leeres Stück (Lücke) bleibt eine Lücke
+  const wide = await SR.textItems(lib, { getTextContent: async () => ({ items: [it("AEH", 100, 75), it("", 175, 60), it("4VY", 235, 75, true)] }) }, vp);
+  assert.equal(wide[1].str, "");
+  const EN = String.fromCharCode(0x2013), HY = String.fromCharCode(0x2010);
+  const lines = [{ text: "Code AEH" + EN + "4VY hier" }, { text: "Code A E H - 4 V Y hier" }, { text: "Gib AEH" + HY + "4VY ein" }, { text: "Blatt KLM-3PQ" }, { text: "AEH-4VY" }];
+  assert.equal(SR.altText(lines, "AEH4VY"), "Code  hier Code  hier Gib  ein Blatt KLM-3PQ", "Sitzungscode in jeder Schreibweise weg, der Code des Feibeitsblatts bleibt");
+  assert.equal(SR.altText(lines, ""), lines.map((l) => l.text).join(" "));
 });

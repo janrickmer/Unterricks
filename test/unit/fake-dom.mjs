@@ -224,6 +224,7 @@ class FElement extends FNode {
     if (!this.rendered || this.inert) return false;
     if (FOCUSABLE.has(this.tagName)) return !this.disabled;
     if (this.tagName === "A" && this.hasAttribute("href")) return true;
+    if (this.tagName === "SUMMARY" && this.parentNode && this.parentNode.tagName === "DETAILS") return true;   // wie im Browser: die Zusammenfassung eines details
     return this.hasAttribute("tabindex");
   }
   get tabbable() { return this.focusable && this.getAttribute("tabindex") !== "-1" && !(this.tagName === "INPUT" && this.type === "hidden"); }

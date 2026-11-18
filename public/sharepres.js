@@ -5,7 +5,7 @@
 // eigene PDF dazu (pdfnotes.js, Folien wie in der geteilten Präsentation).
 // Grenze: Überdeckt ist nur das Bild – der Text der Zeile bleibt unsichtbar in der Datei (wie die unsichtbaren Zeilen „Unterricks-Phase“/„Unterricks-Video“).
 import { lazy, lazyWorker } from "./update.js";
-import { slideTextLines, codeMarkLine, slideCodeBoxes, slideSessionCode, formatCode } from "./shared.js";
+import { slideTextLines, codeMarkLine, slideCodeBoxes, slideSessionCode, codesInText, formatCode } from "./shared.js";
 import { pdfLib, stripPage, copyPagesSafe } from "./pdfcut.js";
 import { annotatedPdfBytes } from "./pdfnotes.js";
 import { SHARE_COPYRIGHT, shareSlidePlan, markBoxes } from "./sharelib.js";
@@ -16,14 +16,18 @@ async function pdfjs() {
   if (!pdfjsP) pdfjsP = lazy(import("/vendor/pdf.min.mjs")).then((m) => { m.GlobalWorkerOptions.workerSrc = new URL("./vendor/pdf.worker.min.mjs", import.meta.url).href; return m; });
   return pdfjsP;
 }
-/* Textstücke einer Seite in Gerätekoordinaten (Maßstab 1, y nach unten) – wie presenter.js (pageItems), ohne Schriftangaben */
-async function textItems(lib, page, vp) {
+const HYPHEN = String.fromCharCode(0x2010);
+/* Textstücke einer Seite in Gerätekoordinaten (Maßstab 1, y nach unten) – wie presenter.js (pageItems), ohne Schriftangaben. Auch hier wird ein
+   Bindestrich ohne Unicode-Zuordnung (leeres Stück bzw. ein Zeichen aus dem privaten Bereich in Bindestrichbreite, z. B. bei der Schrift Inter) zu
+   „‐“ – sonst zerfiele ein aufgedruckter Sitzungscode „AEH-4VY“ in zwei Zeilen und würde nicht erkannt */
+export async function textItems(lib, page, vp) {
   const tc = await page.getTextContent(), out = [], sx = Math.hypot(vp.transform[0], vp.transform[1]);
   for (const it of tc.items || []) {
     if (typeof it.str !== "string") continue;
     const tx = lib.Util.transform(vp.transform, it.transform), hgt = Math.hypot(tx[2], tx[3]), w = it.width * sx;
     const turned = Math.abs(tx[1]) > hgt * 0.02 || !(tx[0] > 0);
-    out.push(turned ? { str: "", eol: true } : { str: it.str, x: tx[4], base: tx[5], w, h: hgt, eol: !!it.hasEOL });
+    const dashLike = (it.str === "" || /^\p{Co}$/u.test(it.str)) && !it.hasEOL && w > hgt * 0.15 && w < hgt * 0.8;
+    out.push(turned ? { str: "", eol: true } : { str: dashLike ? HYPHEN : it.str, x: tx[4], base: tx[5], w, h: hgt, eol: !!it.hasEOL });
   }
   return out;
 }
@@ -83,8 +87,10 @@ async function rasterPage(page) {
   canvas.width = canvas.height = 0;   // Speicher gleich frei
   return { data, mime };
 }
-// sichtbarer Text einer Folie (Bildbeschreibung in PowerPoint): ohne die Unterricks-Zeile und die unsichtbaren Zeilen „Unterricks-Phase/-Video“
-const altText = (lines) => (lines || []).map((l) => String(l.text || "").trim()).filter((t) => t && !codeMarkLine(t) && !/^Unterricks-(Phase|Video)\b/i.test(t)).join(" ");
+// sichtbarer Text einer Folie (Bildbeschreibung in PowerPoint): ohne die Unterricks-Zeile, die unsichtbaren Zeilen „Unterricks-Phase/-Video“ und
+// ohne den aufgedruckten Sitzungscode einer älteren Präsentation (in jeder Schreibweise, die auch das Überdecken erkennt: Striche, gesperrt)
+const cutCode = (t, code) => { if (!code) return t; for (const m of codesInText(t).reverse()) if (m.code === code) t = t.slice(0, m.start) + t.slice(m.end); return t; };
+export const altText = (lines, code = "") => (lines || []).map((l) => cutCode(String(l.text || ""), code).trim()).filter((t) => t && !codeMarkLine(t) && !/^Unterricks-(Phase|Video)\b/i.test(t)).join(" ");
 
 /* bytes = Präsentation (PDF), codeSlides = [{n, lines}], titles = Namen der Materialien und Feibeitsblätter der Sitzung, notes = [{n, items}] (Notizen der
    Lehrkraft) oder null. pptx: auch die PowerPoint-Fassung (Folienbilder + Notizen; libs.raster ersetzt im Test das Zeichnen).
@@ -109,7 +115,7 @@ export async function sharePresentation(bytes, { codeSlides = [], titles = [], n
     } catch {}
     for (const n of plan.keep) {
       const page = await doc.getPage(n), vp = page.getViewport({ scale: 1 }), items = await textItems(PJ, page, vp), lines = slideTextLines(items);
-      alts.push(altText(lines).replace(legacy.code ? new RegExp(formatCode(legacy.code).replace("-", "\\s*-?\\s*"), "gi") : /$^/, "").replace(/\s+/g, " ").trim());
+      alts.push(altText(lines, legacy.code).replace(/\s+/g, " ").trim());
       let rects = [];
       const marks = cover.has(n) ? markBoxes(lines) : [];
       if (cover.has(n) && !marks.length) uncovered.push(n);

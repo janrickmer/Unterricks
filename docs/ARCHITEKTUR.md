@@ -2258,8 +2258,9 @@ Ausdrucken“; Grundschule „Auch Grundschule“ – kompakt mit Verlaufsplan u
 
 ## 4zh. Unterrichtseinheit mit KollegInnen teilen – ZIP-Ordner (Nachtrag 39 vom 18.11.2026)
 
-* **Schema (Prüfung):** `ensureSchema` legt die nachträglichen Spalten je Tabelle in einem Batch an (frische Datenbank: 14 statt 51 Aufrufe – über 50 wären die
-  Indizes still nicht angelegt worden); legt eine andere Instanz gleichzeitig eine Spalte an, wird neu nachgesehen und einzeln ergänzt.
+* **Schema (Prüfung):** `ensureSchema` legt die nachträglichen Spalten je Tabelle in einem Batch an (frische Datenbank: 18 statt 51 Aufrufe – über 50 wären die
+  Indizes still nicht angelegt worden); legt eine andere Instanz gleichzeitig eine Spalte an, wird neu nachgesehen und einzeln ergänzt. Die Indizes entstehen
+  einzeln (zweite Prüfung): ein Batch ist eine Transaktion – scheiterte ein eindeutiger Index an alten Doppelungen, fehlten sonst auch alle übrigen.
 
 * **Knopf und Karte:** ganz unten auf der Seite jeder Einheit (Gymnasium und Grundschule) die Karte „Mit Kolleg:innen teilen“ (public/sharecard.js;
   dasselbe Element über jedes `paint()` hinweg, damit ungespeicherte Absätze bleiben): Stand („2 von 3 Sitzungen geplant (noch nicht geplant: …)“,
@@ -2325,10 +2326,22 @@ Ausdrucken“; Grundschule „Auch Grundschule“ – kompakt mit Verlaufsplan u
   Lässt sich nicht zeichnen (z. B. ohne Canvas), fehlt nur die PowerPoint-Datei (Meldung), die PDF bleibt. Die Notizen-PDF bleibt zusätzlich (Entscheidung
   der Lehrkraft). Geprüft mit dem OOXML-Prüfskript (Schema, Beziehungen, Inhaltstypen), python-pptx und LibreOffice; in PowerPoint selbst noch nicht
   geöffnet (in der Testumgebung gibt es kein PowerPoint).
+* **Zweite Prüfung (18.11.2026):** Karte – „Gespeicherte Fassung übernehmen“ beim Teilen erstellt danach den Ordner (vorher still abgebrochen); während der
+  Rückfrage bleiben die Felder gesperrt, danach zeigen sie die übernommene Fassung; ein Abruf, der vor dem Speichern begann, wird verworfen (Zähler `gen` –
+  sonst falscher Konflikt beim nächsten Speichern); die Karte lädt auch mit ungespeicherten Absätzen neu (sie bleiben, Fokus und Schreibmarke ebenso), nach
+  dem Speichern und vor der Rückfrage „Absätze fehlen“ ausdrücklich; ein Wunsch während eines Abrufs lädt danach noch einmal; ein Fehler bei vorhandenem
+  Stand lässt die Karte stehen; units.js legt ungespeicherte Absätze vor einem Neuaufbau der Seite (`unitPage(id)` nach „rückgängig“ bzw. nach einem
+  Konflikt der Tabelle) mit `share.keep()` ab, die neue Karte derselben Einheit übernimmt sie; nach dem Erstellen geht der Fokus auf den neu gezeichneten
+  Knopf, „Hinweise zum Ordner“ (alle, nicht nur 60) öffnet erst danach, „Fertig“ gibt ihn dorthin zurück. Ordner – Selbstlern-Phase: auch was eine Station
+  unarchiviert weiterverwendet (Herkunft nicht „selbstlern“/„vertretung“) und Notfall-Feibeitsblätter der ursprünglichen Feibeitsblätter gehören dazu
+  (vorher fehlten sie, und das Notfall-Feibeitsblatt galt fälschlich als fehlend). Präsentation – ein Bindestrich ohne Unicode (leeres Stück bzw. privater
+  Bereich, z. B. Inter) wird wie in presenter.js zu „‐“ (sonst wurde der ältere Sitzungscode nicht erkannt); die Bildbeschreibung lässt den Code in jeder
+  Schreibweise weg, die auch das Überdecken erkennt (`codesInText`). PowerPoint – `xmlText` entfernt auch U+FFFE/U+FFFF (sonst ungültiges XML).
 * **Tests:** Unit `test/unit/share.test.mjs` (Absatz, Sitzungen, Folienplan, Zeile, Namen, Kompetenz, Begleitdokumente, Prompt, PDF-Dateien, Präsentation
   mit pdf-lib/PDF.js, Server samt Stand-Schutz, Connector, ganzer ZIP-Ordner im Browser-Ersatz); E2E `test/e2e/share.mjs` (eigene Einheiten PoWi Q3-GK
   und Grundschule: Karte, Prompt, 409, Rückfrage, ZIP-Inhalt, überdeckte Zeile an den Pixeln nachgemessen, Copyright, Notizen, Erklärung fett, Verweis
-  der Grundschule als Dateiname, PowerPoint mit Folienbildern und Notizen).
+  der Grundschule als Dateiname, PowerPoint mit Folienbildern und Notizen); Unit `test/unit/sharecard.test.mjs` (Karte im Browser-Ersatz, share.js als Attrappe:
+  Konflikt beim Teilen, veralteter Abruf, Neuladen mit ungespeicherten Absätzen samt Schreibmarke, Neuaufbau mit `keep()`, „Erneut versuchen“).
 
 ## 4i. Druckliste „Von der Lehrkraft auszudrucken“ (Ergänzung vom 10.11.2026)
 

@@ -14,8 +14,9 @@ const HEAD = '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>\n';
 const R = "http://schemas.openxmlformats.org/officeDocument/2006/relationships/";
 const CT = "application/vnd.openxmlformats-officedocument.";
 
-/* Text für XML: Steuerzeichen (außer Tab und Zeilenwechsel) und einzelne Ersatzzeichen weg, & < > " maskiert */
-export const xmlText = (s) => String(s == null ? "" : s).replace(/(?![\t\n\r])\p{Cc}|\p{Cs}/gu, "").replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
+/* Text für XML: Steuerzeichen (außer Tab und Zeilenwechsel), einzelne Ersatzzeichen und die in XML verbotenen Nichtzeichen U+FFFE/U+FFFF weg,
+   & < > " maskiert */
+export const xmlText = (s) => String(s == null ? "" : s).replace(/(?![\t\n\r])\p{Cc}|\p{Cs}|[\u{FFFE}\u{FFFF}]/gu, "").replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
 /* nur Adressen, die PowerPoint gefahrlos öffnet */
 export const linkOk = (u) => typeof u === "string" && u.length <= 2000 && /^(https?:\/\/|mailto:)[^\s<>"]+$/i.test(u);
 

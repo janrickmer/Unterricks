@@ -17,17 +17,25 @@ function conflictDialog(title, mine, theirs, label) {
     let done = false;
     const show = (t) => h("dl", { class: "sharecmp" }, ...SHARE_PARTS.flatMap(([k, l]) => [h("dt", { text: k === "kompetenz" ? label : l }), h("dd", { text: (t && t[k]) || "(leer)" })]));
     modal({ title: "Absatz inzwischen geändert", wide: true, onClose: () => { if (!done) resolve(null); }, body: (el) => el.append(
-      h("p", { text: "Der Absatz zu „" + title + "“ wurde inzwischen an anderer Stelle gespeichert (z. B. von Claude)." + (theirs && theirs.at ? " Stand: " + fmtTime(theirs.at) + "." : "") }),
+      h("p", { text: "Der Absatz zu „" + title + "“ wurde inzwischen an anderer Stelle " + (theirs ? "gespeichert" : "gelöscht") + " (z. B. von Claude)." + (theirs && theirs.at ? " Stand: " + fmtTime(theirs.at) + "." : "") }),
       h("div", { class: "meta-grid" }, h("div", null, h("h3", { text: "Gespeicherte Fassung" }), theirs ? show(theirs) : h("p", { class: "muted small", text: "Der Absatz wurde gelöscht." })),
         h("div", null, h("h3", { text: "Ihre Fassung" }), show(mine)))),
       actions: [{ label: "Gespeicherte Fassung übernehmen", onClick: () => { done = true; resolve("theirs"); } }, { label: "Meine Fassung speichern", class: "primary", onClick: () => { done = true; resolve("mine"); } }] });
   });
 }
 
-/* ctx = {getUnit, gs, isDirty, saveUnit} → {el, refresh, dirty} – el bleibt über paint() hinweg dasselbe Element (Eingaben in den Feldern gehen nicht verloren) */
+/* Ungespeicherte Absätze über einen Neuaufbau derselben Einheitenseite hinweg (z. B. nach „Krankmeldung rückgängig machen“ oder „Neu laden“ nach
+   einem Konflikt der Tabelle): units.js legt sie mit keep() ab, die neue Karte derselben Einheit übernimmt sie (höchstens eine Minute alt) */
+const KEPT = new Map();   // unitId → {at, edits}
+
+/* ctx = {getUnit, gs, isDirty, saveUnit} → {el, refresh, dirty, keep} – el bleibt über paint() hinweg dasselbe Element (Eingaben in den Feldern gehen nicht verloren) */
 export function shareCard(ctx) {
-  let data = null, loading = null, building = false, saving = false;
+  let data = null, loading = null, again = false, building = false, saving = false;
+  let gen = 0;   // steigt mit jedem Speichern: ein Abruf, der davor begonnen hat, überschreibt den gespeicherten Stand nicht
   const edits = new Map();   // lessonId → {passiert, kompetenz, ziel, base (Zeitpunkt des Absatzes, auf dem die Eingabe beruht), changed}
+  const kept = KEPT.get(ctx.getUnit().id);
+  KEPT.delete(ctx.getUnit().id);
+  if (kept && Date.now() - kept.at < 60e3) for (const [id, e] of kept.edits) edits.set(id, e);
   const state = h("span", { class: "save-state", role: "status" });
   const body = h("div", { class: "stack" }, h("p", { class: "muted small", text: "Lade den Stand der Sitzungen …" }));
   const el = h("section", { class: "card sharecard", id: "unitshare", "aria-labelledby": "unitshare-h" },
@@ -38,16 +46,29 @@ export function shareCard(ctx) {
   window.addEventListener("beforeunload", guardUnsaved);
   onLeave(() => window.removeEventListener("beforeunload", guardUnsaved));
 
+  // → true, wenn der neue Stand übernommen wurde (nicht, wenn inzwischen gespeichert wurde – dann gilt der gespeicherte)
   async function load() {
-    const r = await tapi("GET", "/api/teacher/units/" + ctx.getUnit().id + "/share");
+    const g = gen, r = await tapi("GET", "/api/teacher/units/" + ctx.getUnit().id + "/share");
+    if (g !== gen) return false;
     data = { lessons: r.lessons || [] };
-    return data;
+    return true;
   }
-  async function refresh(force = false) {
-    if (!force && (dirtyTexts().length || saving || building)) return;   // ungespeicherte Absätze bzw. laufende Arbeiten nicht überschreiben
-    if (loading) return loading;
-    loading = load().then(() => { paint(); }).catch((e) => { clear(body).append(h("p", { class: "err small", text: "Der Stand der Sitzungen ließ sich nicht laden: " + (e && e.message ? e.message : "Fehler") }),
-      h("button", { class: "btn small", type: "button", onclick: () => refresh(true) }, "Erneut versuchen")); }).finally(() => { loading = null; });
+  // ungespeicherte Absätze bleiben beim Neuzeichnen (paint); nur während des Speicherns bzw. Erstellens wird nicht neu geladen. Kommt ein Wunsch
+  // während eines Abrufs, wird danach noch einmal geladen (der laufende kann vor einer Änderung von Claude begonnen haben)
+  function refresh(force = false) {
+    if (!force && (saving || building)) return Promise.resolve();
+    if (loading) { again = true; return loading; }
+    loading = (async () => {
+      let fresh = false;
+      try {
+        do { again = false; fresh = (await load()) || fresh; } while (again);
+        if (fresh && !saving && !building) paint();
+      } catch (e) {
+        if (data) return;   // Stand schon da: still weiter mit ihm (z. B. kurz kein Netz beim Zurückkehren)
+        clear(body).append(h("p", { class: "err small", text: "Der Stand der Sitzungen ließ sich nicht laden: " + (e && e.message ? e.message : "Fehler") }),
+          h("button", { class: "btn small", type: "button", "data-k": "retry", onclick: () => refresh(true) }, "Erneut versuchen"));
+      } finally { loading = null; }
+    })();
     return loading;
   }
 
@@ -55,7 +76,7 @@ export function shareCard(ctx) {
     if (!data) return;
     const u = ctx.getUnit(), gs = ctx.gs;
     // Zustand der Oberfläche über das Neuzeichnen hinweg: aufgeklappt, Fokus (Knopf bzw. Feld)
-    const wasOpen = !!(body.querySelector("details.sharetexts") || {}).open, focusKey = activeKey();
+    const wasOpen = !!(body.querySelector("details.sharetexts") || {}).open, focusKey = activeKey(), caret = caretOf();
     const sessions = shareSessions(u.rows || [], data.lessons), planned = sessions.filter((s) => s.planned), open = sessions.filter((s) => !s.planned);
     const missingText = planned.filter((s) => !shareTextComplete(s.lesson.shareText));
     const src = competenceSource(u.subject, u.klass);
@@ -77,7 +98,7 @@ export function shareCard(ctx) {
         sessions: sessions.map((s) => ({ n: s.n, lessonId: s.lesson ? s.lesson.id : null, title: (s.row && s.row.stundenfrage) || (s.lesson && s.lesson.title) || "", planned: s.planned, has: !!(s.lesson && shareTextComplete(s.lesson.shareText)) })) }) }) },
       "Absätze mit Claude schreiben");
     const shareBtn = h("button", { class: "btn primary big", type: "button", "data-k": "share", disabled: sessions.some((s) => s.lesson) && !building ? null : true, "aria-describedby": "unitshare-hint",
-      onclick: (e) => busy(e.currentTarget, () => share(), "Stelle den Ordner zusammen …") }, icon("download"), SHARE_BUTTON);
+      onclick: (e) => busy(e.currentTarget, () => share("share"), "Stelle den Ordner zusammen …") }, icon("download"), SHARE_BUTTON);
     clear(body).append(...nn(
       h("p", { class: "small", text: what }),
       h("p", { class: "small" + (missingText.length || open.length || !sessions.length ? " warnc" : ""), text: status }),
@@ -89,12 +110,25 @@ export function shareCard(ctx) {
         : "Der Ordner entsteht auf diesem Gerät aus dem gespeicherten Stand – bei vielen Präsentationen kann das eine Minute dauern. Codefolien ohne Material fallen weg; auf Materialfolien wird die Zeile mit dem Unterricks-Code überdeckt. " +
           "Feibeitsblätter stecken als Notfall-Feibeitsblatt (PDF) im Ordner; das digitale Feibeitsblatt nutzen Kolleg:innen nur nach Absprache mit Ihnen (die Abgaben kämen bei Ihnen an)." })));
     if (focusKey) focusBy(focusKey);
+    if (caret) restoreCaret(caret);
   }
-  // Fokus über das Neuzeichnen hinweg: über die id (Felder) bzw. data-k (Knöpfe, Zusammenfassung)
+  // Fokus über das Neuzeichnen hinweg: über die id (Felder) bzw. data-k (Knöpfe, Zusammenfassung); im Feld auch die Schreibmarke
   function activeKey() { const a = document.activeElement; return a && el.contains(a) ? a.id || (a.dataset && a.dataset.k) || null : null; }
+  function caretOf() {
+    const a = document.activeElement;
+    return a && a.tagName === "TEXTAREA" && el.contains(a) ? { id: a.id, start: a.selectionStart, end: a.selectionEnd, dir: a.selectionDirection, top: a.scrollTop } : null;
+  }
+  function restoreCaret(c) {
+    const a = document.activeElement;
+    if (!a || a.id !== c.id || a.tagName !== "TEXTAREA") return;
+    try { a.setSelectionRange(c.start, c.end, c.dir || "none"); } catch {}
+    a.scrollTop = c.top;
+  }
   function focusBy(key, fallback = null) {
     const n = (key && (body.querySelector("#" + CSS.escape(key)) || body.querySelector('[data-k="' + key + '"]'))) || (fallback && body.querySelector('[data-k="' + fallback + '"]'));
-    if (n && !n.disabled) n.focus(); else { const s = body.querySelector('[data-k="summary"]'); if (s) s.focus(); }
+    if (n && !n.disabled) { n.focus(); return; }
+    const s = body.querySelector('[data-k="summary"]') || body.querySelector('[data-k="share"]:not([disabled])');
+    if (s) s.focus();
   }
 
   function editor(planned, src, wasOpen) {
@@ -133,8 +167,8 @@ export function shareCard(ctx) {
   async function saveTexts() {
     if (saving) return false;
     const fk = activeKey();
-    saving = true; paint();
-    let ok = true;
+    saving = true; gen++; paint();
+    let failed = false;   // ein Fehler (nicht der Konflikt selbst – nach ihm entscheidet die Lehrkraft)
     try {
       for (const [id, e] of dirtyTexts()) {
         const sent = { passiert: e.passiert, kompetenz: e.kompetenz, ziel: e.ziel };
@@ -145,34 +179,34 @@ export function shareCard(ctx) {
           if (L) L.shareText = t;
           if (same(e, sent)) edits.delete(id); else { e.base = t ? t.at : null; }
         } catch (err) {
-          ok = false;
           if (err && err.status === 409) {
             const cur = err.data && err.data.current ? err.data.current : null;
             if (L) L.shareText = cur;
-            saving = false; paint();
+            paint();   // die Felder bleiben gesperrt; das Abzeichen zeigt den gespeicherten Stand
             const u = ctx.getUnit(), choice = await conflictDialog(L ? L.title : "einer Sitzung", sent, cur, competenceSource(u.subject, u.klass).label);
-            saving = true;
             if (choice === "theirs") edits.delete(id);
-            else if (choice === "mine") {
+            paint();   // nach „Gespeicherte Fassung übernehmen“ zeigen die Felder sie sofort
+            if (choice === "mine") {
               e.base = cur ? cur.at : null;
               try {
                 const r2 = await tapi("PATCH", "/api/teacher/lessons/" + id, { body: { shareText: sent, shareTextBase: e.base } });
                 if (L) L.shareText = (r2.lesson && r2.lesson.shareText) || null;
                 if (same(e, sent)) edits.delete(id); else e.base = L && L.shareText ? L.shareText.at : null;
-                ok = true;
-              } catch (err2) { errToast(err2); break; }
+              } catch (err2) { failed = true; errToast(err2); break; }
             }
-          } else { errToast(err); break; }
+          } else { failed = true; errToast(err); break; }
         }
       }
+      // danach den Stand aller Sitzungen neu laden (Claude kann inzwischen andere Absätze gespeichert haben); scheitert das, gilt der bisherige
+      try { gen++; await load(); } catch {}
     } finally { saving = false; }
     if (!dirtyTexts().length) stateLine(state, "Absätze gespeichert", "ok");
     paint();
     if (fk) focusBy(fk === "save" && !dirtyTexts().length ? "summary" : fk, "summary");   // der Knopf ist danach gesperrt: Fokus auf die Überschrift des Bereichs
-    return ok && !dirtyTexts().length;
+    return !failed && !dirtyTexts().length;
   }
 
-  async function share() {
+  async function share(fromKey = null) {
     if (building || saving) return;
     if (ctx.isDirty()) {
       if (!(await confirmDialog("Ungespeicherte Änderungen", "Der Ordner entsteht aus dem gespeicherten Stand der Einheit. Ihre Änderungen jetzt zuerst speichern?", "Speichern"))) return;
@@ -180,29 +214,42 @@ export function shareCard(ctx) {
       if (ctx.isDirty()) return;
     }
     if (dirtyTexts().length) {
-      if (!(await confirmDialog("Ungespeicherte Absätze", "Ihre Änderungen an den Absätzen jetzt zuerst speichern? Sonst enthält der Ordner den zuletzt gespeicherten Stand.", "Speichern"))) return;
+      if (!(await confirmDialog("Ungespeicherte Absätze", "Ihre Änderungen an den Absätzen sind noch nicht gespeichert. Jetzt speichern und danach den Ordner erstellen? Mit „Abbrechen“ wird der Ordner nicht erstellt.", "Speichern"))) return;
       if (!(await saveTexts())) return;
+    } else {
+      // der aktuelle Stand der Absätze (z. B. von Claude inzwischen gespeichert) für die Rückfrage unten; scheitert das, gilt der bisherige
+      try { await load(); } catch {}
     }
     const u = ctx.getUnit(), planned = shareSessions(u.rows || [], data.lessons).filter((s) => s.planned);
-    const missingText = planned.filter((s) => !shareTextComplete(s.lesson.shareText));
+    const missingText = planned.filter((s) => !shareTextComplete(s.lesson.shareText)), one = missingText.length === 1;
     if (missingText.length && !(await confirmDialog("Absätze fehlen",
-      "Zu " + list(missingText.map((s) => s.n)) + " gibt es noch keinen vollständigen Absatz – unter dem Leupold-Schema steht dort dann nur, was schon da ist, und der grobe Ablauf aus der Tabelle. Mit „Absätze mit Claude schreiben“ lassen sie sich vorher ergänzen. Trotzdem jetzt teilen?", "Trotzdem teilen"))) return;
+      "Zu " + list(missingText.map((s) => s.n)) + " gibt es noch keinen vollständigen Absatz – unter dem Leupold-Schema steht dort dann nur, was schon da ist, und der grobe Ablauf aus der Tabelle. Mit „Absätze mit Claude schreiben“ " +
+        (one ? "lässt er" : "lassen sie") + " sich vorher ergänzen. Trotzdem jetzt teilen?", "Trotzdem teilen"))) return;
     building = true;
     const guard = (ev) => { ev.preventDefault(); ev.returnValue = ""; };
     window.addEventListener("beforeunload", guard);
+    let r = null;
     try {
       const S = await lazy(import("./share.js")), full = (await tapi("GET", "/api/teacher/units/" + u.id)).unit;
-      const r = await S.buildShareZip(full, { onStep: (m) => stateLine(state, m) });
+      r = await S.buildShareZip(full, { onStep: (m) => stateLine(state, m) });
       downloadBlob(r.blob, r.name, 10 * 60e3);
       stateLine(state, "Heruntergeladen: " + r.name + " (" + fmtBytes(r.blob.size) + ", " + r.sessions + " Sitzung" + (r.sessions === 1 ? "" : "en") + (r.missing ? ", " + r.missing + " noch nicht geplant" : "") + ")", "ok");
-      // Hinweise vollständig (nicht nur die ersten): was fehlt oder anders ist als erwartet
-      if (r.notes.length) modal({ title: "Hinweise zum Ordner", wide: true, body: (el2) => el2.append(
-        h("p", { class: "small", text: "Der Ordner ist heruntergeladen. Bitte prüfen Sie diese Punkte, bevor Sie ihn weitergeben:" }),
-        h("ul", { class: "small" }, r.notes.slice(0, 60).map((x) => h("li", { text: x })))), actions: [{ label: "Fertig", class: "primary" }] });
     } catch (e) { stateLine(state, ""); errToast(e); }
-    finally { building = false; window.removeEventListener("beforeunload", guard); paint(); }
+    finally {
+      building = false; window.removeEventListener("beforeunload", guard); paint();
+      // der Knopf war während des Erstellens gesperrt (der Fokus fiel auf die Seite): zurück auf den neu gezeichneten Knopf
+      const a = document.activeElement;
+      if (fromKey && (!a || a === document.body || !a.isConnected)) focusBy(fromKey);
+    }
+    // Hinweise vollständig (alle; der Dialog scrollt): was fehlt oder anders ist als erwartet – „Fertig“ gibt den Fokus an den Knopf zurück
+    if (r && r.notes.length) modal({ title: "Hinweise zum Ordner", wide: true, body: (el2) => el2.append(
+      h("p", { class: "small", text: "Der Ordner ist heruntergeladen. Bitte prüfen Sie diese Punkte, bevor Sie ihn weitergeben:" }),
+      h("ul", { class: "small" }, r.notes.map((x) => h("li", { text: x })))), actions: [{ label: "Fertig", class: "primary" }] });
   }
 
+  if (dirtyTexts().length) stateLine(state, "Ungespeicherte Absätze");
   refresh(true);
-  return { el, refresh, dirty: () => dirtyTexts().length > 0 };
+  // keep(): vor einem Neuaufbau der Seite (units.js) – die neue Karte derselben Einheit übernimmt die ungespeicherten Absätze
+  const keep = () => { const d = dirtyTexts(); if (d.length) KEPT.set(ctx.getUnit().id, { at: Date.now(), edits: new Map(d) }); };
+  return { el, refresh, dirty: () => dirtyTexts().length > 0, keep };
 }
