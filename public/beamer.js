@@ -69,7 +69,7 @@ export function beamerPage() {
   const closeBtn = h("button", { class: "btn small", type: "button", onclick: () => window.close() }, "Fenster schließen");
   // Raster: Band oben, Folie darunter eingepasst; nach einem Ruhezustand holt das Beamergerät den Stand neu (lokal tut es das Präsentationsfenster)
   const tband = timerBand({ onPaint: (v) => root.classList.toggle("has-timer", !!v), onStale: () => { if (dev && link && !localOn()) livePoll(); } });
-  const root = h("main", { class: "beamer", "aria-label": "Beamerfenster von Unterricks" }, tband.el, stage, h("div", { class: "bm-bar" }, hint, note, fsBtn, closeBtn), tband.say);
+  const root = h("main", { class: "beamer", tabindex: "-1", "aria-label": "Beamerfenster von Unterricks" }, tband.el, stage, h("div", { class: "bm-bar" }, hint, note, fsBtn, closeBtn), tband.say);
   // Timer: je Quelle der zuletzt empfangene Stand mit seinem Empfangszeitpunkt; angezeigt nur über einer Folie
   let localTimer = null, srvTimer = null, tbSrc = null;
   const showingSlide = () => stage.firstChild === img || !!(stage.firstChild && stage.firstChild.classList && (stage.firstChild.classList.contains("codeslide") || stage.firstChild.classList.contains("bm-video")));
@@ -140,7 +140,9 @@ export function beamerPage() {
   function setLocalVideo(m) {
     localSlide = Number.isInteger(m.slide) ? m.slide : null;
     const v = cleanVideoState(m.video);
-    localVideo = v ? { ...v, at: performance.now() } : null;
+    // mehrere Beamerfenster: nur das erste (lead) gibt den Ton – die übrigen spielen stumm mit (wie mehrere Beamergeräte, siehe worker/live.js)
+    const mute = typeof m.lead === "string" && m.lead !== bid;
+    localVideo = v ? { ...v, ...(mute ? { mute: true } : {}), at: performance.now() } : null;
   }
   // das Video, das gerade hier laufen soll: nur auf seiner Folie und nie über einer Codefolie
   function videoWanted() {
@@ -159,13 +161,13 @@ export function beamerPage() {
     // neues Video – oder der Player ist nicht mehr eingehängt (ein umgehängtes iframe lädt neu und begänne von vorn): neu aufbauen
     if (!vp || vp.key !== key || !vp.box.isConnected) {
       dropVideo();
-      const player = ytPlayer(w, { label: videoName(w), onChange: (x) => report(x) });
+      const player = ytPlayer(w, { label: videoName(w), mute: w.mute === true, autoplay: w.playing === true && !(w.end && w.pos >= w.end - 0.5), onChange: (x) => report(x) });   // ein schon zu Ende gespielter Ausschnitt spielt nicht kurz an
       vp = { key, player, w, box: h("div", { class: "bm-video" }, player.el, vBlock) };
       seq++;
       stage.replaceChildren(vp.box);
     }
     vp.w = w;
-    vp.player.set({ playing: w.playing, pos: w.pos, at: w.at, rev: w.rev });
+    vp.player.set({ playing: w.playing, pos: w.pos, at: w.at, rev: w.rev, mute: w.mute === true });
     syncTimer();
   }
   function redraw() { if (localOn()) { if (lastLocal) show(lastLocal); } else if (dev) paint(); }
@@ -430,6 +432,10 @@ export function beamerPage() {
   };
   const wake = () => { root.classList.remove("idle"); clearTimeout(idleT); idleT = setTimeout(() => root.classList.add("idle"), 2500); };
   const bye = () => { if (ch) try { ch.postMessage({ t: "bye", bid }); } catch {} };
+  // Tippen bzw. Klicken ins Video (Nachtrag 38): Der Fokus wandert in den Player – Pfeiltasten und Presenter gingen dann an YouTube statt an die Präsentation.
+  // Deshalb gleich danach zurück auf dieses Fenster (der Klick selbst erreicht den Player trotzdem).
+  const onBlur = () => setTimeout(() => { if (alive && vp && document.activeElement === vp.player.frame) { try { root.focus({ preventScroll: true }); } catch {} } }, 0);
+  window.addEventListener("blur", onBlur);
   document.addEventListener("keydown", onKey);
   document.addEventListener("fullscreenchange", onFs);
   document.addEventListener("webkitfullscreenchange", onFs);
@@ -450,7 +456,7 @@ export function beamerPage() {
     document.removeEventListener("fullscreenchange", onFs);
     document.removeEventListener("webkitfullscreenchange", onFs);
     document.removeEventListener("visibilitychange", onVis);
-    window.removeEventListener("pagehide", bye);
+    window.removeEventListener("pagehide", bye); window.removeEventListener("blur", onBlur);
     document.title = "Unterricks";
   });
 }

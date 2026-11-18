@@ -42,19 +42,24 @@ export class LiveRoom extends DurableObject {
     if (role === "beamer") { const k = liveNext(st); if (k) out.next = await slideUrl(requireSecret(this.env), st.fileId, k, SLIDE_TTL); }   // vorladen
     return out;
   }
-  // students: false = nur Lehrkraft und Beamer (Befehle zum Video – die Nachricht an die Schüler:innen änderte sich nicht)
-  async broadcast(st, { students = true } = {}) {
+  // students: false = nur Lehrkraft und Beamer (Befehle zum Video – die Nachricht an die Schüler:innen änderte sich nicht); skip = eine gerade geschlossene Verbindung
+  async broadcast(st, { students = true, skip = null } = {}) {
     // Beamer mit abgelaufenem Schlüssel: schließen statt weiter Folien schicken (das Gerät zeigt dann einen neuen Beamer-Code)
     const now = Date.now(), expired = this.ctx.getWebSockets("beamer").filter((ws) => beamerExpired(ws, now));
     for (const ws of expired) { try { ws.close(4001, "abgelaufen"); } catch {} }
-    const forStudents = JSON.stringify(await this.message("student", st)), forTeachers = JSON.stringify(await this.message("teacher", st, expired));
-    const all = this.ctx.getWebSockets().filter((ws) => !expired.includes(ws));
+    const forStudents = JSON.stringify(await this.message("student", st)), forTeachers = JSON.stringify(await this.message("teacher", st, skip ? [...expired, skip] : expired));
+    const all = this.ctx.getWebSockets().filter((ws) => !expired.includes(ws) && ws !== skip);
     const role = (ws) => { const t = this.ctx.getTags(ws); return t.includes("teacher") ? "teacher" : t.includes("beamer") ? "beamer" : "student"; };
-    const forBeamers = all.some((ws) => role(ws) === "beamer") ? JSON.stringify(await this.message("beamer", st)) : forStudents;
+    const bm = all.some((ws) => role(ws) === "beamer") ? await this.message("beamer", st) : null;
+    const forBeamers = bm ? JSON.stringify(bm) : forStudents;
+    // mehrere Beamergeräte (Nachtrag 38): nur das erste spielt das Video mit Ton – sonst liefe es doppelt hörbar
+    const forMuted = bm && bm.video ? JSON.stringify({ ...bm, video: { ...bm.video, mute: true } }) : forBeamers;
+    let lead = true;
     for (const ws of all) {
       const r = role(ws);
       if (r === "student" && !students) continue;
-      try { ws.send(r === "teacher" ? forTeachers : r === "beamer" ? forBeamers : forStudents); } catch {}
+      try { ws.send(r === "teacher" ? forTeachers : r === "beamer" ? (lead ? forBeamers : forMuted) : forStudents); } catch {}
+      if (r === "beamer") lead = false;
     }
   }
   // Zahl der Schüler:innen und Beamer an die Lehrkraft; gone = gerade geschlossene Verbindungen (zählen nicht mehr mit)
@@ -84,7 +89,10 @@ export class LiveRoom extends DurableObject {
       const pair = new WebSocketPair(), [client, server] = Object.values(pair);
       this.ctx.acceptWebSocket(server, [role]);
       if (role === "beamer") server.serializeAttachment({ exp });
-      server.send(JSON.stringify(await this.message(role)));
+      const first = await this.message(role);
+      // ein weiteres Beamergerät (es gibt schon eins): das Video stumm (Nachtrag 38)
+      if (role === "beamer" && first.video && this.ctx.getWebSockets("beamer").length > 1) first.video = { ...first.video, mute: true };
+      server.send(JSON.stringify(first));
       if (role !== "teacher") this.countToTeachers();
       return new Response(null, { status: 101, webSocket: client });
     }
@@ -116,9 +124,12 @@ export class LiveRoom extends DurableObject {
     await this.ctx.storage.put("state", st);
     await this.broadcast(st, { students: m.t !== "video" });
   }
-  // Rückmeldung eines Beamergeräts zum Video (spielt, pausiert, blockiert, Fehler …) – geprüft an die Lehrkraft weitergereicht, nie gespeichert
+  // Rückmeldung eines Beamergeräts zum Video (spielt, pausiert, blockiert, Fehler …) – geprüft an die Lehrkraft weitergereicht, nie gespeichert. Nur vom
+  // ersten Beamer (er gibt den Ton, siehe broadcast) – sonst widersprächen sich die Meldungen mehrerer Geräte.
   relayVideo(ws, raw) {
-    if (beamerExpired(ws, Date.now()) || String(raw).length > 2000) return;
+    const now = Date.now();
+    if (beamerExpired(ws, now) || String(raw).length > 2000) return;
+    if (this.ctx.getWebSockets("beamer").find((b) => !beamerExpired(b, now)) !== ws) return;
     let m; try { m = JSON.parse(String(raw)); } catch { return; }
     if (!m || m.t !== "vstate") return;
     const r = cleanVideoReport(m);
@@ -127,9 +138,14 @@ export class LiveRoom extends DurableObject {
     for (const t of this.ctx.getWebSockets("teacher")) { try { t.send(msg); } catch {} }
   }
   async webSocketClose(ws, code, reason) {
-    const counted = !this.ctx.getTags(ws).includes("teacher");   // Schüler:innen und Beamer
+    const tags = this.ctx.getTags(ws), counted = !tags.includes("teacher");   // Schüler:innen und Beamer
     try { ws.close(code === 1005 || code === 1006 ? 1000 : code, reason); } catch {}
     if (counted) this.countToTeachers([ws]);
+    // der erste Beamer ist weg, während ein Video läuft (Nachtrag 38): der nächste gibt jetzt den Ton – er erfährt es mit dem Stand
+    if (tags.includes("beamer") && this.ctx.getWebSockets("beamer").some((b) => b !== ws)) {
+      const st = await this.state();
+      if (liveVideo(st, Date.now())) await this.broadcast(st, { students: false, skip: ws });
+    }
   }
   async webSocketError(ws) {
     try { ws.close(1011, "Fehler"); } catch {}

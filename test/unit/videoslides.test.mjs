@@ -61,6 +61,14 @@ test("Marke „Unterricks-Video: …“: Link, Start, Ende und Titel; tolerant i
   assert.deepEqual(V.parseVideoMark("Unterricks-Video: https://www.youtube.com/watch?v=" + ID + " | Farbe: rot | Start: soon"), { id: ID }, "Unbekanntes und Unlesbares entfallen");
   for (const bad of ["Unterricks-Video: https://vimeo.com/123", "Unterricks-Video:", "Unterricks-Video: https://www.youtube.com/playlist?list=PL1", "Video: https://youtu.be/" + ID,
     "Unterricks-Phase: 3", "", null]) assert.equal(V.parseVideoMark(bad), null, String(bad));
+  // von PDF.js umbrochen bzw. in Stücke geteilt (lange Zeile, schmale Folie): die vollständigste Lesart gewinnt, der Titel sonst aus der Überschrift
+  const L = (text, h, base) => ({ text, h, base });
+  const head = L("Das Bundesverfassungsgericht", 40, 100), mark = "Unterricks-Video: https://www.youtube.com/watch?v=" + ID;
+  assert.deepEqual(V.videoMarkOf([head, L(mark + " | Start: 1:30 |", 2, 500), L("Ende: 4:05 | Titel: Das BVerfG", 2, 503)]), { id: ID, start: 90, end: 245, title: "Das BVerfG" }, "umbrochen nach „|“");
+  assert.deepEqual(V.videoMarkOf([head, L(mark, 2, 500), L("| Start: 0:30 | Ende: 1:15", 2, 503)]), { id: ID, start: 30, end: 75, title: "Das Bundesverfassungsgericht" }, "umbrochen vor „|“");
+  assert.deepEqual(V.videoMarkOf([head, L(mark, 2, 500), L("Und jetzt etwas ganz anderes", 20, 600)]), { id: ID, title: "Das Bundesverfassungsgericht" }, "die nächste Zeile gehört nicht dazu");
+  assert.deepEqual(V.videoMarkOf([head, L(mark + " | Start:", 2, 500)], [{ str: mark + " | Start: 0:45 | Titel: Aus dem Stück" }]), { id: ID, start: 45, title: "Aus dem Stück" }, "ein Textstück vollständiger als die Zeile");
+  assert.equal(V.videoMarkOf([head, L("Video: https://youtu.be/" + ID, 20, 500)]), null, "ohne Marke keine Videofolie");
   // die Zeile aus dem Prompt wird genau so wieder gelesen
   for (const v of [{ id: ID }, { id: ID2, start: 30 }, { id: ID, start: 90, end: 245, title: "Wahlen | einfach?" }]) {
     const back = V.parseVideoMark(V.videoMarkLine(v));
@@ -117,6 +125,9 @@ test("Videofolien prüfen: Folie 1…Seitenzahl, je Folie eine, gültige Kennung
   const raw = [{ n: 3, id: ID, start: 0, end: 60, title: "  Ein   Titel ", extra: 1 }, { n: 1, id: ID2, start: 30 }, { n: 3, id: ID2 }, { n: 9, id: ID }, { n: 2, id: "kurz" }, "x", { n: 2, id: ID, start: 50, end: 40 }];
   assert.deepEqual(V.cleanVideoSlides(raw, 5), [{ n: 1, id: ID2, start: 30 }, { n: 2, id: ID, start: 50 }, { n: 3, id: ID, end: 60, title: "Ein Titel" }]);
   assert.equal(V.cleanVideoSlides(raw, 5, true), undefined, "streng: ein ungültiger Eintrag → undefined");
+  // streng: Start und Ende gelten so, wie angegeben – sonst fiele z. B. ein Ende vor dem Start still weg
+  for (const x of [[{ n: 1, id: ID, start: 50, end: 20 }], [{ n: 1, id: ID, start: 99999 }], [{ n: 1, id: ID, end: -3 }]]) assert.equal(V.cleanVideoSlides(x, 4, true), undefined, JSON.stringify(x));
+  assert.deepEqual(V.cleanVideoSlides([{ n: 1, id: ID, start: 0, end: null }], 4, true), [{ n: 1, id: ID }], "0 und null heißen „nicht gesetzt“");
   assert.deepEqual(V.cleanVideoSlides([], 5, true), [], "[] = bewusst keine");
   assert.deepEqual(V.cleanVideoSlides("x", 5), []); assert.equal(V.cleanVideoSlides("x", 5, true), undefined);
   assert.equal(V.cleanVideoSlides(Array.from({ length: 61 }, (_, i) => ({ n: i + 1, id: ID })), 300, true), undefined, "höchstens 60");
@@ -136,6 +147,8 @@ test("Adressen: nur aus der geprüften Kennung – youtube.com zum Öffnen, yout
   assert.equal(V.videoPlayerUrl({ id: ID, start: 90, end: 245 }, "https://unterricks.janrickmer.de"),
     "https://www.youtube-nocookie.com/embed/" + ID + "?enablejsapi=1&autoplay=1&playsinline=1&rel=0&start=90&end=245&origin=https%3A%2F%2Funterricks.janrickmer.de");
   assert.equal(V.videoPlayerUrl({ id: ID }, "null"), "https://www.youtube-nocookie.com/embed/" + ID + "?enablejsapi=1&autoplay=1&playsinline=1&rel=0", "ohne gültige Herkunft keine");
+  assert.equal(V.videoPlayerUrl({ id: ID, start: 30 }, "null", { mute: true, autoplay: false }), "https://www.youtube-nocookie.com/embed/" + ID + "?enablejsapi=1&playsinline=1&rel=0&mute=1&start=30",
+    "ein weiteres Beamergerät stumm; pausiert lädt der Player angehalten");
   assert.equal(V.videoClipText({ id: ID, start: 90, end: 245 }), "Ausschnitt 1:30–4:05");
   assert.equal(V.videoClipText({ id: ID, start: 90 }), "ab 1:30"); assert.equal(V.videoClipText({ id: ID, end: 60 }), "bis 1:00"); assert.equal(V.videoClipText({ id: ID }), "");
   assert.equal(V.videoName({ id: ID, title: "X" }), "X"); assert.equal(V.videoName({ id: ID }), "Video");
@@ -171,6 +184,8 @@ test("gewünschter Stand: Stelle rechnet ab dem Empfang weiter, nie hinter das E
   assert.equal(V.videoPosNow({ ...vs, playing: false, at: 1000 }, 6000), 40, "pausiert bleibt die Stelle");
   assert.equal(V.cleanVideoState({ n: 2, id: ID, playing: true, pos: 400, rev: 1, end: 60 }).pos, 60);
   for (const bad of [{ n: 2, id: ID, playing: true }, { n: 0, id: ID, rev: 1 }, { n: 2, id: "x", rev: 1 }, null]) assert.equal(V.cleanVideoState(bad), null);
+  assert.equal(V.cleanVideoState({ n: 2, id: ID, playing: true, pos: 3, rev: 1, mute: true }).mute, true, "stumm (weiteres Beamergerät) kommt mit");
+  assert.equal("mute" in V.cleanVideoState({ n: 2, id: ID, playing: true, pos: 3, rev: 1, mute: "ja" }), false, "nur true");
   assert.equal(V.videoKey({ n: 2, id: ID, rev: 4 }), "2|" + ID + "|4");
 });
 
@@ -218,10 +233,25 @@ test("Live-Stand: Video nur auf der aktuellen Folie (keine Codefolie); Folienwec
   liveReduce(st, { t: "goto", slide: 2 }, 25000); liveReduce(st, setMsg({ rev: 9 }), 26000);
   liveReduce(st, { t: "start", fileId: FILE, pages: 4, slide: 2, code: "K7QM4X", resume: true }, 27000);
   assert.equal(st.video && st.video.rev, 9, "erneut geöffnet (resume, dieselbe Folie): das Video läuft weiter");
+  // ohne resume meldet sich die Seite der Lehrkraft nach jeder Wiederverbindung (TeacherLive): dieselbe Präsentation auf derselben Folie behält das Video –
+  // sonst endete es am Beamer bei jedem kurzen WLAN-Aussetzer der Lehrkraft
   liveReduce(st, { t: "start", fileId: FILE, pages: 4, slide: 2, code: "K7QM4X" }, 28000);
-  assert.equal(st.video, null, "neu gestartet: kein Video");
-  liveReduce(st, setMsg({ rev: 10 }), 29000); liveReduce(st, { t: "stop" }, 30000);
-  assert.deepEqual([st.video, st.vrev], [null, 10], "Beenden: kein Video, vrev bleibt monoton");
+  assert.equal(st.video && st.video.rev, 9, "dieselbe Präsentation, dieselbe Folie (ohne resume): das Video bleibt");
+  liveReduce(st, { t: "start", fileId: FILE, pages: 4, slide: 2, code: "K7QM4X", codeShown: true }, 28100);
+  assert.equal(st.video, null, "mit eingeblendetem Sitzungscode: kein Video");
+  liveReduce(st, { t: "start", fileId: FILE, pages: 4, slide: 2, code: "K7QM4X" }, 28200); liveReduce(st, setMsg({ rev: 10 }), 28300);
+  liveReduce(st, { t: "start", fileId: FILE, pages: 4, slide: 1, code: "K7QM4X" }, 28400);
+  assert.equal(st.video, null, "andere Folie: kein Video");
+  liveReduce(st, { t: "goto", slide: 2 }, 28500); liveReduce(st, setMsg({ rev: 11 }), 28600);
+  liveReduce(st, { t: "start", fileId: FILE, pages: 4, slide: 2, code: null }, 28700);
+  assert.equal(st.video, null, "anderer Sitzungscode: kein Video");
+  liveReduce(st, setMsg({ rev: 12 }), 28800);
+  liveReduce(st, { t: "start", fileId: "fedcba9876543210", pages: 4, slide: 2, code: null }, 28900);
+  assert.equal(st.video, null, "andere Präsentation: kein Video");
+  liveReduce(st, setMsg({ rev: 13 }), 29000); liveReduce(st, { t: "stop" }, 30000);
+  assert.deepEqual([st.video, st.vrev], [null, 13], "Beenden: kein Video, vrev bleibt monoton");
+  liveReduce(st, { t: "start", fileId: "fedcba9876543210", pages: 4, slide: 2, code: null }, 31000);
+  assert.equal(st.video, null, "nach „stop“ beginnt eine neue Präsentation ohne Video");
 });
 
 test("Durable Object: Video geht an Lehrkraft und Beamer, nie an Schüler:innen (die bekommen nicht einmal eine Nachricht); Rückmeldung des Beamers nur an die Lehrkraft", async () => {
@@ -252,6 +282,32 @@ test("Durable Object: Video geht an Lehrkraft und Beamer, nie an Schüler:innen 
   assert.equal(t.sent.length, tBefore + 1, "… und nichts melden");
   await room.webSocketMessage(t, JSON.stringify({ t: "video", op: "close" }));
   assert.equal(b.last().video, undefined, "geschlossen: kein Video mehr am Beamer");
+});
+
+test("Durable Object: mehrere Beamergeräte – nur das erste gibt den Ton und meldet sich; geht es, übernimmt das nächste", async () => {
+  const room = new LiveRoom(roomCtx(), { SETTINGS_SECRET: "nur-test-geheimnis" });
+  const t = await join(room, "teacher"), b1 = await join(room, "beamer", 0), b2 = await join(room, "beamer", 0);
+  await room.webSocketMessage(t, JSON.stringify({ t: "start", fileId: FILE, pages: 4, slide: 2, code: "K7QM4X", title: "T" }));
+  await room.webSocketMessage(t, JSON.stringify(setMsg()));
+  assert.equal(b1.last().video.mute, undefined, "das erste mit Ton");
+  assert.equal(b2.last().video.mute, true, "das zweite stumm");
+  assert.equal(t.last().video.mute, undefined, "die Lehrkraft bekommt kein mute");
+  const b3 = await join(room, "beamer", 0);
+  assert.equal(b3.sent.length && JSON.parse(b3.sent[0]).video.mute, true, "ein weiteres, das neu dazukommt: gleich stumm");
+  const tBefore = t.sent.length;
+  await room.webSocketMessage(b2, JSON.stringify({ t: "vstate", n: 2, id: ID, rev: 1, state: 1, time: 31, muted: true }));
+  assert.equal(t.sent.length, tBefore, "die Rückmeldung eines stummen Geräts geht nicht an die Lehrkraft");
+  await room.webSocketMessage(b1, JSON.stringify({ t: "vstate", n: 2, id: ID, rev: 1, state: 5 }));
+  assert.equal(t.last().t, "vstate", "die des ersten schon");
+  // das erste geht (z. B. ausgeschaltet): das nächste bekommt den Stand ohne mute – Schüler:innen bekommen dabei nichts
+  const s = await join(room, "student"), sBefore = s.sent.length;
+  room.ctx.socks.find((x) => x.ws === b1).gone = true;
+  await room.webSocketClose(b1, 1006, "");
+  assert.equal(b2.last().video.mute, undefined, "jetzt mit Ton");
+  assert.equal(b3.last().video.mute, true, "das dritte bleibt stumm");
+  assert.equal(s.sent.length, sBefore, "die Schüler:innen bekommen dabei nichts");
+  await room.webSocketMessage(b2, JSON.stringify({ t: "vstate", n: 2, id: ID, rev: 1, state: 1, time: 40 }));
+  assert.equal(t.last().time, 40, "jetzt meldet das zweite");
 });
 
 /* ---------- Server: Speichern, Lehrkraft, Folienfenster ---------- */
@@ -351,6 +407,12 @@ test("Präsentations-Prompt: Videos aus dem Schulportal-Eintrag (mit Phase und A
     { id: ID2, start: 90, title: "Das Wahlsystem", phase: 3, phaseLabel: "3) Partnerarbeit", source: "portal" },
     { id: "abcdefghijk", title: "Erklärfilm Bundestag", phase: null, phaseLabel: "", source: "link" },
     { id: ID, title: "Doppelt", phase: null, phaseLabel: "", source: "link" }]);
+  // Titel: „Video“ am Anfang fällt weg, aber nicht aus Wörtern wie „Videoanalyse“ oder „Clips zur Wahl“; „Video (3:10 Min.):“ allein → Überschrift der Phase;
+  // Schulportal-Zeichen um den Link (unterstrichen) gehören nicht zur Kennung
+  const tricky = V.lessonVideos("**1) Einstieg**\n- Videoanalyse: https://www.youtube.com/watch?v=" + ID + "\n\n**2) Erarbeitung**\n- Clips zur Wahl https://youtu.be/abcdefghij0\n\n" +
+    "**3) Video: Das Bundesverfassungsgericht**\n- Video (3:10 Min.): https://www.youtube.com/watch?v=abcdefghij1 (Ausschnitt 1:30–4:05)\n- Video: __https://www.youtube.com/watch?v=abcdefghij___\n", []);
+  assert.deepEqual(tricky.map((v) => [v.id, v.title, v.start || 0, v.end || 0]), [[ID, "Videoanalyse", 0, 0], ["abcdefghij0", "Clips zur Wahl", 0, 0],
+    ["abcdefghij1", "Das Bundesverfassungsgericht", 90, 245], ["abcdefghij_", "Das Bundesverfassungsgericht", 0, 0]]);
   const sec = V.videoPromptSection(vids);
   for (const t of ["## Videofolien: YouTube-Videos eingebettet abspielen", "auf den Geräten der Schüler:innen erscheint dabei nur die Folie selbst",
     "- Video 1 – in Phase 2 („2) Video: Wahlen einfach erklärt“)", "https://www.youtube.com/watch?v=" + ID + ", Ausschnitt 0:30–1:15",

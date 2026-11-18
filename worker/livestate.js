@@ -19,8 +19,11 @@ export function liveReduce(st, m, now) {
     const same = m.resume === true && st.active && st.fileId === m.fileId && st.pages === m.pages && st.code === code;
     const slide = same ? Math.min(Math.max(min, st.slide), m.pages) : Number.isInteger(m.slide) ? Math.min(Math.max(min, m.slide), m.pages) : min;
     const codeShown = !!code && slide >= 1 && (same ? !!st.codeShown : m.codeShown === true);
+    // Video (Nachtrag 38): dieselbe Präsentation auf derselben Folie behält es – auch ohne resume (so meldet sich die Seite der Lehrkraft nach jeder
+    // Wiederverbindung): sonst endete das Video am Beamer bei jedem kurzen WLAN-Aussetzer der Lehrkraft
+    const samePres = st.active && st.fileId === m.fileId && st.pages === m.pages && st.code === code;
     Object.assign(st, { active: true, fileId: m.fileId, pages: m.pages, slide, startedAt: same ? st.startedAt : now, code, title: cleanLine(m.title, 200),
-      codeSlides: code ? cleanCodeSlides(m.codeSlides, m.pages) : [], codeShown, video: same && st.video && st.video.n === slide && !codeShown ? st.video : null });
+      codeSlides: code ? cleanCodeSlides(m.codeSlides, m.pages) : [], codeShown, video: samePres && st.video && st.video.n === slide && !codeShown ? st.video : null });
   } else if (m.t === "goto" && st.active && Number.isInteger(m.slide)) {
     st.slide = Math.min(Math.max(st.code ? 0 : 1, m.slide), st.pages);
     st.codeShown = false; st.video = null;   // eine andere Folie: das Video endet

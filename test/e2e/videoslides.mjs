@@ -9,34 +9,39 @@ import { join } from "node:path";
 import { PDFDocument, StandardFonts, rgb, setTextRenderingMode } from "pdf-lib";
 
 export const VIDEO_OK = "Fk1u8VKrJGA", VIDEO_BLOCKED = "BLOCKEDvid1", VIDEO_NOEMBED = "NOEMBED0000";
-/* Attrappe des Players von youtube-nocookie.com (nur für Adressen mit enablejsapi=1): antwortet wie der echte (JSON-Text an die Seite), spielt in Echtzeit
-   (Stelle +0,25 s je 250 ms) bis zum Ende des Ausschnitts; BLOCKEDvid1 startet erst nach einem Klick in den Player („Tippen“), NOEMBED0000 meldet Fehler 150.
-   window.__cmds = empfangene Befehle (Playwright liest sie aus dem Rahmen). */
+/* Attrappe des Players von youtube-nocookie.com (nur für Adressen mit enablejsapi=1): antwortet wie der echte (JSON-Text an die Seite) – erst nach 1,5 s
+   (Ladezeit), startet mit autoplay=1 von selbst –, spielt in Echtzeit (Stelle +0,25 s je 250 ms) und hält sich bewusst NICHT an das Ende des Ausschnitts
+   (nach einem Sprung tut der echte Player das auch nicht verlässlich – das Ende hält Unterricks selbst ein). BLOCKEDvid1 startet erst nach einem Klick in den
+   Player („Tippen“), NOEMBED0000 meldet Fehler 150. window.__cmds = empfangene Befehle, window.__t() = Stelle (Playwright liest beides aus dem Rahmen). */
 export const PLAYER_FAKE = `<!doctype html><meta charset="utf-8"><title>Player-Attrappe</title>
 <body style="margin:0;background:#111;color:#fff;font:16px sans-serif"><p id="s">Player-Attrappe</p><button id="tap" type="button">Tippen</button>
 <script>
 const q = new URLSearchParams(location.search), id = location.pathname.split("/").pop(), start = Number(q.get("start")) || 0, end = Number(q.get("end")) || 0;
-let state = -1, t = start, timer = null, heard = false, tapped = false;
-window.__cmds = [];
+let state = -1, t = start, timer = null, heard = false, pending = false, tapped = false;
+window.__cmds = []; window.__t = () => t;
 const post = (o) => { o.id = 1; o.channel = "widget"; parent.postMessage(JSON.stringify(o), "*"); };
 const info = () => { post({ event: "infoDelivery", info: { playerState: state, currentTime: t, duration: 600 } }); document.getElementById("s").textContent = "Zustand " + state + " · " + t.toFixed(2); };
 const setState = (s) => { state = s; post({ event: "onStateChange", info: s }); info(); };
 function play() {
   if (id === "${VIDEO_NOEMBED}") return;
   if (id === "${VIDEO_BLOCKED}" && !tapped) return;   // Autoplay mit Ton blockiert: bleibt „nicht gestartet“
-  if (end && t >= end) t = start;
   setState(1); clearInterval(timer);
-  timer = setInterval(() => { t = Math.round((t + 0.25) * 100) / 100; if (end && t >= end) { t = end; clearInterval(timer); setState(0); return; } info(); }, 250);
+  timer = setInterval(() => { t = Math.round((t + 0.25) * 100) / 100; if (t >= 600) { t = 600; clearInterval(timer); setState(0); return; } info(); }, 250);
 }
 addEventListener("message", (e) => {
   let m; try { m = typeof e.data === "string" ? JSON.parse(e.data) : e.data; } catch { return; }
   if (!m || typeof m !== "object") return;
   if (m.event === "listening") {
+    if (pending) return;
     if (heard) { post({ event: "alreadyInitialized" }); return; }
-    heard = true;
-    post({ event: "initialDelivery", info: { apiInterface: ["playVideo", "pauseVideo", "seekTo"], playerState: state, currentTime: t, duration: 600 } });
-    post({ event: "onReady" });
-    if (id === "${VIDEO_NOEMBED}") post({ event: "onError", info: 150 });
+    pending = true;
+    setTimeout(() => {   // Ladezeit des Players
+      heard = true; pending = false;
+      post({ event: "initialDelivery", info: { apiInterface: ["playVideo", "pauseVideo", "seekTo", "mute", "unMute"], playerState: state, currentTime: t, duration: 600, muted: q.get("mute") === "1" } });
+      post({ event: "onReady" });
+      if (id === "${VIDEO_NOEMBED}") post({ event: "onError", info: 150 });
+      else if (q.get("autoplay") === "1") play();
+    }, 1500);
     return;
   }
   if (m.event !== "command") return;
@@ -187,10 +192,13 @@ export async function videoSlidesE2E({ browser, tctx, tp, BASE, T, ok, OUT, SHOT
   await frame.waitFor({ timeout: 10000 });
   const src = await frame.getAttribute("src");
   await waitMsg("Spielt hier in der Präsentation.");
+  const cmdsOf = async (fr) => { const h = await fr.elementHandle(), c = await h.contentFrame(); return c ? c.evaluate(() => window.__cmds.slice()) : []; };
+  const tOf = async (fr) => { const h = await fr.elementHandle(), c = await h.contentFrame(); return c ? c.evaluate(() => window.__t()) : NaN; };
   ok(await counter() === "2 / 5" && src === "https://www.youtube-nocookie.com/embed/" + VIDEO_OK + "?enablejsapi=1&autoplay=1&playsinline=1&rel=0&start=30&end=45&origin=" + encodeURIComponent(BASE)
     && await frame.getAttribute("sandbox") === "allow-scripts allow-same-origin allow-presentation allow-popups allow-popups-to-escape-sandbox" && (await pr.locator(".pv-play").textContent()) === "Pause",
     "„Weiter“ auf der Videofolie startet das Video (bleibt auf Folie 2): eingebetteter Player mit Ausschnitt, Steuerung und Herkunft – " + src);
-  const cmdsOf = async (fr) => { const h = await fr.elementHandle(), c = await h.contentFrame(); return c ? c.evaluate(() => window.__cmds.slice()) : []; };
+  const first = await cmdsOf(frame);
+  ok(!first.some((c) => c.startsWith("seekTo")) && (await tOf(frame)) < 32, "kein Überspringen beim Start: trotz 1,5 s Ladezeit beginnt der Ausschnitt bei 0:30 (" + first.join(", ") + ")");
   ok(await sp.locator(".live iframe").count() === 0 && await sp.locator(".live > img").count() === 1, "Schüler:innen sehen dabei nur die Folie");
   await tp.screenshot({ ...SHOT, path: join(OUT, "nr38-praesentation-video-hier.png") });
   await pr.getByRole("button", { name: "Pause" }).click();
@@ -202,7 +210,14 @@ export async function videoSlidesE2E({ browser, tctx, tp, BASE, T, ok, OUT, SHOT
   ok(/^seekTo \[4\d(\.\d)?,true\]$/.test(seek), "+10 s: springt im Video (" + seek + ")");
   await pr.getByRole("button", { name: "Weiter abspielen" }).click();
   await waitMsg("Ausschnitt zu Ende.", 15000);
-  ok((await pr.locator(".pv-play").textContent()) === "Noch einmal abspielen", "am Ende des Ausschnitts: „Ausschnitt zu Ende.“ und „Noch einmal abspielen“");
+  await sleep(1000);
+  const atEnd = await tOf(frame), endCmds = await cmdsOf(frame);
+  ok((await pr.locator(".pv-play").textContent()) === "Noch einmal abspielen" && endCmds[endCmds.length - 1] === "pauseVideo" && atEnd >= 44.5 && atEnd <= 45.5,
+    "am Ende des Ausschnitts hält Unterricks das Video selbst an (der Player selbst liefe weiter): „Ausschnitt zu Ende.“, „Noch einmal abspielen“ (Stelle " + atEnd + ")");
+  // Tippen ins Video: der Fokus wandert in den Player – er kommt gleich zurück, damit Pfeiltasten und Presenter weiter die Präsentation steuern
+  await (await (await frame.elementHandle()).contentFrame()).locator("#s").click();
+  await tp.waitForFunction(() => document.activeElement && document.activeElement.classList.contains("presenter"), null, { timeout: 5000 }).catch(() => {});
+  ok(await tp.evaluate(() => !!document.activeElement && document.activeElement.classList.contains("presenter")), "nach einem Tipp ins Video liegt der Fokus wieder auf der Präsentation");
   await tp.keyboard.press("ArrowRight");   // schon gestartet: weiter zur nächsten Folie
   await sp.locator(".live .badge", { hasText: "Folie 3 / 5" }).waitFor({ timeout: 10000 });
   ok(await counter() === "3 / 5" && await pr.locator(".stage iframe").count() === 0 && !(await pr.locator(".videopane").isVisible()), "noch einmal „Weiter“: nächste Folie, der Player ist weg");
@@ -248,6 +263,8 @@ export async function videoSlidesE2E({ browser, tctx, tp, BASE, T, ok, OUT, SHOT
 
   /* ---------- Beamergerät (z. B. Schul-iPad an Apple TV) über den Server ---------- */
   const bctx = await browser.newContext({ viewport: { width: 1280, height: 720 } });
+  // WebSockets der Seite merken – so lässt sich unten ein kurzer Verbindungsabbruch (WLAN) nachstellen
+  await bctx.addInitScript(() => { const W = window.WebSocket; window.__wss = []; window.WebSocket = class extends W { constructor(...a) { super(...a); window.__wss.push(this); } }; });
   const bp = await bctx.newPage(); watch(bp, "Beamergerät (Videofolien)");
   await bp.goto(BASE + "/#/beamer");
   const codeEl = bp.locator(".beamer .bm-code", { hasText: /^\d{3} \d{3}$/ });
@@ -275,9 +292,28 @@ export async function videoSlidesE2E({ browser, tctx, tp, BASE, T, ok, OUT, SHOT
   await tp.keyboard.press("ArrowRight");
   await bp.waitForFunction(() => !document.querySelector(".beamer .bm-video") && /\/3\?/.test((document.querySelector(".beamer .bm-stage > img") || {}).src || ""), null, { timeout: 15000 });
   ok(true, "Folienwechsel: das Beamergerät zeigt wieder die Folie");
+  // zurück zur Videofolie und abspielen; dann verliert der Beamer kurz die Verbindung: Hinweis, danach spielt das Video dort weiter (derselbe Player)
+  await tp.keyboard.press("ArrowLeft");
+  await bp.waitForFunction(() => /\/2\?/.test((document.querySelector(".beamer .bm-stage > img") || {}).src || ""), null, { timeout: 15000 });
+  await waitMsg("Das Video spielt am Beamer");
+  await tp.keyboard.press("ArrowRight");
+  await bpFrame.waitFor({ timeout: 15000 });
+  await waitMsg("Spielt am Beamer.", 15000);
+  await (await bpFrame.elementHandle()).evaluate((el) => { el.dataset.e2e = "derselbe"; });
+  await bp.evaluate(() => window.__wss.filter((w) => w.readyState === 1).forEach((w) => w.close()));
+  await waitMsg("Die Verbindung zum Beamer ist unterbrochen – verbindet er sich gleich wieder, spielt das Video dort weiter.", 10000);
+  await waitMsg("Spielt am Beamer.", 20000);
+  ok(await bp.locator('.bm-video iframe.ytp-frame[data-e2e="derselbe"]').count() === 1 && !(await cmdsOf(bpFrame)).includes("pauseVideo"),
+    "kurzer Verbindungsabbruch des Beamers: Hinweis in der Präsentation, danach läuft das Video dort weiter – derselbe Player, nicht angehalten");
+  // „Beamer trennen“ (bewusst): das Video endet sofort
+  await pr.getByRole("button", { name: "Beamer verbunden" }).click();
+  await pr.getByRole("button", { name: "Beamer trennen" }).click();
+  await waitMsg("Der Beamer ist nicht mehr verbunden – das Video wurde beendet.", 10000);
+  ok(await counter() === "2 / 5" && (await pr.locator(".pv-play").textContent()) === "Video abspielen", "„Beamer trennen“: das Video endet sofort, „Video abspielen“ spielt es dann hier");
   await sleep(500);
-  ok(!sFrames.some((x) => x.includes('"video"') || x.includes("vstate")) && sFrames.length === sBefore + 1 && sYt.length === 0,
-    "Schüler:innen: keine Nachricht zum Video (nur der Folienwechsel), nie eine Anfrage an YouTube (" + (sFrames.length - sBefore) + " Nachrichten)");
+  const sNew = sFrames.slice(sBefore).filter((x) => x !== "pong");   // „pong“ = Antwort auf das Ping der Seite alle 25 s
+  ok(!sFrames.some((x) => x.includes('"video"') || x.includes("vstate")) && sNew.length === 2 && sYt.length === 0,
+    "Schüler:innen: keine Nachricht zum Video (nur die beiden Folienwechsel), nie eine Anfrage an YouTube (" + sNew.length + " Nachrichten: " + sNew.map((x) => x.slice(0, 60)).join(" | ") + ")");
   await pr.getByRole("button", { name: "Präsentation für alle beenden" }).click();
   await bctx.close();
 
@@ -294,9 +330,10 @@ export async function videoSlidesE2E({ browser, tctx, tp, BASE, T, ok, OUT, SHOT
     && (await sv.locator(".sv-vnote").textContent()) === "Der Link öffnet YouTube (Google) in einem neuen Tab.",
     "nach der Stunde: unter der Videofolie der Link zu YouTube (neuer Tab) – eingebettet wird nichts");
   await sp.screenshot({ ...SHOT, path: join(OUT, "nr38-folienfenster-link.png") });
-  await sv.locator(".sv-next").click();
+  await link.focus(); await sp.keyboard.press("ArrowRight");   // vom Link aus weiterblättern: der Link verschwindet, der Fokus bleibt im Folienfenster
   await sv.locator('.sv-frame:not(.loading) > img[alt="Folie 3 von 5"]:not([hidden])').waitFor({ timeout: 10000 });
-  ok(await sv.locator(".sv-video").isHidden() && sYt.length === 0, "Folie 3: kein Link; die Schüleransicht hat YouTube nie selbst aufgerufen");
+  ok(await sv.locator(".sv-video").isHidden() && sYt.length === 0 && await sp.evaluate(() => !!document.activeElement && document.activeElement.classList.contains("sv-frame")),
+    "Folie 3: kein Link, der Fokus liegt im Folienfenster (nicht verloren); die Schüleransicht hat YouTube nie selbst aufgerufen");
   await sctx.close();
   for (const L of [L0, L1]) await T("DELETE", "/api/teacher/lessons/" + L.id);
   await T("DELETE", "/api/teacher/units/" + u.id);

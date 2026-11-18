@@ -123,7 +123,10 @@ gleich in `public/_headers`, im Worker und – für GitHub Pages – in `scripts
   „−10 s“, „+10 s“, „Von vorn“, „Video schließen“ und „Auf YouTube öffnen“. **„Weiter“** (→, Leertaste, Presenter, Tippen rechts) startet auf
   einer Videofolie zuerst das Video, ein weiteres „Weiter“ geht zur nächsten Folie. Wo das Video spielt, entscheidet Unterricks: an einem
   **verbundenen Beamergerät** („Beamer verbinden“, über den Server), sonst in einem **verbundenen Beamerfenster**, sonst **in der Präsentation
-  selbst** (iPad bzw. Laptop gespiegelt) – nie doppelt. Das Feld sagt, wo, und meldet „Spielt am Beamer.“, „Pausiert.“, „Ausschnitt zu Ende.“.
+  selbst** (iPad bzw. Laptop gespiegelt) – nie doppelt. Das Feld sagt, wo, und meldet „Spielt am Beamer.“, „Pausiert.“, „Ausschnitt zu Ende.“
+  (das Ende des Ausschnitts hält Unterricks selbst ein). Verliert der Beamer nur kurz die Verbindung (WLAN), läuft das Video dort weiter;
+  „Beamer trennen“ beendet es sofort. Mit mehreren Beamern gibt nur der erste den Ton. Tippen Sie ins Video, steuern Pfeiltasten und Presenter
+  danach trotzdem die Präsentation.
   Verlangt der Browser am Beamer für den Ton erst eine Bedienung an diesem Gerät (z. B. am iPad, das an Apple TV spiegelt), sagt das Feld es,
   und am Beamer steht „Video abspielen“ – einmal dort tippen bzw. direkt auf das Video. Lässt YouTube das Einbetten eines Videos nicht zu, sagt
   das Feld auch das; dann hilft „Auf YouTube öffnen“. Die **Schüler:innen** sehen live nur die Folie (mit Titel und Link) – auf ihren Geräten

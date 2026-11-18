@@ -45,9 +45,12 @@ export function cleanVideoSpec(v) {
   return out;
 }
 export const videoWatchUrl = (v) => VIDEO_WATCH + v.id + (v.start ? "&t=" + v.start + "s" : "");
-/* Adresse des eingebetteten Players (nur dort, wo das Video abgespielt wird): Steuerung per postMessage (enablejsapi), Start und Ende als Ausschnitt */
-export function videoPlayerUrl(v, origin) {
-  const q = ["enablejsapi=1", "autoplay=1", "playsinline=1", "rel=0"];
+/* Adresse des eingebetteten Players (nur dort, wo das Video abgespielt wird): Steuerung per postMessage (enablejsapi), Start und Ende als Ausschnitt;
+   mute = stumm (ein weiteres Beamergerät bzw. -fenster – der Ton kommt nur von einem); autoplay = gleich beim Laden starten (nur, wenn es spielen soll –
+   ein pausiertes Video spielte sonst kurz an, bis der Befehl „pausieren“ ankommt) */
+export function videoPlayerUrl(v, origin, { mute = false, autoplay = true } = {}) {
+  const q = ["enablejsapi=1", ...(autoplay ? ["autoplay=1"] : []), "playsinline=1", "rel=0"];
+  if (mute) q.push("mute=1");
   if (v.start) q.push("start=" + v.start);
   if (v.end) q.push("end=" + v.end);
   if (typeof origin === "string" && /^https?:\/\/[^/\s]+$/.test(origin)) q.push("origin=" + encodeURIComponent(origin));
@@ -96,12 +99,27 @@ export function slideTitleOf(lines) {
   t = t.replace(/^\s*(?:video|film|clip)\s*[:–—-]\s*/i, "").replace(/^[„“”"‚‘'«»]+|[„“”"‚‘'«»]+$/g, "");
   return cleanSlideLine(t, VIDEO_LIMITS.title);
 }
-/* Videofolie aus den Zeilen einer Seite (Strings oder {text, h, base}) und ihren Textstücken (PDF.js): Textstücke und Zeilen für sich, dann eine Zeile
-   mit der Marke zusammen mit den zwei folgenden (umbrochen). Ohne Titel in der Marke gilt die Überschrift der Folie. → {id, start?, end?, title?} | null */
+/* Videofolie aus den Zeilen einer Seite (Strings oder {text, h, base}) und ihren Textstücken (PDF.js). Kandidaten: jedes Textstück, jede Zeile und eine
+   Zeile mit der Marke samt umbrochener Fortsetzung (die nächste Zeile beginnt mit „|“ bzw. „Start:“/„Ende:“/„Titel:“ oder die Zeile endet mit „|“) – es gilt
+   der mit den meisten Angaben (ein in Stücke zerlegter Text verliert so weder Ende noch Titel). Nur wenn keiner trägt: die Zeile mit den zwei folgenden.
+   Ohne Titel in der Marke gilt die Überschrift der Folie. → {id, start?, end?, title?} | null */
+const KEY_START_RE = /^(start|beginn|ab|ende|end|bis|titel|title)\s*[:=\uFF1A]/i;
+const SEP_END_RE = /[|\uFF5C\u00A6]\s*$/, SEP_START_RE = /^[|\uFF5C\u00A6]/;
+const markScore = (v) => (v ? 1 + (v.start ? 1 : 0) + (v.end ? 1 : 0) + (v.title ? 1 : 0) : 0);
 export function videoMarkOf(lines, items = null) {
   const L = Array.isArray(lines) ? lines : [], texts = L.map(lineText);
+  const cands = [...(Array.isArray(items) ? items : []).map(lineText), ...texts];
+  texts.forEach((t, i) => {
+    if (!VMARK_RE.test(t)) return;
+    let s = t;
+    for (let k = i + 1; k < Math.min(texts.length, i + 3); k++) {
+      const next = texts[k].trim();
+      if (SEP_END_RE.test(s) || SEP_START_RE.test(next) || KEY_START_RE.test(next)) s += " " + next; else break;
+    }
+    if (s !== t) cands.push(s);
+  });
   let v = null;
-  for (const list of [(Array.isArray(items) ? items : []).map(lineText), texts]) { for (const s of list) if ((v = parseVideoMark(s))) break; if (v) break; }
+  for (const s of cands) { const x = parseVideoMark(s); if (markScore(x) > markScore(v)) v = x; }
   if (!v) for (let i = 0; i < texts.length && !v; i++) if (VMARK_RE.test(texts[i])) v = parseVideoMark(texts.slice(i, i + 3).join(" "));
   if (!v) return null;
   if (!v.title) { const t = slideTitleOf(L); if (t) v.title = t; }
@@ -146,7 +164,7 @@ export function cleanVideoState(raw) {
   const v = cleanVideoSpec(raw);
   if (!v || !Number.isInteger(raw.n) || raw.n < 1 || raw.n > 300 || !Number.isInteger(raw.rev) || raw.rev < 0) return null;
   const pos = Number(raw.pos);
-  return { n: raw.n, ...v, playing: raw.playing === true, pos: Number.isFinite(pos) ? clampPos(v, pos) : v.start || 0, rev: raw.rev };
+  return { n: raw.n, ...v, playing: raw.playing === true, pos: Number.isFinite(pos) ? clampPos(v, pos) : v.start || 0, rev: raw.rev, ...(raw.mute === true ? { mute: true } : {}) };
 }
 export const clampPos = (v, pos) => Math.min(Math.max(Number(pos) || 0, 0), v && v.end ? v.end : YT_START_MAX);
 export const videoPosNow = (vs, now) => (!vs ? 0 : clampPos(vs, vs.playing ? vs.pos + Math.max(0, now - vs.at) / 1000 : vs.pos));
@@ -197,7 +215,11 @@ export function cleanVideoReport(m) {
 const URL_RE = /(?:https?:\/\/|\/\/|\bwww\.|\byoutu\.be\/|\byoutube(?:-nocookie)?\.com\/)[^\s<>"'„“”«»)\]]+/gi;
 const CLIP_RE = /(\d{1,2}:\d{2}(?::\d{2})?)\s*(?:–|—|-|bis)\s*(\d{1,2}:\d{2}(?::\d{2})?)/;
 const plainPortal = (t) => t.replace(/\*\*|~~|__|`/g, "").replace(/\s+/g, " ").trim();
-const dropVideoWord = (t) => t.replace(/^\s*-\s*/, "").replace(/^\s*(?:video|film|clip)\s*[:–—-]?\s*/i, "").replace(/[:–—-]\s*$/, "").trim();
+// „Video:“, „Film –“, „Clip “ am Anfang (nur als ganzes Wort: „Videoanalyse“ bleibt), Zeitangaben in Klammern („(3:10 Min.)“) fallen weg
+const dropVideoWord = (t) => t.replace(/^\s*-\s*/, "").replace(/\(\s*[^()]*\d:\d\d[^()]*\)/g, " ").replace(/^\s*(?:video|film|clip)(?:\s*[:–—-]\s*|\s+|$)/i, "")
+  .replace(/\s+/g, " ").replace(/[:–—-]\s*$/, "").trim();
+// Link aus dem Schulportal-Eintrag: auch fett/unterstrichen/kursiv geschrieben (**…**, __…__, ~~…~~) – erst wie er steht, dann ohne diese Zeichen am Ende
+const ytOf = (u) => { const a = parseYouTube(u.replace(/[.,;:!?]+$/, "")); if (a.id) return a; return parseYouTube(u.replace(/(?:\*\*|__|~~|`)+[.,;:!?]*$/, "").replace(/[.,;:!?]+$/, "")); };
 /* portalText = Schulportal-Eintrag (Stundenverlauf), materials = Material der Sitzung ({kind, name, text}) →
    [{id, start?, end?, title, phase (Nummer oder null), phaseLabel, source: "portal"|"link"}] – jedes Video einmal (Kennung + Start) */
 export function lessonVideos(portalText, materials) {
@@ -209,7 +231,7 @@ export function lessonVideos(portalText, materials) {
     const hd = heads.find((x) => x.line === i);
     if (hd) head = hd;
     for (const m of line.matchAll(URL_RE)) {
-      const r = parseYouTube(m[0].replace(/[.,;:!?]+$/, ""));
+      const r = ytOf(m[0]);
       if (!r.id) continue;
       const clip = CLIP_RE.exec(line);
       const start = clip ? parseClock(clip[1]) : r.start || 0, end = clip ? parseClock(clip[2]) : null;

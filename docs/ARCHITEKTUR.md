@@ -2179,18 +2179,22 @@ Ausdrucken“; Grundschule „Auch Grundschule“ – kompakt mit Verlaufsplan u
 
 * **Videofolie in der PDF:** eine unsichtbare Zeile (wie „Unterricks-Phase: n“, 4zd) `Unterricks-Video: <YouTube-Link> | Start: m:ss | Ende: m:ss |
   Titel: …` (Start, Ende, Titel freiwillig; Startzeit sonst aus `t=` im Link). `videoMarkOf` (public/videoslides.js) liest sie beim Hochladen
-  (presenter.js `rasterize`) aus den Textstücken, dann den Zeilen, zuletzt mit den zwei folgenden Zeilen (umbrochen); Wort auch gesperrt bzw. mit
+  (presenter.js `rasterize`) aus den Textstücken, den Zeilen und – umbrochen – der Zeile samt der folgenden, die mit „|“ bzw. „Start:“, „Ende:“, „Titel:“
+  weitergeht (die Lesart mit den meisten Angaben gewinnt; alle drei Zeilen zusammen nur als letzter Rückfall); Wort auch gesperrt bzw. mit
   Gedankenstrich, Link streng über `parseYouTube` (selbstlern.js, nur die bekannten Hosts, keine Playlists; von PDF.js mit Leerzeichen zerlegt wird
   er zusammengezogen). Ohne Titel in der Zeile gilt die größte Überschrift der Folie ohne „Video:“ (`slideTitleOf`). Gespeichert wird nie eine
   Adresse, nur `{n, id, start?, end?, title?}` – alle Adressen baut Unterricks aus der geprüften Kennung (`videoWatchUrl` = youtube.com zum Öffnen,
-  `videoPlayerUrl` = youtube-nocookie.com/embed mit `enablejsapi=1&autoplay=1&playsinline=1&rel=0&start&end&origin`).
+  `videoPlayerUrl` = youtube-nocookie.com/embed mit `enablejsapi=1&autoplay=1&playsinline=1&rel=0&start&end&origin`; `autoplay=1` nur, wenn es gleich
+  spielen soll – ein pausiertes Video spielte sonst kurz an –, `mute=1` an weiteren Beamern).
 * **Speichern:** neue Spalte `files.video_slides` = `{v:1, pdf, hand}` (`videoSlidesData`); `…/ready` nimmt `videos` (aus der PDF, nachsichtig:
   Ungültiges entfällt) und `videosHand` (aus einer Sitzungsdatei, streng); `PUT /api/teacher/files/:id/videos {hand}` (Liste der Lehrkraft, `[]` =
-  bewusst keine, `null` = wieder die der PDF; streng: Folie 1…Seitenzahl, je Folie eine, Ende hinter Start, ≤ 60) → `fileOut().videos`,
+  bewusst keine, `null` = wieder die der PDF; streng: Folie 1…Seitenzahl, je Folie eine, Start und Ende so, wie angegeben – ein Ende vor dem Start
+  fiele sonst still weg –, ≤ 60) → `fileOut().videos`,
   `GET …/slides` liefert sie ebenso. Die Sitzungsdatei trägt `slideVideos` (nur die der Lehrkraft, wie `slidePhases`). `get_lesson` (Connector)
   nennt die Videofolien der Präsentation.
 * **Präsentations-Prompt:** `lessonVideos(Schulportal-Eintrag, Material)` sammelt YouTube-Links aus dem Eintrag (mit Phase; Titel aus ~~…~~, dem
-  Text der Zeile oder der Phasenüberschrift ohne „Video:“; Ausschnitt aus „(1:30–4:05)“ bzw. `t=`) und aus den Links der Sitzung (ohne festen Platz);
+  Text der Zeile oder der Phasenüberschrift ohne „Video:“ – nur das Wort „Video“, nicht „Videoanalyse“; „Video (3:10 Min.):“ allein → Überschrift;
+  Schulportal-Zeichen um den Link wie `__…__` gehören nicht zur Kennung; Ausschnitt aus „(1:30–4:05)“ bzw. `t=`) und aus den Links der Sitzung (ohne festen Platz);
   `videoPromptSection` → Abschnitt „## Videofolien: YouTube-Videos eingebettet abspielen“ vor „Zeitlos gestalten“ (session.js übergibt ihn als
   `ctx.videoSection`, shared.js kann videoslides.js nicht importieren): je Video Stelle, Link, Ausschnitt und die genaue unsichtbare Zeile, dazu der
   Aufbau (Titel, Link als Text und Link-Anmerkung, Ausschnitt, Beobachtungsauftrag ≤ 2 Zeilen, selbst gezeichnetes Abspielsymbol – kein Vorschaubild,
@@ -2199,22 +2203,37 @@ Ausdrucken“; Grundschule „Auch Grundschule“ – kompakt mit Verlaufsplan u
   „Video abspielen“/„Pause“/„Weiter abspielen“/„Noch einmal abspielen“, „−10 s“, „+10 s“, „Von vorn“, „Video schließen“, „Auf YouTube öffnen“,
   Statuszeile `role=status`). „Weiter“ (`forward`) startet auf einer Videofolie zuerst das Video. **Ziel** beim ersten Abspielen: Beamergerät verbunden →
   `device`; sonst ein sichtbares (bzw. auf einem zweiten Bildschirm liegendes) Beamerfenster → `window`; sonst `here` (Player in der Präsentation –
-  iPad/Laptop gespiegelt). Verschwindet das Ziel (Beamer getrennt, Beamerfenster zu), endet das Video mit Hinweis. Gewünschter Stand `vs = {n, id, start?,
-  end?, title?, playing, pos, rev}`; jeder Befehl erhöht `rev`. Folienwechsel, „Sitzungscode zeigen“ und das Ende der Präsentation schließen das Video.
+  iPad/Laptop gespiegelt). Verschwindet das Ziel (Beamerfenster zu, „Beamer trennen“), endet das Video sofort mit Hinweis; verliert ein Beamergerät nur
+  die Verbindung (WLAN), wartet die Präsentation `V_GRACE_MS` 8 s mit dem Hinweis „Die Verbindung zum Beamer ist unterbrochen – …“ (dessen Player läuft
+  weiter, der Server hat den Stand). Gewünschter Stand `vs = {n, id, start?, end?, title?, playing, pos, rev}`; jeder Befehl erhöht `rev`. Die erste
+  Rückmeldung „spielt“ zu einem Befehl setzt `pos`/`at` auf die echte Stelle (`vAnchor`, die Ladezeit des Players zählt nicht mit; am Beamergerät erfährt
+  es der Server mit demselben `rev`). Kommt nach `V_SLOW_MS` 10 s keine Rückmeldung vom Beamer bzw. Beamerfenster (z. B. eine ältere Seite dort), sagt die
+  Statuszeile es. Ein Stand des Servers ohne das Video (bzw. mit älterem `rev`) setzt es erneut, einer mit einer anderen Folie beendet es hier – beides
+  erst 3 s nach dem letzten Senden. Folienwechsel, „Sitzungscode zeigen“ und das Ende der Präsentation schließen das Video. Tippen bzw. Klicken ins Video
+  gibt den Fokus gleich danach an die Präsentation zurück (Fenster-`blur`) – sonst gingen Pfeiltasten und Presenter an YouTube.
 * **Player (public/ytplayer.js):** iframe youtube-nocookie.com (Sandbox und `referrerpolicy` wie die Selbstlern-Phase), gesteuert über **postMessage wie
   die IFrame-API von YouTube** (deren Skript erlaubt die CSP nicht): „listening“ alle 250 ms bis zur ersten Antwort, dann `addEventListener`
   onStateChange/onError; Befehle `playVideo`, `pauseVideo`, `seekTo [s, true]`, `unMute` (nur nach einer Bedienung der Seite). Antworten als JSON-Text:
   `initialDelivery`, `onReady`, `infoDelivery {playerState, currentTime, duration, muted}`, `onStateChange`, `onError` – am 17.11.2026 am echten Player
   beobachtet (Befehle kommen an; Wiedergabe gibt es in der Testumgebung nicht). **Blockiert:** abspielen gewünscht, aber nach 4 s weder „spielt“ noch
   „lädt“ → `blocked` (Browser verlangt eine Bedienung für den Ton); **noapi:** nach 12 s keine Antwort; **err:** 101/150/153 = Einbetten nicht erlaubt,
-  100 = nicht (mehr) vorhanden, 2, 5.
+  100 = nicht (mehr) vorhanden, 2, 5. **Ende des Ausschnitts:** hält der Player selbst ein (`pauseVideo` ab `end − 0,25 s`, alle 250 ms geprüft, solange es
+  spielt) und meldet dann „zu Ende“ – auf den Parameter `end` der Einbettung allein ist nach einem Sprung kein Verlass; eine Meldung „spielt“, die noch vor
+  dem Anhalten unterwegs war, zählt in den 1,5 s danach nicht (sonst stünde kurz „Spielt …“ da). **Aufholen** (Stelle + Zeit seit
+  dem Befehl) erst ab dem zweiten Befehl an denselben Player: beim ersten (Ladezeit) und nach `replay()` beginnt es an der gewünschten Stelle, nie
+  hinter dem Ende. **Stumm** (`mute`): `mute=1` und der Befehl `mute`; wieder mit Ton nur über `unMute` nach einer Bedienung des Geräts (sonst hielte
+  der Browser das Video an).
 * **Beamerfenster (BroadcastChannel):** `show` trägt `slide` und `video`, dazu `{t:"video"}` bei jedem Befehl; das Fenster zeigt an Stelle der Folie
   `div.bm-video` mit dem Player (ein umgehängtes iframe lädt neu – der Player bleibt eingehängt, das Folienbild wechselt dahinter) und meldet
-  `{t:"vstate", video: {n, id, rev, state, time, dur, blocked, err, noapi, muted}}` zurück. Blockiert: oben `div.bm-vnote` „Der Browser spielt das Video
+  `{t:"vstate", video: {n, id, rev, state, time, dur, blocked, err, noapi, muted}}` zurück. Mehrere Beamerfenster: `lead` (das erste, das folgt) gibt den
+  Ton und wird gehört, die übrigen spielen stumm. Blockiert: oben `div.bm-vnote` „Der Browser spielt das Video
   erst nach einer Bedienung an diesem Gerät ab.“ mit „Video abspielen“ (`replay` mit der Bedienung); ein Tipp direkt auf das Video geht immer.
 * **Beamergerät (Durable Object):** `{t:"video", op:"set", n, video, playing, pos, rev}` bzw. `op:"close"` der Lehrkraft → `st.video` (livestate.js
-  `videoReduce`, nur auf der aktuellen Folie ohne Codefolie; `goto`, Codefolie, `stop` und ein neuer Start schließen es, `resume` auf derselben Folie
-  behält es; `v` bleibt wie beim Timer). `liveVideo` (Stelle zum Sendezeitpunkt) geht **nur an Lehrkraft und Beamer** – Befehle zum Video senden den
+  `videoReduce`, nur auf der aktuellen Folie ohne Codefolie; `goto`, Codefolie und `stop` schließen es; ein Start derselben Präsentation (Datei, Seiten,
+  Sitzungscode) auf derselben Folie ohne eingeblendeten Code behält es – auch ohne `resume`, so meldet sich die Seite der Lehrkraft nach jeder
+  Wiederverbindung; `v` bleibt wie beim Timer). Mehrere Beamergeräte: nur das erste (in der Reihenfolge der Verbindungen) bekommt das Video mit Ton und
+  wird an die Lehrkraft weitergereicht, die übrigen bekommen `video.mute: true`; geht das erste, bekommen die übrigen den Stand neu (`webSocketClose`,
+  ohne Nachricht an die Schüler:innen). `liveVideo` (Stelle zum Sendezeitpunkt) geht **nur an Lehrkraft und Beamer** – Befehle zum Video senden den
   Schüler:innen nicht einmal eine Nachricht (`broadcast(st, {students: false})`); `?role=student` liefert es auch beim Abfragen nie. Ein Beamer darf
   nur `{t:"vstate", …}` schicken (geprüft mit `cleanVideoReport`, ≤ 2000 Zeichen, nur an die Lehrkraft weitergereicht, nie gespeichert). Nach einer
   Wiederverbindung setzt die Präsentation das Video erneut (`TeacherLive.onOpen`); eine wieder geöffnete Präsentation übernimmt ein laufendes Video.
@@ -2226,11 +2245,14 @@ Ausdrucken“; Grundschule „Auch Grundschule“ – kompakt mit Verlaufsplan u
 * **Datenschutz:** YouTube lädt nur auf dem Gerät, auf dem das Video spielt (Beamergerät, Beamerfenster bzw. Gerät der Lehrkraft) und erst beim Abspielen;
   nie auf den Geräten der Schüler:innen (E2E prüft: keine Anfrage, keine Nachricht).
 * **Grenzen:** Ob ein Browser am Beamer mit Ton startet, entscheidet er selbst (iOS: meist erst nach einem Tipp auf das Video) – Unterricks erkennt es
-  und sagt es. Echte Wiedergabe am iPad/Apple TV und im Beamerfenster mit einem echten Video steht aus (Testumgebung ohne Videowiedergabe).
+  und sagt es. Echte Wiedergabe am iPad/Apple TV und im Beamerfenster mit einem echten Video steht aus (Testumgebung ohne Videowiedergabe). Folienfenster:
+  Blättert jemand vom Link zum Video aus weiter, geht der Fokus ins Folienfenster (der Link verschwindet).
 * **Tests:** Unit `test/unit/videoslides.test.mjs` (Zeitangaben, Zeile, echte PDF mit pdf-lib, Prüfen/Speichern, Adressen, Protokoll, Live-Stand,
   Durable Object, Routen, Folienfenster, Sitzungsdatei, Prompt), `test/unit/videopanel.test.mjs`; E2E `test/e2e/videoslides.mjs` mit einer
-  Player-Attrappe (`PLAYER_FAKE`, spielt das Protokoll nach): Prompt, Hochladen, „Videofolien“, Sitzungsdatei, Abspielen hier / Beamerfenster
-  (blockiert, Einbetten verboten, Fenster geschlossen) / Beamergerät, Schüler:innen live ohne Video, Folienfenster mit Link.
+  Player-Attrappe (`PLAYER_FAKE`, spielt das Protokoll nach – antwortet erst nach 1,5 s, startet mit `autoplay=1` selbst und hält sich bewusst nicht an
+  das Ende des Ausschnitts): Prompt, Hochladen, „Videofolien“, Sitzungsdatei, Abspielen hier (kein Überspringen beim Start, Ende selbst eingehalten,
+  Fokus nach einem Tipp ins Video) / Beamerfenster (blockiert, Einbetten verboten, Fenster geschlossen) / Beamergerät (kurzer Verbindungsabbruch: derselbe
+  Player läuft weiter; „Beamer trennen“ beendet sofort), Schüler:innen live ohne Video, Folienfenster mit Link (Fokus beim Weiterblättern).
 
 ## 4i. Druckliste „Von der Lehrkraft auszudrucken“ (Ergänzung vom 10.11.2026)
 

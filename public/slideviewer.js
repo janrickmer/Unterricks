@@ -56,6 +56,8 @@ export function slideViewer(o) {
   const vBox = h("p", { class: "sv-video", hidden: true }, icon("play"), vLink, h("span", { class: "sv-vnote", text: SV_TEXT.videoNote }));
   function paintVideo(s) {
     const v = s && s.video && typeof s.video.url === "string" && VIDEO_URL_RE.test(s.video.url) ? s.video : null;
+    // der Link verschwindet (andere Folie, z. B. per Pfeiltaste vom Link aus): der Fokus geht ins Folienfenster statt verloren
+    if (!v && !vBox.hidden && vBox.contains(document.activeElement) && frame.isConnected) frame.focus({ preventScroll: true });
     vBox.hidden = !v;
     if (!v) { vLink.removeAttribute("href"); vLink.textContent = ""; return; }
     const title = typeof v.title === "string" ? v.title.slice(0, 160) : "", clip = typeof v.clip === "string" ? v.clip.slice(0, 60) : "";

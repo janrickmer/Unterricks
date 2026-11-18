@@ -699,6 +699,7 @@ main.narrow .homework { background: var(--gelb-t); border-color: color-mix(in sr
 .presenter .stage > .codeslide, .presenter .np-frame > .codeslide { cursor: inherit; }
 /* Beamerfenster (beamer.js): nur die aktuelle Folie, die Leiste blendet sich aus */
 .beamer { position: fixed; inset: 0; z-index: 100; max-width: none; margin: 0; padding: 0; background: #000; color: #cfd8e6; display: grid; grid-template: minmax(0, 1fr) / minmax(0, 1fr); }
+.beamer:focus { outline: none; }
 .beamer .bm-stage { display: grid; grid-template: minmax(0, 1fr) / minmax(0, 1fr); place-items: center; overflow: hidden; min-height: 0; }
 .beamer .bm-stage > img { width: 100%; height: 100%; object-fit: contain; user-select: none; -webkit-user-drag: none; }
 /* Videofolien (Nachtrag 38): Player an Stelle der Folie; braucht der Browser eine Bedienung für den Ton, oben ein Feld mit „Video abspielen“ */
