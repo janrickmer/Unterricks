@@ -246,9 +246,12 @@ export async function shareE2Epart2({ tp, BASE, T, tool, ok, OUT, SHOT, first, m
     const sc = tp.locator("#unitshare");
     await sc.locator("button", { hasText: "Unterrichtseinheit mit KollegInnen teilen" }).waitFor({ timeout: 15000 });
     await tp.evaluate(() => document.querySelectorAll(".toast").forEach((t) => t.remove()));
-    const click = sc.getByRole("button", { name: "Unterrichtseinheit mit KollegInnen teilen" }).click();
     const conf = tp.locator(".modal", { hasText: "Absätze fehlen" });
-    const [dl] = await Promise.all([tp.waitForEvent("download", { timeout: 120000 }), (async () => { await click; if (await conf.isVisible().catch(() => false)) await conf.getByRole("button", { name: "Trotzdem teilen" }).click(); })()]);
+    // die Rückfrage „Absätze fehlen“ kommt erst nach dem Neuladen des Stands (ein Abruf) – bis sie da ist oder der Download beginnt
+    const dlP = tp.waitForEvent("download", { timeout: 120000 });
+    await sc.getByRole("button", { name: "Unterrichtseinheit mit KollegInnen teilen" }).click();
+    if (await Promise.race([dlP.then(() => "dl", () => "dl"), conf.waitFor({ timeout: 30000 }).then(() => "conf", () => "none")]) === "conf") await conf.getByRole("button", { name: "Trotzdem teilen" }).click();
+    const dl = await dlP;
     const p = join(first.dir, label + "-" + dl.suggestedFilename()); await dl.saveAs(p);
     const hint = tp.locator(".modal", { hasText: "Hinweise zum Ordner" });
     await sc.locator(".save-state", { hasText: "Heruntergeladen: " }).waitFor({ timeout: 10000 });

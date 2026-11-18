@@ -193,6 +193,8 @@ export async function videoSlidesE2E({ browser, tctx, tp, BASE, T, ok, OUT, SHOT
   const src = await frame.getAttribute("src");
   await waitMsg("Spielt hier in der Präsentation.");
   const cmdsOf = async (fr) => { const h = await fr.elementHandle(), c = await h.contentFrame(); return c ? c.evaluate(() => window.__cmds.slice()) : []; };
+  // „Pausiert.“ zeigt die Präsentation schon nach dem gewünschten Stand (vor der Rückmeldung des Players) – der Befehl kann am Beamer(fenster) noch unterwegs sein
+  const cmdsUntil = async (fr, cmd, ms = 10000) => { let c = []; for (const until = Date.now() + ms; !(c = await cmdsOf(fr)).includes(cmd) && Date.now() < until;) await sleep(100); return c; };
   const tOf = async (fr) => { const h = await fr.elementHandle(), c = await h.contentFrame(); return c ? c.evaluate(() => window.__t()) : NaN; };
   ok(await counter() === "2 / 5" && src === "https://www.youtube-nocookie.com/embed/" + VIDEO_OK + "?enablejsapi=1&autoplay=1&playsinline=1&rel=0&start=30&end=45&origin=" + encodeURIComponent(BASE)
     && await frame.getAttribute("sandbox") === "allow-scripts allow-same-origin allow-presentation allow-popups allow-popups-to-escape-sandbox" && (await pr.locator(".pv-play").textContent()) === "Pause",
@@ -237,7 +239,7 @@ export async function videoSlidesE2E({ browser, tctx, tp, BASE, T, ok, OUT, SHOT
   await bw.screenshot({ ...SHOT, path: join(OUT, "nr38-beamerfenster-video.png") });
   await pr.getByRole("button", { name: "Pause" }).click();
   await waitMsg("Pausiert.");
-  ok((await cmdsOf(bwFrame)).includes("pauseVideo"), "Pause in der Präsentation hält das Video im Beamerfenster an (Rückmeldung kommt zurück)");
+  ok((await cmdsUntil(bwFrame, "pauseVideo")).includes("pauseVideo"), "Pause in der Präsentation hält das Video im Beamerfenster an (Rückmeldung kommt zurück)");
   // Folie 4: der Browser blockiert das Abspielen mit Ton – Hinweis in der Präsentation, „Video abspielen“ im Beamerfenster; ein Tipp auf das Video startet es
   await tp.keyboard.press("ArrowRight"); await tp.keyboard.press("ArrowRight");
   await sp.locator(".live .badge", { hasText: "Folie 4 / 5" }).waitFor({ timeout: 10000 });
@@ -288,7 +290,7 @@ export async function videoSlidesE2E({ browser, tctx, tp, BASE, T, ok, OUT, SHOT
   await tp.screenshot({ ...SHOT, path: join(OUT, "nr38-praesentation-video-beamer.png") });
   await pr.getByRole("button", { name: "Pause" }).click();
   await waitMsg("Pausiert.", 15000);
-  ok((await cmdsOf(bpFrame)).includes("pauseVideo"), "Pause erreicht das Beamergerät");
+  ok((await cmdsUntil(bpFrame, "pauseVideo")).includes("pauseVideo"), "Pause erreicht das Beamergerät");
   await tp.keyboard.press("ArrowRight");
   await bp.waitForFunction(() => !document.querySelector(".beamer .bm-video") && /\/3\?/.test((document.querySelector(".beamer .bm-stage > img") || {}).src || ""), null, { timeout: 15000 });
   ok(true, "Folienwechsel: das Beamergerät zeigt wieder die Folie");
