@@ -405,7 +405,10 @@ gleich in `public/_headers`, im Worker und – für GitHub Pages – in `scripts
   auszudrucken“** – nur PDF, alles A4 (andere Formate rechnet Unterricks um), Name wie „28x - sw - beidseitig - PoWi8 - Arbeitsblatt.pdf“
   (siehe **Dateinamen der Druckliste**), einzeln oder alle als ZIP; Claude gestaltet Druckvorlagen über den Connector selbst (mit Anzahl, beidseitig und Farbe). Darunter **„Sitzung als Datei herunterladen“** und
   **„Sitzung aus Datei laden“**, um eine gehaltene Sitzung in einer anderen Lerngruppe erneut durchzuführen (Datum, Beginn und Dauer
-  bleiben, Datumsangaben in den Texten werden angepasst, Feibeitsblätter kommen als Entwürfe).
+  bleiben, Datumsangaben in den Texten werden angepasst, Feibeitsblätter kommen als Entwürfe). Ganz unten (Gymnasium und Grundschule):
+  **„Alle Unterlagen herunterladen (ZIP)“** – ein Ordner mit Verlaufsplan (PDF), am Gymnasium der Präsentation als PDF und PowerPoint (Ihre Notizen in
+  der Referentenansicht) samt Notizen zu den Folien, den Druckvorlagen unter ihrem Druck-Namen und allem übrigen Material, nach Schüler:innen und
+  Lehrkraft getrennt; was fehlt (z. B. noch nicht gedruckt), nennt ein Hinweis.
 * **Dateinamen der Druckliste:** Jede Datei, die Sie ausdrucken (Druckliste der Sitzung, in der Grundschule auch Arbeitsblätter mit
   „Auch ausdrucken“, Bildkarten und die Konzentrationsaufgabe, „Druckaufträge für den nächsten Arbeitstag“, ZIP-Datei, einzelne Downloads),
   heißt **„Anzahl - sw/farbig - einseitig/beidseitig - Kurs - Titel.pdf“**, z. B. „23x - sw - einseitig - Reli4 - Die Arche Noah.pdf“,
@@ -600,7 +603,9 @@ der **Podcast für den kommenden Unterricht** (derselbe wie auf der Startseite �
   aus dem offenen Teil verweist Claude weiter); ist entschieden und danach der Verlaufsplan dieser Sitzung gespeichert, verschwindet der Hinweis. Darunter der Stundenentwurf, die Einordnung in die Einheit, „Stunde mit Claude
   planen“, die **Bildkarten**, der **Materialkasten** (PDFs für die Kinder – mit „Auch ausdrucken (22×)“ zusätzlich auf der Druckliste
   – und Material nur für Sie; jede Datei sagt, ob Eltern sie sehen), die Druckliste (samt Bildkarten), **„Inhalt und Hausaufgabe (für die Eltern)“**
-  (Claude formuliert den Inhalt in 2–3 Sätzen, Sie können ihn ändern) und ganz unten die Karte **„Elternansicht“**. Kein
+  (Claude formuliert den Inhalt in 2–3 Sätzen, Sie können ihn ändern), die Karte **„Elternansicht“** und ganz unten **„Alle Unterlagen dieser
+  Sitzung“** (ZIP-Ordner mit Verlaufsplan, Material für die Kinder und für Sie, Druckvorlagen unter ihrem Druck-Namen und Verweisen auf andere
+  Sitzungen). Kein
   Schulportal-Eintrag, keine Präsentation, kein Sitzungscode.
 * **„Ich bin jetzt im Unterricht“ (wie am Gymnasium, Nachtrag 35):** ganz oben in der Sitzung; kompakt mit dem **Verlaufsplan** (PDF-Verweise
   anklickbar, Zwischenstopp per „Zwischenstopp eintragen …“, Rechtsklick oder Antippen einer Zeile), dem **Material** als Tabelle – links „Für die

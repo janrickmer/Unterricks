@@ -21,6 +21,7 @@ import { bringCard } from "./bringcard.js";
 import { freeDateMessage } from "./freedays.js";
 import { lazy } from "./update.js";
 import { inClassToggle, forgetInClass } from "./inclassbar.js";
+import { lessonDocsCard } from "./lessondocs.js";
 
 const isPdf = (f) => !!f && f.kind === "file" && f.mime === "application/pdf" && f.area !== "archive" && f.area !== "presentation";
 const NOT_YET = "„Diese Unterrichtssitzung hat noch nicht stattgefunden.“";
@@ -524,8 +525,11 @@ export async function gsSessionPage(id, d) {
   const icApi = { kind: "gs", id, st, selbstlern: () => false, on: (k, fn) => { icOn[k].add(fn); return () => icOn[k].delete(fn); },
     planText: () => ta.value, paintPlan: (b) => paintPlanPreview(b, ta.value, { fileOf, onPending }), planState,
     stopMenu, stopDialog, dropStop, stopNext: () => stopNext, openActs: box.openActs, refCards: () => box.refEntries(), badge: fileBadge, homework: hwField, homeworkWrap: true };
-  const inClass = inClassToggle({ id, gs: true, full: () => [tsum.el, grid], mount: async () => (await lazy(import("./inclass.js"))).inClassView(icApi) });
-  main.append(...inClass.els, tsum.el, grid);
+  /* ======================= Alle Unterlagen dieser Sitzung (Nachtrag 41): ganz unten – ZIP-Ordner zum Lesen, Ausdrucken und Mitnehmen ======================= */
+  const docsCard = lessonDocsCard({ gs: true, st, box, course, before: async () => { await flushPlan(); hwF.flush(); return { portal: ta.value, homework: hwTA.value || "" }; },
+    dirty: () => [tsum && tsum.dirty() ? "der Zusammenfassung für die Lehrkraft" : "", bring.dirty() ? "den Gegenständen zum Mitbringen" : ""] });
+  const inClass = inClassToggle({ id, gs: true, full: () => [tsum.el, grid, docsCard], mount: async () => (await lazy(import("./inclass.js"))).inClassView(icApi) });
+  main.append(...inClass.els, tsum.el, grid, docsCard);
   setEditing(false);
   inClass.restore();
   paintRevise();

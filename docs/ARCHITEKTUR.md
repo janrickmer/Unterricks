@@ -88,6 +88,7 @@ implementiert und im End-to-End-Test geprüft (Ausnahmen unten ausdrücklich gen
 | YouTube-Video eingebettet in der Live-Präsentation (Nachtrag 38 vom 17.11.2026) | Wunsch der Lehrkraft: „Baue Unterricks so, dass ich in einer Präsentation ein YouTube-Video eingebettet abspielen kann. … dass Unterricks an der Stelle, an der die "Video-Folie" kommt, eine eigene Anzeige hat … In der Schüleransicht soll das YouTube-Video nicht live abgespielt werden, sondern hier wird die Folie mit dem Titel des Videos und dem YouTube-Link zum Video angezeigt.“ Der Präsentations-Prompt nennt Stelle, Link und Aufbau der Videofolie. Rückfragen beantwortet: **alle drei Aufbauten** (Beamergerät, Beamerfenster am Laptop, iPad gespiegelt); Videoquelle für den Prompt = **YouTube-Links im Schulportal-Eintrag (mit Phase) und in den Links der Sitzung**; Link für Schüler:innen **erst nach der Stunde** (live nur die Folie, danach im Folienfenster ein anklickbarer Link); **Start und Ende** (Ausschnitt). Siehe 4zg |
 | Unterrichtseinheit mit KollegInnen teilen (Nachtrag 39 vom 18.11.2026) | Wunsch der Lehrkraft: ein Knopf ganz unten in jeder Einheit „Untereichtseinheit mit KollegInnen teilen“ (Tippfehler berichtigt) → ZIP-Ordner mit Leupold-Schema-PDF (darunter je Sitzung ein Absatz: was passiert, zentrale Kompetenz des KCGO, Ziel), Erklärung „Das ist ein Feibeitsblatt“ (fett: Notfall-Feibeitsblatt als Dokument genügt), je geplanter Sitzung ein Ordner „Sitzung n“ mit Präsentation (ohne Folien, die Unterricks verlangen, mit „Copyright Jan-Rickmer Feindt“ klein und blass in der Fußzeile), Verlaufsplan und allen PDF-Dateien für Schüler:innen, sowie „Fehlende Sitzungen“. Rückfragen beantwortet: die Absätze **schreibt Claude** (Prompt neben dem Knopf, Absätze in Unterricks prüfbar, künftig beim Planen jeder Stunde gleich mit); Feibeitsblatt **digital nur nach Absprache** (Abgaben kämen bei der Lehrkraft an); **alle Materialfolien bleiben** (nur die kleine Unterricks-Zeile wird überdeckt), nur reine Codefolien fallen weg; zusätzlich **Druckliste, Material für die Lehrkraft, Notizen zu den Folien (eigene PDF) und Grundschul-Einheiten** (dort ohne Präsentation und ohne Erklärung). Ergänzung: jede Präsentation **auch als PowerPoint-Datei**, die Notizen der Lehrkraft in den Notizen der Folien (Referentenansicht); Rückfragen beantwortet: **Folien als Bild** (nicht bearbeitbar), **Notizen-PDF bleibt**. Siehe 4zh |
 | Bewegung im Folien-Stil (Nachtrag 40 vom 19.11.2026) | Prüfauftrag der Lehrkraft: „inwiefern das Design mehr wie eine MotionSite“ (motionsites.ai: Prompt-Sammlung für animierte Landingpages mit Video-Hintergründen, Verläufen, Glas-Effekten). Rückfragen beantwortet: Unterricks; Startseite mit starkem ersten Eindruck plus dezente Bewegung in der App; erst Bericht und Entwurf, dann Einbau; Stil selbst in CSS/JS nachbauen, ohne Kauf, ohne fremde Videos oder Bibliotheken. Freigaben: Bewegungsregel in DESIGN.md ergänzen, neue Texte der Startseite; der Schriftzug darf bei keiner Breite in die Karte ragen. Siehe 4zi |
+| Alle Unterlagen dieser Sitzung (Nachtrag 41 vom 23.11.2026) | Wunsch der Lehrkraft: „bei jeder einzelnen Unterrichtssitzung einen Button ganz unten, mit dem ich einen ZIP-Ordner mit allen Unterlagen und Plänen zu jener Unterrichtssitzung herunterlade“. Rückfragen beantwortet: „Sitzung als Datei“ bleibt; ein ZIP-Ordner mit allen Dateien, die die Lehrkraft braucht, samt Präsentation (eigene PDF und PowerPoint) und Arbeitsblättern; Gymnasium und Grundschule. Siehe 4zj |
 
 ## 2. Gesamtarchitektur
 
@@ -177,6 +178,7 @@ implementiert und im End-to-End-Test geprüft (Ausnahmen unten ausdrücklich gen
 | | `public/pdfcut.js`, `public/a4.js`, `public/zip.js` | Präsentation kürzen bzw. für Schüler:innen bereinigen (ohne Anhänge und Notiz-Anmerkungen, Nachtrag 20), Druckvorlagen auf A4, ZIP schreiben/lesen |
 | | `public/sessionfile.js` | Sitzung als Datei: Name, Datumsanpassung, Feibeitsblatt → Entwurf, Prüfung |
 | | `public/sessionio.js` | Sitzungsdatei zusammenstellen und in eine Sitzung übernehmen – ohne geöffnete Sitzungsseite (Sitzung, Einheit, Sicherung) |
+| | `public/lessondocs.js`, `public/lessonzip.js` | „Alle Unterlagen dieser Sitzung“ (Nachtrag 41): Karte ganz unten und der ZIP-Ordner (erst beim Klick geladen), siehe 4zj |
 | | `public/unitfile.js`, `public/backup.js` | Einheit als Datei (Format, Ordnernamen, chronologische Ordnung) und große Sicherung; gesicherte Sitzungen bis zum Anlegen in IndexedDB |
 | | `worker/reset.js` | Zurücksetzen (Passwort, ein Batch für D1, Dateien in Runden über `reset_queue`) und Übersicht für die Sicherung |
 | | `public/notfall.js`, `public/fbanalog.js` | Notfall-Feibeitsblatt: Blatt, Checkliste und Bilder laden; das analoge Arbeitsblatt (aus dem Feibeitsblatt übernommen per `scripts/fbanalog-sync.mjs`) |
@@ -2050,7 +2052,7 @@ Materialien, die nur die Lehrkraft sehen darf. 4. Hausaufgabenfeld“. Antworten
 Ausdrucken“; Grundschule „Auch Grundschule“ – kompakt mit Verlaufsplan und Material (Druckdateien, Bildkarten), ohne Präsentation und ohne Pfeil.
 
 * **Aufbau – nichts doppelt:** `public/inclassbar.js` (klein, fest geladen) setzt den Knopf **direkt unter das Kopfband**, vor die Zusammenfassung
-  (Nachtrag 21). Ein Klick blendet die vollständige Ansicht nur **aus** (Klasse `ic-hide` an Zusammenfassung, Raster und „Sitzung als Datei“) – sie bleibt
+  (Nachtrag 21). Ein Klick blendet die vollständige Ansicht nur **aus** (Klasse `ic-hide` an Zusammenfassung, Raster, „Sitzung als Datei“ und – seit Nachtrag 41 – „Alle Unterlagen dieser Sitzung“) – sie bleibt
   im Dokument samt Eingaben, Zeitgebern (automatisches Speichern), Druckwarteschlange und Live-Verbindung des Präsentationsmodus. Die kompakte Ansicht
   (`public/inclass.js`, **erst bei Bedarf** über `lazy(import("./inclass.js"))`, 4t) baut nichts nach, sondern bekommt von der Seite ihre Wege (`api`):
   denselben Start der Präsentation (`startLive` in session.js – „Ich bin im Unterricht und starte die Präsentation für alle.“ ruft ihn ebenso auf; läuft
@@ -2390,6 +2392,61 @@ Ausdrucken“; Grundschule „Auch Grundschule“ – kompakt mit Verlaufsplan u
   löscht sie wieder (der Schritt „Teilen“ davor räumt seine Sitzungen weg). Eine zweite Gegenprüfung dieser Änderung fand: das Fach der Seite und die
   Zeit bis `data-laid` setzte auch ein nie gezeigtes Kopfband (behoben, s. o.), „PDF öffnen“ baut sein Kopfband vor `render()` (jetzt `fach: null`), und
   die Prüfung blätterte im Wochenkalender, bevor er geladen war (wartet jetzt).
+
+## 4zj. Alle Unterlagen dieser Sitzung – ZIP-Ordner je Sitzung (Nachtrag 41 vom 23.11.2026)
+
+* **Wunsch und Rückfragen:** ganz unten in jeder Sitzung ein Knopf für einen ZIP-Ordner mit allen Unterlagen und Plänen dieser einen Sitzung. Die Lehrkraft
+  hat geklärt: „Sitzung als Datei“ (zum Wiederladen in Unterricks, 4j) bleibt, wie sie ist; der neue Ordner enthält alle Dateien, die sie braucht, samt
+  Präsentation als eigene PDF und als PowerPoint und den Arbeitsblättern; für Gymnasium und Grundschule. Ohne Vorliebe der Lehrkraft entschieden: die
+  Präsentation als Original (wie hochgeladen, mit Codefolien und den Notizen als Anhang) und die PowerPoint aus diesem Original (Folie für Folie, also
+  auch die Codefolien); die Druckvorlagen unter ihrem Druck-Namen; kein Planungsverlauf (Chat) und keine Sitzungsdatei im Ordner.
+* **Karte** (public/lessondocs.js, leicht; der Ordner selbst – public/lessonzip.js mit pdf-lib, PDF.js und PowerPoint – wird erst beim Klick geladen):
+  „Alle Unterlagen dieser Sitzung“ mit einem Satz, was im Ordner ist, und dem Knopf **„Alle Unterlagen herunterladen (ZIP)“** (`#lessondocs-btn`).
+  Gymnasium: letzte Karte der Seite, direkt unter „Sitzung als Datei“, mit dem Hinweis, wofür jene da ist; Grundschule: letzte Karte (dort gibt es keine
+  Sitzungsdatei). In „Ich bin jetzt im Unterricht“ ausgeblendet (`full()`). Vorher werden ungespeicherte Felder gesichert und genommen, wie sie dastehen
+  (Gymnasium `await flushPortal()` – ein Konflikt wird erst im Dialog geklärt – und die Hausaufgabe aus dem Feld, Grundschule `await flushPlan()` und
+  `hwF.flush()`); sind Notizen zu den Folien, die Zusammenfassung oder die Gegenstände zum Mitbringen noch ungespeichert, fragt „Ungespeicherte
+  Änderungen“ vorher nach (der Ordner hat den gespeicherten Stand). Während des Packens fragt `beforeunload` nach; ist die Seite danach eine andere,
+  kommen die Hinweise als Meldung statt als Dialog.
+  Fortschritt und „Heruntergeladen: Name (Größe, n Dateien)“ in der Zeile neben der Überschrift; fehlt etwas, nennt der Dialog „Hinweise zum Ordner“
+  alles, „Fertig“ gibt den Fokus an den Knopf zurück.
+* **Ordner** `Unterlagen - PoWi - 8B - 2026-11-24 - Titel.zip` (Grundschule `Unterlagen - Grundschule - <Kurs> - Datum - Titel.zip`; Namen über `namePart`,
+  ohne Zeichen, die Windows verbietet):
+  - `Verlaufsplan - <Titel>.pdf` (`planBlocks` mit eigener Überschrift „Verlaufsplan – Di, 24.11.2026“, Kopfzeile mit Datum und Beginn, `blocksPdf` ohne
+    Copyright – nur „Seite n von N“): Stundenverlauf bzw. Verlaufsplan ohne „⏸ Zwischenstopp“, Hausaufgabe, Links, Feibeitsblätter mit Code (und ihrem
+    Notfall-Feibeitsblatt im Ordner), Gegenstände zum Mitbringen, die Zusammenfassung für die Lehrkraft und „In diesem Ordner“ (alle Pfade). Verweise der
+    Grundschule `[[pdf:…]]` nennen den Pfad im Ordner (z. B. „Material für die Lehrkraft/Vorlesetext.pdf“), sonst „… (nicht im Ordner)“. Ohne Plan:
+    „Noch kein Stundenverlauf eingetragen.“
+  - `Präsentation - <Titel>.pdf` (Bytes wie gespeichert), `Präsentation - <Titel>.pptx` (`pdfToPptx` aus public/sharepres.js – aus dem Teilen-Ordner
+    herausgelöst und dort unverändert genutzt: jede Seite ein Bild ≈ 1920 px, Links als Flächen, Notizen je Folie in der Referentenansicht,
+    Bildbeschreibung = sichtbarer Text ohne Unterricks-Zeilen), `Notizen zu den Folien - <Titel>.pdf` (frisch aus den Notizen von eben mit
+    `annotatedPdfBytes`, also passend zur PowerPoint; nur wenn sich die Notizen nicht laden lassen, die gespeicherte Anmerkungs-PDF). Mehrere
+    Präsentationen mit „ (2)“; eine nicht fertige nennt der Hinweis.
+  - `Zum Ausdrucken/` – genau wie „Alle herunterladen (ZIP)“ der Druckliste: `packPrint()` aus public/materialbox.js (aus dem Knopf herausgelöst;
+    Grundschule: holt dabei den Stand vom Server; Druck-Name mit Anzahl, Druckart und Kurs; Bildkarten nur mit der PDF ihrer aktuellen Gestaltung,
+    hochgeladene auf A4; was noch gedruckt wird – mit dem Grund wie unter „Alle herunterladen (ZIP)“ –, was nach dem Druck geändert wurde und was sich nicht
+    laden lässt, nennt der Hinweis: `packPrint({tolerant: true})` sammelt Fehler je Datei, statt alles abzubrechen; `printBytes` versucht es bei Netz- und
+    Serverfehlern bis zu dreimal).
+  - `Material für Schülerinnen und Schüler/` (Grundschule `Material für die Kinder/`) und `Material für die Lehrkraft/`: alles übrige Material (Text als PDF
+    – für Schüler:innen mit Namenszeile –, andere Dateiarten unverändert, Notfall-Feibeitsblätter bei den Schüler:innen; Links nur im Verlaufsplan; die
+    Anmerkungs-PDF nur einmal, als Notizen). Ordnernamen ohne Doppelpunkt (Windows).
+  - Grundschule: `Aus anderen Sitzungen/` – Dateien anderer Sitzungen, auf die der Verlaufsplan verweist (`courseCards` vor `refFiles`, damit Bildkarten
+    ihre Gestaltung tragen; was auf der Druckliste steht, nur dort).
+  - Selbstlern-Phase bzw. Vertretung: `Ursprüngliche Planung (archiviert)/` mit dem archivierten Material und `Verlaufsplan (ursprünglich) - <Titel>.pdf`
+    (mit den archivierten Links, den ursprünglichen Feibeitsblättern und der Zusammenfassung für die Lehrkraft – sie beschreibt die ursprüngliche
+    Planung); oben gilt, was die Seite gerade zeigt (Hinweis; gibt es nichts Archiviertes, sagt er das). Ist die Zusammenfassung älter als die Planung,
+    steht wie auf der Seite „Die Planung wurde danach geändert – …“ darunter. Dateinamen behalten beim Kürzen ihre Endung.
+* **Hinweise** (nie still): Druckvorlage noch nicht als PDF gedruckt, Bildkarten noch nicht gedruckt, Material nicht fertig oder nicht ladbar, nach dem
+  Druck geändert (zuletzt gedruckte Fassung im Ordner), PowerPoint nicht zeichenbar (dann fehlt nur sie), Notizen nicht ladbar, Feibeitsblatt ohne
+  Notfall-Feibeitsblatt, Selbstlern-Phase bzw. Vertretung.
+* **Grenzen:** Das Chromium der Testumgebung ersetzt Download-Namen mit Umlauten durch „download“ (der E2E-Test prüft den gewünschten Namen über die
+  Rückmeldung der Karte); auf iPad, Windows und macOS gilt der Name. Die PowerPoint-Datei entsteht mit dem Paket des Teilen-Ordners (dort mit dem
+  OOXML-Prüfskript, python-pptx und LibreOffice geprüft); in PowerPoint selbst noch nicht geöffnet.
+* **Tests:** Unit `test/unit/lessonzip.test.mjs` (Planbausteine und PDF ohne Copyright, Name, Gymnasium mit allem und den Hinweisen, Notizen ohne
+  gespeicherte Anmerkungs-PDF und PowerPoint ohne Zeichnen, Grundschule mit Verweisen und Bildkarten, Selbstlern-Phase, Einbau in beide Seiten, Karte);
+  E2E `test/e2e/lessonzip.mjs` (eigene Sitzungen PoWi 8B und Grundschule: Karte ganz unten, Ordnerinhalt, Präsentation byte-gleich, PowerPoint mit
+  1920 px breiten Folienbildern und Notizen, Notizen-PDF, Verlaufsplan mit ungespeicherter Hausaufgabe, kompakte Ansicht, Grundschule mit Verweis als
+  Pfad; Bildschirmfotos `nr41-*.png`).
 
 ## 4i. Druckliste „Von der Lehrkraft auszudrucken“ (Ergänzung vom 10.11.2026)
 

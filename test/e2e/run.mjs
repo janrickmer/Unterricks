@@ -27,6 +27,7 @@ import { phaseStopE2E } from "./phasestop.mjs";
 import { videoSlidesE2E, PLAYER_FAKE } from "./videoslides.mjs";
 import { shareE2E, shareE2Epart2 } from "./share.mjs";
 import { motionE2E } from "./motion.mjs";
+import { lessonZipE2E } from "./lessonzip.mjs";
 import { inClassE2E } from "./inclass.mjs";
 import { escapeFixture } from "./escape-fixture.mjs";
 
@@ -4165,6 +4166,15 @@ async function main() {
     /* ---------- Nachtrag 40: Bewegung im Folien-Stil – Startseite, Anmeldung, in der App; über alle Breiten kein abgeschnittener oder verdeckter Text ---------- */
     step("Bewegung im Folien-Stil (Nachtrag 40): Startseite (Schriftzug, Satz, Schritte, Karte), Folge nur beim ersten Bild, lesbar von Anfang an, reduzierte Bewegung, Breiten 320–2000px, Anmeldung der Lehrkräfte, Folie wechseln, Karten legen sich auf, Woche, Meldungen");
     await motionE2E({ browser, BASE, tp, ok, OUT, SHOT });
+
+    /* ---------- Nachtrag 41: „Alle Unterlagen dieser Sitzung“ – ZIP-Ordner je Sitzung (Gymnasium und Grundschule) ---------- */
+    step("Alle Unterlagen dieser Sitzung (Nachtrag 41): Karte ganz unten, ZIP-Ordner mit Präsentation (PDF wie hochgeladen, PowerPoint mit Notizen), Notizen-PDF, Druckliste mit Druck-Namen, Material nach Bereich, Verlaufsplan; kompakte Ansicht; Grundschule mit Verweis als Pfad");
+    {
+      const tok = await tp.evaluate(() => localStorage.getItem("u.ttoken"));
+      const TS = (method, path, body) => fetch(BASE + path, { method, headers: { Authorization: "Bearer " + tok, ...(body ? { "Content-Type": "application/json" } : {}) }, body: body ? JSON.stringify(body) : undefined })
+        .then(async (x) => ({ status: x.status, data: await x.json().catch(() => null) }));
+      await lessonZipE2E({ tp, BASE, T: TS, tool, ok, OUT, SHOT });
+    }
   } finally {
     await browser.close();
     ai.srv.close(); fbm.srv.close();

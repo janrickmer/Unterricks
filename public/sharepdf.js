@@ -88,21 +88,21 @@ function flow(D, blocks, { M = 56 } = {}) {
     y -= st.after;
   }
 }
-/* Fußzeile aller Seiten: Copyright links, Seite n von N rechts (Hoch- und Querformat) */
-function footers(D) {
+/* Fußzeile aller Seiten: Copyright links (ohne bei den eigenen Unterlagen einer Sitzung, Nachtrag 41), Seite n von N rechts (Hoch- und Querformat) */
+function footers(D, copyright = true) {
   const n = D.pages.length;
   D.pages.forEach((p, k) => {
     const { width: W } = p.getSize(), M = W > 700 ? 40 : 56, size = 8;
-    p.drawText(D.clean(SHARE_COPYRIGHT), { x: M, y: 24, size, font: D.F.r, color: D.c(MUTED) });
+    if (copyright) p.drawText(D.clean(SHARE_COPYRIGHT), { x: M, y: 24, size, font: D.F.r, color: D.c(MUTED) });
     const t = "Seite " + (k + 1) + " von " + n;
     p.drawText(t, { x: W - M - D.F.r.widthOfTextAtSize(t, size), y: 24, size, font: D.F.r, color: D.c(MUTED) });
   });
 }
 /* Blöcke → PDF-Bytes (Hochformat) */
-export async function blocksPdf(title, blocks, { lib = null } = {}) {
+export async function blocksPdf(title, blocks, { lib = null, copyright = true } = {}) {
   const D = await newDoc(title, lib);
   flow(D, blocks);
-  footers(D);
+  footers(D, copyright);
   return D.doc.save();
 }
 

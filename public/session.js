@@ -22,6 +22,7 @@ import { summaryCard } from "./tsummary.js";
 import { bringCard } from "./bringcard.js";
 import { freeDateMessage } from "./freedays.js";
 import { inClassToggle } from "./inclassbar.js";
+import { lessonDocsCard } from "./lessondocs.js";
 import { videoSlidesOf, videoAt, videoName, lessonVideos, videoPromptSection } from "./videoslides.js";
 import { videosPanel } from "./videopanel.js";
 
@@ -431,7 +432,8 @@ export async function sessionPage(id) {
     presPromptBtn, presPromptOut);
 
   /* ======================= Materialien (materialbox.js) ======================= */
-  const { filesCard, printCard, paintFiles, paintPrint, filesKey, openActs } = materialBox({ lessonId: id, st, L, onPaint: () => icEmit("files") });
+  const mbox = materialBox({ lessonId: id, st, L, onPaint: () => icEmit("files") });
+  const { filesCard, printCard, paintFiles, paintPrint, filesKey, openActs } = mbox;
 
   /* ======================= Präsentation ======================= */
   const presCard = h("section", { class: "card" });
@@ -1474,6 +1476,11 @@ export async function sessionPage(id) {
     h("div", { class: "row" }, exportBtn, importBtn, importInput),
     h("p", { class: "hint", text: "Beim Laden einer Datei bleiben Datum, Beginn und Dauer dieser Sitzung; Datumsangaben in den Texten passt Unterricks an diese Sitzung an. Notfall-Feibeitsblätter entstehen neu, sobald die Feibeitsblätter angelegt sind." }));
 
+  /* ======================= Alle Unterlagen dieser Sitzung (Nachtrag 41): ganz unten – ZIP-Ordner zum Lesen, Ausdrucken und Mitnehmen ======================= */
+  // vorher Schulportal-Eintrag sichern (ein Konflikt wird erst geklärt), dann der Stand der Felder; übrige ungespeicherte Teile fragt die Karte ab
+  const docsCard = lessonDocsCard({ st, box: mbox, before: async () => { await flushPortal(); return { portal: portalTA ? portalTA.value : L().portal || "", homework: hwTA.value || "" }; },
+    dirty: () => [notesDirtyNow() ? "den Notizen zu den Folien" : "", tsum.dirty() ? "der Zusammenfassung für die Lehrkraft" : "", bring.dirty() ? "den Gegenständen zum Mitbringen" : ""] });
+
   // Gegenstände zum Mitbringen (Nachtrag 28): kompakte Karte unter den Sitzungsdaten
   const bring = bringCard({ id, L, absent: () => (st.sub && (st.sub.status === "selbstlern" || st.sub.status === "aktiv") ? st.sub.status : null) });
   const grid = h("div", { class: "session-grid" },
@@ -1491,9 +1498,9 @@ export async function sessionPage(id) {
     startLive: (focusAfter) => startLive(focusAfter),
     // Stand des Servers vergleichen (…/stamp) und bei einer Änderung die Sitzung neu laden (refreshLesson)
     checkStamp: async () => { const s = await tapi("GET", "/api/teacher/lessons/" + id + "/stamp"); if (s.stamp !== lessonStamp) await refreshLesson(); } };
-  const inClass = inClassToggle({ id, full: () => [tsum.el, grid, ioCard], allowed: () => !(st.sub && (st.sub.status === "selbstlern" || st.sub.status === "aktiv")),
+  const inClass = inClassToggle({ id, full: () => [tsum.el, grid, ioCard, docsCard], allowed: () => !(st.sub && (st.sub.status === "selbstlern" || st.sub.status === "aktiv")),
     mount: async () => (await lazy(import("./inclass.js"))).inClassView(icApi) });
-  main.append(...inClass.els, tsum.el, grid, ioCard);
+  main.append(...inClass.els, tsum.el, grid, ioCard, docsCard);
   inClass.restore();
 
   // Hinweis zum Überarbeiten der Einheit nach dem Verschieben wegen unterrichtsfreier Tage (Nachtrag 24) – derselbe Kasten wie auf der Einheitsseite

@@ -92,6 +92,35 @@ async function rasterPage(page) {
 const cutCode = (t, code) => { if (!code) return t; for (const m of codesInText(t).reverse()) if (m.code === code) t = t.slice(0, m.start) + t.slice(m.end); return t; };
 export const altText = (lines, code = "") => (lines || []).map((l) => cutCode(String(l.text || ""), code).trim()).filter((t) => t && !codeMarkLine(t) && !/^Unterricks-(Phase|Video)\b/i.test(t)).join(" ");
 
+/* PowerPoint aus einer PDF (Teilen-Ordner, Nachtrag 39, und Unterlagen einer Sitzung, Nachtrag 41): je Seite ein Folienbild (rasterPage), ihre Links als
+   anklickbare Flächen, notes = [{n, items}] (Seite n, Notizen der Lehrkraft) in den Notizen der Folie, alts = Bildbeschreibung je Seite (fehlt sie: der
+   sichtbare Text der Seite ohne Unterricks-Zeilen). libs: pdfjs bzw. raster (Test). → Uint8Array; wirft, wenn sich eine Seite nicht zeichnen lässt */
+export async function pdfToPptx(bytes, { notes = [], alts = null, title = "", libs = null } = {}) {
+  const PJ = libs && libs.pdfjs ? libs.pdfjs : await pdfjs();
+  const byPage = new Map((notes || []).filter((x) => x && Array.isArray(x.items) && x.items.length).map((x) => [x.n, x.items]));
+  let sdoc = null;
+  try {
+    sdoc = await lazyWorker(PJ.getDocument({ data: new Uint8Array(bytes).slice(), isEvalSupported: false, verbosity: 0 }).promise);
+    const slides = [];
+    for (let i = 1; i <= sdoc.numPages; i++) {
+      const page = await sdoc.getPage(i), vp = page.getViewport({ scale: 1 });
+      const image = libs && libs.raster ? await libs.raster(page, i) : await rasterPage(page);
+      if (!image) throw new Error("Die Folien ließen sich in diesem Browser nicht als Bild zeichnen");
+      const links = [];
+      for (const a of await page.getAnnotations().catch(() => [])) {
+        if (!a || a.subtype !== "Link" || typeof a.url !== "string" || !Array.isArray(a.rect)) continue;
+        const [x1, y1, x2, y2] = vp.convertToViewportRectangle(a.rect);
+        links.push({ x: Math.min(x1, x2), y: Math.min(y1, y2), w: Math.abs(x2 - x1), h: Math.abs(y2 - y1), url: a.url });
+      }
+      let alt = alts ? alts[i - 1] || "" : null;
+      if (alt === null) { try { alt = altText(slideTextLines(await textItems(PJ, page, vp))).replace(/\s+/g, " ").trim(); } catch { alt = ""; } }
+      slides.push({ image, w: vp.width, h: vp.height, links, notes: byPage.get(i) || [], alt });
+      page.cleanup();
+    }
+    return buildPptx({ slides, title, author: SHARE_COPYRIGHT.replace(/^Copyright /, "") });
+  } finally { if (sdoc) try { await sdoc.destroy(); } catch {} }
+}
+
 /* bytes = Präsentation (PDF), codeSlides = [{n, lines}], titles = Namen der Materialien und Feibeitsblätter der Sitzung, notes = [{n, items}] (Notizen der
    Lehrkraft) oder null. pptx: auch die PowerPoint-Fassung (Folienbilder + Notizen; libs.raster ersetzt im Test das Zeichnen).
    → {bytes, notesBytes|null, pptxBytes|null, pptxError, kept, dropped, covered, uncovered} (Nummern der ursprünglichen Folien) */
@@ -162,27 +191,8 @@ export async function sharePresentation(bytes, { codeSlides = [], titles = [], n
   // in den Notizen der Folie (Referentenansicht). Scheitert das Zeichnen, fehlt nur sie – die PDF bleibt.
   let pptxBytes = null, pptxError = "";
   if (pptx) {
-    const byPos = new Map(kept.map((x) => [x.n, x.items]));
-    let sdoc = null;
-    try {
-      sdoc = await lazyWorker(PJ.getDocument({ data: new Uint8Array(shared).slice(), isEvalSupported: false, verbosity: 0 }).promise);
-      const slides = [];
-      for (let i = 1; i <= sdoc.numPages; i++) {
-        const page = await sdoc.getPage(i), vp = page.getViewport({ scale: 1 });
-        const image = libs && libs.raster ? await libs.raster(page, i) : await rasterPage(page);
-        if (!image) throw new Error("Die Folien ließen sich in diesem Browser nicht als Bild zeichnen");
-        const links = [];
-        for (const a of await page.getAnnotations().catch(() => [])) {
-          if (!a || a.subtype !== "Link" || typeof a.url !== "string" || !Array.isArray(a.rect)) continue;
-          const [x1, y1, x2, y2] = vp.convertToViewportRectangle(a.rect);
-          links.push({ x: Math.min(x1, x2), y: Math.min(y1, y2), w: Math.abs(x2 - x1), h: Math.abs(y2 - y1), url: a.url });
-        }
-        slides.push({ image, w: vp.width, h: vp.height, links, notes: byPos.get(i) || [], alt: alts[i - 1] || "" });
-        page.cleanup();
-      }
-      pptxBytes = buildPptx({ slides, title, author: SHARE_COPYRIGHT.replace(/^Copyright /, "") });
-    } catch (e) { pptxError = e && e.message ? e.message : "Fehler"; }
-    finally { if (sdoc) try { await sdoc.destroy(); } catch {} }
+    try { pptxBytes = await pdfToPptx(shared, { notes: kept, alts, title, libs: libs ? { ...libs, pdfjs: PJ } : { pdfjs: PJ } }); }
+    catch (e) { pptxError = e && e.message ? e.message : "Fehler"; }
   }
   return { bytes: shared, notesBytes, pptxBytes, pptxError, kept: plan.keep, dropped: plan.drop, covered: plan.cover.filter((n) => !uncovered.includes(n)), uncovered,
     legacy: legacy.code ? { code: formatCode(legacy.code), slides: legacy.slides, missed: legacy.missed } : null };

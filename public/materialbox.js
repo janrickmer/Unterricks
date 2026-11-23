@@ -273,11 +273,21 @@ export function materialBox({ lessonId: id, st, L, gs = false, labels = {}, excl
       const { markdownToPdf } = await lazy(import("./pdfmaker.js"));
       return new Uint8Array(await (await markdownToPdf(f.name, f.text, { subtitle: subtitle || subjectName(L().subject) + " · " + classShort(L().klass) })).arrayBuffer());
     }
-    // Bildkarten mit print: Der Server gibt nur die PDF der aktuellen Gestaltung heraus (sonst 409 cards_not_printed)
-    const r = await tapi("POST", "/api/teacher/files/" + f.id + "/link", { body: isCards(f) ? { print: true } : {} });
-    const res = await fetch(apiUrl(r.url), { credentials: "omit", cache: "no-store" });
-    if (!res.ok) throw new Error("„" + f.name + "“ ließ sich nicht laden (Fehler " + res.status + ").");
-    const buf = new Uint8Array(await res.arrayBuffer());
+    // Bildkarten mit print: Der Server gibt nur die PDF der aktuellen Gestaltung heraus (sonst 409 cards_not_printed). Bei Netzfehlern und Fehlern des
+    // Servers (5xx, 429) bis zu dreimal (wie sessionio.js fetchFileBytes) – Ablehnungen (4xx) sofort
+    let buf;
+    for (let i = 1; ; i++) {
+      try {
+        const r = await tapi("POST", "/api/teacher/files/" + f.id + "/link", { body: isCards(f) ? { print: true } : {} });
+        const res = await fetch(apiUrl(r.url), { credentials: "omit", cache: "no-store" });
+        if (!res.ok) { const e = new Error("„" + f.name + "“ ließ sich nicht laden (Fehler " + res.status + ")."); e.status = res.status >= 500 ? res.status : 400; throw e; }
+        buf = new Uint8Array(await res.arrayBuffer()); break;
+      } catch (e) {
+        const st = e && typeof e.status === "number" ? e.status : 0;
+        if (i >= 3 || (st >= 400 && st < 500 && st !== 429)) throw e;
+        await new Promise((res) => setTimeout(res, 800 * i * i));
+      }
+    }
     if (!upCards(f)) return buf;
     const { cardsA4 } = await lazy(import("./a4.js"));
     return cardsA4(buf, await pdfLib());
@@ -398,28 +408,35 @@ export function materialBox({ lessonId: id, st, L, gs = false, labels = {}, excl
     const rest = printFiles().filter((x) => zipMissing.has(x.id));
     zipNote.textContent = rest.length ? cardsMissingText(rest) : "Die Bildkarten sind jetzt gedruckt – laden Sie die ZIP-Datei bitte noch einmal herunter, dann sind sie dabei.";
   }
+  /* Druckliste packen – für „Alle herunterladen (ZIP)“ und für „Alle Unterlagen dieser Sitzung“ (Nachtrag 41): Stand vom Server (Grundschule), fertige Dateien
+     mit ihrem Druck-Namen. Gestaltete Vorlagen, die noch nicht gedruckt sind, fehlen (wait); Bildkarten erst mit der PDF ihrer aktuellen Gestaltung (printReady,
+     cardsWait – noch nicht gedruckte werden dabei gedruckt). tolerant („Alle Unterlagen dieser Sitzung“): eine Datei, die sich nicht laden lässt, bricht nicht
+     alles ab, sondern steht in failed. → {all, entries: [{f, name, data}], wait, cardsWait, failed: [{f, error}]} */
+  async function packPrint({ tolerant = false } = {}) {
+    if (beforeZip) { try { await beforeZip(); } catch {} }   // Grundschule: Stand vom Server (ein Fehler hier hält die ZIP-Datei nicht auf)
+    const all = printFiles();
+    const fs = all.filter(printReady), wait = all.filter((f) => !fs.includes(f) && !f.cards), cardsWait = all.filter((f) => !fs.includes(f) && f.cards);
+    for (const f of cardsWait) { const d = printDesignState(f); if (d && d.need) rq.add(f); }   // druckt sie (falls noch nicht unterwegs)
+    setZipNote(cardsWait);
+    const entries = [], failed = [];
+    for (const f of fs) {
+      // gleiche Namen (z. B. zwei Vorlagen mit demselben Titel) macht makeZip eindeutig: „… (2).pdf“ – nichts wird überschrieben
+      try { entries.push({ f, name: nameOf(f), data: await printBytes(f) }); }
+      catch (err) {
+        // Bildkarten, die inzwischen neu gestaltet und noch nicht gedruckt sind (der Server gibt die alte PDF nicht heraus): nicht dabei, aber genannt
+        if (!(f.cards && err && err.code === "cards_not_printed")) { if (tolerant) { failed.push({ f, error: err }); continue; } throw err; }
+        // (wiederverwendete Bildkarten: am Eintrag in st.courseCards – f ist nur eine Kopie für diese Liste)
+        for (const x of new Set([f, (f.ref && courseCard(f.id)) || f])) if (x.design) x.design = { ...x.design, outdated: true };
+        cardsWait.push(f); setZipNote(cardsWait); repaintFile(f.id);
+      }
+    }
+    return { all, entries, wait, cardsWait, failed };
+  }
   const zipBtn = h("button", { class: "btn", type: "button", onclick: (e) => busy(e.currentTarget, async () => {
     try {
-      if (beforeZip) { try { await beforeZip(); } catch {} }   // Grundschule: Stand vom Server (ein Fehler hier hält die ZIP-Datei nicht auf)
-      const all = printFiles(); if (!all.length) return;
-      // gestaltete Vorlagen, die noch nicht gedruckt sind, fehlen in der ZIP-Datei (Hinweis); Bildkarten erst mit der PDF ihrer aktuellen Gestaltung (printReady)
-      const fs = all.filter(printReady), wait = all.filter((f) => !fs.includes(f) && !f.cards), cardsWait = all.filter((f) => !fs.includes(f) && f.cards);
-      for (const f of cardsWait) { const d = printDesignState(f); if (d && d.need) rq.add(f); }   // druckt sie (falls noch nicht unterwegs)
-      setZipNote(cardsWait);
-      if (!fs.length) { toast(cardsWait.length ? cardsMissingText(cardsWait) : "Die Vorlagen werden gerade noch als PDF gedruckt – bitte gleich noch einmal.", "err", cardsWait.length ? 9000 : 4200); return; }
-      const entries = [];
-      for (const f of fs) {
-        // gleiche Namen (z. B. zwei Vorlagen mit demselben Titel) macht makeZip eindeutig: „… (2).pdf“ – nichts wird überschrieben
-        try { entries.push({ name: nameOf(f), data: await printBytes(f) }); }
-        catch (err) {
-          // Bildkarten, die inzwischen neu gestaltet und noch nicht gedruckt sind (der Server gibt die alte PDF nicht heraus): nicht dabei, aber genannt
-          if (!(f.cards && err && err.code === "cards_not_printed")) throw err;
-          // (wiederverwendete Bildkarten: am Eintrag in st.courseCards – f ist nur eine Kopie für diese Liste)
-          for (const x of new Set([f, (f.ref && courseCard(f.id)) || f])) if (x.design) x.design = { ...x.design, outdated: true };
-          cardsWait.push(f); setZipNote(cardsWait); repaintFile(f.id);
-        }
-      }
-      if (!entries.length) { toast(cardsMissingText(cardsWait), "err", 9000); return; }
+      const { all, entries, wait, cardsWait } = await packPrint();
+      if (!all.length) return;
+      if (!entries.length) { toast(cardsWait.length ? cardsMissingText(cardsWait) : "Die Vorlagen werden gerade noch als PDF gedruckt – bitte gleich noch einmal.", "err", cardsWait.length ? 9000 : 4200); return; }
       const { makeZip } = await lazy(import("./zip.js"));
       downloadBlob(new Blob([makeZip(entries)], { type: "application/zip" }), zipName());
       const late = wait.length || cardsWait.length;
@@ -490,5 +507,6 @@ export function materialBox({ lessonId: id, st, L, gs = false, labels = {}, excl
   }
   // refKey: Stand der wiederverwendeten Bildkarten (Verweise, Druckangaben dieser Sitzung, Gestaltung); syncRefs(): ändert er sich (Verlaufsplan, anderes Fenster),
   // zeichnet die Druckliste neu – sonst bleibt sie stehen (Fokus und Eingaben)
-  return { filesCard, printCard, paintFiles, paintPrint, repaintFile, filesKey, openActs, refEntries, refKey, syncRefs };
+  // waitWhy: warum eine gestaltete Vorlage (noch) nicht gedruckt ist – wie die Zeile unter „Alle herunterladen (ZIP)“
+  return { filesCard, printCard, paintFiles, paintPrint, repaintFile, filesKey, openActs, refEntries, refKey, syncRefs, packPrint, printName: (f) => nameOf(f), cardsMissingText, waitWhy: cardWhy };
 }

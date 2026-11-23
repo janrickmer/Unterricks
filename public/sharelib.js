@@ -273,15 +273,18 @@ function markupBlocks(text, gs, names) {
   while (out.length && out[out.length - 1].t === "gap") out.pop();
   return out;
 }
-export function planBlocks({ L, n, gs = false, files = [], names = new Map(), meta = "" }) {
-  const out = [{ t: "title", text: "Verlaufsplan – " + shareFolder(n) }];
+/* head = eigene Überschrift statt „Verlaufsplan – Sitzung n“, when = Datum und Beginn für die Kopfzeile, extra = weitere Blöcke nach den Links (Unterlagen einer
+   Sitzung, Nachtrag 41: Feibeitsblätter, Gegenstände zum Mitbringen) */
+export function planBlocks({ L, n, gs = false, files = [], names = new Map(), meta = "", head = "", when = "", extra = [] }) {
+  const out = [{ t: "title", text: head || "Verlaufsplan – " + shareFolder(n) }];
   if (L.title) out.push({ t: "sub", text: L.title });
-  out.push({ t: "muted", text: [meta, L.durationMin ? L.durationMin + " Minuten" : ""].filter(Boolean).join(" · ") });
+  out.push({ t: "muted", text: [meta, when, L.durationMin ? L.durationMin + " Minuten" : ""].filter(Boolean).join(" · ") });
   out.push({ t: "h", text: gs ? "Verlaufsplan" : "Stundenverlauf" }, ...markupBlocks(L.portal, gs, names));
   const hw = str(L.homework).trim();
   if (hw) out.push({ t: "h", text: "Hausaufgabe" }, ...(gs ? hw.split(/\n+/).map((x) => ({ t: "p", runs: [R(x.trim())] })) : markupBlocks(hw, false, names)));
   const links = files.filter((f) => f.kind === "link" && f.url && f.area !== "archive");
   if (links.length) out.push({ t: "h", text: "Links" }, ...links.map((f) => ({ t: "li", runs: [R(f.name + ": "), R(f.url, { href: f.url })] })));
+  out.push(...(extra || []));
   const sum = str(L.teacherSummary).trim();
   if (sum) out.push({ t: "h", text: "Zusammenfassung der Sitzung für die Lehrkraft" }, ...sum.split(/\n\s*\n|\n/).map((x) => x.trim()).filter(Boolean).map((x) => ({ t: "p", runs: [R(x)] })));
   return out;
