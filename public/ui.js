@@ -547,9 +547,10 @@ export function settleIn(main) {
 }
 
 /* Fach der aktuellen Seite: färbt Kopfband, Akzente und Fokus (Politik und Wirtschaft, Ev. Religion, Ethik) */
+const fachKey = (subject) => (subject === "powi" || subject === "evrel" || subject === "ethik" || subject === "gs" ? subject : "");
 export function setFach(subject) {
-  const root = document.documentElement;
-  if (subject === "powi" || subject === "evrel" || subject === "ethik" || subject === "gs") root.dataset.fach = subject; else delete root.dataset.fach;
+  const root = document.documentElement, f = fachKey(subject);
+  if (f) root.dataset.fach = f; else delete root.dataset.fach;
 }
 
 /* Zustandszeile (z. B. „Gespeichert 10:42“): Symbol statt Sonderzeichen; kind = "ok" | "err" | "" (neutral) */
@@ -563,14 +564,24 @@ export function stateLine(el, text, kind = "") {
 /* Kopfband einer Seite: Brotkrumen ([href, Text] bzw. Text), Titel (Text oder fertiges h1), Unterzeile, Chips ({text, strong}), Inhalt rechts.
  * Die Folien (.foils) liegen hinter dem Inhalt: auf Fachseiten eine Folie in der Fachfarbe, sonst die drei Fachfolien übereinander.
  * „Folie auflegen“ läuft nur beim ersten Kopfband nach dem Laden (danach data-laid an <html>). „Folie wechseln“ (Nachtrag 40): ändert sich danach das Fach
- * gegenüber dem vorigen Kopfband, legen sich seine Folien neu auf (.relay) – nicht bei jedem Neuzeichnen derselben Seite. */
-let bandFach;   // Fach des zuletzt gebauten Kopfbands (undefined: noch keines)
-export function pageHead({ crumbs, title, sub, chips, aside, fach } = {}) {
-  if (fach !== undefined) setFach(fach);
+ * gegenüber dem vorigen Kopfband, legen sich seine Folien neu auf (.relay) – nicht bei jedem Neuzeichnen derselben Seite. Es zählt das zuletzt GEZEIGTE
+ * Kopfband: Baut eine schon verlassene Seite ihr Kopfband noch fertig (Antwort des Servers kam erst danach), hängt es nie im Dokument – es setzt dann weder
+ * das Fach der Seite (sonst färbte es die neue Seite um) noch das vorige Kopfband, und es startet auch nicht die Zeit bis data-laid. */
+let bandFach;   // Fach des zuletzt gezeigten Kopfbands (undefined: noch keines)
+function bandOn(hd) {   // ein Kopfband ist jetzt zu sehen
+  if (hd.hasAttribute("data-band-set")) setFach(hd.dataset.band);   // nur, wenn die Seite das Fach angegeben hat (sonst bleibt es, wie es ist)
+  // gemerkt wird das Fach, in dem es zu sehen ist: ohne Angabe das der Seite (vor render() gebaut, wäre es sonst noch das der vorigen)
+  bandFach = hd.dataset.band = document.documentElement.dataset.fach || "";
   const root = document.documentElement;
   if (!root.hasAttribute("data-laid") && !pageHead.timer) pageHead.timer = setTimeout(() => root.setAttribute("data-laid", ""), 900);
-  const f = root.dataset.fach || "", relay = bandFach !== undefined && f !== bandFach && root.hasAttribute("data-laid");
-  bandFach = f;
+}
+export function bandShown(root = document) {   // aus render() (app.js): ein vorher gebautes Kopfband ist jetzt zu sehen
+  const hd = root.querySelector && root.querySelector("header.pagehead[data-band]");
+  if (hd && hd.isConnected) bandOn(hd);
+}
+export function pageHead({ crumbs, title, sub, chips, aside, fach } = {}) {
+  const root = document.documentElement;
+  const f = fach !== undefined ? fachKey(fach) : root.dataset.fach || "", relay = bandFach !== undefined && f !== bandFach && root.hasAttribute("data-laid");
   const trail = [], n = (crumbs || []).length;
   (crumbs || []).forEach((c, i) => {
     const cur = i === n - 1 && !Array.isArray(c);   // letzte Krume = aktuelle Seite (wiederholt den Titel; am Handy ausgeblendet)
@@ -578,12 +589,15 @@ export function pageHead({ crumbs, title, sub, chips, aside, fach } = {}) {
     trail.push(Array.isArray(c) ? h("a", { href: c[0] }, c[1]) : h("span", { class: cur ? "cur" : null, "aria-current": cur ? "page" : null, text: c }));
   });
   const head = title instanceof Node ? title : h("h1", { text: title || "" });
-  return h("header", { class: "pagehead" + (relay ? " relay" : "") },
+  const band = h("header", { class: "pagehead" + (relay ? " relay" : ""), "data-band": f, "data-band-set": fach !== undefined },
     h("div", { class: "foils", "aria-hidden": "true" }, h("i"), h("i"), h("i")),
     trail.length ? h("nav", { class: "crumbs", "aria-label": "Brotkrumen" }, trail) : null,
     aside ? h("div", { class: "row between" }, head, aside) : head,
     sub ? (sub instanceof Node ? sub : h("p", { class: "pagesub", text: sub })) : null,
     chips && chips.length ? h("div", { class: "chips" }, chips.filter(Boolean).map((c) => h("span", { class: "chip" + (c.strong ? " strong" : ""), text: c.text || c }))) : null);
+  // meist hängt die Seite das Kopfband gleich in ihr (sichtbares) main – dann gilt es noch vor dem nächsten Bild; sonst erst, wenn render() es zeigt
+  queueMicrotask(() => { if (band.isConnected) bandOn(band); });
+  return band;
 }
 
 /* Seitenrahmen */

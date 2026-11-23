@@ -78,17 +78,51 @@ test("Markerstrich im Dunkelmodus deckend (nicht per screen über den Folien –
   assert.match(css, /:root:not\(\[data-theme="light"\]\) \.start-lead \.hl::before \{ background: #6b5a12; mix-blend-mode: normal; \}/);
 });
 
-test("„Folie wechseln“: das Kopfband legt sich nur neu auf, wenn sich das Fach gegenüber dem vorigen ändert (nicht beim ersten und nicht beim Neuzeichnen)", () => {
-  const root = document.documentElement;
+test("„Folie wechseln“: das Kopfband legt sich nur neu auf, wenn sich das Fach gegenüber dem vorigen GEZEIGTEN ändert (nicht beim ersten und nicht beim Neuzeichnen)", async () => {
+  const root = document.documentElement, app = document.getElementById("app");
+  // wie die Seiten: Kopfband bauen und gleich in das sichtbare main hängen (gezählt wird ab dem nächsten Mikrotask)
+  const show = async (o) => { const m = document.createElement("main"); app.replaceChildren(m); const hd = UI.pageHead(o); m.append(hd); await D.sleep(0); return hd; };
   root.removeAttribute("data-laid");
-  assert.ok(!UI.pageHead({ title: "Fächer" }).classList.contains("relay"), "erstes Kopfband: dafür gibt es „Folie auflegen“");
+  assert.ok(!(await show({ title: "Fächer" })).classList.contains("relay"), "erstes Kopfband: dafür gibt es „Folie auflegen“");
   root.setAttribute("data-laid", "");
-  assert.ok(!UI.pageHead({ title: "Fächer" }).classList.contains("relay"), "gleiche Seite neu gezeichnet: nichts");
-  assert.ok(UI.pageHead({ title: "PoWi", fach: "powi" }).classList.contains("relay"), "ins Fach: neu auflegen");
-  assert.ok(!UI.pageHead({ title: "8B", fach: "powi" }).classList.contains("relay"), "im selben Fach: nichts");
-  assert.ok(UI.pageHead({ title: "Ethik", fach: "ethik" }).classList.contains("relay"), "anderes Fach: neu auflegen");
+  assert.ok(!(await show({ title: "Fächer" })).classList.contains("relay"), "gleiche Seite neu gezeichnet: nichts");
+  assert.ok((await show({ title: "PoWi", fach: "powi" })).classList.contains("relay"), "ins Fach: neu auflegen");
+  assert.ok(!(await show({ title: "8B", fach: "powi" })).classList.contains("relay"), "im selben Fach: nichts");
+  assert.ok((await show({ title: "Ethik", fach: "ethik" })).classList.contains("relay"), "anderes Fach: neu auflegen");
   UI.setFach(null);
-  assert.ok(UI.pageHead({ title: "Einstellungen" }).classList.contains("relay"), "zurück ohne Fach: neu auflegen");
+  assert.ok((await show({ title: "Einstellungen" })).classList.contains("relay"), "zurück ohne Fach: neu auflegen");
+  // eine schon verlassene Seite baut ihr Kopfband noch fertig (Antwort des Servers kam spät): es hängt nie im Dokument und zählt nicht – es färbt auch
+  // die gezeigte Seite nicht um (sonst erbte das nächste Kopfband ohne Fach „powi“ und legte sich neu auf)
+  const stale = UI.pageHead({ title: "PoWi", fach: "powi" }); document.createElement("main").append(stale); await D.sleep(0);
+  assert.equal(root.dataset.fach, undefined, "ein nie gezeigtes Kopfband setzt das Fach der Seite nicht");
+  assert.ok(!(await show({ title: "Einstellungen" })).classList.contains("relay"), "nach einem nie gezeigten Kopfband: verglichen mit dem zuletzt gezeigten");
+  const shownPowi = await show({ title: "PoWi", fach: "powi" });
+  assert.equal(root.dataset.fach, "powi", "ein gezeigtes Kopfband setzt das Fach der Seite (noch vor dem nächsten Bild)");
+  assert.equal(shownPowi.getAttribute("data-band-set"), "");
+  UI.setFach(null); await show({ title: "Einstellungen", fach: null });
+  // erst gebaut, dann von render() gezeigt (Kopfband vor dem Einhängen der Seite gebaut): render() setzt erst das Fach zurück, dann zählt es über
+  // bandShown – mit Angabe stellt es das Fach der Seite wieder her …
+  const later = UI.pageHead({ title: "Ev. Religion", fach: "evrel" }); await D.sleep(0);
+  assert.equal(root.dataset.fach, undefined, "noch nicht gezeigt: das Fach der Seite bleibt");
+  const render = (node) => { UI.setFach(null); const mm = document.createElement("main"); mm.append(node); app.replaceChildren(mm); UI.bandShown(app); };
+  render(later);
+  assert.equal(root.dataset.fach, "evrel", "von render() gezeigt: das Fach der Seite gilt");
+  assert.ok(!(await show({ title: "Ev. Religion", fach: "evrel" })).classList.contains("relay"), "von render() gezeigt: zählt als voriges Kopfband");
+  // … ohne Angabe zählt es so, wie es zu sehen ist (neutral), nicht mit dem Fach der vorigen Seite
+  const neutral = UI.pageHead({ title: "PDF öffnen" }); render(neutral); await D.sleep(0);
+  assert.equal(neutral.getAttribute("data-band"), "", "ohne Angabe vor render() gebaut: gemerkt wird das gezeigte (neutrale) Fach");
+  assert.ok((await show({ title: "Ev. Religion", fach: "evrel" })).classList.contains("relay"), "danach ins Fach: neu auflegen");
+  assert.ok(src("app.js").includes("bandShown(app); settleIn("), "render() meldet das gezeigte Kopfband");
+  // die Zeit bis data-laid (und damit „Folie auflegen“ beim ersten Kopfband) startet erst ein gezeigtes Kopfband
+  root.removeAttribute("data-laid"); clearTimeout(UI.pageHead.timer); UI.pageHead.timer = null;
+  document.createElement("main").append(UI.pageHead({ title: "Verlassen", fach: "ethik" })); await D.sleep(0);
+  assert.equal(UI.pageHead.timer, null, "ein nie gezeigtes Kopfband startet die Zeit bis data-laid nicht");
+  await show({ title: "Fächer" });
+  assert.ok(UI.pageHead.timer, "das erste gezeigte Kopfband startet sie");
+  clearTimeout(UI.pageHead.timer); UI.pageHead.timer = null; root.setAttribute("data-laid", "");
+  // „PDF öffnen“ baut sein Kopfband vor render(): mit ausdrücklich ohne Fach, damit es als neutral zählt (wie es gezeigt wird)
+  assert.ok(src("teacher.js").includes('pageHead({ fach: null, title: "PDF öffnen" })'));
+  app.replaceChildren(); UI.setFach(null);
 });
 
 test("„Karten legen sich auf“: nur mit data-settle, erst wenn der Platzhalter weg ist, einmal je Seitenaufbau", async () => {

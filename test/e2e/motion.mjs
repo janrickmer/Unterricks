@@ -129,41 +129,64 @@ export async function motionE2E({ browser, BASE, tp, ok, OUT, SHOT }) {
   await lp.screenshot({ ...SHOT, path: join(OUT, "nr40-lehrkraft-fehler-1366.png") });
   await lctx.close();
   /* ---------- in der App: Folie wechseln, Karten legen sich auf, Woche, Meldungen ---------- */
-  await tp.goto(BASE + "/#/lk"); await tp.locator(".tiles .tile").first().waitFor();
+  // eigene Sitzung für die Prüfung der Sitzungsseite (der Schritt davor räumt seine Sitzungen weg); am Ende wieder gelöscht
+  const tok = await tp.evaluate(() => localStorage.getItem("u.ttoken"));
+  const TA = (method, path, body) => fetch(BASE + path, { method, headers: { Authorization: "Bearer " + tok, ...(body ? { "Content-Type": "application/json" } : {}) }, body: body ? JSON.stringify(body) : undefined })
+    .then(async (x) => ({ status: x.status, data: await x.json().catch(() => null) }));
+  const day = (n) => new Date(Date.now() + n * 864e5).toISOString().slice(0, 10);
+  const mu = (await TA("POST", "/api/teacher/units", { subject: "powi", klass: "8A", title: "Bewegung im Folien-Stil", params: { start: day(0), end: day(13), weekdays: [1, 2, 3, 4, 5].map((d) => ({ day: d, minutes: 45, time: "08:00" })) } })).data.unit;
+  await TA("PATCH", "/api/teacher/units/" + mu.id, { plan: { lernaufgabe: "Plakat", schritte: [] }, rows: [{ stundenfrage: "Ruhiges Kopfband", ablauf: ["a"] }], assignDates: true });
+  const mLessons = ((await TA("POST", "/api/teacher/units/" + mu.id + "/sessions", {})).data || {}).unit?.lessons || [];
+  ok(mLessons.length === 1, "für die Prüfung der Sitzungsseite eine eigene Sitzung angelegt (" + mLessons.length + ")");
+  // Seitenwechsel ohne Wettlauf: beim Klick ändert sich die Adresse sofort, die neue Seite erscheint erst Millisekunden später (bis dahin steht noch die
+  // alte da – so sah die Prüfung im vollen Lauf einmal die alte Seite). Also die bisherige Seite markieren und auf ein neues main samt Kopfband warten.
+  const mark = () => tp.evaluate(() => { for (const el of document.querySelectorAll("#app > main, #app > main header.pagehead")) el.dataset.alt = "1"; });
+  const fresh = (re, more = "") => tp.waitForFunction(([re, more]) => new RegExp(re).test(location.hash) && !!document.querySelector("#app > main:not([data-alt])" + more + " > header.pagehead"), [re, more], { timeout: 10000, polling: 20 });
+  const toOverview = async () => {   // schon dort (gleiche Adresse): nichts neu laden – es gäbe keinen Seitenwechsel, auf den sich warten ließe
+    if (await tp.evaluate(() => location.hash) !== "#/lk") { await mark(); await tp.evaluate(() => { location.hash = "#/lk"; }); await fresh("^#/lk$"); }
+    await tp.locator("#app > main:not([data-alt]) .tiles .tile").first().waitFor();
+    await tp.waitForFunction(() => document.documentElement.hasAttribute("data-laid"), null, { timeout: 5000 }); };   // „Folie wechseln“ erst nach dem ersten Kopfband
+  await toOverview();
   ok(await tp.locator("main[data-settle]").count() === 1, "Fächer: die Seite lässt ihre Karten auflegen (data-settle)");
-  await tp.getByRole("link", { name: /Politik und Wirtschaft/ }).first().click();
+  await mark();
+  await tp.locator("#app > main a.tile", { hasText: "Politik und Wirtschaft" }).click();   // auf der eben markierten Übersicht
   // nach dem Laden legen sich die Karten der Fachseite auf (main.settle hält gut eine Sekunde)
-  const settle = await tp.waitForFunction(() => { const m = location.hash === "#/lk/f/powi" && document.querySelector("main.settle"); if (!m) return null;
+  const settle = await tp.waitForFunction(() => { const m = location.hash === "#/lk/f/powi" && document.querySelector("#app > main.settle:not([data-alt])"); if (!m || !m.querySelector(":scope > header.pagehead")) return null;
     return [...m.children].slice(0, 7).map((c) => { const s = getComputedStyle(c); return c.classList.contains("pagehead") ? "kopf" : s.animationName + " " + s.animationDelay; }); },
-  null, { timeout: 4000, polling: 20 }).then((x) => x.jsonValue(), () => null);
+  null, { timeout: 6000, polling: 20 }).then((x) => x.jsonValue(), () => null);
   ok(!!settle, "Karten legen sich auf: nach dem Laden der Fachseite (main.settle)");
   // die Staffelung greift wirklich (früher setzte die Kurzform „animation“ die Verzögerungen zurück)
   const delays = ["0s", "0s", "0.05s", "0.1s", "0.15s", "0.2s", "0.25s"];
   ok(!!settle && settle.length >= 3 && settle[0] === "kopf" && settle.slice(1).every((x, i) => x === "karten " + delays[i + 1]),
     "Karten legen sich auf: nacheinander, je 50 ms versetzt (ohne das Kopfband) – " + JSON.stringify(settle));
-  ok(await tp.locator("header.pagehead.relay").count() === 1, "Folie wechseln: vom Fach-Überblick ins Fach legt sich die Fachfolie neu auf");
-  ok(await tp.evaluate(() => getComputedStyle(document.querySelector(".pagehead.relay .foils i")).animationName) === "auflegen", "… mit der Bewegung „auflegen“");
-  await tp.evaluate(() => { document.querySelector("header.pagehead").dataset.alt = "1"; });   // das alte Kopfband erkennen
-  await tp.locator(".class-btn").first().click();
-  await tp.waitForFunction(() => /^#\/lk\/f\/powi\//.test(location.hash) && document.querySelector("header.pagehead:not([data-alt])"), null, { timeout: 10000 });
-  ok(await tp.locator("header.pagehead.relay").count() === 0, "Folie wechseln: innerhalb desselben Fachs (Lerngruppe) legt sich nichts neu auf");
+  const band = () => tp.evaluate(() => { const hd = document.querySelector("#app > main:not([data-alt]) > header.pagehead"), i = hd && hd.querySelector(".foils i");
+    return hd ? { hash: location.hash, relay: hd.classList.contains("relay"), band: hd.dataset.band, anim: i ? getComputedStyle(i).animationName : "" } : null; });
+  const b1 = await band();
+  ok(!!b1 && b1.relay && b1.band === "powi" && b1.anim === "auflegen", "Folie wechseln: vom Fach-Überblick ins Fach legt sich die Fachfolie neu auf (Bewegung „auflegen“) – " + JSON.stringify(b1));
+  await mark();
+  await tp.locator("#app > main a.class-btn").first().click();
+  await fresh("^#/lk/f/powi/");
+  const b2 = await band();
+  ok(!!b2 && !b2.relay && b2.band === "powi", "Folie wechseln: innerhalb desselben Fachs (Lerngruppe) legt sich nichts neu auf – " + JSON.stringify(b2));
   // die Sitzung hat ein Kopfband mit Fach, bleibt aber ruhig: von „Fächer“ (ohne Fach) in eine Sitzung legt sich nichts neu auf
-  await tp.goto(BASE + "/#/lk"); await tp.locator(".tiles .tile").first().waitFor();
-  const tok = await tp.evaluate(() => localStorage.getItem("u.ttoken"));
-  const lessons = (await (await fetch(BASE + "/api/teacher/lessons", { headers: { Authorization: "Bearer " + tok } })).json()).lessons || [];
-  ok(lessons.length > 0, "für die Prüfung der Sitzungsseite gibt es eine Sitzung (" + lessons.length + ")");
-  if (lessons.length) {
-    await tp.evaluate(() => { document.querySelector("header.pagehead").dataset.alt = "1"; });
-    await tp.evaluate((id) => { location.hash = "#/lk/s/" + id; }, lessons[0].id);
-    await tp.waitForFunction(() => /^#\/lk\/s\//.test(location.hash) && document.querySelector("header.pagehead:not([data-alt])"), null, { timeout: 10000 });
-    const quiet = await tp.evaluate(() => ({ relay: !!document.querySelector("header.pagehead.relay"), settle: !!document.querySelector("main[data-settle]"), foils: [...document.querySelectorAll("header.pagehead .foils i")].map((i) => getComputedStyle(i).animationName),
-      anims: document.getAnimations().map((a) => a.animationName).filter((n) => n === "auflegen" || n === "karten") }));
+  await toOverview();
+  if (mLessons.length) {
+    await mark();
+    await tp.evaluate((id) => { location.hash = "#/lk/s/" + id; }, mLessons[0].id);
+    await fresh("^#/lk/s/");
+    const quiet = await tp.evaluate(() => { const hd = document.querySelector("#app > main:not([data-alt]) > header.pagehead");
+      return { relay: hd.classList.contains("relay"), band: hd.dataset.band, settle: !!document.querySelector("#app > main:not([data-alt])[data-settle]"), foils: [...hd.querySelectorAll(".foils i")].map((i) => getComputedStyle(i).animationName),
+        anims: document.getAnimations().map((a) => a.animationName).filter((n) => n === "auflegen" || n === "karten") }; });
     ok(!quiet.settle && quiet.foils.length > 0 && quiet.foils.every((n) => n === "none") && !quiet.anims.length, "Sitzungsseite: das Kopfband bleibt ruhig, auch wenn sich das Fach ändert – " + JSON.stringify(quiet));
-    await tp.goto(BASE + "/#/lk"); await tp.locator(".tiles .tile").first().waitFor();
+    await toOverview();
   }
-  await tp.getByRole("button", { name: "Nächste Woche" }).click();
+  // erst, wenn der Wochenkalender geladen ist (vorher blättert der Knopf ins Leere – wie run.mjs, Wochenkalender)
+  await tp.locator("#app > main:not([data-alt]) .weekcal .wk-body:not(.skeleton)").waitFor({ timeout: 15000 });
+  await tp.locator(".weekcal").getByRole("button", { name: "Nächste Woche" }).click();
   ok(await tp.locator(".wk-body.wk-swap").count() === 1, "Wochenkalender: die geblätterte Woche blendet ein");
-  await tp.getByRole("button", { name: "Zur Woche von heute" }).click();
+  await tp.locator(".weekcal").getByRole("button", { name: "Zur Woche von heute" }).click();
   const toastAnim = await tp.evaluate(() => { const t = document.createElement("div"); t.className = "toast"; t.textContent = "Probe"; document.getElementById("toasts").append(t); const n = getComputedStyle(t).animationName; t.remove(); return n; });
   ok(toastAnim === "gleitet", "Meldungen gleiten herein");
+  for (const l of mLessons) await TA("DELETE", "/api/teacher/lessons/" + l.id);
+  ok((await TA("DELETE", "/api/teacher/units/" + mu.id)).status === 200, "eigene Einheit und Sitzung der Prüfung wieder gelöscht");
 }

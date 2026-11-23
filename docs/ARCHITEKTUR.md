@@ -2369,8 +2369,11 @@ Ausdrucken“; Grundschule „Auch Grundschule“ – kompakt mit Verlaufsplan u
 * **Folge „Folien auflegen“:** nur beim ersten Bild nach dem Laden (`firstLay()`: setzt nach 1,5 s `data-laid` – auch das erste Kopfband nach der
   Anmeldung legt dann nichts mehr auf, Abmelden und erneutes Anmelden nach 90 Minuten spielen sie nicht noch einmal); alle Animationen mit
   `backwards` und nur Lage/Drehung, also von Anfang an lesbar und danach ohne festgehaltene Animation; Fokus im Passwortfeld wie bisher nach 50 ms.
-* **In der App:** „Folie wechseln“ (`pageHead`: anderes Fach als beim vorigen Kopfband → `.relay`; bewegt nur unter `main[data-settle]`, Sitzungsseiten
-  bleiben ruhig), „Karten legen sich auf“ (Versatz über `--sd`; `settleIn()` aus
+* **In der App:** „Folie wechseln“ (`pageHead`: anderes Fach als beim vorigen *gezeigten* Kopfband → `.relay`; gezählt wird ein Kopfband erst, wenn es im
+  Dokument hängt – Mikrotask nach dem Bau bzw. `bandShown()` aus `render()` –, sonst verstellte eine Seite, die nach dem Verlassen noch fertig lädt,
+  den Vergleich; erst dann setzt es auch das Fach der Seite (`data-band-set`: nur, wenn die Seite eines angegeben hat) und startet die Zeit bis
+  `data-laid` – vorher färbte ein solches Kopfband die neue Seite um; gemerkt wird das Fach, in dem es zu sehen ist (vor `render()` ohne Fach gebaut:
+  neutral, nicht das der vorigen Seite); bewegt nur unter `main[data-settle]`, Sitzungsseiten bleiben ruhig), „Karten legen sich auf“ (Versatz über `--sd`; `settleIn()` aus
   `render()`: nur `main[data-settle]` – Fächer, Klassen, Lerngruppe, Einheit, Planungsgrundlagen, Einstellungen, Grundschule, Fach/Klasse und
   „Meine Sitzungen“ –, wartet per MutationObserver, bis `.skeleton` ersetzt ist, einmal je Seitenaufbau, Klasse `settle` 1,1 s), geblätterte Woche
   (`.wk-swap`, nur Deckkraft, nicht beim ersten Laden), Meldungen (nicht im Präsentationsmodus), Hintergrund der Dialoge; Heben der Kacheln nur mit Maus.
@@ -2381,7 +2384,12 @@ Ausdrucken“; Grundschule „Auch Grundschule“ – kompakt mit Verlaufsplan u
   320–2000px bei zwei Höhen ohne abgeschnittenen, verdeckten oder überlappenden Text – `TEXT_CHECK` –, Abstand Schriftzug–Karte bei 910–1070px,
   Anmeldung der Lehrkräfte samt Meldung ohne Server, Folie wechseln, ruhiges Kopfband der Sitzung, Karten legen sich auf samt gemessener Staffelung,
   Woche, Meldungen; Bildschirmfotos `nr40-*.png`). Die Gegenprüfung vom 23.11.2026 fand fünf Befunde (Meldung auf der Folie, Markerkontrast dunkel,
-  „Folie wechseln“ in der Sitzung, Schriftzug bei 200 % Textgröße, Staffelung ohne Wirkung) – alle behoben und mit Tests abgedeckt.
+  „Folie wechseln“ in der Sitzung, Schriftzug bei 200 % Textgröße, Staffelung ohne Wirkung) – alle behoben und mit Tests abgedeckt. Der volle E2E-Lauf
+  danach fand einen Wettlauf in der Prüfung selbst: Beim Klick ändert sich die Adresse sofort, die neue Seite erscheint erst Millisekunden später – die
+  Prüfung markiert deshalb die bisherige Seite (`data-alt`) und wartet auf ein neues `main` mit Kopfband; die eigene Sitzung legt sie selbst an und
+  löscht sie wieder (der Schritt „Teilen“ davor räumt seine Sitzungen weg). Eine zweite Gegenprüfung dieser Änderung fand: das Fach der Seite und die
+  Zeit bis `data-laid` setzte auch ein nie gezeigtes Kopfband (behoben, s. o.), „PDF öffnen“ baut sein Kopfband vor `render()` (jetzt `fach: null`), und
+  die Prüfung blätterte im Wochenkalender, bevor er geladen war (wartet jetzt).
 
 ## 4i. Druckliste „Von der Lehrkraft auszudrucken“ (Ergänzung vom 10.11.2026)
 

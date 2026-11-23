@@ -882,7 +882,7 @@ function notfallBox() {
  * signierten Link zum Worker (apiUrl). */
 export async function fileOpenPage(id) {
   const st = h("p", { role: "status", text: "Die PDF wird geöffnet …" });
-  const main = h("main", { class: "narrow" }, pageHead({ title: "PDF öffnen" }), st);
+  const main = h("main", { class: "narrow" }, pageHead({ fach: null, title: "PDF öffnen" }), st);
   render(teacherBar(null), main);
   try { const r = await tapi("POST", "/api/teacher/files/" + id + "/link", { body: { inline: true } }); location.replace(apiUrl(r.url)); }
   catch (e) { stateLine(st, e.message, "err"); main.append(h("p", { class: "small muted", text: "Sie können diesen Tab schließen." })); }

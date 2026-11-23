@@ -1,5 +1,5 @@
 // app.js – Einstieg: Router und Schüleransicht. Die Lehrkräfteansicht wird erst bei Bedarf geladen (teacher.js).
-import { h, $, clear, store, deviceId, api, apiUrl, wsUrl, ApiError, toast, errToast, busy, copyText, fmtBytes, fmtDate, fmtClock, fileIcon, downloadUrl, downloadBlob, topbar, icon, setFach, pageHead, modal, openLayer, settleIn, logoMark, loginFoils, firstLay } from "./ui.js";
+import { h, $, clear, store, deviceId, api, apiUrl, wsUrl, ApiError, toast, errToast, busy, copyText, fmtBytes, fmtDate, fmtClock, fileIcon, downloadUrl, downloadBlob, topbar, icon, setFach, pageHead, modal, openLayer, settleIn, bandShown, logoMark, loginFoils, firstLay } from "./ui.js";
 import { SUBJECTS, CLASS_GROUPS, STUDENT_LOGIN_MIN, subjectName, formatCode, normalizeCode, fmtDay, classShort, isAnalogClass, webUrlLabel, fmtClockBerlin, fmtDayBerlin } from "./shared.js";
 import { paintPortalPreview } from "./portalview.js";
 import { codeSlideDom } from "./codeslide.js";
@@ -15,7 +15,7 @@ const app = document.getElementById("app");
 let disposers = [];
 export const onLeave = (fn) => disposers.push(fn);
 function leave() { for (const fn of disposers.splice(0)) { try { fn(); } catch {} } }
-export function render(...nodes) { leave(); setFach(null); clear(app).append(...nodes); window.scrollTo(0, 0); settleIn([...app.children].find((c) => c.tagName === "MAIN")); }
+export function render(...nodes) { leave(); setFach(null); clear(app).append(...nodes); window.scrollTo(0, 0); bandShown(app); settleIn([...app.children].find((c) => c.tagName === "MAIN")); }
 export const go = (hash) => { if (location.hash === hash) route(); else location.hash = hash; };
 
 const S = { get token() { return store.get("u.stoken"); }, set token(v) { if (v) store.set("u.stoken", v); else store.del("u.stoken"); } };
