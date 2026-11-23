@@ -1,7 +1,8 @@
 // terms.mjs – End-to-End-Prüfung „Fachbegriffe dieser Sitzung“ (Nachtrag 44, Teil 3; nur Oberstufe): Claude legt über den Connector (lokaler Worker) vier
 // Begriffe für die Hauptsitzung (Q2-GK) an (update_lesson fachbegriffe) → get_lesson; Karte auf der Sitzungsseite der Lehrkraft (nach der Hausaufgabe), dort
 // bearbeitet; Schüleransicht: vor 2 Minuten vor dem Ende nichts (auch nicht per Schnittstelle), danach ganz unten die Karteikarten – Umdrehen mit Maus und
-// Tastatur, 3D-Drehung nur ohne „Bewegung reduzieren“, hell und dunkel, am Handy ohne seitliches Schieben; mit [] gelöscht → kein Bereich mehr.
+// Tastatur, 3D-Drehung nur ohne „Bewegung reduzieren“, hell und dunkel, am Handy ohne seitliches Schieben; mit [] gelöscht → kein Bereich mehr. Zum Schluss steht
+// die Schülerseite wieder auf „Meine Sitzungen“ (wie vor diesem Schritt).
 // Bildschirmfotos in OUT („fachbegriffe-*.png“). Frei erfundene Inhalte.
 // ctx = {tp (Lehrkraft, angemeldet), sp (Schüler:in, Sitzung freigeschaltet), BASE, T (Fetch Lehrkraft), SA (Fetch Schüler:in), tool (Connector), ok, OUT, SHOT,
 //        lessonId (Hauptsitzung Q2-GK, Dauer 90 min), setWhen(ms) (setzt Datum und Beginn über die Sitzungsseite, → lessonTimes), horizontalIssues}
@@ -50,7 +51,10 @@ export async function termsE2E({ tp, sp, BASE, T, SA, tool, ok, OUT, SHOT, lesso
   // Schüler:innen vor der Zeit (die Sitzung endet in etwa 10 Minuten): nichts – auch nicht per Schnittstelle; die Seite kennt den Zeitpunkt
   let t = await setWhen(Date.now() - 80 * 60e3);
   let sv = (await SA("GET", "/api/student/lessons/" + lessonId)).data;
-  ok(sv.terms === null && sv.changesAt.includes(t.termsAt) && !JSON.stringify(sv).includes("Normenkontrolle prüft"), "vor 2 Minuten vor dem Ende: keine Begriffe (Schnittstelle), der Zeitpunkt steht in changesAt");
+  // keine der Definitionen (auch nicht die geänderte) steht irgendwo in der Antwort – nur die Definitionen: die Begriffe selbst kommen in Material und
+  // Feibeitsblättern dieser Sitzung auch sonst vor
+  const svTxt = JSON.stringify(sv), leaked = [...TERMS.map((x) => x.definition), def2].filter((x) => svTxt.includes(x));
+  ok(sv.terms === null && sv.changesAt.includes(t.termsAt) && !leaked.length, "vor 2 Minuten vor dem Ende: keine Begriffe (Schnittstelle), der Zeitpunkt steht in changesAt" + (leaked.length ? " – gefunden: " + leaked.join(" | ").slice(0, 160) : ""));
   await sp.goto(BASE + "/#/schueler/s/" + lessonId); await sp.reload(); await sp.locator(".live").waitFor(); await sp.waitForTimeout(400);
   ok(await sp.locator("#terms-s").count() === 0, "… und kein Bereich in der Ansicht");
   // ab 2 Minuten vor dem Ende (die Sitzung endet in etwa einer Minute): ganz unten die Karteikarten
@@ -104,5 +108,9 @@ export async function termsE2E({ tp, sp, BASE, T, SA, tool, ok, OUT, SHOT, lesso
   ok(!r.isError && r.content[0].text === "Gespeichert. Die „Fachbegriffe dieser Sitzung“ sind gelöscht.", "Connector: [] löscht die Fachbegriffe");
   await sp.reload(); await sp.locator(".live").waitFor(); await sp.waitForTimeout(400);
   ok(await sp.locator("#terms-s").count() === 0 && (await SA("GET", "/api/student/lessons/" + lessonId)).data.terms === null, "ohne Begriffe: kein Bereich in der Schüleransicht");
+  // zurück auf „Meine Sitzungen“ (wie vor diesem Schritt): run.mjs öffnet danach wieder diese Sitzung – auf derselben Adresse lüde goto nicht neu, und die
+  // Ansicht behielte den Stand von hier (Präsentation noch gesperrt)
+  await sp.goto(BASE + "/#/schueler");
+  await sp.locator(".item", { hasText: "Das Bundesverfassungsgericht" }).waitFor({ timeout: 15000 });
   return t;
 }

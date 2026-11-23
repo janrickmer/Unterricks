@@ -95,7 +95,7 @@ test("Bausteine: Speicherschritt des Prompts, get_lesson-Abschnitt (leer und gef
   assert.deepEqual(f.slice(2), ["- Gewaltenteilung: Aufteilung der Staatsgewalt auf Gesetzgebung, Regierung und Rechtsprechung.", "- Legislative: Die gesetzgebende Gewalt – in Deutschland vor allem Bundestag und Bundesrat.",
     "- Judikative: Die rechtsprechende Gewalt, also die unabhängigen Gerichte.", "Die Schüler:innen sehen sie ab …", "(Ändern mit update_lesson und fachbegriffe – die Liste ersetzt die bisherige, [] leert sie.)"]);
   // Dialog „Sitzung aus Datei laden“
-  assert.equal(TM.termsImportText({ lesson: { terms: THREE }, termsDropped: 0 }, { klass: "Q2-GK", terms: [] }), "Fachbegriffe dieser Sitzung (Gewaltenteilung, Legislative, Judikative) ersetzen die Liste dieser Sitzung.");
+  assert.equal(TM.termsImportText({ lesson: { terms: THREE }, termsDropped: 0 }, { klass: "Q2-GK", terms: [] }), "Die Fachbegriffe aus der Datei (Gewaltenteilung, Legislative, Judikative) ersetzen die Liste dieser Sitzung.");
   assert.equal(TM.termsImportText({ lesson: { terms: [] }, termsDropped: 3 }, { klass: "8B" }), "Die 3 Fachbegriffe aus der Datei werden nicht übernommen – Karteikarten gibt es nur in der Oberstufe.");
   assert.equal(TM.termsImportText({ lesson: { terms: [] }, termsDropped: 0 }, { klass: "EA", terms: THREE }), "Die Datei enthält keine Fachbegriffe – die bisherigen dieser Sitzung werden gelöscht.");
   assert.equal(TM.termsImportText({ lesson: { terms: [] }, termsDropped: 0 }, { klass: "EA", terms: [] }), "");
@@ -426,6 +426,34 @@ test("Karte der Lehrkraft: hinzufügen bis 8 (aria-disabled + Hinweis), entferne
   assert.equal(m.q(".save-state").textContent, "Gelöscht");
 });
 
+test("Karte der Lehrkraft: Meldungen nennen die Nummer der Zeile wie ihre Beschriftung – auch mit leeren Zeilen davor (die nicht gespeichert werden)", async () => {
+  const srv = server();
+  const m = mount({}, [srv.route]);
+  D.userClick(m.q("#terms-edit"));
+  D.userClick(m.q("#terms-add")); D.userClick(m.q("#terms-add"));
+  assert.equal(m.rows().length, 5);
+  // Zeile 1 gefüllt, Zeile 2 leer, Zeile 3 ohne Definition
+  fill(m.rows()[0], THREE[0].term, THREE[0].definition); fill(m.rows()[2], "Judikative", "");
+  D.fire(m.q("#terms-form"), "submit"); await D.sleep(5);
+  const d3 = m.rows()[2].querySelector("textarea.terms-d");
+  assert.equal(m.q("#terms-err").textContent, "Begriff 3 („Judikative“): Bitte die Definition angeben.");
+  assert.equal(m.rows()[2].querySelectorAll("label")[1].textContent, "Definition zu Begriff 3", "Meldung und Beschriftung nennen dieselbe Nummer");
+  assert.ok(d3.getAttribute("aria-invalid") === "true" && document.activeElement === d3);
+  // Zeile 5 mit Definition, aber ohne Begriff; zu langer Begriff in Zeile 4
+  fill(m.rows()[2], "Judikative", THREE[2].definition); fill(m.rows()[4], "", "Nur eine Definition.");
+  D.fire(m.q("#terms-form"), "submit"); await D.sleep(5);
+  assert.equal(m.q("#terms-err").textContent, "Begriff 5: Bitte den Begriff angeben.");
+  assert.equal(document.activeElement, m.rows()[4].querySelector("input.terms-t"));
+  fill(m.rows()[4], "", ""); fill(m.rows()[3], "x".repeat(61), "Zu lang.");
+  D.fire(m.q("#terms-form"), "submit"); await D.sleep(5);
+  assert.equal(m.q("#terms-err").textContent, "Begriff 4 ist zu lang (höchstens 60 Zeichen).");
+  assert.equal(m.calls.length, 0, "nichts gesendet");
+  // leere Zeilen zählen nicht: drei gefüllte Zeilen (1, 3, 4) werden gespeichert
+  fill(m.rows()[3], THREE[1].term, THREE[1].definition);
+  D.fire(m.q("#terms-form"), "submit"); await D.sleep(10);
+  assert.deepEqual(m.calls[0].body, { terms: [THREE[0], { term: "Judikative", definition: THREE[2].definition }, THREE[1]], termsBase: 0 });
+});
+
 test("Karte der Lehrkraft: inzwischen von Claude geändert (409) → Rückfrage, „Meine Fassung speichern“ ohne Stand; Stand von außen nie in die laufende Bearbeitung", async () => {
   const srv = server(THREE, 1);
   const m = mount({ terms: THREE, termsRev: 1 }, [srv.route]);
@@ -529,7 +557,7 @@ test("Karteikarten: Gestaltung – Drehung nur ohne reduzierte Bewegung (3D, nur
 test("Schüleransicht (Quelltext): Karteikarten ganz unten (Selbstlern-Phase über der KI-Begriffshilfe), beim Neuladen der Daten nachgezogen", () => {
   const app = src("public/app.js");
   assert.ok(app.includes("const termsView = termCards();\n  termsView.update(d.terms);"));
-  assert.ok(app.includes("termsView.update(r.terms);"), "beim Neuladen (changesAt, Rückkehr in den Tab)");
+  assert.ok(app.includes("termsView.update(r.terms);"), "beim Neuladen der Daten (Zeitpunkte aus changesAt, auch beim Zurückkehren in den Tab, wenn einer vorbei ist)");
   assert.ok(app.includes("  main.append(termsView.el);\n  // Selbstlern-Phase: die KI-Begriffshilfe ganz unten (Wortlaut der Lehrkraft)\n  if (selbst) main.append(kiBox);\n}"), "ganz unten, in der Selbstlern-Phase vor der KI-Begriffshilfe");
   assert.ok(!/\.innerHTML\b/.test(src("public/termcards.js")) && !/\.innerHTML\b/.test(src("public/termsedit.js")), "nur textContent");
 });

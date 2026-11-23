@@ -3131,7 +3131,9 @@ den Bereich nicht; die Karteikarten bleiben **dauerhaft sichtbar** ab etwa 2 Min
   (`requireAccess`: `…, l.created_at, l.terms`) – nicht `LESSON_COLS`, also nie „Meine Sitzungen“ oder das Einlösen eines Codes. `changesAt` bekommt
   `termsAt` **nur bei Oberstufen-Sitzungen**, unabhängig davon, ob es Begriffe gibt (der Zeitpunkt verrät nichts), und nur, solange er in der Zukunft
   liegt – die offene Schülerseite lädt dann von selbst neu (wie bei der Hausaufgabe; nach dem Aufwachen über `visibilitychange`). Ändert die Lehrkraft die
-  Begriffe nach `termsAt`, sieht eine offene Seite das beim nächsten Neuladen der Daten (Ende + 1 s, Freigabe der Präsentation, Rückkehr in den Tab). In
+  Begriffe nach `termsAt`, sieht eine offene Seite das nur, wenn sie ihre Daten noch einmal lädt: zum nächsten noch ausstehenden Zeitpunkt aus `changesAt`
+  (Ende + 1 s, Freigabe der Präsentation – auch beim Zurückkehren in den Tab, aber nur, wenn ein solcher Zeitpunkt inzwischen vorbei ist). Steht keiner
+  mehr aus (nach der Freigabe der Präsentation), erst beim Neuladen der Seite – bewusst kein zusätzliches Abfragen bei jeder Rückkehr in den Tab. In
   einer Selbstlern-Phase gilt dieselbe Zeit (die Begriffe gehören zur Sitzung). Nie im Durable Object, Beamer, Live-Zustand, in der Elternansicht, im
   Podcast oder in „Ich bin jetzt im Unterricht“.
 * **Schüleransicht** (`public/termcards.js`, eingebunden in `public/app.js`): `termCards()` → `{el, update(items)}`; `el` bleibt leer ohne Begriffe (ältere
@@ -3158,14 +3160,14 @@ den Bereich nicht; die Karteikarten bleiben **dauerhaft sichtbar** ab etwa 2 Min
   Claude schreibt sie beim Planen – oder Sie tragen sie selbst ein.“. **„Bearbeiten“** (`aria-expanded`/`aria-controls`) öffnet je Begriff zwei Felder
   (Begriff ≤ 60, Definition ≤ 300 mit Zähler), ohne Begriffe drei leere Zeilen; „Begriff hinzufügen“ (bei 8 `aria-disabled` + „Höchstens 8 Fachbegriffe je
   Sitzung.“), „Begriff n entfernen“ als Symbolknopf (44 px; Fokus danach auf den nächsten Begriff bzw. „Begriff hinzufügen“), Meldungen am betroffenen
-  Feld (`aria-invalid`, `role="alert"`), leere Zeilen zählen nicht, alle entfernt → Rückfrage „Alle Fachbegriffe löschen?“. Speichern mit `termsBase`;
+  Feld (`aria-invalid`, `role="alert"`; die Nummer darin ist die der Zeile wie in ihrer Beschriftung „Begriff n“), leere Zeilen zählen nicht, alle entfernt → Rückfrage „Alle Fachbegriffe löschen?“. Speichern mit `termsBase`;
   bei 409 die Rückfrage wie bei der Zusammenfassung („Gespeicherte Fassung übernehmen“ / „Meine Fassung speichern“ – ohne Stand). Änderungen von außen
   (Claude, anderes Gerät) übernimmt `update()` beim Zurückkehren in den Tab – nie in eine laufende Bearbeitung; ungespeicherte Bearbeitung → Rückfrage
   vor „Alle Unterlagen dieser Sitzung“ und beim Schließen der Seite. Keine Dreh-Animation auf der Sitzungsseite (sie bleibt ruhig). In „Ich bin jetzt im
   Unterricht“ ist die Karte mit dem übrigen Raster ausgeblendet.
 * **Sitzung als Datei / Sicherung / Alle Unterlagen:** `lesson.terms` = `[{term, definition}]` nur, wenn es welche gibt (sonst bleibt die Datei, wie sie war);
   beim Lesen `cleanTerms`. `planSessionImport` gibt sie in eine Sitzung der Oberstufe weiter (ohne Begriffe in der Datei: leer – die Datei ersetzt die
-  Planung), in eine andere Sitzung nie (`termsDropped`); der Dialog „Sitzung aus Datei laden?“ sagt es (`termsImportText`: „Fachbegriffe dieser Sitzung (…)
+  Planung), in eine andere Sitzung nie (`termsDropped`); der Dialog „Sitzung aus Datei laden?“ sagt es (`termsImportText`: „Die Fachbegriffe aus der Datei (…)
   ersetzen die Liste dieser Sitzung.“, „Die 4 Fachbegriffe aus der Datei werden nicht übernommen – Karteikarten gibt es nur in der Oberstufe.“, „Die Datei
   enthält keine Fachbegriffe – die bisherigen dieser Sitzung werden gelöscht.“). `routeLessonImport` speichert nur in der Oberstufe. Die große Sicherung
   („Lies mich.txt“) nennt sie; „Alle Unterlagen dieser Sitzung“ (4zj) nimmt sie in den Verlaufsplan auf („Fachbegriffe dieser Sitzung (Karteikarten für die
@@ -3177,20 +3179,21 @@ den Bereich nicht; die Karteikarten bleiben **dauerhaft sichtbar** ab etwa 2 Min
   Antworten des Connectors – nur der Leer-Text in `get_lesson`. (6) „Alle Unterlagen“ ja, geteilte Einheit nein. (7) Begriff und Definition sind einzeilig
   (Zeilenumbrüche werden Leerzeichen); „ein bis zwei Sätze“ steht nur im Prompt, gezählt werden Zeichen. (8) Barrierefrei als Aufklapp-Muster
   (`aria-expanded` + `aria-controls`) statt `aria-pressed` – der Name des Knopfs bleibt der Begriff.
-* **Tests:** Unit `test/unit/terms.test.mjs` (19 Tests: `isOberstufe`, `termsAt`, `validateTerms`/`cleanTerms`, Speicherform, Bausteine, Prompt nur
+* **Tests:** Unit `test/unit/terms.test.mjs` (20 Tests: `isOberstufe`, `termsAt`, `validateTerms`/`cleanTerms`, Speicherform, Bausteine, Prompt nur
   Oberstufe und direkt nach der Hausaufgabe – nie Sek I, Jg. 6, Grundschule, Selbstlern- und Präsentations-Prompt; PATCH mit Stand, 409, 400, nur
   Oberstufe, `lessonOut`; Schüler-Route vor/ab `termsAt`, Tage später, ohne Beginn, Sek I trotz Spalte, `changesAt` nur Oberstufe, nie in Liste und
   Einlösen, Selbstlern-Phase; Connector samt Fehlern ohne Speichern, Schema, `get_lesson` nur Oberstufe, INSTRUCTIONS unverändert; Sitzungsdatei hin und
   zurück, Import in Oberstufe und Sek I; `EMPTY_LESSON`; Quelltext-Scan Eltern/Beamer/Live/Präsentation/„Ich bin jetzt im Unterricht“/Podcast; Karte der
-  Lehrkraft in der DOM-Nachbildung: leer, Zeitzeile, Bearbeiten, Fehler am Feld, Speichern mit Stand, Fokus, bis 8, Entfernen, Doppelte, alle löschen,
+  Lehrkraft in der DOM-Nachbildung: leer, Zeitzeile, Bearbeiten, Fehler am Feld (Nummer der Zeile auch mit leeren Zeilen davor), Speichern mit Stand, Fokus, bis 8, Entfernen, Doppelte, alle löschen,
   409 mit „Meine Fassung speichern“, Stand von außen; Karteikarten in der DOM-Nachbildung: Knopf, `aria-expanded`, `aria-hidden`, Maus, Enter,
   Leertaste, gleiche Daten ohne Neuzeichnen, Fokus beim Neuzeichnen; CSS: 3D nur ohne reduzierte Bewegung, Grundregel `visibility`, Tokens, Fokus,
   erzwungene Farben; Quelltext von `app.js` und `session.js`), `zwischenstopp.test.mjs` (Stripper `withoutTerms`), `lessonzip.test.mjs`
   (Verlaufsplan mit und ohne Begriffe). E2E (hier nicht gelaufen): `test/e2e/terms.mjs` (aus `run.mjs` nach der KI-Begriffshilfe, Hauptsitzung Q2-GK) –
   Connector samt Ablehnung von 2 Begriffen, `get_lesson`, Karte direkt nach der Hausaufgabe, Bearbeiten und Speichern, vor der Zeit nichts (Schnittstelle
-  und Ansicht, `changesAt` mit `termsAt`), ab 2 Minuten vor dem Ende ganz unten vier Karten (≥ 44 px), Umdrehen per Maus (3D-Transformation, Rückseite
+  ohne eine der Definitionen und Ansicht, `changesAt` mit `termsAt`), ab 2 Minuten vor dem Ende ganz unten vier Karten (≥ 44 px), Umdrehen per Maus (3D-Transformation, Rückseite
   sichtbar, `aria-*`), Enter/Leertaste, „Bewegung reduzieren“ ohne 3D, Bildschirmfotos 810/390 px hell und dunkel (`fachbegriffe-*.png`), am Handy ohne
-  seitliches Schieben, mit `[]` gelöscht → kein Bereich; `run.mjs` prüft außerdem den Speicherschritt im Prompt (nach der Hausaufgabe, vor dem Mitbringen).
+  seitliches Schieben, mit `[]` gelöscht → kein Bereich; zum Schluss zurück auf „Meine Sitzungen“ (der nächste Schritt öffnet dieselbe Sitzung wieder –
+  auf derselben Adresse lüde `goto` nicht neu); `run.mjs` prüft außerdem den Speicherschritt im Prompt (nach der Hausaufgabe, vor dem Mitbringen).
 
 ## 4i. Druckliste „Von der Lehrkraft auszudrucken“ (Ergänzung vom 10.11.2026)
 

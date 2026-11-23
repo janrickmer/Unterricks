@@ -78,7 +78,7 @@ export function termsImportText(plan, target) {
   const xs = plan && plan.lesson && Array.isArray(plan.lesson.terms) ? plan.lesson.terms : [], dropped = plan && plan.termsDropped ? plan.termsDropped : 0;
   if (dropped) return (dropped === 1 ? "Der Fachbegriff aus der Datei wird" : "Die " + dropped + " Fachbegriffe aus der Datei werden") + " nicht übernommen – Karteikarten gibt es nur in der Oberstufe.";
   if (!target || !isOberstufe(target.klass)) return "";
-  if (xs.length) return TERMS_TITLE + " (" + xs.map((x) => x.term).join(", ") + ") ersetzen die Liste dieser Sitzung.";
+  if (xs.length) return "Die Fachbegriffe aus der Datei (" + xs.map((x) => x.term).join(", ") + ") ersetzen die Liste dieser Sitzung.";
   return Array.isArray(target.terms) && target.terms.length ? "Die Datei enthält keine Fachbegriffe – die bisherigen dieser Sitzung werden gelöscht." : "";
 }
 

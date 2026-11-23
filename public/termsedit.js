@@ -128,11 +128,12 @@ export function termsCard({ id, L }) {
     if (rows.length >= TERMS_LIMITS.max) { full.textContent = TERMS_FULL; return; }
     addRow(null, true);
   });
-  // prüfen wie der Server (terms.js), aber mit dem Feld, das die Meldung betrifft → bereinigte Liste oder null (Meldung steht dann da)
+  // prüfen wie der Server (terms.js), aber mit dem Feld, das die Meldung betrifft → bereinigte Liste oder null (Meldung steht dann da);
+  // die Nummer in der Meldung ist die der Zeile („Begriff n“ wie ihre Beschriftung) – leere Zeilen davor zählen mit, auch wenn sie nicht gespeichert werden
   function check() {
     const xs = formItems(), seen = new Map();
-    for (const [i, x] of xs.entries()) {
-      const n = i + 1;
+    for (const x of xs) {
+      const n = rows.indexOf(x.r) + 1;
       if (!x.term) { showErr("Begriff " + n + ": Bitte den Begriff angeben.", x.r.t); return null; }
       if (!x.definition) { showErr("Begriff " + n + " („" + x.term + "“): Bitte die Definition angeben.", x.r.d); return null; }
       if (x.term.length > TERMS_LIMITS.term) { showErr("Begriff " + n + " ist zu lang (höchstens " + TERMS_LIMITS.term + " Zeichen).", x.r.t); return null; }
