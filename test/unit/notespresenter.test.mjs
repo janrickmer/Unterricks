@@ -47,7 +47,7 @@ test("Beamergerät verbunden (Zahl aus dem Durable Object): Notizen unter der ak
     P.state({ beamers: 1 });
     assert.equal(P.shown(), true);
     assert.equal(P.hint(), "", "der Hinweis verschwindet");
-    assert.match(P.text(), /^Codefolie vor Folie 1/, "Codefolie vor Folie 1: keine Notizen");
+    assert.match(P.text(), /^Codefolie vor Folie 1/, "Codefolie vor Folie 1: keine Notizen (Folie 1 beginnt nicht mit einer Anweisung „Lehrkraft: …“)");
     assert.match(P.text(), /Keine Notizen zu dieser Folie\./);
     right();
     assert.ok(P.text().startsWith("Notizen zu Folie 1") && P.text().includes(SECRET + " Einstieg mit Karikatur") && P.text().includes("Erwartung: Machtmissbrauch"));
@@ -192,6 +192,37 @@ test("Anweisung „Lehrkraft: …“ als erster Stichpunkt: hervorgehoben (li.pn
     P.bc.onmessage({ data: { t: "bye", bid: "b1" } });
     assert.equal(P.shown(), false);
   } finally { P.pres.end(false); }
+});
+
+// Prüfbefund zu Nachtrag 42: die Präsentation beginnt an der Codefolie vor Folie 1 – was die Lehrkraft dort tut, steht laut Prompt in der Anweisung zu
+// Folie 1; sie steht deshalb schon dort (nur sie, hervorgehoben), nicht erst nach dem Weiterschalten
+test("Codefolie vor Folie 1: die Anweisung aus Folie 1 steht schon da (nur sie, hervorgehoben); ohne Anweisung bleibt „Keine Notizen …“", async () => {
+  const P = await open({ notes: DO_NOTES });
+  try {
+    const { NOTES_CODE_DO_HEAD } = await import("../../public/presenter.js");
+    assert.equal(NOTES_CODE_DO_HEAD, "Codefolie vor Folie 1 – Anweisung aus Folie 1");
+    assert.equal(P.shown(), false, "einzeln gespiegelt: auch an der Codefolie keine Notizen");
+    P.bc.onmessage({ data: { t: "following", id: P.pid, bid: "b1" } });
+    assert.equal(P.shown(), true);
+    assert.equal(P.box.querySelector(".pn-head").textContent, NOTES_CODE_DO_HEAD);
+    const lis = [...P.box.querySelectorAll("li")];
+    assert.deepEqual(lis.map((l) => [l.className, l.textContent]), [["pn-do", DO]], "nur die Anweisung – die übrigen Stichpunkte gehören zu Folie 1");
+    assert.equal(lis[0].querySelector("strong").textContent, "Lehrkraft:");
+    assert.ok(!P.text().includes("Erwartung: Ablass gegen Geld") && !P.text().includes("Keine Notizen"));
+    right();
+    assert.ok(P.text().startsWith("Notizen zu Folie 1"));
+    assert.equal(P.box.querySelectorAll("li").length, 3, "an Folie 1 dann alle Stichpunkte");
+    D.press("ArrowLeft");
+    assert.equal(P.box.querySelector(".pn-head").textContent, NOTES_CODE_DO_HEAD, "zurück an der Codefolie: wieder die Anweisung");
+    assert.ok(!JSON.stringify(P.posts).includes("GEHEIMANWEISUNG") && !P.sent().includes("GEHEIMANWEISUNG"), "nie im BroadcastChannel oder WebSocket");
+  } finally { P.pres.end(false); }
+  // Folie 1 ohne Anweisung (ältere Notizen): an der Codefolie wie bisher nichts
+  const Q = await open({ notes: [{ n: 1, items: ["Impuls ohne Anweisung", "Lehrkraft: nicht an erster Stelle"] }] });
+  try {
+    Q.state({ beamers: 1 });
+    assert.equal(Q.box.querySelector(".pn-head").textContent, "Codefolie vor Folie 1");
+    assert.ok(Q.text().includes("Keine Notizen zu dieser Folie.") && Q.box.querySelectorAll("li").length === 0);
+  } finally { Q.pres.end(false); }
 });
 
 test("noteItem (Präsentationsansicht): Stichpunkt-Element aus dem Text – Anweisung nur an erster Stelle, nie über innerHTML", async () => {

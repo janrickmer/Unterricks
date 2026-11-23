@@ -19,6 +19,8 @@ const F = await import("../../worker/files.js");
 const L = await import("../../worker/lessons.js");
 const ST = await import("../../worker/student.js");
 const { sha256Hex } = await import("../../worker/lib.js");
+const { routeMcp } = await import("../../worker/mcp.js");
+const { setSetting } = await import("../../worker/db.js");
 
 const te = new TextEncoder();
 const SECRET_NOTE = "GEHEIMNOTIZ Impuls: Was wäre ohne Gewaltenteilung?";
@@ -122,7 +124,8 @@ test("Präsentations-Prompt (Nachtrag 42): je Folie zuerst die Anweisung „Lehr
     for (const t of ["- Der erste Stichpunkt jeder Folie ist immer eine klare Anweisung an die Lehrkraft und beginnt mit „Lehrkraft: “: was sie jetzt tut, kurz und eindeutig",
       "„Lehrkraft: Erklärt kurz, was Martin Luther am Ablasshandel kritisiert hat.“", "„Lehrkraft: Startet die Partnerarbeit (10 Min.) und geht herum.“",
       "Danach folgen die Hintergründe: was sie sagt oder fragt, erwartete Antworten der Schüler:innen, Zeit. Jede Folie hat also mindestens diesen einen Stichpunkt.",
-      "- Was die Lehrkraft mit der Codefolie tut, die Unterricks vor Folie 1 zeigt (z. B. " + codeEx + "), steht in der Anweisung zu Folie 1 – für die Codefolie davor gibt es keinen eigenen Eintrag.",
+      "- Was die Lehrkraft mit der Codefolie tut, die Unterricks vor Folie 1 zeigt (z. B. " + codeEx + "), steht als eigener erster Satz in der Anweisung zu Folie 1 – für die Codefolie davor gibt es keinen eigenen Eintrag; " +
+        "Unterricks zeigt der Lehrkraft diese Anweisung schon, solange die Codefolie zu sehen ist.",
       "Eine Aufforderung an die Schüler:innen (z. B. auf einer Materialfolie) bleibt auf der Folie, die Anweisung „Lehrkraft: …“ steht nur in den Notizen.",
       "Das gilt besonders für die Anweisungen „Lehrkraft: …“: nie auf einer Folie, auch nicht als unsichtbarer, weißer oder winziger Text, nie in der Zeile „" + S.PHASE_MARK + ": …“ (dort steht nur die Nummer der Phase) " +
         "oder in der Zeile „" + S.CODE_SLIDE_MARK + ": …“ und nie in Titel, Betreff oder Stichwörtern der PDF – die Schüler:innen dürfen sie niemals sehen."]) assert.ok(sec.includes(t), klass + ": " + t);
@@ -151,6 +154,38 @@ test("Anweisung an die Lehrkraft erkennen (noteDoSplit): nur „Lehrkraft:“ am
   assert.deepEqual(S.cleanSlideNotes({ folien: [{ folie: 2, notizen: ["- " + DO_NOTE, "• Erwartung: Geld für Sündenerlass"] }] }, 2), [{ n: 2, items: [DO_NOTE, "Erwartung: Geld für Sündenerlass"] }]);
   assert.deepEqual(S.parseNotesJson("```json\n" + JSON.stringify({ v: 1, folien: [{ folie: 1, notizen: [DO_NOTE, "Zeit: 5 Minuten"] }] }) + "\n```", 3).notes, [{ n: 1, items: [DO_NOTE, "Zeit: 5 Minuten"] }]);
   assert.equal(S.noteFieldIssue(twelve.join("\n")), "", "12 Zeilen samt Anweisung: kein Hinweis im Notizfeld");
+});
+
+// Prüfbefund zu Nachtrag 42: schreibt Claude die Anweisung trotz „ohne Markdown“ fett („**Lehrkraft:** …“), blieben die Sternchen überall sichtbar und
+// nichts wäre hervorgehoben – beim Prüfen wird daraus „Lehrkraft: …“ (Präsentationsansicht, Anmerkungs-PDF, PowerPoint, Notizfeld)
+test("Anweisung in Markdown („**Lehrkraft:** …“ u. ä.) wird beim Prüfen zu „Lehrkraft: …“ – sonst bleibt der Stichpunkt, wie er ist", () => {
+  const want = "Lehrkraft: Startet die Partnerarbeit (10 Min.) und geht herum.";
+  for (const t of ["**Lehrkraft:** Startet die Partnerarbeit (10 Min.) und geht herum.", "**Lehrkraft**: Startet die Partnerarbeit (10 Min.) und geht herum.",
+    "__Lehrkraft:__ Startet die Partnerarbeit (10 Min.) und geht herum.", "*Lehrkraft:* Startet die Partnerarbeit (10 Min.) und geht herum.",
+    "_Lehrkraft_: Startet die Partnerarbeit (10 Min.) und geht herum.", "**Lehrkraft: Startet die Partnerarbeit (10 Min.) und geht herum.**",
+    "**Lehrkraft:**Startet die Partnerarbeit (10 Min.) und geht herum.", "- **Lehrkraft:** Startet die Partnerarbeit (10 Min.) und geht herum.",
+    "**lehrkraft :** Startet die Partnerarbeit (10 Min.) und geht herum."]) {
+    assert.equal(S.noteLine(t), want, t);
+    assert.ok(S.noteDoSplit(S.noteLine(t)), "danach als Anweisung erkannt: " + t);
+  }
+  assert.equal(S.noteLine("**Lehrkraft: Startet** die Partnerarbeit."), "Lehrkraft: Startet die Partnerarbeit.", "nur das erste schließende Zeichen fällt weg");
+  assert.equal(S.noteLine("**Lehrkraft:** Startet **jetzt** die Partnerarbeit."), "Lehrkraft: Startet **jetzt** die Partnerarbeit.", "Markdown an anderer Stelle bleibt");
+  assert.equal(S.noteLine("_Lehrkraft: Öffnet mein_bild.png auf dem iPad._"), "Lehrkraft: Öffnet mein_bild.png auf dem iPad.", "ein Zeichen mitten im Wort schließt nicht");
+  for (const t of ["**Lehrkraft: ohne schließende Sternchen", "**Lehrkraft*: gemischte Zeichen", "Impuls: **Was** wäre ohne Gewaltenteilung?", "**Erwartung:** Machtmissbrauch", DO_NOTE, "**Die Lehrkraft:** erklärt"])
+    assert.equal(S.noteLine(t), t, "unverändert: " + t);
+  assert.equal(S.noteLine("**Lehrkraft:**"), "Lehrkraft:", "ohne Text danach: nur das Wort, keine Anweisung");
+  assert.equal(S.noteDoSplit(S.noteLine("**Lehrkraft:**")), null);
+  // Prüfen und Kappen, JSON aus dem Chat und das Notizfeld rechnen mit der bereinigten Form
+  assert.deepEqual(S.cleanSlideNotes({ v: 1, folien: [{ folie: 1, notizen: ["**Lehrkraft:** Liest den Text vor.", "Zeit: 5 Minuten"] }] }, 1), [{ n: 1, items: ["Lehrkraft: Liest den Text vor.", "Zeit: 5 Minuten"] }]);
+  assert.deepEqual(S.parseNotesJson('```json\n{"v":1,"folien":[{"folie":2,"notizen":["__Lehrkraft:__ Teilt M1 aus."]}]}\n```', 3).notes, [{ n: 2, items: ["Lehrkraft: Teilt M1 aus."] }]);
+  assert.equal(S.noteFieldIssue("**Lehrkraft:** " + "a".repeat(S.NOTES_LIMITS.chars - "Lehrkraft: ".length)), "", "die Sternchen zählen nicht mit (wie beim Speichern)");
+});
+
+test("Codefolie vor Folie 1 (codeSlideNotes): die Anweisung aus Folie 1 – nur sie, nur wenn Folie 1 mit „Lehrkraft:“ beginnt", () => {
+  assert.deepEqual(S.codeSlideNotes([{ n: 1, items: [DO_NOTE, "Erwartung: Geld gegen Sündenerlass"] }, { n: 2, items: ["Lehrkraft: Folie 2"] }]), [DO_NOTE]);
+  assert.deepEqual(S.codeSlideNotes([{ n: 1, items: ["Impuls: Was kostet ein Ablassbrief?", DO_NOTE] }]), [], "ältere Notizen ohne Anweisung an erster Stelle: nichts");
+  assert.deepEqual(S.codeSlideNotes([{ n: 2, items: [DO_NOTE] }]), [], "Folie 1 ohne Notizen: nichts (nie die einer anderen Folie)");
+  for (const x of [[], null, undefined, "x", [{ n: 1, items: [] }]]) assert.deepEqual(S.codeSlideNotes(x), []);
 });
 
 test("bereinigte Fassung für Schüler:innen: gleiche Seiten, ohne Anhänge, ohne Notiz-Anmerkungen und ohne /AF – der Link bleibt", async () => {
@@ -313,6 +348,27 @@ test("Server: Notizen mit …/ready gespeichert (nur Lehrkraft-Routen); Schüler
   assert.equal((await call(c, F.routeShownPut, "PUT", "/api/teacher/files/" + fid + "/shown?until=2&clean=1", cut, fid)).status, 200);
   const pl2 = await scall(late, ST.routeStudentPresentationLink, "POST", "/api/student/lessons/" + l.id + "/presentation-link", { inline: false }, l.id);
   assert.match(pl2.data.url, /&p=cut&/);
+});
+
+// Prüfbefund zu Nachtrag 42: get_lesson nennt bei vorhandenen Notizen auch die Form der Anweisung (ohne Notiztext); ohne Notizen kein Abschnitt (wie bisher)
+async function getLesson(c, lessonId) {
+  await setSetting(c.db, "mcp", { hash: await sha256Hex("mcp|geheim"), createdAt: 1 });
+  const req = new Request("https://unterricks.test/mcp/geheim", { method: "POST", body: JSON.stringify({ jsonrpc: "2.0", id: 1, method: "tools/call", params: { name: "get_lesson", arguments: { lesson_id: lessonId } } }) });
+  const r = (await (await routeMcp({ ...c, request: req, ip: "1.2.3.4", waitUntil: () => {} }, "geheim")).json()).result;
+  assert.ok(!r.isError, r.content[0].text);
+  return r.content[0].text;
+}
+test("Connector get_lesson: Notizen kurz (Zahl) samt der Form „Lehrkraft: …“ – nie ihr Text; ohne Notizen kein Abschnitt", async () => {
+  const { c, l, fid } = await setup();
+  await ready(c, fid, { pages: 3, codeSlides: [], notes: { v: 1, folien: [{ folie: 1, notizen: ["Lehrkraft: GEHEIMANWEISUNG Zeigt die Karikatur.", SECRET_NOTE] }] }, clean: true });
+  const g = await getLesson(c, l.id);
+  assert.ok(g.includes("## Notizen der Lehrkraft zur Präsentation\nZu 1 von 3 Folien gibt es Notizen (nur für die Lehrkraft"), g);
+  assert.ok(g.includes("Neue Notizen gehören als Dateianhang unterricks-notizen.json in eine neue PDF der Präsentation – je Folie zuerst die Anweisung „Lehrkraft: …“ an die Lehrkraft (siehe Präsentations-Prompt)."), g);
+  assert.ok(!g.includes("GEHEIMANWEISUNG") && !g.includes("GEHEIMNOTIZ"), "nie der Text der Notizen");
+  const o = await setup();
+  await ready(o.c, o.fid, { pages: 3, codeSlides: [] });
+  const g0 = await getLesson(o.c, o.l.id);
+  assert.ok(!g0.includes("## Notizen der Lehrkraft zur Präsentation") && !g0.includes("„Lehrkraft: …“"), "Präsentation ohne Notizen: wie bisher kein Abschnitt");
 });
 
 test("Server: ältere Präsentation ohne Notizen bleibt, wie sie war (die hochgeladene PDF, keine Pflicht zur Bereinigung)", async () => {

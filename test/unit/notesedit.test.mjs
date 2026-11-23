@@ -6,7 +6,7 @@ import assert from "node:assert/strict";
 const { installDom } = await import("./fake-dom.mjs");
 const D = installDom({ hash: "#/" });
 const S = await import("../../public/shared.js");
-const { notesPanel, notesCutNote, NOTES_UNREADABLE, NOTES_DELETE_TEXT, NOTES_REPLACE_HINT } = await import("../../public/notesedit.js");
+const { notesPanel, notesCutNote, NOTES_UNREADABLE, NOTES_DELETE_TEXT, NOTES_REPLACE_HINT, NOTES_FIELD_HINT } = await import("../../public/notesedit.js");
 
 const P = { id: "pres1", pages: 2, notes: 1 };
 const SLIDES = { urls: ["/f/1", "/f/2"], notes: [{ n: 1, items: ["Einstieg"] }], notesRev: 1, codeSlides: [] };
@@ -80,4 +80,24 @@ test("Hinweise beim Hochladen, Löschen und Ersetzen nennen die Notizen", () => 
   assert.ok(NOTES_UNREADABLE.includes("„unterricks-notizen.json“") && NOTES_UNREADABLE.includes("„JSON aus dem Chat einfügen“"));
   assert.ok(NOTES_DELETE_TEXT.startsWith("Präsentation, Folienbilder und Ihre Notizen zu den Folien") && NOTES_DELETE_TEXT.includes("„Präsentation mit Anmerkungen“"));
   assert.ok(NOTES_REPLACE_HINT.includes("Unterricks übernimmt die Notizen der neuen PDF"));
+});
+
+// Prüfbefund zu Nachtrag 42: der Hinweis über den Feldern nennt die Form der Anweisung („Lehrkraft: …“ als erste Zeile wird hervorgehoben); eine
+// Anweisung in Markdown („**Lehrkraft:** …“) speichert Unterricks als „Lehrkraft: …“ – ohne „gekürzt“-Hinweis
+test("Hinweis über den Feldern nennt die Anweisung „Lehrkraft: …“; „**Lehrkraft:** …“ wird beim Speichern zu „Lehrkraft: …“ (nicht als gekürzt gemeldet)", async () => {
+  assert.equal(NOTES_FIELD_HINT, "Ein Stichpunkt je Zeile – höchstens 12 je Folie und 300 Zeichen je Stichpunkt. Beginnt die erste Zeile mit „Lehrkraft:“, wird sie als Ihre Anweisung hervorgehoben.");
+  const M = mount();
+  D.userClick(M.btn("Notizen ansehen und bearbeiten"));
+  await until(() => M.field(2));
+  const hint = document.getElementById("notes-ed-pres1-hint");
+  assert.equal(hint.textContent, NOTES_FIELD_HINT);
+  assert.ok(M.field(1).getAttribute("aria-describedby").split(" ").includes("notes-ed-pres1-hint"), "der Hinweis gehört zu jedem Feld");
+  M.field(2).value = "**Lehrkraft:** Teilt M1 aus.\nZeit: 5 Minuten";
+  D.fire(M.field(2), "input");
+  assert.equal(M.warn(2).textContent, "");
+  D.userClick(M.btn("Notizen speichern"));
+  assert.ok(await until(() => M.status().includes("ist erneuert")), M.status());
+  assert.deepEqual(M.puts[0].notes.find((x) => x.n === 2).items, ["Lehrkraft: Teilt M1 aus.", "Zeit: 5 Minuten"]);
+  assert.ok(!M.status().includes("Gekürzt"), M.status());
+  assert.equal(M.field(2).value, "Lehrkraft: Teilt M1 aus.\nZeit: 5 Minuten", "das Feld zeigt den gespeicherten Stand");
 });

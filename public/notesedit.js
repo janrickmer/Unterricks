@@ -3,13 +3,15 @@
 // Chat einfügen“, wenn Claude die Notizen nicht in die PDF einbetten konnte. Die PDF selbst bleibt unverändert; nach dem Speichern entsteht die
 // Anmerkungs-PDF unter „Material nur für die Lehrkraft“ neu.
 import { h, clear, modal, apiUrl, busy, stateLine } from "./ui.js";
-import { cleanSlideNotes, notesFor, notesText, parseNotesJson, noteFieldIssue, NOTES_LIMITS } from "./shared.js";
+import { cleanSlideNotes, notesFor, notesText, parseNotesJson, noteFieldIssue, NOTES_LIMITS, NOTE_DO_LABEL } from "./shared.js";
 
 export const NOTES_SUMMARY_NONE = "Noch keine Notizen. Claude bettet sie laut Präsentations-Prompt unsichtbar in die PDF ein; Sie können sie auch hier eintragen oder den JSON-Block aus dem Chat einfügen.";
 export const notesSummary = (k, pages) => "Notizen zu " + k + (k === 1 ? " Folie" : " Folien") + (pages ? " von " + pages : "") + ".";
 export const NOTES_WHERE = "Nur für Sie: in der Präsentationsansicht unter der aktuellen Folie, sobald ein Beamerfenster oder Beamergerät verbunden ist (ein einzeln gespiegeltes iPad zeigt sie nicht), " +
   "und in der „Präsentation mit Anmerkungen“ unter „Material nur für die Lehrkraft“. Schüler:innen sehen sie nie – auch nicht in der PDF, die sie nach der Stunde bekommen.";
-export const NOTES_FIELD_HINT = "Ein Stichpunkt je Zeile – höchstens " + NOTES_LIMITS.items + " je Folie und " + NOTES_LIMITS.chars + " Zeichen je Stichpunkt.";
+// … samt der Form der Anweisung an die Lehrkraft (Nachtrag 42): eine erste Zeile „Lehrkraft: …“ heben Präsentationsansicht, Anmerkungs-PDF und PowerPoint hervor
+export const NOTES_FIELD_HINT = "Ein Stichpunkt je Zeile – höchstens " + NOTES_LIMITS.items + " je Folie und " + NOTES_LIMITS.chars + " Zeichen je Stichpunkt. " +
+  "Beginnt die erste Zeile mit „" + NOTE_DO_LABEL + "“, wird sie als Ihre Anweisung hervorgehoben.";
 // Meldung nach dem Hochladen: die PDF trägt den Anhang, er ließ sich aber nicht lesen (kein gültiges JSON bzw. ein anderes Format)
 export const NOTES_UNREADABLE = "Im Dateianhang „unterricks-notizen.json“ fand Unterricks keine lesbaren Notizen – bitten Sie Claude um den JSON-Block und fügen Sie ihn unter „Notizen ansehen und bearbeiten“ ein („JSON aus dem Chat einfügen“).";
 // Löschen bzw. Ersetzen der Präsentation: die Notizen gehören zu ihr und gehen mit (samt Anmerkungs-PDF)

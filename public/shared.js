@@ -631,8 +631,9 @@ export function cleanCodeSlides(raw, pages) {
 export const NOTES_FILE = "unterricks-notizen.json";
 export const NOTES_LIMITS = { slides: 300, items: 12, chars: 300, total: 200000 };
 export const isNotesFileName = (name) => /^unterricks[-_ ]?notizen\.json$/i.test(String(name == null ? "" : name).trim().replace(/^.*[\\/]/, ""));
-// ein Stichpunkt: einzeilig, ohne Steuer- und Formatzeichen, ohne vorangestelltes Aufzählungszeichen, höchstens 300 Zeichen (ganze Zeichen)
-const noteRaw = (s) => cleanSlideLine(String(s), 4000).replace(/^(?:[-–—•·*▪◦‣]|\d{1,2}[.)])\s+/, "").trim();
+// ein Stichpunkt: einzeilig, ohne Steuer- und Formatzeichen, ohne vorangestelltes Aufzählungszeichen, höchstens 300 Zeichen (ganze Zeichen);
+// eine Anweisung in Markdown („**Lehrkraft:** …“, trotz „ohne Markdown“ im Prompt) wird zu „Lehrkraft: …“ (noteDoPlain, Nachtrag 42)
+const noteRaw = (s) => noteDoPlain(cleanSlideLine(String(s), 4000).replace(/^(?:[-–—•·*▪◦‣]|\d{1,2}[.)])\s+/, "").trim());
 export function noteLine(s) {
   if (typeof s !== "string" && typeof s !== "number") return "";
   const t = noteRaw(s);
@@ -685,8 +686,28 @@ export function noteDoSplit(item) {
   const s = typeof item === "string" ? item : "", m = NOTE_DO_RE.exec(s);
   return m && s.slice(m[0].length).trim() ? { label: m[0], rest: s.slice(m[0].length) } : null;
 }
+/* Markdown um die Anweisung (Prüfbefund zu Nachtrag 42): „**Lehrkraft:** …“, „**Lehrkraft**: …“, „__Lehrkraft:__ …“, „*Lehrkraft:* …“ oder der ganze
+   Stichpunkt fett („**Lehrkraft: … **“) → „Lehrkraft: …“ – sonst blieben die Zeichen überall sichtbar und nichts wäre hervorgehoben. Nur mit
+   schließendem Zeichen (direkt nach dem Doppelpunkt oder nicht mitten im Wort wie in „mein_bild“; sonst unverändert); Markdown an anderer Stelle
+   bleibt, wie es ist. Läuft in noteRaw, also beim Prüfen jedes Stichpunkts. */
+const NOTE_DO_MD_RE = /^(\*\*|__|\*|_)\s*Lehrkraft\s*(\*\*|__|\*|_)?\s*:/i;
+function noteDoPlain(t) {
+  const m = NOTE_DO_MD_RE.exec(t);
+  if (!m || (m[2] && m[2] !== m[1])) return t;
+  let rest = t.slice(m[0].length);
+  if (!m[2]) {
+    let k = rest.indexOf(m[1]);
+    while (k > 0 && /[\p{L}\p{N}]/u.test(rest.charAt(k + m[1].length))) k = rest.indexOf(m[1], k + 1);
+    if (k < 0) return t;
+    rest = rest.slice(0, k) + rest.slice(k + m[1].length);
+  }
+  return (NOTE_DO_LABEL + " " + rest.replace(/\s+/g, " ").trim()).trim();
+}
 export const notesCount = (notes) => (Array.isArray(notes) ? notes.filter((x) => x && Array.isArray(x.items) && x.items.length).length : 0);
 export const notesFor = (notes, n) => { const x = (Array.isArray(notes) ? notes : []).find((y) => y && y.n === n); return x ? x.items : []; };
+/* Codefolie vor Folie 1 (keine Seite der PDF, Prüfbefund zu Nachtrag 42): was die Lehrkraft mit ihr tut, steht laut Prompt im ersten Satz der Anweisung
+   zu Folie 1 – die Präsentationsansicht zeigt an dieser Codefolie deshalb schon diese Anweisung (nur sie; ohne Anweisung, z. B. ältere Notizen: nichts) */
+export const codeSlideNotes = (notes) => { const first = notesFor(notes, 1)[0]; return noteDoSplit(first) ? [first] : []; };
 export const notesText = (items) => (Array.isArray(items) ? items.join("\n") : "");
 /* JSON aus dem Chat einfügen (Rückfall, wenn Claude die Datei nicht einbetten konnte): ```json …``` oder roher Text um das erste {…} bzw. […].
    → {notes, slides (mit Notizen), dropped (Folien außerhalb 1..pages)}; wirft eine verständliche Meldung */
@@ -1681,7 +1702,7 @@ export function claudePresentationPrompt(ctx, portalText, messages) {
       "z. B. „" + NOTE_DO_LABEL + " Erklärt kurz, was Martin Luther am Ablasshandel kritisiert hat.“ oder „" + NOTE_DO_LABEL + " Startet die Partnerarbeit (10 Min.) und geht herum.“ " +
       "Danach folgen die Hintergründe: was sie sagt oder fragt, erwartete Antworten der Schüler:innen, Zeit. Jede Folie hat also mindestens diesen einen Stichpunkt.",
     "- Was die Lehrkraft mit der Codefolie tut, die Unterricks vor Folie 1 zeigt (z. B. " + (analog ? "kurz sagen, dass die Schüler:innen die Sitzung damit zu Hause finden" : "warten, bis alle die Sitzung geöffnet haben") +
-      "), steht in der Anweisung zu Folie 1 – für die Codefolie davor gibt es keinen eigenen Eintrag.",
+      "), steht als eigener erster Satz in der Anweisung zu Folie 1 – für die Codefolie davor gibt es keinen eigenen Eintrag; Unterricks zeigt der Lehrkraft diese Anweisung schon, solange die Codefolie zu sehen ist.",
     "- Die Anweisung richtet sich nur an die Lehrkraft: Eine Aufforderung an die Schüler:innen (z. B. auf einer Materialfolie) bleibt auf der Folie, die Anweisung „" + NOTE_DO_LABEL + " …“ steht nur in den Notizen.",
     "- Die Notizen stehen nicht auf den Folien: Bette sie als unsichtbaren Dateianhang (eingebettete Datei, EmbeddedFile) namens " + NOTES_FILE + " in die PDF ein – UTF-8, genau in diesem Format: " +
       '{"v":1,"folien":[{"folie":1,"notizen":["' + NOTE_DO_LABEL + ' …","…"]},{"folie":2,"notizen":["' + NOTE_DO_LABEL + ' …"]}]}',

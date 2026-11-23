@@ -1,7 +1,7 @@
 // presenter.js – Präsentation (PDF) in Folienbilder umwandeln und im Vollbild live für alle zeigen.
 import { lazy, lazyWorker } from "./update.js";
 import { h, clear, api, apiUrl, wsUrl, toast, errToast, icon, store, rand, busy, openLayer, keepTab, trackWork } from "./ui.js";
-import { isValidCode, formatCode, slideTextLines, slideCodeBoxes, slideSessionCode, codeCover, coverFill, codeFontStyle, codeSlideLines, cleanCodeSlides, cleanSlideNotes, notesFor, noteDoSplit, phaseMarkOf, cleanSlidePhases,
+import { isValidCode, formatCode, slideTextLines, slideCodeBoxes, slideSessionCode, codeCover, coverFill, codeFontStyle, codeSlideLines, cleanCodeSlides, cleanSlideNotes, notesFor, noteDoSplit, codeSlideNotes, phaseMarkOf, cleanSlidePhases,
   nextSlideOf, nextSlideLabel, presenterKey, BEAMER_CHANNEL, normBeamerCode, PUBLIC_URL, beamerWindowNote,
   TIMER_PICKS, TIMER_MAX_MIN, TIMER_TOTAL_MAX_MIN, TIMER_ADDS, TIMER_OVER, normTimerMin } from "./shared.js";
 import { codeSlideDom } from "./codeslide.js";
@@ -277,6 +277,9 @@ export const NOTES_PAIR_HINT = "Mit verbundenem Beamer sehen Sie hier unter der 
 export const NOTES_SCREEN_HINT = "Notizen erscheinen, sobald das Beamerfenster auf einem zweiten Bildschirm zu sehen ist – sonst sähe die Klasse sie mit.";
 export const NOTES_HINT_MS = 12000;   // so lange steht der Hinweis in der Leiste (sonst bräche sie am iPad hochkant in eine dritte Zeile)
 export const NOTES_NONE = "Keine Notizen zu dieser Folie.";
+// Codefolie vor Folie 1 (Prüfbefund zu Nachtrag 42): dort steht schon die Anweisung aus den Notizen zu Folie 1 (codeSlideNotes) – laut Prompt beginnt
+// sie mit dem, was die Lehrkraft an der Codefolie tut; ohne Anweisung bleibt es bei NOTES_NONE
+export const NOTES_CODE_HEAD = "Codefolie vor Folie 1", NOTES_CODE_DO_HEAD = "Codefolie vor Folie 1 – Anweisung aus Folie 1";
 // ein Stichpunkt der Notizen; der erste „Lehrkraft: …“ (Anweisung an die Lehrkraft, Nachtrag 42) hervorgehoben – das Wort fett, Text unverändert
 export const noteItem = (t, i) => { const d = i === 0 ? noteDoSplit(t) : null; return d ? h("li", { class: "pn-do" }, h("strong", { text: d.label }), d.rest) : h("li", { text: t }); };
 export async function startPresenter({ lessonId, file, token, startSlide = 0, onEnd, slides, onMark, shownUntil = null, code = "", title = "" }) {
@@ -346,8 +349,8 @@ export async function startPresenter({ lessonId, file, token, startSlide = 0, on
     root.classList.toggle("with-notes", on);
     paintNotesHint();
     if (!on) { notesAt = null; return; }
-    const items = cur === 0 ? [] : notesFor(notes, cur);
-    const head = cur === 0 ? "Codefolie vor Folie 1" : "Notizen zu Folie " + cur + (holders.has(cur) ? " (Codefolie)" : "");
+    const items = cur === 0 ? codeSlideNotes(notes) : notesFor(notes, cur);
+    const head = cur === 0 ? (items.length ? NOTES_CODE_DO_HEAD : NOTES_CODE_HEAD) : "Notizen zu Folie " + cur + (holders.has(cur) ? " (Codefolie)" : "");
     if (notesAt === cur && notesHead.textContent === head) return;
     notesHead.textContent = head;
     notesBody.replaceChildren(items.length ? h("ul", { class: "pn-list" }, ...items.map(noteItem)) : h("p", { class: "pn-none", text: NOTES_NONE }));

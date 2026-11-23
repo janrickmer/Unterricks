@@ -1160,6 +1160,18 @@ async function main() {
       await np.screenshot({ ...SHOT, path: join(OUT, "notizen-praesentation-mit-beamerfenster-dunkel.png") });
       await np.emulateMedia({ colorScheme: "light" });
       await nbw.screenshot({ ...SHOT, path: join(OUT, "notizen-beamerfenster.png") });
+      // Prüfbefund zu Nachtrag 42: an der Codefolie vor Folie 1 (dort beginnt jede Stunde) steht schon die Anweisung aus Folie 1 – nur sie, hervorgehoben;
+      // das Beamerfenster zeigt die Codefolie ohne Notizen
+      await np.keyboard.press("ArrowLeft");
+      await np.locator(".presenter .notespane .pn-head", { hasText: "Codefolie vor Folie 1" }).waitFor({ timeout: 10000 });
+      await nbw.locator(".beamer .codeslide").waitFor({ timeout: 10000 });
+      ok((await npr.locator(".notespane .pn-head").textContent()) === "Codefolie vor Folie 1 – Anweisung aus Folie 1" && await npr.locator(".notespane li").count() === 1
+        && (await npr.locator(".notespane li.pn-do").textContent()) === NOTE_DO && (await npr.locator(".notespane li.pn-do strong").textContent()) === "Lehrkraft:"
+        && !(await notesTxt()).includes(NOTE1) && !(await nbw.content()).includes("NOTIZGEHEIM"),
+        "Codefolie vor Folie 1: die Anweisung aus Folie 1 steht schon da (nur sie, hervorgehoben), das Beamerfenster zeigt nur die Codefolie");
+      await np.keyboard.press("ArrowRight");
+      await np.locator(".presenter .notespane .pn-head", { hasText: "Notizen zu Folie 1" }).waitFor({ timeout: 10000 });
+      ok(await npr.locator(".notespane li").count() === 4, "… zurück an Folie 1: wieder alle vier Stichpunkte");
       await np.keyboard.press("ArrowRight");
       await np.locator(".presenter .notespane", { hasText: "Notizen zu Folie 2" }).waitFor({ timeout: 10000 });
       ok((await notesTxt()).includes("Keine Notizen zu dieser Folie."), "Folienwechsel wechselt die Notizen (Folie 2: keine)");

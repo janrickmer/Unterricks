@@ -89,7 +89,7 @@ implementiert und im End-to-End-Test geprüft (Ausnahmen unten ausdrücklich gen
 | Unterrichtseinheit mit KollegInnen teilen (Nachtrag 39 vom 18.11.2026) | Wunsch der Lehrkraft: ein Knopf ganz unten in jeder Einheit „Untereichtseinheit mit KollegInnen teilen“ (Tippfehler berichtigt) → ZIP-Ordner mit Leupold-Schema-PDF (darunter je Sitzung ein Absatz: was passiert, zentrale Kompetenz des KCGO, Ziel), Erklärung „Das ist ein Feibeitsblatt“ (fett: Notfall-Feibeitsblatt als Dokument genügt), je geplanter Sitzung ein Ordner „Sitzung n“ mit Präsentation (ohne Folien, die Unterricks verlangen, mit „Copyright Jan-Rickmer Feindt“ klein und blass in der Fußzeile), Verlaufsplan und allen PDF-Dateien für Schüler:innen, sowie „Fehlende Sitzungen“. Rückfragen beantwortet: die Absätze **schreibt Claude** (Prompt neben dem Knopf, Absätze in Unterricks prüfbar, künftig beim Planen jeder Stunde gleich mit); Feibeitsblatt **digital nur nach Absprache** (Abgaben kämen bei der Lehrkraft an); **alle Materialfolien bleiben** (nur die kleine Unterricks-Zeile wird überdeckt), nur reine Codefolien fallen weg; zusätzlich **Druckliste, Material für die Lehrkraft, Notizen zu den Folien (eigene PDF) und Grundschul-Einheiten** (dort ohne Präsentation und ohne Erklärung). Ergänzung: jede Präsentation **auch als PowerPoint-Datei**, die Notizen der Lehrkraft in den Notizen der Folien (Referentenansicht); Rückfragen beantwortet: **Folien als Bild** (nicht bearbeitbar), **Notizen-PDF bleibt**. Siehe 4zh |
 | Bewegung im Folien-Stil (Nachtrag 40 vom 19.11.2026) | Prüfauftrag der Lehrkraft: „inwiefern das Design mehr wie eine MotionSite“ (motionsites.ai: Prompt-Sammlung für animierte Landingpages mit Video-Hintergründen, Verläufen, Glas-Effekten). Rückfragen beantwortet: Unterricks; Startseite mit starkem ersten Eindruck plus dezente Bewegung in der App; erst Bericht und Entwurf, dann Einbau; Stil selbst in CSS/JS nachbauen, ohne Kauf, ohne fremde Videos oder Bibliotheken. Freigaben: Bewegungsregel in DESIGN.md ergänzen, neue Texte der Startseite; der Schriftzug darf bei keiner Breite in die Karte ragen. Siehe 4zi |
 | Alle Unterlagen dieser Sitzung (Nachtrag 41 vom 23.11.2026) | Wunsch der Lehrkraft: „bei jeder einzelnen Unterrichtssitzung einen Button ganz unten, mit dem ich einen ZIP-Ordner mit allen Unterlagen und Plänen zu jener Unterrichtssitzung herunterlade“. Rückfragen beantwortet: „Sitzung als Datei“ bleibt; ein ZIP-Ordner mit allen Dateien, die die Lehrkraft braucht, samt Präsentation (eigene PDF und PowerPoint) und Arbeitsblättern; Gymnasium und Grundschule. Siehe 4zj |
-| Anweisungen an die Lehrkraft in den Foliennotizen (Nachtrag 42 vom 23.11.2026, Teil 3) | Wunsch der Lehrkraft: „Wenn zu einer Sitzung eine Präsentation erstellt wird, sollen (ähnlich wie bei Schritt 2 dieser Chatnachricht) eindeutige Anweisungen an die Lehrkraft formuliert und in den Folienanmerkungen angezeigt werden. Diese Anmerkungen dürfen niemals für Schüler sichtbar sein.“ Rückfrage beantwortet: **zu jeder Folie** eine klare Anweisung an die Lehrkraft in den Notizen („Lehrkraft: …“), danach die Hintergründe; nie für Schüler:innen sichtbar. Umsetzung ohne neues Format: der erste Stichpunkt jeder Folie beginnt mit „Lehrkraft:“; Präsentationsansicht, Anmerkungs-PDF und PowerPoint-Notizen heben ihn hervor. Siehe 4zn |
+| Anweisungen an die Lehrkraft in den Foliennotizen (Nachtrag 42 vom 23.11.2026, Teil 3) | Wunsch der Lehrkraft: „Wenn zu einer Sitzung eine Präsentation erstellt wird, sollen (ähnlich wie bei Schritt 2 dieser Chatnachricht) eindeutige Anweisungen an die Lehrkraft formuliert und in den Folienanmerkungen angezeigt werden. Diese Anmerkungen dürfen niemals für Schüler sichtbar sein.“ Rückfrage beantwortet: **zu jeder Folie** eine klare Anweisung an die Lehrkraft in den Notizen („Lehrkraft: …“), danach die Hintergründe; nie für Schüler:innen sichtbar. Umsetzung ohne neues Format: der erste Stichpunkt jeder Folie beginnt mit „Lehrkraft:“; Präsentationsansicht, Anmerkungs-PDF und PowerPoint-Notizen heben ihn hervor; an der Codefolie vor Folie 1 steht schon die Anweisung aus Folie 1 (Gegenprüfung). Siehe 4zn |
 | Konzentrationsaufgabe mit Lückentext, Ankreuzaufgabe und Suchsel (Nachtrag 43 vom 23.11.2026) | Wunsch der Lehrkraft: Seite 1 und die obere Hälfte von Seite 2 weiterhin zum Ausmalen, auf der unteren Hälfte von Seite 2 ein Lückentext, eine Ankreuzaufgabe und ein Suchsel, „dem Alter des jeweiligen Jahrgangs dieser Lerngruppe bzgl. des Schwierigkeitsgrades angemessen“. Rückfragen beantwortet: die rote Karte kommt in den Seitenrand neben diese Aufgaben, darunter, dass der Abschnitt nur für Kinder mit roter Karte Pflicht ist; Stufen je Jahrgang wie von Claude vorgeschlagen; nur neue bzw. überarbeitete Konzentrationsaufgaben; passen die Aufgaben nicht in die halbe Seite, wird das Ausmalbild oben auf Seite 2 kleiner. Siehe 4zk |
 
 ## 2. Gesamtarchitektur
@@ -2510,29 +2510,47 @@ Ausdrucken“; Grundschule „Auch Grundschule“ – kompakt mit Verlaufsplan u
   `NOTE_DO_LABEL` = „Lehrkraft:“; `noteDoSplit(item)` erkennt sie (`/^Lehrkraft\s*:/i` am Anfang, danach Text) und liefert `{label, rest}` mit
   `label + rest` = Stichpunkt (der Text bleibt unverändert), sonst `null`; gedacht nur für den ersten Stichpunkt einer Folie. Grenzen,
   `cleanSlideNotes`, `parseNotesJson`, Notizfeld (`noteFieldIssue`), D1, API und Sitzungsdatei: unverändert (12 Stichpunkte samt Anweisung).
+  **Markdown um die Anweisung** (Gegenprüfung): Schreibt Claude trotz „ohne Markdown“ „**Lehrkraft:** …“, „**Lehrkraft**: …“, „__Lehrkraft:__ …“,
+  „*Lehrkraft:* …“ oder den ganzen Stichpunkt fett, macht `noteDoPlain` (in `noteRaw`, also beim Prüfen jedes Stichpunkts – Hochladen, JSON aus dem
+  Chat, Notizfeld, Server, Anzeige) daraus „Lehrkraft: …“; nur mit schließendem Zeichen (direkt nach dem Doppelpunkt oder nicht mitten im Wort wie in
+  „mein_bild“), sonst bleibt der Stichpunkt, wie er ist; Markdown an anderer
+  Stelle bleibt. Sonst stünden die Sternchen überall, und nichts wäre hervorgehoben.
 * **Präsentations-Prompt** (`claudePresentationPrompt`, Abschnitt „## Notizen für die Lehrkraft: unsichtbar in der PDF“): Der erste Stichpunkt
   jeder Folie ist immer eine klare Anweisung, beginnend mit „Lehrkraft: “ – was sie jetzt tut, kurz und eindeutig (Beispiele „Lehrkraft: Erklärt
   kurz, was Martin Luther am Ablasshandel kritisiert hat.“, „Lehrkraft: Startet die Partnerarbeit (10 Min.) und geht herum.“); danach die
   Hintergründe (was sie sagt oder fragt, erwartete Antworten, Zeit); **je Folie 1 bis 12 Stichpunkte** (vorher 0 bis 12), das Beispiel im Format
-  zeigt `["Lehrkraft: …","…"]`. Was die Lehrkraft mit der Codefolie tut, die Unterricks vor Folie 1 zeigt, steht in der Anweisung zu **Folie 1**
-  (sie ist keine Seite der PDF; Beispiel am Gymnasium „warten, bis alle die Sitzung geöffnet haben“, in Jahrgang 5/6 „kurz sagen, dass die
-  Schüler:innen die Sitzung damit zu Hause finden“). Eine Aufforderung an die Schüler:innen (Materialfolie) bleibt auf der Folie, die Anweisung
+  zeigt `["Lehrkraft: …","…"]`. Was die Lehrkraft mit der Codefolie tut, die Unterricks vor Folie 1 zeigt, steht **als eigener erster Satz** in
+  der Anweisung zu **Folie 1** (sie ist keine Seite der PDF; Beispiel am Gymnasium „warten, bis alle die Sitzung geöffnet haben“, in Jahrgang 5/6
+  „kurz sagen, dass die Schüler:innen die Sitzung damit zu Hause finden“); der Prompt sagt dazu, dass Unterricks diese Anweisung schon an der
+  Codefolie zeigt. Eine Aufforderung an die Schüler:innen (Materialfolie) bleibt auf der Folie, die Anweisung
   steht nur in den Notizen. Ausdrücklich: nie auf einer Folie, auch nicht als unsichtbarer, weißer oder winziger Text, nie in der Zeile
   „Unterricks-Phase: …“ (dort nur die Nummer) oder „Unterricks-Codefolie: …“, nie in Titel, Betreff oder Stichwörtern der PDF – nur im
   Dateianhang. Die Anforderung „Hinweise für die Lehrkraft je Folie“ nennt die Anweisung zuerst. Die übrigen Abschnitte (Titel-, Code-, Material-,
   Video-, Phasenregeln) bleiben, wie sie waren; „Sprechernotizen“, „Zwischenstopp“ und die Zusammenfassung der Sitzung kommen weiter nicht vor.
   **Nicht** im Selbstlern-Prompt (`claudeSelbstlernPrompt`): Dort wäre jede Zeile „Lehrkraft: …“ in einer Station für Schüler:innen sichtbar; der
   Vertretungs-Prompt nennt ebenfalls keine Notizen. Connector: `get_lesson` sagt bei den Notizen zusätzlich „je Folie zuerst die Anweisung
-  „Lehrkraft: …“ an die Lehrkraft (siehe Präsentations-Prompt)“ (ohne Notiztext).
+  „Lehrkraft: …“ an die Lehrkraft (siehe Präsentations-Prompt)“ (ohne Notiztext) – wie der ganze Abschnitt nur, wenn es Notizen gibt (bewusst:
+  eine Präsentation baut Claude nie über den Connector, sondern mit dem Präsentations-Prompt, der die Regel enthält; ohne Notizen bleibt
+  `get_lesson` wie seit Nachtrag 20).
 * **Hervorhebung – nur in den Anzeigen für die Lehrkraft:**
   - Präsentationsansicht (`public/presenter.js`, `noteItem`): der erste Stichpunkt mit „Lehrkraft:“ wird `li.pn-do` mit `<strong>Lehrkraft:</strong>`
     und dem übrigen Text als Textknoten (DOM-APIs, nie innerHTML; `textContent` = Stichpunkt). „Lehrkraft:“ an späterer Stelle bleibt gewöhnlich.
-    Sichtbar weiter nur mit getrenntem Beamerbild (4o); an der Codefolie vor Folie 1 bleibt „Keine Notizen zu dieser Folie.“ (wie bisher).
+    Sichtbar weiter nur mit getrenntem Beamerbild (4o). **An der Codefolie vor Folie 1** (dort beginnt jede Stunde; Gegenprüfung: vorher stand
+    dort „Keine Notizen zu dieser Folie.“, die Anweisung für diesen Moment erst nach dem Weiterschalten) steht schon die Anweisung aus Folie 1
+    (`codeSlideNotes(notes)` in shared.js: der erste Stichpunkt von Folie 1, wenn er mit „Lehrkraft:“ beginnt – nur er, hervorgehoben), Kopf
+    `NOTES_CODE_DO_HEAD` „Codefolie vor Folie 1 – Anweisung aus Folie 1“; beginnt Folie 1 nicht mit einer Anweisung (ältere Notizen), bleibt es
+    bei „Codefolie vor Folie 1“ und „Keine Notizen zu dieser Folie.“.
   - Anmerkungs-PDF (`public/pdfnotes.js`, `addNotePages`): dieser Stichpunkt ganz in Helvetica-Bold, gemessen und umbrochen in der fetten Breite;
-    gilt für die Anmerkungs-PDF der Sitzung, die geteilte Einheit (Nachtrag 39) und den Sitzungsordner (Nachtrag 41).
+    gilt für die Anmerkungs-PDF der Sitzung, die geteilte Einheit (Nachtrag 39) und den Sitzungsordner (Nachtrag 41). Geteilte Einheit und
+    Sitzungsordner bauen sie jedes Mal neu; die gespeicherte „Präsentation mit Anmerkungen“ einer Sitzung entsteht beim Hochladen und nach
+    „Notizen speichern“ – eine ältere bleibt ohne Fettdruck, bis eines davon geschieht.
   - PowerPoint-Notizen (`public/sharepptx.js`): im ersten Stichpunkt ein Lauf `b="1"` für „Lehrkraft:“, der Rest normal; die Folien selbst sind
     Bilder ohne Text der Notizen.
-  - Bearbeiten (`public/notesedit.js`): unverändert – die Anweisung ist die erste Zeile im Textfeld der Folie.
+  - Bearbeiten (`public/notesedit.js`): die Anweisung ist die erste Zeile im Textfeld der Folie; der Hinweis über den Feldern (`NOTES_FIELD_HINT`)
+    sagt seit der Gegenprüfung zusätzlich „Beginnt die erste Zeile mit „Lehrkraft:“, wird sie als Ihre Anweisung hervorgehoben.“
+  - Geteilte Einheit (Nachtrag 39): Notizen-PDF und PowerPoint übernehmen die Notizen der Lehrkraft wörtlich – auch den ersten Satz der Anweisung
+    zu Folie 1, der sich auf die Unterricks-Codefolie bezieht (die es dort nicht gibt). Bewusst nicht automatisch entfernt (ohne eigenes Feld nicht
+    sicher erkennbar); weil der Prompt ihn als eigenen ersten Satz verlangt, ist er für Kolleg:innen leicht zu überspringen.
 * **Schüler:innen, Eltern, Beamer, Vertretung:** keine neuen Wege. Die Anweisung ist ein Stichpunkt wie jeder andere: nur im Dateianhang (die
   Fassung für Schüler:innen ist bereinigt, die Folienbilder entstehen aus ihr), nur über Lehrkraft-Routen, nie im Beamerfenster, am Beamergerät,
   im Durable Object oder in der Druckliste, der Elternansicht und der Vertretung. `pdfCarriers` erkennt „Lehrkraft“ schon in Titel, Betreff,
@@ -2542,11 +2560,16 @@ Ausdrucken“; Grundschule „Auch Grundschule“ – kompakt mit Verlaufsplan u
   neues JSON-Feld, „Lehrkraft:“ außerhalb der Notizen nur in den Anforderungen; `noteDoSplit`; `cleanSlideNotes`/`parseNotesJson` mit Anweisung;
   Anmerkungs-PDF: Anweisung in der Schrift der Überschrift, die übrigen normal, auch umbrochen), `notespresenter.test.mjs` (`li.pn-do` mit `strong`,
   Text unverändert, nur an erster Stelle, nie ohne getrenntes Beamerbild, nie im BroadcastChannel oder WebSocket; `noteItem` ohne innerHTML),
+  `notes.test.mjs` außerdem (Gegenprüfung): Markdown um die Anweisung (`noteLine`, `cleanSlideNotes`, `parseNotesJson`, `noteFieldIssue`),
+  `codeSlideNotes`, `get_lesson` mit Notizen (Satz zur Anweisung, nie Notiztext) und ohne (kein Abschnitt); `notespresenter.test.mjs`: Codefolie vor
+  Folie 1 mit der Anweisung aus Folie 1 (nur sie, hervorgehoben, auch nach Pfeil zurück), ohne Anweisung „Keine Notizen …“; `notesedit.test.mjs`:
+  `NOTES_FIELD_HINT`, „**Lehrkraft:** …“ wird als „Lehrkraft: …“ gespeichert (ohne „gekürzt“);
   `notesprivacy.test.mjs` (Geheimtext „Lehrkraft: GEHEIMANWEISUNG …“ auf allen Wegen zu Schüler:innen, Eltern, Druckliste, Vertretung; Anweisung als
   Kommentar, in Titel, Betreff, XMP → bereinigte Fassung), `share.test.mjs` (PowerPoint: nur „Lehrkraft:“ im ersten Stichpunkt fett, nicht auf den
   Folien und in den Dokumenteigenschaften), `tsummary.test.mjs` (nicht im Selbstlern-Prompt). E2E (`test/e2e/run.mjs`, Notizen-Teil): die Test-PDF trägt
   als ersten Stichpunkt von Folie 1 „Lehrkraft: NOTIZGEHEIM …“ – Anmerkungs-PDF enthält sie, Präsentationsansicht mit Beamerfenster zeigt
-  `li.pn-do` (Gewicht ≥ 600, „Lehrkraft:“ ≥ 700 in #f0a050), vier Stichpunkte, Notizfeld mit der Anweisung als erster Zeile; Beamerfenster,
+  `li.pn-do` (Gewicht ≥ 600, „Lehrkraft:“ ≥ 700 in #f0a050), vier Stichpunkte, mit Pfeil zurück an der Codefolie nur die Anweisung unter
+  „Codefolie vor Folie 1 – Anweisung aus Folie 1“ (Gegenprüfung), Notizfeld mit der Anweisung als erster Zeile; Beamerfenster,
   Beamergerät und Schülerin sehen nichts davon (die bisherigen NOTIZGEHEIM-Prüfungen).
 * **Nicht prüfbar hier:** ob Claude in claude.ai zu jeder Folie eine Anweisung schreibt – Unterricks übernimmt die Notizen, wie sie kommen
   (fehlt die Anweisung, steht der Stichpunkt einfach ohne Hervorhebung da).
