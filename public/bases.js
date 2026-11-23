@@ -147,7 +147,7 @@ export function editBase(b, { grades = [], onSaved = () => {} } = {}) {
 
 /* ---------- Übersicht über alle Fächer ---------- */
 export async function basesOverview() {
-  const main = h("main", null, h("div", { class: "skeleton", text: "Lade …" }));
+  const main = h("main", { "data-settle": "" }, h("div", { class: "skeleton", text: "Lade …" }));
   render(teacherBar("bases"), main, teacherFoot());
   let bases, cfgs;
   try { [bases, cfgs] = await Promise.all([tapi("GET", "/api/teacher/bases").then((r) => r.bases), tapi("GET", "/api/teacher/subjects").then((r) => r.subjects)]); }
@@ -191,7 +191,7 @@ export function basePdfButton(b, { onSaved = () => {} } = {}) {
 /* ---------- Seite eines Fachs ---------- */
 export async function basesPage(subject) {
   if (!isValidSubject(subject)) return go("#/lk/grundlagen");
-  const main = h("main", null, h("div", { class: "skeleton", text: "Lade …" }));
+  const main = h("main", { "data-settle": "" }, h("div", { class: "skeleton", text: "Lade …" }));
   render(teacherBar("bases"), main, teacherFoot());
   let bases, cfg, gsCourses = [];
   const load = async () => {
@@ -384,7 +384,7 @@ export async function basesPage(subject) {
 /* ---------- Eine Planungsgrundlage im neuen Tab (#/lk/grundlage/<id>) ----------
    Mit Original-PDF: weiter zur PDF (signierter Link, wie „PDF ansehen“). Ältere ohne PDF: ihr gespeicherter Text als lesbare Seite. */
 export async function baseDocPage(id) {
-  const main = h("main", { class: "narrow" }, h("div", { class: "skeleton", text: "Lade …" }));
+  const main = h("main", { class: "narrow", "data-settle": "" }, h("div", { class: "skeleton", text: "Lade …" }));
   render(teacherBar("bases"), main, teacherFoot());
   let b;
   try { b = (await tapi("GET", "/api/teacher/bases/" + id)).base; }

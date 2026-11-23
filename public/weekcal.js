@@ -19,20 +19,24 @@ export function weekCard(load, { today: fixed = null } = {}) {
   const prev = h("button", { class: "btn ghost iconbtn", type: "button", "aria-label": "Vorige Woche", onclick: () => move(-7) }, icon("left"));
   const next = h("button", { class: "btn ghost iconbtn", type: "button", "aria-label": "Nächste Woche", onclick: () => move(7) }, icon("right"));
   // aria-disabled statt disabled: der Knopf behält beim Klicken den Fokus
-  const back = h("button", { class: "btn ghost small", type: "button", onclick: () => { refresh(); if (monday !== home) monday = home; paint(); } }, "Heute");
+  const back = h("button", { class: "btn ghost small", type: "button", onclick: () => { refresh(); const moved = monday !== home; if (moved) monday = home; paint(moved); } }, "Heute");
   const body = h("div", { class: "wk-body skeleton", text: "Lade den Wochenkalender …" });
   const card = h("section", { class: "card weekcal", "aria-labelledby": "wk-h" },
     h("div", { class: "section-title" }, h("h2", { id: "wk-h", text: "Ihre Woche" }), h("div", { class: "wk-nav" }, prev, range, next, back)),
     body);
-  function move(n) { refresh(); monday = addDays(monday, n); paint(); }
+  function move(n) { refresh(); monday = addDays(monday, n); paint(true); }
   // zurück im Tab (z. B. am nächsten Morgen): neues Datum übernehmen; ohne Karte im Dokument meldet sich der Zuhörer ab
   const onVis = () => { if (!card.isConnected) { document.removeEventListener("visibilitychange", onVis); return; } if (document.visibilityState === "visible" && refresh()) paint(); };
   document.addEventListener("visibilitychange", onVis);
-  function paint() {
+  // swap: nach dem Blättern blendet die neue Woche kurz ein („Folie wechseln“, Nachtrag 40 – nur die Deckkraft, keine Lage, nie beim ersten Laden)
+  function paint(swap = false) {
     range.textContent = weekRangeText(monday) + " · KW " + isoWeek(monday);
     back.setAttribute("aria-disabled", String(monday === home));
     back.setAttribute("aria-label", monday === home ? "Heute – diese Woche wird schon gezeigt" : "Zur Woche von heute");
-    if (units) { clear(body); body.classList.remove("skeleton"); body.append(...weekBody(weekSchedule(units, monday, extra), today)); }
+    if (units) {
+      clear(body); body.classList.remove("skeleton"); body.append(...weekBody(weekSchedule(units, monday, extra), today));
+      if (swap) { body.classList.remove("wk-swap"); void body.offsetWidth; body.classList.add("wk-swap"); }
+    }
   }
   paint();
   Promise.resolve().then(load).then((u) => {

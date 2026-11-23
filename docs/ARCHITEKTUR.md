@@ -87,6 +87,7 @@ implementiert und im End-to-End-Test geprüft (Ausnahmen unten ausdrücklich gen
 | Bilder, Videolinks und PDF-Dateien in Feibeitsblättern (Nachtrag 37 vom 17.11.2026) | Wunsch der Lehrkraft: „Bilder und andere beigefügte Dateien als Material lassen sich von Unterricks nicht in ein Feibeitsblatt einbauen. … Ändere das, damit Claude auch Bilder, Videolinks und PDF-Dateien als Material zu Aufgaben hinzufügen kann.“ Rückfragen beantwortet: Quelle = **Dateien der Sitzung** (hochgeladen oder mit add_material_pdf gestaltet; nicht: von Claude gezeichnete Bilder, Dateien aus dem Internet); Dateien aus „Nur für die Lehrkraft“ **erlaubt, mit Warnhinweis**. Videos nur von YouTube (das Feibeitsblatt bettet nur YouTube ein), andere als Link im Material. Siehe 4zf |
 | YouTube-Video eingebettet in der Live-Präsentation (Nachtrag 38 vom 17.11.2026) | Wunsch der Lehrkraft: „Baue Unterricks so, dass ich in einer Präsentation ein YouTube-Video eingebettet abspielen kann. … dass Unterricks an der Stelle, an der die "Video-Folie" kommt, eine eigene Anzeige hat … In der Schüleransicht soll das YouTube-Video nicht live abgespielt werden, sondern hier wird die Folie mit dem Titel des Videos und dem YouTube-Link zum Video angezeigt.“ Der Präsentations-Prompt nennt Stelle, Link und Aufbau der Videofolie. Rückfragen beantwortet: **alle drei Aufbauten** (Beamergerät, Beamerfenster am Laptop, iPad gespiegelt); Videoquelle für den Prompt = **YouTube-Links im Schulportal-Eintrag (mit Phase) und in den Links der Sitzung**; Link für Schüler:innen **erst nach der Stunde** (live nur die Folie, danach im Folienfenster ein anklickbarer Link); **Start und Ende** (Ausschnitt). Siehe 4zg |
 | Unterrichtseinheit mit KollegInnen teilen (Nachtrag 39 vom 18.11.2026) | Wunsch der Lehrkraft: ein Knopf ganz unten in jeder Einheit „Untereichtseinheit mit KollegInnen teilen“ (Tippfehler berichtigt) → ZIP-Ordner mit Leupold-Schema-PDF (darunter je Sitzung ein Absatz: was passiert, zentrale Kompetenz des KCGO, Ziel), Erklärung „Das ist ein Feibeitsblatt“ (fett: Notfall-Feibeitsblatt als Dokument genügt), je geplanter Sitzung ein Ordner „Sitzung n“ mit Präsentation (ohne Folien, die Unterricks verlangen, mit „Copyright Jan-Rickmer Feindt“ klein und blass in der Fußzeile), Verlaufsplan und allen PDF-Dateien für Schüler:innen, sowie „Fehlende Sitzungen“. Rückfragen beantwortet: die Absätze **schreibt Claude** (Prompt neben dem Knopf, Absätze in Unterricks prüfbar, künftig beim Planen jeder Stunde gleich mit); Feibeitsblatt **digital nur nach Absprache** (Abgaben kämen bei der Lehrkraft an); **alle Materialfolien bleiben** (nur die kleine Unterricks-Zeile wird überdeckt), nur reine Codefolien fallen weg; zusätzlich **Druckliste, Material für die Lehrkraft, Notizen zu den Folien (eigene PDF) und Grundschul-Einheiten** (dort ohne Präsentation und ohne Erklärung). Ergänzung: jede Präsentation **auch als PowerPoint-Datei**, die Notizen der Lehrkraft in den Notizen der Folien (Referentenansicht); Rückfragen beantwortet: **Folien als Bild** (nicht bearbeitbar), **Notizen-PDF bleibt**. Siehe 4zh |
+| Bewegung im Folien-Stil (Nachtrag 40 vom 19.11.2026) | Prüfauftrag der Lehrkraft: „inwiefern das Design mehr wie eine MotionSite“ (motionsites.ai: Prompt-Sammlung für animierte Landingpages mit Video-Hintergründen, Verläufen, Glas-Effekten). Rückfragen beantwortet: Unterricks; Startseite mit starkem ersten Eindruck plus dezente Bewegung in der App; erst Bericht und Entwurf, dann Einbau; Stil selbst in CSS/JS nachbauen, ohne Kauf, ohne fremde Videos oder Bibliotheken. Freigaben: Bewegungsregel in DESIGN.md ergänzen, neue Texte der Startseite; der Schriftzug darf bei keiner Breite in die Karte ragen. Siehe 4zi |
 
 ## 2. Gesamtarchitektur
 
@@ -2344,6 +2345,39 @@ Ausdrucken“; Grundschule „Auch Grundschule“ – kompakt mit Verlaufsplan u
   und Grundschule: Karte, Prompt, 409, Rückfrage, ZIP-Inhalt, überdeckte Zeile an den Pixeln nachgemessen, Copyright, Notizen, Erklärung fett, Verweis
   der Grundschule als Dateiname, PowerPoint mit Folienbildern und Notizen); Unit `test/unit/sharecard.test.mjs` (Karte im Browser-Ersatz, share.js als Attrappe:
   Konflikt beim Teilen, veralteter Abruf, Neuladen mit ungespeicherten Absätzen samt Schreibmarke, Neuaufbau mit `keep()`, „Erneut versuchen“).
+
+## 4zi. Bewegung im Folien-Stil (Nachtrag 40 vom 19.11.2026)
+
+* **Ausgangsfrage:** wie weit Unterricks „mehr wie eine MotionSite“ werden kann. Ergebnis der Prüfung (Bericht und Entwurf vorab, Entwurf als private
+  Seite): Der erste Eindruck und eine durchgehende Bewegungssprache lassen sich übertragen – aber in der Welt der Overhead-Folien statt mit Video,
+  Verläufen, Glas und React/Tailwind. Belegt (Apple, WebKit, MDN-Kompatibilitätsdaten, zweimal geprüft): Das iPad 7 bleibt bei iPadOS 18 (Safari 18) –
+  View Transitions ja, an das Scrollen gekoppelte Animationen nein (erst Safari 26); iPad 8 und Air 3 bis iPadOS 26, iPad 9/10 und Air 4 bis iPadOS 27.
+  Die E2E-Tests laufen nur in Chromium; vor dem Ausrollen einmal auf einem echten iPad 7 ansehen.
+* **Regel (DESIGN.md, Abschnitt „Bewegung“):** nur `transform`/`opacity`, nichts von außen, nie in Schleife (Drehkreis ausgenommen), höchstens etwa
+  1 s, sechs benannte Bewegungen; Präsentation, Beamer, Live-Fenster, Timer, Folienfenster, „Ich bin jetzt im Unterricht“, Sitzungsseiten und
+  Escape-Room bleiben ruhig; mit „Bewegung reduzieren“ steht alles still – seit Nachtrag 40 auch Pseudo-Elemente (`*, *::before, *::after`, vorher
+  drehten sich die Folienecken der Kacheln weiter); der LIVE-Punkt pulsiert dreimal statt endlos (WCAG 2.2.2).
+* **Startseite der Schüler:innen** (`studentStart`, public/app.js): Schriftzug `h1.wordmark` (Inline-SVG `logoMark()` + „Unterricks“), Satz
+  „Präsentation, Material und Hausaufgabe deiner Stunde – an einem Ort.“ mit Markerstrich, drei Schritte, Karte „Anmelden“ mit Hinweis am Feld
+  (`aria-describedby`) und „Weiter“ mit Pfeil; IDs (`#spw`, `#spw-note`), Knopfname und `.err` unverändert. Die Größe des Schriftzugs folgt der Breite
+  seiner Spalte (Container-Einheiten, `clamp(2.25rem, 16cqi, 6.6rem)`, `.reveal` mit `flex: none`) – im Entwurf ragte er zwischen 910 und 1070px in die
+  Karte und wurde abgeschnitten (Schriftgröße nach Fensterbreite, `overflow: hidden` mit `min-width: 0` als Flex-Element); geprüft von 320 bis 2000px.
+* **Folien der Anmeldeseiten** als eigene Elemente (`loginFoils()`, `.lfoil-a/-b/-c`) statt `::before`/`::after`: Die violette lag bisher in
+  `.login::before` – eine bewegte Karte (eigener Stapelkontext) hätte sie über ihren weißen Hintergrund gelegt. Lehrkräfte: `.login-pile` hält die
+  violette Folie hinter der Karte; die Karte kommt erst nach `/api/teacher/status` (Verzögerung .1s statt .42s).
+* **Folge „Folien auflegen“:** nur beim ersten Bild nach dem Laden (`firstLay()`: setzt nach 1,5 s `data-laid` – auch das erste Kopfband nach der
+  Anmeldung legt dann nichts mehr auf, Abmelden und erneutes Anmelden nach 90 Minuten spielen sie nicht noch einmal); alle Animationen mit
+  `backwards` und nur Lage/Drehung, also von Anfang an lesbar und danach ohne festgehaltene Animation; Fokus im Passwortfeld wie bisher nach 50 ms.
+* **In der App:** „Folie wechseln“ (`pageHead`: anderes Fach als beim vorigen Kopfband → `.relay`), „Karten legen sich auf“ (`settleIn()` aus
+  `render()`: nur `main[data-settle]` – Fächer, Klassen, Lerngruppe, Einheit, Planungsgrundlagen, Einstellungen, Grundschule, Fach/Klasse und
+  „Meine Sitzungen“ –, wartet per MutationObserver, bis `.skeleton` ersetzt ist, einmal je Seitenaufbau, Klasse `settle` 1,1 s), geblätterte Woche
+  (`.wk-swap`, nur Deckkraft, nicht beim ersten Laden), Meldungen (nicht im Präsentationsmodus), Hintergrund der Dialoge; Heben der Kacheln nur mit Maus.
+  Bewusst nicht: View Transitions in `render()` (machten das Zeichnen asynchron – rund 30 Aufrufer, darunter der Schutz gegen den doppelten Aufbau der
+  Anmeldeseite –, die Lade-Platzhalter würden animiert), Bewegung in neu gezeichneten Listen (Druckaufträge, Material), Mausparallaxe, Video, Glas.
+* **Tests:** Unit `test/unit/motion.test.mjs` (Regeln in styles.css, `pageHead`-Relay, `settleIn`, `firstLay`, opt-in je Seite); E2E
+  `test/e2e/motion.mjs` (Folge beim ersten Bild, lesbar von Anfang an, Fokus, keine zweite Folge, reduzierte Bewegung samt Pseudo-Elementen, alle Breiten
+  320–2000px bei zwei Höhen ohne abgeschnittenen, verdeckten oder überlappenden Text – `TEXT_CHECK` –, Abstand Schriftzug–Karte bei 910–1070px,
+  Anmeldung der Lehrkräfte, Folie wechseln, Karten legen sich auf, Woche, Meldungen; Bildschirmfotos `nr40-*.png`).
 
 ## 4i. Druckliste „Von der Lehrkraft auszudrucken“ (Ergänzung vom 10.11.2026)
 

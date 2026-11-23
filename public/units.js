@@ -29,7 +29,7 @@ export function leupoldView(unit, highlight) {
 }
 
 export async function unitPage(id) {
-  const main = h("main", null, h("div", { class: "skeleton", text: "Lade die Unterrichtseinheit …" }));
+  const main = h("main", { "data-settle": "" }, h("div", { class: "skeleton", text: "Lade die Unterrichtseinheit …" }));
   render(teacherBar("lessons"), main, teacherFoot());
   let u;
   try { u = (await tapi("GET", "/api/teacher/units/" + id)).unit; }

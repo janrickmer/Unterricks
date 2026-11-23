@@ -1,5 +1,5 @@
 // app.js – Einstieg: Router und Schüleransicht. Die Lehrkräfteansicht wird erst bei Bedarf geladen (teacher.js).
-import { h, $, clear, store, deviceId, api, apiUrl, wsUrl, ApiError, toast, errToast, busy, copyText, fmtBytes, fmtDate, fmtClock, fileIcon, downloadUrl, downloadBlob, topbar, icon, setFach, pageHead, modal, openLayer } from "./ui.js";
+import { h, $, clear, store, deviceId, api, apiUrl, wsUrl, ApiError, toast, errToast, busy, copyText, fmtBytes, fmtDate, fmtClock, fileIcon, downloadUrl, downloadBlob, topbar, icon, setFach, pageHead, modal, openLayer, settleIn, logoMark, loginFoils, firstLay } from "./ui.js";
 import { SUBJECTS, CLASS_GROUPS, STUDENT_LOGIN_MIN, subjectName, formatCode, normalizeCode, fmtDay, classShort, isAnalogClass, webUrlLabel, fmtClockBerlin, fmtDayBerlin } from "./shared.js";
 import { paintPortalPreview } from "./portalview.js";
 import { codeSlideDom } from "./codeslide.js";
@@ -15,7 +15,7 @@ const app = document.getElementById("app");
 let disposers = [];
 export const onLeave = (fn) => disposers.push(fn);
 function leave() { for (const fn of disposers.splice(0)) { try { fn(); } catch {} } }
-export function render(...nodes) { leave(); setFach(null); clear(app).append(...nodes); window.scrollTo(0, 0); }
+export function render(...nodes) { leave(); setFach(null); clear(app).append(...nodes); window.scrollTo(0, 0); settleIn([...app.children].find((c) => c.tagName === "MAIN")); }
 export const go = (hash) => { if (location.hash === hash) route(); else location.hash = hash; };
 
 const S = { get token() { return store.get("u.stoken"); }, set token(v) { if (v) store.set("u.stoken", v); else store.del("u.stoken"); } };
@@ -90,7 +90,7 @@ async function studentStart() {
   const note = expiredNote;   // bleibt bis zur erfolgreichen Anmeldung (die Startseite kann zweimal gezeichnet werden)
   const pw = h("input", { type: "password", id: "spw", autocomplete: "current-password", autocapitalize: "off", spellcheck: "false", required: true });
   const msg = h("p", { class: "err", role: "alert" });
-  const btn = h("button", { class: "btn primary big", type: "submit" }, "Weiter");
+  const btn = h("button", { class: "btn primary big", type: "submit" }, "Weiter", icon("arrow"));
   let lockTimer = null;
   const lock = (sec) => {
     clearInterval(lockTimer); btn.disabled = true;
@@ -112,11 +112,20 @@ async function studentStart() {
       }
     }, "Prüfe …");
   } },
-  h("div", { class: "logo" }, h("img", { src: "/icon.svg", alt: "" }), h("span", { text: "Unterricks" })),
+  h("h2", { text: "Anmelden" }),
   note ? h("p", { class: "notice", role: "status", id: "spw-note", text: note }) : null,
-  h("div", { class: "field" }, h("label", { for: "spw" }, "Passwort"), pw), msg, btn);
-  if (note) pw.setAttribute("aria-describedby", "spw-note");
-  render(h("div", { class: "login-wrap" }, form), footer(true));
+  h("div", { class: "field" }, h("label", { for: "spw" }, "Passwort"), pw, h("p", { class: "hint", id: "spw-h", text: "Das Passwort bekommst du von deiner Lehrkraft." })), msg, btn);
+  pw.setAttribute("aria-describedby", (note ? "spw-note " : "") + "spw-h");
+  // Startseite (Nachtrag 40): Schriftzug, ein Satz und die drei Schritte neben der Anmeldekarte; beim ersten Bild nach dem Laden legen sich die Folien auf,
+  // der Folienstift schreibt das Logo, das Abdeckblatt gibt den Schriftzug frei, der Marker unterstreicht, zuletzt legt sich die Karte hin
+  const hero = h("div", { class: "start-hero" },
+    h("div", { class: "start-text" },
+      h("h1", { class: "wordmark" }, logoMark(), h("span", { class: "reveal", text: "Unterricks" })),
+      h("p", { class: "start-lead" }, "Präsentation, Material und Hausaufgabe deiner Stunde – ", h("span", { class: "hl", text: "an einem Ort" }), "."),
+      h("ol", { class: "start-steps", "aria-label": "So geht es weiter" }, ["Passwort", "Fach und Klasse", "Sitzungscode"].map((t, i) =>
+        h("li", { style: "--i:" + i }, h("span", { class: "n", "aria-hidden": "true", text: String(i + 1) }), t)))),
+    form);
+  render(h("div", { class: "login-wrap start" + (firstLay() ? " play" : "") }, ...loginFoils("a", "b", "c"), hero), footer(true));
   setTimeout(() => pw.focus(), 50);
 }
 
@@ -158,7 +167,7 @@ async function studentHome() {
   let me;
   try { me = await sapi("GET", "/api/student/me"); }
   catch (e) { if (studentAuthFailed(e)) return; render(studentBar(), h("main", { class: "narrow" }, h("p", { class: "err", text: e.message }))); return; }
-  const main = h("main", { class: "narrow" });
+  const main = h("main", { class: "narrow", "data-settle": "" });
   render(studentBar(), main, footer());
   const show = (profile, forceChoose) => {
     clear(main);

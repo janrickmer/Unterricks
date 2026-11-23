@@ -402,7 +402,7 @@ components:
 
 Jede Sitzung ist eine Folie auf dem Overhead-Projektor. Die Seite ist die kühle Leuchtfläche, geschrieben wird mit Folienstift-Tinte, und jedes Fach legt seine getönte Farbfolie über den Kopf der Seite: Blau für Politik und Wirtschaft, Violett für Ev. Religion, Kupfer für Ethik. Die gelbe Markerfolie zeigt den Hauptweg „Stunde mit Claude planen“ bzw. „Einheit mit Claude planen“. Im Verlaufsplan liegt ab dem Zwischenstopp ein Abdeckblatt mit roter Kante – was darunter steht, ist noch nicht aufgedeckt, bleibt aber lesbar. Fach, Kurs und „Stunde n von m“ stehen auf jeder Seite im Kopfband.
 
-Die Gestaltung ist ruhig und lesbar bis in die letzte Reihe eines hellen Klassenraums: eine Schriftfamilie (Atkinson Hyperlegible Next, für Codes ihre Mono-Schwester), Hierarchie allein über Größe und Gewicht, volle Farbe flächig und ohne Verlauf, weiche nach unten versetzte Schatten, Haarlinien statt Kästen in Kästen. Die Arbeitsseiten der Lehrkraft sind dicht und zweispaltig (in der Sitzung: Inhalt links, Sitzungscode und Sitzungsdaten rechts), Schüler:innen-Seiten schmal und einspaltig mit einem eindeutigen nächsten Schritt. Bewegung gibt es nur, wo sich Folien bewegen: „Folie auflegen“ beim ersten Kopfband und „Aufdecken“ am Abdeckblatt.
+Die Gestaltung ist ruhig und lesbar bis in die letzte Reihe eines hellen Klassenraums: eine Schriftfamilie (Atkinson Hyperlegible Next, für Codes ihre Mono-Schwester), Hierarchie allein über Größe und Gewicht, volle Farbe flächig und ohne Verlauf, weiche nach unten versetzte Schatten, Haarlinien statt Kästen in Kästen. Die Arbeitsseiten der Lehrkraft sind dicht und zweispaltig (in der Sitzung: Inhalt links, Sitzungscode und Sitzungsdaten rechts), Schüler:innen-Seiten schmal und einspaltig mit einem eindeutigen nächsten Schritt. Bewegung gibt es nur in der Sprache der Folien (seit Nachtrag 40, Freigabe der Lehrkraft vom 19.11.2026): Folien werden aufgelegt, der Folienstift schreibt, das Abdeckblatt wird weggezogen – benannt im Abschnitt „Bewegung“; Präsentation, Beamer und Live-Fenster bleiben ganz ohne Bewegung.
 
 Verweigert sind graue Lernplattform-Karten mit einem einzigen Blau; falsch wäre eine Oberfläche, die kindlich, unruhig oder kühl-technisch wirkt. Hell- und Dunkelmodus folgen der Geräteeinstellung. Nichts wird von außen geladen – die Schriften liegen unter der SIL Open Font License in `public/fonts`. Kein Schulname, kein Schullogo, keine Schulfarben. Eine bewusst begrenzte Ausnahme ist der Escape-Room (`.er`, Petrol und Ocker, Serifenschrift): Er behält die von der Lehrkraft vorgegebene Gestaltung und gehört nicht zum System (siehe Components).
 
@@ -539,7 +539,7 @@ Flache Flächen mit Folien-Tiefe: Flächen sind flach und voll gefärbt; Tiefe e
 ### Folien und Mischung
 - **Fachseiten:** eine Folie in `--foil` (Radius 20px, `rotate(-2deg)` um die Unterkante, `width: min(36%, 460px)`, `bottom: -14px`). Die ganze Ebene `.foils` mischt sich per `mix-blend-mode: multiply` mit dem Band und ist durch `clip-path: inset(0 -100vmax -26px)` eine eigene Gruppe: über dem Band dunkler, unter der Bandkante hell. Hell hängt sie etwa 14–22px über die Bandkante, dunkel endet sie an der Kante (`clip-path: inset(0 -100vmax)`).
 - **Seiten ohne Fach:** drei Folien in `--blau`, `--violett` und `--kupfer` (Radius 18px; -7deg, 4deg, -3deg) mischen sich nur untereinander – die Gruppe liegt mit `mix-blend-mode: normal` und Deckkraft .88 im Band, die Folien darin per multiply; nur Blau und Violett überlappen, alles bleibt im Band. Auf schmalen Seiten (unter 900px) werden die Folien schmaler, Titel (15ch) und Unterzeile (36ch) bleiben links daneben.
-- **Anmeldung:** drei hell getönte Folien (#c9d6f4, #ddd2f3, #f3d5c3; Radius 28px; -9deg, 4deg, 7deg) per multiply auf der Leuchtfläche; dunkel in den vollen Fachfarben per `screen` mit Deckkraft .42.
+- **Anmeldung:** drei hell getönte Folien (#c9d6f4, #ddd2f3, #f3d5c3; Radius 28px; -9deg, 4deg, 7deg) per multiply auf der Leuchtfläche; dunkel in den vollen Fachfarben per `screen` mit Deckkraft .42. Seit Nachtrag 40 eigene Elemente (`.lfoil-a/-b/-c`, `loginFoils()`), nicht mehr `::before`/`::after`: auf der Startseite der Schüler:innen liegen alle drei auf der Leuchtfläche (die violette 34vmax × 21vmax bei 34 % / 18 %), bei den Lehrkräften liegt die violette in `.login-pile` hinter der Karte (120 % × 70 %, wie bisher). So kann sich die Karte bewegen, ohne dass eine Folie in ihr liegt.
 - **Beamer-Code:** eine große Folie in `--foil` (70vmax × 46vmax, Radius 48px, -8deg) per multiply auf der Bandfarbe.
 - **Logo:** das Folien-U – zwei versetzte U-Striche in Blau und Gelb, Gelb per multiply darüber (`icon.svg`).
 
@@ -547,6 +547,21 @@ Flache Flächen mit Folien-Tiefe: Flächen sind flach und voll gefärbt; Tiefe e
 **Die Schwebe-Regel.** Schatten sind weich, nach unten versetzt und mit negativer Ausbreitung – eine Folie schwebt knapp über der Leuchtfläche. Nur das Abdeckblatt wirft seinen Schatten nach oben.
 
 **Die Multiply-Regel.** Farbfolien mischen sich durch Übereinanderlegen (`mix-blend-mode: multiply`), nie durch Verläufe. Im Dunkelmodus endet die Bandfolie an der Bandkante – ein heller Überstand läse sich als Lichtfleck.
+
+## Bewegung
+
+Bewegung erzählt, was mit Folien auf dem Overhead-Projektor passiert – sie zeigt einen Zustandswechsel und nie Schmuck um ihrer selbst willen. Nur `transform` und `opacity` (keine Verläufe, kein Weichzeichner, kein Video, nichts von außen), nie in Schleife (Ausnahme: der Drehkreis beim Warten), nie länger als etwa 1 s. Grundlage sind die Schul-iPads: das iPad 7 bleibt bei iPadOS 18 (Safari 18) – an das Scrollen gekoppelte Animationen gibt es dort nicht und werden nicht verwendet.
+
+- **Kurven und Zeiten:** `--ease` (`cubic-bezier(.16, 1, .3, 1)`) für alles, was sich hinlegt; für den Folienstift `cubic-bezier(.22, .9, .36, 1)`. Tippen .12s, Zustandswechsel .18s, Karten .34s, Abdeckblatt .45–.55s, Folien .7–.75s.
+- **„Folien auflegen“** (Anmeldeseiten, nur beim ersten Bild nach dem Laden – `firstLay()` setzt danach `data-laid`, auch das erste Kopfband nach der Anmeldung legt dann nichts mehr auf): die drei Folien fliegen leicht versetzt (0 / 90 / 180 ms) mit Drehung ein und legen sich hin (.7s); der Folienstift schreibt das U-Logo (zwei Striche, .42s); auf der Startseite der Schüler:innen gibt ein Abdeckblatt (Papier mit roter Oberkante) den Schriftzug frei (.55s), ein gelber Markerstrich unterstreicht „an einem Ort“, die drei Schritte rücken nach; zuletzt legt sich die Anmeldekarte hin (.75s). Gesamt rund 1,2 s; alle Inhalte sind von Anfang an lesbar (nur Lage und Drehung, keine Deckkraft), Eingaben müssen nie warten.
+- **„Folie auflegen“** (Kopfband): wie bisher beim ersten Kopfband nach dem Laden.
+- **„Folie wechseln“:** ändert sich danach das Fach gegenüber dem vorigen Kopfband, legen sich seine Folien neu auf (`.pagehead.relay`, .7s, versetzt); beim Neuzeichnen derselben Seite nicht. Geblätterte Wochen im Wochenkalender blenden kurz ein (.2s, nur Deckkraft, nie beim ersten Laden).
+- **„Karten legen sich auf“:** einmal je Seitenaufbau rücken die ersten sechs Bereiche unter dem Kopfband 10px nach oben auf ihren Platz (.34s, 50 ms Versatz) – nur auf Seiten, die es wünschen (`main[data-settle]`, `settleIn()`: Fächer, Klassen, Lerngruppe, Einheit, Planungsgrundlagen, Einstellungen, Grundschule, „Meine Sitzungen“ und Fach/Klasse der Schüler:innen). Neu gezeichnete Listen (nach dem Speichern, Druckaufträge, Material) bewegen sich nie, Entferntes verschwindet sofort.
+- **„Aufdecken“:** das Abdeckblatt am Zwischenstopp (.45s) – unverändert.
+- **Rückmeldung:** Knöpfe geben beim Drücken 1px nach; Kacheln heben sich nur mit Maus (`@media (hover: hover) and (pointer: fine)` – auf dem iPad bliebe der Zustand nach dem Tippen stehen); Meldungen gleiten von unten herein (.22s, nicht im Präsentationsmodus); der Hintergrund eines Dialogs dunkelt kurz ab (.18s), der Dialog legt sich auf (.32s).
+- **Nie in Bewegung:** Präsentationsmodus, Beamerfenster und Beamergerät, Codefolie, Live-Fenster der Schüler:innen, Timer, Folienfenster, „Ich bin jetzt im Unterricht“, Sitzungsseiten und Escape-Room – dort zählen Ruhe, gleichzeitige Folienwechsel und Lesbarkeit aus der letzten Reihe.
+- **Blinken:** höchstens dreimal (der LIVE-Punkt pulsiert dreimal, dann ruhig; der abgelaufene Timer ebenso) – WCAG 2.2.2.
+- **Reduzierte Bewegung** (`prefers-reduced-motion: reduce`, am iPad „Bewegung reduzieren“): alles steht sofort an seinem Platz – auch Pseudo-Elemente (`*, *::before, *::after`).
 
 ## Shapes
 
@@ -612,6 +627,11 @@ Zustände kurz und flach.
 - **Brotkrumen:** nur über `pageHead()`; im Band weiß in 700/.95rem, Trennzeichen mit Deckkraft .65 und `aria-hidden`; die letzte Krume ist die aktuelle Seite (`aria-current="page"`).
 - **Mobil (≤ 560px):** Kopfleiste nicht sticky, die Navigation bricht in eine eigene volle Zeile um, die aktuelle Brotkrume entfällt.
 - **Fußzeile:** zentriert, .88rem, `--muted`, Link in 700.
+
+### Startseite und Anmeldung (`.login-wrap`, `.start-hero`, Nachtrag 40)
+- **Startseite der Schüler:innen** (`#/`): links der Schriftzug `h1.wordmark` (das Folien-U als Inline-SVG `logoMark()` und „Unterricks“ in 800, Sperrung -.035em), darunter in 700 der Satz „Präsentation, Material und Hausaufgabe deiner Stunde – an einem Ort.“ mit gelbem Markerstrich unter „an einem Ort“ (dunkel #6b5a12 per `screen`) und die drei Schritte als Pillen (`ol.start-steps`: „1 Passwort“, „2 Fach und Klasse“, „3 Sitzungscode“; Ziffer in Mono, `aria-hidden`); rechts die Anmeldekarte mit h2 „Anmelden“, Feld „Passwort“, Hinweis „Das Passwort bekommst du von deiner Lehrkraft.“ und „Weiter“ mit Pfeil (`icon("arrow")`, rückt mit Maus bzw. Tastaturfokus 4px nach rechts). Raster `minmax(0, 1.15fr) minmax(0, 440px)`, unter 900px untereinander und zentriert.
+- **Größe des Schriftzugs:** nach der Breite seiner Spalte (`container-type: inline-size`, `clamp(2.25rem, 16cqi, 6.6rem)`) – Logo und Wort brauchen rund 5,9 em; so ragt er bei keiner Breite in die Karte und wird nie abgeschnitten (geprüft von 320 bis 2000px, E2E).
+- **Anmeldung der Lehrkräfte** (`#/lehrkraft`): Aufbau wie bisher (Karte mit Folien-U und „Lehrkräfte“), dieselbe Folge „Folien auflegen“ ohne Schriftzug und Satz.
 
 ### Kopfband mit Fachfolie (`pageHead()`)
 Der Kopf jeder Seite: Fach, Kurs und Stand auf einen Blick.
@@ -798,12 +818,12 @@ Zur Plattform gehört dagegen `.escbox`, auch wenn es am Anfang dieses Abschnitt
 - **Do:** Schreibe Warnungen in Tinte mit Warnsymbol (`.warnc`, `.notice.warn`) und Zustände mit `stateLine()`.
 - **Do:** Nimm Symbole aus `ICONS` über `icon()` – 24er-Raster, Strich 2, runde Enden, `currentColor`.
 - **Do:** Halte Bedienelemente mindestens 44px hoch (Klassenknöpfe 48px, große Knöpfe 54px).
-- **Do:** Bewege nur mit `--ease` (`cubic-bezier(.16, 1, .3, 1)`) und nur als „Folie auflegen“ bzw. „Aufdecken“; bei `prefers-reduced-motion: reduce` steht alles still.
+- **Do:** Bewege nur mit `--ease` (`cubic-bezier(.16, 1, .3, 1)`, für den Folienstift `cubic-bezier(.22, .9, .36, 1)`) und nur als eine der Bewegungen im Abschnitt „Bewegung“ (Folien auflegen, Folie auflegen, Folie wechseln, Karten legen sich auf, Aufdecken, Rückmeldung); bei `prefers-reduced-motion: reduce` steht alles still.
 - **Do:** Zeige das Live-Fenster ruhend hell und kompakt; die dunkle Projektionsfläche erscheint erst, wenn eine Folie läuft.
 - **Do:** Prüfe jedes neue Textpaar auf mindestens 4,5:1 – hell und dunkel.
 
 ### Don't:
-- **Don't:** Volles Gelb außerhalb der Hauptweg-Karte – kein gelber Knopf, Zähler oder Chip. (Seit dem 10.11.2026 ist auch der Präsentations-Knopf neutral und der Zähler an den Klassenknöpfen in der Fachfarbe.)
+- **Don't:** Volles Gelb außerhalb der Hauptweg-Karte – kein gelber Knopf, Zähler oder Chip (der Folienstift im Folien-U und der Markerstrich der Startseite sind Schrift, keine Bedienelemente). (Seit dem 10.11.2026 ist auch der Präsentations-Knopf neutral und der Zähler an den Klassenknöpfen in der Fachfarbe.)
 - **Don't:** Rot für etwas anderes als Zwischenstopp, Live und Fehler; Grün für etwas, das nicht erledigt oder gespeichert ist.
 - **Don't:** Eine Warnfarbe einführen – kein Ocker, kein Orange. (Einzige Ausnahme, auf Wunsch der Lehrkraft: Orange als Kennfarbe des Feldes „Druckaufträge für den nächsten Arbeitstag“ – nie als Warnung und nirgends sonst.)
 - **Don't:** Graue Lernplattform-Karten mit einem einzigen Blau – jede Seite trägt ihr Fach bzw. die Marke flächig im Kopfband.
@@ -816,3 +836,4 @@ Zur Plattform gehört dagegen `.escbox`, auch wenn es am Anfang dieses Abschnitt
 - **Don't:** Die älteren Aliase `--brand`, `--brand-2`, `--accent` und `--focus` für neue Bausteine; sie heißen `--fach`, `--fach-text`, `--gelb` und `--fach-text`.
 - **Don't:** Schulnamen, Schullogos oder Schulfarben; nichts von außen laden – keine fremden Schriften, Skripte oder Bilder.
 - **Don't:** Gestaltungsmittel des Escape-Rooms (`.er-*`) in die Plattform übernehmen.
+- **Don't:** Video-Hintergründe, Glas-Effekte (`backdrop-filter`), Mausparallaxe, Lichtkegel, Laufschrift, weiches Scrollen oder an das Scrollen gekoppelte Animationen; keine Bewegung in Präsentation, Beamer und Live-Fenster.

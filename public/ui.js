@@ -482,6 +482,7 @@ const ICONS = {
   left: "M15 5l-7 7 7 7",
   right: "M9 5l7 7-7 7",
   up: "M12 19V5M6 11l6-6 6 6",
+  arrow: "M5 12h14M13 6l6 6-6 6",
   down: "M12 5v14M6 13l6 6 6-6",
   alert: "M12 3.8 2.8 19.6h18.4L12 3.8zM12 9.6v4.6M12 17.2h.01",
   plus: "M12 5v14M5 12h14",
@@ -508,6 +509,43 @@ export function icon(name) {
   return svg;
 }
 
+/* Das Folien-U als Inline-SVG (wie icon.svg): zwei versetzte Striche, Gelb per multiply darüber. pathLength 1, damit der Folienstift es auf den
+   Anmeldeseiten zeichnen kann (Nachtrag 40); isolation in CSS, sonst mischte sich das Gelb mit der Seite statt mit dem blauen Strich */
+export function logoMark(cls = "umark") {
+  const svg = document.createElementNS(SVGNS, "svg");
+  svg.setAttribute("viewBox", "0 0 48 48"); svg.setAttribute("class", cls); svg.setAttribute("aria-hidden", "true"); svg.setAttribute("focusable", "false");
+  const g = document.createElementNS(SVGNS, "g"); g.setAttribute("fill", "none"); g.setAttribute("stroke-width", "9"); g.setAttribute("stroke-linecap", "round");
+  for (const [c, d] of [["u1", "M11 7v15a11 11 0 0 0 22 0V7"], ["u2", "M16 11v15a11 11 0 0 0 22 0V11"]]) {
+    const p = document.createElementNS(SVGNS, "path"); p.setAttribute("class", c); p.setAttribute("d", d); p.setAttribute("pathLength", "1"); g.append(p);
+  }
+  svg.append(g);
+  return svg;
+}
+/* die drei getönten Folien der Anmeldeseiten (Nachtrag 40: eigene Elemente statt ::before/::after – so lassen sie sich einzeln auflegen, und die
+   Anmeldekarte selbst darf sich bewegen, ohne dass eine Folie in ihr liegt) */
+export const loginFoils = (...which) => which.map((k) => h("i", { class: "lfoil lfoil-" + k, "aria-hidden": "true" }));
+/* Anmeldeseiten: die Folge „Folien auflegen“ läuft nur beim ersten Bild nach dem Laden (danach data-laid an <html> – auch das erste Kopfband nach der
+   Anmeldung legt dann nichts mehr auf); → true, wenn sie jetzt laufen soll */
+export function firstLay() {
+  const root = document.documentElement;
+  if (root.hasAttribute("data-laid")) return false;
+  if (!firstLay.timer) firstLay.timer = setTimeout(() => root.setAttribute("data-laid", ""), 1500);
+  return true;
+}
+/* „Karten legen sich auf“ (Nachtrag 40): einmal je Seitenaufbau rücken die ersten Bereiche von main nacheinander auf ihren Platz – nur auf Seiten,
+   die es mit data-settle wünschen (nie Sitzung, Präsentation, Beamer, Live-Fenster, Escape-Room). Lädt die Seite erst, wartet es auf den Inhalt
+   (der Platzhalter .skeleton ist weg); spätere Neuaufbauten (z. B. nach dem Speichern) bewegen sich nicht. */
+export function settleIn(main) {
+  if (!main || !main.hasAttribute || !main.hasAttribute("data-settle")) return;
+  const ready = () => !!main.firstElementChild && ![...main.children].some((c) => c.classList.contains("skeleton"));
+  const run = () => { main.classList.add("settle"); setTimeout(() => main.classList.remove("settle"), 1100); };
+  if (ready()) { run(); return; }
+  if (typeof MutationObserver !== "function") return;
+  const mo = new MutationObserver(() => { if (ready()) { mo.disconnect(); run(); } });
+  mo.observe(main, { childList: true });
+  setTimeout(() => mo.disconnect(), 20000);   // kommt kein Inhalt: nicht ewig zusehen
+}
+
 /* Fach der aktuellen Seite: färbt Kopfband, Akzente und Fokus (Politik und Wirtschaft, Ev. Religion, Ethik) */
 export function setFach(subject) {
   const root = document.documentElement;
@@ -524,11 +562,15 @@ export function stateLine(el, text, kind = "") {
 
 /* Kopfband einer Seite: Brotkrumen ([href, Text] bzw. Text), Titel (Text oder fertiges h1), Unterzeile, Chips ({text, strong}), Inhalt rechts.
  * Die Folien (.foils) liegen hinter dem Inhalt: auf Fachseiten eine Folie in der Fachfarbe, sonst die drei Fachfolien übereinander.
- * „Folie auflegen“ läuft nur beim ersten Kopfband nach dem Laden (danach data-laid an <html>). */
+ * „Folie auflegen“ läuft nur beim ersten Kopfband nach dem Laden (danach data-laid an <html>). „Folie wechseln“ (Nachtrag 40): ändert sich danach das Fach
+ * gegenüber dem vorigen Kopfband, legen sich seine Folien neu auf (.relay) – nicht bei jedem Neuzeichnen derselben Seite. */
+let bandFach;   // Fach des zuletzt gebauten Kopfbands (undefined: noch keines)
 export function pageHead({ crumbs, title, sub, chips, aside, fach } = {}) {
   if (fach !== undefined) setFach(fach);
   const root = document.documentElement;
   if (!root.hasAttribute("data-laid") && !pageHead.timer) pageHead.timer = setTimeout(() => root.setAttribute("data-laid", ""), 900);
+  const f = root.dataset.fach || "", relay = bandFach !== undefined && f !== bandFach && root.hasAttribute("data-laid");
+  bandFach = f;
   const trail = [], n = (crumbs || []).length;
   (crumbs || []).forEach((c, i) => {
     const cur = i === n - 1 && !Array.isArray(c);   // letzte Krume = aktuelle Seite (wiederholt den Titel; am Handy ausgeblendet)
@@ -536,7 +578,7 @@ export function pageHead({ crumbs, title, sub, chips, aside, fach } = {}) {
     trail.push(Array.isArray(c) ? h("a", { href: c[0] }, c[1]) : h("span", { class: cur ? "cur" : null, "aria-current": cur ? "page" : null, text: c }));
   });
   const head = title instanceof Node ? title : h("h1", { text: title || "" });
-  return h("header", { class: "pagehead" },
+  return h("header", { class: "pagehead" + (relay ? " relay" : "") },
     h("div", { class: "foils", "aria-hidden": "true" }, h("i"), h("i"), h("i")),
     trail.length ? h("nav", { class: "crumbs", "aria-label": "Brotkrumen" }, trail) : null,
     aside ? h("div", { class: "row between" }, head, aside) : head,

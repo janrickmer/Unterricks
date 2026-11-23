@@ -24,7 +24,7 @@ const sessions = (n) => n + (n === 1 ? " Sitzung" : " Sitzungen");
 
 /* ---------- Übersicht #/lk/grundschule ---------- */
 export async function gsOverviewPage() {
-  const main = h("main", null, h("div", { class: "skeleton", text: "Lade …" }));
+  const main = h("main", { "data-settle": "" }, h("div", { class: "skeleton", text: "Lade …" }));
   render(teacherBar("primary"), main, teacherFoot());
   // derselbe Wochenkalender wie auf der Startseite: immer alle Termine beider Schulformen (lädt eigenständig)
   const week = weekCard(() => tapi("GET", "/api/teacher/schedule"));
@@ -187,7 +187,7 @@ function newCourseCard() {
 
 /* ---------- Kursseite #/lk/grundschule/k/<id> ---------- */
 export async function gsCoursePage(id) {
-  const main = h("main", null, h("div", { class: "skeleton", text: "Lade den Kurs …" }));
+  const main = h("main", { "data-settle": "" }, h("div", { class: "skeleton", text: "Lade den Kurs …" }));
   render(teacherBar("primary"), main, teacherFoot());
   let course, settings, units, lessons, bases, basis;
   const load = async () => {

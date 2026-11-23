@@ -1,6 +1,6 @@
 // teacher.js – Lehrkräfteansicht: Anmeldung/Einrichtung, Fach- und Klassenauswahl, Sitzungslisten, Einstellungen.
 import { lazy } from "./update.js";
-import { h, clear, store, deviceId, api, apiUrl, toast, errToast, busy, modal, confirmDialog, copyText, fmtDate, fmtTime, topbar, nn, pageHead, setFach, icon, downloadBlob, fmtBytes, stateLine } from "./ui.js";
+import { h, clear, store, deviceId, api, apiUrl, toast, errToast, busy, modal, confirmDialog, copyText, fmtDate, fmtTime, topbar, nn, pageHead, setFach, icon, downloadBlob, fmtBytes, stateLine, logoMark, loginFoils, firstLay } from "./ui.js";
 import { render, go, onLeave } from "./app.js";
 import { SUBJECTS, subjectName, gradeInfo, isValidClass, isValidSubject, formatCode, fmtDay, classGroupsFor, classAllowed, classShort, gradeKey, isAnalogClass, ANALOG_RULE,
   COURSE_GRADES, courseKey, isCourseClass, courseMembers } from "./shared.js";
@@ -244,12 +244,14 @@ async function loginPage() {
   // schon zu sehen (ohne Anmeldung): nicht neu aufbauen – sonst wäre Getipptes weg, egal wer den zweiten Aufruf auslöst
   if (!T.token && loginShown && loginShown.isConnected) return;
   if (T.token) { try { await tapi("GET", "/api/teacher/me"); return go("#/lk"); } catch {} }
-  const wrap = h("div", { class: "login-wrap" });
+  // Folien wie auf der Startseite (Nachtrag 40): beim ersten Bild nach dem Laden legen sie sich auf, die Karte folgt, sobald sie da ist
+  const pile = h("div", { class: "login-pile" }, ...loginFoils("b"));
+  const wrap = h("div", { class: "login-wrap" + (firstLay() ? " play" : "") }, ...loginFoils("a", "c"), pile);
   loginShown = wrap;
   render(wrap, h("footer", { class: "footer" }, h("a", { href: "#/" }, "Zur Schüleransicht"), h("span", { class: "footsep", "aria-hidden": "true", text: "·" }),
     h("a", { href: "#/beamer", class: "footbeamer" }, "Dieses Gerät als Beamer verwenden")));   // Gerät am Beamer (Nachtrag 15)
   let st;
-  try { st = await api("POST", "/api/teacher/status"); } catch (e) { loginShown = null; wrap.append(h("p", { class: "err", text: e.message })); return; }   // ohne Formular: ein neuer Aufruf darf es erneut versuchen
+  try { st = await api("POST", "/api/teacher/status"); } catch (e) { loginShown = null; pile.append(h("p", { class: "err", text: e.message })); return; }   // ohne Formular: ein neuer Aufruf darf es erneut versuchen
   const user = h("input", { id: "tu", autocomplete: "username", autocapitalize: "off", spellcheck: "false", required: true });
   const pw = h("input", { id: "tp", type: "password", autocomplete: st.setup ? "current-password" : "new-password", required: true });
   const pw2 = h("input", { id: "tp2", type: "password", autocomplete: "new-password", required: true });
@@ -286,7 +288,7 @@ async function loginPage() {
       }
     }, st.setup ? "Anmeldung läuft …" : "Richte ein …");
   } },
-  h("div", { class: "logo" }, h("img", { src: "/icon.svg", alt: "" }), h("span", { text: "Lehrkräfte" })),
+  h("div", { class: "logo" }, logoMark(), h("span", { text: "Lehrkräfte" })),
   st.setup ? null : h("div", { class: "notice" }, "Ersteinrichtung: Legen Sie jetzt einmalig Benutzername und Passwort für die Lehrkräfteansicht fest. Das Passwort wird nur in Ihrem Browser verarbeitet."),
   !st.setup && st.setupCodeRequired ? h("div", { class: "field" }, h("label", { for: "tsc" }, "Einrichtungscode"), sc, h("p", { class: "hint", text: "Der Code, der beim Betreiber als SETUP_CODE hinterlegt ist." })) : null,
   h("div", { class: "field" }, h("label", { for: "tu" }, "Benutzername"), user),
@@ -294,7 +296,7 @@ async function loginPage() {
   st.setup ? null : h("div", { class: "field" }, h("label", { for: "tp2" }, "Passwort wiederholen"), pw2),
   msg, btn,
   st.setup ? h("p", { class: "hint", text: "Nach zwei falschen Versuchen wird die Anmeldung auf diesem Gerät für 30 Minuten gesperrt. Geräte, auf denen Sie schon angemeldet waren, bleiben davon unberührt." }) : null);
-  wrap.append(form);
+  pile.append(form);
   // nur, solange noch nichts anderes den Fokus hat: sonst landete schon Getipptes (z. B. im Passwortfeld) mitten im Wort im Benutzernamen
   setTimeout(() => { if (!wrap.contains(document.activeElement)) user.focus(); }, 50);
 }
@@ -303,7 +305,7 @@ async function loginPage() {
 async function loadLessons() { return (await tapi("GET", "/api/teacher/lessons")).lessons; }
 
 async function subjectsPage() {
-  const main = h("main", null, h("div", { class: "skeleton", text: "Lade …" }));
+  const main = h("main", { "data-settle": "" }, h("div", { class: "skeleton", text: "Lade …" }));
   render(teacherBar("lessons"), main, teacherFoot());
   // Wochenkalender ganz oben: lädt eigenständig (ein Fehler dort verhindert die Fächer nicht)
   const week = weekCard(() => tapi("GET", "/api/teacher/schedule"));
@@ -331,7 +333,7 @@ export async function subjectConfigs() { return (await tapi("GET", "/api/teacher
 
 async function classesPage(subject) {
   if (!isValidSubject(subject)) return go("#/lk");
-  const main = h("main", null, h("div", { class: "skeleton", text: "Lade …" }));
+  const main = h("main", { "data-settle": "" }, h("div", { class: "skeleton", text: "Lade …" }));
   render(teacherBar("lessons"), main, teacherFoot());
   let all, cfg;
   try { [all, cfg] = await Promise.all([loadLessons().then((x) => x.filter((l) => l.subject === subject)), subjectConfigs().then((c) => c[subject])]); }
@@ -397,7 +399,7 @@ function lessonList(lessons, showContext) {
 
 async function lessonsPage(subject, klass) {
   if (!isValidSubject(subject) || !isValidClass(klass)) return go("#/lk");
-  const main = h("main", null, h("div", { class: "skeleton", text: "Lade …" }));
+  const main = h("main", { "data-settle": "" }, h("div", { class: "skeleton", text: "Lade …" }));
   render(teacherBar("lessons"), main, teacherFoot());
   let list, units, cfg, bases, cs, CC;
   try {
@@ -475,7 +477,7 @@ async function lessonsPage(subject, klass) {
 
 /* ---------- Einstellungen ---------- */
 async function settingsPage() {
-  const main = h("main", { class: "narrow" }, h("div", { class: "skeleton", text: "Lade …" }));
+  const main = h("main", { class: "narrow", "data-settle": "" }, h("div", { class: "skeleton", text: "Lade …" }));
   render(teacherBar("settings"), main, teacherFoot());
   let ai, mcp, me, sp;
   try { [ai, mcp, me, sp] = await Promise.all([tapi("GET", "/api/teacher/ai"), tapi("GET", "/api/teacher/mcp"), tapi("GET", "/api/teacher/me"), tapi("GET", "/api/teacher/student-settings"), config()]); }

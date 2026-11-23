@@ -26,6 +26,7 @@ import { selbstlernStopE2E } from "./selbstlernstop.mjs";
 import { phaseStopE2E } from "./phasestop.mjs";
 import { videoSlidesE2E, PLAYER_FAKE } from "./videoslides.mjs";
 import { shareE2E, shareE2Epart2 } from "./share.mjs";
+import { motionE2E } from "./motion.mjs";
 import { inClassE2E } from "./inclass.mjs";
 import { escapeFixture } from "./escape-fixture.mjs";
 
@@ -4160,6 +4161,10 @@ async function main() {
       const first = await shareE2E({ tp, BASE, T: TS, tool, ok, OUT, SHOT });
       await shareE2Epart2({ tp, BASE, T: TS, tool, ok, OUT, SHOT, first, markNotfall: (id) => d1("UPDATE files SET source='notfall' WHERE id='" + String(id).replace(/[^a-f0-9]/g, "") + "'") });
     }
+
+    /* ---------- Nachtrag 40: Bewegung im Folien-Stil – Startseite, Anmeldung, in der App; über alle Breiten kein abgeschnittener oder verdeckter Text ---------- */
+    step("Bewegung im Folien-Stil (Nachtrag 40): Startseite (Schriftzug, Satz, Schritte, Karte), Folge nur beim ersten Bild, lesbar von Anfang an, reduzierte Bewegung, Breiten 320–2000px, Anmeldung der Lehrkräfte, Folie wechseln, Karten legen sich auf, Woche, Meldungen");
+    await motionE2E({ browser, BASE, tp, ok, OUT, SHOT });
   } finally {
     await browser.close();
     ai.srv.close(); fbm.srv.close();
