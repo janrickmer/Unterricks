@@ -676,6 +676,15 @@ export function cleanSlideNotes(raw, pages = NOTES_LIMITS.slides) {
   }
   return [...byN].sort((a, b) => a[0] - b[0]).map(([n, items]) => ({ n, items }));
 }
+/* Anweisung an die Lehrkraft (Nachtrag 42, Teil 3): laut Präsentations-Prompt ist der erste Stichpunkt jeder Folie „Lehrkraft: …“ (was sie jetzt tut).
+   Kein eigenes Feld im Format – nur diese Form; die Anzeigen für die Lehrkraft (Präsentationsansicht, Anmerkungs-PDF, PowerPoint-Notizen) heben ihn
+   hervor. → {label, rest} mit label + rest === Stichpunkt (der Text bleibt unverändert) bzw. null; nur für den ersten Stichpunkt einer Folie gedacht. */
+export const NOTE_DO_LABEL = "Lehrkraft:";
+const NOTE_DO_RE = /^Lehrkraft\s*:/i;
+export function noteDoSplit(item) {
+  const s = typeof item === "string" ? item : "", m = NOTE_DO_RE.exec(s);
+  return m && s.slice(m[0].length).trim() ? { label: m[0], rest: s.slice(m[0].length) } : null;
+}
 export const notesCount = (notes) => (Array.isArray(notes) ? notes.filter((x) => x && Array.isArray(x.items) && x.items.length).length : 0);
 export const notesFor = (notes, n) => { const x = (Array.isArray(notes) ? notes : []).find((y) => y && y.n === n); return x ? x.items : []; };
 export const notesText = (items) => (Array.isArray(items) ? items.join("\n") : "");
@@ -1667,13 +1676,22 @@ export function claudePresentationPrompt(ctx, portalText, messages) {
     "## Notizen für die Lehrkraft: unsichtbar in der PDF",
     "Schreibe zu jeder Folie Notizen für die Lehrkraft in Stichpunkten: was sie sagt, fragt oder beachtet – Impulse, erwartete Antworten der Schüler:innen, Zeit. " +
       "Unterricks zeigt sie nur der Lehrkraft (in ihrer Präsentationsansicht unter der aktuellen Folie und in einer eigenen PDF mit einer Anmerkungsfolie hinter jeder Folie); die Schüler:innen sehen sie nie.",
+    // Nachtrag 42 (Teil 3): je Folie zuerst eine klare Anweisung an die Lehrkraft – Unterricks hebt den Stichpunkt „Lehrkraft: …“ in ihren Anzeigen hervor (noteDoSplit)
+    "- Der erste Stichpunkt jeder Folie ist immer eine klare Anweisung an die Lehrkraft und beginnt mit „" + NOTE_DO_LABEL + " “: was sie jetzt tut, kurz und eindeutig, " +
+      "z. B. „" + NOTE_DO_LABEL + " Erklärt kurz, was Martin Luther am Ablasshandel kritisiert hat.“ oder „" + NOTE_DO_LABEL + " Startet die Partnerarbeit (10 Min.) und geht herum.“ " +
+      "Danach folgen die Hintergründe: was sie sagt oder fragt, erwartete Antworten der Schüler:innen, Zeit. Jede Folie hat also mindestens diesen einen Stichpunkt.",
+    "- Was die Lehrkraft mit der Codefolie tut, die Unterricks vor Folie 1 zeigt (z. B. " + (analog ? "kurz sagen, dass die Schüler:innen die Sitzung damit zu Hause finden" : "warten, bis alle die Sitzung geöffnet haben") +
+      "), steht in der Anweisung zu Folie 1 – für die Codefolie davor gibt es keinen eigenen Eintrag.",
+    "- Die Anweisung richtet sich nur an die Lehrkraft: Eine Aufforderung an die Schüler:innen (z. B. auf einer Materialfolie) bleibt auf der Folie, die Anweisung „" + NOTE_DO_LABEL + " …“ steht nur in den Notizen.",
     "- Die Notizen stehen nicht auf den Folien: Bette sie als unsichtbaren Dateianhang (eingebettete Datei, EmbeddedFile) namens " + NOTES_FILE + " in die PDF ein – UTF-8, genau in diesem Format: " +
-      '{"v":1,"folien":[{"folie":1,"notizen":["…","…"]},{"folie":2,"notizen":["…"]}]}',
-    "- „folie“ ist die Seitenzahl in der PDF (die Titelfolie ist 1, jede Seite zählt – auch Unterricks-Codefolien, die ebenfalls Notizen bekommen); je Folie 0 bis " + NOTES_LIMITS.items +
-      " Stichpunkte mit je höchstens " + NOTES_LIMITS.chars + " Zeichen, reiner Text ohne Markdown und ohne Zeilenumbruch.",
+      '{"v":1,"folien":[{"folie":1,"notizen":["' + NOTE_DO_LABEL + ' …","…"]},{"folie":2,"notizen":["' + NOTE_DO_LABEL + ' …"]}]}',
+    "- „folie“ ist die Seitenzahl in der PDF (die Titelfolie ist 1, jede Seite zählt – auch Unterricks-Codefolien, die ebenfalls Notizen bekommen); je Folie 1 bis " + NOTES_LIMITS.items +
+      " Stichpunkte (der erste ist die Anweisung „" + NOTE_DO_LABEL + " …“) mit je höchstens " + NOTES_LIMITS.chars + " Zeichen, reiner Text ohne Markdown und ohne Zeilenumbruch.",
     "- So geht es z. B. mit Python und pypdf: `writer = PdfWriter(clone_from=\"praesentation.pdf\")`, `writer.add_attachment(\"" + NOTES_FILE + "\", json.dumps(notizen, ensure_ascii=False).encode(\"utf-8\"))`, " +
       "`writer.write(\"praesentation.pdf\")`.",
-    "- Keine Notizen als Kommentare, Anmerkungen oder Sprechblasen auf den Seiten und nicht in den Dokumenteigenschaften – nur als dieser Dateianhang.",
+    "- Keine Notizen als Kommentare, Anmerkungen oder Sprechblasen auf den Seiten und nicht in den Dokumenteigenschaften – nur als dieser Dateianhang. " +
+      "Das gilt besonders für die Anweisungen „" + NOTE_DO_LABEL + " …“: nie auf einer Folie, auch nicht als unsichtbarer, weißer oder winziger Text, nie in der Zeile „" + PHASE_MARK + ": …“ " +
+      "(dort steht nur die Nummer der Phase) oder in der Zeile „" + CODE_SLIDE_MARK + ": …“ und nie in Titel, Betreff oder Stichwörtern der PDF – die Schüler:innen dürfen sie niemals sehen.",
     "- Kannst du keine Datei einbetten, gib die Notizen am Ende deiner Antwort als einen einzigen JSON-Block in genau diesem Format aus (```json … ```) – die Lehrkraft fügt ihn in Unterricks ein („JSON aus dem Chat einfügen“).",
     "",
     "## Rahmendaten",
@@ -1706,7 +1724,7 @@ export function claudePresentationPrompt(ctx, portalText, messages) {
     "- Gestaltung für den Beamer: hoher Kontrast, Schrift mindestens 24 pt (Fließtext) bzw. 36 pt (Überschriften), höchstens 6 Zeilen pro Folie (die Zeile „" + CODE_SLIDE_MARK + ": …“ zählt nicht mit und darf kleiner sein), " +
       "ruhiges einheitliches Layout; keine Animationen oder Übergänge (PDF) – was nacheinander erscheinen soll, kommt auf aufeinanderfolgende Folien.",
     "- Altersgerechte Sprache für " + gradeInfo(ctx.klass).text + "; fachlich korrekt; keine erfundenen Quellen, Zitate oder Statistiken (wo nötig: eine gekennzeichnete Lücke mit Hinweis für die Lehrkraft).",
-    "- Hinweise für die Lehrkraft (Impulse, Zeit, Erwartungen) je Folie gehören in die Notizen (unsichtbarer Dateianhang " + NOTES_FILE + ", siehe „Notizen für die Lehrkraft“) – nicht auf die Folien.",
+    "- Hinweise für die Lehrkraft je Folie – zuerst die Anweisung „" + NOTE_DO_LABEL + " …“, dann Impulse, Zeit, Erwartungen – gehören in die Notizen (unsichtbarer Dateianhang " + NOTES_FILE + ", siehe „Notizen für die Lehrkraft“) – nicht auf die Folien.",
     "- Benenne die Datei sinnvoll und ebenfalls ohne Klasse und Datum, z. B. „" + (groupShort(ctx.klass) || "Jahrgang").replace(/\.?\s+/g, "-") + "_" + subjectName(ctx.subject).replace(/\s+/g, "-") + "_" + (L.topic || L.title || "Stunde").replace(/[^\wÄÖÜäöüß-]+/g, "-").slice(0, 40) + ".pdf“." +
       connectorHint(ctx).replace("speichere deine Ergebnisse auf Wunsch der Lehrkraft direkt mit `save_schulportal_entry`, `add_material_pdf` (Material als gestaltete HTML-Seite, Unterricks druckt sie als PDF) bzw. `propose_feibeitsblatt` in der Plattform",
         "verändere den Schulportal-Eintrag dabei nicht; die Notizen für die Lehrkraft gehören in die PDF (Dateianhang " + NOTES_FILE + "), nicht als eigenes Material in die Sitzung"),

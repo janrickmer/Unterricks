@@ -18,7 +18,7 @@ import { insertTextMaterial, insertPrintText, saveDesign, renderDesign, getFile 
 import { shortImages } from "./render.js";
 import { ESCAPE_FORMAT_HINT, PART_TYPES } from "../public/escape-data.js";
 import { SUBJECTS, ALL_CLASSES, subjectName, gradeInfo, formatCode, lessonContext, chatTranscript, PORTAL_RULES, PORTAL_EXAMPLE, PORTAL_TEACHER_RULE, SYSTEM_PROMPT_ROLE, FEIBEITSBLATT_INFO, FB_LINK_HINT, classShort, fmtDay, materialDesignText, printFileName, printCourse, GS_SUBJECT,
-  STOP_LINE, hasStop, planRefs, pdfRef, PLAN_REF_RE, NOTES_FILE, TEACHER_SUMMARY_TITLE, TEACHER_SUMMARY_MAX, teacherSummaryRules, summaryHead, summaryOutdated, fmtStampBerlin, addDays, berlinToday, cardPrintsOf, refCardsOf, FB_MEDIA } from "../public/shared.js";
+  STOP_LINE, hasStop, planRefs, pdfRef, PLAN_REF_RE, NOTES_FILE, NOTE_DO_LABEL, TEACHER_SUMMARY_TITLE, TEACHER_SUMMARY_MAX, teacherSummaryRules, summaryHead, summaryOutdated, fmtStampBerlin, addDays, berlinToday, cardPrintsOf, refCardsOf, FB_MEDIA } from "../public/shared.js";
 import { gsLessonContext, GS_MATERIAL_RULES, CARD_DESIGN_RULES, VERLAUFSPLAN_EXAMPLE, VERLAUFSPLAN_RULES, CONC_TITLE, CONC_PRINT, CONC_PAGES_MAX, isConcName, concTitleOf, concSaveArgs, concSection, concMissingText, concUnplannedText,
   storyInPlan, cardsMissingText, CARD_PRINT_TEXT, printSettingsText } from "../public/gsplanning.js";
 import { saveCardSet, setCardTexts } from "./cards.js";
@@ -356,7 +356,7 @@ async function lessonDump(db, l, now = Date.now()) {
   // Notizen der Lehrkraft zur Präsentation (Nachtrag 20): nur kurz (Zahl), nur in diesem Werkzeug der Lehrkraft
   const pn = await db.prepare("SELECT pages, CASE WHEN json_valid(notes) THEN json_array_length(notes, '$.slides') ELSE 0 END AS n, video_slides FROM files WHERE lesson_id=?1 AND area='presentation' AND status='ready' LIMIT 1").bind(l.id).first();
   if (pn && pn.n > 0) parts.push("", "## Notizen der Lehrkraft zur Präsentation", "Zu " + pn.n + " von " + pn.pages + " Folien gibt es Notizen (nur für die Lehrkraft: in ihrer Präsentationsansicht und in der „Präsentation mit Anmerkungen“ unter „Material nur für die Lehrkraft“). " +
-    "Neue Notizen gehören als Dateianhang " + NOTES_FILE + " in eine neue PDF der Präsentation.");
+    "Neue Notizen gehören als Dateianhang " + NOTES_FILE + " in eine neue PDF der Präsentation – je Folie zuerst die Anweisung „" + NOTE_DO_LABEL + " …“ an die Lehrkraft (siehe Präsentations-Prompt).");
   // Videofolien der Präsentation (Nachtrag 38): dort spielt Unterricks im Unterricht das YouTube-Video eingebettet ab
   const pv = pn ? videoSlidesOf({ videos: videoSlidesData(pn.video_slides, pn.pages) }) : [];
   if (pv.length) parts.push("", "## Videofolien der Präsentation", "Auf diesen Folien spielt Unterricks im Unterricht das YouTube-Video eingebettet am Beamer ab (Schüler:innen sehen live nur die Folie, nach der Stunde einen Link):",

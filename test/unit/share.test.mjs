@@ -300,6 +300,20 @@ test("PowerPoint-Datei (sharepptx.js): vollständiges Paket, Folienbild über di
   assert.equal(PX.xmlText("x" + NC + "y" + BOM), "xy" + BOM, "U+FFFE/U+FFFF entfallen (U+FEFF ist in XML erlaubt)");
   const bad = await readPptx(PX.buildPptx({ title: "Titel" + NC, slides: [{ image: { data: PNG1, mime: "image/png" }, w: 960, h: 540, notes: ["Notiz" + NC], alt: "Bild" + NC }] }));
   assert.ok(bad.txt("ppt/slides/slide1.xml").includes('descr="Bild"') && bad.txt("ppt/notesSlides/notesSlide1.xml").includes("<a:t>Notiz</a:t>") && bad.txt("docProps/core.xml").includes("<dc:title>Titel</dc:title>"));
+  assert.ok(!n1.includes('b="1"'), "ohne Anweisung „Lehrkraft: …“ nichts fett");
+});
+// Nachtrag 42 (Teil 3): der erste Stichpunkt „Lehrkraft: …“ ist die Anweisung an die Lehrkraft – in den Notizen der Folie das Wort fett, sonst unverändert
+test("PowerPoint-Notizen (Nachtrag 42): „Lehrkraft:“ im ersten Stichpunkt fett, der Satz normal; an anderer Stelle nicht; Folie selbst ohne Notizen", async () => {
+  const p = await readPptx(PX.buildPptx({ title: "Ablass", slides: [
+    { image: { data: PNG1, mime: "image/png" }, w: 960, h: 540, notes: ["Lehrkraft: Erklärt kurz, was Luther am Ablass & Co. kritisiert.", "Lehrkraft: an zweiter Stelle", "Zeit: 5 Minuten"], alt: "Luther" },
+    { image: { data: PNG1, mime: "image/png" }, w: 960, h: 540, notes: ["Impuls zuerst", "Lehrkraft: nicht an erster Stelle"] }] }));
+  const n1 = p.txt("ppt/notesSlides/notesSlide1.xml"), n2 = p.txt("ppt/notesSlides/notesSlide2.xml");
+  assert.ok(n1.includes('<a:r><a:rPr lang="de-DE" b="1" dirty="0"/><a:t>Lehrkraft:</a:t></a:r><a:r><a:rPr lang="de-DE" dirty="0"/><a:t> Erklärt kurz, was Luther am Ablass &amp; Co. kritisiert.</a:t></a:r>'), n1);
+  assert.equal((n1.match(/b="1"/g) || []).length, 1, "nur das Wort im ersten Stichpunkt");
+  assert.ok(n1.includes("<a:t>Lehrkraft: an zweiter Stelle</a:t>") && n1.includes("<a:t>Zeit: 5 Minuten</a:t>"));
+  assert.equal((n1.match(/<a:buChar char="•"\/>/g) || []).length, 3, "je Stichpunkt ein Aufzählungspunkt");
+  assert.ok(!n2.includes('b="1"'), "Folie ohne Anweisung: nichts fett");
+  for (const s of ["ppt/slides/slide1.xml", "ppt/slides/slide2.xml", "docProps/core.xml", "docProps/app.xml"]) assert.ok(!p.txt(s).includes("Lehrkraft:"), s + ": die Anweisung steht nur in den Notizen");
 });
 const CODE_SLIDES = [{ n: 2, lines: ["Bearbeitet in Partnerarbeit die Aufgaben 1 bis 3.", "Feibeitsblatt „Wer darf wählen?“"] }, { n: 3, lines: ["Die Hausaufgabe und das Material findest du in Unterricks."] }];
 test("Präsentation teilen: reine Codefolie entfernt, Materialfolie bleibt mit überdeckter Unterricks-Zeile, Copyright auf jeder Folie, ohne Anhänge; Notizen als eigene PDF", async () => {

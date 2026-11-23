@@ -2,7 +2,7 @@
 // unterricks-notizen.json, tolerant) und die Anmerkungs-PDF erzeugen (pdf-lib): jede Folie unverändert, dahinter eine Anmerkungsfolie im selben
 // Format mit „Anmerkungen zu Folie n“ und den Stichpunkten. Sie liegt unter „Material nur für die Lehrkraft“ und nie bei Schüler:innen.
 import { api, apiUrl } from "./ui.js";
-import { isNotesFileName, cleanSlideNotes, NOTES_LIMITS } from "./shared.js";
+import { isNotesFileName, cleanSlideNotes, noteDoSplit, NOTES_LIMITS } from "./shared.js";
 import { sanitizer } from "./pdfmaker.js";
 import { stripPage, pdfLib, pdfCarriers, copyPagesSafe } from "./pdfcut.js";
 
@@ -75,7 +75,9 @@ function addNotePages(out, F, clean, rgb, W, H, n, isCode, items, label = NOTES_
   const head = "Anmerkungen zu Folie " + n + (isCode ? " (Codefolie)" : "");
   const top = H - M - 13 * u - 10 * u - 30 * u - 18 * u, bottom = M, maxW = W - 2 * M;
   const texts = items.map((t) => clean(t));
-  const layout = (s) => texts.map((t) => wrap(t, F.r, s, maxW - s * 1.1));
+  // die Anweisung an die Lehrkraft (erster Stichpunkt „Lehrkraft: …“, Nachtrag 42) fett – gemessen und umbrochen in der fetten Schrift
+  const fonts = texts.map((t, i) => (i === 0 && noteDoSplit(t) ? F.b : F.r));
+  const layout = (s) => texts.map((t, i) => wrap(t, fonts[i], s, maxW - s * 1.1));
   let size = 14 * u, blocks = layout(size);
   for (const k of [22, 20, 18, 16, 14]) {
     const s = k * u, b = layout(s), need = b.reduce((h, ls) => h + ls.length * s * 1.3 + s * 0.45, 0);
@@ -96,11 +98,11 @@ function addNotePages(out, F, clean, rgb, W, H, n, isCode, items, label = NOTES_
     return pages;
   }
   const lh = size * 1.3, ind = size * 1.1;
-  for (const lines of blocks) {
+  for (const [k, lines] of blocks.entries()) {
     for (let i = 0; i < lines.length; i++) {
       if (y - lh < bottom) newPage(true);
       if (i === 0) page.drawText("•", { x: M, y: y - size, size, font: F.b, color: c(RULE) });
-      page.drawText(lines[i], { x: M + ind, y: y - size, size, font: F.r, color: c(INK) });
+      page.drawText(lines[i], { x: M + ind, y: y - size, size, font: fonts[k], color: c(INK) });
       y -= lh;
     }
     y -= size * 0.45;

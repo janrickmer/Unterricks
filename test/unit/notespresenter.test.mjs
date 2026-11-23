@@ -163,3 +163,42 @@ test("Beamerfenster geöffnet, dann Bildschirm erweitert bzw. wieder gespiegelt:
     assert.ok(beam().includes(BEAMER_ONE_SCREEN), "… und der Hinweis ist wieder da");
   } finally { P.pres.end(false); delete window.screen; window.open = openWas; }
 });
+
+// Nachtrag 42 (Teil 3): der erste Stichpunkt „Lehrkraft: …“ (Anweisung an die Lehrkraft) ist hervorgehoben – nur hier, mit getrenntem Beamerbild;
+// ohne getrenntes Beamerbild, im Beamerfenster und am Server (WebSocket) erscheint er nie
+const DO = "Lehrkraft: GEHEIMANWEISUNG Startet die Partnerarbeit (10 Min.) und geht herum.";
+const DO_NOTES = [{ n: 1, items: [DO, "Erwartung: Ablass gegen Geld", "Lehrkraft: zweiter Punkt bleibt normal"] }, { n: 2, items: ["Impuls ohne Anweisung", "Lehrkraft: nicht an erster Stelle"] }];
+test("Anweisung „Lehrkraft: …“ als erster Stichpunkt: hervorgehoben (li.pn-do, das Wort in strong), Text unverändert; sonst gewöhnliche Stichpunkte", async () => {
+  const P = await open({ notes: DO_NOTES });
+  try {
+    right();
+    assert.equal(P.shown(), false, "einzeln gespiegelt: keine Notizen, also auch keine Anweisung");
+    assert.ok(!P.text().includes("GEHEIMANWEISUNG"), "nichts im Notizfeld");
+    P.bc.onmessage({ data: { t: "following", id: P.pid, bid: "b1" } });
+    assert.equal(P.shown(), true);
+    const lis = [...P.box.querySelectorAll("li")];
+    assert.equal(lis.length, 3);
+    assert.deepEqual(lis.map((l) => l.textContent), DO_NOTES[0].items, "Text der Stichpunkte unverändert");
+    assert.deepEqual(lis.map((l) => l.className), ["pn-do", "", ""], "nur der erste Stichpunkt ist die Anweisung");
+    const strong = lis[0].querySelectorAll("strong");
+    assert.equal(strong.length, 1); assert.equal(strong[0].textContent, "Lehrkraft:");
+    assert.equal(P.box.querySelectorAll("strong").length, 1, "„Lehrkraft:“ an zweiter Stelle bleibt gewöhnlich");
+    right();
+    assert.ok(P.text().startsWith("Notizen zu Folie 2"));
+    assert.equal(P.box.querySelectorAll("li.pn-do").length, 0, "Folie ohne Anweisung: nichts hervorgehoben");
+    assert.equal(P.box.querySelectorAll("strong").length, 0);
+    assert.ok(!JSON.stringify(P.posts).includes("GEHEIMANWEISUNG") && !JSON.stringify(P.posts).includes("Lehrkraft:"), "nie im BroadcastChannel (Beamerfenster)");
+    assert.ok(!P.sent().includes("GEHEIMANWEISUNG") && !P.sent().includes("Lehrkraft:"), "nie an den Server (WebSocket)");
+    P.bc.onmessage({ data: { t: "bye", bid: "b1" } });
+    assert.equal(P.shown(), false);
+  } finally { P.pres.end(false); }
+});
+
+test("noteItem (Präsentationsansicht): Stichpunkt-Element aus dem Text – Anweisung nur an erster Stelle, nie über innerHTML", async () => {
+  const { noteItem } = await import("../../public/presenter.js");
+  const a = noteItem("Lehrkraft: <b>Tafel</b> & Kreide", 0);
+  assert.equal(a.className, "pn-do"); assert.equal(a.textContent, "Lehrkraft: <b>Tafel</b> & Kreide");
+  assert.equal(a.querySelectorAll("b").length, 0, "Text bleibt Text");
+  const b = noteItem("Lehrkraft: zweiter", 1), c = noteItem("Die Lehrkraft: erklärt", 0);
+  assert.deepEqual([b.className, c.className, b.querySelectorAll("strong").length, c.querySelectorAll("strong").length], ["", "", 0, 0]);
+});

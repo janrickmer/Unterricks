@@ -4,6 +4,7 @@
 // Bild – den Folientext kann man in PowerPoint nicht ändern. Ohne Bibliothek: Office Open XML (PresentationML) selbst geschrieben, ZIP wie zip.js.
 // Reine Funktionen (kein DOM) – die Bilder liefert sharepres.js.
 import { makeZip } from "./zip.js";
+import { noteDoSplit } from "./shared.js";
 
 export const PPTX_MIME = "application/vnd.openxmlformats-officedocument.presentationml.presentation";
 const EMU_PT = 12700;                       // 1 pt = 12 700 EMU
@@ -145,8 +146,11 @@ export function buildPptx({ slides, title = "", author = "", when = new Date() }
     add("ppt/slides/_rels/slide" + k + ".xml.rels", rels(rl));
     if (withNotes[i]) {
       const items = s.notes.map((t) => String(t || "").trim()).filter(Boolean);
-      const paras = items.map((t) => '<a:p><a:pPr marL="171450" indent="-171450"><a:buFont typeface="Arial"/><a:buChar char="•"/></a:pPr>' +
-        t.split(/\r?\n/).map((line, li) => (li ? '<a:br><a:rPr lang="de-DE"/></a:br>' : "") + '<a:r><a:rPr lang="de-DE" dirty="0"/><a:t>' + xmlText(line) + "</a:t></a:r>").join("") + "</a:p>").join("");
+      const run = (text, bold) => '<a:r><a:rPr lang="de-DE"' + (bold ? ' b="1"' : "") + ' dirty="0"/><a:t>' + xmlText(text) + "</a:t></a:r>";
+      // die Anweisung an die Lehrkraft (erster Stichpunkt „Lehrkraft: …“, Nachtrag 42): das Wort „Lehrkraft:“ fett
+      const lineRuns = (line, first) => { const d = first ? noteDoSplit(line) : null; return d ? run(d.label, true) + run(d.rest, false) : run(line, false); };
+      const paras = items.map((t, ti) => '<a:p><a:pPr marL="171450" indent="-171450"><a:buFont typeface="Arial"/><a:buChar char="•"/></a:pPr>' +
+        t.split(/\r?\n/).map((line, li) => (li ? '<a:br><a:rPr lang="de-DE"/></a:br>' : "") + lineRuns(line, ti === 0 && li === 0)).join("") + "</a:p>").join("");
       add("ppt/notesSlides/notesSlide" + k + ".xml", HEAD + "<p:notes " + NS + "><p:cSld><p:spTree>" + grp +
         '<p:sp><p:nvSpPr><p:cNvPr id="2" name="Folienbildplatzhalter 1"/><p:cNvSpPr><a:spLocks noGrp="1" noRot="1" noChangeAspect="1"/></p:cNvSpPr><p:nvPr><p:ph type="sldImg" idx="2"/></p:nvPr></p:nvSpPr><p:spPr/></p:sp>' +
         '<p:sp><p:nvSpPr><p:cNvPr id="3" name="Notizenplatzhalter 2"/><p:cNvSpPr><a:spLocks noGrp="1"/></p:cNvSpPr><p:nvPr><p:ph type="body" sz="quarter" idx="3"/></p:nvPr></p:nvSpPr><p:spPr/>' +

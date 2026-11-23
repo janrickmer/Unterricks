@@ -702,6 +702,9 @@ main.narrow .homework { background: var(--gelb-t); border-color: color-mix(in sr
 .presenter .pn-head { margin: 0 0 .35rem; color: #9fb0cc; font-size: clamp(.8rem, 1.1vw, 1rem); font-weight: 800; letter-spacing: .06em; text-transform: uppercase; }
 .presenter .pn-list { margin: 0; padding-left: 1.25em; display: grid; gap: .3em; font-size: clamp(1rem, 1.55vw, 1.4rem); line-height: 1.35; }
 .presenter .pn-list li::marker { color: #f0a050; }
+/* Anweisung an die Lehrkraft (Nachtrag 42): erster Stichpunkt „Lehrkraft: …“ – das Wort fett in Orange, der Satz halbfett */
+.presenter .pn-list li.pn-do { font-weight: 600; }
+.presenter .pn-list li.pn-do strong { color: #f0a050; font-weight: 800; }
 .presenter .pn-none { margin: 0; color: #9fb0cc; font-size: clamp(.95rem, 1.4vw, 1.2rem); }
 .presenter .notehint { color: #e8edf6; }
 /* Videofolien (Nachtrag 38): Steuerung des Videos unter der aktuellen Folie – nur auf Videofolien; hell auf dunkel wie die Leiste, Kanten 3:1 */

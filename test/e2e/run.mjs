@@ -94,6 +94,8 @@ async function pdf(pages, label, oldCode, holder) {
 // (Notiz-Anmerkung), ein Link, der für Schüler:innen bleibt, und ein Link auf Folie 3 (Inhaltsverzeichnis); Datenschutzprüfung: Notizen auch an
 // anderen Stellen (XMP, eigene Dokumenteigenschaft, eigener Seiteneintrag auf Folie 2, Kommentar auf Folie 3). Frei erfundene Inhalte.
 const NOTE1 = "NOTIZGEHEIM Impuls: Was wäre, wenn eine Person alle Macht hätte?", NOTE3 = "NOTIZGEHEIM Partnerarbeit ankündigen";
+// Nachtrag 42 (Teil 3): erster Stichpunkt jeder Folie = Anweisung an die Lehrkraft (Folie 3 bleibt bewusst ohne – ältere Notizen)
+const NOTE_DO = "Lehrkraft: NOTIZGEHEIM Zeigt die Karikatur und lässt Vermutungen sammeln (5 Min.).";
 async function notesPdf() {
   const d = await PDFDocument.create(), f = await d.embedFont(StandardFonts.HelveticaBold), reg = await d.embedFont(StandardFonts.Helvetica);
   for (let i = 1; i <= 3; i++) {
@@ -101,7 +103,7 @@ async function notesPdf() {
     p.drawText(["Wer kontrolliert die Macht?", "Gewaltenteilung im Grundgesetz", "Urteil: Ist das BVerfG zu mächtig?"][i - 1], { x: 60, y: 270, size: 44, font: f, color: rgb(1, 1, 1) });
     p.drawText("Quelle: example.org", { x: 60, y: 40, size: 14, font: reg, color: rgb(1, 1, 1) });
   }
-  const notes = { v: 1, folien: [{ folie: 1, notizen: [NOTE1, "Erwartung: Willkür, keine Kontrolle", "Zeit: 5 Minuten"] }, { folie: 3, notizen: [NOTE3] }] };
+  const notes = { v: 1, folien: [{ folie: 1, notizen: [NOTE_DO, NOTE1, "Erwartung: Willkür, keine Kontrolle", "Zeit: 5 Minuten"] }, { folie: 3, notizen: [NOTE3] }] };
   await d.attach(new TextEncoder().encode(JSON.stringify(notes)), "unterricks-notizen.json", { mimeType: "application/json" });
   const ctx = d.context;
   const c1 = ctx.register(ctx.obj({ Type: "Annot", Subtype: "Text", Rect: [900, 500, 920, 520], Contents: PDFString.of("NOTIZGEHEIM Kommentar") }));
@@ -1113,7 +1115,7 @@ async function main() {
         "Hochladen: „Notizen zu 2 Folien übernommen“ (aus dem Dateianhang), die Dateiliste nennt nur die Zahl; Fassung ohne Notizen für Schüler:innen gespeichert");
       ok(!!nann && nann.area === "teacher" && nann.name === "Präsentation mit Anmerkungen – Notizen-Test.pdf" && nann.notesOf === npres.id, "Anmerkungs-PDF unter „Material nur für die Lehrkraft“ (fester Name)");
       let annTxt = await pagesText(await fileBytes(nann));
-      ok(annTxt.length === 6 && annTxt[0].includes("Wer kontrolliert die Macht?") && annTxt[1].includes("Anmerkungen zu Folie 1") && annTxt[1].includes(NOTE1) && annTxt[1].includes("Zeit: 5 Minuten")
+      ok(annTxt.length === 6 && annTxt[0].includes("Wer kontrolliert die Macht?") && annTxt[1].includes("Anmerkungen zu Folie 1") && annTxt[1].includes(NOTE_DO) && annTxt[1].includes(NOTE1) && annTxt[1].includes("Zeit: 5 Minuten")
         && annTxt[3].includes("Anmerkungen zu Folie 2") && annTxt[3].includes("Keine Anmerkungen zu dieser Folie.") && annTxt[5].includes(NOTE3),
         "Anmerkungs-PDF: hinter jeder Folie ihre Anmerkungsfolie (6 Seiten, ohne Notizen „Keine Anmerkungen zu dieser Folie.“)");
       const annRow = np.locator(".item", { hasText: "Präsentation mit Anmerkungen – Notizen-Test.pdf" });
@@ -1144,8 +1146,13 @@ async function main() {
       await nbw.waitForFunction(() => /\/1\?/.test((document.querySelector(".beamer .bm-stage > img") || {}).src || ""), null, { timeout: 10000 });
       const notesTxt = () => npr.locator(".notespane").textContent();
       const geoN = await np.evaluate(() => { const a = document.querySelector(".presenter .stage").getBoundingClientRect(), b = document.querySelector(".presenter .notespane").getBoundingClientRect(); return { below: b.top >= a.bottom - 1, sw: a.width, nw: b.width }; });
-      ok((await notesTxt()).startsWith("Notizen zu Folie 1") && (await notesTxt()).includes(NOTE1) && await npr.locator(".notespane li").count() === 3 && geoN.below && Math.abs(geoN.sw - geoN.nw) < 3
+      ok((await notesTxt()).startsWith("Notizen zu Folie 1") && (await notesTxt()).includes(NOTE1) && await npr.locator(".notespane li").count() === 4 && geoN.below && Math.abs(geoN.sw - geoN.nw) < 3
         && (await npr.locator(".notehint").textContent()) === "", "Beamerfenster verbunden: Notizen zu Folie 1 als Stichpunkte unter der großen aktuellen Folie (so breit wie sie)");
+      // Nachtrag 42 (Teil 3): die Anweisung „Lehrkraft: …“ steht als erster Stichpunkt hervorgehoben („Lehrkraft:“ fett in Orange, der Satz halbfett)
+      const doLi = npr.locator(".notespane li.pn-do");
+      const doStyle = await doLi.evaluate((li) => ({ w: getComputedStyle(li).fontWeight, sw: getComputedStyle(li.querySelector("strong")).fontWeight, sc: getComputedStyle(li.querySelector("strong")).color }));
+      ok(await doLi.count() === 1 && (await doLi.textContent()) === NOTE_DO && (await doLi.locator("strong").textContent()) === "Lehrkraft:" && await npr.locator(".notespane li").first().evaluate((li) => li.classList.contains("pn-do"))
+        && Number(doStyle.w) >= 600 && Number(doStyle.sw) >= 700 && doStyle.sc === "rgb(240, 160, 80)", "… der erste Stichpunkt „Lehrkraft: …“ ist hervorgehoben (" + JSON.stringify(doStyle) + ")");
       ok(!(await nbw.content()).includes("NOTIZGEHEIM") && !(await nbw.content()).includes("Willkür") && await nbw.locator(".notespane").count() === 0, "… das Beamerfenster zeigt nur die Folie, keine Notizen");
       await np.mouse.move(400, 300);
       await np.screenshot({ ...SHOT, path: join(OUT, "notizen-praesentation-mit-beamerfenster.png") });
@@ -1206,8 +1213,8 @@ async function main() {
       const nbox = np.locator(".notesbox");
       await nbox.getByRole("button", { name: "Notizen ansehen und bearbeiten" }).click();
       const ta = (n) => np.locator("#nt-" + npres.id + "-" + n);
-      ok((await ta(1).inputValue()) === NOTE1 + "\nErwartung: Willkür, keine Kontrolle\nZeit: 5 Minuten" && (await ta(2).inputValue()) === "" && await nbox.locator("img.notes-thumb").count() === 3,
-        "„Notizen ansehen und bearbeiten“: je Folie Vorschaubild und Textfeld (ein Stichpunkt je Zeile)");
+      ok((await ta(1).inputValue()) === NOTE_DO + "\n" + NOTE1 + "\nErwartung: Willkür, keine Kontrolle\nZeit: 5 Minuten" && (await ta(2).inputValue()) === "" && await nbox.locator("img.notes-thumb").count() === 3,
+        "„Notizen ansehen und bearbeiten“: je Folie Vorschaubild und Textfeld (ein Stichpunkt je Zeile, die Anweisung „Lehrkraft: …“ als erste Zeile)");
       await ta(2).fill("NOTIZNEU Rückfrage: Wer kontrolliert das Gericht?\n- Antworten sammeln");
       await nbox.screenshot({ ...SHOT, path: join(OUT, "notizen-editor.png") });
       await np.emulateMedia({ colorScheme: "dark" }); await sleep(200);

@@ -102,12 +102,55 @@ test("Präsentations-Prompt erklärt die Notizen: Dateianhang unterricks-notizen
     const sec = p.slice(p.indexOf("## Notizen für die Lehrkraft: unsichtbar in der PDF"), p.indexOf("## Rahmendaten"));
     assert.ok(sec.length > 300);
     for (const t of ["zu jeder Folie Notizen für die Lehrkraft in Stichpunkten", "erwartete Antworten der Schüler:innen, Zeit", "die Schüler:innen sehen sie nie",
-      "Dateianhang (eingebettete Datei, EmbeddedFile) namens unterricks-notizen.json", '{"v":1,"folien":[{"folie":1,"notizen":["…","…"]}', "Seitenzahl in der PDF (die Titelfolie ist 1",
-      "auch Unterricks-Codefolien, die ebenfalls Notizen bekommen", "0 bis 12 Stichpunkte mit je höchstens 300 Zeichen", "writer.add_attachment(\"unterricks-notizen.json\"",
+      "Dateianhang (eingebettete Datei, EmbeddedFile) namens unterricks-notizen.json", '{"v":1,"folien":[{"folie":1,"notizen":["Lehrkraft: …","…"]},{"folie":2,"notizen":["Lehrkraft: …"]}]}', "Seitenzahl in der PDF (die Titelfolie ist 1",
+      "auch Unterricks-Codefolien, die ebenfalls Notizen bekommen", "1 bis 12 Stichpunkte (der erste ist die Anweisung „Lehrkraft: …“) mit je höchstens 300 Zeichen", "writer.add_attachment(\"unterricks-notizen.json\"",
       "Keine Notizen als Kommentare, Anmerkungen oder Sprechblasen", "JSON-Block in genau diesem Format", "„JSON aus dem Chat einfügen“"]) assert.ok(sec.includes(t), t);
+    assert.ok(!sec.includes("0 bis 12"), "jede Folie hat mindestens die Anweisung");
     assert.ok(!p.includes("gibst du mir zusätzlich hier im Chat als kurze Liste") && !p.includes("eine PDF hat keine Sprechernotizen"), "die alte Anweisung (nur im Chat) ist ersetzt");
     assert.ok(p.includes("die Notizen für die Lehrkraft gehören in die PDF (Dateianhang unterricks-notizen.json), nicht als eigenes Material in die Sitzung"));
   }
+});
+
+/* ---------- Nachtrag 42 (Teil 3): je Folie zuerst eine klare Anweisung an die Lehrkraft („Lehrkraft: …“) ---------- */
+const DO_NOTE = "Lehrkraft: Erklärt kurz, was Martin Luther am Ablasshandel kritisiert hat.";
+test("Präsentations-Prompt (Nachtrag 42): je Folie zuerst die Anweisung „Lehrkraft: …“, dann die Hintergründe; Codefolie vor Folie 1 in Folie 1; nie auf Folien, Marken oder Eigenschaften", () => {
+  const ctx = { subject: "powi", klass: "Q2-GK", lessonId: "abc", lesson: { title: "Ablass", topic: "Luther und der Ablasshandel" }, materials: [], sheets: [] };
+  for (const [klass, codeEx] of [["Q2-GK", "warten, bis alle die Sitzung geöffnet haben"], ["6A", "kurz sagen, dass die Schüler:innen die Sitzung damit zu Hause finden"]]) {
+    const p = S.claudePresentationPrompt({ ...ctx, klass }, "**1) Einstieg**\n- Karikatur\n\n**2) Partnerarbeit**", []);
+    const at = p.indexOf("## Notizen für die Lehrkraft: unsichtbar in der PDF"), sec = p.slice(at, p.indexOf("## Rahmendaten"));
+    assert.ok(at > p.indexOf("## Phase jeder Folie") && p.indexOf("## Rahmendaten") > at, klass + ": Abschnitt an seinem Platz");
+    for (const t of ["- Der erste Stichpunkt jeder Folie ist immer eine klare Anweisung an die Lehrkraft und beginnt mit „Lehrkraft: “: was sie jetzt tut, kurz und eindeutig",
+      "„Lehrkraft: Erklärt kurz, was Martin Luther am Ablasshandel kritisiert hat.“", "„Lehrkraft: Startet die Partnerarbeit (10 Min.) und geht herum.“",
+      "Danach folgen die Hintergründe: was sie sagt oder fragt, erwartete Antworten der Schüler:innen, Zeit. Jede Folie hat also mindestens diesen einen Stichpunkt.",
+      "- Was die Lehrkraft mit der Codefolie tut, die Unterricks vor Folie 1 zeigt (z. B. " + codeEx + "), steht in der Anweisung zu Folie 1 – für die Codefolie davor gibt es keinen eigenen Eintrag.",
+      "Eine Aufforderung an die Schüler:innen (z. B. auf einer Materialfolie) bleibt auf der Folie, die Anweisung „Lehrkraft: …“ steht nur in den Notizen.",
+      "Das gilt besonders für die Anweisungen „Lehrkraft: …“: nie auf einer Folie, auch nicht als unsichtbarer, weißer oder winziger Text, nie in der Zeile „" + S.PHASE_MARK + ": …“ (dort steht nur die Nummer der Phase) " +
+        "oder in der Zeile „" + S.CODE_SLIDE_MARK + ": …“ und nie in Titel, Betreff oder Stichwörtern der PDF – die Schüler:innen dürfen sie niemals sehen."]) assert.ok(sec.includes(t), klass + ": " + t);
+    // die Anweisung steht vor dem Format (so liest Claude sie zuerst) und das Format bleibt das alte (kein neues Feld)
+    assert.ok(sec.indexOf("Der erste Stichpunkt jeder Folie") < sec.indexOf("genau in diesem Format"));
+    assert.ok(!/"anweisung"|"lehrkraft"\s*:/i.test(p), "kein neues JSON-Feld");
+    // außerhalb der Notizen nur in den Anforderungen – nie in den Abschnitten zu Folien, Codefolie und Phase
+    assert.ok(p.includes("- Hinweise für die Lehrkraft je Folie – zuerst die Anweisung „Lehrkraft: …“, dann Impulse, Zeit, Erwartungen – gehören in die Notizen (unsichtbarer Dateianhang unterricks-notizen.json"));
+    const outside = p.split("\n").filter((l) => l.includes(S.NOTE_DO_LABEL) && !sec.includes(l));
+    assert.deepEqual(outside.map((l) => l.slice(0, 40)), ["- Hinweise für die Lehrkraft je Folie – "], klass);
+    const phaseSec = p.slice(p.indexOf("## Phase jeder Folie"), at);
+    assert.ok(!phaseSec.includes(S.NOTE_DO_LABEL) && !p.slice(0, p.indexOf("## Phase jeder Folie")).includes(S.NOTE_DO_LABEL), "Titel-, Code-, Material- und Phasenregeln unverändert");
+    assert.ok(!p.includes("Sprechernotizen") && !p.includes("Zwischenstopp") && !p.includes(S.TEACHER_SUMMARY_TITLE));
+  }
+});
+
+test("Anweisung an die Lehrkraft erkennen (noteDoSplit): nur „Lehrkraft:“ am Anfang mit Text danach; Text bleibt unverändert; Grenzen der Notizen unverändert", () => {
+  assert.deepEqual(S.noteDoSplit(DO_NOTE), { label: "Lehrkraft:", rest: " Erklärt kurz, was Martin Luther am Ablasshandel kritisiert hat." });
+  for (const t of [DO_NOTE, "Lehrkraft:Startet die Partnerarbeit.", "lehrkraft : liest vor", "LEHRKRAFT: Tafel wischen"]) { const d = S.noteDoSplit(t); assert.ok(d, t); assert.equal(d.label + d.rest, t, "Text unverändert: " + t); }
+  for (const t of ["Lehrkraft:", "Lehrkraft:   ", "Die Lehrkraft: erklärt", " Lehrkraft: mit Leerzeichen davor", "Lehrkräfte: x", "Impuls: Was wäre ohne Gewaltenteilung?", "", null, undefined, 42, { t: "Lehrkraft: x" }])
+    assert.equal(S.noteDoSplit(t), null, String(t));
+  assert.equal(S.NOTE_DO_LABEL, "Lehrkraft:");
+  // „Lehrkraft: …“ kommt durch Prüfen und Kappen wie jeder Stichpunkt (auch mit Aufzählungszeichen davor); 12 Punkte samt Anweisung bleiben 12
+  const twelve = [DO_NOTE, ...Array.from({ length: 11 }, (_, i) => "Hintergrund " + (i + 1))];
+  assert.deepEqual(S.cleanSlideNotes({ v: 1, folien: [{ folie: 1, notizen: twelve }] }, 1), [{ n: 1, items: twelve }]);
+  assert.deepEqual(S.cleanSlideNotes({ folien: [{ folie: 2, notizen: ["- " + DO_NOTE, "• Erwartung: Geld für Sündenerlass"] }] }, 2), [{ n: 2, items: [DO_NOTE, "Erwartung: Geld für Sündenerlass"] }]);
+  assert.deepEqual(S.parseNotesJson("```json\n" + JSON.stringify({ v: 1, folien: [{ folie: 1, notizen: [DO_NOTE, "Zeit: 5 Minuten"] }] }) + "\n```", 3).notes, [{ n: 1, items: [DO_NOTE, "Zeit: 5 Minuten"] }]);
+  assert.equal(S.noteFieldIssue(twelve.join("\n")), "", "12 Zeilen samt Anweisung: kein Hinweis im Notizfeld");
 });
 
 test("bereinigte Fassung für Schüler:innen: gleiche Seiten, ohne Anhänge, ohne Notiz-Anmerkungen und ohne /AF – der Link bleibt", async () => {
@@ -175,6 +218,34 @@ test("Anmerkungs-PDF: hinter jeder Folie eine Anmerkungsfolie im selben Format, 
   const d2 = await PDFDocument.load(out2), t2 = await pdfText(out2);
   assert.ok(d2.getPageCount() >= 7, "mindestens eine Fortsetzung (" + d2.getPageCount() + " Seiten)");
   assert.ok(t2[2].includes("Anmerkungen zu Folie 1 (Fortsetzung)") && t2.join(" ").includes("Stichpunkt 12 ->"));
+});
+
+test("Anmerkungs-PDF (Nachtrag 42): der erste Stichpunkt „Lehrkraft: …“ fett (wie die Überschrift), die übrigen normal – auch umbrochen über mehrere Zeilen", async () => {
+  const pdf = await deckPdf();
+  const notes = [{ n: 1, items: [DO_NOTE, "Erwartung: Geld gegen Sündenerlass", "Lehrkraft: an zweiter Stelle normal"] }, { n: 2, items: ["Impuls ohne Anweisung"] },
+    { n: 3, items: ["Lehrkraft: " + "Liest den Erzähltext vor und legt dabei die Bildkarten hin. ".repeat(4).trim(), "Zeit: 10 Minuten"] }];
+  const out = await annotatedPdfBytes(pdf, notes, PL);
+  const doc = await pdfjs.getDocument({ data: new Uint8Array(out).slice(), isEvalSupported: false, verbosity: 0 }).promise;
+  const fontsOf = async (page) => {
+    const items = (await (await doc.getPage(page)).getTextContent()).items.filter((x) => x.str.trim());
+    const font = (re) => { const it = items.find((x) => re.test(x.str)); assert.ok(it, String(re)); return it.fontName; };
+    return { items, font, bold: font(/^Anmerkungen zu Folie/), regular: font(/^Unterricks · Präsentation mit Anmerkungen/) };
+  };
+  try {
+    const p2 = await fontsOf(2);
+    assert.notEqual(p2.bold, p2.regular, "zwei Schriften: fett und normal");
+    assert.equal(p2.font(/^Lehrkraft: Erklärt kurz/), p2.bold, "Anweisung fett");
+    assert.equal(p2.font(/^Erwartung: Geld/), p2.regular, "Hintergrund normal");
+    assert.equal(p2.font(/^Lehrkraft: an zweiter Stelle/), p2.regular, "„Lehrkraft:“ an zweiter Stelle normal");
+    const p4 = await fontsOf(4);
+    assert.ok(p4.items.filter((x) => p4.bold === x.fontName && !/^Anmerkungen zu Folie|^•$/.test(x.str)).length === 0, "Folie ohne Anweisung: kein fetter Stichpunkt");
+    const p6 = await fontsOf(6), lines = p6.items.filter((x) => /Erzähltext|Bildkarten|Liest/.test(x.str));
+    assert.ok(lines.length >= 2 && lines.every((x) => x.fontName === p6.bold), "umbrochene Anweisung: alle Zeilen fett (" + lines.length + ")");
+    assert.equal(p6.font(/^Zeit: 10 Minuten/), p6.regular);
+  } finally { await doc.destroy(); }
+  // die Anweisung braucht in der fetten Schrift mehr Platz: Umbruch in fetter Breite – der Text bleibt vollständig, nichts über den Rand
+  const t = (await pdfText(out)).join(" ");
+  assert.ok(t.includes("Lehrkraft: Erklärt kurz, was Martin Luther am Ablasshandel kritisiert hat.") && t.includes("Bildkarten hin."));
 });
 
 /* ---------- Worker: Routen ---------- */

@@ -135,8 +135,13 @@ gleich in `public/_headers`, im Worker und – für GitHub Pages – in `scripts
   IP-Adresse des Geräts, auf dem es spielt (Beamergerät, Beamerfenster bzw. Ihr Gerät), nie die der Schüler:innen. Grenzen: abgespielt mit
   einem echten YouTube-Video ließ es sich in der Testumgebung nicht (dort gibt es keine Videowiedergabe) – geprüft sind das Steuerprotokoll des
   Players und alle Abläufe mit einer Attrappe; bitte einmal am Schul-iPad und am Beamer ausprobieren.
-  **Notizen zu den Folien (nur für Sie):** Der Präsentations-Prompt bittet Claude, zu jeder Folie Stichpunkte für Sie zu schreiben (was Sie
-  sagen, fragen oder beachten, Impulse, erwartete Antworten, Zeit) – nicht auf den Folien, sondern als **unsichtbaren Dateianhang** der PDF
+  **Notizen zu den Folien (nur für Sie):** Der Präsentations-Prompt bittet Claude, zu jeder Folie Stichpunkte für Sie zu schreiben – **zuerst
+  immer eine klare Anweisung, was Sie jetzt tun** („Lehrkraft: Erklärt kurz, was Martin Luther am Ablasshandel kritisiert hat.“ oder „Lehrkraft:
+  Startet die Partnerarbeit (10 Min.) und geht herum.“; was Sie mit der Codefolie vor Folie 1 tun, steht bei Folie 1), danach die Hintergründe
+  (was Sie sagen oder fragen, Impulse, erwartete Antworten, Zeit). Diese Anweisung ist hervorgehoben: in der Präsentationsansicht „Lehrkraft:“
+  fett in Orange, in der „Präsentation mit Anmerkungen“ der ganze Stichpunkt fett, in der PowerPoint-Datei (geteilte Einheit, Ordner „Alle
+  Unterlagen dieser Sitzung“) „Lehrkraft:“ fett; im Notizfeld der Sitzung ist sie die erste Zeile. Wie alle Notizen gehört sie laut Prompt nie auf
+  die Folien – auch nicht unsichtbar –, sondern nur in den **unsichtbaren Dateianhang** der PDF
   (`unterricks-notizen.json`); kann Claude keine Datei einbetten, steht der Block im Chat und Sie fügen ihn in Unterricks ein. Beim Hochladen
   übernimmt Unterricks die Notizen („Notizen zu n Folien übernommen“). In der Präsentationsansicht erscheinen sie als Stichpunkte **unter der
   großen aktuellen Folie** – aber **nur, wenn das Beamerbild getrennt läuft**: mit verbundenem Beamerfenster (erweiterter Bildschirm) oder

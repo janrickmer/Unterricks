@@ -77,6 +77,11 @@ const CARRIERS = {
   "Seiten-XMP": (d) => d.getPage(0).node.set(PDFName.of("Metadata"), d.context.register(d.context.flateStream(te.encode("<x>LEAKPAGEXMP</x>"), { Type: "Metadata", Subtype: "XML" }))),
   "Anhang nur über /AF": (d) => { const ctx = d.context, ef = ctx.register(ctx.flateStream(te.encode('{"folien":[{"folie":1,"notizen":["LEAKAFONLY"]}]}'), { Type: "EmbeddedFile" }));
     d.catalog.set(PDFName.of("AF"), ctx.obj([ctx.register(ctx.obj({ Type: "Filespec", F: PDFString.of("unterricks-notizen.json"), EF: { F: ef }, AFRelationship: "Supplement" }))])); },
+  // Nachtrag 42 (Teil 3): die Anweisung „Lehrkraft: …“ an einer falschen Stelle (kurz, ohne die Wörter „Notiz“/„Anmerkung“)
+  "Anweisung als Kommentar": (d) => annot(d, 1, { Subtype: "Text", Contents: PDFHexString.fromText("Lehrkraft: LEAKDOANNOT Startet die Partnerarbeit (10 Min.)") }),
+  "Anweisung im Titel": (d) => d.setTitle("Lehrkraft: LEAKDOTITLE Erklärt kurz"),
+  "Anweisung im Betreff": (d) => d.setSubject("Lehrkraft: LEAKDOSUBJECT Erklärt kurz, was Luther kritisiert hat"),
+  "Anweisung im XMP": (d) => setXmp(d, xmpOf('<dc:description><rdf:Alt><rdf:li xml:lang="x-default">Lehrkraft: LEAKDOXMP Liest vor</rdf:li></rdf:Alt></dc:description>')),
 };
 
 test("Notizen außerhalb des Anhangs: jede Fundstelle verlangt die bereinigte Fassung, und weder sie noch die gekürzte enthält den Text", async () => {
@@ -168,6 +173,10 @@ test("Durchsicht scheitert (Anhänge oder Anmerkungen nicht lesbar): lieber bere
 
 /* ---------- Worker: alle Wege an Schüler:innen, Eltern, Druckliste und andere Sitzungen ---------- */
 const TOKEN = "lehrkraft-token-123", STOKEN = "schueler-token-123", DEV = "dddddddddddddddd", SECRET = "GEHEIMNOTIZ Impuls zur Gewaltenteilung";
+// Nachtrag 42 (Teil 3): erster Stichpunkt jeder Folie ist die Anweisung an die Lehrkraft – sie geht dieselben (gesperrten) Wege wie jede Notiz
+const DO_SECRET = "Lehrkraft: GEHEIMANWEISUNG Erklärt kurz, was Martin Luther am Ablasshandel kritisiert hat.";
+const SECRET_NOTES = { v: 1, folien: [{ folie: 1, notizen: [DO_SECRET, SECRET] }, { folie: 2, notizen: ["Lehrkraft: GEHEIMANWEISUNG Startet die Partnerarbeit (10 Min.) und geht herum."] }] };
+const SECRET_RE = /GEHEIMNOTIZ|GEHEIMANWEISUNG/;
 const callAs = (tok) => async (c, fn, method, path, body, ...args) => {
   const raw = body instanceof Uint8Array;
   const headers = { Authorization: "Bearer " + tok, "Content-Type": raw ? (/\/slides\//.test(path) ? "image/jpeg" : "application/pdf") : "application/json" };
@@ -181,7 +190,7 @@ async function presentation(c, l, notesPdf) {
   const up = await call(c, F.routePresentationUpload, "POST", "/api/teacher/lessons/" + l.id + "/presentation?name=BVerfG.pdf", notesPdf, l.id);
   const fid = up.data.file.id;
   for (let n = 1; n <= 3; n++) await call(c, F.routeSlideUpload, "PUT", "/api/teacher/files/" + fid + "/slides/" + n + "?w=1920&h=1080", new Uint8Array([0xff, 0xd8, n]), fid, String(n));
-  const notes = { v: 1, folien: [{ folie: 1, notizen: [SECRET] }] };
+  const notes = SECRET_NOTES;
   const r = await call(c, F.routePresentationReady, "POST", "/api/teacher/files/" + fid + "/ready", { pages: 3, codeSlides: [], notes, clean: true }, fid);
   assert.equal(r.status, 200);
   await call(c, F.routeCleanPut, "PUT", "/api/teacher/files/" + fid + "/clean", await cleanPdfBytes(notesPdf, PL), fid);
@@ -189,7 +198,7 @@ async function presentation(c, l, notesPdf) {
   assert.equal(ann.status, 200);
   return { fid, aid: ann.data.file.id };
 }
-const hasSecret = (x) => JSON.stringify(x).includes("GEHEIMNOTIZ");
+const hasSecret = (x) => SECRET_RE.test(JSON.stringify(x));
 
 test("Worker: Präsentation mit Notizen – Schüleransicht, Folienfenster, Download (ganz und gekürzt), erratene Kennung, Eltern, Druckliste, Vertretung", async () => {
   const c = fakeCtx({ SETTINGS_SECRET: "nur-test-geheimnis-1234" });
@@ -199,13 +208,15 @@ test("Worker: Präsentation mit Notizen – Schüleransicht, Folienfenster, Down
   c.db.raw.prepare("INSERT INTO student_devices(id, token_hash, klass, subject, created_at, last_seen, auth_until) VALUES(?, ?, 'Q2-GK', 'powi', ?, ?, ?)").run(DEV, await sha256Hex(STOKEN), c.now, c.now, c.now + 3600e3);
   c.db.raw.prepare("INSERT INTO student_access(device_id, lesson_id, joined_at) VALUES(?, ?, ?)").run(DEV, l.id, c.now - 600e3);
   const notesPdf = await deck(async (d) => {
-    await d.attach(te.encode(JSON.stringify({ v: 1, folien: [{ folie: 1, notizen: [SECRET] }] })), S.NOTES_FILE, { mimeType: "application/json" });
+    await d.attach(te.encode(JSON.stringify(SECRET_NOTES)), S.NOTES_FILE, { mimeType: "application/json" });
     annot(d, 2, { Subtype: "Text", Contents: PDFString.of("GEHEIMNOTIZ Folie 3") });
     annot(d, 0, { Subtype: "Link", Dest: [d.getPage(2).ref, PDFName.of("Fit")] });
   });
-  assert.ok(allText(notesPdf).includes("GEHEIMNOTIZ"));
+  assert.ok(allText(notesPdf).includes("GEHEIMNOTIZ") && allText(notesPdf).includes("GEHEIMANWEISUNG"), "die Testdatei trägt Notiz und Anweisung");
   const { fid, aid } = await presentation(c, l, notesPdf);
-  const fetchDl = async (url) => new Uint8Array(await (await F.routeDownload({ ...c, request: new Request("https://unterricks.test" + url) }, url.split("/")[3].split("?")[0])).arrayBuffer());
+  const ts = await call(c, F.routeTeacherSlides, "GET", "/api/teacher/files/" + fid + "/slides", undefined, fid);
+  assert.equal(ts.data.notes[0].items[0], DO_SECRET, "die Lehrkraft (und nur sie) bekommt die Anweisung unverändert");
+  const fetchDl =async (url) => new Uint8Array(await (await F.routeDownload({ ...c, request: new Request("https://unterricks.test" + url) }, url.split("/")[3].split("?")[0])).arrayBuffer());
   // Schüleransicht und Folienfenster (Nachtrag 19): nur Zahlen/Links, keine Notizen, keine Anmerkungs-PDF
   const sv = await scall(c, ST.routeStudentLesson, "GET", "/api/student/lessons/" + l.id, undefined, l.id);
   assert.equal(sv.status, 200); assert.ok(!hasSecret(sv.data) && !sv.data.files.some((f) => f.id === aid || /Anmerkungen/.test(f.name)));
@@ -214,13 +225,13 @@ test("Worker: Präsentation mit Notizen – Schüleransicht, Folienfenster, Down
   // Download ganz: nur die bereinigte Fassung
   const pl = await scall(c, ST.routeStudentPresentationLink, "POST", "/x", { inline: false }, l.id);
   assert.match(pl.data.url, /&p=clean&/);
-  assert.ok(!allText(await fetchDl(pl.data.url)).includes("GEHEIMNOTIZ"));
+  assert.ok(!SECRET_RE.test(allText(await fetchDl(pl.data.url))));
   // gekürzt bis Folie 2 (Link auf Folie 3 mit ihrem Kommentar): auch dort nichts
   const cut = await cutPdfBytes(notesPdf, 2, PDFDocument, { clean: true, lib: PL });
   assert.equal((await call(c, F.routeShownPut, "PUT", "/api/teacher/files/" + fid + "/shown?until=2&clean=1", cut, fid)).status, 200);
   const pl2 = await scall(c, ST.routeStudentPresentationLink, "POST", "/x", { inline: true }, l.id);
   assert.match(pl2.data.url, /&p=cut&/);
-  assert.ok(!allText(await fetchDl(pl2.data.url)).includes("GEHEIMNOTIZ"));
+  assert.ok(!SECRET_RE.test(allText(await fetchDl(pl2.data.url))));
   const sl2 = await scall(c, ST.routeStudentPresentationSlides, "POST", "/x", { from: 3 }, l.id);
   assert.equal(sl2.status, 403, "Folienfenster: nichts jenseits der markierten Folie");
   // erratene Kennung der Anmerkungs-PDF bzw. der Präsentation: kein Link für Schüler:innen, ohne gültige Signatur kein Download

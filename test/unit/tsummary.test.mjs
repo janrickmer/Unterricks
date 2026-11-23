@@ -87,6 +87,9 @@ test("Prompts: „Stunde mit Claude planen“ (Gymnasium, Jg. 5/6, Grundschule) 
   const sub = SL.claudeSelbstlernPrompt({ ...sek, row: null }), pres = S.claudePresentationPrompt(sek, "**1) Einstieg**", []);
   assert.ok(!sub.includes("zusammenfassung_lehrkraft") && sub.includes("Die „" + S.TEACHER_SUMMARY_TITLE + "“ änderst du dabei nicht – sie beschreibt die ursprüngliche Planung."));
   assert.ok(!pres.includes("zusammenfassung_lehrkraft") && !pres.includes(S.TEACHER_SUMMARY_TITLE));
+  // Anweisung „Lehrkraft: …“ je Folie (Nachtrag 42) nur im Präsentations-Prompt – in der Selbstlern-Phase sähen Schüler:innen jede solche Zeile
+  assert.ok(pres.includes("Der erste Stichpunkt jeder Folie ist immer eine klare Anweisung an die Lehrkraft und beginnt mit „" + S.NOTE_DO_LABEL + " “"));
+  assert.ok(!sub.includes("„" + S.NOTE_DO_LABEL) && !sub.includes("klare Anweisung an die Lehrkraft") && !sub.includes(S.NOTES_FILE), "nicht im Selbstlern-Prompt");
 });
 
 /* ---------- Worker, Connector ---------- */
