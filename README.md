@@ -64,7 +64,10 @@ gleich in `public/_headers`, im Worker und – für GitHub Pages – in `scripts
   Unter dem Feld für den Sitzungscode steht immer, wo es ihn gibt: Die Lehrkraft zeigt ihn zu Beginn der Stunde, und er steht im
   Schulportal im Feld „Hausaufgabe“. Hat eine spätere Sitzung des Kurses schon begonnen (laut Datum und Beginn – oder ihre
   Live-Präsentation läuft an ihrem Tag schon), steht in der älteren Sitzung ganz oben ein roter Hinweis „Das ist nicht die aktuellste
-  Sitzung“ mit dem Knopf „Aktuellste Sitzung laden“ (führt zur Eingabe des Sitzungscodes); er erscheint auch ohne Neuladen der Seite.
+  Sitzung“ mit dem Knopf „Aktuellste Sitzung laden“ (führt zur Eingabe des Sitzungscodes). Ohne Neuladen erscheint er zum geplanten
+  Beginn, beim Aufwachen des Geräts und – startet die Lehrkraft die Präsentation früher – in der halben Stunde vor dem Beginn
+  spätestens nach einer Minute, solange die Seite offen ist. Eine Präsentation, die die Lehrkraft an einem früheren Tag nur angesehen
+  und mit „Schließen“ offen gelassen hat, zählt nicht.
 * **Lehrkraft:** Einmalig unter **Planungsgrundlagen** je Fach Schulcurriculum, KCGO, E-Phasen-Curriculum und Abiturerlass
   (je Q-Kurs; bei Ev. Religion auch das Schulcurriculum der Grundschule, Jahrgänge 1–4) als PDF hochladen und die Fach-Einstellungen
   prüfen. Jede Planungsgrundlage lässt sich aus der Planung heraus in einem neuen Tab öffnen (Original-PDF; ältere ohne PDF als Text,

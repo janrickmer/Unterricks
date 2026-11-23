@@ -94,7 +94,7 @@ implementiert und im End-to-End-Test geprüft (Ausnahmen unten ausdrücklich gen
 | Anweisungen an die Lehrkraft in den Foliennotizen (Nachtrag 42 vom 23.11.2026, Teil 3) | Wunsch der Lehrkraft: „Wenn zu einer Sitzung eine Präsentation erstellt wird, sollen (ähnlich wie bei Schritt 2 dieser Chatnachricht) eindeutige Anweisungen an die Lehrkraft formuliert und in den Folienanmerkungen angezeigt werden. Diese Anmerkungen dürfen niemals für Schüler sichtbar sein.“ Rückfrage beantwortet: **zu jeder Folie** eine klare Anweisung an die Lehrkraft in den Notizen („Lehrkraft: …“), danach die Hintergründe; nie für Schüler:innen sichtbar. Umsetzung ohne neues Format: der erste Stichpunkt jeder Folie beginnt mit „Lehrkraft:“; Präsentationsansicht, Anmerkungs-PDF und PowerPoint-Notizen heben ihn hervor; an der Codefolie vor Folie 1 steht schon die Anweisung aus Folie 1 (Gegenprüfung). Siehe 4zn |
 | Konzentrationsaufgabe mit Lückentext, Ankreuzaufgabe und Suchsel (Nachtrag 43 vom 23.11.2026) | Wunsch der Lehrkraft: Seite 1 und die obere Hälfte von Seite 2 weiterhin zum Ausmalen, auf der unteren Hälfte von Seite 2 ein Lückentext, eine Ankreuzaufgabe und ein Suchsel, „dem Alter des jeweiligen Jahrgangs dieser Lerngruppe bzgl. des Schwierigkeitsgrades angemessen“. Rückfragen beantwortet: die rote Karte kommt in den Seitenrand neben diese Aufgaben, darunter, dass der Abschnitt nur für Kinder mit roter Karte Pflicht ist; Stufen je Jahrgang wie von Claude vorgeschlagen; nur neue bzw. überarbeitete Konzentrationsaufgaben; passen die Aufgaben nicht in die halbe Seite, wird das Ausmalbild oben auf Seite 2 kleiner. Siehe 4zk |
 | Material erscheint live mit seiner Materialfolie (Nachtrag 44, Teil 1, vom 23.11.2026) | Wunsch der Lehrkraft: Material, mit dem die Schüler:innen arbeiten sollen, erscheint in ihrer Ansicht erst, wenn die Live-Präsentation die Folie erreicht, auf der sie dazu aufgefordert werden – ohne Neuladen. Rückfragen beantwortet: Material ohne eigene Materialfolie und Sitzungen ohne Live-Präsentation wie bisher; einmal freigegeben bleibt es sichtbar, auch nach der Stunde; auch Feibeitsblätter (das Notfall-Feibeitsblatt folgt seinem Blatt). Wird die Folie nie live gezeigt, spätestens mit der Präsentation nach der Stunde (Entscheidung Claude); dazu „Jetzt freigeben“ für die Lehrkraft. Siehe 4zo |
-| Hinweis „nicht die aktuellste Sitzung“ und Text zur Code-Eingabe (Nachtrag 44, Teil 2, vom 23.11.2026) | Wunsch der Lehrkraft: „Wenn in einem Kurs ein Schüler eine Unterrichtssitzung (bspw. Sitzung Nr. 1 der Einheit) geöffnet hat, aber gerade live eine spätere Sitzung veranstaltet wird oder bereits veranstaltet wurde, soll in dieser alten Sitzung ganz oben in einem roten Hinweis-Feld der Hinweis stehen, dass dies nicht die aktuellste Sitzung ist. Mit einem Klick auf einen Button "Aktuellste Sitzung laden" kommt man zu der Eingabe des Sitzungscodes. Bei der Eingabe des Sitzungscodes soll von nun an immer stehen, dass dieser Sitzungscode zu Beginn der Unterrichtsstunde gezeigt wurde und auch im Hausaufgabenfeld des Schulportals steht.“ Rückfrage beantwortet: „aktuellste Sitzung“ = eine **spätere Sitzung desselben Kurses, sobald sie laut Plan beginnt** (Datum + Startzeit) **oder früher, wenn sie schon live gezeigt wird**. Selbst entschieden (Claude): ohne Startzeit ab 0:00 Uhr ihres Tages; live zählt nur an ihrem eigenen Tag (eine Vorschau an einem früheren Tag nicht); Selbstlern-Phasen und Vertretungen zählen wie jede Sitzung; nur Gymnasium (die Grundschule hat keine Schüleransicht). Siehe 4zp |
+| Hinweis „nicht die aktuellste Sitzung“ und Text zur Code-Eingabe (Nachtrag 44, Teil 2, vom 23.11.2026) | Wunsch der Lehrkraft: „Wenn in einem Kurs ein Schüler eine Unterrichtssitzung (bspw. Sitzung Nr. 1 der Einheit) geöffnet hat, aber gerade live eine spätere Sitzung veranstaltet wird oder bereits veranstaltet wurde, soll in dieser alten Sitzung ganz oben in einem roten Hinweis-Feld der Hinweis stehen, dass dies nicht die aktuellste Sitzung ist. Mit einem Klick auf einen Button "Aktuellste Sitzung laden" kommt man zu der Eingabe des Sitzungscodes. Bei der Eingabe des Sitzungscodes soll von nun an immer stehen, dass dieser Sitzungscode zu Beginn der Unterrichtsstunde gezeigt wurde und auch im Hausaufgabenfeld des Schulportals steht.“ Rückfrage beantwortet: „aktuellste Sitzung“ = eine **spätere Sitzung desselben Kurses, sobald sie laut Plan beginnt** (Datum + Startzeit) **oder früher, wenn sie schon live gezeigt wird**. Selbst entschieden (Claude): ohne Startzeit ab 0:00 Uhr ihres Tages; live zählt nur an ihrem eigenen Tag und nur, wenn die Präsentation an diesem Tag gestartet bzw. weitergeschaltet wurde (eine Vorschau an einem früheren Tag, auch mit „Schließen“ offen gelassen, nicht – Gegenprüfung); Selbstlern-Phasen und Vertretungen zählen wie jede Sitzung; nur Gymnasium (die Grundschule hat keine Schüleransicht). Siehe 4zp (samt den Befunden der Gegenprüfung) |
 | Feibeitsblatt aus einer früheren Sitzung – mit dem Zwischenstand weiterarbeiten (Nachtrag 45 vom 23.11.2026) | Wunsch der Lehrkraft: Ein Feibeitsblatt, das mit dieser und einer früheren Sitzung desselben Kurses verknüpft ist, steht bei den Schüler:innen als „wieder gebraucht“: Feld für die Zwischenstand-PDF, „Im Feibeitsblatt weiterarbeiten“ (Übergabe von Tab zu Tab nach dem mit Feibeitsblatt abgestimmten Protokoll v1, Rückfall nach 10 s), klein der Code und „Von vorn beginnen“. Claude verknüpft ein vorhandenes Blatt per Connector (`link_feibeitsblatt`, auch im Zwischenstopp-Prompt). Siehe 4zq |
 | Prüfung von Nachtrag 44 (Teil 1) und 45 (23.11.2026) | Die **KI-Begriffshilfe** bekommt den Schulportal-Eintrag **ohne Codes** (sie verriete sonst den Code eines wartenden Feibeitsblatts). Die Schüler:innen-Seite lädt nach einer Freigabe **erneut**, bis ihre Daten den Stand erreichen (gescheitertes Neuladen im WLAN der Schule), und wendet eine **ältere Antwort nie nach einer neueren** an. Was nach der Stunde frei geworden ist, bleibt frei, auch wenn die Lehrkraft **danach „Bis hier gezeigt“** setzt (festgehalten). Ein Feibeitsblatt ohne eigenen Titel („Feibeitsblatt“) nennt nicht jede Materialfolie. Fokus nach „Jetzt freigeben“ und nach der Übergabe der Zwischenstand-PDF; „Von vorn beginnen“ öffnet den Tab direkt im Klick; „neu“ nur am zuletzt Erschienenen; volle Liste der Freigaben → Meldung statt „sichtbar“. Bestätigt: Eine Präsentation, die nie live läuft, gibt ihr Material erst nach der Stunde frei („Jetzt freigeben“ sofort). Siehe 4zo, 4zq |
 
@@ -167,7 +167,7 @@ implementiert und im End-to-End-Test geprüft (Ausnahmen unten ausdrücklich gen
 | | `public/update.js` | Nach einem Update: Prüfung beim Seitenwechsel, sicheres Neuladen, `lazy()` für jedes Nachladen, Hinweis „Unterricks wurde aktualisiert“, siehe 4t |
 | | `scripts/build.mjs` | Build für Worker (`dist/`) und GitHub Pages (`dist-pages/`): Stand je Build in `/v/<Stand>/`, `version.json`, Prüfung der Verweise, siehe 4t |
 | | `public/app.js` | Router, Startseite, Schüleransicht |
-| | `public/newernote.js` | Roter Hinweis „Das ist nicht die aktuellste Sitzung“ mit „Aktuellste Sitzung laden“ ganz oben in der Sitzung der Schüler:innen (Nachtrag 44, Teil 2), siehe 4zp |
+| | `public/newernote.js` | Roter Hinweis „Das ist nicht die aktuellste Sitzung“ mit „Aktuellste Sitzung laden“ ganz oben in der Sitzung der Schüler:innen und der Wunsch „danach die Code-Eingabe fokussieren“ (`wantCodeFocus`/`takeCodeFocus`/`dropCodeFocus`) (Nachtrag 44, Teil 2), siehe 4zp |
 | | `public/teacher.js`, `public/session.js` | Lehrkräfteansicht (Fach → Klasse/Kurs → Einheiten), Sitzungsansicht |
 | | `public/materialbox.js` | Materialkasten einer Sitzung (Material für Schüler:innen und Lehrkräfte, Druckliste) – aus `session.js` ausgelagert |
 | | `public/inclassbar.js`, `public/inclass.js`, `public/inclasslib.js` | „Ich bin jetzt im Unterricht“ (Nachtrag 35): Knopf ganz oben und Umschalten (fest geladen, klein); kompakte Ansicht beider Schulformen mit Präsentation, Verlaufsplan samt grünem Pfeil, Material in zwei Spalten, Hausaufgabe (bei Bedarf über `lazy()` geladen); reine Helfer (Phase der Live-Folie, Spalten, seit Nachtrag 42 der kompakte Verlaufsplan `compactPlan`), siehe 4ze und 4zm |
@@ -2924,12 +2924,26 @@ laut Plan beginnt** (Datum + Startzeit) **oder früher, wenn sie schon live geze
     Plan nennt dann nur den Tag; am Gymnasium übernehmen die Sitzungen die Uhrzeit ohnehin aus dem Stundenplan der Einheit, 4h).
   - **Schon live** = das Durable Object der späteren Sitzung zeigt gerade eine Präsentation (`active`) – **nur an ihrem eigenen Tag** (selbst entschieden:
     Eine Vorschau der Präsentation an einem früheren Tag, etwa am Abend zuvor zu Hause, soll Schüler:innen, die gerade die Hausaufgabe der vorigen Sitzung
-    ansehen, nicht zur Code-Eingabe schicken – den neuen Code gibt es dann für sie noch gar nicht). Gefragt wird das Durable Object nur in diesem Fall
-    (früheste spätere Sitzung heute, noch nicht begonnen) – eine einzige Anfrage, sonst keine; scheitert sie, gilt „nicht live“, und die Seite lädt normal.
+    ansehen, nicht zur Code-Eingabe schicken – den neuen Code gibt es dann für sie noch gar nicht) **und nur, wenn sie an diesem Tag gestartet bzw.
+    weitergeschaltet wurde** (`laterLiveCounts(live, date)` in `public/shared.js`: `active === true` und `updatedAt` – Zeitpunkt des letzten Starts,
+    Folienwechsels bzw. „Sitzungscode zeigen“, steht schon in der Nachricht des Durable Objects für Schüler:innen – am Tag der Sitzung in Berliner Zeit).
+    Gegenprüfung: „Schließen“ im Präsentationsmodus beendet die Live-Präsentation nicht (nur „Präsentation für alle beenden“ bzw. ein Zurücksetzen) – eine
+    Vorschau am Montag blieb so bis Donnerstag `active`, und am Donnerstag vor dem Beginn hätte jede ältere Sitzung den Hinweis gezeigt; ebenso nach dem
+    Verschieben einer schon gezeigten Sitzung. Öffnet die Lehrkraft den Präsentationsmodus an ihrem Tag, meldet er sich mit „start“ und setzt `updatedAt`
+    neu. Gefragt wird das Durable Object nur in diesem Fall (früheste spätere Sitzung heute, noch nicht begonnen) – eine einzige Anfrage, sonst keine,
+    **höchstens 1,5 Sekunden** (`LIVE_CHECK_MS` in `worker/student.js`, `Promise.race` mit einem Zeitgeber – Gegenprüfung: ein langsames oder hängendes
+    Durable Object hielte sonst an diesem Tag die ganze Sitzungsseite aller Schüler:innen auf); scheitert sie oder dauert sie länger, gilt „nicht live“,
+    und die Seite lädt normal.
     Bewusst **ohne neue Spalte in D1** und ohne Änderung am Durable Object (`worker/live.js` bleibt unverändert): „wurde schon live gezeigt“ ist am Tag der
     späteren Sitzung spätestens mit ihrem geplanten Beginn erfüllt – eine Präsentation, die vor dem Beginn lief und wieder beendet wurde, zeigt den Hinweis
     eben erst ab dem Beginn. Eine Sitzung, die ohne Anpassung des Datums an einem früheren Tag gehalten wird, löst den Hinweis erst an ihrem eingetragenen
-    Tag aus.
+    Tag aus. **Abwägung (Gegenprüfung, bewusst so belassen, bei Bedarf mit der Lehrkraft zu klären):** „oder früher, wenn sie schon live gezeigt wird“
+    ist damit auf den eingetragenen Tag der frühesten späteren Sitzung eingegrenzt. Nicht erfasst: eine Sitzung, die ohne Änderung ihres Datums vorgezogen
+    wird; eine spätere, aber nicht die früheste spätere Sitzung, die live gezeigt wird; eine Präsentation, die vor dem Beginn lief und wieder beendet
+    wurde. „Live und heute gestartet, gleich an welchem eingetragenen Tag“ käme dem Wortlaut näher, zeigte den Hinweis aber auch nach einer Vorschau am
+    Abend zu Hause (mit „Schließen“ bis Mitternacht) – Schüler:innen, die gerade die Hausaufgabe ansehen, bekämen einen Code verlangt, den es für sie noch
+    nicht gibt – und bräuchte an jedem Tag eine Anfrage an ein Durable Object je Abruf einer älteren Sitzung. Der falsche Hinweis wiegt schwerer als der
+    fehlende: Im Unterricht kommt der Code ohnehin von der Codefolie, und spätestens zum eingetragenen Beginn erscheint der Hinweis.
   - **Selbstlern-Phasen und Vertretungen** (selbst entschieden): zählen wie jede Sitzung – als geöffnete Sitzung (der Hinweis steht auch über der Erklärung
     der Selbstlern-Phase bzw. über „Heute ohne deine Lehrkraft“) und als spätere Sitzung (ihr geplanter Beginn; live gibt es dort nichts). KI-Chatbots und
     Hausaufgabe einer Selbstlern-Phase laufen davon unberührt bis zur nächsten Stunde mit der Lehrkraft weiter (4x).
@@ -2938,26 +2952,40 @@ laut Plan beginnt** (Datum + Startzeit) **oder früher, wenn sie schon live geze
 * **Server** (`routeStudentLesson`): eine vierte Anweisung im bestehenden Batch – `SELECT id, lesson_date, start_time FROM lessons WHERE subject=?1 AND
   klass=?2 AND id<>?3 AND cancelled=0 AND (lesson_date > ?4 OR (lesson_date = ?4 AND ?5 IS NOT NULL AND start_time > ?5)) ORDER BY lesson_date,
   COALESCE(start_time, '') LIMIT 1` (Index `lessons_date`): Die früheste spätere Sitzung genügt – hat irgendeine begonnen, dann sie. Keine zusätzliche
-  Rundreise zu D1 (Unit-Test: mit und ohne spätere Sitzung gleich viele Anweisungen). Die Antwort bekommt nur **`newer`** (true/false) und, solange die
-  spätere Sitzung noch nicht begonnen hat, ihren **geplanten Beginn in `changesAt`** – nie ihre Kennung, ihren Code, Titel, Inhalt oder ihr Datum als
-  eigenes Feld (`changesAt` verrät höchstens den Zeitpunkt, so wie die Fälligkeit der Hausaufgabe schon das Datum der nächsten Sitzung). Berechnet erst nach
-  `requireAccess`, also nur für freigeschaltete Sitzungen. Keine neuen Daten über Schüler:innen.
+  Rundreise zu D1 (Unit-Test: mit und ohne spätere Sitzung gleich viele Anweisungen). Die Antwort bekommt nur **`newer`** (true/false), **`newerSoon`**
+  (true/false: die spätere Sitzung beginnt heute in höchstens 30 Minuten – `NEWER_POLL_MS` – und wird noch nicht live gezeigt; Gegenprüfung, siehe
+  „Ohne Neuladen“) und, solange die spätere Sitzung noch nicht begonnen hat, ihren **geplanten Beginn und die halbe Stunde davor in `changesAt`** – nie
+  ihre Kennung, ihren Code, Titel, Inhalt oder ihr Datum als eigenes Feld (`changesAt` verrät höchstens den Zeitpunkt, so wie die Fälligkeit der Hausaufgabe
+  schon das Datum der nächsten Sitzung; `newerSoon` folgt daraus). Berechnet erst nach `requireAccess`, also nur für freigeschaltete Sitzungen. Keine
+  neuen Daten über Schüler:innen.
 * **Ohne Neuladen der Seite** (`public/app.js`, `studentRoom`): Der Hinweis folgt jedem Neuladen der Daten (`refresh()` → `newerBox.set(r.newer)`): zum
-  geplanten Beginn der späteren Sitzung (`changesAt`, wie Hausaufgabe und Präsentation) und **beim Aufwachen des Geräts** (`visibilitychange`, Tab wieder
-  sichtbar) – dort jetzt auch ohne fälligen Zeitpunkt, aber höchstens einmal je Minute (`NEWER_RECHECK_MS`), denn eine spätere Sitzung kann inzwischen live
-  gezeigt werden. Kein dauerndes Abfragen und keine neue Nachricht im WebSocket (ältere, noch offene Seiten zeigten jede Nachricht ohne `active` als „keine
-  Präsentation“ an). Die Hausaufgabe baut die Seite seitdem nur bei geänderten Daten neu (sonst ginge ein Fokus auf einem Link darin verloren).
+  geplanten Beginn der späteren Sitzung (`changesAt`, wie Hausaufgabe und Präsentation), **beim Aufwachen des Geräts** (`visibilitychange`, Tab wieder
+  sichtbar) – dort auch ohne fälligen Zeitpunkt, aber höchstens einmal je Minute (`NEWER_RECHECK_MS`), denn eine spätere Sitzung kann inzwischen live
+  gezeigt werden – und **in der halben Stunde vor ihrem Beginn jede Minute, solange die Seite sichtbar ist** (Gegenprüfung: vorher erschien der Hinweis bei
+  offener Seite erst zum geplanten Beginn, auch wenn die Lehrkraft die Präsentation zehn Minuten früher startete – genau der Fall des Wunsches). Dazu
+  weckt `changesAt` die Seite 30 Minuten vor dem Beginn; solange die Antwort `newerSoon` meldet, plant `plan()` die nächste Abfrage eine Minute nach der
+  letzten (`loadedAt + NEWER_RECHECK_MS`), verborgen keine (beim Aufwachen wieder: neu laden bzw. die Abfrage einplanen). Ist sie live (`newer`) oder hat
+  sie begonnen, endet das Abfragen. Eine gescheiterte Abfrage wiederholt die Seite in dieser halben Stunde nach einer Minute; nach dem Verlassen der
+  Sitzung plant eine noch laufende Abfrage nichts mehr ein (`gone`). Aufwand: höchstens 30 Abrufe je geöffneter älterer Sitzung und Tag der späteren
+  (je eine Anfrage an D1 und ans Durable Object). Keine neue Nachricht im WebSocket (ältere, noch offene Seiten zeigten jede Nachricht ohne `active` als
+  „keine Präsentation“ an). Die Hausaufgabe baut die Seite seitdem nur bei geänderten Daten neu (sonst ginge ein Fokus auf einem Link darin verloren).
 * **Hinweis** (`public/newernote.js`, `newerNote({onGo})` → `{el, set(on)}`; nur DOM-APIs): ein leerer Platz `div.newer-slot` (`aria-live="polite"`)
   **direkt unter dem Kopfband**, vor allem anderen (Vertretung, Live-Fenster, Erklärung der Selbstlern-Phase); ohne spätere Sitzung bleibt er leer und ohne
   Abstand. Sonst `section.alarm.newer-note` (`aria-labelledby` → `h2#newer-h`) – dieselbe rote Fläche wie der Hinweis der Notfall-Feibeitsblätter (Wunsch
   der Lehrkraft: „in einem roten Hinweis-Feld“) – mit Warnsymbol, h2 „Das ist nicht die aktuellste Sitzung“, dem Satz „Eine spätere Sitzung deines Kurses
   hat schon begonnen. Öffne sie mit ihrem Sitzungscode.“ und dem Knopf **„Aktuellste Sitzung laden“** (Wortlaut der Lehrkraft; ein Link `a.btn` auf
   `#/schueler`, weiß mit Tinte, mindestens 44px, mit Pfeil). Erscheint er erst beim Neuladen, sagt die Live-Region ihn an, ohne den Fokus zu verschieben;
-  verschwindet er, während der Fokus darin steht (spätere Sitzung verschoben), bleibt der Fokus am Platz (`tabindex="-1"`, nicht in der Tab-Reihenfolge).
+  verschwindet er, während der Fokus darin steht (spätere Sitzung verschoben bzw. ihre Präsentation vor dem Beginn beendet), geht der Fokus auf die
+  Überschrift der Sitzung im Kopfband direkt davor (`h1`, `tabindex="-1"`, nicht in der Tab-Reihenfolge, mit dem weißen Fokusring des Kopfbands –
+  Gegenprüfung: vorher stand er auf dem leeren Platz, ohne sichtbaren Ring); nur ohne Überschrift auf dem Platz selbst.
 * **„Aktuellste Sitzung laden“** führt zur Eingabe des Sitzungscodes (`#/schueler`) und verlässt die Sitzung wie jeder Seitenwechsel (Live-Verbindung,
   Abfragen und Zeitgeber enden über `onLeave`); der Token des Geräts bleibt – Freischaltungen, Fach und Klasse bleiben erhalten (es gibt keinen Token je
-  Sitzung, also nichts zu löschen). Die Code-Eingabe bekommt danach den Fokus (`codeFocusWanted`), auch wenn das Gerät schon Sitzungen freigeschaltet hat
-  (sonst nur ohne Sitzungen). Bewusst kein Sprung in eine bestimmte Sitzung: Die Seite kennt die spätere Sitzung nicht, und ein Gerät, das sie schon
+  Sitzung, also nichts zu löschen). Die Code-Eingabe bekommt danach den Fokus, auch wenn das Gerät schon Sitzungen freigeschaltet hat (sonst nur ohne
+  Sitzungen): `wantCodeFocus()` merkt den Wunsch beim Klick in `sessionStorage` (`u.codefocus`, nur dieser Tab; gesperrt: im Arbeitsspeicher),
+  `takeCodeFocus()` löst ihn beim Zeichnen des Formulars genau einmal ein, höchstens 10 Minuten danach (`CODE_FOCUS_MS`; auch nach einer Anmeldung bzw. der
+  Wahl von Fach und Klasse dazwischen), `dropCodeFocus()` verwirft ihn beim Öffnen einer Sitzung (`public/newernote.js`). Gegenprüfung: vorher ein Merker nur
+  im Arbeitsspeicher von `app.js` – lud die Seite beim Seitenwechsel neu (neuer Stand, `update.js`), ging er verloren; ging die Schülerin zurück, bevor das
+  Formular gezeichnet war, blieb er stehen und zog den Fokus bei einem späteren Besuch in das Feld. Bewusst kein Sprung in eine bestimmte Sitzung: Die Seite kennt die spätere Sitzung nicht, und ein Gerät, das sie schon
   freigeschaltet hat, sieht sie in der Liste unter dem Feld.
 * **Text zur Code-Eingabe – immer** (`CODE_WHERE_TEXT`): unter dem Feld „Sitzungscode deiner Lehrkraft“ `p.hint#code-h` „Den Sitzungscode hat deine
   Lehrkraft zu Beginn der Unterrichtsstunde gezeigt. Er steht auch im Schulportal im Feld „Hausaufgabe“.“, per `aria-describedby` mit dem Feld verbunden.
@@ -2970,15 +2998,32 @@ laut Plan beginnt** (Datum + Startzeit) **oder früher, wenn sie schon live geze
   geöffnete Sitzung ohne Uhrzeit, GK/LK, Kurs 8-K samt Code einlösen; live nur am Tag selbst – am Vortag keine Anfrage –, nicht mehr live, ab dem Beginn
   ohne Anfrage, Durable Object nicht erreichbar; gleiche Zahl von D1-Anweisungen; Selbstlern-Phase; geöffnete Sitzung ohne Datum), Hinweis im
   nachgebildeten DOM (leer, Aufbau, Live-Region, keine zweite Ansage, Enter auf dem Link, Fokus beim Verschwinden), CSS (44px, Farben, Fokusring) und
-  Einbindung in `app.js` (Reihenfolge, Neuladen, Aufwachen, Code-Eingabe). E2E `test/e2e/newer.mjs` (nach den Videofolien; eigener Kurs PoWi 10D, danach
-  gelöscht): fester Text unter dem Feld; vor dem Beginn kein Hinweis (leerer Platz, `changesAt`); die Lehrkraft startet die Live-Präsentation der späteren
-  Sitzung vor ihrem Beginn → `newer` ohne Code, Titel, Kennung oder Beginn; das iPad „wacht auf“ (Uhr der Seite +61 s, `visibilitychange`) → roter Hinweis
-  ganz oben ohne Neuladen (Live-Region, #c8281e, weiße Schrift, Knopf ≥ 44px, Live-Fenster darunter), Bildschirmfotos hell und dunkel; Enter auf
-  „Aktuellste Sitzung laden“ → Code-Eingabe mit Fokus, Gerät bleibt angemeldet; Live-Präsentation beendet → kein Hinweis; laut Plan begonnen → Hinweis beim
+  Einbindung in `app.js` (Reihenfolge, Neuladen, Aufwachen, Code-Eingabe). Nach der Gegenprüfung außerdem: `laterLiveCounts` (heute, Vorabend, Montag,
+  beendet, ohne Zeitpunkt), `laterLessonState(…).soon` (Grenze 30 Minuten, ohne Beginn am Vortag nicht), Vorschau am Montag mit „Schließen“ → am Donnerstag
+  vor dem Beginn kein Hinweis (gefragt, nicht gezählt), am Vorabend gestartet ebenso, heute erneut geöffnet → Hinweis, Stand ohne `updatedAt` → keiner;
+  hängendes Durable Object → nach etwa `LIVE_CHECK_MS` „nicht live“, Seite lädt; `newerSoon` (Tage vorher, 31/30/20 Minuten vorher, live, begonnen, ohne
+  `env.LIVE`, jüngste Sitzung, nichts über die spätere Sitzung außer Zeitpunkten); Fokus auf die Überschrift im Kopfband; `wantCodeFocus`/`takeCodeFocus`/
+  `dropCodeFocus` (einmal, 10 Minuten, frisch geladenes Modul liest `sessionStorage`, gesperrter Speicher); Quelltext von `app.js` (Abfrage je Minute nur
+  sichtbar, `gone`, Wiederholung nach einem Fehler, kein `codeFocusWanted`). E2E `test/e2e/newer.mjs` (nach den Videofolien; eigener Kurs PoWi 10D, danach
+  gelöscht; weniger als eine Stunde vor Mitternacht übersprungen – Gegenprüfung: vorher 23:59 Uhr als Rückfall, um 23:59 Uhr scheiterte „vor dem
+  Beginn“): fester Text unter dem Feld; vor dem Beginn (40 Minuten) kein Hinweis (leerer Platz, `changesAt` mit Beginn und halber Stunde davor, kein
+  `newerSoon`); die Lehrkraft startet die Live-Präsentation der späteren Sitzung vor ihrem Beginn → `newer` ohne Code, Titel, Kennung oder Beginn; das iPad
+  „wacht auf“ (Uhr der Seite +61 s, `visibilitychange`) → roter Hinweis ganz oben ohne Neuladen (Live-Region, #c8281e, weiße Schrift, Knopf ≥ 44px,
+  Live-Fenster darunter), Bildschirmfotos hell und dunkel; Enter auf „Aktuellste Sitzung laden“ → Code-Eingabe mit Fokus, Gerät bleibt angemeldet;
+  Live-Präsentation beendet → kein Hinweis; spätere Sitzung in 20 Minuten → `newerSoon`, kein Hinweis; die Lehrkraft startet → nach einer Minute (Uhr der
+  Seite, **ohne** `visibilitychange`) der Hinweis bei offener Seite; Fokus per Tastatur auf dem Knopf, Präsentation beendet, Aufwachen → Hinweis weg, Fokus
+  auf der Überschrift (`tabindex="-1"`, `:focus-visible`, 3px-Ring); Code-Eingabe über die Adresse → kein Fokus-Sprung; laut Plan begonnen → Hinweis beim
   Öffnen; jüngste Sitzung ohne Hinweis. Außerdem im Schritt „Schüler:in: Passwort, Klasse/Fach, Sitzungscode“ der feste Text unter dem Feld.
 * **Auswirkung auf bestehende Abläufe:** Sitzungen, deren spätere Sitzung schon begonnen hat (z. B. die Schüleransicht der ersten Sitzung im Videofolien-Test,
   `test/e2e/videoslides.mjs`, deren zweite Sitzung einen Tag später liegt), zeigen jetzt den Hinweis ganz oben – gewollt; die Prüfung der Reihenfolge
-  (`main > *` in der Selbstlern-Ansicht) überspringt den leeren Platz.
+  (`main > *` in der Selbstlern-Ansicht) überspringt den leeren Platz. Auch das Bildschirmfoto `nr38-folienfenster-link.png` und die Schüleransichten im
+  Schritt zu den Foliennotizen (dort liegt die Sitzung auf gestern) zeigen den roten Hinweis; keine Prüfung dort zählt Elemente oder Überschriften.
+* **Gegenprüfung (23.11.2026), Befunde und Umsetzung:** (1) Vorschau an einem früheren Tag, mit „Schließen“ offen gelassen, galt am Tag der späteren Sitzung
+  als „live“ → `laterLiveCounts` mit `updatedAt` (oben); (2) ein früher Start erschien bei offener, sichtbarer Seite erst zum geplanten Beginn, README
+  versprach mehr → Abfrage je Minute in der halben Stunde davor (`newerSoon`) und README genauer; (3) „früher“ auf den eingetragenen Tag eingegrenzt →
+  bewusst belassen (Abwägung oben); (4) die Anfrage ans Durable Object ohne Zeitgrenze → 1,5 Sekunden; (5) E2E kurz vor Mitternacht → übersprungen;
+  (6) Fokus nach dem Verschwinden unsichtbar → Überschrift; (7) Fokuswunsch ging beim Neuladen verloren bzw. blieb zu lange → `sessionStorage`, einmal,
+  10 Minuten, verworfen beim Öffnen einer Sitzung; (8) weitere Bildschirmfotos mit dem Hinweis → nur vermerkt (oben).
 
 ## 4zq. Feibeitsblatt aus einer früheren Sitzung – mit dem Zwischenstand weiterarbeiten (Nachtrag 45)
 

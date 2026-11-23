@@ -1565,24 +1565,35 @@ export const STUDENT_LOGIN_MIN = 90;
 /* ---------- Hinweis „nicht die aktuellste Sitzung“ und Text zur Code-Eingabe (Nachtrag 44, Teil 2, Wunsch der Lehrkraft vom 23.11.2026) ----------
  * Hat eine spätere Sitzung desselben Kurses (gleiches Fach, gleiche Klasse bzw. gleicher Kurs) laut Plan begonnen – Datum + Beginn, ohne Beginn ab
  * 0:00 Uhr ihres Tages (Berliner Zeit) – oder läuft ihre Live-Präsentation schon an ihrem Tag, steht in der älteren Sitzung der Schüler:innen ganz oben
- * ein roter Hinweis mit „Aktuellste Sitzung laden“ (zur Eingabe des Sitzungscodes). Der Server meldet nur ja/nein (newer) und den geplanten Beginn
- * der nächsten späteren Sitzung als Zeitpunkt zum Neuladen (changesAt) – nie ihren Code, Titel, Inhalt oder ihre Kennung. */
+ * ein roter Hinweis mit „Aktuellste Sitzung laden“ (zur Eingabe des Sitzungscodes). Der Server meldet nur ja/nein (newer, newerSoon) und den geplanten
+ * Beginn der nächsten späteren Sitzung (samt der halben Stunde davor) als Zeitpunkte zum Neuladen (changesAt) – nie ihren Code, Titel, Inhalt oder ihre
+ * Kennung. */
 export const NEWER_TITLE = "Das ist nicht die aktuellste Sitzung";
 export const NEWER_TEXT = "Eine spätere Sitzung deines Kurses hat schon begonnen. Öffne sie mit ihrem Sitzungscode.";
 export const NEWER_BUTTON = "Aktuellste Sitzung laden";
 // immer unter dem Feld für den Sitzungscode (Wortlaut nach dem Wunsch der Lehrkraft; der Hinweis fürs Schulportal steht im Feld „Hausaufgabe“, siehe homeworkForPortal)
 export const CODE_WHERE_TEXT = "Den Sitzungscode hat deine Lehrkraft zu Beginn der Unterrichtsstunde gezeigt. Er steht auch im Schulportal im Feld „Hausaufgabe“.";
-// beim Aufwachen des Geräts (Tab wieder sichtbar) höchstens so oft neu fragen, ob inzwischen eine spätere Sitzung live gezeigt wird
+// beim Aufwachen des Geräts (Tab wieder sichtbar) höchstens so oft neu fragen, ob inzwischen eine spätere Sitzung live gezeigt wird – und so oft, solange
+// sie bald beginnt (NEWER_POLL_MS), auch bei offener, sichtbarer Seite
 export const NEWER_RECHECK_MS = 60e3;
+/* Gegenprüfung (Nachtrag 44): in der halben Stunde vor dem geplanten Beginn der späteren Sitzung (an ihrem Tag) fragt die geöffnete, sichtbare ältere Sitzung
+   jede Minute (NEWER_RECHECK_MS), ob sie schon live gezeigt wird – startet die Lehrkraft die Präsentation früher, erscheint der Hinweis so auch ohne Aufwachen */
+export const NEWER_POLL_MS = 30 * 60e3;
 /* geplanter Beginn (ms): Datum + Beginn in Berliner Zeit, ohne gültigen Beginn 0:00 Uhr des Tages; ohne gültiges Datum null */
 export const plannedStart = (date, startTime) => berlinTime(date, isClockTime(startTime) ? startTime : "00:00");
 /* next = früheste spätere Sitzung des Kurses {date, startTime} oder null; now = Zeitpunkt (ms)
-   → {begun: laut Plan begonnen, at: geplanter Beginn bzw. null, today: am Tag von now geplant (nur dann zählt eine laufende Live-Präsentation)} */
+   → {begun: laut Plan begonnen, at: geplanter Beginn bzw. null, today: am Tag von now geplant (nur dann zählt eine laufende Live-Präsentation),
+      soon: heute, noch nicht begonnen und höchstens NEWER_POLL_MS bis zum Beginn (dann fragt die Seite jede Minute neu)} */
 export function laterLessonState(next, now) {
   const at = next ? plannedStart(next.date, next.startTime) : null;
-  if (at === null) return { begun: false, at: null, today: false };
-  return { begun: at <= now, at, today: berlinToday(now) === next.date };
+  if (at === null) return { begun: false, at: null, today: false, soon: false };
+  const begun = at <= now, today = berlinToday(now) === next.date;
+  return { begun, at, today, soon: today && !begun && at - now <= NEWER_POLL_MS };
 }
+/* zählt der Stand der Live-Präsentation der späteren Sitzung (Nachricht des Durable Objects für Schüler:innen: active, updatedAt) als „schon live gezeigt“?
+   Nur, wenn sie läuft und an ihrem eigenen Tag (date, Berliner Zeit) zuletzt gestartet oder weitergeschaltet wurde (Gegenprüfung): „Schließen“ im
+   Präsentationsmodus beendet sie nicht – eine Vorschau an einem früheren Tag bliebe sonst bis zum nächsten „Für alle beenden“ „live“. */
+export const laterLiveCounts = (live, date) => !!live && live.active === true && Number.isFinite(live.updatedAt) && berlinToday(live.updatedAt) === date;
 
 /* Links in Feibeitsblättern (Wunsch der Lehrkraft vom 13.11.2026): Unterricks macht beim Anlegen aus [Linktext](https://…) und vollständigen
    Adressen Links des Feibeitsblatts (materialRuns in fbclient.js) – in Prompts und Werkzeugbeschreibungen für Claude dieser eine Satz */

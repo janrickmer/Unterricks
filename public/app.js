@@ -10,7 +10,7 @@ import { lazy, isModuleError, pageFailed, navCheckDue, navBlockers, beforeRoute,
 import { fbAgainItem } from "./fbagain.js";
 import { revealWatch, latestOnly } from "./reveal.js";
 // Nachtrag 44 (Teil 2): Hinweis „nicht die aktuellste Sitzung“ und Text zur Code-Eingabe
-import { newerNote } from "./newernote.js";
+import { newerNote, wantCodeFocus, takeCodeFocus, dropCodeFocus } from "./newernote.js";
 import { CODE_WHERE_TEXT, NEWER_RECHECK_MS } from "./shared.js";
 
 // Nie in fremden Seiten eingebettet anzeigen: Auf GitHub Pages fehlen die Schutz-Header (frame-ancestors gilt nicht als <meta>)
@@ -167,9 +167,6 @@ function chooser(profile, onSave) {
     h("div", { class: "row end" }, save));
 }
 
-// „Aktuellste Sitzung laden“ (Nachtrag 44, Teil 2): die Eingabe des Sitzungscodes bekommt danach den Fokus – auch mit schon freigeschalteten Sitzungen
-// (gilt bis zum nächsten Zeichnen des Formulars, also auch nach einer Anmeldung bzw. der Wahl von Fach und Klasse dazwischen)
-let codeFocusWanted = false;
 async function studentHome() {
   if (!S.token) return go("#/");
   let me;
@@ -183,7 +180,9 @@ async function studentHome() {
       main.append(pageHead({ title: "Wähle dein Fach und deine Klasse", sub: "Danach siehst du nur die Sitzungen deines Kurses." }), chooser(profile, (p) => { me.profile = p; show(p); }));
       return;
     }
-    const focusCode = codeFocusWanted; codeFocusWanted = false;
+    // „Aktuellste Sitzung laden“ (Nachtrag 44, Teil 2): die Eingabe des Sitzungscodes bekommt danach den Fokus – auch mit schon freigeschalteten Sitzungen
+    // (der Wunsch übersteht ein Neuladen beim Seitenwechsel und gilt bis zum nächsten Zeichnen des Formulars, siehe newernote.js)
+    const focusCode = takeCodeFocus();
     const code = h("input", { id: "code", inputmode: "text", autocapitalize: "characters", autocomplete: "off", spellcheck: "false", placeholder: "z. B. K7Q-M4X", maxlength: "9", class: "codein", "aria-describedby": "code-h" });
     const msg = h("p", { class: "err", role: "alert" });
     const btn = h("button", { class: "btn primary", type: "submit" }, "Sitzung öffnen");
@@ -216,6 +215,7 @@ async function studentHome() {
 
 /* ---------- Sitzungsraum der Schüler:innen ---------- */
 async function studentRoom(lessonId) {
+  dropCodeFocus();   // zurück in eine Sitzung, bevor das Formular für den Code gezeichnet war: der Wunsch „Fokus dorthin“ gilt nicht mehr (Nachtrag 44)
   if (!S.token) return go("#/");
   const main = h("main", { class: "narrow" }, h("div", { class: "skeleton", text: "Lade die Sitzung …" }));
   render(studentBar(), main, footer());
@@ -246,7 +246,7 @@ async function studentRoom(lessonId) {
   // 0) Nachtrag 44 (Teil 2): ist eine spätere Sitzung des Kurses schon dran (laut Plan oder schon live), ganz oben – vor allem anderen, auch in einer
   // Selbstlern-Phase oder Vertretung – der rote Hinweis mit „Aktuellste Sitzung laden“ (zur Eingabe des Sitzungscodes; die Sitzung wird dabei wie bei
   // jedem Seitenwechsel verlassen: Live-Verbindung und Zeitgeber enden). Ohne spätere Sitzung bleibt der Platz leer.
-  const newerBox = newerNote({ onGo: () => { codeFocusWanted = true; } });
+  const newerBox = newerNote({ onGo: () => wantCodeFocus() });
   newerBox.set(d.newer);
   main.append(newerBox.el);
   const fileRow = (f) => materialRow(f, d);
@@ -506,6 +506,9 @@ async function studentRoom(lessonId) {
   // angewendet (latestOnly) – sonst verschwände eben erschienenes Material wieder
   const order = latestOnly();
   let loadedAt = Date.now();   // letzter Stand vom Server (für die Prüfung beim Aufwachen, Nachtrag 44 Teil 2)
+  // Nachtrag 44 (Teil 2, Gegenprüfung): beginnt eine spätere Sitzung des Kurses heute in höchstens 30 Minuten (newerSoon), fragt die sichtbare Seite jede
+  // Minute, ob sie schon live gezeigt wird – startet die Lehrkraft früher, erscheint der Hinweis auch bei offener Seite (sonst erst zum geplanten Beginn)
+  let soon = d.newerSoon === true, gone = false;   // gone: Sitzung verlassen – eine Antwort, die erst danach kommt, plant nichts mehr ein
   const refresh = async () => {
     const my = order.start();
     try {
@@ -514,25 +517,33 @@ async function studentRoom(lessonId) {
       // Selbstlern-Phase inzwischen eingerichtet bzw. wiederhergestellt: die Seite neu aufbauen
       const kind = (x) => (x.selbstlern ? (x.selbstlern.analog ? "a" : "d") : "n");
       if (kind(r) !== kind(d)) { if (location.hash === "#/schueler/s/" + lessonId) route(); return; }
-      loadedAt = Date.now(); newerBox.set(r.newer);   // Nachtrag 44 (Teil 2)
+      loadedAt = Date.now(); newerBox.set(r.newer); soon = r.newerSoon === true;   // Nachtrag 44 (Teil 2)
       pres = r.presentation; renderPres(); paintHomework(r.homework); aiHelp = r.aiHelp; paintKi(); if (slv) slv.update(r); pending.splice(0, pending.length, ...(r.changesAt || [])); plan();
       // Material (Nachtrag 44): neu Freigegebenes erscheint ohne Neuladen der Seite (unveränderte Zeilen bleiben stehen – samt Fokus und aufgeklapptem Text)
       rw.seen(r.revealAt);
       paintMats(r);
-    } catch {}
+    } catch {
+      // gescheitert (z. B. kurz kein Netz), während die spätere Sitzung bald beginnt: in einer Minute noch einmal (sonst wie bisher erst beim Aufwachen)
+      if (soon && !gone) { clearTimeout(chT); chT = setTimeout(refresh, NEWER_RECHECK_MS); }
+    }
     finally { rw.after(); }   // fehlt noch ein freigegebener Stand: später noch einmal
   };
   let chT = null;
-  const plan = () => { clearTimeout(chT); const next = Math.min(...pending); if (Number.isFinite(next)) chT = setTimeout(refresh, Math.max(1000, Math.min(next - (Date.now() + offset) + 1500, 6 * 3600e3))); };
+  const plan = () => {
+    clearTimeout(chT);
+    const poll = soon && document.visibilityState === "visible" ? loadedAt + offset + NEWER_RECHECK_MS : Infinity;   // nur bei sichtbarer Seite
+    const next = Math.min(...pending, poll);
+    if (Number.isFinite(next)) chT = setTimeout(refresh, Math.max(1000, Math.min(next - (Date.now() + offset) + 1500, 6 * 3600e3)));
+  };
   plan();
   // wieder sichtbar: fällige Zeitpunkte, freigegebenes Material, dessen Neuladen bisher nicht geklappt hat (Nachtrag 44, Teil 1), und höchstens einmal je
   // Minute ein neuer Blick, ob eine spätere Sitzung inzwischen live gezeigt wird (Nachtrag 44, Teil 2)
   const onVisCh = () => {
     if (document.visibilityState !== "visible") return;
-    if (rw.visible() || pending.some((t) => Date.now() + offset >= t) || Date.now() - loadedAt >= NEWER_RECHECK_MS) refresh();
+    if (rw.visible() || pending.some((t) => Date.now() + offset >= t) || Date.now() - loadedAt >= NEWER_RECHECK_MS) refresh(); else if (soon) plan();
   };
   document.addEventListener("visibilitychange", onVisCh);
-  onLeave(() => { clearTimeout(chT); document.removeEventListener("visibilitychange", onVisCh); });
+  onLeave(() => { gone = true; clearTimeout(chT); document.removeEventListener("visibilitychange", onVisCh); });
   renderPres();
 
   // 2) Materialien und Feibeitsblätter – beim Neuladen der Daten neu gezeichnet (Nachtrag 44: Material mit eigener Materialfolie kommt erst mit seiner Folie;

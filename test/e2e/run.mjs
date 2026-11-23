@@ -2208,7 +2208,7 @@ async function main() {
     step("Videofolien (Nachtrag 38): Präsentations-Prompt mit Video, Erkennen beim Hochladen, „Videofolien“ prüfen und ändern, Sitzungsdatei, Abspielen hier, im Beamerfenster (auch blockiert, Einbetten verboten) und am Beamergerät; Schüler:innen live nur die Folie, danach der Link im Folienfenster");
     await videoSlidesE2E({ browser, tctx, tp, BASE, T, ok, OUT, SHOT, devices, watch });
     /* ---------- Nachtrag 44 (Teil 2): Hinweis „nicht die aktuellste Sitzung“ und fester Text zur Eingabe des Sitzungscodes ---------- */
-    step("Nicht die aktuellste Sitzung (Nachtrag 44, Teil 2): roter Hinweis ganz oben, sobald eine spätere Sitzung des Kurses schon live gezeigt wird (ohne Neuladen der Seite) bzw. laut Plan begonnen hat; „Aktuellste Sitzung laden“ führt zur Eingabe des Sitzungscodes mit festem Text");
+    step("Nicht die aktuellste Sitzung (Nachtrag 44, Teil 2): roter Hinweis ganz oben, sobald eine spätere Sitzung des Kurses schon live gezeigt wird (ohne Neuladen der Seite – beim Aufwachen und in der halben Stunde vor dem Beginn jede Minute) bzw. laut Plan begonnen hat; „Aktuellste Sitzung laden“ führt zur Eingabe des Sitzungscodes mit festem Text; Fokus beim Verschwinden auf der Überschrift");
     await newerE2E({ browser, tp, BASE, T, ok, OUT, SHOT, devices, watch });
 
     step("Selbstlern-Phase mit Escape-Room: streng geprüft, Vorschau, Finale anlegen, Schüler:in spielt alle 6 Stationen, Überblick-PDF, Tunnel ins Feibeitsblatt");

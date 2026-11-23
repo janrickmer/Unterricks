@@ -10,7 +10,8 @@ const { stubs, installDom } = await import("./fake-dom.mjs");
 register(stubs);
 const D = installDom({ hash: "#/schueler/s/0123456789abcdef" });
 const S = await import("../../public/shared.js");
-const { newerNote } = await import("../../public/newernote.js");
+const NN = await import("../../public/newernote.js");
+const { newerNote } = NN;
 const { fakeCtx } = await import("./fake-d1.mjs");
 const L = await import("../../worker/lessons.js");
 const ST = await import("../../worker/student.js");
@@ -33,10 +34,16 @@ const device = async (c, klass, subject = "powi") => c.db.raw.prepare("INSERT IN
   .run(DEV, await sha256Hex(STOKEN), klass, subject, c.now, c.now, c.now + 30 * 86400e3);
 const grant = (c, l) => c.db.raw.prepare("INSERT OR IGNORE INTO student_access(device_id, lesson_id, joined_at) VALUES(?, ?, ?)").run(DEV, l.id, c.now);
 const view = async (c, l, now) => (await scall({ ...c, now }, ST.routeStudentLesson, "GET", undefined, l.id)).data;
-// Durable Objects der Live-Präsentation (env.LIVE) nachgebildet: active je Sitzung, jede Anfrage wird mitgeschrieben
-const fakeLive = (active = new Set(), fail = false) => {
+// Durable Objects der Live-Präsentation (env.LIVE) nachgebildet: active = Map Sitzung → updatedAt (zuletzt gestartet bzw. weitergeschaltet, wie die Nachricht
+// des Durable Objects für Schüler:innen), jede Anfrage wird mitgeschrieben; fail = nicht erreichbar, hang = antwortet nie
+const fakeLive = (active = new Map(), { fail = false, hang = false } = {}) => {
   const calls = [];
-  return { calls, active, idFromName: (n) => n, get: (id) => ({ fetch: async (url) => { calls.push([id, String(url)]); if (fail) throw new Error("nicht erreichbar"); return Response.json({ t: "state", active: active.has(id) }); } }) };
+  return { calls, active, idFromName: (n) => n, get: (id) => ({ fetch: async (url) => {
+    calls.push([id, String(url)]);
+    if (fail) throw new Error("nicht erreichbar");
+    if (hang) return new Promise(() => {});
+    return Response.json({ t: "state", active: active.has(id), slide: 1, pages: 3, v: 2, updatedAt: active.has(id) ? active.get(id) : null });
+  } }) };
 };
 
 /* ---------- reiner Helfer (shared.js) ---------- */
@@ -48,12 +55,32 @@ test("plannedStart/laterLessonState: Datum + Beginn in Berliner Zeit, ohne Begin
   assert.equal(S.plannedStart("19.11.2026", "09:45"), null);
   assert.equal(S.plannedStart(null, "09:45"), null);
   const next = { date: "2026-11-19", startTime: "09:45" };
-  assert.deepEqual(S.laterLessonState(next, L2_START - 1), { begun: false, at: L2_START, today: true });
-  assert.deepEqual(S.laterLessonState(next, L2_START), { begun: true, at: L2_START, today: true });
-  assert.deepEqual(S.laterLessonState(next, at("2026-11-18T22:59:59Z")), { begun: false, at: L2_START, today: false }, "am Vortag (Berlin) nicht „heute“");
+  assert.deepEqual(S.laterLessonState(next, L2_START - 1), { begun: false, at: L2_START, today: true, soon: true });
+  assert.deepEqual(S.laterLessonState(next, L2_START), { begun: true, at: L2_START, today: true, soon: false });
+  assert.deepEqual(S.laterLessonState(next, at("2026-11-18T22:59:59Z")), { begun: false, at: L2_START, today: false, soon: false }, "am Vortag (Berlin) nicht „heute“");
   assert.deepEqual(S.laterLessonState({ date: "2026-11-19", startTime: null }, at("2026-11-18T23:00:00Z")).begun, true);
-  assert.deepEqual(S.laterLessonState(null, L2_START), { begun: false, at: null, today: false });
-  assert.deepEqual(S.laterLessonState({ date: "kaputt", startTime: "09:45" }, L2_START), { begun: false, at: null, today: false });
+  assert.deepEqual(S.laterLessonState(null, L2_START), { begun: false, at: null, today: false, soon: false });
+  assert.deepEqual(S.laterLessonState({ date: "kaputt", startTime: "09:45" }, L2_START), { begun: false, at: null, today: false, soon: false });
+  // soon: heute, noch nicht begonnen, höchstens 30 Minuten bis zum Beginn (dann fragt die Seite jede Minute)
+  assert.equal(S.NEWER_POLL_MS, 30 * 60e3);
+  assert.equal(S.laterLessonState(next, L2_START - S.NEWER_POLL_MS).soon, true);
+  assert.equal(S.laterLessonState(next, L2_START - S.NEWER_POLL_MS - 1).soon, false);
+  // ohne Beginn (0:00 Uhr): die halbe Stunde davor liegt am Vortag – dort gibt es keine Live-Präsentation, die zählt
+  assert.equal(S.laterLessonState({ date: "2026-11-19", startTime: null }, at("2026-11-18T22:45:00Z")).soon, false);
+});
+
+test("laterLiveCounts: nur eine laufende Live-Präsentation, die an ihrem eigenen Tag (Berliner Zeit) gestartet bzw. weitergeschaltet wurde", () => {
+  const day = "2026-11-19";
+  assert.equal(S.laterLiveCounts({ active: true, updatedAt: L2_START - 20 * 60e3 }, day), true);
+  assert.equal(S.laterLiveCounts({ active: true, updatedAt: at("2026-11-18T23:00:00Z") }, day), true, "0:00 Uhr Berliner Zeit gehört schon zum Tag");
+  assert.equal(S.laterLiveCounts({ active: true, updatedAt: at("2026-11-18T22:59:59Z") }, day), false, "am Vorabend gestartet und mit „Schließen“ offen gelassen");
+  assert.equal(S.laterLiveCounts({ active: true, updatedAt: at("2026-11-16T17:00:00Z") }, day), false, "Vorschau am Montag");
+  assert.equal(S.laterLiveCounts({ active: false, updatedAt: L2_START - 60e3 }, day), false, "beendet");
+  assert.equal(S.laterLiveCounts({ active: true, updatedAt: null }, day), false, "ohne Zeitpunkt (älterer Stand)");
+  assert.equal(S.laterLiveCounts({ active: true }, day), false);
+  assert.equal(S.laterLiveCounts({ active: "ja", updatedAt: L2_START }, day), false);
+  assert.equal(S.laterLiveCounts(null, day), false);
+  assert.equal(S.laterLiveCounts(undefined, day), false);
 });
 
 test("Texte: Wortlaut der Lehrkraft („Aktuellste Sitzung laden“), Code-Eingabe mit Beginn der Stunde und Schulportal (wie der Hinweis der Lehrkraft)", () => {
@@ -150,7 +177,7 @@ test("Route: Kurs in Religion/Ethik (8-K) – nur die Sitzungen des Kurses, nich
 
 test("Route: schon live gezeigt – nur am Tag der späteren Sitzung (Durable Object), Fehler zählt als nicht live; keine zusätzliche D1-Anfrage", async () => {
   const { c, l1, l2 } = await base();
-  const live = fakeLive(new Set([l2.id]));
+  const live = fakeLive(new Map([[l2.id, L2_START - 25 * 60e3]]));   // heute 9:20 Uhr gestartet
   const lc = { ...c, env: { ...c.env, LIVE: live } };
   // am Tag davor: die Live-Präsentation wird gar nicht erst gefragt (eine Vorschau an einem früheren Tag zählt nicht)
   assert.equal((await view(lc, l1, at("2026-11-18T12:00:00Z"))).newer, false);
@@ -167,7 +194,7 @@ test("Route: schon live gezeigt – nur am Tag der späteren Sitzung (Durable Ob
   assert.equal((await view(lc, l1, L2_START + 60e3)).newer, true);
   assert.equal(live.calls.length, n);
   // nicht erreichbar → nicht live, die Seite lädt trotzdem
-  const broken = { ...c, env: { ...c.env, LIVE: fakeLive(new Set([l2.id]), true) } };
+  const broken = { ...c, env: { ...c.env, LIVE: fakeLive(new Map([[l2.id, L2_START - 60e3]]), { fail: true }) } };
   const r = await scall({ ...broken, now: L2_START - 60e3 }, ST.routeStudentLesson, "GET", undefined, l1.id);
   assert.equal(r.status, 200); assert.equal(r.data.newer, false);
   // D1: mit und ohne spätere Sitzung gleich viele Anweisungen (eine Anweisung im bestehenden Batch)
@@ -175,6 +202,77 @@ test("Route: schon live gezeigt – nur am Tag der späteren Sitzung (Durable Ob
   const withLater = await count(lc, l1, L2_START + 60e3);
   c.db.raw.prepare("DELETE FROM lessons WHERE id=?").run(l2.id);
   assert.equal(await count(lc, l1, L2_START + 60e3), withLater);
+});
+
+test("Route: Vorschau an einem früheren Tag, mit „Schließen“ offen gelassen (active bleibt) – zählt am Tag der späteren Sitzung nicht als live (Gegenprüfung)", async () => {
+  const { c, l1, l2 } = await base();
+  // Montag, 16.11.2026, 18:00 Uhr: die Lehrkraft sieht sich die Präsentation der Sitzung vom Donnerstag an und schließt den Präsentationsmodus nur
+  const live = fakeLive(new Map([[l2.id, at("2026-11-16T17:00:00Z")]]));
+  const lc = { ...c, env: { ...c.env, LIVE: live } };
+  // Donnerstag vor dem Beginn (z. B. Hausaufgabe vor der Schule): kein Hinweis, obwohl das Durable Object noch „active“ meldet
+  assert.equal((await view(lc, l1, at("2026-11-19T06:30:00Z"))).newer, false);
+  assert.equal((await view(lc, l1, L2_START - 10 * 60e3)).newer, false);
+  assert.equal(live.calls.length, 2, "gefragt wird (heute), gezählt wird es nicht");
+  // am Vorabend gestartet (22:59 Uhr Berliner Zeit) → auch nicht
+  live.active.set(l2.id, at("2026-11-18T21:59:00Z"));
+  assert.equal((await view(lc, l1, L2_START - 10 * 60e3)).newer, false);
+  // heute erneut geöffnet (der Präsentationsmodus meldet sich mit „start“ – updatedAt = jetzt): zählt
+  live.active.set(l2.id, L2_START - 12 * 60e3);
+  assert.equal((await view(lc, l1, L2_START - 10 * 60e3)).newer, true);
+  // älterer Stand des Durable Objects ohne Zeitpunkt: nicht live
+  live.active.set(l2.id, null);
+  assert.equal((await view(lc, l1, L2_START - 10 * 60e3)).newer, false);
+});
+
+test("Route: Live-Abfrage höchstens LIVE_CHECK_MS – ein hängendes Durable Object hält die Sitzungsseite nicht auf (Gegenprüfung)", async () => {
+  const { c, l1, l2 } = await base();
+  assert.equal(ST.LIVE_CHECK_MS, 1500);
+  const live = fakeLive(new Map([[l2.id, L2_START - 60e3]]), { hang: true });
+  // fake-dom.mjs löst Zeitgeber vom Prozess (unref) – dieser hält ihn am Leben, solange die Route wartet
+  const keep = globalThis.__realSetTimeout(() => {}, 10000);
+  const t0 = Date.now();
+  let r;
+  try { r = await scall({ ...c, env: { ...c.env, LIVE: live }, now: L2_START - 30e3 }, ST.routeStudentLesson, "GET", undefined, l1.id); }
+  finally { clearTimeout(keep); }
+  const took = Date.now() - t0;
+  assert.equal(r.status, 200); assert.equal(r.data.newer, false, "Zeitüberschreitung zählt als nicht live");
+  assert.equal(live.calls.length, 1);
+  assert.ok(took >= ST.LIVE_CHECK_MS - 50 && took < ST.LIVE_CHECK_MS + 1500, "nach etwa LIVE_CHECK_MS: " + took + " ms");
+  assert.ok(r.data.changesAt.includes(L2_START) && r.data.newerSoon === true, "die Seite fragt weiter jede Minute");
+});
+
+test("Route: newerSoon – in der halben Stunde vor dem Beginn der späteren Sitzung (an ihrem Tag, noch nicht live) fragt die Seite jede Minute; changesAt weckt sie dorthin", async () => {
+  const { c, l1, l2 } = await base();
+  const live = fakeLive();
+  const lc = { ...c, env: { ...c.env, LIVE: live } };
+  // Tage vorher: nicht bald, aber beide Zeitpunkte (30 Minuten vorher, Beginn) in changesAt
+  let sv = await view(lc, l1, L1_START + 10 * 60e3);
+  assert.equal(sv.newerSoon, false);
+  assert.ok(sv.changesAt.includes(L2_START - S.NEWER_POLL_MS) && sv.changesAt.includes(L2_START));
+  // heute, 31 Minuten vorher: noch nicht
+  sv = await view(lc, l1, L2_START - 31 * 60e3);
+  assert.equal(sv.newerSoon, false); assert.ok(sv.changesAt.includes(L2_START - S.NEWER_POLL_MS));
+  // 30 bzw. 20 Minuten vorher: bald (der Zeitpunkt „30 Minuten vorher“ ist vorbei und fehlt in changesAt)
+  sv = await view(lc, l1, L2_START - S.NEWER_POLL_MS);
+  assert.equal(sv.newerSoon, true); assert.equal(sv.newer, false);
+  sv = await view(lc, l1, L2_START - 20 * 60e3);
+  assert.equal(sv.newerSoon, true); assert.ok(!sv.changesAt.includes(L2_START - S.NEWER_POLL_MS) && sv.changesAt.includes(L2_START));
+  // die Lehrkraft startet heute: newer, nicht mehr „bald“ (die Seite hört auf zu fragen)
+  live.active.set(l2.id, L2_START - 19 * 60e3);
+  sv = await view(lc, l1, L2_START - 18 * 60e3);
+  assert.equal(sv.newer, true); assert.equal(sv.newerSoon, false);
+  // laut Plan begonnen: newer, nicht bald, kein Zeitpunkt der späteren Sitzung mehr
+  live.active.clear();
+  sv = await view(lc, l1, L2_START);
+  assert.equal(sv.newer, true); assert.equal(sv.newerSoon, false); assert.ok(!sv.changesAt.includes(L2_START));
+  // ohne Durable Object (env.LIVE fehlt) gilt „bald“ trotzdem (die Seite fragt, der Plan entscheidet)
+  assert.equal((await view(c, l1, L2_START - 5 * 60e3)).newerSoon, true);
+  // die jüngste Sitzung: nie
+  grant(c, l2);
+  assert.equal((await view(c, l2, L2_START - 5 * 60e3)).newerSoon, false);
+  // nichts über die spätere Sitzung außer Zeitpunkten in changesAt
+  const txt = JSON.stringify(await view(lc, l1, L2_START - 5 * 60e3));
+  for (const x of [l2.id, l2.code, "Spätere GEHEIM-TITEL", "2026-11-19", "09:45"]) assert.ok(!txt.includes(x), "nichts über die spätere Sitzung: " + x);
 });
 
 test("Route: Selbstlern-Phase – der Hinweis gilt dort genauso (spätere Sitzung des Kurses), Erklär-Chatbot und Hausaufgabe unverändert", async () => {
@@ -233,10 +331,63 @@ test("Hinweis: leer ohne spätere Sitzung; roter Kasten mit h2, Satz und „Aktu
   assert.equal(went, 1, "vor dem Wechsel: onGo (Fokus auf die Code-Eingabe vormerken)");
   n.set(false);
   assert.equal(n.el.children.length, 0);
-  assert.equal(document.activeElement, n.el, "der Fokus fällt nicht auf body, wenn der Hinweis verschwindet");
+  assert.equal(document.activeElement, n.el, "ohne Überschrift davor: der Fokus fällt nicht auf body, wenn der Hinweis verschwindet");
   assert.equal(n.el.getAttribute("tabindex"), "-1", "nicht in der Tab-Reihenfolge");
   assert.equal(n.on, false);
   main.remove();
+});
+
+test("Hinweis verschwindet mit dem Fokus darin: der Fokus geht auf die Überschrift im Kopfband davor (sichtbar, nicht auf den leeren Platz) – Gegenprüfung", () => {
+  const main = document.createElement("main");
+  document.getElementById("app").append(main);
+  const head = document.createElement("header"); head.className = "pagehead";
+  const row = document.createElement("div"); row.className = "row between";
+  const h1 = document.createElement("h1"); h1.textContent = "Gewaltenteilung";
+  row.append(h1); head.append(row); main.append(head);
+  const n = newerNote();
+  main.append(n.el);
+  n.set(true);
+  n.el.querySelector("a.newer-go").focus();
+  n.set(false);
+  assert.equal(document.activeElement, h1, "Fokus auf der Überschrift der Sitzung");
+  assert.equal(h1.getAttribute("tabindex"), "-1", "nur per Skript fokussierbar, nicht in der Tab-Reihenfolge");
+  assert.equal(n.el.hasAttribute("tabindex"), false);
+  // ohne Fokus im Hinweis: der Fokus bleibt, wo er ist
+  n.set(true); const other = document.createElement("button"); main.append(other); other.focus(); n.set(false);
+  assert.equal(document.activeElement, other);
+  main.remove();
+});
+
+test("Wunsch „Fokus in die Code-Eingabe“: einmal, höchstens 10 Minuten, übersteht ein Neuladen (sessionStorage), verworfen beim Zurück in eine Sitzung (Gegenprüfung)", async () => {
+  const mem = new Map();
+  globalThis.sessionStorage = { getItem: (k) => (mem.has(k) ? mem.get(k) : null), setItem: (k, v) => mem.set(k, String(v)), removeItem: (k) => mem.delete(k) };
+  try {
+    const t = at("2026-11-19T08:40:00Z");
+    assert.equal(NN.takeCodeFocus(t), false, "ohne Wunsch nichts");
+    NN.wantCodeFocus(t);
+    assert.equal(mem.get(NN.CODE_FOCUS_KEY), String(t));
+    assert.equal(NN.takeCodeFocus(t + 500), true);
+    assert.equal(NN.takeCodeFocus(t + 600), false, "nur einmal");
+    assert.equal(mem.has(NN.CODE_FOCUS_KEY), false);
+    // Neuladen beim Seitenwechsel (neuer Stand): frisches Modul, der Wunsch steht noch in sessionStorage
+    NN.wantCodeFocus(t);
+    const fresh = await import("../../public/newernote.js?neu-geladen");
+    assert.equal(fresh.takeCodeFocus(t + 2000), true, "nach dem Neuladen");
+    assert.equal(NN.takeCodeFocus(t + 2000), true, "… und im alten Modul nur noch aus dem Arbeitsspeicher (dort einmal)");
+    // zu alt (z. B. zurück, bevor das Formular gezeichnet war, und erst viel später wieder dort)
+    NN.wantCodeFocus(t);
+    assert.equal(NN.takeCodeFocus(t + NN.CODE_FOCUS_MS), false);
+    assert.equal(NN.CODE_FOCUS_MS, 10 * 60e3);
+    // zurück in eine Sitzung: verworfen
+    NN.wantCodeFocus(t); NN.dropCodeFocus();
+    assert.equal(NN.takeCodeFocus(t + 1000), false);
+    assert.equal(mem.has(NN.CODE_FOCUS_KEY), false);
+    // sessionStorage gesperrt: im Arbeitsspeicher
+    globalThis.sessionStorage = { getItem: () => { throw new Error("gesperrt"); }, setItem: () => { throw new Error("gesperrt"); }, removeItem: () => { throw new Error("gesperrt"); } };
+    NN.wantCodeFocus(t);
+    assert.equal(NN.takeCodeFocus(t + 1000), true);
+    assert.equal(NN.takeCodeFocus(t + 1000), false);
+  } finally { delete globalThis.sessionStorage; }
 });
 
 test("Quelltext: newernote.js baut nur über DOM-APIs; CSS – Knopf ≥ 44px, weiß auf Rot mit Fokusring, kein Abstand ohne Hinweis", () => {
@@ -259,16 +410,25 @@ test("app.js: Hinweis direkt unter dem Kopfband (vor Vertretung, Live-Fenster un
   const iHead = room.indexOf("main.append(pageHead({ fach: d.lesson.subject"), iBox = room.indexOf("main.append(newerBox.el);"), iSub = room.indexOf("if (d.substitute && !selbst)");
   assert.ok(iHead > 0 && iBox > iHead && iSub > iBox, "Reihenfolge: Kopfband → Hinweis → Vertretung …");
   assert.ok(room.indexOf("slv = SV.selbstlernView(") > iBox && room.indexOf("main.append(live, presRow, kiBox, hwBox);") > iBox, "… vor Selbstlern-Ansicht und Live-Fenster");
-  assert.ok(room.includes("const newerBox = newerNote({ onGo: () => { codeFocusWanted = true; } });") && room.includes("newerBox.set(d.newer);"));
+  assert.ok(room.includes("const newerBox = newerNote({ onGo: () => wantCodeFocus() });") && room.includes("newerBox.set(d.newer);"));
   // Neuladen der Daten (geplanter Beginn in changesAt, Aufwachen): der Hinweis folgt
-  assert.ok(room.includes("loadedAt = Date.now(); newerBox.set(r.newer);"));
-  assert.ok(room.includes("Date.now() - loadedAt >= NEWER_RECHECK_MS)) refresh();"), "beim Aufwachen höchstens einmal je Minute neu fragen");
+  assert.ok(room.includes("loadedAt = Date.now(); newerBox.set(r.newer); soon = r.newerSoon === true;"));
+  assert.ok(room.includes("Date.now() - loadedAt >= NEWER_RECHECK_MS) refresh(); else if (soon) plan();"), "beim Aufwachen höchstens einmal je Minute neu fragen, sonst die Abfrage wieder einplanen");
+  // Gegenprüfung: bald (newerSoon) fragt die sichtbare Seite jede Minute – auch ohne Aufwachen; nach dem Verlassen plant eine späte Antwort nichts mehr ein
+  assert.ok(room.includes("let soon = d.newerSoon === true, gone = false;"));
+  assert.ok(room.includes('const poll = soon && document.visibilityState === "visible" ? loadedAt + offset + NEWER_RECHECK_MS : Infinity;')
+    && room.includes("const next = Math.min(...pending, poll);"));
+  assert.ok(room.includes("if (gone) return;") && room.includes("onLeave(() => { gone = true; clearTimeout(chT);"));
+  assert.ok(room.includes("if (soon && !gone) { clearTimeout(chT); chT = setTimeout(refresh, NEWER_RECHECK_MS); }"), "gescheiterte Abfrage: in einer Minute noch einmal");
+  // zurück in eine Sitzung: der Wunsch „Fokus in die Code-Eingabe“ gilt nicht mehr
+  assert.ok(/async function studentRoom\(lessonId\) \{\n  dropCodeFocus\(\);/.test(app));
   // der Satz der Live-Abfrage und die Nachricht des WebSockets bleiben unverändert (timerpoll.test.mjs) – keine neue Nachrichtenart
   assert.ok(!/t: "newer"|t === "newer"/.test(app));
   const home = app.slice(app.indexOf("async function studentHome("), app.indexOf("/* ---------- Sitzungsraum der Schüler:innen"));
   assert.ok(home.includes('"aria-describedby": "code-h"') && home.includes('h("p", { class: "hint", id: "code-h", text: CODE_WHERE_TEXT })'), "fester Text unter dem Feld, mit dem Feld verbunden");
   // der Wunsch „Fokus in die Code-Eingabe“ gilt bis zum nächsten Zeichnen des Formulars (auch über Anmeldung bzw. Wahl von Fach und Klasse hinweg)
-  const iWant = home.indexOf("const focusCode = codeFocusWanted; codeFocusWanted = false;");
+  const iWant = home.indexOf("const focusCode = takeCodeFocus();");
+  assert.ok(!app.includes("codeFocusWanted"), "kein Merker mehr nur im Arbeitsspeicher von app.js");
   assert.ok(iWant > home.indexOf("chooser(profile,") && iWant < home.indexOf('const code = h("input", { id: "code"'), "erst, wenn das Formular gezeichnet wird");
   assert.ok(home.includes("if (!lessons.length || focusCode) setTimeout(() => code.focus(), 50);"));
   assert.ok(home.includes('h("label", { for: "code" }, "Sitzungscode deiner Lehrkraft")') && home.includes('"Sitzung öffnen"'), "Feld, Beschriftung und Knopf wie bisher");

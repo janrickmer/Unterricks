@@ -9,7 +9,7 @@ import { getSubstitute, studentSubstitute } from "./substitute.js";
 import { SELBSTLERN, readSelbstlern, selbstlernAiWindow, selbstlernHelpPrompt, explainBotPrompt, explainSigText, helpSigText, selbstlernHomeworkNow, EXPLAIN_BOT_LIMITS, EXPLAIN_FINISH_MESSAGE } from "../public/selbstlern.js";
 import { liveTicket, liveState } from "./live.js";
 import { normalizeCode, isValidCode, subjectName, classShort, isCourseClass, courseMembers, cleanWebUrl, lessonTimes, fmtClockBerlin, fmtDayBerlin, studentHelpPrompt, STUDENT_HELP_LIMITS, GS_SUBJECT, STUDENT_SLIDE_BLOCK,
-  isAnalogClass, cleanCodeSlides, laterLessonState } from "../public/shared.js";
+  isAnalogClass, cleanCodeSlides, laterLessonState, laterLiveCounts, NEWER_POLL_MS } from "../public/shared.js";
 import { loadSubjectConfigs } from "./bases.js";
 import { videoSlidesData, videoSlidesOf, videoAt, videoWatchUrl, videoClipText } from "../public/videoslides.js";
 import { materialGate, revealFilterFiles, revealFilterSheets, revealRefOf, REVEAL_ABSENT } from "../public/reveal.js";
@@ -44,14 +44,24 @@ const lessonCard = (l, joinedAt, now) => ({ id: l.id, subject: l.subject, subjec
 const laterLessonStmt = (db, l) => db.prepare("SELECT id, lesson_date, start_time FROM lessons WHERE subject=?1 AND klass=?2 AND id<>?3 AND cancelled=0 " +
   "AND (lesson_date > ?4 OR (lesson_date = ?4 AND ?5 IS NOT NULL AND start_time > ?5)) ORDER BY lesson_date, COALESCE(start_time, '') LIMIT 1")
   .bind(l.subject, l.klass, l.id, l.lesson_date || null, l.start_time || null);
-/* newer: laut Plan begonnen – oder an ihrem Tag schon live gezeigt (Durable Object der späteren Sitzung, nur dann eine Anfrage; eine Vorschau an einem
-   früheren Tag zählt nicht). Ein Fehler der Live-Abfrage zählt als „nicht live“. → {newer, nextAt (geplanter Beginn, noch nicht erreicht) | null} */
+/* Stand der Live-Präsentation der späteren Sitzung – höchstens LIVE_CHECK_MS warten (Gegenprüfung): Ein langsames oder hängendes Durable Object (Kaltstart,
+   Überlast) hielte sonst an ihrem Tag die ganze Sitzungsseite aller Schüler:innen auf. Zeitüberschreitung oder Fehler → null („nicht live“). */
+export const LIVE_CHECK_MS = 1500;
+async function liveStateWithin(c, lessonId, ms = LIVE_CHECK_MS) {
+  let t = null;
+  try { return await Promise.race([liveState(c, lessonId, "student"), new Promise((resolve) => { t = setTimeout(() => resolve(null), ms); })]); }
+  catch { return null; }
+  finally { clearTimeout(t); }
+}
+/* newer: laut Plan begonnen – oder an ihrem Tag schon live gezeigt: Durable Object der späteren Sitzung (nur dann eine Anfrage) läuft und wurde an ihrem Tag
+   gestartet bzw. weitergeschaltet (laterLiveCounts – eine Vorschau an einem früheren Tag, die mit „Schließen“ weiterläuft, zählt nicht). Ein Fehler der
+   Live-Abfrage zählt als „nicht live“. → {newer, nextAt (geplanter Beginn, noch nicht erreicht) | null, soon (heute, in höchstens 30 Minuten, nicht live)} */
 async function laterLessonInfo(c, row) {
   const st = laterLessonState(row ? { date: row.lesson_date, startTime: row.start_time } : null, c.now);
-  if (st.begun) return { newer: true, nextAt: null };
+  if (st.begun) return { newer: true, nextAt: null, soon: false };
   let live = false;
-  if (st.today && row && c.env && c.env.LIVE) { try { live = !!(await liveState(c, row.id, "student")).active; } catch {} }
-  return { newer: live, nextAt: st.at };
+  if (st.today && row && c.env && c.env.LIVE) live = laterLiveCounts(await liveStateWithin(c, row.id), row.lesson_date);
+  return { newer: live, nextAt: st.at, soon: st.soon && !live };
 }
 
 export async function routeStudentMe(c) {
@@ -151,10 +161,13 @@ export async function routeStudentLesson(c, lessonId) {
     presentation: p ? { name: p.name, pages: p.pages, unlockAt, unlocked: unlockAt !== null && c.now >= unlockAt, upTo } : null,
     homework: hw ? { text: hw, dueDate: selbst ? (nextT ? nextT.date : null) : await nextLessonDate(c.db, lesson) } : null,
     // wann sich die Ansicht ändert (Begriffshilfe beginnt/endet, Hausaufgabe erscheint, Präsentation wird frei) – unabhängig davon, ob es eine Hausaufgabe gibt
+    // (Nachtrag 44, Teil 2: auch der geplante Beginn der späteren Sitzung und die halbe Stunde davor – ab dort fragt die Seite jede Minute, newerSoon)
     changesAt: [...(times ? [times.start, times.end + 1000, times.homeworkAt, times.presentationAt] : []), ...(win ? [win.start, win.end + 1000] : []),
-      ...(newer.nextAt !== null ? [newer.nextAt] : [])].filter((t) => t > c.now),
+      ...(newer.nextAt !== null ? [newer.nextAt - NEWER_POLL_MS, newer.nextAt] : [])].filter((t) => t > c.now),
     // Nachtrag 44 (Teil 2): eine spätere Sitzung des Kurses ist schon dran – nur ja/nein (der Zeitpunkt steht als Neuladen in changesAt)
     newer: newer.newer,
+    // … bzw. beginnt heute in höchstens 30 Minuten und wird noch nicht live gezeigt: die sichtbare Seite fragt bis dahin jede Minute (Gegenprüfung)
+    newerSoon: newer.soon,
     // KI-Begriffshilfe: nur zwischen Beginn und Ende der Stunde (Selbstlern-Phase: bis zur nächsten Stunde mit der Lehrkraft); die Dienste stehen im Einwilligungstext
     aiHelp: aiOn ? { start: sd ? win.start : times.start, end: sd ? win.end : times.end, providers, ...(sd ? { selbstlern: true, untilNext: win.untilNext } : {}) } : null,
     // Erklär-Chatbot der Stationen (nur Selbstlern-Phase mit iPads): Zeitraum wie die Begriffshilfe (unabhängig von ihrem Schalter in der Sitzung)
