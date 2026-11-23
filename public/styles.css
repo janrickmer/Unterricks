@@ -1718,6 +1718,10 @@ main.navwait p { opacity: 0; animation: navwait-zeigen .2s ease-out .5s forwards
 .ic-plan .icp-step.icp-gist { font-size: 1rem; color: var(--muted); }
 .ic-plan .icp-next { margin: .35rem 0; font-weight: 700; }
 .ic-plan .icp-stop { margin-top: .35rem; }
+/* Befunde der Gegenprüfung: Rest einer Phase nach dem Zwischenstopp („(Fortsetzung)“ leiser), Hinweis bei geteilter Phase, gelbe Verweise zum Kurzplan von Claude */
+.ic-plan .icp-contmark { font-weight: 600; color: var(--muted); }
+.ic-plan .icp-partial { margin: .3rem 0 0; color: var(--muted); max-width: 75ch; }
+.ic-plan .icp-refs { margin: .3rem 0 0; padding-left: 1.3rem; }
 details.box.ic-planmore > summary { min-height: 44px; }
 .portal-preview.ic-planfull { min-height: 0; }
 /* Material: zwei Spalten wie eine Tabelle (je Spalte eine Überschrift – auch übereinander am Handy) */

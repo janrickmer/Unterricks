@@ -332,6 +332,9 @@ function shareSection(l) {
 function teacherPlanSection(l, { substitute = false, selbstlern = false } = {}) {
   const gs = l.subject === GS_SUBJECT, plan = gs ? "Verlaufsplan" : "Schulportal-Eintrag", tp = teacherPlanOf(l.teacher_plan);
   const head = ["", "## " + TEACHER_PLAN_TITLE + " (zeigt Unterricks nur in „Ich bin jetzt im Unterricht“)"];
+  // in einer Selbstlern-Phase bzw. bestätigten Vertretung nicht dazu auffordern (Befund der Gegenprüfung): der Kurzplan gehört zur Planung der Lehrkraft
+  if (!tp && selbstlern) return [...head, "(keiner – für diese Sitzung gilt die Selbstlern-Phase; den Kurzplan schreibst du dabei nicht)"];
+  if (!tp && substitute) return [...head, "(keiner – für diese Sitzung gilt die bestätigte Vertretungsstunde; den Kurzplan schreibst du dabei nicht)"];
   if (!tp) return [...head, "(noch keiner – schreibe ihn mit update_lesson und kurzplan_lehrkraft, sobald du die Planung dieser Sitzung ablegst: je Phase des " + plan + "s 1–" +
     TEACHER_PLAN_LIMITS.steps + " kurze Anweisungen, was die Lehrkraft tut)"];
   const out = [...head, ...tp.phases.map((p) => "- Phase " + p.n + ": " + p.steps.join(" | ")), "(Stand: " + (tp.at ? fmtStampBerlin(tp.at) : "unbekannt") + ")"];

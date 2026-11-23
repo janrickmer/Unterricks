@@ -58,6 +58,16 @@ test("teacherPlanFromArgs: streng geprüft – Phasennummer, 1–3 Anweisungen, 
   assert.equal(err([{ phase: 2, anweisungen: [7] }]), "Eintrag 1 (Phase 2): Anweisung 1 ist kein Text.");
   assert.equal(err([{ phase: 2, anweisungen: ["x".repeat(241)] }]), "Eintrag 1 (Phase 2): Anweisung 1 ist zu lang (241 Zeichen, höchstens 240) – bitte kürzen.");
   assert.equal(err([{ phase: 2, anweisungen: ["x".repeat(240)] }]), null, "genau 240 Zeichen gehen");
+  // PATCH der Sitzung (Befund der Gegenprüfung): genauso streng, Felder {n, steps}
+  assert.deepEqual(TP.teacherPlanFromBody([{ n: 3, steps: [" a\n b "] }, { n: 1, steps: ["c"] }]), [{ n: 1, steps: ["c"] }, { n: 3, steps: ["a b"] }]);
+  const berr = (x) => { try { TP.teacherPlanFromBody(x); return null; } catch (e) { return e.message; } };
+  assert.equal(berr({ n: 1 }), "Der Kurzplan für die Lehrkraft ist eine Liste [{n, steps}] ([] bzw. null löscht ihn).");
+  assert.equal(berr([{ n: 1, steps: ["a", "b", "c", "d"] }]), "Eintrag 1 (Phase 1): steps sind 1 bis 3 kurze Anweisungen (eine Liste von Texten).");
+  assert.equal(berr([{ n: 1, steps: ["x".repeat(241)] }]), "Eintrag 1 (Phase 1): Anweisung 1 ist zu lang (241 Zeichen, höchstens 240) – bitte kürzen.");
+  assert.equal(berr([{ n: 1, steps: ["a", 5] }]), "Eintrag 1 (Phase 1): Anweisung 2 ist kein Text.");
+  assert.equal(berr([{ n: 1, steps: [" "] }]), "Eintrag 1 (Phase 1): Anweisung 1 ist leer.");
+  assert.equal(berr([{ phase: 1, steps: ["x"] }]), "Eintrag 1: n ist die Nummer einer Phase (1–99) wie im Verlaufsplan, z. B. 3 für „**3) …**“.");
+  assert.equal(berr(["x"]), "Eintrag 1: ein Eintrag ist ein Objekt {n, steps}.");
 });
 
 test("Speicherform: teacherPlanStore/teacherPlanOf (tolerant gelesen, Grenzen gekappt); teacherPlanFits – Zwischenstopp zählt nicht, geänderte Planung und fehlende Phasen schon", () => {
@@ -79,6 +89,11 @@ test("Speicherform: teacherPlanStore/teacherPlanOf (tolerant gelesen, Grenzen ge
   assert.deepEqual(TP.teacherPlanFits(tpOf([...KP, { n: 6, steps: ["x"] }]), PORTAL), { fits: false, why: "phases", missing: [6], uncovered: [] });
   assert.deepEqual(TP.teacherPlanFits(tpOf(KP.slice(0, 2)), PORTAL), { fits: true, why: null, missing: [], uncovered: [3, 4] });
   assert.equal(TP.teacherPlanFits(null, PORTAL).why, "none");
+  // Phasen ohne Inhalt (z. B. „**1) TOP 10**“ der Vorlage) fehlen nicht; was nach „--> Nächste Stunde“ steht, gehört zu keiner Phase (Befund der Gegenprüfung)
+  const TPL = "**1) TOP 10**\n\n**2) Blitzlicht ohne iPad**\n- Einstieg\n\n**3) Sicherung**\n\n--> Nächste Stunde\n- Hefte einsammeln\n\n**4) Diskussion**\n" + STOP + "\n- Argumente";
+  assert.deepEqual([...TP.filledPhases(TPL)], [2, 4], "Zwischenstopp unterbricht nicht, „-->“ beendet die Phase");
+  assert.deepEqual(TP.teacherPlanFits(tpOf([{ n: 2, steps: ["x"] }], TPL), TPL), { fits: true, why: null, missing: [], uncovered: [4] });
+  assert.deepEqual(TP.teacherPlanFits(tpOf([{ n: 1, steps: ["x"] }], TPL), TPL).uncovered, [2, 4], "eine Phase ohne Inhalt darf Claude trotzdem beschreiben");
   assert.deepEqual([TP.phaseList([3]), TP.phaseList([3, 5]), TP.phaseList([2, 3, 5])], ["Phase 3", "Phasen 3 und 5", "Phasen 2, 3 und 5"]);
 });
 
@@ -122,14 +137,12 @@ test("compactPlan automatisch: unterstrichene Aufforderungen an die Lehrkraft (o
   assert.deepEqual(IL.shortRuns([{ text: "", file: FA }, { text: " austeilen" }], 40).length, 2);
 });
 
-test("compactPlan: der Zwischenstopp steht an seiner Stelle (in einer Phase: nach ihr), Text vor der ersten Phase entfällt; Grundschule mit Verweisen in der Aufforderung", () => {
+test("compactPlan: der Zwischenstopp steht an seiner Stelle, Text vor der ersten Phase entfällt; Grundschule mit Verweisen in der Aufforderung", () => {
   const before3 = S.insertStop(PORTAL, 7).text;
   let r = IL.compactPlan(before3, { teacherPlan: tpOf(KP) });
   assert.equal(r.mode, "claude", "ein Zwischenstopp ändert nichts am Kurzplan");
   assert.deepEqual(r.items.map((x) => [x.type, x.line]), [["phase", 0], ["phase", 3], ["stop", 7], ["phase", 8], ["next", 11], ["phase", 13]]);
-  r = IL.compactPlan(S.insertStop(PORTAL, 5).text);   // mitten in Phase 2 (vor der Aufforderung an die Lehrkraft)
-  assert.deepEqual(r.items.map((x) => x.type + x.line), ["phase0", "phase3", "stop5", "phase8", "next11", "phase13"]);
-  assert.deepEqual(r.items[1].steps.map((s) => textOf(s.runs)), ["Lehrkraft geht herum und hilft bei Aufgabe 2."], "die Aufforderung bleibt bei ihrer Phase");
+  assert.ok(r.items.every((x) => !x.cont && !x.partial), "vor einer Phase: keine Fortsetzung");
   r = IL.compactPlan("Thema: Macht\n" + STOP + "\n**1) Einstieg**\n- Karikatur");
   assert.deepEqual(r.items.map((x) => x.type), ["stop", "phase"]);
   // Grundschule: Aufforderung samt Verweis, Verweis allein als erster Stichpunkt
@@ -138,6 +151,52 @@ test("compactPlan: der Zwischenstopp steht an seiner Stelle (in einer Phase: nac
   r = IL.compactPlan(plan, { gs: true });
   assert.deepEqual(r.items.map((x) => x.steps.map((s) => s.kind + ":" + textOf(s.runs))), [["gist:Begrüßungslied"], ["teacher:Lehrkraft liest [" + FV + "] vor."], ["gist:[" + FA + "]"]]);
   assert.equal(IL.compactPlan(plan, { gs: false }).items[1].steps[0].kind, "teacher", "auch ohne gs ist die Zeile eine Aufforderung (der Verweis bleibt dann Text)");
+  assert.ok(r.items.every((x) => !x.refs), "automatisch gekürzt: die Verweise stehen in den Aufforderungen selbst");
+});
+
+test("compactPlan, Befunde der Gegenprüfung: Zwischenstopp mitten in einer Phase – ihr Rest als Fortsetzung danach (nie Offenes darüber); Anweisungen von Claude mit Hinweis", () => {
+  // automatisch: über dem Zwischenstopp nur die Zeilen davor, danach „2) Partnerarbeit“ als Fortsetzung mit der offenen Aufforderung an die Lehrkraft
+  const mid = S.insertStop(PORTAL, 5).text;   // vor „- __Lehrkraft geht herum …__“
+  let r = IL.compactPlan(mid);
+  assert.deepEqual(r.items.map((x) => x.type + x.line + (x.cont ? "+" : "")), ["phase0", "phase3", "stop5", "phase6+", "phase8", "next11", "phase13"]);
+  assert.deepEqual([r.items[1].steps.map((s) => s.kind + ":" + textOf(s.runs)), r.items[1].partial], [["gist:Feibeitsblatt Gewaltenteilung"], undefined]);
+  const cont = r.items[3];
+  assert.deepEqual([cont.n, textOf(cont.head), cont.auto, cont.steps.map((s) => s.kind + ":" + textOf(s.runs))], [2, "2) Partnerarbeit", true, ["teacher:Lehrkraft geht herum und hilft bei Aufgabe 2."]]);
+  // Zwischenstopp direkt nach der Überschrift: die Phase darüber ohne Anweisungen, alles in der Fortsetzung
+  r = IL.compactPlan(S.insertStop(PORTAL, 4).text);
+  assert.deepEqual([r.items[1].steps, r.items[3].cont, r.items[3].line, r.items[3].steps.map((s) => s.kind)], [[], true, 5, ["teacher"]]);
+  // Kurzplan von Claude: seine Anweisungen gelten für die ganze Phase – sie bleiben darüber, der Block bekommt den Hinweis; die Fortsetzung ist automatisch gekürzt
+  r = IL.compactPlan(mid, { teacherPlan: tpOf(KP) });
+  assert.deepEqual([r.mode, r.autoPhases], ["claude", []], "eine Fortsetzung zählt nicht als „automatisch gekürzt“");
+  assert.deepEqual([r.items[1].partial, r.items[1].steps.map((s) => s.kind), r.items[3].cont, r.items[3].steps.map((s) => s.kind)], [true, ["claude", "claude"], true, ["teacher"]]);
+  assert.ok(r.items.filter((x) => x !== r.items[1]).every((x) => !x.partial));
+  assert.equal(IL.COMPACT_PARTIAL, "Der Zwischenstopp liegt mitten in dieser Phase – ihren offenen Teil zeigt die Fortsetzung unter dem Zwischenstopp.");
+  // Zwischenstopp am Ende einer Phase (nach ihrem letzten Stichpunkt): keine Fortsetzung
+  r = IL.compactPlan(S.insertStop(PORTAL, 6).text, { teacherPlan: tpOf(KP) });
+  assert.ok(r.items.every((x) => !x.cont && !x.partial));
+});
+
+test("compactPlan, Befunde der Gegenprüfung: „--> Nächste Stunde“ beendet die Phase; leere und doppelte Phasen nicht „automatisch gekürzt“; Grundschule mit gelben Verweisen zum Kurzplan", () => {
+  // was zwischen „--> Nächste Stunde“ und der nächsten Phase steht, gehört nicht zur Phase davor
+  let r = IL.compactPlan("**1) A**\n- a\n\n--> Nächste Stunde\n- __Lehrkraft sammelt die Hefte ein.__\n\n**2) B**");
+  assert.deepEqual(r.items.map((x) => [x.type, (x.steps || []).map((s) => s.kind + ":" + textOf(s.runs))]), [["phase", ["gist:a"]], ["next", []], ["phase", []]]);
+  // eine Phase ohne Inhalt (Vorlage „**1) TOP 10**“): kein „automatisch gekürzt“, auch nicht in der Rückmeldung des Connectors (uncovered)
+  const tpl = "**1) TOP 10**\n\n**2) Blitzlicht ohne iPad**\n- Einstieg: ~~Wie kann man sich helfen?~~";
+  r = IL.compactPlan(tpl, { teacherPlan: tpOf([{ n: 2, steps: ["Lehrkraft stellt die Einstiegsfrage."] }], tpl) });
+  assert.deepEqual([r.mode, r.autoPhases, IL.compactLabel(r)], ["claude", [], "Kurzplan von Claude"]);
+  assert.deepEqual(r.items[0].steps, [], "die leere Phase steht nur als Überschrift da");
+  // dieselbe Nummer zweimal: Claude hat sie beschrieben – die zweite ist automatisch gekürzt, aber nicht im Satz genannt
+  const dup = "**1) A**\n- a\n**1) B**\n- b\n**2) C**\n- c";
+  r = IL.compactPlan(dup, { teacherPlan: tpOf([{ n: 1, steps: ["x"] }], dup) });
+  assert.deepEqual([r.autoPhases, IL.compactLabel(r)], [[2], "Kurzplan von Claude – Phase 2 automatisch gekürzt (dazu hat Claude nichts geschrieben)"]);
+  assert.deepEqual(r.items.map((x) => x.steps.map((s) => s.kind + ":" + textOf(s.runs))), [["claude:x"], ["gist:b"], ["gist:c"]]);
+  // Grundschule, Kurzplan von Claude: die Verweise der Aufforderungen an die Lehrkraft (ohne Doppelte, ohne Formatierung) bleiben als refs anklickbar
+  const plan = "**1) Ankommen (5 Min.)**\n- Lied\n**2) Erzählung (15 Min.)**\n- __Lehrkraft liest [[pdf:" + FV + "|Vorlesetext]] vor und zeigt [[pdf:" + FC + "]].__\n- __Lehrkraft fragt nach ([[pdf:" + FV + "]]).__\n" +
+    "- Bildkarten [[pdf:" + FA + "]] in die Mitte legen";
+  r = IL.compactPlan(plan, { gs: true, teacherPlan: tpOf([{ n: 2, steps: ["Lehrkraft liest den Vorlesetext vor."] }], plan) });
+  assert.deepEqual([r.items[1].steps.map((s) => s.kind), r.items[1].refs], [["claude"], [{ text: "", file: FV }, { text: "", file: FC }]]);
+  assert.equal(r.items[0].refs, undefined, "ohne Aufforderung mit Verweis keine Zeile");
+  assert.equal(IL.COMPACT_REFS, "Material:");
 });
 
 /* ---------- Prompts ---------- */
@@ -254,6 +313,26 @@ test("Gymnasium: update_lesson speichert (Fingerabdruck, Zeitpunkt) und meldet s
   assert.ok(!(await tool(c, "save_schulportal_entry", { lesson_id: l.id, text: "**1) Stationen**" })).text.includes("Kurzplan"));
 });
 
+test("Connector, Befunde der Gegenprüfung: Phasen ohne Inhalt nicht unter „Ohne Anweisungen“; get_lesson fordert in einer Selbstlern-Phase bzw. bestätigten Vertretung keinen Kurzplan an", async () => {
+  const c = await base();
+  const l = await L.createLesson(c.db, { subject: "powi", klass: "9C", title: "Bundesverfassungsgericht", date: "2026-11-24", startTime: "08:00", durationMin: 45 }, c.now);
+  const tpl = "**1) TOP 10**\n\n**2) Blitzlicht ohne iPad**\n- Einstieg: ~~Wie kann man sich helfen, wenn Demokratiefeinde regieren?~~\n\n**3) Partnerarbeit**\n- Aufgabe 4 besprechen";
+  await tool(c, "save_schulportal_entry", { lesson_id: l.id, text: tpl });
+  let r = await tool(c, "update_lesson", { lesson_id: l.id, kurzplan_lehrkraft: [{ phase: 2, anweisungen: ["Lehrkraft stellt die Einstiegsfrage."] }] });
+  assert.ok(r.text.endsWith("Ohne Anweisungen: Phase 3 – dort zeigt Unterricks die unterstrichenen Aufforderungen an die Lehrkraft bzw. den ersten Stichpunkt."), r.text);
+  r = await tool(c, "update_lesson", { lesson_id: l.id, kurzplan_lehrkraft: [{ phase: 2, anweisungen: ["Lehrkraft stellt die Einstiegsfrage."] }, { phase: 3, anweisungen: ["Lehrkraft bespricht Aufgabe 4."] }] });
+  assert.equal(r.text, "Gespeichert. Kurzplan für die Lehrkraft gespeichert (2 Phasen, 2 Anweisungen) – Unterricks zeigt ihn der Lehrkraft nur in „Ich bin jetzt im Unterricht“.", "TOP 10 ohne Inhalt fehlt nicht");
+  await tool(c, "update_lesson", { lesson_id: l.id, kurzplan_lehrkraft: [] });
+  const head = "\n## Kurzplan für die Lehrkraft (zeigt Unterricks nur in „Ich bin jetzt im Unterricht“)\n";
+  c.db.raw.prepare("INSERT INTO substitutes(lesson_id, status, proposal, created_at, updated_at) VALUES(?, 'selbstlern', '{}', ?, ?)").run(l.id, c.now, c.now);
+  let g = await tool(c, "get_lesson", { lesson_id: l.id });
+  assert.ok(g.text.includes(head + "(keiner – für diese Sitzung gilt die Selbstlern-Phase; den Kurzplan schreibst du dabei nicht)\n"), g.text.slice(g.text.indexOf("## Kurzplan"), g.text.indexOf("## Kurzplan") + 200));
+  c.db.raw.prepare("UPDATE substitutes SET status='aktiv' WHERE lesson_id=?").run(l.id);
+  g = await tool(c, "get_lesson", { lesson_id: l.id });
+  assert.ok(g.text.includes(head + "(keiner – für diese Sitzung gilt die bestätigte Vertretungsstunde; den Kurzplan schreibst du dabei nicht)\n"));
+  assert.ok(!g.text.includes("(noch keiner – schreibe ihn mit update_lesson und kurzplan_lehrkraft"));
+});
+
 test("Grundschule: get_lesson-Abschnitt (Verlaufsplan), Erinnerung von save_verlaufsplan nur bei unpassendem Kurzplan; Ausfall-Eintrag ohne Abschnitt und abgelehnt", async () => {
   const c = await base();
   const course = (await call(c, GS.routeGsCourseCreate, "POST", "/x", { grade: 2, classes: ["a", "b"], religion: true, weekdays: [{ day: 1, minutes: 45, time: "09:50" }], classSize: 22 })).data.course;
@@ -283,8 +362,13 @@ test("Sitzungsseite (PATCH): teacherPlan gespeichert bzw. abgelehnt; GET liefert
   const patch = (body) => call(c, L.routeLessonPatch, "PATCH", "/x", body, l.id);
   let r = await patch({ teacherPlan: [{ n: 1, steps: ["Lehrkraft liest Psalm 23 vor."] }] });
   assert.deepEqual([r.status, r.data.lesson.teacherPlan], [200, { phases: [{ n: 1, steps: ["Lehrkraft liest Psalm 23 vor."] }], plan: S.planFingerprint("**1) Einstieg**\n- Psalm 23"), at: NOW }]);
-  for (const bad of [{ n: 1 }, [{ n: 1, steps: [] }], [{ n: 0, steps: ["x"] }], [{ n: 1, steps: ["x"] }, { n: 1, steps: ["y"] }], Array.from({ length: 21 }, (_, i) => ({ n: i + 1, steps: ["x"] }))])
+  for (const bad of [{ n: 1 }, [{ n: 1, steps: [] }], [{ n: 0, steps: ["x"] }], [{ n: 1, steps: ["x"] }, { n: 1, steps: ["y"] }], Array.from({ length: 21 }, (_, i) => ({ n: i + 1, steps: ["x"] })),
+    // streng wie der Connector (Befund der Gegenprüfung): nie still auf 3 Anweisungen bzw. 240 Zeichen gekürzt, nichts still verworfen
+    [{ n: 1, steps: ["a", "b", "c", "d"] }], [{ n: 1, steps: ["x".repeat(241)] }], [{ n: 1, steps: ["a", 7] }], [{ n: 1, steps: ["a", "  "] }], [{ n: 1, steps: ["a"] }, null]])
     assert.equal((await patch({ teacherPlan: bad })).status, 400, JSON.stringify(bad).slice(0, 60));
+  assert.equal((await patch({ teacherPlan: [{ n: 1, steps: ["x".repeat(241)] }] })).data.error,
+    "Der Kurzplan für die Lehrkraft ist ungültig: Eintrag 1 (Phase 1): Anweisung 1 ist zu lang (241 Zeichen, höchstens 240) – bitte kürzen.");
+  assert.equal((await patch({ teacherPlan: [{ n: 1, steps: ["  Lehrkraft liest\n Psalm 23 vor. "] }] })).data.lesson.teacherPlan.phases[0].steps[0], "Lehrkraft liest Psalm 23 vor.", "Leerraum zusammengefasst");
   assert.equal(stored(c, l.id).phases[0].steps[0], "Lehrkraft liest Psalm 23 vor.");
   assert.deepEqual((await call(c, L.routeLessonGet, "GET", "/x", undefined, l.id)).data.lesson.teacherPlan.phases, [{ n: 1, steps: ["Lehrkraft liest Psalm 23 vor."] }]);
   const list = await call(c, L.routeLessonsList, "GET", "/api/teacher/lessons?subject=evrel&klass=8-K");
@@ -422,6 +506,21 @@ test("Gymnasium: kompakte Liste – je Phase ein Block mit der Zeile der Übersc
     assert.equal($("#ic-plan .ic-now").dataset.line, "3");
     D.fire($("#ic-plan .icp-stop .stopfield"), "contextmenu", { clientX: 5, clientY: 5 });
     assert.deepEqual(menu.splice(0), [7], "auf dem Zwischenstopp: seine Zeile (→ „Zwischenstopp entfernen“)");
+    // Zwischenstopp mitten in Phase 2 (Befund der Gegenprüfung): die Anweisungen von Claude bleiben mit Hinweis darüber, die offene Aufforderung an die
+    // Lehrkraft steht als „(Fortsetzung)“ unter dem Abdeckblatt – nie offen über dem Zwischenstopp
+    text = S.insertStop(PORTAL, 5).text; emit();
+    const p2 = blocks().find((b) => b.dataset.line === "3");
+    assert.ok(!p2.closest(".covered"));
+    assert.deepEqual([$$(".icp-step", p2).map((x) => x.textContent), $(".icp-partial", p2).textContent], [["Lehrkraft teilt den Code aus.", "Lehrkraft geht herum und hilft."], IL.COMPACT_PARTIAL]);
+    const cont = $("#ic-plan .covered .icp-cont");
+    assert.deepEqual([cont.dataset.line, cont.dataset.phase, $(".icp-head", cont).textContent, $(".icp-head .icp-contmark", cont).textContent, $$(".icp-step", cont).map((x) => x.textContent)],
+      ["6", "2", "2) Partnerarbeit (Fortsetzung)", " (Fortsetzung)", ["Lehrkraft geht herum und hilft bei Aufgabe 2."]]);
+    assert.equal($$("#ic-plan .icp-partial").length, 1, "nur der Block der geteilten Phase");
+    assert.equal($("#ic-plan .ic-now").dataset.line, "3", "der Pfeil bleibt am Block der Phase über dem Zwischenstopp");
+    D.fire($(".icp-step", cont), "contextmenu", { clientX: 5, clientY: 5 });
+    assert.deepEqual(menu.splice(0), [6], "in der Fortsetzung: ihre erste Zeile (der Zwischenstopp bleibt davor)");
+    // Name und Beschreibung der Liste (Befund der Gegenprüfung): kompakt, beschrieben vom Satz darüber
+    assert.deepEqual([box.getAttribute("aria-label"), box.getAttribute("aria-describedby")], ["Verlaufsplan kompakt (Schulportal-Eintrag)", "ic-plan-src"]);
     // Planung geändert: automatisch gekürzt (unterstrichene Aufforderung bzw. erster Stichpunkt), Satz nennt den Grund
     text = PORTAL + "\n- Zusatz: Argumentationswippe"; emit();
     assert.equal($("#ic-plan-src").textContent, "Automatisch gekürzt – der Kurzplan von Claude passt nicht mehr zum geänderten Schulportal-Eintrag.");
@@ -438,6 +537,7 @@ test("Gymnasium: kompakte Liste – je Phase ein Block mit der Zeile der Übersc
     assert.ok(!box.classList.contains("ic-compact") && $("#ic-plan-src").classList.contains("hidden") && more.classList.contains("hidden"));
     assert.deepEqual($$("#ic-plan [data-line]").map((x) => x.dataset.line), ["0", "1"]);
     assert.equal($("#ic-plan-full").childNodes.length, 0);
+    assert.deepEqual([box.getAttribute("aria-label"), box.hasAttribute("aria-describedby")], ["Verlaufsplan (Schulportal-Eintrag)", false]);
   } finally { v.destroy(); }
   assert.equal((globalThis.__domErrors || []).length, 0, (globalThis.__domErrors || []).join("\n"));
 });
@@ -474,6 +574,11 @@ test("Grundschule (Sitzungsseite): automatisch gekürzt mit dem gelben Verweis d
   await until(() => $("#ic-plan-src").textContent.startsWith("Kurzplan von Claude"), "Kurzplan von Claude");
   assert.equal($("#ic-plan-src").textContent, "Kurzplan von Claude – Phasen 1, 3 und 4 automatisch gekürzt (dazu hat Claude nichts geschrieben)");
   assert.deepEqual($$(".icp-step", $$("#ic-plan .icp-phase")[1]).map((x) => x.textContent), ["Lehrkraft liest den Vorlesetext bis Nr. 3 vor und legt dabei die Bildkarten 1–3 hin."]);
+  // Befund der Gegenprüfung: Claude schreibt schlichten Text – der gelbe Verweis der Aufforderung an die Lehrkraft bleibt als Zeile „Material:“ anklickbar
+  const refs = $(".icp-refs", $$("#ic-plan .icp-phase")[1]);
+  assert.deepEqual([refs.firstChild.textContent, $$("a.pdfref", refs).map((a) => a.firstChild.textContent)], ["Material: ", ["Vorlesetext Regentropfen.pdf"]]);
+  assert.equal($$("#ic-plan .icp-refs").length, 1, "nur bei der Phase von Claude mit einer Aufforderung samt Verweis");
+  assert.deepEqual([$("#ic-plan").getAttribute("aria-label"), $("#ic-plan").getAttribute("aria-describedby")], ["Verlaufsplan kompakt", "ic-plan-src"]);
   D.userClick($("#inclass-back"));
   assert.equal((globalThis.__domErrors || []).length, 0, (globalThis.__domErrors || []).join("\n"));
 });

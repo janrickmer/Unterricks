@@ -2620,12 +2620,17 @@ Aufforderungen an die Lehrkraft `__…__`).
   wie in `portalPhases` („**3) …**“ → 3, 1–99), `steps` = 1–3 Anweisungen mit je höchstens 240 Zeichen (einzeilig), höchstens 20 Phasen
   (`TEACHER_PLAN_LIMITS`), `plan` = `planFingerprint` des Schulportal-Eintrags bzw. Verlaufsplans beim Speichern, `at` = Zeitpunkt. Die Spalte kommt im
   bestehenden ALTER-Batch der Tabelle `lessons` dazu – keine zusätzliche Anweisung beim Anlegen des Schemas. `public/teacherplan.js` (Browser und Worker):
-  `teacherPlanFromArgs` (Connector, streng), `cleanTeacherPlanPhases` (fremde Daten, tolerant gekappt), `teacherPlanStore`/`teacherPlanOf`,
-  `teacherPlanFits` (passt, wenn der Fingerabdruck gleich ist – ein Zwischenstopp zählt nicht – und es jede seiner Phasen im Plan gibt; sonst `why`
-  „changed“ bzw. „phases“, dazu `missing` und `uncovered`). `lessonOut.teacherPlan` = `{phases, plan, at}` | null. Eine Sitzung, die nur einen Kurzplan
+  `teacherPlanFromArgs` (Connector, streng) und `teacherPlanFromBody` (PATCH, dieselbe Prüfung mit den Feldern `{n, steps}`), `cleanTeacherPlanPhases`
+  (fremde Daten, tolerant gekappt), `teacherPlanStore`/`teacherPlanOf`, `teacherPlanFits` (passt, wenn der Fingerabdruck gleich ist – ein Zwischenstopp
+  zählt nicht – und es jede seiner Phasen im Plan gibt; sonst `why` „changed“ bzw. „phases“, dazu `missing` und `uncovered` = Phasen **mit Inhalt** ohne
+  Anweisungen, `filledPhases`: Zeilen mit Text oder Verweis unter der Überschrift bis zur nächsten Phase bzw. bis „--> Nächste Stunde“ – eine leere Phase
+  wie „**1) TOP 10**“ der Vorlage fehlt nie), dazu `isNextLine`/`lineHasContent`, dieselben Zeilenregeln für `compactPlan`. `lessonOut.teacherPlan` =
+  `{phases, plan, at}` | null. Eine Sitzung, die nur einen Kurzplan
   hat, ist nicht „leer“ (`EMPTY_LESSON` in `worker/units.js`: `teacher_plan IS NULL`) – sie fällt beim Überarbeiten einer Einheit nicht weg.
-* **Speichern** (`lessonFields`/`updateLesson` in `worker/lessons.js`): `PATCH …/lessons/:id {teacherPlan: [{n, steps}]}` (streng, ungültig → 400; [] bzw.
-  null löscht) – die Sitzungsseite selbst schickt ihn nicht (es gibt kein Bearbeiten im Browser); `updateLesson` setzt Fingerabdruck und Zeitpunkt.
+* **Speichern** (`lessonFields`/`updateLesson` in `worker/lessons.js`): `PATCH …/lessons/:id {teacherPlan: [{n, steps}]}` (streng über
+  `teacherPlanFromBody` wie im Connector: mehr als 3 Anweisungen, eine über 240 Zeichen, kein Text, leer, ungültige oder doppelte Phase, kein Objekt → 400
+  „Der Kurzplan für die Lehrkraft ist ungültig: Eintrag 1 (Phase 1): …“, nie still gekürzt; [] bzw. null löscht) – die Sitzungsseite selbst schickt ihn
+  nicht (es gibt kein Bearbeiten im Browser); `updateLesson` setzt Fingerabdruck und Zeitpunkt.
   Ausfall-Einträge der Grundschule lehnen ihn ab (wie alles außer dem Hinweis für die Eltern).
 * **Connector** (`worker/mcp.js`): `update_lesson` mit `kurzplan_lehrkraft` = `[{phase, anweisungen: [1–3 Texte]}]` (Schema: höchstens 20 Einträge,
   `phase` ganzzahlig 1–99, je Anweisung höchstens 240 Zeichen; Beschreibung aus `teacherPlanRules("beide")`: was die Lehrkraft in der Phase tut, dritte
@@ -2638,7 +2643,9 @@ Aufforderungen an die Lehrkraft `__…__`).
   [] → „Kurzplan für die Lehrkraft gelöscht.“ Ohne den Parameter bleibt die Antwort wie bisher. `get_lesson`: Abschnitt „## Kurzplan für die Lehrkraft
   (zeigt Unterricks nur in „Ich bin jetzt im Unterricht“)“ direkt nach der Zusammenfassung (Gymnasium und Grundschule, nicht bei Ausfall-Einträgen): je
   Phase „- Phase n: Anweisung | Anweisung“, Stand, ohne Kurzplan „(noch keiner – schreibe ihn …)“, Hinweis bei geänderter Planung bzw. fehlenden Phasen,
-  in einer Selbstlern-Phase oder bestätigten Vertretung „… beschreibt die ursprüngliche Planung“. `save_schulportal_entry`/`save_verlaufsplan` erinnern
+  in einer Selbstlern-Phase oder bestätigten Vertretung „… beschreibt die ursprüngliche Planung“ bzw. ohne Kurzplan „(keiner – für diese Sitzung gilt die
+  Selbstlern-Phase; den Kurzplan schreibst du dabei nicht)“ („… die bestätigte Vertretungsstunde; …“) – keine Aufforderung, einen zu schreiben (er bekäme
+  sonst den Fingerabdruck des Selbstlern-Eintrags und passte nach „Wiederherstellen“ nicht mehr). `save_schulportal_entry`/`save_verlaufsplan` erinnern
   nur, wenn es einen Kurzplan gibt, der zur neuen Planung nicht mehr passt („Der „Kurzplan für die Lehrkraft“ passt nicht mehr zur neuen Planung –
   schreibe ihn zum Schluss … neu.“, vor der Erinnerung an die Zusammenfassung) – sonst sind die Antworten byte-gleich. Werkzeugbeschreibungen:
   `update_lesson`, der Satz nach dem Speichern der Planung (`SUMMARY_AFTER_SAVE`: „… und den „Kurzplan für die Lehrkraft“ (kurzplan_lehrkraft).“) und
@@ -2660,8 +2667,19 @@ Aufforderungen an die Lehrkraft `__…__`).
   samt gelbem PDF-Verweis über `planRunsNodes` aus `portalview.js`), bzw. – ohne solche Zeile – ihr erster Stichpunkt, gekürzt auf 110 Zeichen an einer
   Wortgrenze mit „…“ (`shortRuns`: Links werden nie zerschnitten, ein Verweis zählt 20 Zeichen; Klasse `.icp-gist`). Der Satz `#ic-plan-src` sagt, was zu
   sehen ist: „Kurzplan von Claude“ bzw. „Automatisch gekürzt – die Phasen mit Ihren Aufgaben (…)“, „… – der Kurzplan von Claude passt nicht mehr zum
-  geänderten Schulportal-Eintrag.“ (Grundschule „Verlaufsplan“), „… passt nicht zu den Phasen im …“. „--> Nächste Stunde“ (`p.icp-next`) und der
-  Zwischenstopp (`stopField()` mit Abdeckblatt wie in der Vorschau) stehen an ihrer Stelle mit ihrer eigenen Zeile; Text vor der ersten Phase entfällt.
+  geänderten Schulportal-Eintrag.“ (Grundschule „Verlaufsplan“), „… passt nicht zu den Phasen im …“. Im Satz „Kurzplan von Claude – Phase n automatisch
+  gekürzt …“ stehen nur Phasen mit Inhalt (`filledPhases`), nie eine leere Phase, eine Fortsetzung oder eine zweite Phase mit derselben Nummer (die erste
+  hat Claude beschrieben). „--> Nächste Stunde“ (`p.icp-next`) und der Zwischenstopp (`stopField()` mit Abdeckblatt wie in der Vorschau) stehen an ihrer
+  Stelle mit ihrer eigenen Zeile; Text vor der ersten Phase und zwischen „--> Nächste Stunde“ und der nächsten Phase entfällt (er gehört zu keiner Phase –
+  vorher wurde er der Phase davor zugeschlagen und verdrängte dort ihre eigenen Zeilen). **Zwischenstopp mitten in einer Phase:** über dem Zwischenstopp
+  steht nur, was davor steht; der Rest der Phase folgt unter dem Abdeckblatt als eigener Block `.icp-phase.icp-cont` (gleiche Überschrift mit
+  `span.icp-contmark` „(Fortsetzung)“, `data-line` = seine erste Zeile mit Inhalt, immer automatisch gekürzt aus genau diesen Zeilen) – eine offene
+  Aufforderung an die Lehrkraft sieht nie erledigt aus. Die Anweisungen von Claude gelten für die ganze Phase und lassen sich nicht teilen: sie bleiben über
+  dem Zwischenstopp, darunter `p.icp-partial` „Der Zwischenstopp liegt mitten in dieser Phase – ihren offenen Teil zeigt die Fortsetzung unter dem
+  Zwischenstopp.“ **Grundschule mit Kurzplan von Claude:** Claude schreibt schlichten Text ohne Verweise – die gelben Verweise der unterstrichenen
+  Aufforderungen dieser Phase (vor einem Zwischenstopp, ohne Doppelte) stehen darunter als `p.icp-refs` „Material: …“ (über `planRuns`, anklickbar wie in
+  der automatischen Kürzung). `#ic-plan` heißt in der kompakten Form „Verlaufsplan kompakt (Schulportal-Eintrag)“ bzw. „Verlaufsplan kompakt“ und trägt
+  `aria-describedby="ic-plan-src"`; ohne Phasen wie bisher „Verlaufsplan (Schulportal-Eintrag)“ bzw. „Verlaufsplan“ ohne Beschreibung.
   Darunter `details.box#ic-plan-more` „Vollständigen Verlaufsplan anzeigen“ (zugeklappt) mit der bisherigen Vorschau `#ic-plan-full` (jede Zeile mit
   eigener `data-line`). Ohne nummerierte Phasen gibt es nichts zu kürzen: dann steht wie bisher der vollständige Verlaufsplan in `#ic-plan` (ohne Satz und
   ohne Aufklapper).
@@ -2679,8 +2697,9 @@ Aufforderungen an die Lehrkraft `__…__`).
   Eintrag aus der Datei bzw. ist `PLAN_FINGERPRINT_STALE` (dann automatisch gekürzt, bis Claude ihn neu schreibt); ohne Kurzplan in der Datei wird ein
   bisheriger gelöscht (er beschriebe die alte Planung). Die Sicherung („Lies mich.txt“) nennt ihn. Grundschul-Sitzungen lassen sich wie bisher nicht aus
   einer Datei laden.
-* **Selbst entschieden (Rückfrage nicht nötig):** (1) Der Zwischenstopp mitten in einer Phase steht in der kompakten Liste nach dieser Phase (die
-  Anweisungen von Claude haben keine Zeile im Eintrag; genau zeigt ihn der aufgeklappte vollständige Verlaufsplan). (2) Rechtsklick in der kompakten
+* **Selbst entschieden (Rückfrage nicht nötig):** (1) Der Zwischenstopp mitten in einer Phase teilt sie: davor ihr Anfang, danach die „(Fortsetzung)“
+  unter dem Abdeckblatt (nach der Gegenprüfung – vorher stand die ganze Phase über dem Zwischenstopp); die Anweisungen von Claude haben keine Zeile im
+  Eintrag und bleiben mit Hinweis über dem Zwischenstopp, genau zeigt ihn der aufgeklappte vollständige Verlaufsplan. (2) Rechtsklick in der kompakten
   Liste setzt den Zwischenstopp vor die Phase (wie „Bis hier gezeigt“), zeilengenau geht es im vollständigen Verlaufsplan und im Dialog. (3) Ein Kurzplan
   gilt nur, wenn alle seine Phasen im Plan stehen; fehlende Anweisungen einzelner Phasen ergänzt die automatische Kürzung. (4) Aufforderungen an die
   Lehrkraft stehen im Kurzplan ohne Unterstreichung (dort ist jede Zeile eine). (5) Kein Bearbeiten des Kurzplans im Browser (nicht gewünscht; der Weg
@@ -2695,6 +2714,13 @@ Aufforderungen an die Lehrkraft `__…__`).
   (Bildschirmfotos `unterricht-kompakt-kurzplan-1366.png`/`-390.png`), Pfeil liest die Überschrift des Blocks, geänderter Eintrag → automatisch gekürzt
   mit der neuen unterstrichenen Aufforderung, Grundschule kompakt nur mit Vorlesetext und Arbeitsblatt, alle drei Verweise im vollständigen Verlaufsplan;
   `test/e2e/run.mjs` – Speicherschritt im Prompt, `update_lesson kurzplan_lehrkraft`, `get_lesson`, nicht auf der vollständigen Seite, mit [] gelöscht.
+  Die Gegenprüfung vom 23.11.2026 fand neun Befunde: Zwischenstopp mitten in einer Phase (Offenes stand über ihm), gelbe Verweise der Grundschule fehlten
+  im Kurzplan von Claude, Zeilen nach „--> Nächste Stunde“ fielen der Phase davor zu, leere und doppelte Phasen hießen „automatisch gekürzt“, PATCH kürzte
+  still statt abzulehnen, `get_lesson` forderte in einer Selbstlern-Phase bzw. Vertretung einen Kurzplan an, `#ic-plan` hieß in der kompakten Form wie der
+  vollständige Verlaufsplan, und eine E2E-Prüfung prüfte nichts (jetzt wartet sie auf den Abruf der Sitzung beim Zurückkehren in den Tab) – alle behoben
+  und mit Tests abgedeckt (`teacherplan.test.mjs`: `teacherPlanFromBody`, `filledPhases`, Fortsetzung und Hinweis, „-->“, leere und doppelte Phasen,
+  `refs`, PATCH, `get_lesson` in Selbstlern-Phase und Vertretung, Fortsetzung, `aria-*` und „Material:“ in der DOM-Nachbildung; E2E – hier nicht gelaufen
+  – `inclass.mjs`: Grundschule mit Zwischenstopp vor der Aufforderung an die Lehrkraft und Kurzplan von Claude über PATCH mit gelbem Verweis).
 
 ## 4zn. Anweisungen an die Lehrkraft in den Foliennotizen (Nachtrag 42, Teil 3)
 

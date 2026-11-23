@@ -528,8 +528,14 @@ async function main() {
     ok(!r.isError && r.content[0].text.startsWith("Gespeichert. Kurzplan für die Lehrkraft gespeichert (1 Phase, 1 Anweisung)") && kpLesson.teacherPlan && kpLesson.teacherPlan.phases[0].n === 1 &&
       (await tool("get_lesson", { lesson_id: lessonId })).content[0].text.includes("## Kurzplan für die Lehrkraft (zeigt Unterricks nur in „Ich bin jetzt im Unterricht“)\n- Phase 1: Lehrkraft zeigt die Karikatur"),
       "Claude speichert den Kurzplan für die Lehrkraft; get_lesson zeigt ihn");
-    await tp.evaluate(() => document.dispatchEvent(new Event("visibilitychange"))); await tp.waitForTimeout(800);
-    ok(!(await tp.locator("main").textContent()).includes("KURZPLANTEST"), "… die vollständige Sitzungsseite zeigt ihn nicht");
+    // erst sicherstellen, dass die Seite den neuen Stand wirklich geholt hat (Abgleich beim Zurückkehren in den Tab, Befund der Gegenprüfung) – sonst prüfte
+    // die Zeile danach nichts
+    const [kpRes] = await Promise.all([tp.waitForResponse((res) => res.request().method() === "GET" && new URL(res.url()).pathname.endsWith("/api/teacher/lessons/" + lessonId), { timeout: 15000 }),
+      tp.evaluate(() => document.dispatchEvent(new Event("visibilitychange")))]);
+    const kpSeen = await kpRes.json();
+    await tp.waitForTimeout(400);
+    ok(kpSeen.lesson && kpSeen.lesson.teacherPlan && kpSeen.lesson.teacherPlan.phases[0].steps[0].includes("KURZPLANTEST") && !(await tp.locator("main").textContent()).includes("KURZPLANTEST"),
+      "… die Seite hat ihn beim Zurückkehren in den Tab geholt, die vollständige Sitzungsseite zeigt ihn nicht");
     r = await tool("update_lesson", { lesson_id: lessonId, kurzplan_lehrkraft: [] });
     ok(!r.isError && (await T("GET", "/api/teacher/lessons/" + lessonId)).data.lesson.teacherPlan === null, "… und mit [] wieder gelöscht");
 

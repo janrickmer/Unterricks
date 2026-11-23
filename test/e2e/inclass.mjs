@@ -376,12 +376,35 @@ export async function inClassE2E({ browser, tp, BASE, T, token, ok, OUT, SHOT, g
     "„Ich bin jetzt im Unterricht“: Sitzungspaket „" + PACK_G + "“ in der Spalte der Lehrkraft, darunter klein seine Dateien mit eigenem Download (" + gMembers.join(" | ") + ")");
   d = await dlOf(tp, gPack.getByRole("button", { name: "Herunterladen – " + PACK_G }));
   ok(d.name === PACK_G && (await PDFDocument.load(d.bytes)).getPageCount() === 4, "… „Herunterladen“ des Pakets: eine PDF „" + d.name + "“ mit beiden Vorlagen (4 Seiten mit Leerseiten für den beidseitigen Druck)");
+  // Befund der Gegenprüfung (Nachtrag 42): Zwischenstopp mitten in einer Phase – der Dialog bietet jede Zeile an, hier die Aufforderung an die Lehrkraft in
+  // Phase 2. Ihr Rest steht als „(Fortsetzung)“ unter dem Abdeckblatt, nie offen darüber
+  await tp.locator("#ic-stop").click();
+  const gd0 = tp.locator(".modal", { hasText: "Wo haben Sie aufgehört?" });
+  await gd0.getByRole("radio", { name: "Lehrkraft liest Vorlesetext Regentropfen.pdf vor." }).check();
+  await gd0.getByRole("button", { name: "Zwischenstopp eintragen" }).click();
+  ok(await savedStop(G, "- __Lehrkraft liest [[pdf:" + gVor.id + "|Vorlesetext]] vor.__"), "Grundschule: Zwischenstopp mitten in Phase 2 (vor der Aufforderung an die Lehrkraft) gespeichert");
+  await tp.locator("#ic-plan .covered .icp-cont").waitFor({ timeout: 15000 });
+  const gSplit = await tp.evaluate(() => { const b = (sel) => [...document.querySelectorAll(sel)].map((x) => [x.querySelector(".icp-head").textContent, [...x.querySelectorAll(".icp-step")].map((s) => s.textContent)]);
+    return { above: b("#ic-plan > .icp-phase"), below: b("#ic-plan .covered .icp-phase") }; });
+  ok(JSON.stringify(gSplit.above.map((x) => x[0])) === JSON.stringify(["1) Ankommen im Sitzkreis (5 Min.)", "2) Erzählung (15 Min., Sitzkreis)"]) && gSplit.above[1][1].length === 0 &&
+    gSplit.below[0][0] === "2) Erzählung (15 Min., Sitzkreis) (Fortsetzung)" && gSplit.below[0][1].length === 1 && gSplit.below[0][1][0].startsWith("Lehrkraft liest Vorlesetext Regentropfen.pdf") &&
+    gSplit.below[1][0] === "3) Arbeitsblatt (15 Min., Einzelarbeit)" && !(await tp.locator("#ic-plan > .icp-phase", { hasText: "Lehrkraft liest" }).count()),
+    "Zwischenstopp mitten in der Phase: über ihm nur, was davor steht; die offene Aufforderung an die Lehrkraft als „(Fortsetzung)“ unter dem Abdeckblatt (" + JSON.stringify(gSplit).slice(0, 200) + ")");
   // Zwischenstopp per Dialog der Grundschule, gespeichert; Hausaufgabe dasselbe Feld
   await tp.locator("#ic-stop").click();
   const gd = tp.locator(".modal", { hasText: "Wo haben Sie aufgehört?" });
   await gd.getByRole("radio", { name: "3) Arbeitsblatt (15 Min., Einzelarbeit)" }).check();
   await gd.getByRole("button", { name: "Zwischenstopp eintragen" }).click();
   ok(await savedStop(G, "**3) Arbeitsblatt (15 Min., Einzelarbeit)**") && await tp.locator("#ic-plan .stopfield").count() === 1, "Grundschule: „Zwischenstopp eintragen …“ (Dialog der Grundschule) – gespeichert, in der kompakten Ansicht sichtbar");
+  // Befund der Gegenprüfung: Kurzplan von Claude in der Grundschule – der gelbe Verweis der Aufforderung an die Lehrkraft bleibt anklickbar (Zeile „Material:“)
+  await T("PATCH", "/api/teacher/lessons/" + G, { teacherPlan: [{ n: 2, steps: ["Lehrkraft liest den Vorlesetext vor und legt dabei die Bildkarten in die Mitte."] }] });
+  await tp.evaluate(() => document.dispatchEvent(new Event("visibilitychange")));
+  await tp.locator("#ic-plan-src", { hasText: "Kurzplan von Claude" }).waitFor({ timeout: 15000 });
+  const gP2 = tp.locator('#ic-plan .icp-phase[data-phase="2"]').first();
+  ok(JSON.stringify(await gP2.locator(".icp-step").allTextContents()) === JSON.stringify(["Lehrkraft liest den Vorlesetext vor und legt dabei die Bildkarten in die Mitte."]) &&
+    (await gP2.locator(".icp-refs").textContent()).startsWith("Material: ") && JSON.stringify(await gP2.locator(".icp-refs a.pdfref").evaluateAll((xs) => xs.map((x) => x.firstChild.textContent))) === JSON.stringify(["Vorlesetext Regentropfen.pdf"]) &&
+    (await tp.locator("#ic-plan").getAttribute("aria-label")) === "Verlaufsplan kompakt" && (await tp.locator("#ic-plan").getAttribute("aria-describedby")) === "ic-plan-src",
+    "Grundschule, Kurzplan von Claude: Anweisung von Claude, darunter der gelbe Verweis „Vorlesetext Regentropfen.pdf“; der Verlaufsplan heißt „Verlaufsplan kompakt“, der Satz darüber beschreibt ihn");
   const ghw = tp.locator("#inclass #gs-homework");
   await ghw.fill("Male zwei Regentropfen.");
   await tp.locator("#inclass #gs-homework-field .save-state", { hasText: "Gespeichert" }).waitFor({ timeout: 10000 });

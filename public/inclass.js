@@ -11,7 +11,8 @@ import { h, clear, nn, toast, errToast, busy, modal, copyText, fmtBytes, fileIco
 import { T, tapi } from "./teacher.js";
 import { formatCode, hasStop, parsePortalMarkup, webUrlLabel, packMetaText, PACK_TITLE } from "./shared.js";
 import { paintPortalPreview, runsNodes, stopField } from "./portalview.js";
-import { ARROW_NAME, LIVE_POLL_MS, STAMP_POLL_MS, PRINT_TAG, materialColumns, materialKey, liveArrow, arrowText, liveSlideText, compactPlan, compactLabel, FULL_PLAN_LABEL } from "./inclasslib.js";
+import { ARROW_NAME, LIVE_POLL_MS, STAMP_POLL_MS, PRINT_TAG, materialColumns, materialKey, liveArrow, arrowText, liveSlideText, compactPlan, compactLabel, FULL_PLAN_LABEL, COMPACT_CONT,
+  COMPACT_PARTIAL, COMPACT_REFS } from "./inclasslib.js";
 
 const SCROLL_QUIET_MS = 12000;   // so lange nach dem letzten Tippen, Klicken oder Scrollen der Lehrkraft rollt die Seite nie von selbst zur Phase
 
@@ -231,9 +232,14 @@ export function inClassView(api) {
         target = h("div", { class: "covered", "aria-label": gym ? "Noch nicht aufgedeckt (nach dem Zwischenstopp)" : "Noch nicht geschafft (nach dem Zwischenstopp)" });
         box.append(target);
       } else if (it.type === "next") target.append(h("p", { class: "pl icp-next", dataset: { line: String(it.line) } }, runsOf(it.runs)));
-      else target.append(h("div", { class: "icp-phase" + (it.auto ? " icp-auto" : ""), dataset: { line: String(it.line), phase: String(it.n) } },
-        h("p", { class: "pl icp-head" }, runsOf(it.head)),
-        it.steps.length ? h("ul", { class: "icp-steps" }, it.steps.map((x) => h("li", { class: "icp-step" + (x.kind === "gist" ? " icp-gist" : "") }, runsOf(x.runs)))) : null));
+      else target.append(h("div", { class: "icp-phase" + (it.auto ? " icp-auto" : "") + (it.cont ? " icp-cont" : ""), dataset: { line: String(it.line), phase: String(it.n) } },
+        // der Rest einer Phase nach dem Zwischenstopp (unter dem Abdeckblatt): dieselbe Überschrift mit „(Fortsetzung)“
+        h("p", { class: "pl icp-head" }, runsOf(it.head), it.cont ? h("span", { class: "icp-contmark", text: " " + COMPACT_CONT }) : null),
+        it.steps.length ? h("ul", { class: "icp-steps" }, it.steps.map((x) => h("li", { class: "icp-step" + (x.kind === "gist" ? " icp-gist" : "") }, runsOf(x.runs)))) : null,
+        // Grundschule, Kurzplan von Claude: die gelben Verweise der Aufforderungen an die Lehrkraft (Claude schreibt schlichten Text)
+        it.refs ? h("p", { class: "small icp-refs" }, COMPACT_REFS + " ", it.refs.map((r, k) => [k ? " · " : null, runsOf([r])])) : null,
+        // Anweisungen von Claude für eine Phase, in der der Zwischenstopp liegt
+        it.partial ? h("p", { class: "small icp-partial", text: COMPACT_PARTIAL }) : null));
     }
   }
   function paintPlan() {
@@ -243,6 +249,9 @@ export function inClassView(api) {
     keepFocus(planBox, linkKey(planBox), () => { if (!has) clear(planBox); else if (compact) paintCompact(planBox, cp); else api.paintPlan(planBox); });
     keepFocus(fullBox, linkKey(fullBox), () => { if (compact) api.paintPlan(fullBox); else clear(fullBox); });
     planBox.classList.toggle("ic-compact", compact); more.classList.toggle("hidden", !compact); srcLine.classList.toggle("hidden", !compact);
+    // der Name sagt, dass hier die kompakte Liste steht, der Satz darüber (welche Fassung) beschreibt sie (Befund der Gegenprüfung)
+    planBox.setAttribute("aria-label", (compact ? "Verlaufsplan kompakt" : "Verlaufsplan") + (gym ? " (Schulportal-Eintrag)" : ""));
+    if (compact) planBox.setAttribute("aria-describedby", "ic-plan-src"); else planBox.removeAttribute("aria-describedby");
     srcLine.textContent = compact ? compactLabel(cp, !gym) : "";
     srcLine.classList.toggle("ic-fromclaude", compact && cp.mode === "claude");
     planBox.classList.toggle("hidden", !has); emptyPlan.classList.toggle("hidden", has);

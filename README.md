@@ -219,7 +219,8 @@ gleich in `public/_headers`, im Worker und – für GitHub Pages – in `scripts
   Ablasshandel kritisiert hat.“). Unterricks zeigt ihn **nur in „Ich bin jetzt im Unterricht“** statt des langen Verlaufsplans (siehe dort).
   Connector: `update_lesson` mit `kurzplan_lehrkraft` ([] = löschen; die Antwort nennt Phasen, die es im Plan nicht gibt), `get_lesson` zeigt ihn
   im Abschnitt „Kurzplan für die Lehrkraft“ samt Hinweis, wenn die Planung danach geändert wurde; ändert `save_schulportal_entry` bzw.
-  `save_verlaufsplan` die Planung so, dass er nicht mehr passt, erinnert die Antwort daran. Beim Umbau in eine Selbstlern-Phase bleibt er.
+  `save_verlaufsplan` die Planung so, dass er nicht mehr passt, erinnert die Antwort daran. Beim Umbau in eine Selbstlern-Phase bleibt er (solange sie
+  bzw. eine bestätigte Vertretung gilt, fordert `get_lesson` keinen neuen an).
 * **Feibeitsblatt-Verbindung:** Türcode und Feibeitsblatt-Passwort nur einmal eingeben (Haken „Verbindung verschlüsselt in meinem
   Benutzerkonto speichern“). Danach verbindet sich Unterricks auf jedem Gerät, auf dem Sie sich mit Ihrem Passwort anmelden,
   automatisch; Geräte, die schon vorher angemeldet waren, entsperren sie einmal mit dem Unterricks-Passwort. Der Server sieht dabei
@@ -397,7 +398,9 @@ gleich in `public/_headers`, im Worker und – für GitHub Pages – in `scripts
      beim Planen gleich mit (je Phase 1–3 kurze Anweisungen; Connector: `update_lesson` mit `kurzplan_lehrkraft`, `get_lesson` zeigt ihn). Gibt es
      keinen (ältere Sitzungen) oder passt er nicht mehr, weil der Schulportal-Eintrag danach geändert wurde, kürzt Unterricks selbst: die Phasen mit Ihren
      unterstrichenen Aufgaben (__…__), bei einer Phase ohne solche Zeile ihr erster Stichpunkt, gekürzt. Ein kleiner Satz darüber sagt, was Sie sehen
-     („Kurzplan von Claude“ bzw. „Automatisch gekürzt – …“). „--> Nächste Stunde“ und der Zwischenstopp stehen an ihrer Stelle; der **vollständige
+     („Kurzplan von Claude“ bzw. „Automatisch gekürzt – …“). „--> Nächste Stunde“ und der Zwischenstopp stehen an ihrer Stelle; liegt der
+     Zwischenstopp mitten in einer Phase, steht darüber nur ihr Anfang und der offene Rest als „(Fortsetzung)“ darunter (die Anweisungen von Claude
+     gelten für die ganze Phase und tragen dann einen kurzen Hinweis). Der **vollständige
      Verlaufsplan** ist darunter aufklappbar („Vollständigen Verlaufsplan anzeigen“). Den Kurzplan sehen Sie nur hier – nicht in der vollständigen
      Ansicht, nicht in „Alle Unterlagen dieser Sitzung“, und Schüler:innen, Eltern und Beamer nie; er kommt mit „Sitzung als Datei“ und in die Sicherung.
      Ein **grüner Pfeil** am rechten Rand („jetzt“) zeigt auf die
@@ -654,8 +657,9 @@ der **Podcast für den kommenden Unterricht** (derselbe wie auf der Startseite �
   Sitzungen). Kein
   Schulportal-Eintrag, keine Präsentation, kein Sitzungscode.
 * **„Ich bin jetzt im Unterricht“ (wie am Gymnasium, Nachtrag 35):** ganz oben in der Sitzung; kompakt mit dem **Verlaufsplan** – seit Nachtrag 42
-  je Phase nur, was Sie tun (der „Kurzplan für die Lehrkraft“, den Claude beim Planen schreibt; ohne ihn die unterstrichenen Aufforderungen samt
-  gelben PDF-Verweisen bzw. der erste Stichpunkt), der vollständige Verlaufsplan aufklappbar (PDF-Verweise anklickbar, Zwischenstopp per
+  je Phase nur, was Sie tun (der „Kurzplan für die Lehrkraft“, den Claude beim Planen schreibt – die gelben PDF-Verweise Ihrer unterstrichenen
+  Aufforderungen stehen darunter als „Material: …“; ohne ihn die unterstrichenen Aufforderungen samt gelben PDF-Verweisen bzw. der erste
+  Stichpunkt), der vollständige Verlaufsplan aufklappbar (PDF-Verweise anklickbar, Zwischenstopp per
   „Zwischenstopp eintragen …“, Rechtsklick oder Antippen einer Phase bzw. Zeile) –, dem **Material** als Tabelle – links „Für die
   Kinder sichtbar“ (mit dem Hinweis, ob Eltern es sehen), rechts „Nur für die Lehrkraft“ samt allem, was Sie ausdrucken (Arbeitsblätter mit
   „Auch ausdrucken“, Konzentrationsaufgabe, Bildkarten – markiert **„zum Ausdrucken“**) – und der **Hausaufgabe** (dasselbe Feld). Ohne Präsentation

@@ -19,7 +19,7 @@ import { validateBring, cleanBring, bringStore, bringRead, BRING_REV_SQL } from 
 import { selbstlernHomeworkNow } from "../public/selbstlern.js";
 import { videoSlidesData } from "../public/videoslides.js";
 import { cleanShareText, shareTextOf, shareTextStore } from "../public/sharelib.js";
-import { teacherPlanOf, teacherPlanStore, cleanTeacherPlanPhases, TEACHER_PLAN_LIMITS } from "../public/teacherplan.js";
+import { teacherPlanOf, teacherPlanStore, cleanTeacherPlanPhases, teacherPlanFromBody, TEACHER_PLAN_LIMITS } from "../public/teacherplan.js";
 
 export const LIMITS = { title: 200, topic: 500, ideas: 20000, homework: 10000, portal: 30000, message: 30000, answer: 100000, textMaterial: 200000, parentSummary: 800, parentNote: 2000, teacherSummary: TEACHER_SUMMARY_MAX };
 
@@ -181,15 +181,14 @@ function lessonFields(body, partial) {
   if (partial && body.shareText !== undefined) {
     try { f.share_text = cleanShareText(body.shareText, true); } catch (e) { throw bad(e.message); }
   }
-  // Kurzplan für die Lehrkraft (Nachtrag 42): [{n, steps}] (der Connector prüft kurzplan_lehrkraft vorher streng); [] bzw. null = löschen. Speicherform mit
+  // Kurzplan für die Lehrkraft (Nachtrag 42): [{n, steps}] (der Connector prüft kurzplan_lehrkraft vorher genauso); [] bzw. null = löschen. Streng wie im
+  // Connector (Befund der Gegenprüfung): je Phase 1–3 Texte mit je höchstens 240 Zeichen – Ungültiges → 400, nie still gekürzt. Speicherform mit
   // Fingerabdruck der Planung und Zeitpunkt setzt updateLesson
   if (partial && body.teacherPlan !== undefined) {
     if (body.teacherPlan !== null && !Array.isArray(body.teacherPlan)) throw bad("Der Kurzplan für die Lehrkraft ist eine Liste [{n, steps}].");
     const raw = body.teacherPlan || [];
     if (raw.length > TEACHER_PLAN_LIMITS.phases) throw bad("Der Kurzplan für die Lehrkraft hat zu viele Phasen (höchstens " + TEACHER_PLAN_LIMITS.phases + ").");
-    const ps = cleanTeacherPlanPhases(raw);
-    if (ps.length !== raw.length) throw bad("Der Kurzplan für die Lehrkraft ist ungültig: je Phase eine Nummer (1–99, jede nur einmal) und 1 bis " + TEACHER_PLAN_LIMITS.steps + " Anweisungen.");
-    f.teacher_plan = ps;
+    try { f.teacher_plan = teacherPlanFromBody(raw); } catch (e) { throw bad("Der Kurzplan für die Lehrkraft ist ungültig: " + e.message); }
   }
   // Gegenstände zum Mitbringen (Nachtrag 28): die ganze Liste [{item, note}] – geprüft wie im Browser (bring.js), Fehler als Meldung statt still zu kürzen
   if (partial && body.bring !== undefined) {
