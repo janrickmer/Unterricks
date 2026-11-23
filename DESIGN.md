@@ -681,6 +681,28 @@ Der Kopf jeder Seite: Fach, Kurs und Stand auf einen Blick.
 - Bedienung: Pfeiltasten (auch Bild auf/ab, Pos1/Ende), solange das Fenster oder ein Knopf darin den Fokus hat; Wischen nach links/rechts über die Folie (senkrecht scrollt die Seite, `touch-action: pan-y pinch-zoom`). Eine unsichtbare Live-Region sagt „Folie 3 von 7“ an. Ohne Folienbilder (ältere Präsentation) nur der Satz „Die Folien lassen sich hier nicht anzeigen …“ in `--muted` und der Download.
 - **Videofolie** (Nachtrag 38): unter der Leiste (im Vollbild ebenso, hell auf dunkel) `p.sv-video` – rotes ▶, der Link „Video auf YouTube ansehen: „…“ (Ausschnitt 0:30–0:45)“ in 700 (neuer Tab, bricht um) und darunter eingerückt „Der Link öffnet YouTube (Google) in einem neuen Tab.“ (.9rem, `--muted`); nur auf Videofolien, sonst verborgen.
 
+### Material erscheint mit seiner Materialfolie (`.item.fresh`, `.badge.neu`, `.reveal-note`, Nachtrag 44)
+- **Schüler:innen:** Neu freigegebenes Material steht ohne Neuladen in der Liste „Material“ an seinem Platz (Feibeitsblätter vor den Dateien) – die übrigen
+  Zeilen bleiben stehen, der Fokus auch. Die neue Zeile trägt einen 4px-Streifen innen links in der Fachfarbe (`inset 4px 0 0 var(--fach)`, Kante Fach 55 % in
+  `--line`) und unter dem Titel das Abzeichen „neu“ (`--fach-t`/`--fach-text` wie `.slv-typ`); mit Bewegung legt sie sich wie aufgedeckt hin (`aufdecken`,
+  .45s), ohne Bewegung nur die Markierung. Eine unsichtbare, höfliche Live-Region (`#mat-live`) sagt „Neues Material: „…“.“ an. Kein Hinweis auf wartendes
+  Material – ohne freigegebenes Material steht wie bisher „Deine Lehrkraft hat für diese Sitzung noch kein Material freigegeben.“
+- **Lehrkraft** (Materialkasten, Feibeitsblätter der Sitzung, „Ich bin jetzt im Unterricht“): unter Material mit Materialfolie eine kleine Zeile `.reveal-note`
+  (.85rem): wartend gelb hinterlegt (`--gelb-t` mit Kante wie `.badge.hw`) „Erscheint bei den Schüler:innen erst, wenn Folie 3 (Materialfolie) live gezeigt
+  wird“ mit „Jetzt freigeben“ (`btn small`, hier ≥ 44px); freigegeben ruhig in `--muted` „Für Schüler:innen sichtbar seit 10:12 Uhr – Materialfolie live
+  gezeigt“ (bzw. „– von Ihnen freigegeben“). Ohne Materialfolie keine Zeile.
+
+### Feibeitsblatt aus einer früheren Sitzung (`.item.fbagain`, `.fba-*`, `public/fbagain.js`, Nachtrag 45)
+- Eine Zeile der Liste „Material“ wie jedes Feibeitsblatt (FB-Symbol oben ausgerichtet), mit dem Abzeichen „Wieder gebraucht“ (`--gelb-t` wie `.badge.hw`) und
+  einem Satz in du-Form. Darunter das **Feld für die Zwischenstand-PDF** (`label.fba-pick`): gestrichelte 2px-Kante `--line-ui`, Fläche `--surface-2`, Radius
+  `--radius-s`, mindestens 54px hoch, Upload-Symbol und „Zwischenstand-PDF auswählen“ in 700; das Dateifeld liegt unsichtbar darüber (Tastatur: Tab, Enter bzw.
+  Leertaste), Fokus als 3px-Rahmen `--focus` um das Feld, Ziehen und Ablegen färbt es in `--fach-t`. Mit gewählter Datei durchgezogene Kante, „Andere Datei
+  wählen“ und darunter Haken (`--ok`), Dateiname und Größe; Fehler in `.err` (du-Form).
+- Erst dann der Primärknopf „Im Feibeitsblatt weiterarbeiten“ (Pfeil, 44px); darunter die Statuszeile (`role="status"`, 600; Erfolg in `--ok`). Ganz unten klein
+  (.85rem, `--muted`) „Feibeitsblatt-Code GWT-4KQ“ (Code in Mono 800 und `--text`) und der kleine Knopf „Von vorn beginnen“ (`btn ghost small`, aber ≥ 44px).
+- **Lehrkraft:** in „Feibeitsblätter dieser Sitzung“ unter dem Code das Abzeichen „Wieder gebraucht“ mit dem Satz „auch mit einer früheren Sitzung dieses
+  Kurses verknüpft – …“ in der Schrift der Zeile.
+
 ### Druckaufträge für den nächsten Arbeitstag (`.printnext`, `public/printnext.js`)
 - Karte ganz oben auf beiden Startseiten (Gymnasium und Übersicht „Grundschule“), direkt unter dem Kopfband und vor dem Wochenkalender. Fläche `--orange-t` mit 2px-Kante `--orange` (keine Seitenbalken); links das Drucker-Symbol (`icon("printer")`) weiß auf einem orangen Schild (48px, Radius 12px, `aria-hidden`), daneben h2 „Druckaufträge für den nächsten Arbeitstag“ und darunter in 700 der Tag („für morgen, Mittwoch, 19.11.2026“ bzw. der Satz zum übersprungenen Tag); rechts der Primärknopf „Alle Dateien herunterladen“ (auf dem Handy volle Breite), darunter die Statuszeile in 700.
 - Je Sitzung eine Gruppe mit Haarlinie oben (`--orange` 30 % in `--line`): h3 als Link zur Sitzung (ganze Zeile, mindestens 44px) mit Beginn in `--muted`, Fach-Schild `.ftag` („Grundschule“ grün), Klasse bzw. Kurs und Titel; rechts „In der Sitzung bearbeiten“ (`btn ghost` mit Stift). Dateien wie in der Druckliste (`.item.printrow`: Dateisymbol, Druckname in 700, Größe bzw. Stand der Gestaltung in `--muted`), je Zeile „Herunterladen“ (`btn`, 44px). Darunter klein „Ohne Druckaufträge: …“ und der Hinweis zu „Alle Dateien herunterladen“ (seit Nachtrag 36 eine ZIP-Datei je Tag; wie man sie am iPad öffnet).

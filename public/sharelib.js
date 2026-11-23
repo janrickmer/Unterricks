@@ -66,8 +66,9 @@ export function shareSessions(rows, lessons) {
 export const normWords = (t) => " " + str(t).toLowerCase().normalize("NFC").replace(/[^\p{L}\p{N}]+/gu, " ").trim() + " ";
 const UNTERRICKS_WORDS = /unterricks|sitzungscode|\bcode\b|qr/i;
 /* lines = Überschrift der Codefolie (wie gespeichert), titles = Namen der Materialien und Feibeitsblätter der Sitzung → true = Materialfolie (bleibt) */
-// allgemeine Wörter, die als Titel eines Materials allein nichts beweisen („Die Hausaufgabe und das Material findest du in Unterricks.“)
-const GENERIC_TITLES = new Set(["material", "materialien", "hausaufgabe", "hausaufgaben", "aufgabe", "aufgaben", "arbeitsauftrag", "text", "texte", "video", "link", "links", "unterricks", "code", "quellen", "tafelbild"]);
+// allgemeine Wörter, die als Titel eines Materials allein nichts beweisen („Die Hausaufgabe und das Material findest du in Unterricks.“) – auch für „Material
+// erscheint mit seiner Materialfolie“ (Nachtrag 44, public/reveal.js): Material mit einem solchen Titel wartet nie auf eine Folie
+export const GENERIC_TITLES = new Set(["material", "materialien", "hausaufgabe", "hausaufgaben", "aufgabe", "aufgaben", "arbeitsauftrag", "text", "texte", "video", "link", "links", "unterricks", "code", "quellen", "tafelbild"]);
 export function isMaterialSlide(lines, titles = []) {
   const head = (lines || []).map(str).join(" ").trim();
   if (!head) return false;

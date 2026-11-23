@@ -25,6 +25,8 @@ import { inClassToggle } from "./inclassbar.js";
 import { lessonDocsCard } from "./lessondocs.js";
 import { videoSlidesOf, videoAt, videoName, lessonVideos, videoPromptSection } from "./videoslides.js";
 import { videosPanel } from "./videopanel.js";
+import { teacherGate, revealStateKey } from "./reveal.js";
+import { revealBadge } from "./revealui.js";
 
 const MODES = [["planning", "Planung"], ["ideas", "Ideen weiterentwickeln"], ["material", "Material erstellen"]];
 
@@ -433,8 +435,22 @@ export async function sessionPage(id) {
     presPromptBtn, presPromptOut);
 
   /* ======================= Materialien (materialbox.js) ======================= */
+  /* Material erscheint mit seiner Materialfolie (Nachtrag 44, Teil 1): an Material mit eigener Materialfolie ein kleiner Hinweis – wartet noch (ab welcher Folie)
+     bzw. seit wann es die Schüler:innen sehen –, wartendes mit „Jetzt freigeben“. Gerechnet wie beim Server (public/reveal.js); ohne Materialfolie kein Hinweis */
+  const gateNow = () => teacherGate({ lesson: L(), files: st.files, sheets: st.sheets, sub: st.sub });
+  const revealSlots = new Map();   // Code → Platz für den Hinweis an einem Feibeitsblatt (Abschnitt „Feibeitsblätter dieser Sitzung“)
+  function revealReleased(rv) { if (rv) L().reveals = rv; paintFiles(); paintSheetReveals(); icEmit("files"); }
+  function paintSheetReveals() {
+    const g = gateNow();
+    for (const [code, slot] of [...revealSlots]) {
+      if (!slot.isConnected) { revealSlots.delete(code); continue; }
+      const s = st.sheets.find((x) => x.code === code);
+      clear(slot).append(...nn(s ? revealBadge({ gate: g, ref: "s:" + code, title: s.title, lessonId: id, onReleased: revealReleased }) : null));
+    }
+  }
+  const revealFileBadge = (f) => (f.area === "student" && f.source !== "notfall" ? revealBadge({ gate: gateNow(), ref: "f:" + f.id, title: f.name, lessonId: id, onReleased: revealReleased }) : null);
   // Nachtrag 42: Sitzungspakete ordnen ihre Materialien nach dem Schulportal-Eintrag (auch ungespeichert)
-  const mbox = materialBox({ lessonId: id, st, L, onPaint: () => icEmit("files"), plan: () => (portalTA ? portalTA.value : L().portal || "") });
+  const mbox = materialBox({ lessonId: id, st, L, fileBadge: revealFileBadge, onPaint: () => icEmit("files"), plan: () => (portalTA ? portalTA.value : L().portal || "") });
   const { filesCard, printCard, paintFiles, paintPrint, filesKey, openActs } = mbox;
   packSync = () => mbox.syncPacks();
 
@@ -945,7 +961,10 @@ export async function sessionPage(id) {
     const sheetList = h("div", { class: "list" });
     if (!st.sheets.length) sheetList.append(h("p", { class: "muted small", text: "Noch kein Feibeitsblatt in dieser Sitzung." }));
     for (const s of st.sheets) sheetList.append(h("div", { class: "item" }, h("div", { class: "ficon fb", "aria-hidden": "true", text: "FB" }),
-      h("div", { class: "main" }, h("div", { class: "name", text: s.title }), notfallLine(s), h("div", { class: "meta" }, "Code ", h("strong", { class: "mono", text: formatCode(s.code) }), s.kind === "escape" ? " · Finale des Escape-Rooms (Schüler:innen gelangen über den Tunnel dorthin)" : " · für Schüler:innen sichtbar")),
+      h("div", { class: "main" }, h("div", { class: "name", text: s.title }), notfallLine(s), h("div", { class: "meta" }, "Code ", h("strong", { class: "mono", text: formatCode(s.code) }), s.kind === "escape" ? " · Finale des Escape-Rooms (Schüler:innen gelangen über den Tunnel dorthin)" : " · für Schüler:innen sichtbar"),
+        // Nachtrag 45: auch mit einer früheren Sitzung des Kurses verknüpft – die Schüler:innen arbeiten mit ihrem Zwischenstand weiter
+        s.again && s.kind !== "escape" ? h("div", { class: "meta fbagain-t" }, h("span", { class: "badge again", text: "Wieder gebraucht" }), " auch mit einer früheren Sitzung dieses Kurses verknüpft – die Schüler:innen öffnen es mit ihrer Zwischenstand-PDF oder beginnen von vorn") : null,
+        s.kind === "escape" ? null : (() => { const slot = h("div", { class: "reveal-slot" }); revealSlots.set(s.code, slot); return slot; })()),
       h("div", { class: "acts" }, h("button", { class: "btn small primary", type: "button", disabled: fb.connected ? null : true, title: fb.connected ? "" : "Erst verbinden", onclick: () => showSubmissions(s) }, "Abgaben ansehen"),
         h("button", { class: "btn small", type: "button", onclick: async () => toast((await copyText(formatCode(s.code))) ? "Code kopiert." : "Kopieren nicht möglich.", "ok") }, "Code kopieren"),
         h("button", { class: "btn small ghost danger", type: "button", "aria-label": "Aus der Sitzung entfernen", onclick: async () => {
@@ -988,6 +1007,7 @@ export async function sessionPage(id) {
       linkBox,
       h("h3", { style: { marginTop: "1rem" }, text: "Entwürfe" }), drafts.length ? draftList : h("p", { class: "muted small", text: "Keine offenen Entwürfe. Die KI schlägt in der Planung bei passender Gelegenheit ein Feibeitsblatt vor; den Entwurf erzeugen Sie hier." }),
       h("div", { class: "row" }, h("div", { class: "grow" }, wish), genBtn)));
+    paintSheetReveals();   // Hinweise zur Materialfolie (Nachtrag 44)
     icEmit("files");   // Feibeitsblätter der Sitzung (Ansicht für den Unterricht)
   }
 
@@ -1499,6 +1519,9 @@ export async function sessionPage(id) {
     stopNext: () => stopNext, openActs, packs: () => mbox.packs(), packActs: mbox.packActs, homework: hwCard, annotated: (p) => st.files.find((f) => f.notesOf === p.id && f.area !== "archive") || null,
     // auch eine Präsentation, deren Folienbilder noch fehlen (die kompakte Ansicht sagt es; live starten nur „ready“ – startLive nimmt curPres)
     pres: () => st.files.find((f) => f.area === "presentation") || null,
+    // Material erscheint mit seiner Materialfolie (Nachtrag 44): Hinweis an Material für Schüler:innen und an Feibeitsblättern, Schlüssel des Stands
+    badge: revealFileBadge, sheetBadge: (s) => revealBadge({ gate: gateNow(), ref: "s:" + s.code, title: s.title, lessonId: id, onReleased: revealReleased }),
+    revealKey: () => revealStateKey(gateNow()),
     startLive: (focusAfter) => startLive(focusAfter),
     // Stand des Servers vergleichen (…/stamp) und bei einer Änderung die Sitzung neu laden (refreshLesson)
     checkStamp: async () => { const s = await tapi("GET", "/api/teacher/lessons/" + id + "/stamp"); if (s.stamp !== lessonStamp) await refreshLesson(); } };
@@ -1545,6 +1568,8 @@ export async function sessionPage(id) {
       // Präsentationskarte nur neu, wenn sie etwas anderes zeigt – nie unter dem Fokus und nie während des Hochladens
       if (presSig(st.files) !== presPainted && !pendingPdf && !presCard.contains(document.activeElement)) { st.slides = null; paintPres(); }
       if (r.drafts.length !== st.drafts.length || r.sheets.length !== st.sheets.length) { st.drafts = r.drafts; st.sheets = r.sheets; paintFb(); ensureNotfall(st.sheets.filter((x) => !notfallFile(x.code)).map((x) => x.code)); }
+      // Materialfolie live gezeigt bzw. Material freigegeben (Nachtrag 44, z. B. am iPad im Unterricht): die Hinweise am Material folgen
+      if (JSON.stringify(r.lesson.reveals || null) !== JSON.stringify(L().reveals || null)) { L().reveals = r.lesson.reveals || null; paintFiles(); paintSheetReveals(); icEmit("files"); }
       const subKey = (x) => (x ? x.status + ":" + x.updatedAt : "");
       const nextChanged = (r.teacherNextDate || null) !== (d.teacherNextDate || null);
       d.teacherNextDate = r.teacherNextDate || null;

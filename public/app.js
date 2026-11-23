@@ -7,6 +7,7 @@ import { timerBand } from "./timerband.js";
 import { renderMarkdown } from "./markdown.js";
 import { slideViewer } from "./slideviewer.js";
 import { lazy, isModuleError, pageFailed, navCheckDue, navBlockers, beforeRoute, waitPage, holdReload, beforeReload, installUpdateChecks } from "./update.js";
+import { fbAgainItem } from "./fbagain.js";
 
 // Nie in fremden Seiten eingebettet anzeigen: Auf GitHub Pages fehlen die Schutz-Header (frame-ancestors gilt nicht als <meta>)
 if (window.top !== window.self) { document.documentElement.hidden = true; throw new Error("Unterricks lässt sich nicht in andere Seiten einbetten."); }
@@ -348,6 +349,12 @@ async function studentRoom(lessonId) {
       } }] });
   }
   paintKi();
+  // Material erscheint mit seiner Materialfolie (Nachtrag 44): Das Durable Object schickt nach einer gezeigten Materialfolie bzw. einer Freigabe von Hand den
+  // Stand mit revealAt (nur ein Zeitpunkt). Ist er neuer als der Stand der Daten, lädt die Seite die Daten neu – ohne Neuladen der Seite; zufällig bis zu 2 s
+  // später, damit nicht alle iPads der Klasse im selben Moment fragen
+  let revealSeen = Number(d.revealAt) || 0, revealT = null;
+  const revealSoon = () => { if (!revealT) revealT = setTimeout(() => { revealT = null; refresh(); }, Math.round(Math.random() * 2000)); };
+  onLeave(() => clearTimeout(revealT));
   if (selbst) {
     // Ablaufplan der Selbstlern-Phase; die Hausaufgabe gleich darunter (von Anfang an sichtbar)
     main.classList.add("slv-room");
@@ -394,6 +401,7 @@ async function studentRoom(lessonId) {
     function showState(st) {
       if (!st || typeof st !== "object") return;
       tband.set(st.active ? st.timer : null);   // vor der Prüfung von v: der Timer ändert v nicht, jede Nachricht gleicht die Restzeit neu ab
+      if (Number.isFinite(st.revealAt) && st.revealAt > revealSeen) { revealSeen = st.revealAt; revealSoon(); }   // ebenso: Material freigegeben (Nachtrag 44)
       if (st.v !== undefined && st.v === lastV && st.active) return;
       lastV = st.v;
       const my = ++seq;   // ein spät geladenes Folienbild überschreibt nie einen neueren Stand
@@ -480,6 +488,9 @@ async function studentRoom(lessonId) {
       const kind = (x) => (x.selbstlern ? (x.selbstlern.analog ? "a" : "d") : "n");
       if (kind(r) !== kind(d)) { if (location.hash === "#/schueler/s/" + lessonId) route(); return; }
       pres = r.presentation; renderPres(); paintHomework(r.homework); aiHelp = r.aiHelp; paintKi(); if (slv) slv.update(r); pending.splice(0, pending.length, ...(r.changesAt || [])); plan();
+      // Material (Nachtrag 44): neu Freigegebenes erscheint ohne Neuladen der Seite (unveränderte Zeilen bleiben stehen – samt Fokus und aufgeklapptem Text)
+      if (Number(r.revealAt) > revealSeen) revealSeen = Number(r.revealAt);
+      paintMats(r);
     } catch {}
   };
   let chT = null;
@@ -490,27 +501,70 @@ async function studentRoom(lessonId) {
   onLeave(() => { clearTimeout(chT); document.removeEventListener("visibilitychange", onVisCh); });
   renderPres();
 
-  // 2) Materialien und Feibeitsblätter
-  const mats = h("div", { class: "list" });
-  // Selbstlern-Phase: Material und Feibeitsblätter der Stationen stehen dort – hier nur das übrige („Weiteres Material“, nur wenn es welches gibt)
-  const inStation = new Set(selbst ? d.selbstlern.stationen.flatMap((x) => [x.fileId, x.code]).filter(Boolean) : []);
-  const sheetsShown = d.sheets.filter((s) => !inStation.has(s.code));
-  for (const s of sheetsShown) mats.append(sheetRow(s));
-  const notfallFiles = d.files.filter((f) => f.notfall), matFiles = d.files.filter((f) => !f.notfall && !inStation.has(f.id));
-  mats.append(...matFiles.map(fileRow));
-  if (!sheetsShown.length && !matFiles.length && !d.selbstlern) mats.append(h("p", { class: "muted", text: "Deine Lehrkraft hat für diese Sitzung noch kein Material freigegeben." }));
-  const goodNotes = (selbst ? d.files.filter((f) => !f.notfall) : matFiles).some((f) => f.kind !== "link");
-  if (!d.selbstlern || sheetsShown.length || matFiles.length) main.append(h("section", { class: "card" }, h("h2", { text: selbst ? "Weiteres Material" : "Material" }), mats,
-    goodNotes ? h("p", { class: "hint", text: "Tipp fürs iPad: Nach dem Herunterladen über „Teilen“ → „GoodNotes“ öffnen und dort bearbeiten." }) : null));
+  // 2) Materialien und Feibeitsblätter – beim Neuladen der Daten neu gezeichnet (Nachtrag 44: Material mit eigener Materialfolie kommt erst mit seiner Folie;
+  // die Seite zeigt nur, was der Server liefert). Zeilen, die gleich bleiben, bleiben stehen (Fokus, aufgeklappter Text); neu Erschienenes wird markiert
+  // („neu“) und in einer höflichen Live-Region angesagt – der Fokus bleibt, wo er ist.
+  const matList = h("div", { class: "list" }), matLive = h("p", { class: "sr-only", role: "status", "aria-live": "polite", id: "mat-live" });
+  const goodHint = h("p", { class: "hint", text: "Tipp fürs iPad: Nach dem Herunterladen über „Teilen“ → „GoodNotes“ öffnen und dort bearbeiten." });
+  const matCard = h("section", { class: "card", "aria-labelledby": "mat-h" }, h("h2", { id: "mat-h", text: selbst ? "Weiteres Material" : "Material" }), matList, matLive);
   // 3) Notfall-Feibeitsblätter (das analoge Arbeitsblatt zu jedem Feibeitsblatt): eigenes Kästchen weiter unten, nur für technische Probleme.
   // Zugeklappt (Wunsch der Lehrkraft vom 13.11.2026): beim Laden immer zu, nichts gemerkt – erst aufgeklappt erscheinen der rote Hinweis
-  // und die PDF-Dateien, damit die Schüler:innen zuerst das Material öffnen und nicht versehentlich ein Notfall-Feibeitsblatt
-  if (notfallFiles.length) main.append(h("section", { class: "card notfallbox", "aria-labelledby": "nf-h" },
+  // und die PDF-Dateien, damit die Schüler:innen zuerst das Material öffnen und nicht versehentlich ein Notfall-Feibeitsblatt (beim Neuladen der Daten bleibt es, wie es ist)
+  const nfList = h("div", { class: "list" });
+  const nfCard = h("section", { class: "card notfallbox", "aria-labelledby": "nf-h" },
     h("details", { class: "nfdetails" },
       h("summary", null, h("h2", { id: "nf-h", text: NOTFALL_TITLE })),
       h("div", { class: "nfbody" },
         h("p", { class: "alarm", role: "note" }, icon("alert"), h("span", null, h("strong", { text: "Achtung! " }), NOTFALL_NOTE)),
-        h("div", { class: "list" }, notfallFiles.map(fileRow))))));
+        nfList)));
+  const matAnchor = document.createComment("material");   // hier stehen die beiden Karten (ein Kommentar zählt nicht als Teil der Seite)
+  main.append(matAnchor);
+  let rowOf = new Map(), shownKeys = null;
+  // eine Liste neu ordnen: vorhandene Zeilen wiederverwenden; unverändert → nichts anfassen; der Fokus bleibt in einer Zeile, die bleibt
+  const fill = (list, entries, fresh) => {
+    const next = new Map(), kids = [];
+    for (const e of entries) {
+      let row = rowOf.get(e.k);
+      if (!row) {
+        row = e.make();
+        if (shownKeys && !shownKeys.has(e.k) && fresh) { row.classList.add("fresh"); const m = row.querySelector(".main"); if (m) m.append(h("span", { class: "badge neu", text: "neu" })); fresh.push(e.name); }
+      }
+      next.set(e.k, row); kids.push(row);
+      const extra = row._after ? row._after() : null;   // aufgeklappter Text eines Textmaterials gehört hinter seine Zeile
+      if (extra) kids.push(extra);
+    }
+    // nur einfügen bzw. entfernen, was sich geändert hat – bleibende Zeilen werden nicht bewegt (sonst verlören sie den Fokus)
+    const a = document.activeElement, keep = a && list.contains(a) ? a : null;
+    let ref = list.firstChild;
+    for (const k of kids) { if (k === ref) { ref = ref.nextSibling; continue; } list.insertBefore(k, ref); }
+    while (ref) { const n = ref.nextSibling; ref.remove(); ref = n; }
+    if (keep && keep.isConnected && document.activeElement !== keep) keep.focus({ preventScroll: true });
+    return next;
+  };
+  function paintMats(data) {
+    const sl = data.selbstlern;
+    // Selbstlern-Phase: Material und Feibeitsblätter der Stationen stehen dort – hier nur das übrige („Weiteres Material“, nur wenn es welches gibt)
+    const inStation = new Set(selbst && sl && Array.isArray(sl.stationen) ? sl.stationen.flatMap((x) => [x.fileId, x.code]).filter(Boolean) : []);
+    const files = data.files || [], sheetsShown = (data.sheets || []).filter((s) => !inStation.has(s.code));
+    const notfallFiles = files.filter((f) => f.notfall), matFiles = files.filter((f) => !f.notfall && !inStation.has(f.id));
+    const fresh = [], keyOf = (p, x) => p + JSON.stringify(x);
+    const rows = fill(matList, [...sheetsShown.map((s) => ({ k: keyOf("s", s), name: s.title, make: () => sheetRow(s) })), ...matFiles.map((f) => ({ k: keyOf("f", f), name: f.name, make: () => fileRow(f) }))], fresh);
+    const nfRows = fill(nfList, notfallFiles.map((f) => ({ k: keyOf("n", f), name: f.name, make: () => fileRow(f) })), null);
+    rowOf = new Map([...rows, ...nfRows]);
+    shownKeys = new Set(rowOf.keys());
+    const empty = matCard.querySelector(".mat-empty");
+    if (!sheetsShown.length && !matFiles.length && !sl) { if (!empty) matList.after(h("p", { class: "muted mat-empty", text: "Deine Lehrkraft hat für diese Sitzung noch kein Material freigegeben." })); }
+    else if (empty) empty.remove();
+    const goodNotes = (selbst ? files.filter((f) => !f.notfall) : matFiles).some((f) => f.kind !== "link");
+    if (goodNotes && !goodHint.isConnected) matLive.before(goodHint); else if (!goodNotes) goodHint.remove();
+    // die Karten an ihrem Platz (hinter dem Kommentar): Material (Selbstlern-Phase nur mit weiterem Material), dann die Notfall-Feibeitsblätter
+    const want = [!sl || sheetsShown.length || matFiles.length ? matCard : null, notfallFiles.length ? nfCard : null].filter(Boolean);
+    for (const el of [matCard, nfCard]) if (!want.includes(el) && el.isConnected) el.remove();
+    let at = matAnchor;
+    for (const el of want) { if (at.nextSibling !== el) at.after(el); at = el; }
+    if (fresh.length) matLive.textContent = "Neues Material: " + fresh.map((n) => "„" + n + "“").join(", ") + ".";
+  }
+  paintMats(d);
   // Selbstlern-Phase: die KI-Begriffshilfe ganz unten (Wortlaut der Lehrkraft)
   if (selbst) main.append(kiBox);
 }
@@ -523,6 +577,7 @@ function materialRow(f, d) {
     if (f.url) acts.append(h("a", { class: "btn primary small", href: f.url, target: "_blank", rel: "noopener noreferrer" }, "Öffnen", h("span", { class: "sr-only", text: " (öffnet in neuem Tab)" })));
   } else if (f.kind === "text") {
     let shown = null;
+    row._after = () => shown;   // aufgeklappter Text bleibt beim Neuzeichnen der Liste hinter seiner Zeile (Nachtrag 44)
     acts.append(h("button", { class: "btn small", type: "button", onclick: () => { if (shown) { shown.remove(); shown = null; } else { shown = h("div", { class: "card", style: { marginTop: ".4rem" } }, renderMarkdown(f.text)); row.after(shown); } } }, "Lesen"),
       h("button", { class: "btn primary small", type: "button", onclick: (e) => busy(e.currentTarget, async () => {
         try { const { markdownToPdf, pdfName } = await lazy(import("./pdfmaker.js")); downloadBlob(await markdownToPdf(f.name, f.text, { subtitle: d.lesson.subjectName + " · " + d.lesson.klass }), pdfName(f.name)); }
@@ -535,8 +590,10 @@ function materialRow(f, d) {
   }
   return row;
 }
-/* Zeile eines Feibeitsblatts: Code kopieren und Feibeitsblatt öffnen (auch für die Stationen der Selbstlern-Phase) */
+/* Zeile eines Feibeitsblatts: Code kopieren und Feibeitsblatt öffnen (auch für die Stationen der Selbstlern-Phase). Aus einer früheren Sitzung des Kurses
+   wieder gebraucht (again, Nachtrag 45): mit dem Zwischenstand weiterarbeiten – PDF wählen, „Im Feibeitsblatt weiterarbeiten“, klein „Von vorn beginnen“ */
 function sheetItem(s, url) {
+  if (s.again) return fbAgainItem(s, url, { leave: onLeave });
   return h("div", { class: "item" }, h("div", { class: "ficon fb", "aria-hidden": "true", text: "FB" }),
     h("div", { class: "main" }, h("div", { class: "name", text: s.title }), h("div", { class: "meta" }, "Feibeitsblatt · Code ", h("span", { class: "mono", style: { fontWeight: 800, fontSize: "1.05rem", letterSpacing: ".08em" }, text: formatCode(s.code) }))),
     h("div", { class: "acts" }, h("button", { class: "btn primary small", type: "button", onclick: async () => {

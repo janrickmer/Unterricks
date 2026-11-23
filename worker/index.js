@@ -136,6 +136,7 @@ const ROUTES = [
   ["DELETE", "/api/teacher/lessons/" + ID + "/sheets/([A-Za-z0-9%-]{1,20})", L.routeSheetUnlink],
   ["POST", "/api/teacher/lessons/" + ID + "/sheets/([A-Za-z0-9%-]{1,20})/notfall", F.routeNotfallUpload],
   ["GET", "/api/teacher/notfall", F.routeNotfallList],
+  ["POST", "/api/teacher/lessons/" + ID + "/reveal", L.routeLessonReveal],   // Material mit Materialfolie jetzt freigeben (Nachtrag 44)
   // Lehrkraft: Dateien und Präsentation
   ["POST", "/api/teacher/lessons/" + ID + "/files", F.routeFileUpload],
   ["POST", "/api/teacher/lessons/" + ID + "/texts", F.routeTextCreate],

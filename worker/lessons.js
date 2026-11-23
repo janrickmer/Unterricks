@@ -20,6 +20,7 @@ import { selbstlernHomeworkNow } from "../public/selbstlern.js";
 import { videoSlidesData } from "../public/videoslides.js";
 import { cleanShareText, shareTextOf, shareTextStore } from "../public/sharelib.js";
 import { teacherPlanOf, teacherPlanStore, cleanTeacherPlanPhases, teacherPlanFromBody, TEACHER_PLAN_LIMITS } from "../public/teacherplan.js";
+import { revealsOf, revealLast, REVEAL_REF_SQL, REVEAL_REF_RE, REVEAL_LIMITS } from "../public/reveal.js";
 
 export const LIMITS = { title: 200, topic: 500, ideas: 20000, homework: 10000, portal: 30000, message: 30000, answer: 100000, textMaterial: 200000, parentSummary: 800, parentNote: 2000, teacherSummary: TEACHER_SUMMARY_MAX };
 
@@ -33,6 +34,8 @@ export const lessonOut = (r, extra = {}) => ({
   shareText: shareTextOf(r.share_text),
   // Kurzplan für die Lehrkraft (Nachtrag 42; nur Lehrkraft – „Ich bin jetzt im Unterricht“): {phases:[{n, steps}], plan, at} | null
   teacherPlan: teacherPlanOf(r.teacher_plan),
+  // gezeigte Materialfolien und Freigaben von Hand (Nachtrag 44; nur Lehrkraft): {seen:[{k, at}], refs:[{r, at}]} – die Seiten zeigen, welches Material noch wartet
+  reveals: revealsOf(r.reveals),
   // Gegenstände zum Mitbringen (Nachtrag 28, beide Schulformen; nur Lehrkraft) und ihr Stand (Schutz vor Überschreiben)
   ...bringOut(r),
   // Grundschule: Inhalt und Hinweis für die Eltern, Ausfall-Eintrag, ob es einen Elternlink gibt (nie der Link selbst)
@@ -302,13 +305,23 @@ export async function routeLessonCreate(c) {
   return json({ ok: true, lesson: lessonOut(l) });
 }
 
+/* Feibeitsblatt aus einer früheren Sitzung wieder gebraucht (Nachtrag 45): dasselbe Blatt ist auch mit einer früheren Sitzung desselben Kurses verknüpft
+   (gleiches Fach und gleiche Klasse bzw. gleicher Kurs, früher nach Datum bzw. am selben Tag nach Beginn; nicht als Finale eines Escape-Rooms, keine
+   Ausfall-Einträge) – als Spalte again derselben Abfrage (keine zusätzliche Anweisung). ?1 = Sitzung, ?2 Fach, ?3 Klasse, ?4 Datum, ?5 Beginn (oder NULL);
+   ohne Datum nie. So lesen die Schüleransicht (worker/student.js) und die Sitzungsseite der Lehrkraft (routeLessonGet). */
+export const SHEETS_AGAIN_SQL = "SELECT s.code, s.title, s.kind, s.created_at, EXISTS (SELECT 1 FROM fb_sheets o JOIN lessons p ON p.id = o.lesson_id WHERE o.code = s.code AND o.lesson_id <> s.lesson_id " +
+  "AND o.kind <> 'escape' AND p.subject = ?2 AND p.klass = ?3 AND p.cancelled = 0 AND p.lesson_date IS NOT NULL AND (p.lesson_date < ?4 OR (p.lesson_date = ?4 AND ?5 IS NOT NULL " +
+  "AND p.start_time IS NOT NULL AND p.start_time < ?5))) AS again FROM fb_sheets s WHERE s.lesson_id = ?1 ORDER BY s.created_at";
+export const sheetsAgainStmt = (db, l) => db.prepare(SHEETS_AGAIN_SQL).bind(l.id, l.subject, l.klass, l.lesson_date || null, l.start_time || null);
+
+
 export async function routeLessonGet(c, id) {
   await requireTeacher(c);
   const l = await getLesson(c.db, id);
   const full = new URL(c.request.url).searchParams.get("full") === "1";   // Sicherung: ganzer Planungsverlauf und alle Entwürfe
   const [files, sheets, drafts, students] = await c.db.batch([
     c.db.prepare("SELECT " + FILE_COLS + " FROM files WHERE lesson_id=?1 ORDER BY created_at").bind(id),
-    c.db.prepare("SELECT code, title, kind, created_at FROM fb_sheets WHERE lesson_id=?1 ORDER BY created_at").bind(id),
+    sheetsAgainStmt(c.db, l),   // mit again (Nachtrag 45): auch mit einer früheren Sitzung des Kurses verknüpft
     c.db.prepare("SELECT * FROM fb_drafts WHERE lesson_id=?1 ORDER BY created_at DESC LIMIT ?2").bind(id, full ? 500 : 50),
     c.db.prepare("SELECT COUNT(*) AS n FROM student_access WHERE lesson_id=?1").bind(id),
   ]);
@@ -340,20 +353,21 @@ export async function routeLessonGet(c, id) {
   return json({ ok: true, lesson: lo, stamp: lessonStamp(l, fr.length, Math.max(0, ...fr.map((f) => f.updated_at || 0)), (sheets.results || []).length, sub),
     previousStop, unit, course, substitute, ...teacherNext, ...gs, messages: messages.map(msgOut),
     nextLesson: next ? { id: next.id, title: next.title, date: next.lesson_date, planned: !!next.planned } : null,
-    files: (files.results || []).map((f) => fileOut(f)), sheets: (sheets.results || []).map((s) => ({ code: s.code, title: s.title, kind: s.kind || "", createdAt: s.created_at })),
+    files: (files.results || []).map((f) => fileOut(f)), sheets: (sheets.results || []).map((s) => ({ code: s.code, title: s.title, kind: s.kind || "", createdAt: s.created_at, ...(s.again ? { again: true } : {}) })),
     drafts: (drafts.results || []).map(draftOut) });
 }
 
 /* Stand einer Sitzung (Nachtrag 35, Ansicht für den Unterricht): ändert sich mit dem Schulportal-Eintrag bzw. Verlaufsplan, den Sitzungsdaten (Hausaufgabe …),
    jeder Datei (auch Markierung und Phasen der Präsentation – updated_at), den Feibeitsblättern und der Vertretung. GET …/lessons/:id liefert ihn mit, die
-   kleine Abfrage GET …/stamp (vier Anweisungen) nur ihn – ändert er sich, lädt die offene Seite die Sitzung neu. */
+   kleine Abfrage GET …/stamp (vier Anweisungen) nur ihn – ändert er sich, lädt die offene Seite die Sitzung neu. Nachtrag 44: dazu, wann zuletzt Material
+   freigegeben wurde (Materialfolie live gezeigt bzw. von Hand) – nur wenn schon einmal, so bleibt der Stand älterer Sitzungen wie bisher. */
 export const lessonStamp = (l, nFiles, filesAt, nSheets, sub) =>
-  [l.portal_version || 0, l.updated_at || 0, nFiles || 0, filesAt || 0, nSheets || 0, sub ? sub.status + "@" + (sub.updated_at || 0) : "-"].join(".");
+  [l.portal_version || 0, l.updated_at || 0, nFiles || 0, filesAt || 0, nSheets || 0, sub ? sub.status + "@" + (sub.updated_at || 0) : "-"].join(".") + (revealLast(l.reveals) ? "~" + revealLast(l.reveals) : "");
 export async function routeLessonStamp(c, id) {
   await requireTeacher(c);
   if (!isId(id)) throw new HttpError(404, "not_found", "Diese Sitzung gibt es nicht (mehr).");
   const [l, f, s, sub] = await c.db.batch([
-    c.db.prepare("SELECT portal_version, updated_at FROM lessons WHERE id=?1").bind(id),
+    c.db.prepare("SELECT portal_version, updated_at, reveals FROM lessons WHERE id=?1").bind(id),
     c.db.prepare("SELECT COUNT(*) AS n, MAX(updated_at) AS u FROM files WHERE lesson_id=?1").bind(id),
     c.db.prepare("SELECT COUNT(*) AS n FROM fb_sheets WHERE lesson_id=?1").bind(id),
     c.db.prepare("SELECT status, updated_at FROM substitutes WHERE lesson_id=?1").bind(id),
@@ -825,15 +839,41 @@ export async function routeDraftCreated(c, draftId) {
   ]);
   return json({ ok: true });
 }
+/* Vorhandenes Feibeitsblatt mit einer Sitzung verknüpfen – „Vorhandenes Feibeitsblatt verknüpfen“ der Lehrkraft und seit Nachtrag 45 auch Claude über den
+   Connector (link_feibeitsblatt, z. B. nach einem Zwischenstopp, wenn die nächste Stunde mit demselben Blatt weitergeht). Schon verknüpft: nur der Titel wird
+   übernommen. → {code, title, createdAt} bzw. Fehler (bad) bei ungültigem Code */
+export async function linkSheet(db, lessonId, rawCode, rawTitle, now) {
+  const code = normalizeCode(rawCode);
+  if (!isValidCode(code)) throw bad("Bitte einen gültigen Feibeitsblatt-Code eingeben (6 Zeichen, z. B. AEH-4VY).");
+  const title = cleanLine(rawTitle, 200) || "Feibeitsblatt";
+  await db.prepare("INSERT INTO fb_sheets(lesson_id, code, title, created_at) VALUES(?1, ?2, ?3, ?4) ON CONFLICT(lesson_id, code) DO UPDATE SET title=excluded.title").bind(lessonId, code, title, now).run();
+  return { code, title, createdAt: now };
+}
 export async function routeSheetLink(c, id) {
   await requireTeacher(c);
   await getLesson(c.db, id);
   const body = await readJson(c.request, 10000);
-  const code = normalizeCode(body.code);
-  if (!isValidCode(code)) throw bad("Bitte einen gültigen Feibeitsblatt-Code eingeben (6 Zeichen, z. B. AEH-4VY).");
-  const title = cleanLine(body.title, 200) || "Feibeitsblatt";
-  await c.db.prepare("INSERT INTO fb_sheets(lesson_id, code, title, created_at) VALUES(?1, ?2, ?3, ?4) ON CONFLICT(lesson_id, code) DO UPDATE SET title=excluded.title").bind(id, code, title, c.now).run();
-  return json({ ok: true, sheet: { code, title, createdAt: c.now } });
+  return json({ ok: true, sheet: await linkSheet(c.db, id, body.code, body.title, c.now) });
+}
+/* Material für die Schüler:innen jetzt freigeben (Nachtrag 44, Teil 1): ein Material mit Materialfolie wartet sonst, bis die Folie live gezeigt wird – z. B.
+   wenn der Beamer streikt oder die Lehrkraft die Präsentation nicht live zeigt. body.ref = „f:<Datei>“ (Material für Schüler:innen dieser Sitzung) bzw.
+   „s:<Code>“ (Feibeitsblatt dieser Sitzung; sein Notfall-Feibeitsblatt folgt). Gespeichert in lessons.reveals.refs (nur wachsend); danach bekommen alle offenen
+   Seiten der Sitzung revealAt (Durable Object, /reveal) und laden ihr Material neu. → {reveals} */
+export async function routeLessonReveal(c, id) {
+  await requireTeacher(c);
+  const l = await getLesson(c.db, id);
+  const body = await readJson(c.request, 1000), ref = typeof body.ref === "string" ? body.ref : "";
+  if (!REVEAL_REF_RE.test(ref)) throw bad("Ungültige Angabe des Materials.");
+  const own = ref[0] === "f"
+    ? await c.db.prepare("SELECT id FROM files WHERE id=?1 AND lesson_id=?2 AND area='student'").bind(ref.slice(2), id).first()
+    : await c.db.prepare("SELECT code FROM fb_sheets WHERE lesson_id=?1 AND code=?2").bind(id, ref.slice(2)).first();
+  if (!own) throw new HttpError(404, "not_found", "Dieses Material gehört nicht (mehr) zu dieser Sitzung.");
+  await c.db.prepare(REVEAL_REF_SQL).bind(id, JSON.stringify({ r: ref, at: c.now }), ref, REVEAL_LIMITS.refs).run();
+  const now = await c.db.prepare("SELECT reveals FROM lessons WHERE id=?1").bind(id).first();
+  // offene Seiten der Schüler:innen benachrichtigen – scheitert das, sehen sie es beim nächsten Laden (die Freigabe ist gespeichert)
+  // (das Durable Object wie stub in worker/live.js – ohne dessen Import: lessons.js bleibt ohne „cloudflare:workers“)
+  try { if (c.env.LIVE) await c.env.LIVE.get(c.env.LIVE.idFromName(id)).fetch("https://live/reveal?at=" + c.now, { method: "POST" }); } catch {}
+  return json({ ok: true, reveals: revealsOf(now ? now.reveals : l.reveals) });
 }
 export async function routeSheetUnlink(c, id, codeRaw) {
   await requireTeacher(c);

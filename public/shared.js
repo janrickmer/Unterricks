@@ -576,6 +576,10 @@ export function slideSessionCode(boxes, opt = {}) {
  * Höhe der Seite in denselben Einheiten → null (keine Platzhalterfolie) oder die Überschrift (0–4 Zeilen, von oben nach unten). */
 export const CODE_SLIDE_MARK = "Unterricks-Codefolie";
 export const CODE_SLIDE_LINE = CODE_SLIDE_MARK + ": Hier zeigt Unterricks den QR-Code und den Sitzungscode.";   // so steht sie laut Prompt auf der Folie
+// Präsentations-Prompt (Nachtrag 44, Teil 1): Material mit eigener Materialfolie erscheint bei den Schüler:innen erst mit dieser Folie (public/reveal.js ordnet
+// über den Titel zu) – deshalb der Titel genau so, wie das Material heißt, und die Materialfolie genau an der Stelle, an der damit gearbeitet wird
+export const MATERIAL_SLIDE_REVEAL = "Material mit eigener Materialfolie sehen die Schüler:innen in Unterricks erst, wenn diese Folie live gezeigt wird (Unterricks erkennt das Material am Titel) – " +
+  "setze die Materialfolie deshalb genau an die Stelle, an der zum ersten Mal mit dem Material gearbeitet wird, und schreibe den Titel genau so, wie das Material in Unterricks heißt.";
 export const CODE_SLIDE_LIMITS = { slides: 60, lines: 4, line: 160 };   // Prompt: höchstens drei Zeilen – eine umbrochene mehr geht noch
 const MARK_SRC = "u\\s?n\\s?t\\s?e\\s?r\\s?r\\s?i\\s?c\\s?k\\s?s\\s?[-\\u2010\\u2011\\u2013\\u2014]?\\s?c\\s?o\\s?d\\s?e\\s?f\\s?o\\s?l\\s?i\\s?e";   // auch gesperrt gesetzt (PDF.js fügt Leerzeichen ein)
 const MARK_RE = new RegExp(MARK_SRC, "i");
@@ -1754,6 +1758,8 @@ export function claudePresentationPrompt(ctx, portalText, messages) {
       (analog ? " – ohne QR-Code, ohne Sitzungscode und ohne Hinweis auf Unterricks." : "."),
     ...(analog ? [] : [
       "Unterricks zeigt Aufforderung und Titel dann als Überschrift über dem Sitzungscode und dem QR-Code der aktuellen Sitzung.",
+      // Nachtrag 44, Teil 1 (public/reveal.js): Material mit eigener Materialfolie sehen die Schüler:innen erst ab dieser Folie
+      MATERIAL_SLIDE_REVEAL,
       "Material, das unten als „von der Lehrkraft auszudrucken“ steht, teilt die Lehrkraft auf Papier aus – in Unterricks sehen die Schüler:innen es nicht. Arbeiten sie in einem Schritt nur mit solchem Material, " +
         "ist die Materialfolie eine gewöhnliche Folie (keine Unterricks-Codefolie): Aufforderung und Titel mit „(auf Papier)“ dahinter, ohne Hinweis auf Unterricks; kommt in Unterricks bereitgestelltes Material dazu, " +
         "bleibt es eine Unterricks-Codefolie, und nur beim ausgedruckten Material steht „(auf Papier)“.",

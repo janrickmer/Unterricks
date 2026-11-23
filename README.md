@@ -59,7 +59,8 @@ gleich in `public/_headers`, im Worker und – für GitHub Pages – in `scripts
   Spätestens 90 Minuten nach der Passworteingabe wird abgemeldet; nach erneuter Eingabe von „Feindt“ geht es genau dort weiter
   (freigeschaltete Sitzungen und im Browser Gespeichertes bleiben, ein laufender Escape-Room wird wiederhergestellt).
   In Ev. Religion und Ethik wählen sie ebenfalls ihre eigene Klasse – die Plattform ordnet sie dem Kurs ihres Jahrgangs zu.
-  Oben läuft die Live-Präsentation, darunter Material (Download, z. B. für GoodNotes) und Feibeitsblätter.
+  Oben läuft die Live-Präsentation, darunter Material (Download, z. B. für GoodNotes) und Feibeitsblätter – Material mit eigener
+  Materialfolie erscheint erst, wenn die Lehrkraft diese Folie live zeigt.
 * **Lehrkraft:** Einmalig unter **Planungsgrundlagen** je Fach Schulcurriculum, KCGO, E-Phasen-Curriculum und Abiturerlass
   (je Q-Kurs; bei Ev. Religion auch das Schulcurriculum der Grundschule, Jahrgänge 1–4) als PDF hochladen und die Fach-Einstellungen
   prüfen. Jede Planungsgrundlage lässt sich aus der Planung heraus in einem neuen Tab öffnen (Original-PDF; ältere ohne PDF als Text,
@@ -550,6 +551,22 @@ gleich in `public/_headers`, im Worker und – für GitHub Pages – in `scripts
   geöffnet, bis es fertig ist (ein unterbrochener Lauf geht beim nächsten Öffnen weiter). Den Stand sehen Sie unter
   *Einstellungen → Feibeitsblatt*; dort erneuert „Alle prüfen und aktualisieren“ auch veraltete (z. B. nach dem Bestätigen einer
   Checkliste). Haben Sie ein Notfall-Feibeitsblatt „nur für Lehrkräfte“ gestellt, bleibt auch das erneuerte dort.
+* **Material erscheint mit seiner Materialfolie (Nachtrag 44):** Hat ein Material für Schüler:innen bzw. ein Feibeitsblatt eine eigene
+  Materialfolie in der Präsentation (eine Unterricks-Codefolie, deren Überschrift seinen Titel nennt), sehen die Schüler:innen es erst,
+  wenn Sie diese Folie live zeigen – dann erscheint es ohne Neuladen in ihrer Ansicht unter „Material“ (markiert „neu“), das
+  Notfall-Feibeitsblatt mit seinem Feibeitsblatt. Einmal freigegeben bleibt es sichtbar, auch nach der Stunde. Wurde die Folie nie live
+  gezeigt, wird das Material wie die Präsentation 5 Minuten nach dem Ende der Sitzung frei (nur bis zur markierten letzten gezeigten
+  Folie). Material ohne eigene Materialfolie, Sitzungen ohne Präsentation, ohne Beginn oder Dauer, Selbstlern-Phasen und die Jahrgänge 5/6
+  bleiben wie bisher. In der Sitzung und in „Ich bin jetzt im Unterricht“ steht am Material klein, ab welcher Folie es erscheint bzw.
+  seit wann es sichtbar ist; mit **„Jetzt freigeben“** zeigen Sie ein wartendes Material sofort (z. B. wenn der Beamer streikt).
+  Der Server gibt wartendes Material auch über die Schnittstelle nicht heraus. Hinweis: Steht der Code eines Feibeitsblatts schon vorher
+  im Schulportal, kennen die Schüler:innen ihn von dort.
+* **Feibeitsblatt aus einer früheren Sitzung (Nachtrag 45):** Ist ein Feibeitsblatt mit dieser Sitzung und mit einer früheren Sitzung
+  desselben Kurses verknüpft („Vorhandenes Feibeitsblatt verknüpfen“ oder Claude mit `link_feibeitsblatt`, z. B. nach einem
+  Zwischenstopp), steht es bei den Schüler:innen als **„Wieder gebraucht“**: ein Feld für ihre Zwischenstand-PDF, dann „Im Feibeitsblatt
+  weiterarbeiten“ – Feibeitsblatt öffnet sich in einem neuen Tab mit ihrem Zwischenstand (die PDF geht nur von Tab zu Tab, nie über
+  einen Server). Kann das Feibeitsblatt die Übergabe noch nicht, sagt Unterricks nach 10 Sekunden, wie man die PDF dort selbst
+  hochlädt. Darunter klein der Code und „Von vorn beginnen“ (Code kopieren und Feibeitsblatt öffnen wie bisher).
 * **Kurse in Ev. Religion und Ethik (Jg. 5–10, E-Phase):** Je Jahrgang gibt es einen Kurs mit Schüler:innen aus mehreren
   Klassen. Fach wählen → beim Jahrgang **„Kurs anlegen“** → alle Klassen ankreuzen, die im Kurs vertreten sind (später über
   „Klassen ändern“ anpassbar). Sitzungen und Einheiten, die bisher in einer dieser Klassen lagen, ziehen dabei in den Kurs um.

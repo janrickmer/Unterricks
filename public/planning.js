@@ -583,6 +583,12 @@ export function stopRules(ps, opt = {}) {
         : "Weise " + w("mich", "sie") + " darauf hin: Ist eine der Stunden, in die Inhalte nachrücken, schon geplant, passt sich ihre Sitzung samt Material und Druckliste nicht von selbst an – ") +
       w("ich plane", "die Lehrkraft plant") + " sie dort mit „Stunde mit Claude planen“ neu."
     : "Übernehmen: Plane den offenen Teil in diese Stunde ein (diese Sitzung gehört zu keiner Unterrichtseinheit – es rückt nichts nach).");
+  // Nachtrag 45 (nur Gymnasium): ein Feibeitsblatt aus dem offenen Teil wieder brauchen – verknüpft, sehen es die Schüler:innen als „wieder gebraucht“
+  if (want("uebernehmen") && !gs) out.push(save
+    ? "Feibeitsblatt im offenen Teil: Arbeiten die Schüler:innen dabei mit einem Feibeitsblatt der vorigen Stunde weiter, verknüpfe es mit `link_feibeitsblatt` mit dieser Sitzung " +
+      "(den Code nennt `get_lesson` unter „Feibeitsblätter früherer Sitzungen dieses Kurses“) – die Schüler:innen sehen es dann unter „Material“ als „wieder gebraucht“ und arbeiten mit ihrer Zwischenstand-PDF weiter."
+    : "Feibeitsblatt im offenen Teil: Arbeiten die Schüler:innen dabei mit einem Feibeitsblatt der vorigen Stunde weiter, weise " + w("mich", "die Lehrkraft") + " darauf hin, es in dieser Sitzung unter " +
+      "„Vorhandenes Feibeitsblatt verknüpfen“ zu verknüpfen – die Schüler:innen sehen es dann unter „Material“ als „wieder gebraucht“ und arbeiten mit ihrer Zwischenstand-PDF weiter.");
   if (want("verzichten")) out.push("Verzichten: Plane die Stunde ohne den offenen Teil.");
   const adj = [];
   if (want("uebernehmen") && unitId) adj.push(!save

@@ -5,7 +5,8 @@
 import { HttpError, json, readJson, sha256Hex, timingSafeEqual, randomToken, LOCKS, lockedFor, registerFail, cleanText, cleanLine } from "./lib.js";
 import { getSetting, setSetting } from "./db.js";
 import { requireTeacher } from "./auth.js";
-import { getLesson, lessonCtx, chatMessages, updateLesson, savePortal, insertDraft, lessonOut, fileOut, LIMITS, previousLesson, cardData, cardVersion, prevStopInfo, openFilesOf, stopDecision, stopDecisionJson, printNameOf } from "./lessons.js";
+import { getLesson, lessonCtx, chatMessages, updateLesson, savePortal, insertDraft, lessonOut, fileOut, LIMITS, previousLesson, cardData, cardVersion, prevStopInfo, openFilesOf, stopDecision, stopDecisionJson, printNameOf,
+  linkSheet, sheetsAgainStmt } from "./lessons.js";
 import { getUnit, unitFull, applyPlan, updateRow, updateRows, extendUnit, ROWS_MAX, EXTEND_MAX, shareLessons } from "./units.js";
 import { loadFreeDays } from "./freedays.js";
 import { planningBasis } from "./bases.js";
@@ -17,7 +18,7 @@ import { paramsText, lessonSlots, WEEKDAYS, freeSlots, stopLessonLines, STOP_CHO
 import { insertTextMaterial, insertPrintText, saveDesign, renderDesign, getFile } from "./files.js";
 import { shortImages } from "./render.js";
 import { ESCAPE_FORMAT_HINT, PART_TYPES } from "../public/escape-data.js";
-import { SUBJECTS, ALL_CLASSES, subjectName, gradeInfo, formatCode, lessonContext, chatTranscript, PORTAL_RULES, PORTAL_EXAMPLE, PORTAL_TEACHER_RULE, SYSTEM_PROMPT_ROLE, FEIBEITSBLATT_INFO, FB_LINK_HINT, classShort, fmtDay, materialDesignText, printFileName, printCourse, GS_SUBJECT,
+import { SUBJECTS, ALL_CLASSES, subjectName, gradeInfo, formatCode, normalizeCode, isValidCode, lessonContext, chatTranscript, PORTAL_RULES, PORTAL_EXAMPLE, PORTAL_TEACHER_RULE, SYSTEM_PROMPT_ROLE, FEIBEITSBLATT_INFO, FB_LINK_HINT, classShort, fmtDay, materialDesignText, printFileName, printCourse, GS_SUBJECT,
   STOP_LINE, hasStop, planRefs, pdfRef, PLAN_REF_RE, NOTES_FILE, NOTE_DO_LABEL, TEACHER_SUMMARY_TITLE, TEACHER_SUMMARY_MAX, teacherSummaryRules, summaryHead, summaryOutdated, fmtStampBerlin, addDays, berlinToday, cardPrintsOf, refCardsOf, FB_MEDIA, portalPhases } from "../public/shared.js";
 import { gsLessonContext, GS_MATERIAL_RULES, CARD_DESIGN_RULES, VERLAUFSPLAN_EXAMPLE, VERLAUFSPLAN_RULES, CONC_TITLE, CONC_PRINT, CONC_PAGES_MAX, isConcName, concTitleOf, concSaveArgs, concSection, concMissingText, concUnplannedText,
   storyInPlan, cardsMissingText, CARD_PRINT_TEXT, printSettingsText } from "../public/gsplanning.js";
@@ -230,6 +231,19 @@ const TOOLS = [
           items: { type: "object", properties: { url: { type: "string", maxLength: 2000, description: "Link zum YouTube-Video (watch, youtu.be, shorts, embed; Startzeit mit t=…)" },
             titel: { type: "string", maxLength: FB_MEDIA.videoTitle, description: "optionaler Titel, den die Schüler:innen über dem Video sehen" } }, required: ["url"], additionalProperties: false } } },
         required: ["text"] } } }, required: ["lesson_id", "titel", "aufgaben"], additionalProperties: false } },
+  // Nachtrag 45: ein schon angelegtes Feibeitsblatt (auch einer früheren Sitzung) mit einer Sitzung verknüpfen – dieselbe Logik wie „Vorhandenes Feibeitsblatt
+  // verknüpfen“ der Lehrkraft (linkSheet in worker/lessons.js)
+  { name: "link_feibeitsblatt", title: "Vorhandenes Feibeitsblatt verknüpfen", annotations: wr,
+    description: "Verknüpft ein schon angelegtes Feibeitsblatt (Code, z. B. AEH-4VY) mit einer Sitzung – wie „Vorhandenes Feibeitsblatt verknüpfen“ der Lehrkraft in der Sitzung. " +
+      "Nimm es, wenn eine Stunde mit einem Feibeitsblatt einer früheren Sitzung weiterarbeitet – vor allem nach einem Zwischenstopp, wenn die nächste Stunde den offenen Teil " +
+      "mit demselben Blatt übernimmt. Ist das Blatt auch mit einer früheren Sitzung desselben Kurses verknüpft, sehen die Schüler:innen es in dieser Sitzung unter „Material“ als " +
+      "„wieder gebraucht“: Sie öffnen es dort mit ihrer gespeicherten Zwischenstand-PDF und arbeiten weiter (oder beginnen von vorn). Den Code nimmst du aus get_lesson " +
+      "(Abschnitt „Feibeitsblätter früherer Sitzungen dieses Kurses“ bzw. die Sitzung, aus der es stammt) oder von der Lehrkraft – nie erfinden. Ein neues Feibeitsblatt " +
+      "entwirfst du stattdessen mit propose_feibeitsblatt. Nur am Gymnasium (nicht für das Finale eines Escape-Rooms) und erst, wenn die Lehrkraft der Planung zugestimmt hat. " +
+      "Schon verknüpft: nur der Titel ändert sich. Das Notfall-Feibeitsblatt legt Unterricks wie sonst an, sobald die Lehrkraft die Sitzung öffnet.",
+    inputSchema: { type: "object", properties: { lesson_id: ID_ARG, code: { type: "string", maxLength: 9, description: "Code des Feibeitsblatts, z. B. AEH-4VY" },
+      titel: { type: "string", maxLength: 200, description: "Titel, wie ihn die Schüler:innen sehen – ohne Angabe der Titel aus der Sitzung, mit der das Blatt schon verknüpft ist" } },
+      required: ["lesson_id", "code"], additionalProperties: false } },
   { name: "list_units", title: "Unterrichtseinheiten auflisten", annotations: ro,
     description: "Listet die Unterrichtseinheiten, optional nach Fach und Klasse/Kurs bzw. Grundschulkurs.",
     inputSchema: { type: "object", properties: { fach: SUBJECT_ARG, klasse: CLASS_ARG, kurs: KURS_ARG }, additionalProperties: false } },
@@ -418,6 +432,7 @@ async function lessonDump(db, l, now = Date.now()) {
     "Eine neue PDF der Präsentation braucht auf jeder Videofolie wieder die unsichtbare Zeile „" + VIDEO_MARK + ": <Link> | Titel: …“ (Aufbau wie im Präsentations-Prompt).");
   // Selbstlern-Phase (Nachtrag 29): Stationen, Hausaufgabe, Archiv – bzw. eine ältere Vertretung; dazu alle übrigen Dateien mit file_id (Stationen, Hinweis zum Löschen)
   parts.push(...(await otherFilesSection(db, l.id)));
+  parts.push(...(await earlierSheetsSection(db, l)));
   if (sub) {
     const [fr, dr] = sub.status === SELBSTLERN ? await db.batch([db.prepare("SELECT id, name, area, kind, status FROM files WHERE lesson_id=?1 ORDER BY created_at").bind(l.id),
       db.prepare("SELECT id, status, sheet_code FROM fb_drafts WHERE lesson_id=?1").bind(l.id)]) : [{ results: [] }, { results: [] }];
@@ -458,6 +473,21 @@ async function otherFilesSection(db, lessonId) {
   const media = list.some((f) => f.kind === "file" && f.area !== "presentation" && f.source !== "notfall" && (/^image\//.test(String(f.mime || "")) || f.mime === "application/pdf"));
   return ["", "## Weitere Dateien der Sitzung (file_id)", ...list.map((f) => "- file_id " + f.id + ": „" + f.name + "“ (" + area[f.area] + "; " + kind(f) + ")"),
     ...(media ? ["Bilder und PDF-Dateien (außer Präsentation und Notfall-Feibeitsblatt) baust du mit propose_feibeitsblatt (bilder, pdfs) als Material in Aufgaben eines Feibeitsblatts ein."] : [])];
+}
+
+/* get_lesson (Gymnasium, Nachtrag 45): die Feibeitsblätter der früheren Sitzungen desselben Kurses (die letzten zwölf Verknüpfungen, neueste zuerst; ohne
+   Finale eines Escape-Rooms) – Claude verknüpft eines davon mit link_feibeitsblatt, wenn diese Stunde damit weiterarbeitet; ohne solche Blätter kein Abschnitt */
+async function earlierSheetsSection(db, l) {
+  if (!l.lesson_date) return [];
+  const r = await db.prepare("SELECT s.code, s.title, p.title AS lesson_title, p.lesson_date, EXISTS (SELECT 1 FROM fb_sheets x WHERE x.lesson_id = ?3 AND x.code = s.code) AS here " +
+    "FROM fb_sheets s JOIN lessons p ON p.id = s.lesson_id WHERE p.subject = ?1 AND p.klass = ?2 AND p.id <> ?3 AND s.kind <> 'escape' AND p.cancelled = 0 AND p.lesson_date IS NOT NULL " +
+    "AND (p.lesson_date < ?4 OR (p.lesson_date = ?4 AND ?5 IS NOT NULL AND p.start_time IS NOT NULL AND p.start_time < ?5)) ORDER BY p.lesson_date DESC, p.start_time DESC, s.created_at DESC LIMIT 12")
+    .bind(l.subject, l.klass, l.id, l.lesson_date, l.start_time || null).all();
+  const list = r.results || [];
+  if (!list.length) return [];
+  return ["", "## Feibeitsblätter früherer Sitzungen dieses Kurses (wieder brauchen: link_feibeitsblatt mit dem Code)",
+    ...list.map((x) => "- „" + x.title + "“ (Code " + formatCode(x.code) + ") aus „" + x.lesson_title + "“ vom " + fmtDay(x.lesson_date) + (x.here ? " – schon mit dieser Sitzung verknüpft (die Schüler:innen sehen es als „wieder gebraucht“)" : "")),
+    "Arbeitet diese Stunde mit einem davon weiter (z. B. nach einem Zwischenstopp), verknüpfe es mit link_feibeitsblatt: Die Schüler:innen öffnen es dann mit ihrer Zwischenstand-PDF und arbeiten weiter."];
 }
 
 /* get_lesson einer Grundschul-Sitzung: Kurs statt Klasse, Verlaufsplan statt Schulportal-Eintrag, Inhalt und Hinweis für die Eltern, die PDF-Dateien
@@ -1137,6 +1167,24 @@ async function callTool(c, name, a) {
       return toolText("Druckvorlage gespeichert: „" + o.printName + "“ (Liste „Von der Lehrkraft auszudrucken“" + (conc ? " – nie für Eltern oder Kinder" : "") + ")." +
         (asked ? " (Die " + CONC_TITLE + " legt Unterricks immer so auf die Druckliste: " + CONC_PRINT.copies + "x, beidseitig, schwarz-weiß – die Lehrkraft kann das in der Sitzung ändern.)" : ""),
         { file_id: f.id, file_name: o.printName });
+    }
+    case "link_feibeitsblatt": {
+      const l = await getLesson(c.db, a.lesson_id);
+      if (l.subject === GS_SUBJECT) return toolError("In der Grundschule gibt es keine Feibeitsblätter.");
+      const code = normalizeCode(a.code);
+      if (!isValidCode(code)) return toolError("Das ist kein gültiger Feibeitsblatt-Code (6 Zeichen, z. B. AEH-4VY) – nimm ihn aus get_lesson, nie erfinden.");
+      // bekannt aus einer Sitzung? (Titel, Finale eines Escape-Rooms) – das Feibeitsblatt selbst prüft Unterricks hier nicht (dafür braucht es das Passwort der Lehrkraft)
+      const known = await c.db.prepare("SELECT title, kind FROM fb_sheets WHERE code=?1 ORDER BY created_at DESC LIMIT 1").bind(code).first();
+      if (known && known.kind === "escape") return toolError("Das Feibeitsblatt " + formatCode(code) + " ist das Finale eines Escape-Rooms – die Schüler:innen erreichen es nur über den Tunnel des Raums; es lässt sich nicht als Material verknüpfen.");
+      const titel = typeof a.titel === "string" ? a.titel.trim() : "";
+      if (!known && !titel) return toolError("Den Code " + formatCode(code) + " kennt Unterricks aus keiner Sitzung – gib mit titel an, wie das Blatt heißt (nur, wenn die Lehrkraft dir den Code genannt hat).");
+      const sheet = await linkSheet(c.db, l.id, code, titel || known.title, c.now);
+      const again = ((await sheetsAgainStmt(c.db, l).all()).results || []).some((x) => x.code === code && x.again);
+      return toolText("Feibeitsblatt „" + sheet.title + "“ (Code " + formatCode(code) + ") ist mit der Sitzung verknüpft." +
+        (again ? " Es ist auch mit einer früheren Sitzung dieses Kurses verknüpft: Die Schüler:innen sehen es unter „Material“ als „wieder gebraucht“ und können mit ihrer Zwischenstand-PDF darin weiterarbeiten oder von vorn beginnen."
+          : " Mit einer früheren Sitzung dieses Kurses ist es nicht verknüpft – die Schüler:innen sehen es wie jedes Feibeitsblatt unter „Material“.") +
+        " Steht in der Präsentation eine Materialfolie mit seinem Titel, erscheint es bei den Schüler:innen erst, wenn diese Folie live gezeigt wird. Das Notfall-Feibeitsblatt legt Unterricks an, sobald die Lehrkraft die Sitzung öffnet.",
+        { code, title: sheet.title, again });
     }
     case "propose_feibeitsblatt": {
       const l = await getLesson(c.db, a.lesson_id);

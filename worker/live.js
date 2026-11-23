@@ -10,10 +10,15 @@
 // so auch bei offenem WebSocket höchstens 6 Stunden.
 // Timer (Nachtrag 16): {t:"timer", op} der Lehrkraft (livestate.js) – alle bekommen timer {left, total, paused} mit der Restzeit zum Sendezeitpunkt;
 // gesendet wird nur bei Änderungen (Start, Pause, Weiter, Verlängern, Ende), nie im Sekundentakt – den Ablauf zeigen die Seiten selbst.
+// Material erscheint mit seiner Materialfolie (Nachtrag 44, Teil 1): Zeigt die Lehrkraft eine Codefolie mit Überschrift, vermerkt das Objekt die Überschrift in
+// D1 (lessons.reveals, eine Anweisung – die Kennung der Sitzung trägt die Verbindung der Lehrkraft als Anhang) und schickt allen noch einmal den Stand mit
+// revealAt (Zeitpunkt, kein Titel): Die Schüler:innen-Seiten laden dann ihr Material neu (zugeordnet wird erst dort, public/reveal.js). Eine Freigabe von Hand
+// stößt /reveal an. Ältere, gecachte Seiten überspringen den Stand (dasselbe v) – es gibt keine neue Art von Nachricht.
 import { DurableObject } from "cloudflare:workers";
 import { HttpError, json, requireSecret, signLink, checkLink, isId } from "./lib.js";
 import { LIVE_IDLE as IDLE, liveReduce, liveView, liveNext, liveTimer, liveVideo } from "./livestate.js";
 import { cleanVideoReport } from "../public/videoslides.js";
+import { REVEAL_SEEN_SQL, REVEAL_LIMITS, revealKeyOf } from "../public/reveal.js";
 import { requireTeacher } from "./auth.js";
 import { getLesson } from "./lessons.js";
 import { slideUrl } from "./files.js";
@@ -38,6 +43,8 @@ export class LiveRoom extends DurableObject {
     // Video einer Videofolie (Nachtrag 38): nur Lehrkraft und Beamer – die Schüler:innen sehen live nur die Folie
     const video = role === "student" ? null : liveVideo(st, Date.now());
     if (video) out.video = video;
+    // Material freigegeben (Nachtrag 44): nur der Zeitpunkt – für alle Rollen gleich (nie Titel oder Daten des Materials)
+    if (st.revealAt > 0) out.revealAt = st.revealAt;
     if (role === "teacher") { out.fileId = st.fileId; out.students = this.ctx.getWebSockets("student").length; out.beamers = this.ctx.getWebSockets("beamer").filter((ws) => !gone.includes(ws)).length; }
     if (role === "beamer") { const k = liveNext(st); if (k) out.next = await slideUrl(requireSecret(this.env), st.fileId, k, SLIDE_TTL); }   // vorladen
     return out;
@@ -89,6 +96,8 @@ export class LiveRoom extends DurableObject {
       const pair = new WebSocketPair(), [client, server] = Object.values(pair);
       this.ctx.acceptWebSocket(server, [role]);
       if (role === "beamer") server.serializeAttachment({ exp });
+      // Lehrkraft (Nachtrag 44): die Sitzung, zu der dieses Objekt gehört – damit es gezeigte Materialfolien in D1 vermerken kann (markReveal)
+      if (role === "teacher" && isId(url.searchParams.get("lid"))) server.serializeAttachment({ lid: url.searchParams.get("lid") });
       const first = await this.message(role);
       // ein weiteres Beamergerät (es gibt schon eins): das Video stumm (Nachtrag 38)
       if (role === "beamer" && first.video && this.ctx.getWebSockets("beamer").length > 1) first.video = { ...first.video, mute: true };
@@ -99,8 +108,14 @@ export class LiveRoom extends DurableObject {
     if (url.pathname === "/state") return Response.json(await this.message(role));
     if (url.pathname === "/beamer-gen") return Response.json({ gen: await this.beamerGen() });
     if (url.pathname === "/beamer-reset" && request.method === "POST") { await this.resetBeamers(); return Response.json({ ok: true }); }
+    // Freigabe von Hand (Nachtrag 44, worker/lessons.js routeLessonReveal): revealAt vorrücken und allen den Stand schicken – die Schüler:innen-Seiten laden ihr Material neu
+    if (url.pathname === "/reveal" && request.method === "POST") {
+      const at = Number(url.searchParams.get("at")), st = await this.state();
+      if (Number.isFinite(at) && at > (st.revealAt || 0)) { st.revealAt = at; await this.ctx.storage.put("state", st); await this.broadcast(st); }
+      return Response.json({ ok: true });
+    }
     if (url.pathname === "/reset" && request.method === "POST") {
-      const st = { ...IDLE, v: ((await this.state()).v || 0) + 1, updatedAt: Date.now() };
+      const old = await this.state(), st = { ...IDLE, v: (old.v || 0) + 1, updatedAt: Date.now(), revealAt: old.revealAt || 0 };   // revealAt bleibt (Nachtrag 44)
       await this.ctx.storage.put("state", st);
       await this.broadcast(st);
       if (url.searchParams.get("beamers") === "1") await this.resetBeamers();   // Sitzung gelöscht: auch die Beamer trennen
@@ -123,6 +138,26 @@ export class LiveRoom extends DurableObject {
     if (!liveReduce(st, m, now)) return;
     await this.ctx.storage.put("state", st);
     await this.broadcast(st, { students: m.t !== "video" });
+    if (m.t === "start" || m.t === "goto" || m.t === "code") await this.markReveal(ws, st);   // erst die Folie, dann (falls neu) der Vermerk
+  }
+  /* Nachtrag 44, Teil 1: Zeigt die aktuelle Folie eine Codefolie mit Überschrift (Materialfolie), ihre Überschrift in D1 vermerken (lessons.reveals.seen) – nur
+     mit der Kennung aus dem Anhang der Verbindung der Lehrkraft (routeLiveSocket). War sie neu, bekommen alle den Stand noch einmal mit revealAt (frisch gelesen:
+     während der D1-Anfrage können weitere Nachrichten angekommen sein). Ohne Datenbank oder bei einem Fehler still – die Live-Präsentation hängt nie davon ab. */
+  async markReveal(ws, st) {
+    let a = null; try { a = ws.deserializeAttachment(); } catch {}
+    if (!this.env || !this.env.DB || !a || !isId(a.lid) || !(st.slide >= 1) || st.codeShown) return;
+    const view = liveView(st), key = view.code ? revealKeyOf(view.code.lines) : "";
+    if (!key) return;
+    const now = Date.now();
+    try {
+      const r = await this.env.DB.prepare(REVEAL_SEEN_SQL).bind(a.lid, JSON.stringify({ k: key, at: now }), key, REVEAL_LIMITS.seen).run();
+      if (!r || !(r.results || []).length) return;
+      const cur = await this.state();
+      if ((cur.revealAt || 0) >= now) return;
+      cur.revealAt = now;
+      await this.ctx.storage.put("state", cur);
+      await this.broadcast(cur);
+    } catch {}
   }
   // Rückmeldung eines Beamergeräts zum Video (spielt, pausiert, blockiert, Fehler …) – geprüft an die Lehrkraft weitergereicht, nie gespeichert. Nur vom
   // ersten Beamer (er gibt den Ton, siehe broadcast) – sonst widersprächen sich die Meldungen mehrerer Geräte.
@@ -173,8 +208,9 @@ export async function routeLiveSocket(c, lessonId) {
   if (!isId(lessonId) || !(await checkLink(requireSecret(c.env), ["live", lessonId, role, sub], u.searchParams.get("e"), u.searchParams.get("s"), c.now)))
     throw new HttpError(403, "bad_ticket", "Die Verbindung wurde abgelehnt. Bitte die Seite neu laden.");
   if ((c.request.headers.get("Upgrade") || "").toLowerCase() !== "websocket") throw new HttpError(426, "upgrade_required", "WebSocket erwartet.");
-  // Beamer: u = „Generation.Ablauf“ seines Schlüssels – das Durable Object lehnt eine veraltete Generation ab und schließt nach dem Ablauf
-  let extra = "";
+  // Beamer: u = „Generation.Ablauf“ seines Schlüssels – das Durable Object lehnt eine veraltete Generation ab und schließt nach dem Ablauf.
+  // Lehrkraft: die Sitzung (geprüft, aus dem signierten Ticket) – das Durable Object vermerkt damit gezeigte Materialfolien (Nachtrag 44)
+  let extra = role === "teacher" ? "&lid=" + lessonId : "";
   if (role === "beamer") {
     const m = /^(\d{1,9})\.(\d{10,16})$/.exec(sub);
     if (!m) throw new HttpError(403, "bad_ticket", "Die Verbindung wurde abgelehnt. Bitte die Seite neu laden.");

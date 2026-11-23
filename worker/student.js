@@ -4,14 +4,15 @@ import { HttpError, bad, json, readJson, isId, requireSecret, sha256Hex, LOCKS, 
 import { callTask, taskProviders, TASKS } from "./ai.js";
 import { requireStudent } from "./auth.js";
 import { getFile, downloadUrl, studentSlideUrl, studentSlideExp, studentSlideLimit } from "./files.js";
-import { nextLessonDate, nextTeacherLesson } from "./lessons.js";
+import { nextLessonDate, nextTeacherLesson, sheetsAgainStmt } from "./lessons.js";
 import { getSubstitute, studentSubstitute } from "./substitute.js";
 import { SELBSTLERN, readSelbstlern, selbstlernAiWindow, selbstlernHelpPrompt, explainBotPrompt, explainSigText, helpSigText, selbstlernHomeworkNow, EXPLAIN_BOT_LIMITS, EXPLAIN_FINISH_MESSAGE } from "../public/selbstlern.js";
 import { liveTicket, liveState } from "./live.js";
 import { normalizeCode, isValidCode, subjectName, classShort, isCourseClass, courseMembers, cleanWebUrl, lessonTimes, fmtClockBerlin, fmtDayBerlin, studentHelpPrompt, STUDENT_HELP_LIMITS, GS_SUBJECT, STUDENT_SLIDE_BLOCK,
-  isAnalogClass } from "../public/shared.js";
+  isAnalogClass, cleanCodeSlides } from "../public/shared.js";
 import { loadSubjectConfigs } from "./bases.js";
 import { videoSlidesData, videoSlidesOf, videoAt, videoWatchUrl, videoClipText } from "../public/videoslides.js";
+import { materialGate, revealFilterFiles, revealFilterSheets, revealRefOf, REVEAL_ABSENT } from "../public/reveal.js";
 
 /* Zeitpunkte der Sitzung (Vorgabe der Lehrkraft vom 10.11.2026): die Hausaufgabe erst ab 15 Minuten vor dem Ende, die ganze Präsentation
    erst 5 Minuten nach dem Ende – berechnet aus Datum, Beginn (Uhrzeit) und Dauer; ohne Beginn oder Dauer bleibt beides verborgen. */
@@ -77,18 +78,29 @@ export async function routeStudentJoin(c) {
 export async function requireAccess(c, lessonId) {
   const s = await requireStudent(c);
   if (!isId(lessonId)) throw new HttpError(404, "not_found", "Diese Sitzung gibt es nicht.");
-  const a = await c.db.prepare("SELECT a.joined_at, " + LESSON_COLS + ", l.created_at FROM student_access a JOIN lessons l ON l.id = a.lesson_id WHERE a.device_id=?1 AND a.lesson_id=?2")
+  // l.reveals: gezeigte Materialfolien und Freigaben von Hand (Nachtrag 44) – nur für studentGate, nie in einer Antwort
+  const a = await c.db.prepare("SELECT a.joined_at, " + LESSON_COLS + ", l.created_at, l.reveals FROM student_access a JOIN lessons l ON l.id = a.lesson_id WHERE a.device_id=?1 AND a.lesson_id=?2")
     .bind(s.id, lessonId).first();
   if (!a) throw new HttpError(403, "no_access", "Für diese Sitzung bist du nicht freigeschaltet. Bitte gib den Sitzungscode ein.");
   return { student: s, lesson: a, joinedAt: a.joined_at };
 }
 
+/* Material erscheint mit seiner Materialfolie (Nachtrag 44, Teil 1): was die Schüler:innen dieser Sitzung gerade sehen (materialGate in public/reveal.js) –
+   aus der Sitzung (requireAccess mit l.reveals), der fertigen Präsentation (pages, shown_until, code_slides) und dem Material (Dateien mit source/fb_code,
+   Feibeitsblätter mit kind). */
+export function studentGate(lesson, pres, files, sheets, now) {
+  const upTo = pres && pres.shown_until && pres.shown_until < pres.pages ? pres.shown_until : null;
+  let cs = [];
+  if (pres) { try { cs = cleanCodeSlides(JSON.parse(pres.code_slides || "[]"), pres.pages || 0); } catch {} }
+  return materialGate({ klass: lesson.klass, absent: REVEAL_ABSENT.includes(lesson.sub_status), times: timesOf(lesson), codeSlides: cs, upTo, files, sheets,
+    reveals: lesson.reveals, now });
+}
 export async function routeStudentLesson(c, lessonId) {
   const { lesson, joinedAt } = await requireAccess(c, lessonId);
   const [files, sheets, pres] = await c.db.batch([
-    c.db.prepare("SELECT id, kind, name, mime, size, CASE WHEN kind IN ('text','link') THEN text END AS text, source, created_at FROM files WHERE lesson_id=?1 AND area='student' AND status='ready' AND " + SELBSTLERN_FILE_OK + " ORDER BY created_at").bind(lessonId),
-    c.db.prepare("SELECT code, title, kind FROM fb_sheets WHERE lesson_id=?1 ORDER BY created_at").bind(lessonId),
-    c.db.prepare("SELECT id, name, pages, shown_until, cut_size FROM files WHERE lesson_id=?1 AND area='presentation' AND status='ready' LIMIT 1").bind(lessonId),
+    c.db.prepare("SELECT id, kind, name, mime, size, CASE WHEN kind IN ('text','link') THEN text END AS text, source, fb_code, area, created_at FROM files WHERE lesson_id=?1 AND area='student' AND status='ready' AND " + SELBSTLERN_FILE_OK + " ORDER BY created_at").bind(lessonId),
+    sheetsAgainStmt(c.db, lesson),
+    c.db.prepare("SELECT id, name, pages, shown_until, cut_size, code_slides FROM files WHERE lesson_id=?1 AND area='presentation' AND status='ready' LIMIT 1").bind(lessonId),
   ]);
   const sd = selbstDigital(lesson), selbst = lesson.sub_status === SELBSTLERN;
   // Selbstlern-Phase (auch Jg. 5/6): keine Präsentation der ursprünglichen Planung – sie ist mit ihr archiviert, die Stationen ersetzen den Unterricht
@@ -108,10 +120,15 @@ export async function routeStudentLesson(c, lessonId) {
   const hasBot = sd && !!shown.selbstlern && shown.selbstlern.stationen.some((x) => x.typ === "erklaer_chatbot");
   const aiOn = sd ? !!win && lesson.student_ai !== 0 && c.now <= win.end : !!times && lesson.student_ai !== 0 && c.now <= times.end;
   const providers = aiOn || hasBot ? await taskProviders(c.db, "erklaeren") : null;
+  // Material mit eigener Materialfolie erst, wenn die Folie live gezeigt bzw. das Material freigegeben wurde (Nachtrag 44) – wartendes erscheint gar nicht
+  // (kein Titel, kein Code, kein Link), sein Notfall-Feibeitsblatt auch nicht; revealAt vergleicht die Seite mit dem Stand des Durable Objects
+  const gate = studentGate(lesson, (pres.results || [])[0] || null, files.results || [], sheets.results || [], c.now);
   return json({ ok: true, authLeftMs: c.authLeftMs, lesson: lessonCard(lesson, joinedAt, c.now),
-    files: (files.results || []).map((f) => ({ id: f.id, kind: f.kind, name: f.name, mime: f.mime, size: f.size, createdAt: f.created_at, ...(f.kind === "text" ? { text: f.text || "" } : {}),
+    files: revealFilterFiles(files.results || [], gate).map((f) => ({ id: f.id, kind: f.kind, name: f.name, mime: f.mime, size: f.size, createdAt: f.created_at, ...(f.kind === "text" ? { text: f.text || "" } : {}),
       ...(f.kind === "link" ? { url: cleanWebUrl(f.text) || "" } : {}), ...(f.source === "notfall" ? { notfall: true } : {}) })),
-    sheets: (sheets.results || []).filter((s) => s.kind !== "escape").map((s) => ({ code: s.code, title: s.title })),   // Escape-Finale nur über den Tunnel
+    // Escape-Finale nur über den Tunnel; again = aus einer früheren Sitzung des Kurses wieder gebraucht (Nachtrag 45: mit dem Zwischenstand weiterarbeiten)
+    sheets: revealFilterSheets((sheets.results || []).filter((s) => s.kind !== "escape"), gate).map((s) => ({ code: s.code, title: s.title, ...(s.again ? { again: true } : {}) })),
+    revealAt: gate.revealAt,
     presentation: p ? { name: p.name, pages: p.pages, unlockAt, unlocked: unlockAt !== null && c.now >= unlockAt, upTo } : null,
     homework: hw ? { text: hw, dueDate: selbst ? (nextT ? nextT.date : null) : await nextLessonDate(c.db, lesson) } : null,
     // wann sich die Ansicht ändert (Begriffshilfe beginnt/endet, Hausaufgabe erscheint, Präsentation wird frei) – unabhängig davon, ob es eine Hausaufgabe gibt
@@ -131,7 +148,22 @@ export async function routeStudentFileLink(c, fileId) {
   if (f.area !== "student" || f.kind !== "file" || f.status !== "ready") throw new HttpError(404, "not_found", "Datei nicht gefunden.");
   const { lesson } = await requireAccess(c, f.lesson_id);
   if (f.source === SELBSTLERN && lesson.sub_status !== SELBSTLERN) throw new HttpError(404, "not_found", "Datei nicht gefunden.");
+  // wartet die Datei noch auf ihre Materialfolie (Nachtrag 44), gibt es auch über diesen Weg nichts (eine Abfrage mehr nur mit Präsentation)
+  if (await fileWaits(c, lesson, f)) throw new HttpError(404, "not_found", "Datei nicht gefunden.");
   return json({ ok: true, url: await downloadUrl(requireSecret(c.env), f, false, 10 * 60e3, c.now) });
+}
+
+/* Wartet die Datei (bzw. ihr Feibeitsblatt) noch auf ihre Materialfolie? Ohne Beginn bzw. Dauer, in Jg. 5/6 und ohne die Lehrkraft (Selbstlern-Phase, Vertretung)
+   wartet nichts – dann keine Abfrage; sonst ein Batch (Präsentation, Material, Feibeitsblätter): die Zuordnung braucht die ganze Liste (der längste Titel gilt) */
+async function fileWaits(c, lesson, f) {
+  if (REVEAL_ABSENT.includes(lesson.sub_status) || !timesOf(lesson) || isAnalogClass(lesson.klass)) return false;
+  const [pres, files, sheets] = await c.db.batch([
+    c.db.prepare("SELECT pages, shown_until, code_slides FROM files WHERE lesson_id=?1 AND area='presentation' AND status='ready' LIMIT 1").bind(f.lesson_id),
+    c.db.prepare("SELECT id, kind, name, source, fb_code, status, area, notes_of FROM files WHERE lesson_id=?1 AND area='student' AND status='ready'").bind(f.lesson_id),
+    c.db.prepare("SELECT code, title, kind FROM fb_sheets WHERE lesson_id=?1").bind(f.lesson_id),
+  ]);
+  const gate = studentGate(lesson, (pres.results || [])[0] || null, files.results || [], sheets.results || [], c.now);
+  return gate.hidden.has(revealRefOf(f));
 }
 
 // Präsentation frei? Erst 5 Minuten nach dem Ende der Sitzung (ohne Beginn oder Dauer nie) – für die PDF und für das Folienfenster

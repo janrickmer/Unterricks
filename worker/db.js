@@ -145,6 +145,10 @@ export const COLUMNS = [
   // (public/teacherplan.js) – je Phase des Verlaufsplans 1–3 Anweisungen, plan = Fingerabdruck der Planung beim Speichern (passt er nicht mehr, kürzt
   // „Ich bin jetzt im Unterricht“ selbst). NULL = keiner
   ["lessons", "teacher_plan", "TEXT"],
+  // Material erscheint live mit seiner Materialfolie (Nachtrag 44, Teil 1): {v:1, seen:[{k, at}], refs:[{r, at}]} als JSON (public/reveal.js) – seen = Überschriften
+  // der Codefolien, die live gezeigt wurden (schreibt das Durable Object, worker/live.js), refs = von der Lehrkraft freigegebenes Material („f:<Datei>“,
+  // „s:<Code>“). Nur wachsend, nie zurückgesetzt; gelöscht mit der Sitzung. Laufzeitstand – nicht in Sitzungsdatei, Sicherung und Einheitsdatei. NULL = nichts
+  ["lessons", "reveals", "TEXT"],
 ];
 
 // Indizes über nachträglich ergänzte Spalten (nach den Spalten angelegt; ein Fehler – z. B. alte Doppelungen – hält den Betrieb nicht auf)
@@ -155,6 +159,8 @@ export const INDEXES = [
   "CREATE INDEX IF NOT EXISTS files_cards ON files(updated_at) WHERE cards IS NOT NULL",   // Bildkarten, deren Bilder noch fehlen (cards/pending)
   // Druckaufträge für den nächsten Arbeitstag (printjobs.js, bei jedem Aufruf einer Startseite): Sitzungen eines Tages ohne Durchsuchen aller Sitzungen
   "CREATE INDEX IF NOT EXISTS lessons_day ON lessons(lesson_date)",
+  // Feibeitsblatt aus einer früheren Sitzung wieder gebraucht (Nachtrag 45): dasselbe Blatt in anderen Sitzungen ohne Durchsuchen aller Verknüpfungen
+  "CREATE INDEX IF NOT EXISTS fb_sheets_code ON fb_sheets(code)",
 ];
 
 let ready = null, warm = false;
@@ -165,7 +171,7 @@ export const schemaWarm = () => warm;
 export function ensureSchema(db) {
   if (!ready) ready = (async () => {
     await db.batch(SCHEMA.map((s) => db.prepare(s)));
-    // je Tabelle: Spalten nachsehen, fehlende in EINEM Batch anlegen – eine frische Datenbank braucht so 1 + 6 PRAGMA + 6 Batches + 5 Indizes = 18 Aufrufe statt
+    // je Tabelle: Spalten nachsehen, fehlende in EINEM Batch anlegen – eine frische Datenbank braucht so 1 + 6 PRAGMA + 6 Batches + 6 Indizes = 19 Aufrufe statt
     // einer je Spalte (mit Nachtrag 39 wären es 51 gewesen – über der Grenze von 50 je Aufruf, die Indizes wären still nicht angelegt worden)
     const missingOf = async (table) => {
       const info = await db.prepare("PRAGMA table_info(" + table + ")").all();

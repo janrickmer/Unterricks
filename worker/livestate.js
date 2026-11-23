@@ -8,7 +8,8 @@ import { cleanLine, isId } from "./lib.js";
 import { isValidCode, cleanCodeSlides, nextSlideOf, TIMER_MAX_MIN, TIMER_TOTAL_MAX_MIN, TIMER_ADDS } from "../public/shared.js";
 import { cleanVideoSpec, clampPos } from "../public/videoslides.js";
 
-export const LIVE_IDLE = { active: false, fileId: null, pages: 0, slide: 1, startedAt: null, updatedAt: null, v: 0, code: null, title: "", codeSlides: [], codeShown: false, timer: null, video: null, vrev: 0 };
+// revealAt (Nachtrag 44) = zuletzt Material freigegeben (Materialfolie live gezeigt bzw. von Hand, ms) – bleibt wie v über „stop“ und „Präsentation für alle beenden“
+export const LIVE_IDLE = { active: false, fileId: null, pages: 0, slide: 1, startedAt: null, updatedAt: null, v: 0, code: null, title: "", codeSlides: [], codeShown: false, timer: null, video: null, vrev: 0, revealAt: 0 };
 
 /* Nachricht der Lehrkraft auf den Zustand anwenden (verändert st). true = geändert (v zählt hoch, alle bekommen den neuen Stand). */
 export function liveReduce(st, m, now) {
@@ -33,7 +34,7 @@ export function liveReduce(st, m, now) {
     st.codeShown = on;
     if (on) st.video = null;
   } else if (m.t === "stop") {
-    Object.assign(st, { ...LIVE_IDLE, v: st.v, vrev: st.vrev || 0 });   // v (und vrev) bleiben monoton (die Schüler:innen-Seite überspringt bekannte Stände); der Timer endet mit
+    Object.assign(st, { ...LIVE_IDLE, v: st.v, vrev: st.vrev || 0, revealAt: st.revealAt || 0 });   // v, vrev und revealAt bleiben monoton (die Schüler:innen-Seite überspringt bekannte Stände); der Timer endet mit
   } else if (m.t === "timer") {
     // v und updatedAt bleiben: v ist der Stand der Folie – die Seiten gleichen den Timer vor der Prüfung von v ab, das Folienbild lädt nicht neu
     return st.active ? timerReduce(st, m, now) : false;

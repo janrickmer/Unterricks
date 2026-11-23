@@ -310,7 +310,8 @@ export function inClassView(api) {
   function sheetItem(s) {
     const url = (T.config && T.config.feibeitsblattUrl) || "";
     return h("li", { class: "ic-item" }, h("div", { class: "ficon fb", "aria-hidden": "true", text: "FB" }),
-      h("div", { class: "ic-main" }, h("div", { class: "ic-name", text: s.title }), h("div", { class: "ic-meta" }, "Feibeitsblatt · Code ", h("strong", { class: "mono", text: formatCode(s.code) }))),
+      h("div", { class: "ic-main" }, h("div", { class: "ic-name", text: s.title }), h("div", { class: "ic-meta" }, "Feibeitsblatt · Code ", h("strong", { class: "mono", text: formatCode(s.code) })),
+        api.sheetBadge ? api.sheetBadge(s) : null),   // Nachtrag 44: wartet auf seine Materialfolie bzw. seit wann sichtbar
       h("div", { class: "ic-acts" }, labelled(h("button", { class: "btn", type: "button", dataset: { k: "s:" + s.code }, onclick: async () => {
         // wie bei den Schüler:innen: Code kopieren und das Feibeitsblatt in einem neuen Tab öffnen
         const ok = await copyText(formatCode(s.code));
@@ -344,7 +345,8 @@ export function inClassView(api) {
   }
   function paintMaterial() {
     const cols = materialColumns(api.st.files, gym ? api.st.sheets : [], { gs: !gym, selbstlern: api.selbstlern(), refCards: api.refCards ? api.refCards() : [], packs: api.packs ? api.packs() : [] });
-    const key = materialKey(cols);
+    // mit dem Stand „Material erscheint mit seiner Materialfolie“ (Nachtrag 44): wird ein Material freigegeben, ändern sich seine Hinweise
+    const key = materialKey(cols) + (api.revealKey ? "\n#" + api.revealKey() : "");
     if (key === matKey) return;
     matKey = key;
     const col = (id, title, list, empty) => h("section", { class: "ic-col", "aria-labelledby": id }, h("h3", { id, text: title }),
@@ -371,8 +373,10 @@ export function inClassView(api) {
     feed = liveFeed(api.id, (m) => {
       if (m.t === "count") { if (live) { live.students = m.students; paintLive(); } return; }
       const flip = !live || !!live.active !== !!m.active || live.fileId !== m.fileId;   // Präsentation beginnt bzw. endet: oft wurde gerade markiert
+      // Material freigegeben (Nachtrag 44: Materialfolie live gezeigt bzw. von Hand) – der Stand der Sitzung bringt die neuen Hinweise
+      const revealed = !!live && (Number(m.revealAt) || 0) > (Number(live.revealAt) || 0);
       live = m; paintLive(); paintArrow(true);
-      if (flip && watch) watch.poke();
+      if ((flip || revealed) && watch) watch.poke();
     });
   }
   if (feed || watch) {
