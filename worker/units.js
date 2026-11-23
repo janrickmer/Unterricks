@@ -137,6 +137,8 @@ async function applyPlanByPosition(db, u, planRaw, rowsRaw, baseVersion, source,
 /* leere Sitzung (darf beim Überarbeiten mit ihrer Zeile wegfallen): nichts geplant, kein Material, kein Chat außer der Begrüßung, kein Elternlink – auch keine
    Zusammenfassung und kein Kurzplan für die Lehrkraft (Nachtrag 21/42) */
 const EMPTY_LESSON = "(lessons.portal='' AND lessons.parent_summary='' AND lessons.parent_note='' AND lessons.homework='' AND lessons.ideas='' AND lessons.teacher_summary='' AND lessons.teacher_plan IS NULL AND lessons.parent_hash IS NULL AND lessons.cancelled=0 " +
+  // Fachbegriffe dieser Sitzung (Nachtrag 44, Teil 3): eine Sitzung nur mit Begriffen ist nicht leer
+  "AND COALESCE(json_array_length(CASE WHEN json_valid(lessons.terms) THEN lessons.terms END, '$.items'), 0)=0 " +
   "AND NOT EXISTS(SELECT 1 FROM files f WHERE f.lesson_id=lessons.id) AND NOT EXISTS(SELECT 1 FROM chat ch WHERE ch.lesson_id=lessons.id AND COALESCE(ch.model,'')<>'begruessung') " +
   "AND NOT EXISTS(SELECT 1 FROM fb_sheets x WHERE x.lesson_id=lessons.id) AND NOT EXISTS(SELECT 1 FROM fb_drafts x WHERE x.lesson_id=lessons.id) AND NOT EXISTS(SELECT 1 FROM substitutes x WHERE x.lesson_id=lessons.id))";
 async function applyPlanByUid(db, u, planRaw, rowsRaw, baseVersion, source, now) {

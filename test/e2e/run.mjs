@@ -31,6 +31,7 @@ import { motionE2E } from "./motion.mjs";
 import { lessonZipE2E } from "./lessonzip.mjs";
 import { inClassE2E } from "./inclass.mjs";
 import { revealE2E } from "./reveal.mjs";
+import { termsE2E } from "./terms.mjs";
 import { escapeFixture } from "./escape-fixture.mjs";
 
 const require = createRequire(import.meta.url);
@@ -525,6 +526,9 @@ async function main() {
     // get_lesson zeigt ihn – auf der Sitzungsseite erscheint er nicht (nur in „Ich bin jetzt im Unterricht“, siehe inclass.mjs); danach wieder gelöscht
     ok(lessonPrompt.includes("`update_lesson` mit `weitergabe`") && lessonPrompt.indexOf("`update_lesson` mit `kurzplan_lehrkraft`") > lessonPrompt.indexOf("`update_lesson` mit `weitergabe`") &&
       lessonPrompt.indexOf("`update_lesson` mit `kurzplan_lehrkraft`") < lessonPrompt.indexOf("Sage mir zum Schluss kurz"), "Prompt: Speicherschritt „Kurzplan für die Lehrkraft“ nach dem Absatz für die Weitergabe");
+    // Nachtrag 44, Teil 3: die Hauptsitzung ist ein Q2-GK (Oberstufe) – Speicherschritt „Fachbegriffe dieser Sitzung“ direkt nach der Hausaufgabe, vor dem Mitbringen
+    ok(lessonPrompt.split("`update_lesson` mit `fachbegriffe`").length === 2 && lessonPrompt.indexOf("`update_lesson` mit `fachbegriffe`") > lessonPrompt.indexOf("`update_lesson` mit `hausaufgabe`") &&
+      lessonPrompt.indexOf("`update_lesson` mit `fachbegriffe`") < lessonPrompt.indexOf("`update_lesson` mit `mitbringen`"), "Prompt (Oberstufe): Speicherschritt „Fachbegriffe dieser Sitzung“ nach der Hausaufgabe, vor dem Mitbringen");
     r = await tool("update_lesson", { lesson_id: lessonId, kurzplan_lehrkraft: [{ phase: 1, anweisungen: ["Lehrkraft zeigt die Karikatur und sammelt erste Antworten (KURZPLANTEST)."] }] });
     const kpLesson = (await T("GET", "/api/teacher/lessons/" + lessonId)).data.lesson;
     ok(!r.isError && r.content[0].text.startsWith("Gespeichert. Kurzplan für die Lehrkraft gespeichert (1 Phase, 1 Anweisung)") && kpLesson.teacherPlan && kpLesson.teacherPlan.phases[0].n === 1 &&
@@ -1762,6 +1766,9 @@ async function main() {
     await sp.goto(BASE + "/#/schueler");
     await sp.locator(".item", { hasText: "Das Bundesverfassungsgericht" }).waitFor();
     ok(await sp.locator(".item", { hasText: "Das Bundesverfassungsgericht" }).locator(".badge", { hasText: "Hausaufgabe" }).count() === 1, "… und in ihrer Sitzungsliste");
+    // Nachtrag 44, Teil 3: Fachbegriffe dieser Sitzung (Q2-GK) – Connector, Karte der Lehrkraft, Karteikarten der Schüler:innen erst ab 2 Minuten vor dem Ende
+    step("Fachbegriffe dieser Sitzung: Karteikarten ab 2 Minuten vor dem Ende (nur Oberstufe)");
+    await termsE2E({ tp, sp, BASE, T, SA, tool, ok, OUT, SHOT, lessonId, setWhen, horizontalIssues });
     // Sitzung vorbei (Beginn vor zwei Stunden): Präsentation frei – wegen der Markierung nur Folie 1–2; keine Begriffshilfe mehr
     await setWhen(Date.now() - 120 * 60e3);
     // Folienfenster statt Knopf (Nachtrag 19): zuerst Folie 1, weiter/zurück nur bis zur markierten letzten gezeigten Folie (hier 2 von 3)

@@ -6,6 +6,7 @@ import { codeSlideDom } from "./codeslide.js";
 import { timerBand } from "./timerband.js";
 import { renderMarkdown } from "./markdown.js";
 import { slideViewer } from "./slideviewer.js";
+import { termCards } from "./termcards.js";
 import { lazy, isModuleError, pageFailed, navCheckDue, navBlockers, beforeRoute, waitPage, holdReload, beforeReload, installUpdateChecks } from "./update.js";
 import { fbAgainItem } from "./fbagain.js";
 import { revealWatch, latestOnly } from "./reveal.js";
@@ -287,6 +288,9 @@ async function studentRoom(lessonId) {
       paintPortalPreview(h("div", { class: "hwtext" }), hw.text)));
   };
   paintHomework(d.homework);
+  // Fachbegriffe dieser Sitzung (Nachtrag 44, Teil 3; nur Oberstufe): Karteikarten ganz unten – der Server liefert sie erst ab 2 Minuten vor dem Ende
+  const termsView = termCards();
+  termsView.update(d.terms);
   // KI-Begriffshilfe unter der Live-Präsentation: nur während der Stunde, nur nach Einwilligung; Fragen und Antworten nur im Arbeitsspeicher.
   // Selbstlern-Phase: ganz unten, ab dem Beginn der Sitzung bis zur nächsten Stunde mit der Lehrkraft; dieselbe Einwilligung gilt für den Erklär-Chatbot
   // Selbstlern-Phase: eigene Einwilligung (ihr Text nennt beide Chatbots) – eine Einwilligung aus der normalen Sitzung (nur Begriffshilfe) gilt dort nicht
@@ -518,6 +522,7 @@ async function studentRoom(lessonId) {
       const kind = (x) => (x.selbstlern ? (x.selbstlern.analog ? "a" : "d") : "n");
       if (kind(r) !== kind(d)) { if (location.hash === "#/schueler/s/" + lessonId) route(); return; }
       loadedAt = Date.now(); newerBox.set(r.newer); soon = r.newerSoon === true;   // Nachtrag 44 (Teil 2)
+      termsView.update(r.terms);   // Fachbegriffe (Nachtrag 44): erscheinen 2 Minuten vor dem Ende – dieselben bleiben stehen
       pres = r.presentation; renderPres(); paintHomework(r.homework); aiHelp = r.aiHelp; paintKi(); if (slv) slv.update(r); pending.splice(0, pending.length, ...(r.changesAt || [])); plan();
       // Material (Nachtrag 44): neu Freigegebenes erscheint ohne Neuladen der Seite (unveränderte Zeilen bleiben stehen – samt Fokus und aufgeklapptem Text)
       rw.seen(r.revealAt);
@@ -615,6 +620,8 @@ async function studentRoom(lessonId) {
     }
   }
   paintMats(d);
+  // Fachbegriffe dieser Sitzung (Nachtrag 44, Teil 3): ganz unten – in der Selbstlern-Phase über der KI-Begriffshilfe, die dort ganz unten bleibt
+  main.append(termsView.el);
   // Selbstlern-Phase: die KI-Begriffshilfe ganz unten (Wortlaut der Lehrkraft)
   if (selbst) main.append(kiBox);
 }

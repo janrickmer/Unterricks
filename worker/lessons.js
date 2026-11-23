@@ -11,7 +11,7 @@ import { gsCourseStmt, gsCourseOut } from "./gs.js";
 import {
   isValidClass, isValidSubject, isValidCode, normalizeCode, greetingText, planningSystemPrompt, portalMessages, feibeitsblattMessages,
   chatTranscript, extractJsonObject, validatePortalData, renderPortalEntry, normalizeFbDraft, isIsoDate, hasStop, gradeKey, isClockTime, printFileName, printCourse, GS_SUBJECT,
-  planRefs, parentOpensAt, stopParts, planFingerprint, PLAN_FINGERPRINT_STALE, TEACHER_SUMMARY_MAX, savedSinceDecision, lessonTimes, isAnalogClass,
+  planRefs, parentOpensAt, stopParts, planFingerprint, PLAN_FINGERPRINT_STALE, TEACHER_SUMMARY_MAX, savedSinceDecision, lessonTimes, isAnalogClass, isOberstufe,
 } from "../public/shared.js";
 import { unitContext, STOP_CHOICE_TEXT, stopChatSection, freeDayOn, schoolOf } from "../public/planning.js";
 import { loadFreeDays, assertNotFree } from "./freedays.js";
@@ -21,6 +21,7 @@ import { videoSlidesData } from "../public/videoslides.js";
 import { cleanShareText, shareTextOf, shareTextStore } from "../public/sharelib.js";
 import { teacherPlanOf, teacherPlanStore, cleanTeacherPlanPhases, teacherPlanFromBody, TEACHER_PLAN_LIMITS } from "../public/teacherplan.js";
 import { revealsOf, revealLast, REVEAL_REF_SQL, REVEAL_REF_RE, REVEAL_LIMITS, REVEAL_ABSENT, materialGate, revealEndRefs } from "../public/reveal.js";
+import { validateTerms, cleanTerms, termsStore, termsRead, TERMS_REV_SQL, TERMS_ONLY_OBERSTUFE } from "../public/terms.js";
 
 export const LIMITS = { title: 200, topic: 500, ideas: 20000, homework: 10000, portal: 30000, message: 30000, answer: 100000, textMaterial: 200000, parentSummary: 800, parentNote: 2000, teacherSummary: TEACHER_SUMMARY_MAX };
 
@@ -38,10 +39,16 @@ export const lessonOut = (r, extra = {}) => ({
   reveals: revealsOf(r.reveals),
   // Gegenstände zum Mitbringen (Nachtrag 28, beide Schulformen; nur Lehrkraft) und ihr Stand (Schutz vor Überschreiben)
   ...bringOut(r),
+  // Fachbegriffe dieser Sitzung (Nachtrag 44, Teil 3; nur Oberstufe – Karteikarten für die Schüler:innen) und ihr Stand (Schutz vor Überschreiben)
+  ...(isOberstufe(r.klass) ? termsOut(r) : {}),
   // Grundschule: Inhalt und Hinweis für die Eltern, Ausfall-Eintrag, ob es einen Elternlink gibt (nie der Link selbst)
   ...(r.subject === GS_SUBJECT ? { parentSummary: r.parent_summary || "", parentNote: r.parent_note || "", cancelled: !!r.cancelled, hasParentLink: !!r.parent_hash } : {}), ...extra,
 });
 function bringOut(r) { const b = bringRead(r.bring); return { bring: b.items, bringRev: b.rev }; }
+function termsOut(r) { const t = termsRead(r.terms); return { terms: t.items, termsRev: t.rev }; }
+/* Listen mit eigenem Stand im JSON (Mitbringen, Fachbegriffe): der Stand zählt in derselben Anweisung weiter (json_set … '$.rev') */
+const REV_SQL = { bring: BRING_REV_SQL, terms: TERMS_REV_SQL };
+const setCol = (k, i) => k + "=" + (REV_SQL[k] ? "json_set(?" + (i + 2) + ", '$.rev', " + REV_SQL[k] + " + 1)" : "?" + (i + 2));
 export const printProps = (f) => ({ copies: f.print_copies || 1, duplex: f.print_duplex !== 0, color: f.print_color === 1 });
 /* Kurs im Dateinamen der Druckliste (Nachtrag 32): Fach und Klasse der Sitzung, in der Grundschule Jahrgang, Religion und Fachname des Kurses – als EINE
    zusätzliche Spalte derselben Abfrage (JSON; nie eine eigene Anweisung je Datei). Für Abfragen „… FROM files“ ohne Alias (getFile, FILE_COLS, Druckaufträge). */
@@ -196,6 +203,11 @@ function lessonFields(body, partial) {
   // Gegenstände zum Mitbringen (Nachtrag 28): die ganze Liste [{item, note}] – geprüft wie im Browser (bring.js), Fehler als Meldung statt still zu kürzen
   if (partial && body.bring !== undefined) {
     try { f.bring = bringStore(validateBring(body.bring)); } catch (e) { throw bad(e.message); }
+  }
+  // Fachbegriffe dieser Sitzung (Nachtrag 44, Teil 3): die ganze Liste [{term, definition}] – 3 bis 8 oder [] (löschen), geprüft wie im Browser (terms.js);
+  // Fehler als Meldung statt still zu kürzen. Ob die Sitzung zur Oberstufe gehört, prüft updateLesson (hier ist die Klasse nicht bekannt)
+  if (partial && body.terms !== undefined) {
+    try { f.terms = termsStore(validateTerms(body.terms)); } catch (e) { throw bad(e.message); }
   }
   // Beginn (Uhrzeit, freiwillig): ohne ihn sehen Schüler:innen weder Hausaufgabe noch Präsentation (siehe lessonTimes)
   if (!partial || body.startTime !== undefined) {
@@ -511,6 +523,8 @@ export async function updateLesson(db, id, body, now) {
   if (f.title !== undefined && !f.title) throw bad("Der Titel darf nicht leer sein.");
   const old = await getLesson(db, id);
   if ((f.parent_summary !== undefined || f.parent_note !== undefined) && old.subject !== GS_SUBJECT) throw bad("Nur bei Sitzungen der Grundschule.");
+  // Fachbegriffe dieser Sitzung (Nachtrag 44, Teil 3): nur in der Oberstufe (E-Phase, Q1–Q4) – sonst nie gespeichert
+  if (f.terms !== undefined && !isOberstufe(old.klass)) throw bad(TERMS_ONLY_OBERSTUFE);
   // Ausfall-Eintrag (Krankmeldung, Grundschule): nur der Hinweis für die Eltern lässt sich ändern
   if (old.cancelled && keys.some((k) => k !== "parent_note")) throw bad("Bei einem Ausfall-Eintrag lässt sich nur der Hinweis der Lehrkraft für die Eltern ändern.");
   // ein neues Datum nie an einem unterrichtsfreien Tag der Schule (Nachtrag 24) – ein bisheriges bleibt, auch wenn es inzwischen frei ist
@@ -544,18 +558,30 @@ export async function updateLesson(db, id, body, now) {
     bringBase = body.bringBase;
     if (!Number.isInteger(bringBase) || bringBase < 0) throw bad("Stand der Liste „Mitbringen“ fehlt.");
   }
+  // Fachbegriffe (Nachtrag 44, Teil 3): termsBase (Sitzungsseite) = Stand, auf dem die Änderung beruht – sonst 409 mit der aktuellen Liste; ohne Base
+  // (Connector) wird gespeichert
+  let termsBase = null;
+  if (f.terms !== undefined && body.termsBase !== undefined) {
+    termsBase = body.termsBase;
+    if (!Number.isInteger(termsBase) || termsBase < 0) throw bad("Stand der Fachbegriffe fehlt.");
+  }
   const cols = Object.keys(f), guards = [], extra = [];
   if (body.teacherSummaryBase !== undefined && f.teacher_summary !== undefined) { extra.push(base); guards.push(" AND teacher_summary_at IS ?" + (cols.length + 2 + extra.length)); }
   if (bringBase !== null) { extra.push(bringBase); guards.push(" AND " + BRING_REV_SQL + "=?" + (cols.length + 2 + extra.length)); }
+  if (termsBase !== null) { extra.push(termsBase); guards.push(" AND " + TERMS_REV_SQL + "=?" + (cols.length + 2 + extra.length)); }
   if (shareBase !== undefined) { extra.push(shareBase); guards.push(" AND json_extract(CASE WHEN json_valid(share_text) THEN share_text END, '$.at') IS ?" + (cols.length + 2 + extra.length)); }
   guard = guards.join("");
-  const sets = cols.map((k, i) => k + "=" + (k === "bring" ? "json_set(?" + (i + 2) + ", '$.rev', " + BRING_REV_SQL + " + 1)" : "?" + (i + 2))).join(", ");
+  const sets = cols.map(setCol).join(", ");
   const r = await db.prepare("UPDATE lessons SET " + sets + ", updated_at=?" + (cols.length + 2) + " WHERE id=?1" + guard).bind(id, ...cols.map((k) => f[k]), now, ...extra).run();
   if (guard && !(r.meta && r.meta.changes)) {
     const cur = await getLesson(db, id);
     if (bringBase !== null && bringRead(cur.bring).rev !== bringBase) {
       const b = bringRead(cur.bring);
       throw new HttpError(409, "bring_conflict", "Die Liste „Mitbringen“ wurde inzwischen an anderer Stelle geändert.", { current: { items: b.items, rev: b.rev } });
+    }
+    if (termsBase !== null && termsRead(cur.terms).rev !== termsBase) {
+      const t = termsRead(cur.terms);
+      throw new HttpError(409, "terms_conflict", "Die Fachbegriffe dieser Sitzung wurden inzwischen an anderer Stelle geändert.", { current: { items: t.items, rev: t.rev } });
     }
     const curShare = shareTextOf(cur.share_text);
     if (shareBase !== undefined && (curShare ? curShare.at : null) !== shareBase)
@@ -633,6 +659,9 @@ export async function routeLessonImport(c, id) {
   // Gegenstände zum Mitbringen (Nachtrag 28): ersetzen die Liste dieser Sitzung (der Browser hat Datum und Lerngruppe in den Hinweisen angepasst);
   // fremde Daten – Ungültiges entfällt, zu lange Hinweise werden gekürzt (cleanBring)
   if (Array.isArray(les.bring)) f.bring = bringStore(cleanBring(les.bring));
+  // Fachbegriffe dieser Sitzung (Nachtrag 44, Teil 3): ersetzen die Liste – nur in einer Sitzung der Oberstufe (sonst gibt es keine Karteikarten; der Browser
+  // nennt das im Dialog); fremde Daten: Ungültiges entfällt, Zu-Langes wird gekürzt (cleanTerms)
+  if (Array.isArray(les.terms) && isOberstufe(l.klass)) f.terms = termsStore(cleanTerms(les.terms));
   // Absatz für die Weitergabe (Nachtrag 39): kommt mit aus der Datei (fremde Daten – gekürzt wie beim Lesen); fehlt er, bleibt der bisherige
   // Absatz für die Weitergabe (Nachtrag 39): ersetzt wie die übrige Planung – null bzw. leer löscht einen bisherigen (er beschriebe die alte Planung)
   if (les.shareText !== undefined) f.share_text = shareTextStore(les.shareText && typeof les.shareText === "object" ? cleanShareText(les.shareText) : null, c.now);
@@ -641,7 +670,7 @@ export async function routeLessonImport(c, id) {
   if (les.teacherPlan !== undefined) f.teacher_plan = teacherPlanStore(cleanTeacherPlanPhases(les.teacherPlan), les.teacherPlanOutdated === true ? PLAN_FINGERPRINT_STALE
     : planFingerprint(typeof les.portal === "string" ? cleanText(les.portal, LIMITS.portal) : l.portal), c.now);
   const keys = Object.keys(f), stmts = [];
-  if (keys.length) stmts.push(c.db.prepare("UPDATE lessons SET " + keys.map((k, i) => k + "=" + (k === "bring" ? "json_set(?" + (i + 2) + ", '$.rev', " + BRING_REV_SQL + " + 1)" : "?" + (i + 2))).join(", ") +
+  if (keys.length) stmts.push(c.db.prepare("UPDATE lessons SET " + keys.map(setCol).join(", ") +
     ", updated_at=?" + (keys.length + 2) + " WHERE id=?1").bind(id, ...keys.map((k) => f[k]), c.now));
   // Planungsverlauf ersetzen (Reihenfolge bleibt: json_each in der Reihenfolge der Liste)
   const chat = (Array.isArray(body.chat) ? body.chat : []).slice(-200).filter((m) => m && (m.role === "user" || m.role === "assistant") && typeof m.content === "string" && m.content.trim())

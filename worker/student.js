@@ -9,7 +9,8 @@ import { getSubstitute, studentSubstitute } from "./substitute.js";
 import { SELBSTLERN, readSelbstlern, selbstlernAiWindow, selbstlernHelpPrompt, explainBotPrompt, explainSigText, helpSigText, selbstlernHomeworkNow, EXPLAIN_BOT_LIMITS, EXPLAIN_FINISH_MESSAGE } from "../public/selbstlern.js";
 import { liveTicket, liveState } from "./live.js";
 import { normalizeCode, isValidCode, subjectName, classShort, isCourseClass, courseMembers, cleanWebUrl, lessonTimes, fmtClockBerlin, fmtDayBerlin, studentHelpPrompt, STUDENT_HELP_LIMITS, GS_SUBJECT, STUDENT_SLIDE_BLOCK,
-  isAnalogClass, cleanCodeSlides, laterLessonState, laterLiveCounts, NEWER_POLL_MS } from "../public/shared.js";
+  isAnalogClass, cleanCodeSlides, laterLessonState, laterLiveCounts, NEWER_POLL_MS, isOberstufe } from "../public/shared.js";
+import { termsRead } from "../public/terms.js";
 import { loadSubjectConfigs } from "./bases.js";
 import { videoSlidesData, videoSlidesOf, videoAt, videoWatchUrl, videoClipText } from "../public/videoslides.js";
 import { materialGate, revealFilterFiles, revealFilterSheets, revealRefOf, REVEAL_ABSENT } from "../public/reveal.js";
@@ -19,6 +20,15 @@ import { materialGate, revealFilterFiles, revealFilterSheets, revealRefOf, REVEA
 const timesOf = (l) => lessonTimes({ date: l.lesson_date, startTime: l.start_time, durationMin: l.duration_min });
 // Selbstlern-Phase (Nachtrag 29): die Hausaufgabe – alle Stationen bis zur nächsten Sitzung mit der Lehrkraft – sehen die Schüler:innen von Anfang an
 const homeworkShown = (l, now) => { if (!String(l.homework || "").trim()) return false; if (l.sub_status === SELBSTLERN) return true; const t = timesOf(l); return !!t && now >= t.homeworkAt; };
+/* Fachbegriffe dieser Sitzung (Nachtrag 44, Teil 3): nur in der Oberstufe (Klasse bzw. Kurs der Sitzung), erst ab 2 Minuten vor dem Ende der Sitzung und danach
+   dauerhaft – ohne Beginn oder Dauer nie (wie die Hausaufgabe), auch in einer Selbstlern-Phase. Vorher liefert der Server sie auf keinem Weg aus. → Liste oder null */
+const termsShown = (l, now) => {
+  if (!isOberstufe(l.klass)) return null;
+  const t = timesOf(l);
+  if (!t || now < t.termsAt) return null;
+  const xs = termsRead(l.terms).items;
+  return xs.length ? xs.map((x) => ({ term: x.term, definition: x.definition })) : null;
+};
 const LESSON_COLS = "l.id, l.subject, l.klass, l.title, l.lesson_date, l.start_time, l.duration_min, l.homework, l.student_ai, (SELECT s.status FROM substitutes s WHERE s.lesson_id=l.id) AS sub_status";
 // Material der Selbstlern-Phase (source 'selbstlern') sehen Schüler:innen nur, solange die Sitzung eine Selbstlern-Phase ist (vorher legt Claude es an, „Wiederherstellen“ löscht es)
 const SELBSTLERN_FILE_OK = "(source IS NOT 'selbstlern' OR EXISTS (SELECT 1 FROM substitutes s WHERE s.lesson_id=files.lesson_id AND s.status='selbstlern'))";
@@ -105,8 +115,8 @@ export async function routeStudentJoin(c) {
 export async function requireAccess(c, lessonId) {
   const s = await requireStudent(c);
   if (!isId(lessonId)) throw new HttpError(404, "not_found", "Diese Sitzung gibt es nicht.");
-  // l.reveals: gezeigte Materialfolien und Freigaben von Hand (Nachtrag 44) – nur für studentGate, nie in einer Antwort
-  const a = await c.db.prepare("SELECT a.joined_at, " + LESSON_COLS + ", l.created_at, l.reveals FROM student_access a JOIN lessons l ON l.id = a.lesson_id WHERE a.device_id=?1 AND a.lesson_id=?2")
+  // l.terms (Fachbegriffe, Nachtrag 44 Teil 3) und l.reveals: gezeigte Materialfolien und Freigaben von Hand (Nachtrag 44) – nur für studentGate, nie in einer Antwort
+  const a = await c.db.prepare("SELECT a.joined_at, " + LESSON_COLS + ", l.created_at, l.reveals, l.terms FROM student_access a JOIN lessons l ON l.id = a.lesson_id WHERE a.device_id=?1 AND a.lesson_id=?2")
     .bind(s.id, lessonId).first();
   if (!a) throw new HttpError(403, "no_access", "Für diese Sitzung bist du nicht freigeschaltet. Bitte gib den Sitzungscode ein.");
   return { student: s, lesson: a, joinedAt: a.joined_at };
@@ -163,7 +173,9 @@ export async function routeStudentLesson(c, lessonId) {
     // wann sich die Ansicht ändert (Begriffshilfe beginnt/endet, Hausaufgabe erscheint, Präsentation wird frei) – unabhängig davon, ob es eine Hausaufgabe gibt
     // (Nachtrag 44, Teil 2: auch der geplante Beginn der späteren Sitzung und die halbe Stunde davor – ab dort fragt die Seite jede Minute, newerSoon)
     changesAt: [...(times ? [times.start, times.end + 1000, times.homeworkAt, times.presentationAt] : []), ...(win ? [win.start, win.end + 1000] : []),
-      ...(newer.nextAt !== null ? [newer.nextAt - NEWER_POLL_MS, newer.nextAt] : [])].filter((t) => t > c.now),
+      ...(newer.nextAt !== null ? [newer.nextAt - NEWER_POLL_MS, newer.nextAt] : []),
+      // (Oberstufe: dazu der Zeitpunkt der Fachbegriffe – unabhängig davon, ob es welche gibt, Nachtrag 44 Teil 3)
+      ...(times && isOberstufe(lesson.klass) ? [times.termsAt] : [])].filter((t) => t > c.now),
     // Nachtrag 44 (Teil 2): eine spätere Sitzung des Kurses ist schon dran – nur ja/nein (der Zeitpunkt steht als Neuladen in changesAt)
     newer: newer.newer,
     // … bzw. beginnt heute in höchstens 30 Minuten und wird noch nicht live gezeigt: die sichtbare Seite fragt bis dahin jede Minute (Gegenprüfung)
@@ -173,6 +185,8 @@ export async function routeStudentLesson(c, lessonId) {
     // Erklär-Chatbot der Stationen (nur Selbstlern-Phase mit iPads): Zeitraum wie die Begriffshilfe (unabhängig von ihrem Schalter in der Sitzung)
     ...(hasBot ? { explain: win ? { start: win.start, end: win.end, untilNext: win.untilNext, providers } : { start: null, end: null, untilNext: false, providers } } : {}),
     substitute: shown.substitute, ...(shown.selbstlern ? { selbstlern: shown.selbstlern } : {}),
+    // Fachbegriffe dieser Sitzung als Karteikarten (Nachtrag 44, Teil 3): [{term, definition}] erst ab 2 Minuten vor dem Ende, sonst null
+    terms: termsShown(lesson, c.now),
     feibeitsblattUrl: c.env.FEIBEITSBLATT_URL || "https://feibeitsblatt.janrickmer.de/",
     now: c.now });
 }

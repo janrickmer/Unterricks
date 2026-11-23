@@ -7,6 +7,7 @@ import { cleanBring } from "./bring.js";
 import { cleanVideoSlides } from "./videoslides.js";
 import { cleanShareText } from "./sharelib.js";
 import { cleanTeacherPlanPhases } from "./teacherplan.js";
+import { cleanTerms } from "./terms.js";
 
 export const SESSION_FILE = { kind: "unterricks-sitzung", v: 1, json: "sitzung.json" };
 export const SESSION_LIMITS = { files: 60, chat: 200, drafts: 20, text: 200000 };
@@ -146,7 +147,9 @@ export function cleanSessionFile(raw) {
       // Absatz für die Weitergabe (Nachtrag 39) – nur, wenn die Datei einen hat
       ...(cleanShareText(l.shareText) ? { shareText: cleanShareText(l.shareText) } : {}),
       // Kurzplan für die Lehrkraft (Nachtrag 42) – nur, wenn die Datei einen hat (fremde Daten: tolerant gelesen, Grenzen gekappt)
-      ...(cleanTeacherPlanPhases(l.teacherPlan).length ? { teacherPlan: cleanTeacherPlanPhases(l.teacherPlan), ...(l.teacherPlanOutdated === true ? { teacherPlanOutdated: true } : {}) } : {}) },
+      ...(cleanTeacherPlanPhases(l.teacherPlan).length ? { teacherPlan: cleanTeacherPlanPhases(l.teacherPlan), ...(l.teacherPlanOutdated === true ? { teacherPlanOutdated: true } : {}) } : {}),
+      // Fachbegriffe dieser Sitzung (Nachtrag 44, Teil 3, Oberstufe) – nur, wenn die Datei welche hat (fremde Daten: tolerant gelesen, gekürzt)
+      ...(cleanTerms(l.terms).length ? { terms: cleanTerms(l.terms) } : {}) },
     chat: (Array.isArray(raw.chat) ? raw.chat : []).slice(-SESSION_LIMITS.chat).filter((m) => m && (m.role === "user" || m.role === "assistant") && typeof m.content === "string" && m.content.trim())
       .map((m) => ({ role: m.role, content: m.content.slice(0, 100000), model: str(m.model, 200) || null, mode: str(m.mode, 20) || null })),
     files, drafts,

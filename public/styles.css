@@ -445,6 +445,30 @@ a.item:hover { border-color: color-mix(in srgb, var(--fach-text) 55%, var(--line
 .bring-addrow { margin-top: .7rem; }
 .bring-full { margin: .4rem 0 0; }
 .bring-full:empty { display: none; }
+/* Karte „Fachbegriffe dieser Sitzung“ auf der Sitzungsseite (Nachtrag 44, Teil 3, nur Oberstufe, public/termsedit.js): ruhig, ohne Drehung – Begriff fett,
+   Definition darunter; Bearbeiten je Begriff zwei Felder, Entfernen als Symbolknopf (44px) */
+.terms-intro { margin: 0 0 .4rem; }
+.termswhen { margin: 0 0 .6rem; }
+.terms-list { margin: 0; padding: 0; }
+.terms-item { padding: .45rem 0; border-top: 1px solid var(--line); }
+.terms-item:last-child { border-bottom: 1px solid var(--line); }
+.terms-item dt { font-weight: 700; overflow-wrap: anywhere; }
+.terms-item dd { margin: .15rem 0 0; font-size: .95rem; line-height: 1.45; overflow-wrap: anywhere; }
+.terms-empty { margin: 0; }
+.terms-form { margin-top: .5rem; }
+.terms-row { display: flex; align-items: flex-start; gap: .5rem; padding: .6rem 0; border-top: 1px solid var(--line); }
+.terms-row-main { flex: 1 1 auto; min-width: 0; display: grid; grid-template-columns: minmax(0, 1fr); gap: .4rem; }
+.terms-row .field { margin: 0; }
+.terms-row textarea { min-height: 4.5rem; }
+.terms-row-acts { flex: none; padding-top: 1.6rem; }
+.terms-row-acts .iconbtn { min-width: 44px; min-height: 44px; }
+.terms-form [aria-invalid="true"] { border-color: var(--err); box-shadow: 0 0 0 2px color-mix(in srgb, var(--err) 30%, transparent); }
+.terms-addrow { margin-top: .4rem; }
+.terms-full { margin: .4rem 0 0; }
+.terms-full:empty { display: none; }
+.terms-err { margin: .5rem 0; }
+.terms-form > .row:last-child { margin-top: .6rem; }
+.terms-pre { white-space: pre-wrap; }
 .tsum-edit .hint { margin-bottom: 0; }
 .tsum-pre { white-space: pre-wrap; font-family: var(--font); min-height: 0; }
 
@@ -936,6 +960,37 @@ body:has(> .presenter) #toasts { top: 1rem; bottom: auto; }   /* im Präsentatio
 .kiq .q { margin: 0; font-weight: 700; }
 .kiq .a { margin: .15rem 0 0; padding: .55rem .75rem; border-radius: 10px; background: var(--paper); border: 1px solid var(--line); }
 .kiconsent { margin: .5rem 0 .9rem; padding-left: 1.2rem; display: grid; grid-template-columns: minmax(0, 1fr); gap: .4rem; }
+/* Schüler:innen: Karteikarten „Fachbegriffe dieser Sitzung“ (Nachtrag 44, Teil 3, nur Oberstufe, public/termcards.js) – ganz unten, ab 2 Minuten vor dem Ende.
+   Vorne der Begriff auf der Fachtönung (--fach-text auf --fach-t), hinten die Definition auf --surface; beide Seiten liegen im selben Rasterfeld, die Karte ist so
+   hoch wie die längere Seite (nichts wird abgeschnitten). Der Knopf liegt über der ganzen Karte (Name = Begriff). Ohne Bewegung wechselt die Seite sofort
+   (visibility); die Drehung (3D, nur transform, .4s) gibt es nur ohne „Bewegung reduzieren“. */
+.termsbox-wrap > .termsbox { margin-top: 1.15rem; }
+.termsbox h2 { font-size: 1.1rem; }
+.termsbox .hint { margin-bottom: .7rem; }
+.tcards { list-style: none; margin: 0; padding: 0; display: grid; grid-template-columns: repeat(auto-fill, minmax(min(100%, 14rem), 1fr)); gap: .8rem; }
+.tcard { position: relative; min-width: 0; perspective: 1000px; }
+.tcard-btn { position: absolute; inset: 0; z-index: 2; width: 100%; height: 100%; margin: 0; padding: 0; border: 0; border-radius: 14px; background: transparent; color: inherit; font: inherit;
+  cursor: pointer; -webkit-tap-highlight-color: transparent; }
+.tcard-btn:focus-visible { outline: 3px solid var(--ring, var(--fach-text)); outline-offset: 3px; border-radius: 14px; }
+.tcard-in { display: grid; min-height: 8.5rem; height: 100%; }
+.tface { grid-area: 1 / 1; display: flex; flex-direction: column; justify-content: center; gap: .35rem; min-width: 0; padding: 1rem 1.1rem; border-radius: 14px;
+  border: 1px solid var(--line); box-shadow: var(--shadow); overflow-wrap: break-word; hyphens: auto; }
+.tfront { align-items: center; text-align: center; background: var(--fach-t); color: var(--fach-text); border-color: color-mix(in srgb, var(--fach) 32%, var(--line)); }
+.tterm { margin: 0; font-weight: 800; font-size: 1.18rem; line-height: 1.25; }
+.tturn { margin: 0; font-size: .86rem; font-weight: 700; color: var(--muted); }
+.tback { background: var(--surface); color: var(--text); }
+.tback-term { margin: 0; font-weight: 800; font-size: .95rem; color: var(--fach-text); }
+.tdef { margin: 0; line-height: 1.45; }
+.tcard:not(.flipped) .tback, .tcard.flipped .tfront { visibility: hidden; }
+@media (prefers-reduced-motion: no-preference) {
+  /* Karteikarte umdrehen: nur auf Tippen bzw. Klick, nur transform */
+  .tcard-in { -webkit-transform-style: preserve-3d; transform-style: preserve-3d; transition: transform .4s var(--ease); }
+  .tcard.flipped .tcard-in { transform: rotateY(180deg); }
+  .tface { -webkit-backface-visibility: hidden; backface-visibility: hidden; }
+  .tback { transform: rotateY(180deg); }
+  .tcard:not(.flipped) .tback, .tcard.flipped .tfront { visibility: visible; }
+}
+@media (forced-colors: active) { .tface { border-color: CanvasText; } .tcard-btn:focus-visible { outline-color: Highlight; } }
 /* Schüler:innen: Notfall-Feibeitsblätter in eigenem Kästchen unter dem Material – kleinere Schrift, beginnt mit einem roten Hinweis */
 .notfallbox { font-size: .9rem; }
 /* zugeklappt (Nr. 18): nur die Titelzeile mit Winkel, ruhig wie eine Überschrift; aufgeklappt der rote Hinweis und die Dateien */

@@ -57,6 +57,9 @@ export function gradeInfo(k) {
 export const classLabel = (k) => (isValidClass(k) ? (isCourseClass(k) ? "" : "Klasse/Kurs ") + classShort(k) + " – " + gradeInfo(k).text : "");
 /* Jahrgänge 5 und 6 haben keine iPads: nur analoge, ausdruckbare Materialien (keine Feibeitsblätter, keine Escape-Rooms) */
 export const isAnalogClass = (k) => { const s = gradeInfo(k).stufe; return s === 5 || s === 6; };
+/* Oberstufe: E-Phase (EA–EH und der Kurs E-K) und Qualifikationsphase (Q1-GK … Q4-LK) – nur dort gibt es die Karteikarten „Fachbegriffe dieser Sitzung“
+   (Nachtrag 44, Teil 3; public/terms.js). Geprüft wird immer die Klasse bzw. der Kurs der Sitzung, nie die eines Geräts. */
+export const isOberstufe = (k) => !!gradeInfo(k).halfYear;
 export const ANALOG_RULE = "In den Jahrgängen 5 und 6 haben die Schüler:innen an dieser Schule keine iPads und können nicht digital lernen: Entwickle KEINE digitalen Arbeitsformate " +
   "(keine Feibeitsblätter, keine Escape-Rooms, keine Online-Aufgaben), sondern analoges Arbeitsmaterial als ausdruckbare PDF-Arbeitsblätter.";
 
@@ -129,13 +132,14 @@ export function berlinTime(iso, hhmm) {
   return t;
 }
 /* Zeitpunkte einer Sitzung: Beginn, Ende, ab wann Schüler:innen die Hausaufgabe sehen (15 Minuten vor dem Ende) und die Präsentation
-   selbst öffnen können (5 Minuten nach dem Ende). Ohne Datum, Startzeit oder Dauer: null (dann bleibt beides gesperrt). */
-export const HOMEWORK_BEFORE_END_MIN = 15, PRESENTATION_AFTER_END_MIN = 5;
+   selbst öffnen können (5 Minuten nach dem Ende). Ohne Datum, Startzeit oder Dauer: null (dann bleibt beides gesperrt). Dazu (Nachtrag 44, Teil 3, nur
+   Oberstufe) ab wann die Karteikarten „Fachbegriffe dieser Sitzung“ erscheinen: 2 Minuten vor dem Ende – danach bleiben sie sichtbar. */
+export const HOMEWORK_BEFORE_END_MIN = 15, PRESENTATION_AFTER_END_MIN = 5, TERMS_BEFORE_END_MIN = 2;
 export function lessonTimes(l) {
   const start = l ? berlinTime(l.date, l.startTime) : null, dur = l ? Number(l.durationMin) : NaN;
   if (start === null || !Number.isInteger(dur) || dur < 1) return null;
   const end = start + dur * 60e3;
-  return { start, end, homeworkAt: end - HOMEWORK_BEFORE_END_MIN * 60e3, presentationAt: end + PRESENTATION_AFTER_END_MIN * 60e3 };
+  return { start, end, homeworkAt: end - HOMEWORK_BEFORE_END_MIN * 60e3, presentationAt: end + PRESENTATION_AFTER_END_MIN * 60e3, termsAt: end - TERMS_BEFORE_END_MIN * 60e3 };
 }
 /* KI-Begriffshilfe für Schüler:innen (während der Stunde): feste Regeln, Fach, Lerngruppe, Thema und – zur Orientierung – der Stundenverlauf */
 export const STUDENT_HELP_LIMITS = { question: 300, answer: 1200, history: 3 };

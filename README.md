@@ -229,6 +229,16 @@ gleich in `public/_headers`, im Worker und – für GitHub Pages – in `scripts
   im Abschnitt „Kurzplan für die Lehrkraft“ samt Hinweis, wenn die Planung danach geändert wurde; ändert `save_schulportal_entry` bzw.
   `save_verlaufsplan` die Planung so, dass er nicht mehr passt, erinnert die Antwort daran. Beim Umbau in eine Selbstlern-Phase bleibt er (solange sie
   bzw. eine bestätigte Vertretung gilt, fordert `get_lesson` keinen neuen an).
+* **Fachbegriffe dieser Sitzung – Karteikarten (Nachtrag 44, nur Oberstufe):** In der E-Phase und in Q1–Q4 schreibt Claude beim Planen
+  („Stunde mit Claude planen“, direkt nach der Hausaufgabe) 3 bis 8 zentrale Fachbegriffe der Stunde mit je einer kurzen Definition (ein bis zwei
+  Sätze, höchstens 300 Zeichen; Begriff höchstens 60 Zeichen). Schüler:innen sehen sie **ab 2 Minuten vor dem Ende der Sitzung** ganz unten in
+  ihrer Ansicht als Karteikarten – vorne der Begriff; ein Tippen, Klicken bzw. Enter oder Leertaste dreht die Karte, hinten steht die Definition –
+  und danach dauerhaft. Vorher liefert der Server sie nicht aus (ohne Beginn oder Dauer der Sitzung nie), in Sek I und in der Grundschule gibt es sie
+  nicht, ältere Sitzungen ohne Begriffe zeigen den Bereich nicht. Auf der Sitzungsseite steht nach der Hausaufgabe die Karte **„Fachbegriffe dieser
+  Sitzung“** mit der Uhrzeit, ab der die Schüler:innen sie sehen; mit **„Bearbeiten“** ändern, ergänzen oder entfernen Sie Begriffe selbst (hat Claude
+  inzwischen eine neue Liste gespeichert, fragt Unterricks, welche gilt). Connector: `update_lesson` mit `fachbegriffe` ([] = löschen), `get_lesson`
+  zeigt sie im Abschnitt „Fachbegriffe dieser Sitzung“. Sie kommen mit „Sitzung als Datei“, der Sicherung und „Alle Unterlagen dieser Sitzung“
+  (im Verlaufsplan) mit; in eine Sitzung außerhalb der Oberstufe lädt Unterricks sie nicht (der Dialog sagt es).
 * **Feibeitsblatt-Verbindung:** Türcode und Feibeitsblatt-Passwort nur einmal eingeben (Haken „Verbindung verschlüsselt in meinem
   Benutzerkonto speichern“). Danach verbindet sich Unterricks auf jedem Gerät, auf dem Sie sich mit Ihrem Passwort anmelden,
   automatisch; Geräte, die schon vorher angemeldet waren, entsperren sie einmal mit dem Unterricks-Passwort. Der Server sieht dabei

@@ -239,6 +239,19 @@ test("Selbstlern-Phase: aktuelles Material wie auf der Seite, dazu die ursprüng
   assert.ok(r.notes.some((x) => x.includes("Selbstlern-Phase") && x.includes("Ursprüngliche Planung (archiviert)")));
 });
 
+test("Nachtrag 44, Teil 3: Oberstufe – die Fachbegriffe dieser Sitzung stehen im Verlaufsplan (Begriff fett, dahinter die Definition); ohne Begriffe kein Abschnitt", async () => {
+  const terms = [{ term: "Gewaltenteilung", definition: "Aufteilung der Staatsgewalt." }, { term: "Legislative", definition: "Die gesetzgebende Gewalt." }, { term: "Judikative", definition: "Die Gerichte." }];
+  const st = { lesson: { id: "l", subject: "powi", klass: "Q2-GK", title: "Gewaltenteilung", date: "2026-11-24", portal: "**1) Einstieg**\n- Karikatur", terms }, files: [], sheets: [] };
+  const srv = serve({});
+  let r, r0;
+  try { r = await LZ.buildLessonZip({ st, libs }); r0 = await LZ.buildLessonZip({ st: { ...st, lesson: { ...st.lesson, terms: [] } }, libs }); } finally { srv.restore(); }
+  const planOf = async (x) => pdfText((await readZip(new Uint8Array(await x.blob.arrayBuffer()))).find((e) => e.name.startsWith("Verlaufsplan")).data);
+  const plan = await planOf(r);
+  assert.ok(plan.includes("Fachbegriffe dieser Sitzung (Karteikarten für die Schüler:innen)") && plan.includes("Gewaltenteilung – Aufteilung der Staatsgewalt.") && plan.includes("Judikative – Die Gerichte."), plan.slice(0, 400));
+  assert.ok(plan.indexOf("Fachbegriffe dieser Sitzung") < plan.indexOf("In diesem Ordner"));
+  assert.ok(!(await planOf(r0)).includes("Fachbegriffe dieser Sitzung"));
+});
+
 test("Fehler je Datei werden Hinweise statt eines Abbruchs: Druckliste scheitert ganz bzw. je Datei, nach dem Druck geändert, Datei fehlt, Notizen nicht ladbar, lange Namen behalten die Endung", async () => {
   const pres = await pdfOf(["Folie"], 2), ann = await pdfOf(["Gespeicherte Anmerkungen"]), p3 = await pdfOf(["Vorlage"]);
   const long = "Ein sehr langer Titel für ein Tabellenblatt mit Wahlergebnissen aller Bundesländer seit neunzehnhundertneunundvierzig und mehr Daten.xlsx";

@@ -95,6 +95,7 @@ implementiert und im End-to-End-Test geprüft (Ausnahmen unten ausdrücklich gen
 | Konzentrationsaufgabe mit Lückentext, Ankreuzaufgabe und Suchsel (Nachtrag 43 vom 23.11.2026) | Wunsch der Lehrkraft: Seite 1 und die obere Hälfte von Seite 2 weiterhin zum Ausmalen, auf der unteren Hälfte von Seite 2 ein Lückentext, eine Ankreuzaufgabe und ein Suchsel, „dem Alter des jeweiligen Jahrgangs dieser Lerngruppe bzgl. des Schwierigkeitsgrades angemessen“. Rückfragen beantwortet: die rote Karte kommt in den Seitenrand neben diese Aufgaben, darunter, dass der Abschnitt nur für Kinder mit roter Karte Pflicht ist; Stufen je Jahrgang wie von Claude vorgeschlagen; nur neue bzw. überarbeitete Konzentrationsaufgaben; passen die Aufgaben nicht in die halbe Seite, wird das Ausmalbild oben auf Seite 2 kleiner. Siehe 4zk |
 | Material erscheint live mit seiner Materialfolie (Nachtrag 44, Teil 1, vom 23.11.2026) | Wunsch der Lehrkraft: Material, mit dem die Schüler:innen arbeiten sollen, erscheint in ihrer Ansicht erst, wenn die Live-Präsentation die Folie erreicht, auf der sie dazu aufgefordert werden – ohne Neuladen. Rückfragen beantwortet: Material ohne eigene Materialfolie und Sitzungen ohne Live-Präsentation wie bisher; einmal freigegeben bleibt es sichtbar, auch nach der Stunde; auch Feibeitsblätter (das Notfall-Feibeitsblatt folgt seinem Blatt). Wird die Folie nie live gezeigt, spätestens mit der Präsentation nach der Stunde (Entscheidung Claude); dazu „Jetzt freigeben“ für die Lehrkraft. Siehe 4zo |
 | Hinweis „nicht die aktuellste Sitzung“ und Text zur Code-Eingabe (Nachtrag 44, Teil 2, vom 23.11.2026) | Wunsch der Lehrkraft: „Wenn in einem Kurs ein Schüler eine Unterrichtssitzung (bspw. Sitzung Nr. 1 der Einheit) geöffnet hat, aber gerade live eine spätere Sitzung veranstaltet wird oder bereits veranstaltet wurde, soll in dieser alten Sitzung ganz oben in einem roten Hinweis-Feld der Hinweis stehen, dass dies nicht die aktuellste Sitzung ist. Mit einem Klick auf einen Button "Aktuellste Sitzung laden" kommt man zu der Eingabe des Sitzungscodes. Bei der Eingabe des Sitzungscodes soll von nun an immer stehen, dass dieser Sitzungscode zu Beginn der Unterrichtsstunde gezeigt wurde und auch im Hausaufgabenfeld des Schulportals steht.“ Rückfrage beantwortet: „aktuellste Sitzung“ = eine **spätere Sitzung desselben Kurses, sobald sie laut Plan beginnt** (Datum + Startzeit) **oder früher, wenn sie schon live gezeigt wird**. Selbst entschieden (Claude): ohne Startzeit ab 0:00 Uhr ihres Tages; live zählt nur an ihrem eigenen Tag und nur, wenn die Präsentation an diesem Tag gestartet bzw. weitergeschaltet wurde (eine Vorschau an einem früheren Tag, auch mit „Schließen“ offen gelassen, nicht – Gegenprüfung); Selbstlern-Phasen und Vertretungen zählen wie jede Sitzung; nur Gymnasium (die Grundschule hat keine Schüleransicht). Siehe 4zp (samt den Befunden der Gegenprüfung) |
+| Fachbegriffe dieser Sitzung – Karteikarten in der Oberstufe (Nachtrag 44, Teil 3, vom 23.11.2026) | Wunsch der Lehrkraft: „Nur bei Kursen in der Oberstufe (E-Phase, Q1-Q4) soll ca. 2 Minuten vor Ende jeder Unterrichtssitzung in der Schüleransicht von Unterricks zu jeder Sitzung unten ein Bereich auftauchen "Fachbegriffe dieser Sitzung". Dort sollen drei bis maximal acht Karteikarten dargestellt werden, auf denen die Fachbegriffe stehen, die zu dieser Unterrichtssitzung passen. Wenn man auf die Karteikarte klickt, dreht sich die Karte und auf dessen Rückseite wird die Definition dieses Fachbegriffs gezeigt.“ Rückfragen beantwortet: **Claude schreibt sie beim Planen** (3–8 Begriffe mit kurzer Definition, je Sitzung gespeichert), die Lehrkraft ändert sie auf der Sitzungsseite; ältere Sitzungen ohne Begriffe zeigen den Bereich nicht; die Karteikarten bleiben **dauerhaft sichtbar** ab etwa 2 Minuten vor dem Ende (Zeitprüfung auf dem Server wie bei der Hausaufgabe). Siehe 4zr |
 | Feibeitsblatt aus einer früheren Sitzung – mit dem Zwischenstand weiterarbeiten (Nachtrag 45 vom 23.11.2026) | Wunsch der Lehrkraft: Ein Feibeitsblatt, das mit dieser und einer früheren Sitzung desselben Kurses verknüpft ist, steht bei den Schüler:innen als „wieder gebraucht“: Feld für die Zwischenstand-PDF, „Im Feibeitsblatt weiterarbeiten“ (Übergabe von Tab zu Tab nach dem mit Feibeitsblatt abgestimmten Protokoll v1, Rückfall nach 10 s), klein der Code und „Von vorn beginnen“. Claude verknüpft ein vorhandenes Blatt per Connector (`link_feibeitsblatt`, auch im Zwischenstopp-Prompt). Siehe 4zq |
 | Prüfung von Nachtrag 44 (Teil 1) und 45 (23.11.2026) | Die **KI-Begriffshilfe** bekommt den Schulportal-Eintrag **ohne Codes** (sie verriete sonst den Code eines wartenden Feibeitsblatts). Die Schüler:innen-Seite lädt nach einer Freigabe **erneut**, bis ihre Daten den Stand erreichen (gescheitertes Neuladen im WLAN der Schule), und wendet eine **ältere Antwort nie nach einer neueren** an. Was nach der Stunde frei geworden ist, bleibt frei, auch wenn die Lehrkraft **danach „Bis hier gezeigt“** setzt (festgehalten). Ein Feibeitsblatt ohne eigenen Titel („Feibeitsblatt“) nennt nicht jede Materialfolie. Fokus nach „Jetzt freigeben“ und nach der Übergabe der Zwischenstand-PDF; „Von vorn beginnen“ öffnet den Tab direkt im Klick; „neu“ nur am zuletzt Erschienenen; volle Liste der Freigaben → Meldung statt „sichtbar“. Bestätigt: Eine Präsentation, die nie live läuft, gibt ihr Material erst nach der Stunde frei („Jetzt freigeben“ sofort). Siehe 4zo, 4zq |
 
@@ -172,6 +173,7 @@ implementiert und im End-to-End-Test geprüft (Ausnahmen unten ausdrücklich gen
 | | `public/materialbox.js` | Materialkasten einer Sitzung (Material für Schüler:innen und Lehrkräfte, Druckliste) – aus `session.js` ausgelagert |
 | | `public/inclassbar.js`, `public/inclass.js`, `public/inclasslib.js` | „Ich bin jetzt im Unterricht“ (Nachtrag 35): Knopf ganz oben und Umschalten (fest geladen, klein); kompakte Ansicht beider Schulformen mit Präsentation, Verlaufsplan samt grünem Pfeil, Material in zwei Spalten, Hausaufgabe (bei Bedarf über `lazy()` geladen); reine Helfer (Phase der Live-Folie, Spalten, seit Nachtrag 42 der kompakte Verlaufsplan `compactPlan`), siehe 4ze und 4zm |
 | | `public/teacherplan.js` | „Kurzplan für die Lehrkraft“ (Nachtrag 42): Prüfung, Speicherform, ob er noch zur Planung passt, Regeln und Speicherschritt der Prompts – gemeinsam für Browser und Worker, siehe 4zm |
+| | `public/terms.js`, `public/termsedit.js`, `public/termcards.js` | „Fachbegriffe dieser Sitzung“ (Nachtrag 44, Teil 3, nur Oberstufe): Prüfung (3–8, Längen, Doppelte), Speicherform mit Stand, Bausteine für Prompt und `get_lesson` (gemeinsam für Browser und Worker); Karte der Sitzungsseite; Karteikarten der Schüler:innen (Umdrehen per Knopf, 3D nur ohne reduzierte Bewegung), siehe 4zr |
 | | `public/coursecard.js` | Karte „Kurseinstellungen“ auf der Klassen- bzw. Kursseite (Termine pro Woche, Schülerzahl) |
 | | `public/grundschule.js` | Bereich „Grundschule“ (Menüpunkt zwischen „Gymnasium“ und „Planungsgrundlagen“): Übersicht mit dem Wochenkalender beider Schulformen, den Kursen und „Neuen Kurs anlegen“ (Knopf im Kopf der Seite führt zum Formular; Jahrgang 1–4, Religion oder ein anderes Fach mit Namen); Kursseite (Einheiten, Kurseinstellungen, Fach/Klassen, Planungsgrundlagen); roter Kasten nach Ausfällen (`reviseBox`) |
 | | `public/gsplanning.js` | Prompts für Claude in der Grundschule (Einheit und Stunde planen, Einheit nach Ausfällen überarbeiten, Verlaufsplan-Regeln; nur analoges Material) |
@@ -3071,6 +3073,124 @@ laut Plan beginnt** (Datum + Startzeit) **oder früher, wenn sie schon live geze
   Feibeitsblatt ohne Bereitschaft → Anleitung nach 10 s, „Von vorn beginnen“, 390 px ohne seitliches Schieben, dunkles Design. **Von Hand vor dem Ausrollen
   auf einem echten iPad prüfen** (keine Attrappe kann das): iPad-Safari kann Skripte in Hintergrund-Tabs anhalten – nach `window.open` liegt Unterricks im
   Hintergrund, die Bereitschaft des Feibeitsblatts käme dann erst beim Zurückwechseln an (die Übergabe klappt trotzdem, nur später; das Protokoll v1 bleibt).
+
+## 4zr. Fachbegriffe dieser Sitzung – Karteikarten in der Oberstufe (Nachtrag 44, Teil 3)
+
+Wortlaut (Punkt 3 des Nachtrags vom 23.11.2026): „Nur bei Kursen in der Oberstufe (E-Phase, Q1-Q4) soll ca. 2 Minuten vor Ende jeder Unterrichtssitzung
+in der Schüleransicht von Unterricks zu jeder Sitzung unten ein Bereich auftauchen "Fachbegriffe dieser Sitzung". Dort sollen drei bis maximal acht
+Karteikarten dargestellt werden, auf denen die Fachbegriffe stehen, die zu dieser Unterrichtssitzung passen. Wenn man auf die Karteikarte klickt, dreht sich
+die Karte und auf dessen Rückseite wird die Definition dieses Fachbegriffs gezeigt.“ Antworten auf die Rückfragen: **Claude schreibt sie beim Planen**
+(3–8 Begriffe mit kurzer Definition, je Sitzung gespeichert), die Lehrkraft kann sie auf der Sitzungsseite ändern; ältere Sitzungen ohne Begriffe zeigen
+den Bereich nicht; die Karteikarten bleiben **dauerhaft sichtbar** ab etwa 2 Minuten vor dem Ende der Sitzung.
+
+* **Oberstufe erkennen** (`public/shared.js`): `isOberstufe(k)` = `gradeInfo(k).halfYear` gesetzt – EA–EH, der Kurs `E-K` (Ev. Religion/Ethik) und
+  `Q1-GK` … `Q4-LK`; nie Sek I (auch nicht die Kurse `5-K` … `10-K`), Grundschule oder Ungültiges. Geprüft wird immer die Klasse bzw. der Kurs **der
+  Sitzung**, nie die des Geräts (eine Schülerin aus EA öffnet eine Sitzung von `E-K`). `lessonTimes` liefert zusätzlich `termsAt` = Ende − 2 Minuten
+  (`TERMS_BEFORE_END_MIN`); ohne Datum, Beginn oder Dauer `null` wie bisher.
+* **Eigene Namen:** `terms`, „Fachbegriffe“, `termsedit.js`, `termcards.js` (`.tcard`) – nicht zu verwechseln mit den Bildkarten der Grundschule
+  (`cards`, `cardview.js`) und der KI-Begriffshilfe (`aiHelp`, `/ask`, `.kihelp`), die beide unverändert bleiben.
+* **D1** (`worker/db.js`, additiv im bestehenden ALTER-Batch der Tabelle `lessons` – keine zusätzliche Anweisung beim Anlegen des Schemas):
+  `lessons.terms` (TEXT, NULL = nie gesetzt) = JSON `{v:1, rev, items:[{t, d}]}` (`t` = Begriff, `d` = Definition). `rev` zählt jede Speicherung in
+  derselben Anweisung (`TERMS_REV_SQL`, `json_set … '$.rev'` wie bei „Mitbringen“ – beide jetzt über `setCol`/`REV_SQL` in `worker/lessons.js`); eine
+  geleerte Liste bleibt als `{items: []}` stehen (der Stand zählt weiter, ein alter Stand trifft nie zufällig wieder zu). `EMPTY_LESSON`
+  (`worker/units.js`): eine Sitzung nur mit Begriffen ist nicht „leer“ und fällt beim Überarbeiten einer Einheit nicht weg.
+* **`public/terms.js`** (reine Funktionen, Browser und Worker): `TERMS_LIMITS = {min: 3, max: 8, term: 60, def: 300}`, `TERMS_TITLE` „Fachbegriffe dieser
+  Sitzung“, `termsLine` (Steuer- und Formatzeichen entfernt, Leerraum samt Zeilenumbrüchen zu einem Leerzeichen – Begriff und Definition sind einzeilig),
+  `termsKey` (Doppelte ohne Groß-/Kleinschreibung). `validateTerms` (Eingaben der Lehrkraft und von Claude): `[]`/`null` = löschen, sonst 3–8 Einträge
+  mit Begriff (≤ 60) und Definition (≤ 300), ohne Doppelte – sonst eine deutsche Meldung („Bitte mindestens 3 Fachbegriffe angeben (höchstens 8) – oder
+  die Liste ganz leeren.“, „Die Definition zu „…“ ist zu lang (n Zeichen, höchstens 300) – bitte kürzer fassen.“ …), **nie still gekürzt**.
+  `cleanTerms` (fremde Daten: Spalte, Sitzungsdatei): nie ein Fehler – ohne Begriff oder Definition und Doppeltes entfällt, Zu-Langes wird gekürzt (mit
+  „…“), höchstens 8; 1–2 Einträge aus fremden Daten bleiben erhalten. Dazu `termsStore`/`termsRead`, `termsSaveStep`, `termsSection`, `termsImportText`.
+* **Speichern** (`lessonFields`/`updateLesson`): `PATCH …/lessons/:id {terms: [{term, definition}], termsBase}` – `termsBase` (Sitzungsseite) = Stand, auf
+  dem die Änderung beruht, sonst 409 `terms_conflict` mit `current {items, rev}`; ohne Base (Connector) wird gespeichert. Ungültig → 400 mit der Meldung,
+  `termsBase` kein Stand → 400 „Stand der Fachbegriffe fehlt.“; **keine Oberstufe** → 400 `TERMS_ONLY_OBERSTUFE` „Fachbegriffe dieser Sitzung
+  (Karteikarten) gibt es nur in der Oberstufe (E-Phase, Q1–Q4).“ – nichts gespeichert, auch nicht die übrigen Felder (die Prüfung steht vor der
+  Anweisung). `lessonOut` liefert `terms` und `termsRev` **nur für Sitzungen der Oberstufe** (Sek I und Grundschule bleiben byte-gleich) und nur in
+  Routen der Lehrkraft für eine Sitzung und im Connector – nicht in der Liste der Sitzungen.
+* **Connector** (`worker/mcp.js`): `update_lesson` mit `fachbegriffe` = `[{begriff, definition}]` (Schema: `maxItems` 8, `begriff` ≤ 60, `definition` ≤ 300,
+  beide Pflicht; Beschreibung: nur Oberstufe, 3–8 zentrale Fachbegriffe der Stunde, „[] leert sie“, „Nie Namen von Schüler:innen.“). Geprüft vor dem
+  Speichern (keine Liste, Pflichtfelder, keine Oberstufe „… Lass fachbegriffe bei dieser Sitzung weg.“, `validateTerms` → „fachbegriffe: …“) – dann
+  Fehlermeldung und **nichts** gespeichert. Rückmeldung „Gespeichert. Fachbegriffe dieser Sitzung (4): A, B, C, D – die Schüler:innen sehen sie ab Di.,
+  17.11.2026, 11:28 Uhr (2 Minuten vor dem Ende der Sitzung).“ bzw. ohne Beginn „– solange der Beginn (Uhrzeit) der Sitzung fehlt, sehen die
+  Schüler:innen sie nicht.“; `[]` → „Die „Fachbegriffe dieser Sitzung“ sind gelöscht.“ Ohne den Parameter bleibt die Antwort wie bisher. Die
+  Werkzeugbeschreibung von `update_lesson` nennt `fachbegriffe` in einem Satz. **Die Server-Anweisungen (INSTRUCTIONS) bleiben byte-gleich** (5646 Zeichen,
+  Tests in `cardsprint.test.mjs` und `terms.test.mjs`). `get_lesson`: Abschnitt „## Fachbegriffe dieser Sitzung (Karteikarten für die Schüler:innen,
+  sichtbar ab 2 Minuten vor dem Ende der Sitzung)“ direkt nach „Mitbringen“ – je Begriff „- Begriff: Definition“, der Zeitpunkt für die Schüler:innen
+  (bzw. was dafür fehlt), „(Ändern mit update_lesson und fachbegriffe – …)“; ohne Begriffe „(noch keine – schreibe nach der Freigabe der Lehrkraft 3 bis 8
+  zentrale Fachbegriffe dieser Stunde mit update_lesson und fachbegriffe: …)“. **Nur Oberstufe** – Sek I und Grundschule bleiben byte-gleich.
+* **Prompt „Stunde mit Claude planen“** (`claudeLessonPrompt`): nur bei Sitzungen der Oberstufe `termsSaveStep()` als Unterpunkt von Schritt 4 **direkt nach
+  der Hausaufgabe** (vor „Mitbringen“, weit weg von Zusammenfassung, Weitergabe und Kurzplan): „„Fachbegriffe dieser Sitzung“ → `update_lesson` mit
+  `fachbegriffe`: 3 bis 8 zentrale Fachbegriffe, die in dieser Stunde eingeführt oder gebraucht werden, je `begriff` (höchstens 60 Zeichen) und `definition`:
+  eine kurze, fachlich korrekte Erklärung in ein bis zwei Sätzen (höchstens 300 Zeichen), verständlich für diese Lerngruppe, als schlichter Text ohne
+  Schulportal-Zeichen; die Liste ersetzt die bisherige aus `get_lesson`. Unterricks zeigt sie den Schüler:innen ab 2 Minuten vor dem Ende der Sitzung als
+  Karteikarten (vorne der Begriff, hinten die Definition). Ändern wir die Planung später, passe auch die Fachbegriffe an.“ Ohne diesen Schritt ist der
+  Prompt byte-gleich (`withoutTerms` im SHA-Test von `zwischenstopp.test.mjs` – die Vorlage ist ein Q2-GK; Jg. 6 und Grundschule bekommen ihn nie). Nicht
+  im Prompt der Grundschule, der Selbstlern-Phase, der Präsentation, der Einheit, der Überarbeitung und nicht im Backup-Chat; `SUMMARY_FALLBACK` bleibt.
+* **Schüler-Route** (`worker/student.js`, `routeStudentLesson`): `terms: [{term, definition}] | null` – nur Oberstufe, erst ab `termsAt` (Uhr des Workers,
+  `c.now`), danach **dauerhaft** (auch Tage später), ohne Beginn oder Dauer nie, ohne Begriffe `null`. Die Spalte liest nur die Abfrage einer Sitzung
+  (`requireAccess`: `…, l.created_at, l.terms`) – nicht `LESSON_COLS`, also nie „Meine Sitzungen“ oder das Einlösen eines Codes. `changesAt` bekommt
+  `termsAt` **nur bei Oberstufen-Sitzungen**, unabhängig davon, ob es Begriffe gibt (der Zeitpunkt verrät nichts), und nur, solange er in der Zukunft
+  liegt – die offene Schülerseite lädt dann von selbst neu (wie bei der Hausaufgabe; nach dem Aufwachen über `visibilitychange`). Ändert die Lehrkraft die
+  Begriffe nach `termsAt`, sieht eine offene Seite das beim nächsten Neuladen der Daten (Ende + 1 s, Freigabe der Präsentation, Rückkehr in den Tab). In
+  einer Selbstlern-Phase gilt dieselbe Zeit (die Begriffe gehören zur Sitzung). Nie im Durable Object, Beamer, Live-Zustand, in der Elternansicht, im
+  Podcast oder in „Ich bin jetzt im Unterricht“.
+* **Schüleransicht** (`public/termcards.js`, eingebunden in `public/app.js`): `termCards()` → `{el, update(items)}`; `el` bleibt leer ohne Begriffe (ältere
+  Sitzungen, vor der Zeit, Sek I). Mit Begriffen `section.card.termsbox#terms-s` (`aria-labelledby` → `h2#terms-sh` „Fachbegriffe dieser Sitzung“),
+  darunter `p.hint` „Tippe auf eine Karte – auf der Rückseite steht die Erklärung.“ und `ul.tcards` mit je `li.tcard`: ein echter Knopf
+  `button.tcard-btn` (über der ganzen Karte, Name = Begriff als `sr-only`, `aria-expanded`, `aria-controls` → Rückseite `#tc-back-n`), dahinter
+  `div.tcard-in` mit Vorderseite `.tfront` (Begriff, kleiner Hinweis „Umdrehen“, immer `aria-hidden`) und Rückseite `.tback` (Begriff klein, Definition;
+  `aria-hidden` bis zum Umdrehen). Klick, Tippen, Enter und Leertaste drehen die Karte (nativer Knopf). Kommen beim Neuladen dieselben Begriffe, bleibt
+  alles stehen (umgedrehte Karten, Fokus); geänderte Begriffe bauen die Karten neu, der Fokus bleibt an derselben Stelle. Nur `textContent`, kein Markdown.
+  Lage: **ganz unten** – in der normalen Ansicht nach dem Notfall-Kästchen, in der Selbstlern-Phase direkt **über** der KI-Begriffshilfe (die dort ganz
+  unten bleibt). Die Zeile `} else if (d.selbstlern) main.append(presRow, kiBox, hwBox);` bleibt unverändert.
+* **Gestaltung** (`public/styles.css`, DESIGN.md): Raster `repeat(auto-fill, minmax(min(100%, 14rem), 1fr))` (am Handy eine Spalte), Karte mindestens
+  8,5rem hoch; beide Seiten liegen im selben Rasterfeld (`grid-area: 1 / 1`) – die Karte ist so hoch wie die längere Seite, eine Definition mit 300
+  Zeichen wird nie abgeschnitten. Vorderseite auf der Fachtönung (`--fach-text` auf `--fach-t`), Rückseite auf `--surface` mit `--text`, Haarlinie
+  `--line`, Schatten `--shadow`; Dunkelmodus über dieselben Tokens. **Ohne Bewegung** (Grundregel, auch bei „Bewegung reduzieren“): die sichtbare Seite
+  wechselt sofort (`visibility`), keine 3D-Transformation. **Mit Bewegung** (`@media (prefers-reduced-motion: no-preference)`): Drehung um die Y-Achse
+  (`rotateY(180deg)`, `preserve-3d`, `backface-visibility: hidden` samt `-webkit-`, `perspective` am `li`), nur `transform`, .4s `var(--ease)`, nur auf
+  Klick – das Erscheinen des Bereichs selbst ist nicht animiert. Fokusring `3px var(--ring, var(--fach-text))` um die ganze Karte; erzwungene Farben:
+  Kante `CanvasText`, Fokus `Highlight`. Keine Live-Region beim Erscheinen (die Hausaufgabe wird auch nicht angesagt).
+* **Sitzungsseite der Lehrkraft** (`public/termsedit.js`, nur Oberstufe, im Stapel direkt nach der Hausaufgabe): Karte `section.card.terms#terms` mit
+  „Fachbegriffe dieser Sitzung“, Hinweis (`TERMS_INTRO`), Zeitzeile `#terms-when` „Schüler:innen sehen die Karteikarten ab HH:MM Uhr (2 Minuten vor dem Ende
+  der Sitzung) unten in ihrer Ansicht der Sitzung – danach bleiben sie dort.“ bzw. `.warnc` „… – dafür fehlt der Beginn (Uhrzeit) (bei den
+  Sitzungsdaten).“ (folgt Datum und Beginn über `onTimes`), Liste `dl.terms-list` (Begriff fett, Definition darunter) bzw. „Noch keine Fachbegriffe.
+  Claude schreibt sie beim Planen – oder Sie tragen sie selbst ein.“. **„Bearbeiten“** (`aria-expanded`/`aria-controls`) öffnet je Begriff zwei Felder
+  (Begriff ≤ 60, Definition ≤ 300 mit Zähler), ohne Begriffe drei leere Zeilen; „Begriff hinzufügen“ (bei 8 `aria-disabled` + „Höchstens 8 Fachbegriffe je
+  Sitzung.“), „Begriff n entfernen“ als Symbolknopf (44 px; Fokus danach auf den nächsten Begriff bzw. „Begriff hinzufügen“), Meldungen am betroffenen
+  Feld (`aria-invalid`, `role="alert"`), leere Zeilen zählen nicht, alle entfernt → Rückfrage „Alle Fachbegriffe löschen?“. Speichern mit `termsBase`;
+  bei 409 die Rückfrage wie bei der Zusammenfassung („Gespeicherte Fassung übernehmen“ / „Meine Fassung speichern“ – ohne Stand). Änderungen von außen
+  (Claude, anderes Gerät) übernimmt `update()` beim Zurückkehren in den Tab – nie in eine laufende Bearbeitung; ungespeicherte Bearbeitung → Rückfrage
+  vor „Alle Unterlagen dieser Sitzung“ und beim Schließen der Seite. Keine Dreh-Animation auf der Sitzungsseite (sie bleibt ruhig). In „Ich bin jetzt im
+  Unterricht“ ist die Karte mit dem übrigen Raster ausgeblendet.
+* **Sitzung als Datei / Sicherung / Alle Unterlagen:** `lesson.terms` = `[{term, definition}]` nur, wenn es welche gibt (sonst bleibt die Datei, wie sie war);
+  beim Lesen `cleanTerms`. `planSessionImport` gibt sie in eine Sitzung der Oberstufe weiter (ohne Begriffe in der Datei: leer – die Datei ersetzt die
+  Planung), in eine andere Sitzung nie (`termsDropped`); der Dialog „Sitzung aus Datei laden?“ sagt es (`termsImportText`: „Fachbegriffe dieser Sitzung (…)
+  ersetzen die Liste dieser Sitzung.“, „Die 4 Fachbegriffe aus der Datei werden nicht übernommen – Karteikarten gibt es nur in der Oberstufe.“, „Die Datei
+  enthält keine Fachbegriffe – die bisherigen dieser Sitzung werden gelöscht.“). `routeLessonImport` speichert nur in der Oberstufe. Die große Sicherung
+  („Lies mich.txt“) nennt sie; „Alle Unterlagen dieser Sitzung“ (4zj) nimmt sie in den Verlaufsplan auf („Fachbegriffe dieser Sitzung (Karteikarten für die
+  Schüler:innen)“, Begriff fett, dahinter die Definition). Die geteilte Einheit (4zh) bleibt ohne sie.
+* **Selbst entschieden (Rückfrage nicht nötig):** (1) In einer Selbstlern-Phase gibt es die Karteikarten zur selben Zeit, über der KI-Begriffshilfe – die
+  Begriffe gehören zur Sitzung, die Stationen behandeln dasselbe Thema. (2) Normale Ansicht: ganz unten, nach dem Notfall-Kästchen („unten“ laut Wunsch).
+  (3) Eingaben brauchen 3–8 Begriffe oder eine leere Liste; aus fremden Daten bleiben auch 1–2. (4) Keine Oberstufe: Connector und PATCH lehnen ab, das
+  Laden einer Sitzungsdatei lässt sie mit Hinweis weg (nie still gespeichert). (5) Kein Rückfall im Chat ohne Connector, keine Erinnerung in anderen
+  Antworten des Connectors – nur der Leer-Text in `get_lesson`. (6) „Alle Unterlagen“ ja, geteilte Einheit nein. (7) Begriff und Definition sind einzeilig
+  (Zeilenumbrüche werden Leerzeichen); „ein bis zwei Sätze“ steht nur im Prompt, gezählt werden Zeichen. (8) Barrierefrei als Aufklapp-Muster
+  (`aria-expanded` + `aria-controls`) statt `aria-pressed` – der Name des Knopfs bleibt der Begriff.
+* **Tests:** Unit `test/unit/terms.test.mjs` (19 Tests: `isOberstufe`, `termsAt`, `validateTerms`/`cleanTerms`, Speicherform, Bausteine, Prompt nur
+  Oberstufe und direkt nach der Hausaufgabe – nie Sek I, Jg. 6, Grundschule, Selbstlern- und Präsentations-Prompt; PATCH mit Stand, 409, 400, nur
+  Oberstufe, `lessonOut`; Schüler-Route vor/ab `termsAt`, Tage später, ohne Beginn, Sek I trotz Spalte, `changesAt` nur Oberstufe, nie in Liste und
+  Einlösen, Selbstlern-Phase; Connector samt Fehlern ohne Speichern, Schema, `get_lesson` nur Oberstufe, INSTRUCTIONS unverändert; Sitzungsdatei hin und
+  zurück, Import in Oberstufe und Sek I; `EMPTY_LESSON`; Quelltext-Scan Eltern/Beamer/Live/Präsentation/„Ich bin jetzt im Unterricht“/Podcast; Karte der
+  Lehrkraft in der DOM-Nachbildung: leer, Zeitzeile, Bearbeiten, Fehler am Feld, Speichern mit Stand, Fokus, bis 8, Entfernen, Doppelte, alle löschen,
+  409 mit „Meine Fassung speichern“, Stand von außen; Karteikarten in der DOM-Nachbildung: Knopf, `aria-expanded`, `aria-hidden`, Maus, Enter,
+  Leertaste, gleiche Daten ohne Neuzeichnen, Fokus beim Neuzeichnen; CSS: 3D nur ohne reduzierte Bewegung, Grundregel `visibility`, Tokens, Fokus,
+  erzwungene Farben; Quelltext von `app.js` und `session.js`), `zwischenstopp.test.mjs` (Stripper `withoutTerms`), `lessonzip.test.mjs`
+  (Verlaufsplan mit und ohne Begriffe). E2E (hier nicht gelaufen): `test/e2e/terms.mjs` (aus `run.mjs` nach der KI-Begriffshilfe, Hauptsitzung Q2-GK) –
+  Connector samt Ablehnung von 2 Begriffen, `get_lesson`, Karte direkt nach der Hausaufgabe, Bearbeiten und Speichern, vor der Zeit nichts (Schnittstelle
+  und Ansicht, `changesAt` mit `termsAt`), ab 2 Minuten vor dem Ende ganz unten vier Karten (≥ 44 px), Umdrehen per Maus (3D-Transformation, Rückseite
+  sichtbar, `aria-*`), Enter/Leertaste, „Bewegung reduzieren“ ohne 3D, Bildschirmfotos 810/390 px hell und dunkel (`fachbegriffe-*.png`), am Handy ohne
+  seitliches Schieben, mit `[]` gelöscht → kein Bereich; `run.mjs` prüft außerdem den Speicherschritt im Prompt (nach der Hausaufgabe, vor dem Mitbringen).
 
 ## 4i. Druckliste „Von der Lehrkraft auszudrucken“ (Ergänzung vom 10.11.2026)
 

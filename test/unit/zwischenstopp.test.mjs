@@ -14,6 +14,7 @@ const F = await import("./stop-fixtures.mjs");
 const B = await import("../../public/bring.js");
 const SH = await import("../../public/sharelib.js");
 const TP = await import("../../public/teacherplan.js");
+const TM = await import("../../public/terms.js");
 const { fakeCtx } = await import("./fake-d1.mjs");
 const GS = await import("../../worker/gs.js");
 const U = await import("../../worker/units.js");
@@ -68,6 +69,15 @@ const withoutTeacherPlan = (p, gs, subject, klass) => {
   assert.ok(p.includes(SH.shareSaveStep(subject, klass) + step), "direkt nach dem Schritt zum Absatz für die Weitergabe");
   return p.replace(step, "");
 };
+// Nachtrag 44, Teil 3 (23.11.2026): nur Oberstufe – genau ein Speicherschritt „Fachbegriffe dieser Sitzung“ direkt nach dem zur Hausaufgabe (vor den
+// Gegenständen zum Mitbringen); ohne ihn byte-gleich. Jg. 5/6 und die Grundschule bekommen ihn nie
+const withoutTerms = (p) => {
+  const step = "\n" + TM.termsSaveStep();
+  assert.equal(p.split(step).length - 1, 1, "der Schritt zu den Fachbegriffen steht genau einmal im Prompt");
+  const hw = p.indexOf("   - Hausaufgabe bis zur nächsten Sitzung → `update_lesson` mit `hausaufgabe`");
+  assert.ok(hw > 0 && p.indexOf("\n", hw) === p.indexOf(step) && p.indexOf(step) < p.indexOf(B.bringSaveStep(false)), "direkt nach der Hausaufgabe, vor dem Mitbringen");
+  return p.replace(step, "");
+};
 const withoutSummary = (p, gs, analog = false) => {
   const step = "\n" + S.summarySaveStep(gs, analog);
   assert.equal(p.split(step).length - 1, 1, "der Schritt zur Zusammenfassung steht genau einmal im Prompt");
@@ -104,9 +114,10 @@ const withoutCards = (p) => {
 };
 test("ohne Zwischenstopp: beide Prompts byte-gleich zum Stand vor S11 (Gymnasium: bis auf den Satz zu Links in Feibeitsblättern; beide bis auf die Zusammenfassung und die Gegenstände zum Mitbringen; Grundschule bis auf die Konzentrationsaufgabe)", () => {
   const s = F.sekCtx(P.unitContext), g = F.gsCtx(P.unitContext);
-  assert.equal(sha(withoutLinkRule(withoutSummary(withoutBring(withoutShare(withoutTeacherPlan(P.claudeLessonPrompt(s), false, s.subject, s.klass), s.subject, s.klass), false), false))), BEFORE.sek);
+  assert.equal(sha(withoutLinkRule(withoutSummary(withoutBring(withoutShare(withoutTeacherPlan(withoutTerms(P.claudeLessonPrompt(s)), false, s.subject, s.klass), s.subject, s.klass), false), false))), BEFORE.sek);
   const sek6 = P.claudeLessonPrompt({ ...s, klass: "6B", unit: null, row: null, unitText: "", messages: [] }), gs = G.claudeGsLessonPrompt(g), gs0 = G.claudeGsLessonPrompt({ ...g, unit: null, row: null, unitText: "" });
   for (const p of [sek6, gs, gs0]) assert.ok(!p.includes(S.FB_LINK_RULE) && !p.includes("[Linktext](https://…)"));
+  for (const p of [sek6, gs, gs0]) assert.ok(!p.includes(TM.termsSaveStep()) && !p.includes("`fachbegriffe`"), "Fachbegriffe nur in der Oberstufe");
   for (const p of [P.claudeLessonPrompt(s), sek6]) assert.ok(!p.includes("Konzentrationsaufgabe"), "Gymnasium (auch Jg. 5/6) ohne Konzentrationsaufgabe");
   assert.equal(sha(withoutSummary(withoutBring(withoutShare(withoutTeacherPlan(sek6, false, s.subject, "6B"), s.subject, "6B"), false), false, true)), BEFORE.sek6);
   assert.equal(sha(withoutCards(withoutConc(withoutSummary(withoutBring(withoutShare(withoutTeacherPlan(gs, true, "gs", "gs"), "gs", "gs"), true), true), g.lesson))), BEFORE.gs);

@@ -5,7 +5,7 @@ import { render, go, onLeave } from "./app.js";
 import { T, tapi, teacherBar, teacherFoot, fbAutoConnect, fbUnlock, fbStore, fbForget, askTeacherPassword, notfallBackfill } from "./teacher.js";
 import { subjectName, gradeInfo, formatCode, claudePresentationPrompt, PORTAL_RULES, portalForCopy, insertStop, removeStops, hasStop, isStopLine,
   fmtDay, classShort, gradeKey, isAnalogClass, ANALOG_RULE, isCourseClass, courseMembers, homeworkForPortal, PUBLIC_URL,
-  lessonTimes, fmtClockBerlin, fmtDayBerlin, HOMEWORK_BEFORE_END_MIN, PRESENTATION_AFTER_END_MIN, slidesUpTo, subjectShort,
+  lessonTimes, fmtClockBerlin, fmtDayBerlin, HOMEWORK_BEFORE_END_MIN, PRESENTATION_AFTER_END_MIN, slidesUpTo, subjectShort, isOberstufe,
   withAgeExpectation, looksLikeSolution, isGsLesson, portalVerbatim, TEACHER_SUMMARY_TITLE, stopForShown, slidePhasesOf, portalPhases } from "./shared.js";
 import { extractUnitChange, stripUnitBlock, unitContext, claudeLessonPrompt, lessonChatName } from "./planning.js";
 import { claudeHandoff } from "./claude.js";
@@ -20,6 +20,7 @@ import { notesPanel, notesDirty, NOTES_UNREADABLE, NOTES_DELETE_TEXT, NOTES_REPL
 import { personLabel, personKey, cleanPhoto, PHOTO_TASKS_MAX, materialRuns, taskTextFmt, fbLinksOf } from "./fbclient.js";
 import { summaryCard } from "./tsummary.js";
 import { bringCard } from "./bringcard.js";
+import { termsCard, termsImportLine } from "./termsedit.js";
 import { freeDateMessage } from "./freedays.js";
 import { inClassToggle } from "./inclassbar.js";
 import { lessonDocsCard } from "./lessondocs.js";
@@ -429,6 +430,9 @@ export async function sessionPage(id) {
     hwLabel, hwTA, hwDue, hwWhen,
     h("div", { class: "row" }, h("button", { class: "btn small", type: "button", onclick: copyHomework }, "Für das Schulportal kopieren")),
     hwHint);
+  /* ======================= Fachbegriffe dieser Sitzung (Nachtrag 44, Teil 3): nur Oberstufe – Karteikarten für die Schüler:innen ======================= */
+  const terms = isOberstufe(L().klass) ? termsCard({ id, L }) : null;
+  if (terms) onTimes.push(terms.paintWhen);
 
   const presPromptCard = h("section", { class: "card" }, h("div", { class: "section-title" }, h("h2", { text: "Präsentation mit Claude erstellen" })),
     h("p", { class: "small", text: "Erzeugt einen ausführlichen Prompt für Claude (claude.ai), der eine vollständige Präsentation für diese Stunde direkt als PDF anfordert – zum Hochladen hier in Unterricks, auf Grundlage des aktuellen Schulportal-Eintrags, der Materialien und Ihrer Planung. Die Präsentation wird zeitlos (ohne Datum, Klasse und Sitzungscode), damit sie in einer späteren Klasse desselben Jahrgangs wieder passt; Folie 1 ist eine Titelfolie. Den Sitzungscode und den QR-Code zu Unterricks zeigt Unterricks beim Start selbst vor Folie 1 – immer den der aktuellen Sitzung. Auf jede Folie schreibt Claude unsichtbar ihre Phase im Schulportal-Eintrag – daraus trägt Unterricks den Zwischenstopp ein, wenn Sie die letzte gezeigte Folie markieren. " + (analog ? "Folien, auf denen die Schüler:innen mit Material arbeiten, zeigen nur die Aufforderung und den Titel des Materials (in Jahrgang 5/6 auf Papier)." : "Folien, auf denen die Schüler:innen mit Material aus Unterricks arbeiten, setzt Claude als Platzhalterfolien („Unterricks-Codefolie“) mit der Aufforderung und dem Titel des Materials – dort zeigt Unterricks live dieselbe Codefolie mit dieser Überschrift (Material auf Papier: nur Aufforderung und Titel).") }),
@@ -1464,7 +1468,9 @@ export async function sessionPage(id) {
             (pairs.length ? " Datumsangaben in den Texten werden angepasst: " + pairs.map(([a, b]) => fmtDay(a) + " → " + fmtDay(b)).join(", ") + "." : "") }),
           // Gegenstände zum Mitbringen (Nachtrag 28): nur, wenn die Datei welche hat
           plan.lesson.bring.length ? h("li", { text: "Gegenstände zum Mitbringen (" + plan.lesson.bring.map((x) => x.item).join(", ") + ") ersetzen die Liste dieser Sitzung" +
-            (plan.groupReplaced.length ? "; in ihren Hinweisen wird die Lerngruppe angepasst: " + plan.groupReplaced.map(([a, b]) => a + " → " + b).join(", ") + "." : ".") }) : null),
+            (plan.groupReplaced.length ? "; in ihren Hinweisen wird die Lerngruppe angepasst: " + plan.groupReplaced.map(([a, b]) => a + " → " + b).join(", ") + "." : ".") }) : null,
+          // Fachbegriffe dieser Sitzung (Nachtrag 44, Teil 3): nur Oberstufe – sonst bleiben sie weg (das steht dann hier)
+          termsImportLine(plan, L())),
         ...warn.map((w) => h("div", { class: "notice warn", text: w }))),
         actions: [{ label: "Abbrechen", onClick: () => { done = true; resolve(false); } }, { label: "Übernehmen", class: "primary", onClick: () => { done = true; resolve(true); } }] });
     });
@@ -1505,12 +1511,13 @@ export async function sessionPage(id) {
   /* ======================= Alle Unterlagen dieser Sitzung (Nachtrag 41): ganz unten – ZIP-Ordner zum Lesen, Ausdrucken und Mitnehmen ======================= */
   // vorher Schulportal-Eintrag sichern (ein Konflikt wird erst geklärt), dann der Stand der Felder; übrige ungespeicherte Teile fragt die Karte ab
   const docsCard = lessonDocsCard({ st, box: mbox, before: async () => { await flushPortal(); return { portal: portalTA ? portalTA.value : L().portal || "", homework: hwTA.value || "" }; },
-    dirty: () => [notesDirtyNow() ? "den Notizen zu den Folien" : "", tsum.dirty() ? "der Zusammenfassung für die Lehrkraft" : "", bring.dirty() ? "den Gegenständen zum Mitbringen" : ""] });
+    dirty: () => [notesDirtyNow() ? "den Notizen zu den Folien" : "", tsum.dirty() ? "der Zusammenfassung für die Lehrkraft" : "", bring.dirty() ? "den Gegenständen zum Mitbringen" : "",
+      terms && terms.dirty() ? "den Fachbegriffen dieser Sitzung" : ""] });
 
   // Gegenstände zum Mitbringen (Nachtrag 28): kompakte Karte unter den Sitzungsdaten
   const bring = bringCard({ id, L, absent: () => (st.sub && (st.sub.status === "selbstlern" || st.sub.status === "aktiv") ? st.sub.status : null) });
   const grid = h("div", { class: "session-grid" },
-    h("div", { class: "stack" }, sub.main, prevEl, planCard, unitCard, chatCard, portalCard, hwCard, presPromptCard, filesCard, presCard, fbCard, printCard),
+    h("div", { class: "stack" }, sub.main, prevEl, planCard, unitCard, chatCard, portalCard, hwCard, terms ? terms.el : null, presPromptCard, filesCard, presCard, fbCard, printCard),
     h("aside", { class: "side" }, codeCard, metaCard, bring.el, sub.side));
   /* ======================= „Ich bin jetzt im Unterricht“ (Nachtrag 35): ganz oben, vor der Zusammenfassung ======================= */
   // kompakte Ansicht (inclass.js, erst bei Bedarf geladen) mit den Wegen dieser Seite; nicht in einer Selbstlern-Phase oder laufenden Vertretung (die
@@ -1590,6 +1597,7 @@ export async function sessionPage(id) {
       d.nextLesson = r.nextLesson;
       tsum.update(r.lesson);   // Zusammenfassung (z. B. von Claude mit update_lesson) – nie in eine laufende Bearbeitung
       bring.update(r.lesson);  // Gegenstände zum Mitbringen (Nachtrag 28) – nie in ein offenes Formular
+      if (terms) terms.update(r.lesson);   // Fachbegriffe dieser Sitzung (Nachtrag 44, Teil 3; z. B. von Claude mit update_lesson) – nie in eine laufende Bearbeitung
       // Kurzplan für die Lehrkraft (Nachtrag 42, z. B. von Claude mit update_lesson): die kompakte Ansicht zeichnet ihren Verlaufsplan neu
       if (JSON.stringify(r.lesson.teacherPlan || null) !== JSON.stringify(L().teacherPlan || null)) { L().teacherPlan = r.lesson.teacherPlan || null; icEmit("plan"); }
       // Hausaufgabe und Sitzungsdaten (z. B. von Claude mit update_lesson) – nie in ein Feld schreiben, das gerade bearbeitet wird
