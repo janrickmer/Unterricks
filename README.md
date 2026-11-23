@@ -645,9 +645,14 @@ der **Podcast für den kommenden Unterricht** (derselbe wie auf der Startseite �
 * **Konzentrationsaufgabe:** Zu jeder Sitzung, die Sie mit Claude planen („Stunde mit Claude planen“, auch wenn Claude beim Überarbeiten
   einer Einheit eine Sitzung neu plant), gestaltet Claude zusammen mit dem übrigen Material die **„Konzentrationsaufgabe“** – für Kinder, die
   ihre Aufmerksamkeit in Plenumsphasen nur bündeln können, wenn sie den Sitzkreis verlassen und beim Zuhören etwas ausmalen. Aufbau:
-  höchstens **zwei A4-Seiten**, zuerst **mindestens zwei Ausmalbilder** zum Inhalt der Stunde in ihrer Reihenfolge (z. B. Bilder zur
-  Geschichte, die Sie erzählen), dann das Symbol einer **roten Karte** und danach eine weitere, altersgerechte Aufgabe zum Inhalt der Stunde
-  (ankreuzen, verbinden, malen oder ein Wort). Claude stellt sie Ihnen mit dem übrigen Material vor; nach Ihrer Freigabe steht sie **nur** auf
+  höchstens **zwei A4-Seiten**; die erste Seite und die **obere Hälfte der zweiten** sind **Ausmalbilder** zum Inhalt der Stunde in ihrer
+  Reihenfolge (z. B. Bilder zur Geschichte, die Sie erzählen). Die **untere Hälfte der zweiten Seite** hat einen **Lückentext**, eine
+  **Ankreuzaufgabe** und ein **Suchsel** zum Inhalt der Stunde, im Schwierigkeitsgrad passend zum Jahrgang des Kurses (Jahrgang 1: zwei, drei
+  kurze Sätze in Großbuchstaben mit Bildern im Wörterkasten, Suchsel 6 × 6 nur waagerecht; bis Jahrgang 4: fünf, sechs Sätze, ein Wort zu viel im
+  Wörterkasten, Suchsel 9 × 9 waagerecht und senkrecht; die gesuchten Wörter stehen immer darunter). Brauchen die Aufgaben mehr als die halbe
+  Seite (meist ab Jahrgang 2, damit man in die Lücken gut schreiben kann), wird das Ausmalbild oben auf der zweiten Seite kleiner. Daneben im Seitenrand das Symbol einer
+  **roten Karte** mit dem Satz „Diese Aufgaben sind nur Pflicht, wenn du eine rote Karte bekommen hast.“ (seit dem 23.11.2026; schon fertige
+  Konzentrationsaufgaben bleiben, wie sie sind, bis Claude sie überarbeitet). Claude stellt sie Ihnen mit dem übrigen Material vor; nach Ihrer Freigabe steht sie **nur** auf
   Ihrer Druckliste „Von der Lehrkraft auszudrucken“ als **„5x - sw - beidseitig - <Kurs> - Konzentrationsaufgabe – <Thema>.pdf“** (z. B. „5x - sw - beidseitig - Reli2 - Konzentrationsaufgabe – Schöpfung.pdf“) und damit auch in den
   Druckaufträgen für den nächsten Arbeitstag – nie in der Elternansicht und nie für die Kinder (als Bildkarten, die Eltern sehen, nimmt
   Unterricks sie gar nicht erst an). Anzahl und Druckart ändern Sie dort wie bei

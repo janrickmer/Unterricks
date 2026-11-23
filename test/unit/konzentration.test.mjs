@@ -35,14 +35,38 @@ test("Name und Titel: erkennt die Konzentrationsaufgabe (auch Varianten), Titel 
   assert.equal(G.CONC_PAGES_MAX, 2);
 });
 
-test("Regeln: höchstens zwei A4-Seiten, mindestens zwei Ausmalbilder zum Unterrichtsinhalt, rote Karte (SVG, kein Emoji), danach eine Aufgabe mit wenig Lesen", () => {
+test("Regeln (Nachtrag 43): zwei A4-Seiten, Seite 1 und obere Hälfte von Seite 2 Ausmalbilder, untere Hälfte Lückentext, Ankreuzaufgabe und Suchsel nach Jahrgang, rote Karte im Seitenrand mit Pflicht-Satz", () => {
   const r = G.CONC_RULES.join("\n");
-  for (const s of ["Höchstens zwei DIN-A4-Seiten", "@page { size: A4; margin: 12mm }", "height: 272mm, overflow: hidden und break-after: page (der letzte ohne)", "nichts darf auf eine dritte Seite laufen",
-    "„Konzentrationsaufgabe – <Thema der Stunde>“", "Zuerst mindestens zwei Ausmalbilder, die den aktuellen Unterrichtsinhalt zeigen, in der Reihenfolge der Stunde", "Bilder zur Geschichte, die die Lehrkraft erzählt",
-    "kräftigen schwarzen Konturen", "keine grauen oder farbigen Füllungen", "ohne Text verständlich", "Danach das Symbol einer roten Karte", "abgerundeten Ecken", "rot gefüllt", "aria-label=\"Rote Karte\"", "kein Emoji",
-    "Erst nach der roten Karte eine weitere, altersgerechte Aufgabe, die den Inhalt dieser Stunde abfragt", "ankreuzen, verbinden, malen oder ein einzelnes Wort schreiben"]) assert.ok(r.includes(s), s);
-  // Reihenfolge wie von der Lehrkraft vorgegeben: Seiten, Ausmalbilder, rote Karte, Aufgabe
-  assert.ok(r.indexOf("Höchstens zwei") < r.indexOf("Ausmalbilder") && r.indexOf("Ausmalbilder") < r.indexOf("roten Karte") && r.indexOf("Danach das Symbol") < r.indexOf("Erst nach der roten Karte"));
+  for (const s of ["Höchstens zwei DIN-A4-Seiten", "@page { size: A4; margin: 12mm }", "Seite 1 ein Block mit height: 272mm, overflow: hidden und break-after: page",
+    "Seite 2 ein Block mit min-height: 272mm, display: flex und flex-direction: column, ohne overflow: hidden – oben das Ausmalbild (flex: 1; min-height: 70mm), darunter die Aufgaben (flex: none).",
+    "Ist Seite 2 zu voll, entsteht eine dritte Seite, Unterricks meldet das beim Ablegen, und du kürzt.",
+    "„Konzentrationsaufgabe – <Thema der Stunde>“", "Seite 1 ganz und der obere Teil von Seite 2: mindestens zwei Ausmalbilder, die den aktuellen Unterrichtsinhalt zeigen, in der Reihenfolge der Stunde",
+    "Bilder zur Geschichte, die die Lehrkraft erzählt", "kräftigen schwarzen Konturen", "keine grauen oder farbigen Füllungen", "ohne Text verständlich",
+    "Der untere Teil von Seite 2 hat drei kurze Aufgaben zum Inhalt dieser Stunde, die die Kinder selbst erledigen: einen Lückentext zum Ausfüllen",
+    "eine Ankreuzaufgabe", "ein Suchsel", "So wird nichts abgeschnitten", "links der Lückentext und darunter die Ankreuzaufgabe, rechts das Suchsel",
+    "abweichend von den Gestaltungsregeln für Materialien und den Grundschul-Regeln (Schriftgröße, Lineatur): Schrift 13 pt (Jahrgang 1/2: 15 pt), Zeilenabstand im Lückentext etwa 9 mm",
+    "Die Aufgaben nehmen etwa die untere Hälfte von Seite 2 ein; brauchen sie mehr (meist ab Jahrgang 2), wird das Ausmalbild oben entsprechend kleiner (so von der Lehrkraft gewünscht) – die Zahl der Sätze, Aussagen und Wörter bleibt.", "Die rote Karte steht im Seitenrand neben diesen drei Aufgaben", "abgerundeten Ecken", "rot gefüllt", "aria-label=\"Rote Karte\"", "kein Emoji",
+    "direkt darunter klein der Satz „Diese Aufgaben sind nur Pflicht, wenn du eine rote Karte bekommen hast.“"]) assert.ok(r.includes(s), s);
+  assert.equal(G.CONC_RED_NOTE, "Diese Aufgaben sind nur Pflicht, wenn du eine rote Karte bekommen hast.");
+  assert.ok(!r.includes("Erst nach der roten Karte") && !r.includes("Danach das Symbol einer roten Karte") && !r.includes("jede Seite ein Block mit height: 272mm"), "der alte Aufbau (Karte, dann eine Aufgabe; Seite 2 abgeschnitten) ist weg");
+  // Reihenfolge: Seiten, Ausmalbilder, untere Hälfte, Schwierigkeit, rote Karte
+  const at = (x) => r.indexOf(x);
+  assert.ok(at("Höchstens zwei") < at("Ausmalbilder") && at("Ausmalbilder") < at("Der untere Teil") && at("Der untere Teil") < at("Schwierigkeit") && at("Schwierigkeit") < at("Die rote Karte steht"));
+  // Schwierigkeit: ohne Jahrgang alle vier Stufen, mit Jahrgang nur seine (wie mit der Lehrkraft vereinbart)
+  const lv = { 1: ["2–3 kurzen Sätzen in Großbuchstaben", "jedes mit einem kleinen Bild", "Ankreuzaufgabe mit 2–3 kurzen Aussagen", "Suchsel 6 × 6 mit 3–4 kurzen Wörtern, nur waagerecht"],
+    2: ["Lückentext mit 3–4 Sätzen", "Suchsel 7 × 7 mit 4–5 Wörtern, waagerecht und senkrecht"], 3: ["Lückentext mit 4–5 Sätzen, im Wörterkasten steht ein Wort zu viel", "Suchsel 8 × 8 mit 5–6 Wörtern"],
+    4: ["Lückentext mit 5–6 Sätzen, im Wörterkasten steht ein Wort zu viel", "Suchsel 9 × 9 mit 6–8 Wörtern"] };
+  for (const g of [1, 2, 3, 4]) {
+    const one = G.concRules(g).join("\n");
+    assert.ok(one.includes("Schwierigkeit für diese Lerngruppe (Jahrgang " + g + "): " + G.CONC_LEVELS[g] + "."), "Jahrgang " + g);
+    for (const x of lv[g]) { assert.ok(one.includes(x) && r.includes("Jahrgang " + g + ": ") && r.includes(x), g + ": " + x); }
+    for (const o of [1, 2, 3, 4].filter((x) => x !== g)) assert.ok(!one.includes(G.CONC_LEVELS[o]), "Jahrgang " + g + " ohne Stufe " + o);
+    assert.ok(one.includes("die gesuchten Wörter stehen immer unter dem Suchsel") && one.includes("nie diagonal oder rückwärts"));
+    assert.deepEqual(G.concRules(g).filter((x) => !x.startsWith("Schwierigkeit")), G.CONC_RULES.filter((x) => !x.startsWith("Schwierigkeit")), "nur die Stufe unterscheidet sich");
+  }
+  assert.ok(r.includes("Schwierigkeit nach dem Jahrgang der Lerngruppe (siehe „Lerngruppe“): Jahrgang 1: "));
+  for (const bad of [null, undefined, 0, 5, 2.5, "x", ""]) assert.deepEqual(G.concRules(bad), G.CONC_RULES, String(bad));
+  assert.deepEqual(G.concRules("3"), G.concRules(3), "Jahrgang als Text aus der Datenbank");
   // Zweck im Wortlaut der Lehrkraft
   assert.ok(G.CONC_WHY.startsWith("In jeder Klasse gibt es Kinder, die ihre Aufmerksamkeit nur bündeln können, wenn sie in Plenumsphasen den Sitzkreis verlassen und während des Zuhörens etwas ausmalen."));
   assert.ok(G.concSaveArgs("Josef").includes("`bereich` \"druck\", `anzahl` 5, `beidseitig` true, `farbe` false") && G.concSaveArgs("Josef").includes("hier z. B. „Konzentrationsaufgabe – Josef“") && !G.concSaveArgs("").includes("hier z. B."));
@@ -64,6 +88,10 @@ test("Prompt „Stunde mit Claude planen“ (Grundschule): eigener Abschnitt mit
   // Thema der Sitzung (topic) geht vor dem Titel; ohne beides nur der Platzhalter
   assert.ok(G.claudeGsLessonPrompt({ ...g, lesson: { ...g.lesson, topic: "Josef deutet Träume" } }).includes("hier z. B. „Konzentrationsaufgabe – Josef deutet Träume“"));
   assert.ok(!G.claudeGsLessonPrompt({ ...g, lesson: { ...g.lesson, title: "", topic: "" } }).includes("hier z. B. „Konzentrationsaufgabe"));
+  // Nachtrag 43: mit dem Jahrgang des Kurses nur seine Stufe; ohne (ältere Daten) alle vier
+  const p2 = G.claudeGsLessonPrompt({ ...g, course: { ...g.course, grade: 2 } });
+  assert.ok(p2.includes(G.concPromptSection(2)) && p2.includes("- Schwierigkeit für diese Lerngruppe (Jahrgang 2): " + G.CONC_LEVELS[2] + ".") && !p2.includes(G.CONC_LEVELS[3]) && !p2.includes("Schwierigkeit nach dem Jahrgang"));
+  assert.ok(p.includes("- Schwierigkeit nach dem Jahrgang der Lerngruppe (siehe „Lerngruppe“): Jahrgang 1: "), "ohne Jahrgang: alle Stufen");
   // mit Zwischenstopp der vorigen Stunde: Abschnitt und Schritt bleiben (genau einmal)
   const ps = G.claudeGsLessonPrompt({ ...g, previousStop: { title: "Vorige", date: "2026-11-10", portal: "**1) A**\n" + S.STOP_LINE + "\n**2) B**" } });
   assert.equal(ps.split("## Konzentrationsaufgabe").length - 1, 1); assert.equal(ps.split("Die Konzentrationsaufgabe speicherst du").length - 1, 1);
@@ -88,14 +116,19 @@ test("get_lesson-Abschnitt: fehlt → Zweck, Ablage und Aufbau; vorhanden → Dr
   const f = { id: "b".repeat(16), name: "Konzentrationsaufgabe – Josef.pdf", area: "print", status: "ready", pages: 2, designed: 1, print_copies: 5, print_duplex: 1, print_color: 0 };
   let t = G.concSection([f], "Josef", S.printFileName).join("\n");
   assert.ok(t.includes("- file_id " + f.id + ": „Konzentrationsaufgabe – Josef.pdf“ (auf der Druckliste als „5x - sw - beidseitig - Konzentrationsaufgabe – Josef.pdf“; 2 Seiten) → [[pdf:" + f.id + "]]"), t);
-  assert.ok(!t.includes("Fehlt noch") && !t.includes("Achtung") && t.endsWith("Ändert sich der Inhalt der Stunde, passe sie an (add_material_pdf mit ihrer file_id)."));
+  // Nachtrag 43: eine überarbeitete bekommt den aktuellen Aufbau, sonst bleibt sie (fertige Blätter werden nicht umgebaut)
+  assert.ok(!t.includes("Fehlt noch") && !t.includes("Achtung") && t.endsWith("Ändert sich der Inhalt der Stunde, passe sie an (add_material_pdf mit ihrer file_id). Gestaltest du sie dabei neu, gilt der aktuelle Aufbau " +
+    "(sonst bleibt sie, wie sie ist):\n" + G.CONC_RULES.map((r) => "- " + r).join("\n")), t);
+  const t3 = G.concSection([f], "Josef", S.printFileName, 3).join("\n");
+  assert.ok(t3.includes("- Schwierigkeit für diese Lerngruppe (Jahrgang 3): ") && !t3.includes(G.CONC_LEVELS[1]), "Jahrgang des Kurses");
+  assert.ok(G.concSection([], "Josef", S.printFileName, 1).join("\n").includes("Aufbau:\n" + G.concRules(1).map((r) => "- " + r).join("\n")), "fehlt: Aufbau mit der Stufe des Jahrgangs");
   t = G.concSection([{ ...f, pages: 3 }, { ...f, id: "c".repeat(16), area: "student", designed: 0, status: "pending", pages: null }, { ...f, id: "d".repeat(16), area: "archive" }], "Josef", S.printFileName).join("\n");
   assert.ok(t.includes("  Achtung: 3 Seiten – höchstens 2 A4-Seiten; kürze sie (add_material_pdf mit file_id " + f.id + ")."), t);
   assert.ok(t.includes("Achtung: liegt nicht auf der Druckliste, sondern beim Material für die Kinder – Eltern sehen sie nach der Stunde; sie gehört nur auf die Druckliste – sag es der Lehrkraft; wartet auf den Druck"), t);
   assert.ok(t.includes("Es gibt 2 Konzentrationsaufgaben") && !t.includes("d".repeat(16)), "archivierte zählen nicht");
   // von der Lehrkraft hochgeladen (nicht gestaltet): kein Hinweis auf add_material_pdf
   t = G.concSection([{ ...f, designed: 0, pages: 4 }], "", S.printFileName).join("\n");
-  assert.ok(t.includes("Achtung: 4 Seiten – höchstens 2 A4-Seiten (von der Lehrkraft hochgeladen).") && !t.includes("passe sie an"), t);
+  assert.ok(t.includes("Achtung: 4 Seiten – höchstens 2 A4-Seiten (von der Lehrkraft hochgeladen).") && !t.includes("passe sie an") && !t.includes("Lückentext"), t);
 });
 
 /* ---------- Connector mit der D1-Nachbildung ---------- */
@@ -177,6 +210,7 @@ test("get_lesson, save_verlaufsplan und Elternansicht: fehlt → Erinnerung; vor
   printerPages = 2;
   let t = (await mcp("get_lesson", { lesson_id: l.id })).content[0].text;
   assert.ok(t.includes("\n## Konzentrationsaufgabe (gehört zu jeder Sitzung der Grundschule; nur für die Lehrkraft)\nFehlt noch. ") && t.includes(G.concSaveArgs("Josef in Ägypten")) && t.includes("- " + G.CONC_RULES[0]), t);
+  assert.ok(t.includes("Aufbau:\n" + G.concRules(2).map((r) => "- " + r).join("\n")), "Nachtrag 43: Stufe des Kurses (Jahrgang 2)");
   const ab = (await mcp("add_material_pdf", { lesson_id: l.id, bereich: "schueler", titel: "Arbeitsblatt Josef", html: "<h1>AB</h1>", anzahl: 22 })).structuredContent.file_id;
   // Verlaufsplan ohne Konzentrationsaufgabe: Erinnerung (vor der an die Zusammenfassung)
   let r = await mcp("save_verlaufsplan", { lesson_id: l.id, text: "**1) Erzählung (15 Min., Sitzkreis)**\n**2) Arbeitsblatt (15 Min.)**\n- [[pdf:" + ab + "]]", base_version: 0 });
@@ -244,6 +278,8 @@ test("Prüfbefund: als Bildkarten abgelehnt (die sähen Eltern); Rückfall add_p
   const g = (await mcp("get_lesson", { lesson_id: l.id })).content[0].text;
   assert.ok(g.includes("- file_id " + pf.id + ": „Konzentrationsaufgabe – Josef“ (auf der Druckliste als „5x - sw - beidseitig - Reli2 - Konzentrationsaufgabe – Josef.pdf“; fertig) – Druckvorlage als Text (Rückfall, ohne Ausmalbilder; im Verlaufsplan nicht verweisbar)") &&
     !g.includes("[[pdf:" + pf.id + "]]"), g);
+  // Nachtrag 43 (Prüfbefund): die Aufforderung, sie neu zu gestalten, bringt den aktuellen Aufbau mit (Stufe des Kurses, Jahrgang 2)
+  assert.ok(g.includes("Aufbau, wenn du sie mit add_material_pdf neu gestaltest:\n" + G.concRules(2).map((x) => "- " + x).join("\n")), g);
   // Gymnasium: add_print_material unverändert
   r = await mcp("add_print_material", { lesson_id: sek.id, titel: "Konzentrationsaufgabe", markdown: "# x", anzahl: 22, beidseitig: false });
   assert.equal(r.content[0].text, "Druckvorlage gespeichert: „22x - sw - einseitig - PoWi8 - Konzentrationsaufgabe.pdf“ (Liste „Von der Lehrkraft auszudrucken“).");

@@ -123,15 +123,47 @@ export const CONC_PRINT = { copies: 5, duplex: true, color: false };
 export const CONC_PAGES_MAX = 2;
 export const CONC_WHY = "In jeder Klasse gibt es Kinder, die ihre Aufmerksamkeit nur bündeln können, wenn sie in Plenumsphasen den Sitzkreis verlassen und während des Zuhörens etwas ausmalen. " +
   "Was sie ausmalen, zeigt den Unterrichtsinhalt – so verknüpfen sie das Gehörte mit dem Bild und können der Stunde inhaltlich folgen.";
-export const CONC_RULES = [
-  "Höchstens zwei DIN-A4-Seiten im PDF (hochkant): @page { size: A4; margin: 12mm }; jede Seite ein Block mit height: 272mm, overflow: hidden und break-after: page (der letzte ohne) – nichts darf auf eine dritte Seite laufen.",
+/* Nachtrag 43 (23.11.2026): Seite 1 und die obere Hälfte von Seite 2 zum Ausmalen; die untere Hälfte von Seite 2 hat Lückentext, Ankreuzaufgabe und Suchsel
+ * – Schwierigkeit nach dem Jahrgang (CONC_LEVELS, Vorschlag von Claude, von der Lehrkraft übernommen) – und die rote Karte im Seitenrand daneben mit
+ * dem Satz CONC_RED_NOTE. Brauchen die Aufgaben mehr als die halbe Seite, wird das Ausmalbild oben kleiner (Entscheidung der Lehrkraft nach der Messung:
+ * mit beschreibbaren Zeilen passen die Mengen ab Jahrgang 2 nicht in 128 mm). Gilt für neu geplante bzw. überarbeitete Konzentrationsaufgaben. */
+export const CONC_RED_NOTE = "Diese Aufgaben sind nur Pflicht, wenn du eine rote Karte bekommen hast.";
+export const CONC_LEVELS = {
+  1: "Lückentext mit 2–3 kurzen Sätzen in Großbuchstaben, die Lückenwörter stehen im Wörterkasten, jedes mit einem kleinen Bild; Ankreuzaufgabe mit 2–3 kurzen Aussagen; " +
+    "Suchsel 6 × 6 mit 3–4 kurzen Wörtern, nur waagerecht",
+  2: "Lückentext mit 3–4 Sätzen, die Lückenwörter stehen im Wörterkasten; Ankreuzaufgabe mit 3–4 Aussagen; Suchsel 7 × 7 mit 4–5 Wörtern, waagerecht und senkrecht",
+  3: "Lückentext mit 4–5 Sätzen, im Wörterkasten steht ein Wort zu viel; Ankreuzaufgabe mit 4 Aussagen; Suchsel 8 × 8 mit 5–6 Wörtern, waagerecht und senkrecht",
+  4: "Lückentext mit 5–6 Sätzen, im Wörterkasten steht ein Wort zu viel; Ankreuzaufgabe mit 4–5 Aussagen; Suchsel 9 × 9 mit 6–8 Wörtern, waagerecht und senkrecht",
+};
+const concGrade = (g) => { const n = Number(g); return Number.isInteger(n) && n >= 1 && n <= 4 ? n : null; };
+// Schwierigkeit: mit Jahrgang (Kurs) nur seine Stufe, sonst alle vier – Claude liest den Jahrgang dann unter „Lerngruppe“
+export const concLevelRule = (grade) => {
+  const g = concGrade(grade);
+  return (g ? "Schwierigkeit für diese Lerngruppe (Jahrgang " + g + "): " + CONC_LEVELS[g] + "."
+    : "Schwierigkeit nach dem Jahrgang der Lerngruppe (siehe „Lerngruppe“): " + [1, 2, 3, 4].map((n) => "Jahrgang " + n + ": " + CONC_LEVELS[n]).join(". ") + ".") +
+    " Im Suchsel nur Großbuchstaben, die Wörter nie diagonal oder rückwärts; die gesuchten Wörter stehen immer unter dem Suchsel.";
+};
+// Aufbau (Prompt, get_lesson); grade = Jahrgang des Kurses (1–4) oder unbekannt
+export const concRules = (grade) => [
+  "Höchstens zwei DIN-A4-Seiten im PDF (hochkant): @page { size: A4; margin: 12mm }; Seite 1 ein Block mit height: 272mm, overflow: hidden und break-after: page; " +
+    "Seite 2 ein Block mit min-height: 272mm, display: flex und flex-direction: column, ohne overflow: hidden – oben das Ausmalbild (flex: 1; min-height: 70mm), darunter die Aufgaben (flex: none). " +
+    "So wird nichts abgeschnitten: Ist Seite 2 zu voll, entsteht eine dritte Seite, Unterricks meldet das beim Ablegen, und du kürzt.",
   "Überschrift „Konzentrationsaufgabe – <Thema der Stunde>“, Kopf nur „Name:“ und „Datum:“.",
-  "Zuerst mindestens zwei Ausmalbilder, die den aktuellen Unterrichtsinhalt zeigen, in der Reihenfolge der Stunde (z. B. Bilder zur Geschichte, die die Lehrkraft erzählt): " +
+  "Seite 1 ganz und der obere Teil von Seite 2: mindestens zwei Ausmalbilder, die den aktuellen Unterrichtsinhalt zeigen, in der Reihenfolge der Stunde (z. B. Bilder zur Geschichte, die die Lehrkraft erzählt): " +
     "Inline-SVG mit kräftigen schwarzen Konturen und großen weißen Flächen zum Ausmalen, keine grauen oder farbigen Füllungen, kindgerecht und ohne Text verständlich.",
-  "Danach das Symbol einer roten Karte: Inline-SVG einer hochkanten Karte mit abgerundeten Ecken, rot gefüllt mit dickem schwarzem Rand (auch schwarz-weiß gedruckt als Karte erkennbar), " +
-    "mit role=\"img\" und aria-label=\"Rote Karte\" – kein Emoji.",
-  "Erst nach der roten Karte eine weitere, altersgerechte Aufgabe, die den Inhalt dieser Stunde abfragt – mit wenig Lesen (z. B. ankreuzen, verbinden, malen oder ein einzelnes Wort schreiben).",
+  "Der untere Teil von Seite 2 hat drei kurze Aufgaben zum Inhalt dieser Stunde, die die Kinder selbst erledigen: einen Lückentext zum Ausfüllen " +
+    "(Wörterkasten, jede Lücke ein Strich, lang genug für das Wort), eine Ankreuzaufgabe (eine Zeile je Aussage, Kästchen als gezeichnete Rahmen, kein Sonderzeichen) und ein Suchsel " +
+    "(Buchstabengitter mit sichtbaren Linien, nur Wörter aus dieser Stunde). Anordnung: links der Lückentext und darunter die Ankreuzaufgabe, rechts das Suchsel. Für diese drei Aufgaben gilt " +
+    "abweichend von den Gestaltungsregeln für Materialien und den Grundschul-Regeln (Schriftgröße, Lineatur): Schrift 13 pt (Jahrgang 1/2: 15 pt), Zeilenabstand im Lückentext etwa 9 mm " +
+    "(Jahrgang 1/2: etwa 11–12 mm) ohne Hilfslinien, Suchsel-Kästchen 6,5–7 mm (Jahrgang 1/2: 8–9 mm). Platz: Die Aufgaben nehmen etwa die untere Hälfte von Seite 2 ein; " +
+    "brauchen sie mehr (meist ab Jahrgang 2), wird das Ausmalbild oben entsprechend kleiner (so von der Lehrkraft gewünscht) – die Zahl der Sätze, Aussagen und Wörter bleibt.",
+  concLevelRule(grade),
+  "Die rote Karte steht im Seitenrand neben diesen drei Aufgaben (eine schmale Randspalte von etwa 24 mm links von ihnen): Inline-SVG einer hochkanten Karte mit abgerundeten Ecken, " +
+    "rot gefüllt mit dickem schwarzem Rand (auch schwarz-weiß gedruckt als Karte erkennbar), mit role=\"img\" und aria-label=\"Rote Karte\" – kein Emoji; direkt darunter klein der Satz " +
+    "„" + CONC_RED_NOTE + "“",
 ];
+// ohne Jahrgang (alle vier Stufen) – wie bisher als Liste
+export const CONC_RULES = concRules(null);
 // Speicherangaben (Prompt, get_lesson): Bereich, Anzahl, Druckart und Titel
 export const concSaveArgs = (topic) => "`add_material_pdf` (`bereich` \"druck\", `anzahl` " + CONC_PRINT.copies + ", `beidseitig` true, `farbe` false, `titel` „" + CONC_TITLE + " – <Thema der Stunde>“" +
   (topic ? ", hier z. B. „" + CONC_TITLE + " – " + topic + "“" : "") + ")";
@@ -148,10 +180,10 @@ export function concTitleOf(raw, topic) {
   return CONC_TITLE + (t ? " – " + t : "");
 }
 // Prompt „Stunde mit Claude planen“ (Grundschule): eigener Abschnitt vor „## Vorgehen“ und ein Speicherschritt nach den Bildkarten (vor dem Verlaufsplan)
-export const concPromptSection = () => ["", "## " + CONC_TITLE + " (gehört zu jeder Sitzung)",
+export const concPromptSection = (grade = null) => ["", "## " + CONC_TITLE + " (gehört zu jeder Sitzung)",
   CONC_WHY + " Gestalte deshalb zusammen mit dem übrigen Material dieser Sitzung die „" + CONC_TITLE + "“ für diese Kinder und stelle sie mir mit dem übrigen Material vor. " +
   "Ich drucke sie " + CONC_PRINT.copies + "-mal beidseitig in Schwarz-Weiß aus; sie ist nur für mich. Hat die Sitzung schon eine (siehe `get_lesson`), passe sie an, statt eine zweite anzulegen.",
-  ...CONC_RULES.map((r) => "- " + r)].join("\n");
+  ...concRules(grade).map((r) => "- " + r)].join("\n");
 export const concPromptStep = (L) => "   - Die " + CONC_TITLE + " speicherst du mit " + concSaveArgs(gstr((L && (L.topic || L.title)) || "").replace(/\s+/g, " ").trim().slice(0, 120)) + ". " + concWhere(true) +
   " Im Verlaufsplan steht sie in der ersten Plenumsphase als eigener Stichpunkt, z. B. „- " + CONC_TITLE + " [[pdf:<file_id>]] für Kinder, die beim Zuhören am Platz ausmalen“.";
 // Überarbeitung der Einheit (Grundschule): plant Claude dabei eine Sitzung neu, gehört ihre Konzentrationsaufgabe dazu
@@ -164,10 +196,10 @@ export const concUnplannedText = (ids) => " Die „" + CONC_TITLE + "“ steht n
 const concPlural = (n) => n + (n === 1 ? " Seite" : " Seiten");
 /* Abschnitt „Konzentrationsaufgabe“ von get_lesson (Grundschule): gibt es sie schon (Druckliste, Seiten) – sonst Zweck, Aufbau und Ablage.
  * files = Dateien der Sitzung (GS_CTX_FILES), topic = Thema bzw. Titel der Sitzung, printName = printFileName aus shared.js */
-export function concSection(files, topic, printName) {
+export function concSection(files, topic, printName, grade = null) {
   const fs = (files || []).filter((f) => f && f.area !== "archive" && f.cards == null && isConcName(f.name));
   const out = ["", "## " + CONC_TITLE + " (gehört zu jeder Sitzung der Grundschule; nur für die Lehrkraft)"];
-  if (!fs.length) return [...out, "Fehlt noch. " + CONC_WHY + " Gestalte sie zusammen mit dem übrigen Material dieser Sitzung, stelle sie der Lehrkraft vor und lege sie nach ihrer Freigabe mit " + concSaveArgs(topic) + " ab. " + concWhere(), "Aufbau:", ...CONC_RULES.map((r) => "- " + r)];
+  if (!fs.length) return [...out, "Fehlt noch. " + CONC_WHY + " Gestalte sie zusammen mit dem übrigen Material dieser Sitzung, stelle sie der Lehrkraft vor und lege sie nach ihrer Freigabe mit " + concSaveArgs(topic) + " ab. " + concWhere(), "Aufbau:", ...concRules(grade).map((r) => "- " + r)];
   for (const f of fs) {
     const st = f.status !== "ready" ? (f.render_error ? "Druck fehlgeschlagen: " + f.render_error : "wartet auf den Druck") : f.pages ? concPlural(f.pages) : "fertig";
     const where = f.area === "print" ? "auf der Druckliste als „" + printName({ name: f.name, copies: f.print_copies, duplex: f.print_duplex !== 0, color: f.print_color === 1 }) + "“"
@@ -180,7 +212,10 @@ export function concSection(files, topic, printName) {
       (f.designed ? "; kürze sie (add_material_pdf mit file_id " + f.id + ")." : " (von der Lehrkraft hochgeladen)."));
   }
   if (fs.length > 1) out.push("Es gibt " + fs.length + " Konzentrationsaufgaben – überarbeite die passende mit ihrer file_id, statt eine weitere anzulegen; überzählige löscht die Lehrkraft in der Sitzung.");
-  if (fs.some((f) => f.designed)) out.push("Ändert sich der Inhalt der Stunde, passe sie an (add_material_pdf mit ihrer file_id).");
+  // Nachtrag 43: eine überarbeitete bekommt den aktuellen Aufbau; fertige bleiben sonst, wie sie sind
+  if (fs.some((f) => f.designed)) out.push("Ändert sich der Inhalt der Stunde, passe sie an (add_material_pdf mit ihrer file_id). Gestaltest du sie dabei neu, gilt der aktuelle Aufbau " +
+    "(sonst bleibt sie, wie sie ist):", ...concRules(grade).map((r) => "- " + r));
+  else if (fs.some((f) => f.kind === "text")) out.push("Aufbau, wenn du sie mit add_material_pdf neu gestaltest:", ...concRules(grade).map((r) => "- " + r));
   return out;
 }
 
@@ -263,7 +298,7 @@ export function claudeGsLessonPrompt(ctx) {
     "## Gestaltungsregeln für Bildkarten (add_picture_cards)",
     CARD_DESIGN_RULES.map((r) => "- " + r).join("\n"),
     "- Bildkarten von Verlagen dürfen meist nicht online weitergegeben werden – gestalte die Karten selbst.",
-    concPromptSection(),
+    concPromptSection(ctx.course && ctx.course.grade),
     "",
     "## Vorgehen",
     "0. Dieser Chat soll „" + chatName + "“ heißen. Beginne deine erste Antwort mit der Zeile „Chat-Name: " + chatName + "“ (umbenennen kann ich den Chat in claude.ai nur selbst).",

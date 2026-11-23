@@ -474,7 +474,7 @@ async function gsLessonDump(c, l) {
     }
   }
   // Konzentrationsaufgabe (Nachtrag 27): gibt es sie schon – sonst Zweck, Aufbau und Ablage (nicht bei einem Ausfall-Eintrag)
-  if (!l.cancelled) parts.push(...concSection(ctx.files, l.topic || l.title, (p) => printFileName({ ...p, course: pc })));
+  if (!l.cancelled) parts.push(...concSection(ctx.files, l.topic || l.title, (p) => printFileName({ ...p, course: pc }), ctx.course && ctx.course.grade));
   // Bildkarten (Nachtrag 31): je Satz auch die Druckliste; ohne Bildkarten die Regel bzw. – erzählt der Verlaufsplan eine Geschichte – die Erinnerung
   // … und Bildkarten anderer Sitzungen, auf die der Verlaufsplan verweist (Nachtrag 31b): auch auf der Druckliste dieser Sitzung (Druckangaben dieser Sitzung)
   const refSets = l.cancelled ? [] : refCardsOf(l.portal, others.filter((f) => f.cards != null && f.area === "teacher").map((f) => ({ ...f, lessonId: f.lesson_id })), l.id, cardPrintsOf(l.card_prints))

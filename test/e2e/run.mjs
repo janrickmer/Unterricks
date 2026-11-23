@@ -2778,13 +2778,14 @@ async function main() {
         ok(gp.includes("Nicht geschafft (nach dem Zwischenstopp):\n<<<\n**4) Rätsel (10 Min., Partnerarbeit)**") && gp.includes("„Rätsel Pyramide.pdf“ (file_id " + raeId + ")")
           && gp.includes("Frage mich, ob du es in diese Stunde einbauen sollst oder ob wir darauf verzichten."), "Prompt (Grundschule): offener Teil mit dem Rätsel und seiner file_id, Frage übernehmen oder verzichten");
         { // Nachtrag 27: jede Grundschul-Sitzung mit Konzentrationsaufgabe – Zweck und Regeln im eigenen Abschnitt, Ablage (druck, 5x, beidseitig, sw) vor dem Verlaufsplan
-          const { CONC_WHY, CONC_RULES } = await import("../../public/gsplanning.js");
-          ok(gp.includes("\n## Konzentrationsaufgabe (gehört zu jeder Sitzung)\n" + CONC_WHY) && CONC_RULES.every((r) => gp.includes("\n- " + r)) && gp.indexOf("## Konzentrationsaufgabe") < gp.indexOf("## Vorgehen")
+          const { CONC_WHY, concRules, CONC_RED_NOTE } = await import("../../public/gsplanning.js");
+          ok(gp.includes("\n## Konzentrationsaufgabe (gehört zu jeder Sitzung)\n" + CONC_WHY) && concRules(2).every((r) => gp.includes("\n- " + r)) && gp.indexOf("## Konzentrationsaufgabe") < gp.indexOf("## Vorgehen")
             && gp.includes("Die Konzentrationsaufgabe speicherst du mit `add_material_pdf` (`bereich` \"druck\", `anzahl` 5, `beidseitig` true, `farbe` false, `titel` „Konzentrationsaufgabe – <Thema der Stunde>“")
             && gp.includes("Dann steht sie nur auf meiner Druckliste („5x - sw - beidseitig - <Kurs> - Konzentrationsaufgabe – ….pdf“), nie bei Eltern oder Kindern.")
             && gp.indexOf("Die Konzentrationsaufgabe speicherst du") > gp.indexOf("`add_picture_cards`") && gp.indexOf("Die Konzentrationsaufgabe speicherst du") < gp.indexOf("Den Stundenverlauf speicherst du")
-            && ["Höchstens zwei DIN-A4-Seiten", "mindestens zwei Ausmalbilder", "Symbol einer roten Karte", "Erst nach der roten Karte eine weitere, altersgerechte Aufgabe"].every((x) => gp.includes(x)),
-          "Prompt (Grundschule): Konzentrationsaufgabe – Zweck, Aufbau (höchstens zwei Seiten, Ausmalbilder, rote Karte, Aufgabe) und Ablage (druck, 5x, beidseitig, sw) vor dem Verlaufsplan");
+            && ["Höchstens zwei DIN-A4-Seiten", "Seite 1 ganz und der obere Teil von Seite 2: mindestens zwei Ausmalbilder", "wird das Ausmalbild oben entsprechend kleiner", "einen Lückentext zum Ausfüllen", "eine Ankreuzaufgabe", "ein Suchsel",
+              "Schwierigkeit für diese Lerngruppe (Jahrgang 2)", "Die rote Karte steht im Seitenrand", CONC_RED_NOTE].every((x) => gp.includes(x)) && !gp.includes("Erst nach der roten Karte"),
+          "Prompt (Grundschule, Religion 2ab): Konzentrationsaufgabe – Zweck, Aufbau (zwei Seiten, Ausmalbilder, unten Lückentext, Ankreuzaufgabe und Suchsel für Jahrgang 2, rote Karte im Rand) und Ablage (druck, 5x, beidseitig, sw) vor dem Verlaufsplan");
         }
         await gm.getByRole("button", { name: "Schließen", exact: true }).getByText("Schließen").click();
         // Nachtrag 26 (Grundschule): erst Entscheidung + Verlaufsplan dieser Sitzung → Karte ganz weg; Verlaufsplan der vorigen Sitzung geändert → wieder da
@@ -3212,7 +3213,7 @@ async function main() {
       await T("PATCH", "/api/teacher/files/" + kid.id, { copies: 22 });
       r = await tool("add_material_pdf", { lesson_id: gsL, bereich: "druck", titel: "Ausmalbild Schoepfung", html: "<h1>Ausmalbild</h1><p>Licht und Dunkel</p>", anzahl: 22, beidseitig: false, farbe: false });
       ok(!r.isError, "Grundschule (Religion 2ab): PDF der Kinder mit „Auch ausdrucken (22×)“ und eine von Claude gestaltete Druckvorlage");
-      // Nachtrag 27: Claude legt die Konzentrationsaufgabe der Sitzung ab (zwei Seiten: Ausmalbilder, rote Karte, Aufgabe) – gedruckt vom Chromium der Attrappe
+      // Nachtrag 27/43: Claude legt die Konzentrationsaufgabe der Sitzung ab (zwei Seiten: Ausmalbilder; unten Lückentext, Ankreuzaufgabe, Suchsel, rote Karte im Rand) – gedruckt vom Chromium der Attrappe
       const CONC_NAME = "5x - sw - beidseitig - Reli2 - Konzentrationsaufgabe – Die Schöpfung.pdf";
       r = await tool("add_material_pdf", { lesson_id: gsL, bereich: "druck", titel: "Konzentrationsaufgabe – Die Schöpfung", html: CONC_HTML, anzahl: 5, beidseitig: true, farbe: false });
       const concId = r.structuredContent && r.structuredContent.file_id;

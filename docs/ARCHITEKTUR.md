@@ -89,6 +89,7 @@ implementiert und im End-to-End-Test geprüft (Ausnahmen unten ausdrücklich gen
 | Unterrichtseinheit mit KollegInnen teilen (Nachtrag 39 vom 18.11.2026) | Wunsch der Lehrkraft: ein Knopf ganz unten in jeder Einheit „Untereichtseinheit mit KollegInnen teilen“ (Tippfehler berichtigt) → ZIP-Ordner mit Leupold-Schema-PDF (darunter je Sitzung ein Absatz: was passiert, zentrale Kompetenz des KCGO, Ziel), Erklärung „Das ist ein Feibeitsblatt“ (fett: Notfall-Feibeitsblatt als Dokument genügt), je geplanter Sitzung ein Ordner „Sitzung n“ mit Präsentation (ohne Folien, die Unterricks verlangen, mit „Copyright Jan-Rickmer Feindt“ klein und blass in der Fußzeile), Verlaufsplan und allen PDF-Dateien für Schüler:innen, sowie „Fehlende Sitzungen“. Rückfragen beantwortet: die Absätze **schreibt Claude** (Prompt neben dem Knopf, Absätze in Unterricks prüfbar, künftig beim Planen jeder Stunde gleich mit); Feibeitsblatt **digital nur nach Absprache** (Abgaben kämen bei der Lehrkraft an); **alle Materialfolien bleiben** (nur die kleine Unterricks-Zeile wird überdeckt), nur reine Codefolien fallen weg; zusätzlich **Druckliste, Material für die Lehrkraft, Notizen zu den Folien (eigene PDF) und Grundschul-Einheiten** (dort ohne Präsentation und ohne Erklärung). Ergänzung: jede Präsentation **auch als PowerPoint-Datei**, die Notizen der Lehrkraft in den Notizen der Folien (Referentenansicht); Rückfragen beantwortet: **Folien als Bild** (nicht bearbeitbar), **Notizen-PDF bleibt**. Siehe 4zh |
 | Bewegung im Folien-Stil (Nachtrag 40 vom 19.11.2026) | Prüfauftrag der Lehrkraft: „inwiefern das Design mehr wie eine MotionSite“ (motionsites.ai: Prompt-Sammlung für animierte Landingpages mit Video-Hintergründen, Verläufen, Glas-Effekten). Rückfragen beantwortet: Unterricks; Startseite mit starkem ersten Eindruck plus dezente Bewegung in der App; erst Bericht und Entwurf, dann Einbau; Stil selbst in CSS/JS nachbauen, ohne Kauf, ohne fremde Videos oder Bibliotheken. Freigaben: Bewegungsregel in DESIGN.md ergänzen, neue Texte der Startseite; der Schriftzug darf bei keiner Breite in die Karte ragen. Siehe 4zi |
 | Alle Unterlagen dieser Sitzung (Nachtrag 41 vom 23.11.2026) | Wunsch der Lehrkraft: „bei jeder einzelnen Unterrichtssitzung einen Button ganz unten, mit dem ich einen ZIP-Ordner mit allen Unterlagen und Plänen zu jener Unterrichtssitzung herunterlade“. Rückfragen beantwortet: „Sitzung als Datei“ bleibt; ein ZIP-Ordner mit allen Dateien, die die Lehrkraft braucht, samt Präsentation (eigene PDF und PowerPoint) und Arbeitsblättern; Gymnasium und Grundschule. Siehe 4zj |
+| Konzentrationsaufgabe mit Lückentext, Ankreuzaufgabe und Suchsel (Nachtrag 43 vom 23.11.2026) | Wunsch der Lehrkraft: Seite 1 und die obere Hälfte von Seite 2 weiterhin zum Ausmalen, auf der unteren Hälfte von Seite 2 ein Lückentext, eine Ankreuzaufgabe und ein Suchsel, „dem Alter des jeweiligen Jahrgangs dieser Lerngruppe bzgl. des Schwierigkeitsgrades angemessen“. Rückfragen beantwortet: die rote Karte kommt in den Seitenrand neben diese Aufgaben, darunter, dass der Abschnitt nur für Kinder mit roter Karte Pflicht ist; Stufen je Jahrgang wie von Claude vorgeschlagen; nur neue bzw. überarbeitete Konzentrationsaufgaben; passen die Aufgaben nicht in die halbe Seite, wird das Ausmalbild oben auf Seite 2 kleiner. Siehe 4zk |
 
 ## 2. Gesamtarchitektur
 
@@ -1253,7 +1254,9 @@ Wortlaut der Lehrkraft (gekürzt): „In jeder Klasse gibt es Kinder, die ihre A
 Sitzkreis verlassen und während des Zuhörens etwas ausmalen. […] Baue deswegen bei Unterricks ein, dass jeder Prompt für eine
 Grundschul-Unterrichtssitzung im Material für diese Kinder die sogenannte ‚Konzentrationsaufgabe‘ miterstellen lässt.“ – höchstens zwei
 A4-Seiten, zuerst mindestens zwei Ausmalbilder zum Unterrichtsinhalt, dann die rote Karte, danach eine weitere altersgerechte Aufgabe; nur
-für die Lehrkraft unter den Dateien zum Ausdrucken, **5x**; auf Rückfrage **beidseitig**, Bereich **druck**.
+für die Lehrkraft unter den Dateien zum Ausdrucken, **5x**; auf Rückfrage **beidseitig**, Bereich **druck**. **Seit Nachtrag 43 gilt ein neuer
+Aufbau** (Lückentext, Ankreuzaufgabe und Suchsel auf der unteren Hälfte von Seite 2, rote Karte im Seitenrand) – siehe 4zk; die Angaben zu
+`CONC_RULES` unten beschreiben den Stand von Nachtrag 27.
 
 - **Bausteine** (`public/gsplanning.js`, gemeinsam für Browser und Worker): `CONC_TITLE`, `CONC_PRINT` (5, beidseitig, schwarz-weiß),
   `CONC_PAGES_MAX` (2), `CONC_WHY` (Zweck im Wortlaut der Lehrkraft), `CONC_RULES` (Aufbau: zwei A4-Seiten als feste Blöcke mit
@@ -2447,6 +2450,51 @@ Ausdrucken“; Grundschule „Auch Grundschule“ – kompakt mit Verlaufsplan u
   E2E `test/e2e/lessonzip.mjs` (eigene Sitzungen PoWi 8B und Grundschule: Karte ganz unten, Ordnerinhalt, Präsentation byte-gleich, PowerPoint mit
   1920 px breiten Folienbildern und Notizen, Notizen-PDF, Verlaufsplan mit ungespeicherter Hausaufgabe, kompakte Ansicht, Grundschule mit Verweis als
   Pfad; Bildschirmfotos `nr41-*.png`).
+
+## 4zk. Konzentrationsaufgabe: Lückentext, Ankreuzaufgabe und Suchsel (Nachtrag 43 vom 23.11.2026)
+
+* **Wunsch:** „Hier soll die erste Seite und die obere Hälfte der zweiten Seite weiterhin etwas zum Ausmalen sein. Auf der zweiten Hälfte der
+  zweiten Seite soll aber ein Lückentext sein, den der Schüler ausfüllen soll und eine Ankreuzaufgabe und ein Suchsel, was der Schüler erledigen
+  soll. Dies soll dem Alter des jeweiligen Jahrgangs dieser Lerngruppe bzgl. des Schwierigkeitsgrades angemessen sein.“ Rückfragen beantwortet:
+  Die rote Karte kommt in den Seitenrand neben die Aufgaben der unteren Hälfte, darunter steht, dass dieser Abschnitt nur für Kinder Pflicht ist,
+  die eine rote Karte bekommen haben (Wortlaut `CONC_RED_NOTE`: „Diese Aufgaben sind nur Pflicht, wenn du eine rote Karte bekommen hast.“); die
+  Stufen je Jahrgang wie von Claude vorgeschlagen; nur neu geplante bzw. überarbeitete Konzentrationsaufgaben bekommen den neuen Aufbau.
+  Nach der Gegenprüfung (Messung in Chromium mit beschreibbaren Zeilen: Jahrgang 4 mit 5 Sätzen und 4 Aussagen braucht etwa 140 mm, die halbe
+  Seite hat 128 mm; schon Jahrgang 2 mit 4 Sätzen passt nicht) entschied die Lehrkraft: „In diesem Fall darf die obere Hälfte des zweiten
+  Blattes umso kleiner ausfallen, damit das ausreichend Platz erhält.“ – die Mengen bleiben, das Ausmalbild oben auf Seite 2 wird kleiner.
+* **Bausteine** (`public/gsplanning.js`): `concRules(grade)` ersetzt die feste Liste (`CONC_RULES` = `concRules(null)`): höchstens zwei A4-Seiten;
+  Seite 1 wie bisher ein Block mit `height: 272mm; overflow: hidden`, **Seite 2 dagegen mit `min-height: 272mm` als Flex-Spalte ohne
+  `overflow: hidden`** – oben das Ausmalbild (`flex: 1; min-height: 70mm`), darunter die Aufgaben (`flex: none`): Das Bild nimmt, was die Aufgaben
+  übrig lassen, und zu viel Inhalt fällt auf eine dritte Seite, die `add_material_pdf` schon meldet („mehr als zwei Seiten“), statt still
+  abgeschnitten zu werden (Prüfbefund). Überschrift und Kopf wie bisher; Seite 1 und der obere Teil von Seite 2 mindestens zwei Ausmalbilder;
+  der untere Teil von Seite 2 Lückentext (Wörterkasten, Striche), Ankreuzaufgabe (eine Zeile je Aussage, gezeichnete Kästchen) und Suchsel (Gitter
+  mit Linien, nur Wörter der Stunde): links Lückentext und darunter Ankreuzaufgabe, rechts Suchsel; ausdrücklich abweichend von den
+  Gestaltungsregeln für Materialien **und den Grundschul-Regeln (Schriftgröße, Lineatur)**: Schrift 13 pt (Jahrgang 1/2: 15 pt), Zeilenabstand
+  im Lückentext etwa 9 mm (Jahrgang 1/2: 11–12 mm) ohne Hilfslinien, Suchsel-Kästchen 6,5–7 mm (Jahrgang 1/2: 8–9 mm); etwa die untere Hälfte,
+  bei Bedarf mehr; `concLevelRule(grade)` mit `CONC_LEVELS`:
+  - Jahrgang 1: Lückentext mit 2–3 kurzen Sätzen in Großbuchstaben, Lückenwörter im Wörterkasten mit kleinem Bild; 2–3 Aussagen ankreuzen;
+    Suchsel 6 × 6 mit 3–4 kurzen Wörtern, nur waagerecht.
+  - Jahrgang 2: 3–4 Sätze, Wörterkasten; 3–4 Aussagen; Suchsel 7 × 7 mit 4–5 Wörtern, waagerecht und senkrecht.
+  - Jahrgang 3: 4–5 Sätze, ein Wort zu viel im Wörterkasten; 4 Aussagen; Suchsel 8 × 8 mit 5–6 Wörtern.
+  - Jahrgang 4: 5–6 Sätze, ein Wort zu viel; 4–5 Aussagen; Suchsel 9 × 9 mit 6–8 Wörtern.
+  - Immer: Suchsel in Großbuchstaben, nie diagonal oder rückwärts, die gesuchten Wörter darunter. (Die Zahl der Aussagen für Jahrgang 2–4 hat
+    Claude ergänzt – der Vorschlag nannte sie nur für Jahrgang 1.)
+  Mit dem Jahrgang des Kurses (`course.grade`, 1–4) steht nur seine Stufe im Text, sonst alle vier (Claude liest den Jahrgang dann unter
+  „Lerngruppe“). Die rote Karte: schmale Randspalte (etwa 24 mm) links neben den drei Aufgaben, Inline-SVG wie bisher (abgerundet, rot, dicker
+  schwarzer Rand, `role="img"`, `aria-label="Rote Karte"`, kein Emoji), darunter klein `CONC_RED_NOTE`.
+* **Wo es gilt:** Prompt „Stunde mit Claude planen“ der Grundschule (`concPromptSection(course.grade)`) und `get_lesson` (`concSection(…, grade)`):
+  fehlt sie, der Aufbau mit der Stufe des Kurses; gibt es eine von Claude gestaltete, steht unter „Ändert sich der Inhalt der Stunde, passe sie an“
+  jetzt „Gestaltest du sie dabei neu, gilt der aktuelle Aufbau (sonst bleibt sie, wie sie ist):“ mit dem Aufbau – fertige Blätter werden nicht von
+  sich aus umgebaut. Eine Text-Druckvorlage (Rückfall `add_print_material`), die neu gestaltet werden soll, bekommt den Aufbau ebenfalls
+  („Aufbau, wenn du sie mit add_material_pdf neu gestaltest:“); hochgeladene (nicht gestaltete) bekommen keinen. Der SHA-Test in `zwischenstopp.test.mjs` streicht Abschnitt und
+  Speicherschritt wie bisher (mit demselben Jahrgang). Druck, Ablage, Druckliste, Elternansicht: unverändert.
+* **Tests:** Unit `konzentration.test.mjs` (Aufbau und Reihenfolge, Stufen 1–4 und ungültige Jahrgänge, Prompt mit Jahrgang 2, `get_lesson` mit
+  dem Jahrgang des Kurses, überarbeitete und Text-Rückfall mit Aufbau, hochgeladene ohne); E2E: Prompt der Grundschule (Religion 2ab → Stufe
+  Jahrgang 2) und das Beispielblatt `test/e2e/konzentration.mjs` im neuen Aufbau (3 Sätze, 3 Aussagen, Suchsel 7 × 7, Zeilenabstand 11 mm, rote
+  Karte mit `CONC_RED_NOTE` im Rand, Seite 2 als Flex-Spalte), vom Chromium der Drucker-Attrappe auf genau zwei Seiten gedruckt; die lange
+  Fassung auf drei.
+* **Nicht prüfbar hier:** ob Claude in claude.ai den Aufbau einhält und ein lösbares Suchsel baut – Unterricks meldet nur die Seitenzahl (eine
+  dritte Seite heißt: zu voll).
 
 ## 4i. Druckliste „Von der Lehrkraft auszudrucken“ (Ergänzung vom 10.11.2026)
 
