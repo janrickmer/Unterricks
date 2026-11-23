@@ -27,6 +27,7 @@ globalThis.Response = class extends NativeResponse {
 };
 
 const R = await import("../../public/reveal.js");
+const { GENERIC_TITLES } = await import("../../public/sharelib.js");
 const S = await import("../../public/shared.js");
 const P = await import("../../public/planning.js");
 const { fakeCtx } = await import("./fake-d1.mjs");
@@ -37,6 +38,7 @@ const { liveReduce, LIVE_IDLE } = await import("../../worker/livestate.js");
 const { routeMcp } = await import("../../worker/mcp.js");
 const { sha256Hex } = await import("../../worker/lib.js");
 const { setSetting } = await import("../../worker/db.js");
+const F = await import("../../worker/files.js");
 
 const HEAD_FB = ["Bearbeitet in Partnerarbeit die Aufgaben 1 bis 3.", "Feibeitsblatt: Die wehrhafte Demokratie"];
 const HEAD_M2 = ["Lest M2 Karikatur und notiert eure Beobachtungen."];
@@ -88,6 +90,26 @@ test("Material zu einer Überschrift: Titel wörtlich oder alle Wörter, ohne Da
   assert.equal(R.revealRefOf({ id: "1111111111111111" }), "f:1111111111111111");
 });
 
+test("Befund der Gegenprüfung: ein Feibeitsblatt ohne eigenen Titel („Feibeitsblatt“) bzw. ein „Arbeitsblatt“ nennt nicht jede Materialfolie", () => {
+  const items = R.revealItems([{ id: "1111111111111111", area: "student", kind: "file", name: "Arbeitsblatt.pdf" }],
+    [{ code: "ABC234", title: "Feibeitsblatt" }, { code: "GWT4KQ", title: "Gewaltenteilung" }, { code: "FBG234", title: "Feibeitsblätter" }]);
+  assert.deepEqual(R.revealMatches(R.revealKeyOf(["Bearbeitet das Arbeitsblatt.", "Feibeitsblatt: Gewaltenteilung"]), items).map((x) => x.ref), ["s:GWT4KQ"]);
+  for (const t of ["feibeitsblatt", "feibeitsblätter", "arbeitsblatt", "arbeitsblätter", "material", "aufgaben"]) assert.ok(R.REVEAL_GENERIC.has(t), t);
+  // in sharelib (isMaterialSlide) bleibt die Liste, wie sie ist
+  assert.ok(!GENERIC_TITLES.has("feibeitsblatt"));
+  // ein Titel aus zwei Wörtern mit „Feibeitsblatt“ darin zählt weiter
+  assert.deepEqual(R.revealMatches(R.revealKeyOf(["Feibeitsblatt Gewaltenteilung öffnen"]), R.revealItems([], [{ code: "GWT4KQ", title: "Feibeitsblatt Gewaltenteilung" }])).map((x) => x.ref), ["s:GWT4KQ"]);
+});
+
+test("Befund der Gegenprüfung: die KI-Begriffshilfe bekommt den Schulportal-Eintrag ohne Codes (sonst verriete sie den Code eines wartenden Feibeitsblatts)", () => {
+  assert.equal(S.hideCodes("- Feibeitsblatt ~~Die wehrhafte Demokratie~~ mit dem Code ~~WHD-4KT~~"), "- Feibeitsblatt ~~Die wehrhafte Demokratie~~ mit dem Code ~~(Code)~~");
+  assert.equal(S.hideCodes("Code WHD4KT, gesperrt W H D – 4 K T, Gedankenstrich WHD–4KT."), "Code (Code), gesperrt (Code), Gedankenstrich (Code).");
+  assert.equal(S.hideCodes("Q3-LK, MP3, 2026, ABCDEF, Seite 12, G7-Gipfel"), "Q3-LK, MP3, 2026, ABCDEF, Seite 12, G7-Gipfel", "nur gültige Codes (Buchstaben und Ziffern)");
+  const portal = "**3) Partnerarbeit**\n- Feibeitsblatt ~~Die wehrhafte Demokratie~~ mit dem Code ~~WHD-4KT~~\n- Aufgabe 4 besprechen";
+  const p = S.studentHelpPrompt({ subject: "powi", klass: "Q2-GK", title: "Wehrhafte Demokratie", portal });
+  assert.ok(p.includes("mit dem Code ~~(Code)~~") && !p.includes("WHD-4KT") && !p.includes("WHD4KT") && p.includes("Aufgabe 4 besprechen"), p);
+});
+
 const TIMES = S.lessonTimes({ date: "2026-11-24", startTime: "08:00", durationMin: 90 });
 const FILES = [{ id: "1111111111111111", area: "student", kind: "file", name: "M2 Karikatur.pdf" }, { id: "2222222222222222", area: "student", kind: "link", name: "Erklärvideo" },
   { id: "3333333333333333", area: "student", kind: "file", name: "Notfall-Feibeitsblatt – Die wehrhafte Demokratie.pdf", source: "notfall", fb_code: "WHD4KT" }];
@@ -116,6 +138,25 @@ test("materialGate: wartet bis zur gezeigten Materialfolie bzw. Freigabe von Han
   assert.deepEqual([...g.hidden], ["f:1111111111111111"], "Folie 5 liegt hinter der letzten gezeigten Folie (4)");
   assert.equal(g.items.get("f:1111111111111111").late, true);
   assert.equal(R.revealNote(g.items.get("f:1111111111111111")).text, "Für Schüler:innen verborgen: Folie 5 (Materialfolie) wurde nicht live gezeigt und liegt hinter der letzten gezeigten Folie");
+});
+
+test("Befund der Gegenprüfung: festgehaltene Freigabe nach der Stunde (refs mit e:1) gilt wie „end“, auch hinter einer später gesetzten Markierung; revealEndRefs", () => {
+  const after = TIMES.presentationAt + 864e5;
+  let g = gate({ now: after });
+  assert.deepEqual(R.revealEndRefs(g, null).sort(), ["f:1111111111111111", "s:WHD4KT"], "ohne gezeigte Folie nach der Stunde frei: festzuhalten");
+  const kept = { v: 1, refs: [{ r: "f:1111111111111111", at: TIMES.presentationAt, e: 1 }, { r: "s:WHD4KT", at: TIMES.presentationAt, e: 1 }] };
+  assert.deepEqual(R.revealsOf(JSON.stringify(kept)).refs, kept.refs, "e:1 bleibt beim Lesen erhalten");
+  assert.deepEqual(R.revealsOf({ refs: [{ r: "s:WHD4KT", at: 5, e: 2 }] }).refs, [{ r: "s:WHD4KT", at: 5 }], "nur e:1");
+  // die Probe der Gegenprüfung: Markierung danach auf Folie 2 – ohne Festhalten verborgen, mit Festhalten bleibt es sichtbar
+  assert.deepEqual([...gate({ now: after, upTo: 2 }).hidden].sort(), ["f:1111111111111111", "s:WHD4KT"]);
+  g = gate({ now: after, upTo: 2, reveals: kept });
+  assert.equal(g.hidden.size, 0); assert.equal(g.items.get("s:WHD4KT").how, "end");
+  assert.equal(R.revealNote(g.items.get("s:WHD4KT")).text, "Für Schüler:innen sichtbar seit der Freigabe der Präsentation – die Materialfolie wurde nicht live gezeigt");
+  assert.deepEqual(R.revealEndRefs(g, kept), [], "schon festgehalten");
+  // live gezeigt bzw. von Hand freigegeben: nichts festzuhalten; vor der Freigabe der Präsentation auch nicht
+  assert.deepEqual(R.revealEndRefs(gate({ now: after, reveals: { refs: [{ r: "s:WHD4KT", at: 1 }], seen: [{ k: R.revealKeyOf(HEAD_M2), at: 2 }] } }), null), []);
+  assert.deepEqual(R.revealEndRefs(gate(), null), []);
+  assert.deepEqual(R.revealEndRefs({ on: false }, null), []);
 });
 
 test("materialGate aus: Lehrkraft nicht da, Jg. 5/6, ohne Beginn oder Dauer, ohne Codefolien mit Überschrift bzw. ohne Material dazu – alles wie bisher", () => {
@@ -375,6 +416,56 @@ test("Freigabe von Hand: nur Material dieser Sitzung, gespeichert (einmal), das 
   assert.ok(!before.stamp.includes("~"), "ohne Freigaben bleibt der Stand wie bisher");
 });
 
+test("Befund der Gegenprüfung: Freigabe von Hand bei voller Liste → 409 (nie „sichtbar“), nichts gemeldet; eine zweite Freigabe meldet den gespeicherten Zeitpunkt", async () => {
+  const c = await setup();
+  const { pokes, call } = await teacherCtx(c);
+  const P0 = "/api/teacher/lessons/" + LESSON + "/reveal";
+  const full = { v: 1, refs: Array.from({ length: R.REVEAL_LIMITS.refs }, (_, i) => ({ r: "s:A" + String(i).padStart(3, "0") + "2B", at: i + 1 })) };
+  c.db.raw.prepare("UPDATE lessons SET reveals=? WHERE id=?").run(JSON.stringify(full), LESSON);
+  await assert.rejects(call(L.routeLessonReveal, P0, { ref: "f:" + F_M2 }, [LESSON]), (e) => e.status === 409 && e.code === "reveal_full" && /200 Freigaben von Hand/.test(e.message));
+  assert.deepEqual(pokes, [], "nichts an die Schüler:innen gemeldet");
+  assert.deepEqual((await lessonData(c)).files.map((f) => f.id), [F_LINK], "M2 wartet weiter");
+  // eine Freigabe, die schon gespeichert ist (z. B. von einem zweiten Gerät): ok, gemeldet wird der gespeicherte (frühere) Zeitpunkt
+  c.db.raw.prepare("UPDATE lessons SET reveals=? WHERE id=?").run(JSON.stringify({ v: 1, refs: [{ r: "f:" + F_M2, at: c.now - 5000 }] }), LESSON);
+  const r = await (await call(L.routeLessonReveal, P0, { ref: "f:" + F_M2 }, [LESSON])).json();
+  assert.deepEqual(r.reveals.refs, [{ r: "f:" + F_M2, at: c.now - 5000 }]);
+  assert.deepEqual(pokes, [[LESSON, "https://live/reveal?at=" + (c.now - 5000), "POST"]], "die Seiten laden neu, bis ihre Daten diesen Zeitpunkt erreichen – er steht in D1");
+});
+
+test("Befund der Gegenprüfung: „Bis hier gezeigt“ nach der Freigabe der Präsentation nimmt kein sichtbares Material zurück (festgehalten); vor der Freigabe wie bisher", async () => {
+  const pdf = new TextEncoder().encode("%PDF-1.7 gekürzt");
+  const put = async (c, until) => {
+    const req = new Request("https://x/api/teacher/files/" + PRES + "/shown?until=" + until, { method: "PUT", body: pdf, headers: { Authorization: "Bearer " + TTOKEN, "Content-Type": "application/pdf", "Content-Length": String(pdf.length) } });
+    return (await F.routeShownPut({ ...c, request: req }, PRES)).json();
+  };
+  // einen Tag nach der Stunde, Folien 3 und 5 nie live gezeigt: alles frei; die Lehrkraft markiert danach Folie 2 als letzte gezeigte
+  let c = await setup({ now: TIMES.presentationAt + 864e5 });
+  const { call } = await teacherCtx(c);
+  assert.equal((await lessonData(c)).files.length, 3);
+  let r = await put(c, 2);
+  assert.equal(r.file.shownUntil, 2);
+  assert.deepEqual(r.reveals.refs.map((x) => [x.r, x.at, x.e]).sort(), [["f:" + F_M2, TIMES.presentationAt, 1], ["s:WHD4KT", TIMES.presentationAt, 1]], "festgehalten (Zeitpunkt: Freigabe der Präsentation)");
+  let d = await lessonData(c);
+  assert.deepEqual(d.files.map((f) => f.id), [F_M2, F_LINK, F_NF], "bleibt sichtbar – samt Notfall-Feibeitsblatt");
+  assert.deepEqual(d.sheets.map((x) => x.code), ["WHD4KT"]);
+  assert.equal((await routeStudentFileLink(post(c, "/api/student/files/" + F_M2 + "/link"), F_M2)).status, 200);
+  // noch einmal verschieben: nichts mehr festzuhalten
+  r = await put(c, 4);
+  assert.equal(r.reveals, undefined);
+  // Lehrkraft: „seit der Freigabe der Präsentation“, kein „verborgen“
+  const g = await (await call(L.routeLessonGet, "/api/teacher/lessons/" + LESSON, null, [LESSON])).json();
+  const tg = R.teacherGate({ lesson: g.lesson, files: g.files, sheets: g.sheets, now: c.now });
+  assert.equal(tg.hidden.size, 0); assert.equal(tg.items.get("f:" + F_M2).how, "end");
+  // markiert vor der Freigabe der Präsentation (z. B. am Ende der Stunde): nichts festgehalten – Folie 5 bleibt danach verborgen (wie die Folie selbst)
+  c = await setup({ now: TIMES.end + 60e3 });
+  await teacherCtx(c);
+  r = await put(c, 4);
+  assert.equal(r.reveals, undefined);
+  assert.equal(R.revealsOf(c.db.raw.prepare("SELECT reveals FROM lessons WHERE id=?").get(LESSON).reveals).refs.length, 0);
+  c.now = TIMES.presentationAt + 60e3;
+  assert.deepEqual((await lessonData(c)).files.map((f) => f.id), [F_LINK, F_NF]);
+});
+
 /* ---------- Connector: link_feibeitsblatt, Feibeitsblätter früherer Sitzungen in get_lesson ---------- */
 async function mcp(c, name, args) {
   const req = new Request("https://unterricks.test/mcp/geheim", { method: "POST", body: JSON.stringify({ jsonrpc: "2.0", id: 1, method: name ? "tools/call" : "tools/list", params: name ? { name, arguments: args } : {} }) });
@@ -429,8 +520,63 @@ test("Prompts: Materialfolie erscheint erst live (nicht Jg. 5/6); Zwischenstopp 
 test("Schüler:innen-Seite: revealAt vor der Prüfung von v, Neuladen der Daten verzögert, Material neu gezeichnet, wieder gebrauchtes Feibeitsblatt", async () => {
   const { readFileSync } = await import("node:fs");
   const app = readFileSync(new URL("../../public/app.js", import.meta.url), "utf8");
-  const i = app.indexOf("if (Number.isFinite(st.revealAt) && st.revealAt > revealSeen) { revealSeen = st.revealAt; revealSoon(); }");
+  const i = app.indexOf("rw.want(st.revealAt);");
   assert.ok(i > 0 && i < app.indexOf("if (st.v !== undefined && st.v === lastV && st.active) return;"), "vor der Prüfung von v (dasselbe v)");
-  assert.ok(app.includes("Math.round(Math.random() * 2000)") && app.includes("paintMats(r);") && app.includes("if (s.again) return fbAgainItem(s, url, { leave: onLeave });"));
+  assert.ok(app.includes("const rw = revealWatch({ seen: d.revealAt, reload: () => refresh() });") && app.includes("paintMats(r);") && app.includes("if (s.again) return fbAgainItem(s, url, { leave: onLeave });"));
   assert.ok(app.includes('"Neues Material: "') && app.includes('"aria-live": "polite", id: "mat-live"'));
+  // Befunde der Gegenprüfung: nur eine geglückte Antwort rückt den Stand vor, danach weitere Versuche; Antworten in der Reihenfolge der Anfragen; sichtbar → nachholen
+  const r = app.slice(app.indexOf("const refresh = async () => {"), app.indexOf("let chT = null;"));
+  assert.ok(r.includes("const my = order.start();") && r.includes("if (gone || !order.take(my)) return;") && r.indexOf("rw.seen(r.revealAt);") < r.indexOf("paintMats(r);"));
+  assert.ok(r.includes("finally { rw.after(); }"), "nach jedem Neuladen – auch einem gescheiterten – prüft die Seite, ob noch etwas fehlt");
+  assert.ok(app.includes("if (rw.visible() || pending.some((t) => Date.now() + offset >= t)) refresh();"));
+  assert.ok(app.includes("onLeave(() => { gone = true; rw.stop(); });"));
+  // „neu“ nur für das zuletzt Erschienene
+  assert.ok(app.includes("for (const row of freshRows) if (!fresh.some((x) => x.row === row)) { row.classList.remove(\"fresh\"); const b = row.querySelector(\".badge.neu\"); if (b) b.remove(); }"));
+});
+
+test("revealWatch: neuer Stand → Neuladen nach 0–2 s; erst eine geglückte Antwort zählt; scheitert es, weitere Versuche (2, 4, 8, 16, 32, 60 s), danach erst beim Sichtbarwerden", () => {
+  const timers = [], loads = [];
+  let rnd = 0.5;
+  const set = (fn, ms) => { const t = { fn, ms, on: true }; timers.push(t); return t; }, clear = (t) => { t.on = false; };
+  const fire = () => { const t = timers.filter((x) => x.on).pop(); assert.ok(t, "ein Zeitgeber läuft"); t.on = false; t.fn(); return t.ms; };
+  const w = R.revealWatch({ seen: 100, reload: () => loads.push(1), random: () => rnd, setT: set, clearT: clear });
+  w.want(undefined); w.want(90); w.want(100);
+  assert.equal(timers.length, 0, "kein neuerer Stand: nichts");
+  w.want(200);
+  assert.equal(fire(), 1000, "zufällig 0–2 s später"); assert.equal(loads.length, 1);
+  // Neuladen gescheitert (keine Antwort): weitere Versuche mit wachsendem Abstand
+  const gaps = [];
+  for (let k = 0; k < 6; k++) { w.after(); gaps.push(fire()); }
+  assert.deepEqual(gaps, R.REVEAL_RETRY_MS.map((x) => x + 1000));
+  w.after();
+  assert.equal(timers.filter((x) => x.on).length, 0, "nach sechs Versuchen keine weiteren");
+  assert.deepEqual(w.state, { want: 200, seen: 100, tries: 6, pending: false });
+  assert.equal(w.visible(), true, "die Seite wird wieder sichtbar: jetzt neu laden");
+  w.after(); assert.equal(timers.filter((x) => x.on).length, 1, "… und wieder von vorn versuchen");
+  // eine Antwort mit älterem Stand (die Anfrage begann vor der Freigabe) genügt nicht; eine mit dem Stand schon
+  w.seen(150); w.after(); assert.equal(w.state.seen, 150); assert.equal(w.state.pending, true);
+  w.seen(200); w.after();
+  assert.deepEqual(w.state, { want: 200, seen: 200, tries: 0, pending: false }, "erreicht: kein weiterer Versuch");
+  assert.equal(w.visible(), false);
+  // läuft schon ein Zeitgeber (zwei Anfragen gleichzeitig), zählt kein Versuch; ein neuer Stand während eines langen Wartens: sofort wieder kurz
+  w.want(300); w.after(); w.after();
+  assert.equal(w.state.tries, 0); assert.equal(timers.filter((x) => x.on).length, 1);
+  fire(); w.after(); w.after(); fire(); w.after();
+  assert.equal(w.state.tries, 2);
+  rnd = 0; w.want(400);
+  assert.equal(timers.filter((x) => x.on).length, 1); assert.equal(fire(), 0);
+  // nach dem Verlassen der Seite nichts mehr
+  w.stop(); w.want(500); w.after();
+  assert.equal(timers.filter((x) => x.on).length, 0);
+});
+
+test("latestOnly: die Antwort einer früher gestellten Anfrage gilt nicht mehr, wenn eine spätere schon angewendet ist", () => {
+  const o = R.latestOnly();
+  const a = o.start(), b = o.start(), c2 = o.start();
+  assert.equal(o.take(b), true, "B kommt zuerst an"); assert.equal(o.take(a), false, "A (früher gestellt) danach: verworfen");
+  assert.equal(o.take(c2), true);
+  const d = o.start(), e = o.start();
+  assert.equal(o.take(d), true, "in Reihenfolge: beide"); assert.equal(o.take(e), true);
+  const f = o.start(); o.start();
+  assert.equal(o.take(f), true, "die spätere scheitert: die frühere gilt trotzdem (sie ist neuer als das Gezeigte)");
 });

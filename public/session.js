@@ -439,6 +439,7 @@ export async function sessionPage(id) {
      bzw. seit wann es die Schüler:innen sehen –, wartendes mit „Jetzt freigeben“. Gerechnet wie beim Server (public/reveal.js); ohne Materialfolie kein Hinweis */
   const gateNow = () => teacherGate({ lesson: L(), files: st.files, sheets: st.sheets, sub: st.sub });
   const revealSlots = new Map();   // Code → Platz für den Hinweis an einem Feibeitsblatt (Abschnitt „Feibeitsblätter dieser Sitzung“)
+  // neuer Stand der Freigaben (nach „Jetzt freigeben“ bzw. einer neuen Markierung „Bis hier gezeigt“, die nach der Stunde Freigaben festhält): Hinweise neu
   function revealReleased(rv) { if (rv) L().reveals = rv; paintFiles(); paintSheetReveals(); icEmit("files"); }
   function paintSheetReveals() {
     const g = gateNow();
@@ -504,6 +505,8 @@ export async function sessionPage(id) {
       const { markShown } = await lazy(import("./pdfcut.js"));
       const r = await markShown(p, n, T.token, onStep);
       Object.assign(p, r.file);
+      // Nachtrag 44: die Hinweise am Material folgen der Markierung (Folie dahinter: „verborgen“); nach der Stunde Festgehaltenes bringt der Server mit (reveals)
+      revealReleased(r.reveals || null);
       // wo Unterricks zuletzt selbst einen Zwischenstopp eingetragen hat: der Stand des Servers (ein anderes Gerät kann inzwischen markiert haben – Prüfbefund)
       return (stopSync = await syncStop(p, n, (r.file && r.file.phases && r.file.phases.auto) || null));
     });
@@ -1567,7 +1570,9 @@ export async function sessionPage(id) {
       }
       // Präsentationskarte nur neu, wenn sie etwas anderes zeigt – nie unter dem Fokus und nie während des Hochladens
       if (presSig(st.files) !== presPainted && !pendingPdf && !presCard.contains(document.activeElement)) { st.slides = null; paintPres(); }
-      if (r.drafts.length !== st.drafts.length || r.sheets.length !== st.sheets.length) { st.drafts = r.drafts; st.sheets = r.sheets; paintFb(); ensureNotfall(st.sheets.filter((x) => !notfallFile(x.code)).map((x) => x.code)); }
+      // Feibeitsblätter: auch wenn sich nur „wieder gebraucht“ (again, Nachtrag 45 – z. B. mit einer früheren Sitzung verknüpft) oder ein Titel ändert
+      const sheetsKey = (xs) => JSON.stringify(xs.map((x) => [x.code, x.title, x.kind || "", !!x.again]));
+      if (r.drafts.length !== st.drafts.length || sheetsKey(r.sheets) !== sheetsKey(st.sheets)) { st.drafts = r.drafts; st.sheets = r.sheets; paintFb(); ensureNotfall(st.sheets.filter((x) => !notfallFile(x.code)).map((x) => x.code)); }
       // Materialfolie live gezeigt bzw. Material freigegeben (Nachtrag 44, z. B. am iPad im Unterricht): die Hinweise am Material folgen
       if (JSON.stringify(r.lesson.reveals || null) !== JSON.stringify(L().reveals || null)) { L().reveals = r.lesson.reveals || null; paintFiles(); paintSheetReveals(); icEmit("files"); }
       const subKey = (x) => (x ? x.status + ":" + x.updatedAt : "");

@@ -139,8 +139,17 @@ export function lessonTimes(l) {
 }
 /* KI-Begriffshilfe für Schüler:innen (während der Stunde): feste Regeln, Fach, Lerngruppe, Thema und – zur Orientierung – der Stundenverlauf */
 export const STUDENT_HELP_LIMITS = { question: 300, answer: 1200, history: 3 };
+/* Codes (Feibeitsblatt, Sitzung) aus einem Text entfernen – „AEH-4VY“ (wie codesInText, auch gesperrt) und ohne Bindestrich „AEH4VY“ → „(Code)“. Nachtrag 44
+   (Befund der Gegenprüfung): Der Schulportal-Eintrag nennt die Codes der Feibeitsblätter; die KI-Begriffshilfe bekommt ihn ohne sie – sonst verriete sie den Code
+   eines Feibeitsblatts, das noch auf seine Materialfolie wartet. */
+export const CODE_HIDDEN = "(Code)";
+export function hideCodes(text) {
+  let t = String(text == null ? "" : text);
+  for (const m of codesInText(t).reverse()) t = t.slice(0, m.start) + CODE_HIDDEN + t.slice(m.end);
+  return t.replace(/(^|[^A-Za-z0-9])([A-Z0-9]{6})(?![A-Za-z0-9])/g, (all, pre, c) => (isValidCode(c) ? pre + CODE_HIDDEN : all));
+}
 export function studentHelpPrompt(l) {
-  const portal = removeStops(String(l.portal || "")).trim();
+  const portal = hideCodes(removeStops(String(l.portal || ""))).trim();
   return [
     "Du bist die KI-Begriffshilfe der Unterrichtsplattform Unterricks. Du beantwortest Fragen von Schüler:innen während einer Unterrichtsstunde.",
     "Fach: " + subjectName(l.subject) + ". Lerngruppe: " + gradeInfo(l.klass).text + ". Thema der Stunde: " + (l.title || "(ohne Titel)") + (l.topic && l.topic !== l.title ? " – " + l.topic : "") + ".",

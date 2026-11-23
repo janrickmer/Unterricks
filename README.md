@@ -554,19 +554,24 @@ gleich in `public/_headers`, im Worker und – für GitHub Pages – in `scripts
 * **Material erscheint mit seiner Materialfolie (Nachtrag 44):** Hat ein Material für Schüler:innen bzw. ein Feibeitsblatt eine eigene
   Materialfolie in der Präsentation (eine Unterricks-Codefolie, deren Überschrift seinen Titel nennt), sehen die Schüler:innen es erst,
   wenn Sie diese Folie live zeigen – dann erscheint es ohne Neuladen in ihrer Ansicht unter „Material“ (markiert „neu“), das
-  Notfall-Feibeitsblatt mit seinem Feibeitsblatt. Einmal freigegeben bleibt es sichtbar, auch nach der Stunde. Wurde die Folie nie live
-  gezeigt, wird das Material wie die Präsentation 5 Minuten nach dem Ende der Sitzung frei (nur bis zur markierten letzten gezeigten
-  Folie). Material ohne eigene Materialfolie, Sitzungen ohne Präsentation, ohne Beginn oder Dauer, Selbstlern-Phasen und die Jahrgänge 5/6
-  bleiben wie bisher. In der Sitzung und in „Ich bin jetzt im Unterricht“ steht am Material klein, ab welcher Folie es erscheint bzw.
-  seit wann es sichtbar ist; mit **„Jetzt freigeben“** zeigen Sie ein wartendes Material sofort (z. B. wenn der Beamer streikt).
-  Der Server gibt wartendes Material auch über die Schnittstelle nicht heraus. Hinweis: Steht der Code eines Feibeitsblatts schon vorher
-  im Schulportal, kennen die Schüler:innen ihn von dort.
+  Notfall-Feibeitsblatt mit seinem Feibeitsblatt. Einmal freigegeben bleibt es sichtbar, auch nach der Stunde – auch wenn Sie danach
+  „Bis hier gezeigt“ setzen. Wurde die Folie nie live gezeigt (auch wenn Sie die Präsentation gar nicht live über Unterricks zeigen, z. B.
+  die PDF direkt), wird das Material wie die Präsentation 5 Minuten nach dem Ende der Sitzung frei (nur bis zur markierten letzten
+  gezeigten Folie) – in der Stunde selbst geben Sie es dann mit „Jetzt freigeben“ frei. Material ohne eigene Materialfolie, Sitzungen ohne
+  Präsentation, ohne Beginn oder Dauer, Selbstlern-Phasen und die Jahrgänge 5/6 bleiben wie bisher. In der Sitzung und in „Ich bin jetzt im
+  Unterricht“ steht am Material klein, ab welcher Folie es erscheint bzw. seit wann es sichtbar ist; mit **„Jetzt freigeben“** zeigen Sie
+  ein wartendes Material sofort (z. B. wenn der Beamer streikt). Scheitert bei einem iPad das Nachladen (WLAN), versucht die Seite es von
+  selbst noch einmal. Der Server gibt wartendes Material auch über die Schnittstelle nicht heraus, und die KI-Begriffshilfe kennt die Codes
+  der Feibeitsblätter nicht. Hinweis: Veröffentlichen Sie den Code eines Feibeitsblatts schon vorher im Schulportal, kennen die
+  Schüler:innen ihn von dort.
 * **Feibeitsblatt aus einer früheren Sitzung (Nachtrag 45):** Ist ein Feibeitsblatt mit dieser Sitzung und mit einer früheren Sitzung
   desselben Kurses verknüpft („Vorhandenes Feibeitsblatt verknüpfen“ oder Claude mit `link_feibeitsblatt`, z. B. nach einem
   Zwischenstopp), steht es bei den Schüler:innen als **„Wieder gebraucht“**: ein Feld für ihre Zwischenstand-PDF, dann „Im Feibeitsblatt
   weiterarbeiten“ – Feibeitsblatt öffnet sich in einem neuen Tab mit ihrem Zwischenstand (die PDF geht nur von Tab zu Tab, nie über
   einen Server). Kann das Feibeitsblatt die Übergabe noch nicht, sagt Unterricks nach 10 Sekunden, wie man die PDF dort selbst
-  hochlädt. Darunter klein der Code und „Von vorn beginnen“ (Code kopieren und Feibeitsblatt öffnen wie bisher).
+  hochlädt. Darunter klein der Code und „Von vorn beginnen“ (Code kopieren und Feibeitsblatt öffnen wie bisher). Vor dem ersten Einsatz
+  einmal auf einem echten iPad ausprobieren: Safari kann den Unterricks-Tab im Hintergrund anhalten – dann käme die PDF erst an, wenn
+  man kurz zu Unterricks zurückwechselt.
 * **Kurse in Ev. Religion und Ethik (Jg. 5–10, E-Phase):** Je Jahrgang gibt es einen Kurs mit Schüler:innen aus mehreren
   Klassen. Fach wählen → beim Jahrgang **„Kurs anlegen“** → alle Klassen ankreuzen, die im Kurs vertreten sind (später über
   „Klassen ändern“ anpassbar). Sitzungen und Einheiten, die bisher in einer dieser Klassen lagen, ziehen dabei in den Kurs um.

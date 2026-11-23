@@ -3,7 +3,7 @@
 import { HttpError, bad, json, readJson, randomId, cleanLine, cleanText, isId, requireSecret, signLink, checkLink, contentDisposition, INLINE_SAFE } from "./lib.js";
 import { courseClassSize } from "./courses.js";
 import { requireTeacher } from "./auth.js";
-import { getLesson, fileOut, codeSlidesOf, slidePhasesOf, videoSlidesFileOf, LIMITS, onPrintList, cardVersion, notesData, PRINT_COURSE_COL, printNameOf } from "./lessons.js";
+import { getLesson, fileOut, codeSlidesOf, slidePhasesOf, videoSlidesFileOf, LIMITS, onPrintList, cardVersion, notesData, PRINT_COURSE_COL, printNameOf, keepEndReleases } from "./lessons.js";
 import { normalizeCode, isValidCode, cleanWebUrl, slidesUpTo, cleanCopies, isAnalogClass, cleanCodeSlides, GS_SUBJECT, cleanSlideNotes, annotatedName, CARD_PRINT, printTitleOf, cleanSlidePhases, PHASE_MAX } from "../public/shared.js";
 import { cleanDesignHtml, renderPdf, htmlText, keepImages, shortImages, HTML_MAX, RenderError, renderUsage, printerConfigured } from "./render.js";
 import { cleanVideoSlides, videoSlidesStore, VIDEO_LIMITS } from "../public/videoslides.js";
@@ -641,8 +641,11 @@ export async function routeShownPut(c, fileId) {
   const len = uploadLength(c, MAX_FILE);
   await checkStorage(c, Math.max(0, len - (f.cut_size || 0)));
   await c.env.FILES.put(cutKey(f.lesson_id, f.id), c.request.body, { httpMetadata: { contentType: "application/pdf" } });
+  // Nachtrag 44 (Befund der Gegenprüfung): nach der Freigabe der Präsentation nimmt eine neue bzw. verschobene Markierung kein Material zurück, das die
+  // Schüler:innen schon sehen – vorher festhalten (reveals nur, wenn etwas festgehalten wurde; die Seite der Lehrkraft übernimmt den Stand)
+  const reveals = await keepEndReleases(c, f);
   await c.db.prepare("UPDATE files SET shown_until=?2, cut_size=?3, updated_at=?4 WHERE id=?1").bind(f.id, n, len, c.now).run();
-  return json({ ok: true, file: fileOut(await getFile(c.db, f.id)) });
+  return json({ ok: true, file: fileOut(await getFile(c.db, f.id)), ...(reveals ? { reveals } : {}) });
 }
 export async function routeShownDelete(c, fileId) {
   await requireTeacher(c);

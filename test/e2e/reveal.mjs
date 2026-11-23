@@ -106,16 +106,22 @@ export async function revealE2E({ browser, tp, BASE, FB, T, token, tool, ok, OUT
   await abBtn.focus();
   const focusStays = () => sp.evaluate(() => { const a = document.activeElement; return !!a && a.textContent === "Herunterladen" && !!a.closest(".item") && a.closest(".item").textContent.includes("Arbeitsblatt Ablauf.pdf"); });
 
-  /* ---- Freigabe von Hand (z. B. Beamer streikt): „M2 Karikatur“ erscheint ohne Neuladen ---- */
+  /* ---- Freigabe von Hand (z. B. Beamer streikt): „M2 Karikatur“ erscheint ohne Neuladen – auch wenn das erste Neuladen der Daten scheitert (WLAN der Schule) ---- */
+  let failNext = true, failed = 0;
+  const lessonGet = (url) => url.pathname === "/api/student/lessons/" + A.id;
+  await sp.route(lessonGet, (route) => { if (failNext && route.request().method() === "GET") { failNext = false; failed++; return route.abort("failed"); } return route.continue(); });
   await tp.evaluate(() => document.querySelectorAll(".toast").forEach((t) => t.remove()));
   await m2Row.getByRole("button", { name: "„M2 Karikatur.pdf“ jetzt für Schüler:innen freigeben" }).click();
   await tp.locator(".toast", { hasText: "„M2 Karikatur.pdf“ ist jetzt für Schüler:innen sichtbar." }).waitFor({ timeout: 10000 });
-  await sp.locator(".item.fresh", { hasText: "M2 Karikatur.pdf" }).waitFor({ timeout: 15000 });
-  ok(await sp.evaluate(() => window.__same === 1) && await focusStays() && (await sp.locator("#mat-live").textContent()) === "Neues Material: „M2 Karikatur.pdf“."
+  await sp.locator(".item.fresh", { hasText: "M2 Karikatur.pdf" }).waitFor({ timeout: 20000 });
+  await sp.unroute(lessonGet);
+  ok(failed === 1 && await sp.evaluate(() => window.__same === 1) && await focusStays() && (await sp.locator("#mat-live").textContent()) === "Neues Material: „M2 Karikatur.pdf“."
     && (await sp.locator(".item", { hasText: "M2 Karikatur.pdf" }).locator(".badge.neu").textContent()) === "neu" && await SA("/api/student/files/" + fM2.id + "/link") === 200,
-    "Freigabe von Hand: „M2 Karikatur“ erscheint bei der Schülerin ohne Neuladen – markiert „neu“, angesagt (Live-Region), der Fokus bleibt; jetzt auch über den Link");
+    "Freigabe von Hand: „M2 Karikatur“ erscheint bei der Schülerin ohne Neuladen – auch nach einem gescheiterten ersten Neuladen der Daten (neuer Versuch) –, markiert „neu“, angesagt (Live-Region), der Fokus bleibt; jetzt auch über den Link");
   ok((await m2Row.locator(".reveal-text").textContent()).startsWith("Für Schüler:innen sichtbar seit ") && (await m2Row.locator(".reveal-text").textContent()).endsWith(" Uhr – von Ihnen freigegeben")
-    && await m2Row.locator(".reveal-go").count() === 0, "Lehrkraft: „… – von Ihnen freigegeben“, kein Knopf mehr");
+    && await m2Row.locator(".reveal-go").count() === 0
+    && await tp.evaluate((id) => { const a = document.activeElement; return !!a && a.classList.contains("reveal-note") && a.dataset.reveal === "f:" + id && a.textContent.endsWith(" Uhr – von Ihnen freigegeben"); }, fM2.id),
+    "Lehrkraft: „… – von Ihnen freigegeben“, kein Knopf mehr – der Fokus liegt auf diesem Hinweis (nicht auf der Seite verloren)");
 
   /* ---- Live-Präsentation (zweites Gerät der Lehrkraft): Folie 3 → das Feibeitsblatt erscheint samt Notfall-Feibeitsblatt ---- */
   const tStore = await tp.evaluate(() => JSON.stringify(localStorage));
@@ -134,8 +140,9 @@ export async function revealE2E({ browser, tp, BASE, FB, T, token, tool, ok, OUT
   const fbItem = sp.locator(".item.fresh", { hasText: "Feibeitsblatt · Code" });
   await fbItem.waitFor({ timeout: 15000 });
   ok((await fbItem.textContent()).includes("GWT-4KQ") && await sp.evaluate(() => window.__same === 1) && await focusStays()
-    && (await sp.locator("#mat-live").textContent()) === "Neues Material: „Gewaltenteilung“.",
-    "Folie 3 (Materialfolie) live: das Feibeitsblatt erscheint ohne Neuladen (Code, „neu“, angesagt), der Fokus bleibt");
+    && (await sp.locator("#mat-live").textContent()) === "Neues Material: „Gewaltenteilung“."
+    && await sp.locator(".item.fresh").count() === 1 && await sp.locator(".item", { hasText: "M2 Karikatur.pdf" }).locator(".badge.neu").count() === 0,
+    "Folie 3 (Materialfolie) live: das Feibeitsblatt erscheint ohne Neuladen (Code, „neu“, angesagt), der Fokus bleibt – „neu“ trägt nur das zuletzt Erschienene");
   await sp.locator("section.notfallbox").waitFor({ timeout: 10000 });
   ok(await sp.locator("section.notfallbox details").evaluate((d) => !d.open) && await SA("/api/student/files/" + nf.id + "/link") === 200
     && !!(await sp.evaluate(() => { const box = document.querySelector(".notfallbox"), mat = document.querySelector("#mat-h").closest("section"); return mat.compareDocumentPosition(box) & Node.DOCUMENT_POSITION_FOLLOWING; })),
@@ -216,8 +223,9 @@ export async function revealE2E({ browser, tp, BASE, FB, T, token, tool, ok, OUT
   watch(fbp, "Feibeitsblatt (Attrappe)");
   await fbp.locator("#st", { hasText: "Zwischenstand geladen: Zwischenstand Gewaltenteilung.pdf" }).waitFor({ timeout: 15000 });
   await status.filter({ hasText: "Dein Zwischenstand ist im Feibeitsblatt geöffnet." }).waitFor({ timeout: 10000 });
-  ok((await fbp.evaluate(() => window.__got.size)) === draft.length && new URL(fbp.url()).hash === "" && !(await go.isVisible()),
-    "Übergabe: das Feibeitsblatt bekommt genau die PDF (Bereitschaft → Übergabe → Antwort), entfernt die Marke aus der Adresse; Meldung „Dein Zwischenstand ist im Feibeitsblatt geöffnet.“");
+  ok((await fbp.evaluate(() => window.__got.size)) === draft.length && new URL(fbp.url()).hash === "" && !(await go.isVisible())
+    && await rp.evaluate(() => !!document.activeElement && document.activeElement.classList.contains("fba-status")),
+    "Übergabe: das Feibeitsblatt bekommt genau die PDF (Bereitschaft → Übergabe → Antwort), entfernt die Marke aus der Adresse; Meldung „Dein Zwischenstand ist im Feibeitsblatt geöffnet.“ – der Fokus liegt auf der Statuszeile (der Knopf ist weg)");
   await again.screenshot({ ...SHOT, path: join(OUT, "nr45-schueler-uebergeben.png") });
   await fbp.close();
   // älteres Feibeitsblatt ohne Übergabe: nach 10 s ruhig die Anleitung (der Tab ist offen)

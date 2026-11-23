@@ -685,12 +685,14 @@ Der Kopf jeder Seite: Fach, Kurs und Stand auf einen Blick.
 - **Schüler:innen:** Neu freigegebenes Material steht ohne Neuladen in der Liste „Material“ an seinem Platz (Feibeitsblätter vor den Dateien) – die übrigen
   Zeilen bleiben stehen, der Fokus auch. Die neue Zeile trägt einen 4px-Streifen innen links in der Fachfarbe (`inset 4px 0 0 var(--fach)`, Kante Fach 55 % in
   `--line`) und unter dem Titel das Abzeichen „neu“ (`--fach-t`/`--fach-text` wie `.slv-typ`); mit Bewegung legt sie sich wie aufgedeckt hin (`aufdecken`,
-  .45s), ohne Bewegung nur die Markierung. Eine unsichtbare, höfliche Live-Region (`#mat-live`) sagt „Neues Material: „…“.“ an. Kein Hinweis auf wartendes
+  .45s), ohne Bewegung nur die Markierung. Eine unsichtbare, höfliche Live-Region (`#mat-live`) sagt „Neues Material: „…“.“ an. „neu“ trägt nur das zuletzt
+  Erschienene – kommt wieder etwas dazu, verlieren die früheren Zeilen Streifen und Abzeichen. Kein Hinweis auf wartendes
   Material – ohne freigegebenes Material steht wie bisher „Deine Lehrkraft hat für diese Sitzung noch kein Material freigegeben.“
 - **Lehrkraft** (Materialkasten, Feibeitsblätter der Sitzung, „Ich bin jetzt im Unterricht“): unter Material mit Materialfolie eine kleine Zeile `.reveal-note`
   (.85rem): wartend gelb hinterlegt (`--gelb-t` mit Kante wie `.badge.hw`) „Erscheint bei den Schüler:innen erst, wenn Folie 3 (Materialfolie) live gezeigt
   wird“ mit „Jetzt freigeben“ (`btn small`, hier ≥ 44px); freigegeben ruhig in `--muted` „Für Schüler:innen sichtbar seit 10:12 Uhr – Materialfolie live
-  gezeigt“ (bzw. „– von Ihnen freigegeben“). Ohne Materialfolie keine Zeile.
+  gezeigt“ (bzw. „– von Ihnen freigegeben“). Ohne Materialfolie keine Zeile. Nach „Jetzt freigeben“ liegt der Fokus auf der neuen Zeile (per Skript
+  fokussierbar, nicht in der Tab-Reihenfolge; mit der Tastatur der übliche 3px-Fokusrahmen `:focus-visible`).
 
 ### Feibeitsblatt aus einer früheren Sitzung (`.item.fbagain`, `.fba-*`, `public/fbagain.js`, Nachtrag 45)
 - Eine Zeile der Liste „Material“ wie jedes Feibeitsblatt (FB-Symbol oben ausgerichtet), mit dem Abzeichen „Wieder gebraucht“ (`--gelb-t` wie `.badge.hw`) und
@@ -698,7 +700,8 @@ Der Kopf jeder Seite: Fach, Kurs und Stand auf einen Blick.
   `--radius-s`, mindestens 54px hoch, Upload-Symbol und „Zwischenstand-PDF auswählen“ in 700; das Dateifeld liegt unsichtbar darüber (Tastatur: Tab, Enter bzw.
   Leertaste), Fokus als 3px-Rahmen `--focus` um das Feld, Ziehen und Ablegen färbt es in `--fach-t`. Mit gewählter Datei durchgezogene Kante, „Andere Datei
   wählen“ und darunter Haken (`--ok`), Dateiname und Größe; Fehler in `.err` (du-Form).
-- Erst dann der Primärknopf „Im Feibeitsblatt weiterarbeiten“ (Pfeil, 44px); darunter die Statuszeile (`role="status"`, 600; Erfolg in `--ok`). Ganz unten klein
+- Erst dann der Primärknopf „Im Feibeitsblatt weiterarbeiten“ (Pfeil, 44px); darunter die Statuszeile (`role="status"`, 600; Erfolg in `--ok`). Verschwindet
+  der Knopf mit dem Fokus darauf (übergeben), bekommt die Statuszeile den Fokus (Fokusrahmen wie überall). Ganz unten klein
   (.85rem, `--muted`) „Feibeitsblatt-Code GWT-4KQ“ (Code in Mono 800 und `--text`) und der kleine Knopf „Von vorn beginnen“ (`btn ghost small`, aber ≥ 44px).
 - **Lehrkraft:** in „Feibeitsblätter dieser Sitzung“ unter dem Code das Abzeichen „Wieder gebraucht“ mit dem Satz „auch mit einer früheren Sitzung dieses
   Kurses verknüpft – …“ in der Schrift der Zeile.

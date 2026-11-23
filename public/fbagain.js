@@ -88,7 +88,8 @@ export function fbAgainItem(s, url, { leave = () => {}, win = window } = {}) {
   const pickText = h("span", { class: "fba-picktext", text: AGAIN_TEXT.pick });
   const pick = h("label", { class: "fba-pick" }, input, icon("upload"), pickText);
   const err = h("p", { class: "err fba-err", role: "alert", id: uid + "-e" });
-  const status = h("p", { class: "fba-status", role: "status", "aria-live": "polite", id: uid + "-s" });
+  // tabindex -1: verschwindet „Im Feibeitsblatt weiterarbeiten“ mit dem Fokus darauf (übergeben), bekommt die Statuszeile darunter den Fokus
+  const status = h("p", { class: "fba-status", role: "status", "aria-live": "polite", id: uid + "-s", tabindex: "-1" });
   const go = h("button", { class: "btn primary fba-go", type: "button", hidden: true, "aria-describedby": uid + "-s" }, icon("arrow"), AGAIN_TEXT.go);
   input.setAttribute("aria-describedby", uid + "-i " + uid + "-e");
   const say = (state) => {
@@ -101,7 +102,9 @@ export function fbAgainItem(s, url, { leave = () => {}, win = window } = {}) {
     pick.classList.toggle("has", !!file);
     clear(chosen);
     if (file) chosen.append(icon("check"), h("span", { text: file.name }), h("span", { class: "muted", text: " · " + fmtBytes(file.size) }));
+    const had = !file && document.activeElement === go;
     go.hidden = !file;
+    if (had) status.focus();   // der Fokus geht nicht verloren (Nachtrag 25)
   };
   const chosen = h("p", { class: "fba-chosen" });
   async function take(f) {
@@ -134,9 +137,11 @@ export function fbAgainItem(s, url, { leave = () => {}, win = window } = {}) {
   });
   leave(forget);
   const restart = h("button", { class: "btn ghost small fba-restart", type: "button", onclick: async () => {
-    // wie „Code kopieren und Feibeitsblatt öffnen“: Code in die Zwischenablage, das Feibeitsblatt in einem neuen Tab (dort den Code einsetzen)
-    const ok = await copyText(code);
+    // wie „Code kopieren und Feibeitsblatt öffnen“: Code in die Zwischenablage, das Feibeitsblatt in einem neuen Tab (dort den Code einsetzen). Der Tab geht
+    // direkt im Klick auf (iPad-Safari blockiert ihn nach einem await) – das Kopieren beginnt davor und wird danach abgewartet
+    const copied = copyText(code);
     win.open(url, "_blank", "noopener");
+    const ok = await copied;
     toast(ok ? "Code " + code + " kopiert – füge ihn im Feibeitsblatt ein." : "Bitte den Code " + code + " im Feibeitsblatt eintippen.", "ok", 6000);
   } }, AGAIN_TEXT.restart, h("span", { class: "sr-only", text: AGAIN_TEXT.restartHint }));
   return h("div", { class: "item fbagain", role: "group", "aria-labelledby": uid + "-t" }, h("div", { class: "ficon fb", "aria-hidden": "true", text: "FB" }),

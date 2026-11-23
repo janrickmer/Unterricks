@@ -8,6 +8,7 @@ import { renderMarkdown } from "./markdown.js";
 import { slideViewer } from "./slideviewer.js";
 import { lazy, isModuleError, pageFailed, navCheckDue, navBlockers, beforeRoute, waitPage, holdReload, beforeReload, installUpdateChecks } from "./update.js";
 import { fbAgainItem } from "./fbagain.js";
+import { revealWatch, latestOnly } from "./reveal.js";
 
 // Nie in fremden Seiten eingebettet anzeigen: Auf GitHub Pages fehlen die Schutz-Header (frame-ancestors gilt nicht als <meta>)
 if (window.top !== window.self) { document.documentElement.hidden = true; throw new Error("Unterricks lässt sich nicht in andere Seiten einbetten."); }
@@ -350,11 +351,11 @@ async function studentRoom(lessonId) {
   }
   paintKi();
   // Material erscheint mit seiner Materialfolie (Nachtrag 44): Das Durable Object schickt nach einer gezeigten Materialfolie bzw. einer Freigabe von Hand den
-  // Stand mit revealAt (nur ein Zeitpunkt). Ist er neuer als der Stand der Daten, lädt die Seite die Daten neu – ohne Neuladen der Seite; zufällig bis zu 2 s
-  // später, damit nicht alle iPads der Klasse im selben Moment fragen
-  let revealSeen = Number(d.revealAt) || 0, revealT = null;
-  const revealSoon = () => { if (!revealT) revealT = setTimeout(() => { revealT = null; refresh(); }, Math.round(Math.random() * 2000)); };
-  onLeave(() => clearTimeout(revealT));
+  // Stand mit revealAt (nur ein Zeitpunkt). Ist er neuer als der Stand der Daten, lädt die Seite die Daten neu – ohne Neuladen der Seite (revealWatch in
+  // public/reveal.js: zufällig bis zu 2 s später; scheitert das Neuladen, weitere Versuche)
+  let gone = false;
+  const rw = revealWatch({ seen: d.revealAt, reload: () => refresh() });
+  onLeave(() => { gone = true; rw.stop(); });
   if (selbst) {
     // Ablaufplan der Selbstlern-Phase; die Hausaufgabe gleich darunter (von Anfang an sichtbar)
     main.classList.add("slv-room");
@@ -401,7 +402,7 @@ async function studentRoom(lessonId) {
     function showState(st) {
       if (!st || typeof st !== "object") return;
       tband.set(st.active ? st.timer : null);   // vor der Prüfung von v: der Timer ändert v nicht, jede Nachricht gleicht die Restzeit neu ab
-      if (Number.isFinite(st.revealAt) && st.revealAt > revealSeen) { revealSeen = st.revealAt; revealSoon(); }   // ebenso: Material freigegeben (Nachtrag 44)
+      rw.want(st.revealAt);   // ebenso: Material freigegeben (Nachtrag 44) – neuer Stand → die Daten bald neu laden
       if (st.v !== undefined && st.v === lastV && st.active) return;
       lastV = st.v;
       const my = ++seq;   // ein spät geladenes Folienbild überschreibt nie einen neueren Stand
@@ -481,22 +482,32 @@ async function studentRoom(lessonId) {
   };
   // Hausaufgabe erscheint bzw. Präsentation wird frei: zu diesen Zeitpunkten neu laden (auch nach dem Aufwachen des iPads)
   const pending = (d.changesAt || []).slice();
+  // Reihenfolge der Antworten (Befund der Gegenprüfung): Die Antwort einer früher gestellten Anfrage, die nach einer späteren ankommt, wird nicht mehr
+  // angewendet (latestOnly) – sonst verschwände eben erschienenes Material wieder
+  const order = latestOnly();
   const refresh = async () => {
+    const my = order.start();
     try {
       const r = await sapi("GET", "/api/student/lessons/" + lessonId);
+      if (gone || !order.take(my)) return;
       // Selbstlern-Phase inzwischen eingerichtet bzw. wiederhergestellt: die Seite neu aufbauen
       const kind = (x) => (x.selbstlern ? (x.selbstlern.analog ? "a" : "d") : "n");
       if (kind(r) !== kind(d)) { if (location.hash === "#/schueler/s/" + lessonId) route(); return; }
       pres = r.presentation; renderPres(); paintHomework(r.homework); aiHelp = r.aiHelp; paintKi(); if (slv) slv.update(r); pending.splice(0, pending.length, ...(r.changesAt || [])); plan();
       // Material (Nachtrag 44): neu Freigegebenes erscheint ohne Neuladen der Seite (unveränderte Zeilen bleiben stehen – samt Fokus und aufgeklapptem Text)
-      if (Number(r.revealAt) > revealSeen) revealSeen = Number(r.revealAt);
+      rw.seen(r.revealAt);
       paintMats(r);
     } catch {}
+    finally { rw.after(); }   // fehlt noch ein freigegebener Stand: später noch einmal
   };
   let chT = null;
   const plan = () => { clearTimeout(chT); const next = Math.min(...pending); if (Number.isFinite(next)) chT = setTimeout(refresh, Math.max(1000, Math.min(next - (Date.now() + offset) + 1500, 6 * 3600e3))); };
   plan();
-  const onVisCh = () => { if (document.visibilityState === "visible" && pending.some((t) => Date.now() + offset >= t)) refresh(); };
+  // wieder sichtbar: fällige Zeitpunkte – und freigegebenes Material, dessen Neuladen bisher nicht geklappt hat (Nachtrag 44, neue Versuche)
+  const onVisCh = () => {
+    if (document.visibilityState !== "visible") return;
+    if (rw.visible() || pending.some((t) => Date.now() + offset >= t)) refresh();
+  };
   document.addEventListener("visibilitychange", onVisCh);
   onLeave(() => { clearTimeout(chT); document.removeEventListener("visibilitychange", onVisCh); });
   renderPres();
@@ -519,7 +530,7 @@ async function studentRoom(lessonId) {
         nfList)));
   const matAnchor = document.createComment("material");   // hier stehen die beiden Karten (ein Kommentar zählt nicht als Teil der Seite)
   main.append(matAnchor);
-  let rowOf = new Map(), shownKeys = null;
+  let rowOf = new Map(), shownKeys = null, freshRows = [];
   // eine Liste neu ordnen: vorhandene Zeilen wiederverwenden; unverändert → nichts anfassen; der Fokus bleibt in einer Zeile, die bleibt
   const fill = (list, entries, fresh) => {
     const next = new Map(), kids = [];
@@ -527,7 +538,7 @@ async function studentRoom(lessonId) {
       let row = rowOf.get(e.k);
       if (!row) {
         row = e.make();
-        if (shownKeys && !shownKeys.has(e.k) && fresh) { row.classList.add("fresh"); const m = row.querySelector(".main"); if (m) m.append(h("span", { class: "badge neu", text: "neu" })); fresh.push(e.name); }
+        if (shownKeys && !shownKeys.has(e.k) && fresh) { row.classList.add("fresh"); const m = row.querySelector(".main"); if (m) m.append(h("span", { class: "badge neu", text: "neu" })); fresh.push({ name: e.name, row }); }
       }
       next.set(e.k, row); kids.push(row);
       const extra = row._after ? row._after() : null;   // aufgeklappter Text eines Textmaterials gehört hinter seine Zeile
@@ -562,7 +573,12 @@ async function studentRoom(lessonId) {
     for (const el of [matCard, nfCard]) if (!want.includes(el) && el.isConnected) el.remove();
     let at = matAnchor;
     for (const el of want) { if (at.nextSibling !== el) at.after(el); at = el; }
-    if (fresh.length) matLive.textContent = "Neues Material: " + fresh.map((n) => "„" + n + "“").join(", ") + ".";
+    if (fresh.length) {
+      // „neu“ ist nur das zuletzt Erschienene: frühere Markierungen verschwinden, sobald wieder etwas dazukommt (Befund der Gegenprüfung)
+      for (const row of freshRows) if (!fresh.some((x) => x.row === row)) { row.classList.remove("fresh"); const b = row.querySelector(".badge.neu"); if (b) b.remove(); }
+      freshRows = fresh.map((x) => x.row);
+      matLive.textContent = "Neues Material: " + fresh.map((x) => "„" + x.name + "“").join(", ") + ".";
+    }
   }
   paintMats(d);
   // Selbstlern-Phase: die KI-Begriffshilfe ganz unten (Wortlaut der Lehrkraft)

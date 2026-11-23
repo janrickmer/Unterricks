@@ -117,14 +117,17 @@ test("Zeile der Schüleransicht: Feld für die PDF, Knopf erst mit gültiger Dat
   assert.equal($(".fba-err").textContent, ""); assert.equal($(".fba-go").hidden, false);
   assert.ok($(".fba-chosen").textContent.includes("Zwischenstand.pdf") && $(".fba-picktext").textContent === "Andere Datei wählen");
   assert.equal($(".fba-go").textContent, "Im Feibeitsblatt weiterarbeiten");
-  $(".fba-go").click();
+  D.userClick($(".fba-go"));
   const tab = win.opened[0];
   assert.equal(tab.url, FB + "#von-unterricks");
   assert.equal($(".fba-status").textContent, A.AGAIN_TEXT.opening);
+  assert.equal(document.activeElement, $(".fba-go"));
   win.say(tab, { kind: "feibeitsblatt-bereit", v: 1 });
   assert.equal(tab.posted[0].data.name, "Zwischenstand.pdf");
   assert.equal($(".fba-status").textContent, A.AGAIN_TEXT.sending);
   assert.equal($(".fba-go").hidden, true, "übergeben: die Datei ist weg (für einen neuen Versuch wieder wählen)");
+  assert.equal(document.activeElement, $(".fba-status"), "der Knopf verschwindet mit dem Fokus darauf: die Statuszeile bekommt ihn (Befund der Gegenprüfung)");
+  assert.equal($(".fba-status").getAttribute("tabindex"), "-1");
   win.say(tab, { kind: "feibeitsblatt-zwischenstand-angekommen", v: 1, ok: true });
   assert.equal($(".fba-status").textContent, "Dein Zwischenstand ist im Feibeitsblatt geöffnet.");
   assert.equal($(".fba-status").getAttribute("role"), "status");
@@ -132,8 +135,23 @@ test("Zeile der Schüleransicht: Feld für die PDF, Knopf erst mit gültiger Dat
   const restart = $(".fba-restart");
   assert.ok(restart.textContent.startsWith("Von vorn beginnen") && restart.querySelector(".sr-only"));
   restart.click();
+  assert.equal(win.opened.length, 2, "der Tab geht direkt im Klick auf – vor jedem await (iPad-Safari blockiert ihn sonst)");
   await D.sleep(5);
   assert.equal(D.clip.text, "WHD-4KT");
   assert.deepEqual([win.opened[1].url, win.opened[1].feat], [FB, "noopener"]);
   assert.equal(leaves.length, 1, "beim Verlassen der Seite: Übergabe beenden, Datei vergessen");
+});
+
+test("Fokus bleibt, wo er ist, wenn er nicht auf dem Knopf lag; ohne Fokus auf dem Knopf kein Sprung", async () => {
+  const win = fakeWin();
+  const el = A.fbAgainItem({ code: "GWT4KQ", title: "Gewaltenteilung", again: true }, FB, { win });
+  document.getElementById("app").append(el);
+  const $ = (s) => el.querySelector(s);
+  D.fire($(".fba-pick"), "drop", { dataTransfer: { files: [{ name: "z.pdf", size: 200, arrayBuffer: async () => pdf() }] } });
+  await D.sleep(5);
+  $(".fba-go").click();                 // per Skript, der Fokus liegt woanders
+  const other = $(".fba-restart"); other.focus();
+  win.say(win.opened[0], { kind: "feibeitsblatt-bereit", v: 1 });
+  assert.equal($(".fba-go").hidden, true);
+  assert.equal(document.activeElement, other, "kein Sprung, wenn der Fokus nicht auf dem Knopf lag");
 });

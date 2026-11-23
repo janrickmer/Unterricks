@@ -11,7 +11,7 @@ import { gsCourseStmt, gsCourseOut } from "./gs.js";
 import {
   isValidClass, isValidSubject, isValidCode, normalizeCode, greetingText, planningSystemPrompt, portalMessages, feibeitsblattMessages,
   chatTranscript, extractJsonObject, validatePortalData, renderPortalEntry, normalizeFbDraft, isIsoDate, hasStop, gradeKey, isClockTime, printFileName, printCourse, GS_SUBJECT,
-  planRefs, parentOpensAt, stopParts, planFingerprint, PLAN_FINGERPRINT_STALE, TEACHER_SUMMARY_MAX, savedSinceDecision,
+  planRefs, parentOpensAt, stopParts, planFingerprint, PLAN_FINGERPRINT_STALE, TEACHER_SUMMARY_MAX, savedSinceDecision, lessonTimes, isAnalogClass,
 } from "../public/shared.js";
 import { unitContext, STOP_CHOICE_TEXT, stopChatSection, freeDayOn, schoolOf } from "../public/planning.js";
 import { loadFreeDays, assertNotFree } from "./freedays.js";
@@ -20,7 +20,7 @@ import { selbstlernHomeworkNow } from "../public/selbstlern.js";
 import { videoSlidesData } from "../public/videoslides.js";
 import { cleanShareText, shareTextOf, shareTextStore } from "../public/sharelib.js";
 import { teacherPlanOf, teacherPlanStore, cleanTeacherPlanPhases, teacherPlanFromBody, TEACHER_PLAN_LIMITS } from "../public/teacherplan.js";
-import { revealsOf, revealLast, REVEAL_REF_SQL, REVEAL_REF_RE, REVEAL_LIMITS } from "../public/reveal.js";
+import { revealsOf, revealLast, REVEAL_REF_SQL, REVEAL_REF_RE, REVEAL_LIMITS, REVEAL_ABSENT, materialGate, revealEndRefs } from "../public/reveal.js";
 
 export const LIMITS = { title: 200, topic: 500, ideas: 20000, homework: 10000, portal: 30000, message: 30000, answer: 100000, textMaterial: 200000, parentSummary: 800, parentNote: 2000, teacherSummary: TEACHER_SUMMARY_MAX };
 
@@ -870,10 +870,38 @@ export async function routeLessonReveal(c, id) {
   if (!own) throw new HttpError(404, "not_found", "Dieses Material gehört nicht (mehr) zu dieser Sitzung.");
   await c.db.prepare(REVEAL_REF_SQL).bind(id, JSON.stringify({ r: ref, at: c.now }), ref, REVEAL_LIMITS.refs).run();
   const now = await c.db.prepare("SELECT reveals FROM lessons WHERE id=?1").bind(id).first();
-  // offene Seiten der Schüler:innen benachrichtigen – scheitert das, sehen sie es beim nächsten Laden (die Freigabe ist gespeichert)
+  const reveals = revealsOf(now ? now.reveals : l.reveals), mine = reveals.refs.find((x) => x.r === ref);
+  // nicht gespeichert (schon so viele Freigaben, wie eine Sitzung fasst): nie „sichtbar“ melden (Befund der Gegenprüfung)
+  if (!mine) throw new HttpError(409, "reveal_full", "Für diese Sitzung sind schon " + REVEAL_LIMITS.refs + " Freigaben von Hand gespeichert – mehr geht nicht. Das Material erscheint, wenn seine Materialfolie live gezeigt wird.");
+  // offene Seiten der Schüler:innen benachrichtigen – scheitert das, sehen sie es beim nächsten Laden (die Freigabe ist gespeichert). Mit dem gespeicherten
+  // Zeitpunkt (bei einer zweiten Freigabe desselben Materials der frühere): die Seiten laden neu, bis ihre Daten ihn erreichen – er muss also in D1 stehen
   // (das Durable Object wie stub in worker/live.js – ohne dessen Import: lessons.js bleibt ohne „cloudflare:workers“)
-  try { if (c.env.LIVE) await c.env.LIVE.get(c.env.LIVE.idFromName(id)).fetch("https://live/reveal?at=" + c.now, { method: "POST" }); } catch {}
-  return json({ ok: true, reveals: revealsOf(now ? now.reveals : l.reveals) });
+  try { if (c.env.LIVE) await c.env.LIVE.get(c.env.LIVE.idFromName(id)).fetch("https://live/reveal?at=" + mine.at, { method: "POST" }); } catch {}
+  return json({ ok: true, reveals });
+}
+/* Nachtrag 44 (Befund der Gegenprüfung): Was nach der Stunde ohne gezeigte Materialfolie mit der Freigabe der Präsentation frei geworden ist, bleibt frei – auch
+   wenn die Lehrkraft danach „Bis hier gezeigt“ setzt bzw. verschiebt (materialGate rechnet sonst mit der neuen Markierung, das Material verschwände bei den
+   Schüler:innen wieder). routeShownPut ruft dies vor dem Ändern der Markierung: Material mit how "end" kommt als Freigabe in refs (e:1, Zeitpunkt = Freigabe
+   der Präsentation; die Hinweise der Lehrkraft bleiben „… seit der Freigabe der Präsentation“). Vor der Freigabe der Präsentation, ohne Beginn bzw. Dauer und in
+   Jg. 5/6 keine weitere Abfrage. pres = Zeile der Präsentation (files) mit der bisherigen Markierung. → neuer Stand (revealsOf) bzw. null (nichts festgehalten) */
+export async function keepEndReleases(c, pres) {
+  const l = await getLesson(c.db, pres.lesson_id);
+  const times = lessonTimes({ date: l.lesson_date, startTime: l.start_time, durationMin: l.duration_min });
+  if (!times || c.now < times.presentationAt || isAnalogClass(l.klass)) return null;
+  const [sub, files, sheets] = await c.db.batch([
+    c.db.prepare("SELECT status FROM substitutes WHERE lesson_id=?1").bind(l.id),
+    c.db.prepare("SELECT id, kind, name, source, fb_code, status, area, notes_of FROM files WHERE lesson_id=?1 AND area='student' AND status='ready'").bind(l.id),
+    c.db.prepare("SELECT code, title, kind FROM fb_sheets WHERE lesson_id=?1").bind(l.id),
+  ]);
+  let cs = [];
+  try { cs = cleanCodeSlides(JSON.parse(pres.code_slides || "[]"), pres.pages || 0); } catch {}
+  const gate = materialGate({ klass: l.klass, absent: REVEAL_ABSENT.includes(((sub.results || [])[0] || {}).status), times, codeSlides: cs,
+    upTo: pres.shown_until && pres.shown_until < pres.pages ? pres.shown_until : null, files: files.results || [], sheets: sheets.results || [], reveals: l.reveals, now: c.now });
+  const refs = revealEndRefs(gate, l.reveals);
+  if (!refs.length) return null;
+  await c.db.batch(refs.map((r) => c.db.prepare(REVEAL_REF_SQL).bind(l.id, JSON.stringify({ r, at: times.presentationAt, e: 1 }), r, REVEAL_LIMITS.refs)));
+  const now = await c.db.prepare("SELECT reveals FROM lessons WHERE id=?1").bind(l.id).first();
+  return revealsOf(now ? now.reveals : null);
 }
 export async function routeSheetUnlink(c, id, codeRaw) {
   await requireTeacher(c);

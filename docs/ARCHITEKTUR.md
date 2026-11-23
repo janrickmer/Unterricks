@@ -95,6 +95,7 @@ implementiert und im End-to-End-Test geprüft (Ausnahmen unten ausdrücklich gen
 | Konzentrationsaufgabe mit Lückentext, Ankreuzaufgabe und Suchsel (Nachtrag 43 vom 23.11.2026) | Wunsch der Lehrkraft: Seite 1 und die obere Hälfte von Seite 2 weiterhin zum Ausmalen, auf der unteren Hälfte von Seite 2 ein Lückentext, eine Ankreuzaufgabe und ein Suchsel, „dem Alter des jeweiligen Jahrgangs dieser Lerngruppe bzgl. des Schwierigkeitsgrades angemessen“. Rückfragen beantwortet: die rote Karte kommt in den Seitenrand neben diese Aufgaben, darunter, dass der Abschnitt nur für Kinder mit roter Karte Pflicht ist; Stufen je Jahrgang wie von Claude vorgeschlagen; nur neue bzw. überarbeitete Konzentrationsaufgaben; passen die Aufgaben nicht in die halbe Seite, wird das Ausmalbild oben auf Seite 2 kleiner. Siehe 4zk |
 | Material erscheint live mit seiner Materialfolie (Nachtrag 44, Teil 1, vom 23.11.2026) | Wunsch der Lehrkraft: Material, mit dem die Schüler:innen arbeiten sollen, erscheint in ihrer Ansicht erst, wenn die Live-Präsentation die Folie erreicht, auf der sie dazu aufgefordert werden – ohne Neuladen. Rückfragen beantwortet: Material ohne eigene Materialfolie und Sitzungen ohne Live-Präsentation wie bisher; einmal freigegeben bleibt es sichtbar, auch nach der Stunde; auch Feibeitsblätter (das Notfall-Feibeitsblatt folgt seinem Blatt). Wird die Folie nie live gezeigt, spätestens mit der Präsentation nach der Stunde (Entscheidung Claude); dazu „Jetzt freigeben“ für die Lehrkraft. Siehe 4zo |
 | Feibeitsblatt aus einer früheren Sitzung – mit dem Zwischenstand weiterarbeiten (Nachtrag 45 vom 23.11.2026) | Wunsch der Lehrkraft: Ein Feibeitsblatt, das mit dieser und einer früheren Sitzung desselben Kurses verknüpft ist, steht bei den Schüler:innen als „wieder gebraucht“: Feld für die Zwischenstand-PDF, „Im Feibeitsblatt weiterarbeiten“ (Übergabe von Tab zu Tab nach dem mit Feibeitsblatt abgestimmten Protokoll v1, Rückfall nach 10 s), klein der Code und „Von vorn beginnen“. Claude verknüpft ein vorhandenes Blatt per Connector (`link_feibeitsblatt`, auch im Zwischenstopp-Prompt). Siehe 4zq |
+| Prüfung von Nachtrag 44 (Teil 1) und 45 (23.11.2026) | Die **KI-Begriffshilfe** bekommt den Schulportal-Eintrag **ohne Codes** (sie verriete sonst den Code eines wartenden Feibeitsblatts). Die Schüler:innen-Seite lädt nach einer Freigabe **erneut**, bis ihre Daten den Stand erreichen (gescheitertes Neuladen im WLAN der Schule), und wendet eine **ältere Antwort nie nach einer neueren** an. Was nach der Stunde frei geworden ist, bleibt frei, auch wenn die Lehrkraft **danach „Bis hier gezeigt“** setzt (festgehalten). Ein Feibeitsblatt ohne eigenen Titel („Feibeitsblatt“) nennt nicht jede Materialfolie. Fokus nach „Jetzt freigeben“ und nach der Übergabe der Zwischenstand-PDF; „Von vorn beginnen“ öffnet den Tab direkt im Klick; „neu“ nur am zuletzt Erschienenen; volle Liste der Freigaben → Meldung statt „sichtbar“. Bestätigt: Eine Präsentation, die nie live läuft, gibt ihr Material erst nach der Stunde frei („Jetzt freigeben“ sofort). Siehe 4zo, 4zq |
 
 ## 2. Gesamtarchitektur
 
@@ -2811,10 +2812,16 @@ Aufforderungen an die Lehrkraft `__…__`).
   Material **ohne** eigene Materialfolie und Sitzungen **ohne** Live-Präsentation bleiben wie bisher (sofort sichtbar); auch Feibeitsblätter
   (Notfall-Feibeitsblätter folgen ihrem Blatt, 4f); einmal erschienen bleibt Material sichtbar, auch nach der Stunde. Die Seiten der Lehrkraft zeigen
   weiter alles; „Ich bin jetzt im Unterricht“ darf wartendes Material zeigen. Keine neuen WebSocket-Nachrichten an die Schüler:innen.
+  **Genauer (bestätigt bei der Prüfung):** „ohne Live-Präsentation“ heißt ohne fertige Präsentation mit Materialfolie – ob die Lehrkraft live zeigen wird,
+  weiß Unterricks vorher nicht. Liegt eine solche Präsentation vor und läuft sie nie live (PDF direkt gezeigt, Vertretung ohne Unterricks), gilt der offene
+  Punkt aus der Rückfrage: das Material wird spätestens nach der Stunde frei, „Jetzt freigeben“ sofort. Ein Zeitlimit („ohne Live-Start bis X Minuten nach
+  Beginn alles frei“) gibt es bewusst nicht – es gäbe Material mitten in Stunden frei, deren Präsentation erst später live beginnt.
 * **Welches Material wartet** (`public/reveal.js`, reine Funktionen, gemeinsam für Server und Seiten der Lehrkraft): Materialfolie = Unterricks-Codefolie
   der fertigen Präsentation (`files.code_slides`), deren Überschrift den Titel eines Materials nennt – wie `isMaterialSlide`: der Titel wörtlich (ab 4
-  Zeichen) oder alle seine Wörter (mindestens zwei) in beliebiger Reihenfolge, nach `normWords`; allgemeine Titel (`GENERIC_TITLES`, jetzt aus
-  `sharelib.js` exportiert) nie; nennt eine Überschrift mehrere Titel, die einander enthalten, gilt nur der längste („Quelle 2“ ist nicht auch „Quelle“).
+  Zeichen) oder alle seine Wörter (mindestens zwei) in beliebiger Reihenfolge, nach `normWords`; allgemeine Titel nie (`REVEAL_GENERIC` = `GENERIC_TITLES`
+  aus `sharelib.js` und dazu „Feibeitsblatt“, „Feibeitsblätter“, „Arbeitsblatt“, „Arbeitsblätter“ – jede Materialfolie eines Feibeitsblatts lautet
+  „Feibeitsblatt: …“, und ein Blatt ohne eigenen Titel heißt „Feibeitsblatt“; `isMaterialSlide` bleibt unverändert); nennt eine Überschrift mehrere Titel,
+  die einander enthalten, gilt nur der längste („Quelle 2“ ist nicht auch „Quelle“).
   Kandidaten (`revealItems`): fertiges Material für Schüler:innen (Dateien, Links, Texte; ohne Dateiendung verglichen) und Feibeitsblätter; nie das Finale
   eines Escape-Rooms, Material einer Selbstlern-Phase, Anmerkungs-PDFs oder Notfall-Feibeitsblätter selbst (sie folgen ihrem Blatt: Verweis `s:<Code>`
   über `files.fb_code`, `revealRefOf`). **Nichts wartet** (`materialGate` → `on:false`): in einer Selbstlern-Phase bzw. laufenden älteren Vertretung
@@ -2823,7 +2830,8 @@ Aufforderungen an die Lehrkraft `__…__`).
 * **Zuordnung beim Lesen, nicht beim Zeigen:** Das Durable Object vermerkt nur die **Überschrift** jeder live gezeigten Codefolie (`revealKeyOf`: klein, ohne
   Satzzeichen, ≤ 700 Zeichen) in `lessons.reveals` (neue Spalte per `COLUMNS`, JSON `{v:1, seen:[{k, at}], refs:[{r, at}]}`, nur wachsend, je ≤ 200
   Einträge, der frühere Zeitpunkt gilt). Zugeordnet wird erst beim Lesen – so passt es auch nach dem Hochladen einer neuen Präsentation und für Material,
-  das erst nach der Folie dazukommt (es ist dann sofort sichtbar). Freigaben von Hand stehen als Verweis (`f:<Datei>` bzw. `s:<Code>`) in `refs`.
+  das erst nach der Folie dazukommt (es ist dann sofort sichtbar). Freigaben von Hand stehen als Verweis (`f:<Datei>` bzw. `s:<Code>`) in `refs`; ein Eintrag
+  mit `e:1` ist eine festgehaltene Freigabe nach der Stunde (siehe unten, gilt als „end“).
   Angehängt wird in **einer** Anweisung (`REVEAL_SEEN_SQL`/`REVEAL_REF_SQL`: `json_set(… '$.seen[#]' …)` nur, wenn der Schlüssel noch fehlt und weniger
   als die Höchstzahl da sind; ein ungültiger Wert wird zu `{v:1}`; `RETURNING id` = neu vermerkt).
 * **Live** (`worker/live.js`, `worker/livestate.js`): Die WebSocket-Verbindung der Lehrkraft trägt die Sitzungskennung (`routeLiveSocket` hängt `&lid=`
@@ -2831,9 +2839,14 @@ Aufforderungen an die Lehrkraft `__…__`).
   zeigt sie eine Codefolie mit Überschrift (nicht die Codefolie vor Folie 1), folgt `markReveal`: Anweisung in D1, und war die Überschrift neu, liest es
   den Stand frisch, setzt `revealAt` (neues Feld im Zustand, `LIVE_IDLE` 0, bleibt bei `stop` und `/reset`) und schickt allen den Stand noch einmal
   (`t:"state"` wie bisher; gleiches `v` – ältere Seiten verwerfen die Wiederholung). Ohne Datenbank oder bei einem Fehler still – die Präsentation hängt nie
-  daran. Die Schüler:innen-Seite (`public/app.js`) vergleicht `revealAt` (vor dem Abgleich über `v`) mit dem zuletzt gesehenen und lädt ihre Sitzung nach
-  einer zufälligen Wartezeit von 0–2 s neu (`revealSoon` – eine Klasse fragt nicht im selben Augenblick); `GET /api/student/lessons/:id` liefert dazu
-  `revealAt`.
+  daran. Die Schüler:innen-Seite (`public/app.js`) gibt `revealAt` (vor dem Abgleich über `v`) an `revealWatch` (`public/reveal.js`) und lädt ihre Sitzung
+  nach einer zufälligen Wartezeit von 0–2 s neu (eine Klasse fragt nicht im selben Augenblick); `GET /api/student/lessons/:id` liefert dazu `revealAt`.
+  **Erst eine geglückte Antwort** rückt den Stand der Daten vor; reicht er danach noch nicht an `revealAt` heran (Neuladen gescheitert, z. B. im WLAN der
+  Schule), lädt die Seite wieder – nach 2, 4, 8, 16, 32 und 60 s (`REVEAL_RETRY_MS`, dazu bis zu 2 s Zufall), danach beim nächsten Stand bzw. sobald sie
+  wieder sichtbar wird (`visibilitychange`). Die Antworten gelten in der Reihenfolge der Anfragen (`latestOnly`): Kommt die Antwort einer früher gestellten
+  Anfrage nach einer späteren an (zwei Freigaben kurz nacheinander, ein Neuladen zu `changesAt` dazwischen), wird sie verworfen – sonst verschwände eben
+  erschienenes Material wieder. Damit die Seite nicht ewig wartet, meldet der Server dem Durable Object nur Zeitpunkte, die in D1 stehen (Freigabe von Hand:
+  der gespeicherte Zeitpunkt).
 * **Server-seitig verborgen** (`worker/student.js`): `routeStudentLesson` liest Präsentation (mit `code_slides`), Material (jetzt mit `source`, `fb_code`,
   `area`) und Feibeitsblätter, rechnet `studentGate` und gibt wartendes Material nicht heraus (`revealFilterFiles`/`revealFilterSheets`) – ein wartendes
   Feibeitsblatt samt Code fehlt in der Antwort, sein Notfall-Feibeitsblatt ebenso. `routeStudentFileLink` verweigert wartendes Material mit 404 „Datei nicht
@@ -2841,10 +2854,16 @@ Aufforderungen an die Lehrkraft `__…__`).
   Schüler:innen gibt es keinen Platzhalter – wartendes Material ist schlicht noch nicht da.
 * **Wird die Folie nie live gezeigt** (Entscheidung Claude): spätestens mit der Freigabe der Präsentation (5 Minuten nach dem Ende der Sitzung,
   `presentationAt`) – aber nur, wenn eine seiner Materialfolien in der freigegebenen Präsentation liegt (bis zur markierten letzten gezeigten Folie, „Bis
-  hier gezeigt“); liegt sie dahinter, bleibt es verborgen (Material für den offenen Teil, die nächste Stunde – wie die Folien selbst). **Von Hand:** `POST
+  hier gezeigt“); liegt sie dahinter, bleibt es verborgen (Material für den offenen Teil, die nächste Stunde – wie die Folien selbst). **Was so frei
+  geworden ist, bleibt frei** (Befund der Prüfung): Setzt bzw. verschiebt die Lehrkraft die Markierung erst nach der Freigabe der Präsentation,
+  hält `routeShownPut` vorher alles fest, was gerade „end“ ist (`keepEndReleases` in `worker/lessons.js`, `revealEndRefs`: `refs` mit `e:1` und dem
+  Zeitpunkt der Freigabe der Präsentation; die Antwort trägt dann `reveals`, die Sitzungsseite übernimmt sie und zeichnet die Hinweise neu – das tut sie nach
+  jeder Markierung). Vor der Freigabe der Präsentation bleibt es dabei, dass die Markierung bestimmt, was danach frei wird. **Von Hand:** `POST
   /api/teacher/lessons/:id/reveal` `{ref}` (nur eigenes Material für Schüler:innen bzw. ein verknüpftes Feibeitsblatt, sonst 404) → `refs`, dann
-  `/reveal?at=` an das Durable Object (rückt `revealAt` vor, schickt den Stand; scheitert das, sehen die Schüler:innen es beim nächsten Laden). Keine
-  Probe-Sperre: Zeigt die Lehrkraft die Präsentation vorab live (z. B. zu Hause), ist das Material ab dann frei – wie die Folien selbst.
+  `/reveal?at=<gespeicherter Zeitpunkt>` an das Durable Object (rückt `revealAt` vor, schickt den Stand; scheitert das, sehen die Schüler:innen es beim
+  nächsten Laden). Fasst die Liste keine Freigabe mehr (200), 409 `reveal_full` „Für diese Sitzung sind schon 200 Freigaben von Hand gespeichert – mehr geht
+  nicht. …“ (nie „sichtbar“). Keine Probe-Sperre: Zeigt die Lehrkraft die Präsentation vorab live (z. B. zu Hause), ist das Material ab dann frei – wie die
+  Folien selbst.
 * **Lehrkraft** (`public/revealui.js`, `session.js` – im Materialkasten über dessen `fileBadge` –, `inclass.js`): `teacherGate` rechnet dasselbe aus `GET …/lessons/:id` (`lessonOut`
   liefert `reveals`); unter Material mit Materialfolie eine Zeile `.reveal-note` (`revealNote`): „Erscheint bei den Schüler:innen erst, wenn Folie 3
   (Materialfolie) live gezeigt wird“ mit „Jetzt freigeben“ (aria-label „„Titel“ jetzt für Schüler:innen freigeben“, Meldung „„Titel“ ist jetzt für
@@ -2852,21 +2871,34 @@ Aufforderungen an die Lehrkraft `__…__`).
   Freigabe der Präsentation – die Materialfolie wurde nicht live gezeigt“ und „Für Schüler:innen verborgen: Folie 5 (Materialfolie) wurde nicht live
   gezeigt und liegt hinter der letzten gezeigten Folie“. `lessonStamp` hängt `~<zuletzt freigegeben>` an – offene Seiten der Lehrkraft und „Ich bin jetzt
   im Unterricht“ (die dort beim Anstieg von `revealAt` den Stempel abfragt) zeichnen neu; der Schlüssel `revealStateKey` verhindert unnötiges Neuzeichnen.
+  **Fokus** (Nachtrag 25): Nach „Jetzt freigeben“ zeichnet die Seite neu, der Knopf ist weg – der Fokus kommt auf den neuen Hinweis desselben Materials im
+  selben Abschnitt (`.reveal-note` mit `tabindex="-1"` und `data-reveal`, `revealFocusAfter`; sichtbar zuerst), nur wenn er sonst verloren wäre.
 * **Schüler:innen-Liste:** Material und Feibeitsblätter werden nicht mehr ganz neu gebaut: vorhandene Zeilen bleiben stehen (auch der Fokus), neue werden
   an ihrem Platz eingefügt, mit `.item.fresh` und dem Abzeichen „neu“ markiert (Bewegung nur ohne `prefers-reduced-motion`) und über die höfliche
-  Live-Region `#mat-live` angesagt („Neues Material: „…“.“).
+  Live-Region `#mat-live` angesagt („Neues Material: „…“.“). „neu“ trägt nur das zuletzt Erschienene: Kommt wieder etwas dazu, verlieren die früheren
+  Zeilen Markierung und Abzeichen.
+* **KI-Begriffshilfe** (Befund der Prüfung): Sie bekommt den Schulportal-Eintrag zur Orientierung – dort stehen die Codes der Feibeitsblätter. `studentHelpPrompt`
+  ersetzt sie deshalb durch „(Code)“ (`hideCodes` in `public/shared.js`: Codes wie `codesInText`, auch gesperrt, und ohne Bindestrich, nur gültige Codes) –
+  sonst verriete sie auf die Frage „Wie lautet der Code des Feibeitsblatts?“ den Code eines Blatts, das noch auf seine Materialfolie wartet.
 * **Prompt:** Der Präsentations-Prompt sagt es Claude (`MATERIAL_SLIDE_REVEAL` in der Liste zu den Materialfolien, nicht in Jg. 5/6): Materialfolie genau
   dort, wo zum ersten Mal mit dem Material gearbeitet wird, Titel genau so, wie das Material in Unterricks heißt.
-* **Grenzen:** Steht der Code eines Feibeitsblatts schon vorher im Schulportal-Eintrag (4 Nr. 3), kennen die Schüler:innen ihn von dort – Unterricks
-  verbirgt nur seine Ansicht. Wird ein Material nach dem Zeigen umbenannt, sodass die Überschrift es nicht mehr nennt, wartet es wieder (bis zur Freigabe
-  nach der Stunde oder von Hand). Die Zuordnung hängt an den Titeln: Weicht die Überschrift zu stark ab, gilt das Material als „ohne Materialfolie“ (sofort
-  sichtbar, wie bisher).
-* **Tests:** Unit `reveal.test.mjs` (Zuordnung, längster Titel, allgemeine Titel, `materialGate` in allen Fällen ohne Warten, Freigabe nach der Stunde nur
-  bis zur Markierung, `revealsOf` tolerant, SQL auf echtem SQLite: nur wachsend, Höchstzahl, ungültiger Wert; Schüler-Route ohne wartendes Material und
-  ohne Code, Notfall-Feibeitsblatt folgt, Datei-Link 404, Freigabe von Hand samt fremdem Material 404, Durable Object vermerkt und sendet `revealAt`,
-  Seite der Lehrkraft). E2E `test/e2e/reveal.mjs` (aus `run.mjs` nach der Prüfung von „Ich bin jetzt im Unterricht“): Schülerin und Lehrkraft (zwei
-  Geräte), Materialfolie live → Material erscheint ohne Neuladen und ohne Fokusverlust, Datei-Link vorher 404, „Jetzt freigeben“, Hinweise der Lehrkraft
-  und in „Ich bin jetzt im Unterricht“.
+* **Grenzen:** Veröffentlicht die Lehrkraft den Schulportal-Eintrag (4 Nr. 3) bzw. eine Hausaufgabe mit dem Code eines Feibeitsblatts schon vorher im
+  Schulportal, kennen die Schüler:innen ihn von dort – Unterricks verbirgt nur seine Ansicht (die KI-Begriffshilfe nennt ihn nicht, siehe oben). Wird ein
+  Material nach dem Zeigen umbenannt, sodass die Überschrift es nicht mehr nennt, wartet es wieder (bis zur Freigabe nach der Stunde oder von Hand). Die
+  Zuordnung hängt an den Titeln: Weicht die Überschrift zu stark ab, gilt das Material als „ohne Materialfolie“ (sofort sichtbar, wie bisher). Wird die
+  Präsentation erst während der Stunde hochgeladen, wartet Material, das die Schüler:innen vorher schon sahen (es hatte bis dahin keine Materialfolie), ab
+  dann auf seine Folie; nach der Freigabe der Präsentation hochgeladen bzw. ersetzt, nimmt sie nichts zurück (ohne Markierung ist alles frei, eine spätere
+  Markierung hält vorher fest).
+* **Tests:** Unit `reveal.test.mjs` (Zuordnung, längster Titel, allgemeine Titel samt „Feibeitsblatt“, `materialGate` in allen Fällen ohne Warten,
+  Freigabe nach der Stunde nur bis zur Markierung, festgehaltene Freigaben `e:1` und `revealEndRefs`, `revealsOf` tolerant, SQL auf echtem SQLite: nur
+  wachsend, Höchstzahl, ungültiger Wert; Schüler-Route ohne wartendes Material und ohne Code, Notfall-Feibeitsblatt folgt, Datei-Link 404, Freigabe von Hand
+  samt fremdem Material 404, voller Liste 409 und gemeldetem gespeichertem Zeitpunkt, „Bis hier gezeigt“ nach der Stunde über `routeShownPut` (bleibt
+  sichtbar) und vor der Freigabe (wie bisher), Durable Object vermerkt und sendet `revealAt`, Seite der Lehrkraft, `revealWatch` mit nachgebildeten
+  Zeitgebern, `latestOnly`, KI-Begriffshilfe ohne Codes), `revealui.test.mjs` (Fokus nach „Jetzt freigeben“ mit der Nachbildung des DOM). E2E
+  `test/e2e/reveal.mjs` (aus `run.mjs` nach der Prüfung von „Ich bin jetzt im Unterricht“): Schülerin und Lehrkraft (zwei Geräte), Materialfolie live →
+  Material erscheint ohne Neuladen und ohne Fokusverlust, Datei-Link vorher 404, „Jetzt freigeben“ (das erste Neuladen der Schülerin scheitert absichtlich –
+  das Material erscheint beim nächsten Versuch; der Fokus der Lehrkraft liegt danach auf dem Hinweis), „neu“ nur am zuletzt Erschienenen, Hinweise der
+  Lehrkraft und in „Ich bin jetzt im Unterricht“.
 
 ## 4zq. Feibeitsblatt aus einer früheren Sitzung – mit dem Zwischenstand weiterarbeiten (Nachtrag 45)
 
@@ -2878,13 +2910,16 @@ Aufforderungen an die Lehrkraft `__…__`).
   ausgefallen; früher = früheres Datum oder am selben Tag früherer Beginn – beide Zeiten nötig); nie beim Finale eines Escape-Rooms. Neuer Index
   `fb_sheets_code` auf `fb_sheets(code)`. Geliefert in `GET /api/teacher/lessons/:id` (Lehrkraft: Abzeichen „Wieder gebraucht“ mit „auch mit einer
   früheren Sitzung dieses Kurses verknüpft – die Schüler:innen öffnen es mit ihrer Zwischenstand-PDF oder beginnen von vorn“) und – nach Nachtrag 44
-  gefiltert – in `GET /api/student/lessons/:id` (`again: true`).
+  gefiltert – in `GET /api/student/lessons/:id` (`again: true`). Die Sitzungsseite zeichnet die Feibeitsblätter beim Neuladen auch dann neu, wenn sich nur
+  `again` oder ein Titel ändert (nicht erst bei einer anderen Anzahl).
 * **Schüler:innen** (`public/fbagain.js`, `fbAgainItem`; in `app.js` statt der üblichen Feibeitsblatt-Zeile): Abzeichen „Wieder gebraucht“, Satz in du-Form,
   `label.fba-pick` mit dem Dateifeld (`accept="application/pdf,.pdf"`, auch Ziehen und Ablegen; Prüfung `draftPdfIssue`: ≤ 5 MB wie `PDF_MAX_BYTES` im
   Feibeitsblatt, beginnt mit „%PDF-“, sonst Meldung in `.fba-err` mit `role="alert"`), erst mit gültiger Datei der Knopf „Im Feibeitsblatt weiterarbeiten“
   (der neue Tab muss direkt im Klick aufgehen), Statuszeile `role="status"`, darunter klein „Feibeitsblatt-Code ABC-DEF“ und „Von vorn beginnen“ (Code
-  kopieren und Feibeitsblatt in neuem Tab mit `noopener` öffnen – wie „Code kopieren und Feibeitsblatt öffnen“). Die Datei bleibt nur im Arbeitsspeicher,
-  bis sie übergeben ist (dann vergessen – für einen neuen Versuch neu wählen) bzw. die Seite verlassen wird.
+  kopieren und Feibeitsblatt in neuem Tab mit `noopener` öffnen – wie „Code kopieren und Feibeitsblatt öffnen“; der Tab geht **direkt im Klick** auf, das
+  Kopieren beginnt davor und wird erst danach abgewartet – iPad-Safari blockiert Pop-ups nach einem `await`). Die Datei bleibt nur im Arbeitsspeicher,
+  bis sie übergeben ist (dann vergessen – für einen neuen Versuch neu wählen) bzw. die Seite verlassen wird. Verschwindet „Im Feibeitsblatt
+  weiterarbeiten“ mit dem Fokus darauf (übergeben), bekommt die Statuszeile darunter den Fokus (`tabindex="-1"`, Nachtrag 25).
 * **Übergabe, Protokoll v1** (mit Feibeitsblatt abgestimmt; `fbHandover`, nur von Tab zu Tab auf demselben Gerät, nie über einen Server):
   1. `window.open(<Feibeitsblatt>#von-unterricks, "_blank")` **ohne** `noopener` (das Feibeitsblatt antwortet über `window.opener`).
   2. Das Feibeitsblatt meldet `{kind:"feibeitsblatt-bereit", v:1}` – angenommen nur von seiner Herkunft (`origin`) und aus genau diesem Tab (`source`).
@@ -2907,8 +2942,10 @@ Aufforderungen an die Lehrkraft `__…__`).
 * **Tests:** Unit `fbagain.test.mjs` (Dateiprüfung, Adresse mit Marke, Protokoll: Herkunft, Quelle, Fassung, genau einmal, übertragen, Antwort, Rückfall
   nach der Wartezeit, verspätete Bereitschaft, blockierter Tab; Zeile mit Feld, Knopf erst mit Datei, Meldungen, „Von vorn beginnen“), `reveal.test.mjs`
   (`again` nur bei früherer Sitzung desselben Kurses; Connector `link_feibeitsblatt` samt Fehlern, Abschnitt in `get_lesson`, Zwischenstopp-Prompt). E2E
-  `test/e2e/reveal.mjs`: Attrappe des Feibeitsblatts per Route mit dem Protokoll, Übergabe der PDF byte-genau, älteres Feibeitsblatt ohne Bereitschaft →
-  Anleitung nach 10 s, „Von vorn beginnen“, 390 px ohne seitliches Schieben, dunkles Design.
+  `test/e2e/reveal.mjs`: Attrappe des Feibeitsblatts per Route mit dem Protokoll, Übergabe der PDF byte-genau (danach Fokus auf der Statuszeile), älteres
+  Feibeitsblatt ohne Bereitschaft → Anleitung nach 10 s, „Von vorn beginnen“, 390 px ohne seitliches Schieben, dunkles Design. **Von Hand vor dem Ausrollen
+  auf einem echten iPad prüfen** (keine Attrappe kann das): iPad-Safari kann Skripte in Hintergrund-Tabs anhalten – nach `window.open` liegt Unterricks im
+  Hintergrund, die Bereitschaft des Feibeitsblatts käme dann erst beim Zurückwechseln an (die Übergabe klappt trotzdem, nur später; das Protokoll v1 bleibt).
 
 ## 4i. Druckliste „Von der Lehrkraft auszudrucken“ (Ergänzung vom 10.11.2026)
 

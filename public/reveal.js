@@ -1,10 +1,12 @@
 // reveal.js – Material erscheint live mit seiner Materialfolie (Nachtrag 44, Teil 1 vom 23.11.2026): reine Funktionen ohne Netz und DOM, gemeinsam für
 // den Server (worker/student.js filtert das Material der Schüler:innen, worker/live.js vermerkt gezeigte Materialfolien, worker/lessons.js die Freigaben von
-// Hand) und die Seiten der Lehrkraft (session.js, materialbox.js, inclass.js zeigen, was noch wartet).
+// Hand), die Seiten der Lehrkraft (session.js, materialbox.js, inclass.js zeigen, was noch wartet) und die Schüler:innen-Seite (app.js: revealWatch und
+// latestOnly – Neuladen nach einer Freigabe; Zeitgeber werden übergeben).
 //
 // Wunsch der Lehrkraft: Material, mit dem die Schüler:innen arbeiten sollen, wird in ihrer Ansicht erst sichtbar und anklickbar, wenn die
 // Live-Präsentation die Folie erreicht, auf der sie dazu aufgefordert werden – ohne Neuladen. Rückfragen beantwortet: Material ohne eigene
-// Materialfolie und Sitzungen ohne Live-Präsentation wie bisher sofort; einmal freigegeben bleibt es sichtbar, auch nach der Stunde.
+// Materialfolie und Sitzungen ohne Live-Präsentation wie bisher sofort (= ohne fertige Präsentation mit Materialfolie – ob sie live läuft, weiß Unterricks
+// vorher nicht; läuft sie nie live, gilt der offene Punkt unten); einmal freigegeben bleibt es sichtbar, auch nach der Stunde.
 // Entscheidung (Claude): Wird die Folie nie live gezeigt, wird das Material spätestens mit der Präsentation frei (5 Minuten nach dem Ende der Sitzung) –
 // wie die Präsentation selbst nur bis zur markierten letzten gezeigten Folie („Bis hier gezeigt“). Dazu kann die Lehrkraft ein wartendes Material jederzeit
 // von Hand freigeben (z. B. wenn der Beamer streikt oder sie die Präsentation nicht live zeigt).
@@ -32,7 +34,8 @@ export function revealKeyOf(lines) {
   return normWords(t).trim().slice(0, REVEAL_LIMITS.key).trim();
 }
 
-/* lessons.reveals ({v:1, seen:[{k, at}], refs:[{r, at}]} als JSON) tolerant gelesen → {seen, refs} (ungültige und doppelte Einträge entfallen; der frühere gilt) */
+/* lessons.reveals ({v:1, seen:[{k, at}], refs:[{r, at, e?}]} als JSON) tolerant gelesen → {seen, refs} (ungültige und doppelte Einträge entfallen; der frühere gilt).
+   e:1 = keine Freigabe von Hand, sondern die festgehaltene Freigabe nach der Stunde (keepEndReleases in worker/lessons.js, Zeitpunkt = Freigabe der Präsentation) */
 export function revealsOf(raw) {
   let o = null;
   try { o = typeof raw === "string" ? JSON.parse(raw) : raw; } catch {}
@@ -46,7 +49,7 @@ export function revealsOf(raw) {
   for (const x of ok && Array.isArray(o.refs) ? o.refs.slice(0, REVEAL_LIMITS.refs) : []) {
     const r = x && typeof x.r === "string" ? x.r : "";
     if (!REVEAL_REF_RE.test(r) || rs.has(r) || !Number.isFinite(x.at)) continue;
-    rs.add(r); refs.push({ r, at: x.at });
+    rs.add(r); refs.push(x.e === 1 ? { r, at: x.at, e: 1 } : { r, at: x.at });
   }
   return { seen, refs };
 }
@@ -65,6 +68,9 @@ export const REVEAL_SEEN_SQL = appendSql("seen", "k");   // gezeigte Materialfol
 export const REVEAL_REF_SQL = appendSql("refs", "r");     // Freigabe von Hand (Lehrkraft)
 
 /* ---------- Zuordnung Überschrift → Material ---------- */
+// allgemeine Titel: wie GENERIC_TITLES (sharelib.js), dazu Titel, die jede Materialfolie eines Feibeitsblatts bzw. Arbeitsblatts nennt („Feibeitsblatt: …“ –
+// ein Feibeitsblatt ohne eigenen Titel heißt „Feibeitsblatt“, Befund der Gegenprüfung). Material mit einem solchen Titel wartet nie auf eine Folie
+export const REVEAL_GENERIC = new Set([...GENERIC_TITLES, "feibeitsblatt", "feibeitsblätter", "arbeitsblatt", "arbeitsblätter"]);
 const stripExt = (t) => str(t).replace(/\.(pdf|docx?|pptx?|odt|png|jpe?g|txt|html?)$/i, "");
 /* Material, das auf seine Materialfolie warten kann: [{ref, n}] – n = Titel normalisiert. Nie: Finale eines Escape-Rooms, Notfall-Feibeitsblatt (folgt
    seinem Blatt), Material einer Selbstlern-Phase, Anmerkungs-PDF, Material, das (noch) nicht fertig ist. Dateien aus der Datenbank (source, fb_code,
@@ -80,14 +86,14 @@ export function revealItems(files, sheets) {
   return out;
 }
 /* Welches Material nennt diese Überschrift (Schlüssel)? Wie isMaterialSlide (sharelib.js): der Titel wörtlich (ab 4 Zeichen) oder alle seine Wörter (mindestens
-   zwei) in beliebiger Reihenfolge; allgemeine Titel („Material“, „Aufgaben“ …) nie. Nennt sie mehrere, deren Titel einander enthalten, gilt nur der längste
+   zwei) in beliebiger Reihenfolge; allgemeine Titel („Material“, „Aufgaben“, „Feibeitsblatt“ …, REVEAL_GENERIC) nie. Nennt sie mehrere, deren Titel einander enthalten, gilt nur der längste
    („Quelle 2“ ist nicht auch „Quelle“); gleiche Titel (Feibeitsblatt und Datei gleichen Namens) gelten beide. → [{ref, n}] */
 export function revealMatches(key, items) {
   const k = revealKeyOf(key);
   if (!k) return [];
   const hay = " " + k + " ", words = new Set(k.split(" "));
   const hit = (Array.isArray(items) ? items : []).filter((it) => {
-    if (!it || !it.n || GENERIC_TITLES.has(it.n)) return false;
+    if (!it || !it.n || REVEAL_GENERIC.has(it.n)) return false;
     if (it.n.replace(/\s/g, "").length >= 4 && hay.includes(" " + it.n + " ")) return true;
     const tok = it.n.split(" ").filter((w) => w.length >= 2);
     return tok.length >= 2 && tok.every((w) => words.has(w));
@@ -106,7 +112,8 @@ export const revealRefOf = (f) => (f && f.source === "notfall" ? "s:" + str(f.fb
    für immer verborgen), ohne Präsentation bzw. ohne Codefolie mit Überschrift. Wartet ein Material, ist es frei, sobald die Lehrkraft es freigibt (how
    "hand") oder eine gezeigte Überschrift es nennt (how "live", at = Zeitpunkt), sonst ab der Freigabe der Präsentation (how "end", 5 Minuten nach dem Ende) –
    aber nur, wenn eine seiner Folien in der freigegebenen Präsentation liegt (bis zur Markierung); bis dahin steht es in hidden (late = die Freigabe der
-   Präsentation ist vorbei, das Material bleibt trotzdem verborgen). revealAt = zuletzt freigegeben (0 = nie). */
+   Präsentation ist vorbei, das Material bleibt trotzdem verborgen). Was einmal so frei war, bleibt frei: Bevor die Lehrkraft nach der Freigabe der Präsentation
+   die Markierung setzt bzw. verschiebt, hält der Server es als Freigabe fest (refs mit e:1 → how "end", revealEndRefs). revealAt = zuletzt freigegeben (0 = nie). */
 export function materialGate({ klass, absent = false, times = null, codeSlides = [], upTo = null, files = [], sheets = [], reveals = null, now = Date.now() } = {}) {
   const rv = revealsOf(reveals), revealAt = [...rv.seen, ...rv.refs].reduce((m, x) => Math.max(m, x.at), 0);
   const off = { on: false, items: new Map(), hidden: new Set(), revealAt };
@@ -122,7 +129,7 @@ export function materialGate({ klass, absent = false, times = null, codeSlides =
   if (!info.size) return off;
   const earlier = (x, at, how) => { if (x.at === null || at < x.at) { x.at = at; x.how = how; } };
   for (const s of rv.seen) for (const it of revealMatches(s.k, items)) { const x = info.get(it.ref); if (x) earlier(x, s.at, "live"); }
-  for (const r of rv.refs) { const x = info.get(r.r); if (x) earlier(x, r.at, "hand"); }
+  for (const r of rv.refs) { const x = info.get(r.r); if (x) earlier(x, r.at, r.e ? "end" : "hand"); }
   const hidden = new Set(), ended = now >= times.presentationAt;
   for (const [ref, x] of info) {
     x.slides.sort((a, b) => a - b);
@@ -132,6 +139,13 @@ export function materialGate({ klass, absent = false, times = null, codeSlides =
     hidden.add(ref);
   }
   return { on: true, items: info, hidden, revealAt };
+}
+/* Material, das gerade nach der Stunde ohne gezeigte Materialfolie frei ist (how "end") und noch nicht als Freigabe in refs steht → [ref]. Der Server hält es fest,
+   bevor sich die Markierung „Bis hier gezeigt“ ändert (worker/lessons.js keepEndReleases) – sonst verschwände es bei den Schüler:innen wieder */
+export function revealEndRefs(gate, reveals) {
+  if (!gate || !gate.on) return [];
+  const have = new Set(revealsOf(reveals).refs.map((x) => x.r));
+  return [...gate.items].filter(([ref, x]) => x.how === "end" && !have.has(ref)).map(([ref]) => ref);
 }
 /* Listen der Schüler:innen ohne das wartende Material (Dateien bzw. Feibeitsblätter) */
 export const revealFilterFiles = (files, gate) => (Array.isArray(files) ? files : []).filter((f) => !gate.hidden.has(revealRefOf(f)));
@@ -146,6 +160,37 @@ export function teacherGate({ lesson, files, sheets, sub = null, now = Date.now(
   return materialGate({ klass: l.klass, absent: !!sub && REVEAL_ABSENT.includes(sub.status),
     times: lessonTimes({ date: l.date, startTime: l.startTime, durationMin: l.durationMin }), codeSlides: p ? p.codeSlides || [] : [], upTo,
     files: fs, sheets, reveals: l.reveals || null, now });
+}
+
+/* ---------- Schüler:innen-Seite (public/app.js): Neuladen nach einer Freigabe ----------
+   Das Durable Object meldet revealAt (want); die Seite lädt ihre Daten neu – zufällig 0–2 s später, damit nicht alle iPads der Klasse im selben Moment fragen.
+   Erst eine geglückte Antwort rückt den Stand der Daten vor (seen). Fehlt danach noch etwas (Neuladen gescheitert, z. B. im WLAN der Schule), lädt sie wieder:
+   nach 2, 4, 8, 16, 32, 60 s (dazu bis zu 2 s Zufall), danach erst beim nächsten Stand bzw. wenn die Seite wieder sichtbar wird (visible) – Befund der
+   Gegenprüfung: vorher blieb Material nach einem gescheiterten Neuladen bis zum Neuladen der Seite verborgen. Zeitgeber und Zufall lassen sich für Tests
+   ersetzen. → {want(at), seen(at), after(), visible(), stop(), state} */
+export const REVEAL_RETRY_MS = [2000, 4000, 8000, 16000, 32000, 60000];
+export function revealWatch({ seen = 0, reload, random = Math.random, setT = (fn, ms) => setTimeout(fn, ms), clearT = (x) => clearTimeout(x) }) {
+  let want = Number(seen) || 0, have = want, t = null, tries = 0, off = false;
+  const jitter = () => Math.round(random() * 2000);
+  const soon = (ms) => { if (t === null && !off) t = setT(() => { t = null; reload(); }, ms); };
+  const drop = () => { if (t !== null) { clearT(t); t = null; } };
+  return {
+    want(at) { if (Number.isFinite(at) && at > want) { want = at; tries = 0; drop(); soon(jitter()); } },   // neuer Stand des Durable Objects: bald neu laden
+    seen(at) { if (Number(at) > have) have = Number(at); },                                                   // Stand einer geglückten Antwort
+    after() {                                                                                                 // nach jedem Neuladen (geglückt oder nicht)
+      if (want <= have) { tries = 0; drop(); return; }
+      if (t === null && tries < REVEAL_RETRY_MS.length) soon(REVEAL_RETRY_MS[tries++] + jitter());   // läuft schon ein Zeitgeber, zählt kein Versuch
+    },
+    visible() { if (want <= have) return false; tries = 0; return true; },                                   // wieder sichtbar: true = jetzt neu laden
+    stop() { off = true; drop(); },
+    get state() { return { want, seen: have, tries, pending: t !== null }; },
+  };
+}
+/* Antworten in der Reihenfolge der Anfragen: start() → Nummer; take(n) = true, wenn keine später gestellte Anfrage schon angewendet wurde (dann diese anwenden).
+   Eine früher gestellte Anfrage, deren Antwort nach einer späteren ankommt, zählt nicht mehr – sonst verschwände eben erschienenes Material wieder. */
+export function latestOnly() {
+  let n = 0, shown = 0;
+  return { start: () => ++n, take: (my) => { if (my < shown) return false; shown = my; return true; } };
 }
 
 /* ---------- Texte für die Lehrkraft ---------- */
