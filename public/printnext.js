@@ -16,11 +16,12 @@ import { lazy } from "./update.js";
 import { h, clear, icon, fileIcon, fmtBytes, errToast, downloadUrl, downloadBlob, apiUrl } from "./ui.js";
 import { onLeave } from "./app.js";
 import { tapi } from "./teacher.js";
-import { berlinToday, berlinTime, addDays, daysBetween, isIsoDate, isWeekend, printFileName, subjectShort, classShort, printReady, fmtClockBerlin } from "./shared.js";
+import { berlinToday, berlinTime, addDays, daysBetween, isIsoDate, isWeekend, printFileName, subjectShort, classShort, printReady, fmtClockBerlin, packMetaText, PACK_TITLE, PACK_MIN } from "./shared.js";
 import { printDesignState as designState, printQueue } from "./designrender.js";   // Bildkarten (Nachtrag 31): erst die PDF ihrer aktuellen Gestaltung zählt
 import { freeScopeText } from "./planning.js";
 import { packList, placeLabel, placeText, BRING_BOX_TITLE } from "./bring.js";
 import { uniqueNames, ZipBlob } from "./zip.js";
+import { buildPack, packDoneText, mergePrintPack, packNotes } from "./printpack.js";   // Sitzungspakete (Nachtrag 42)
 
 /* Ein- und Ausgänge, die Unit-Tests ersetzen (Downloads, Abruf der PDF) */
 export const io = { url: downloadUrl, blob: downloadBlob, fetch: (u, o) => fetch(u, o),
@@ -113,14 +114,28 @@ export const zipNameOf = (iso) => "Druckaufträge - " + (longDay(iso) || "nächs
 /* Text der Abschlussmeldung von „Alle Dateien herunterladen“ (n Dateien in der ZIP-Datei zip); wait = gestaltete Vorlagen, die gerade gedruckt werden,
    stuck = solche, deren PDF-Druck gescheitert bzw. heute nicht mehr möglich ist (sie druckt nichts von selbst – in der Sitzung „Erneut drucken“),
    failed = Dateien, die sich nicht laden ließen (nicht in der ZIP-Datei); stopped = abgebrochen, bevor die ZIP-Datei fertig war (keine heruntergeladen) */
-export function doneText(n, wait, failed, stopped = false, stuck = [], zip = "") {
+/* extra (Nachtrag 42): Sätze zu den Sitzungspaketen (zusammengefasst, nicht lesbare Dateien …) – hinten an */
+export function doneText(n, wait, failed, stopped = false, stuck = [], zip = "", extra = []) {
   const q = (xs) => xs.map((f) => "„" + printNameOf(f) + "“").join(", "), z = zip ? " „" + zip + "“" : "";
   return (stopped ? "Abgebrochen – keine ZIP-Datei heruntergeladen." : n === 0 ? "Keine Datei heruntergeladen."
     : n === 1 ? "Fertig: Die Datei ist als ZIP-Datei" + z + " heruntergeladen."
     : "Fertig: " + (failed.length ? "" : "Alle ") + n + " Dateien sind als eine ZIP-Datei" + z + " heruntergeladen.") +
     (wait.length ? " Noch nicht dabei (wird gerade als PDF gedruckt): " + q(wait) + "." : "") +
     (stuck.length ? " Nicht dabei, weil der PDF-Druck nicht geklappt hat (in der Sitzung „Erneut drucken“): " + q(stuck) + "." : "") +
-    (failed.length ? (n ? " Nicht in der ZIP-Datei: " : " Nicht heruntergeladen: ") + failed.map((x) => "„" + printNameOf(x.f) + "“ (" + x.msg + ")").join(", ") + "." : "");
+    (failed.length ? (n ? " Nicht in der ZIP-Datei: " : " Nicht heruntergeladen: ") + failed.map((x) => "„" + printNameOf(x.f) + "“ (" + x.msg + ")").join(", ") + "." : "") +
+    (extra.length ? " " + extra.join(" ") : "");
+}
+/* Sitzungspakete einer Sitzung (Nachtrag 42): der Server nennt sie (s.packs: [{key, name, print, ids, planned}], Reihenfolge des Verlaufsplans bzw.
+   Schulportal-Eintrags – shared.js printPacks); hier mit den Dateien der Sitzung → [{key, name, print, planned, files}] (nur mit mindestens zwei Dateien). Ein
+   älterer Server ohne s.packs: keine Pakete (wie bisher). */
+export function sessionPacks(s) {
+  const fs = s && Array.isArray(s.files) ? s.files : [], used = new Set();
+  return (s && Array.isArray(s.packs) ? s.packs : []).map((p) => {
+    const files = (Array.isArray(p.ids) ? p.ids : []).map((id) => fs.find((f) => f.id === id && !used.has(f.id))).filter(Boolean);
+    if (files.length < PACK_MIN || typeof p.name !== "string") return null;
+    for (const f of files) used.add(f.id);
+    return { key: String(p.key || p.name), name: p.name, print: p.print || {}, planned: Number(p.planned) || 0, files };
+  }).filter(Boolean);
 }
 
 /* Knopf während einer Aktion sperren, ohne ihm den Fokus zu nehmen (aria-disabled statt disabled) */
@@ -204,8 +219,9 @@ export function printNextCards(load = () => tapi("GET", "/api/teacher/print-next
     if (!f.cards || f.design) return buf;
     // hochgeladene Bildkarten: Seiten in einem anderen Format auf A4 (wie in der Druckliste der Sitzung, a4.js cardsA4)
     const { cardsA4 } = await lazy(import("./a4.js"));
-    return cardsA4(buf, await lazy(import("/vendor/pdf-lib.esm.min.js")));
+    return cardsA4(buf, await pdfLib());
   }
+  const pdfLib = () => lazy(import("/vendor/pdf-lib.esm.min.js"));
   /* eine Datei herunterladen wie in der Druckliste der Sitzung. Druckvorlagen über den signierten Link: der Server nennt sie selbst mit dem
      Druck-Namen – das zählt auf GitHub Pages, wo der Browser das download-Attribut einer anderen Herkunft nicht beachtet. Textmaterial und
      Arbeitsblätter der Kinder mit „Auch ausdrucken“ (Grundschule; beim Server heißen sie wie im Material) als Blob unter dem Druck-Namen. */
@@ -214,7 +230,9 @@ export function printNextCards(load = () => tapi("GET", "/api/teacher/print-next
     else { const r = await tapi("POST", "/api/teacher/files/" + f.id + "/link", { body: {} }); io.url(r.url, printNameOf(f, s.printCourse)); }
   }
   // Stand einer Zeile (ändert er sich beim Neuladen nicht, bleibt die Zeile dasselbe Element)
-  const rowSig = (f, s) => JSON.stringify([f, s.id, s.printCourse, s.subtitle]);
+  const rowSig = (f, s) => JSON.stringify([f, s.id, s.printCourse, s.subtitle, memberOf(f, s)]);
+  // gehört die Datei zu einem Sitzungspaket ihrer Sitzung (Nachtrag 42)? – dann steht ihre Zeile klein unter dem Paket
+  const memberOf = (f, s) => sessionPacks(s).some((p) => p.files.includes(f));
   // Schlüssel einer Zeile: Sitzung und Datei – seit Nachtrag 31b kann dieselbe Datei in zwei Sitzungen des Feldes stehen (wiederverwendete Bildkarten: in der Sitzung,
   // der sie gehören, und in der, die sie wiederverwendet – je mit eigenem Druck-Namen); nach der Datei allein bauten sich beide Zeilen bei jedem Neuladen neu auf
   // und der Fokus sprang in die Zeile der anderen Sitzung (Prüfung)
@@ -230,7 +248,7 @@ export function printNextCards(load = () => tapi("GET", "/api/teacher/print-next
     const btn = can ? h("button", { class: "btn pn-dl", type: "button", "aria-label": "Herunterladen – " + name, dataset: { fk: "dl:" + rowKey(f, s) },
       onclick: (e) => work(e.currentTarget, async () => { try { await downloadOne(f, s); } catch (err) { errToast(err); } }, "Lade …") }, icon("download"), "Herunterladen") : null;
     const err = !!d && (d.error || (!!rq.failed(f) && d.need));
-    const row = h("div", { class: "item printrow pn-row" + (err ? " design-err" : ""), dataset: { file: f.id } }, fileIcon(name, "application/pdf", "file"),   // auch Textmaterial kommt als PDF
+    const row = h("div", { class: "item printrow pn-row" + (err ? " design-err" : "") + (memberOf(f, s) ? " pn-member" : ""), dataset: { file: f.id } }, fileIcon(name, "application/pdf", "file"),   // auch Textmaterial kommt als PDF
       h("div", { class: "main" }, h("div", { class: "name", text: name }), meta), btn ? h("div", { class: "acts" }, btn) : null);
     rowEls.set(rowKey(f, s), { row, meta, sig: rowSig(f, s) });
     return row;
@@ -280,8 +298,44 @@ export function printNextCards(load = () => tapi("GET", "/api/teacher/print-next
       groupEls.set(s.id, g);
     }
     if (g.sig !== sig) { const head = sessionHead(s, level); if (g.head) g.head.replaceWith(head); else g.sec.prepend(head); g.head = head; g.sig = sig; }
-    syncChildren(g.list, s.files.map((f) => rowFor(f, s)));
+    // Nachtrag 42: Sitzungspakete oben (Paketzeile, darunter klein ihre Dateien), dann die übrigen Dateien
+    const packs = sessionPacks(s), inPack = new Set(packs.flatMap((p) => p.files));
+    syncChildren(g.list, [...packs.map((p) => packFor(p, s)), ...s.files.filter((f) => !inPack.has(f)).map((f) => rowFor(f, s))]);
     return g.sec;
+  }
+  /* Ein Sitzungspaket im Feld: Paketzeile (Name, „Sitzungspaket · n Materialien …“, die Materialien der Reihe nach, „Herunterladen“) und darunter die Zeilen
+     seiner Dateien; dasselbe Element, solange sich das Paket nicht ändert (Stand je Sitzung und Paket) */
+  const spEls = new Map();
+  function packFor(p, s) {
+    const k = s.id + ":" + p.key, sig = JSON.stringify([p.name, p.planned, p.files.map((f) => [f.id, f.name])]);
+    let x = spEls.get(k);
+    if (!x || x.sig !== sig) {
+      const btn = h("button", { class: "btn pn-packdl", type: "button", "aria-label": "Herunterladen – " + p.name, dataset: { fk: "pk:" + k },
+        onclick: (e) => work(e.currentTarget, async () => { try { await downloadPack(k); } catch (err) { errToast(err); } }, "Füge zusammen …") }, icon("download"), "Herunterladen");
+      const row = h("div", { class: "item pn-packrow" }, fileIcon(p.name, "application/pdf", "file"),
+        h("div", { class: "main" }, h("div", { class: "name", text: p.name }), h("div", { class: "meta", text: packMetaText(p) }),
+          h("ol", { class: "pack-order small", "aria-label": "Reihenfolge im " + PACK_TITLE }, p.files.map((f) => h("li", { text: String(f.name || "").replace(/\.pdf$/i, "") })))),
+        h("div", { class: "acts" }, btn));
+      const list = h("div", { class: "list pn-members" });
+      const old = x;
+      x = { sig, list, el: h("div", { class: "pn-pack", role: "group", "aria-label": PACK_TITLE + " – " + p.name }, row, list) };
+      if (old && old.el.isConnected) old.el.replaceWith(x.el);
+      spEls.set(k, x);
+    }
+    syncChildren(x.list, p.files.map((f) => rowFor(f, s)));
+    return x.el;
+  }
+  /* ein Paket für sich herunterladen (Knopf der Paketzeile): die fertigen Dateien zu einer PDF in der Reihenfolge des Verlaufsplans (printpack.js buildPack),
+     sonst die eine fertige einzeln; die Rückmeldung in der Statuszeile des Tages */
+  async function downloadPack(k) {
+    const hit = (() => { for (const s of allSessions()) for (const p of sessionPacks(s)) if (s.id + ":" + p.key === k) return { s, p }; return null; })();
+    if (!hit) return;
+    const { s, p } = hit, texts = new Map(), nameOf = (f) => printNameOf(f, s.printCourse);
+    const r = await buildPack(p, { bytesOf: (f) => pdfBytes(f, s, texts), nameOf, lib: pdfLib });
+    if (r.bytes) io.blob(new Blob([r.bytes], { type: "application/pdf" }), p.name);
+    else if (r.single) io.blob(new Blob([r.single.data], { type: "application/pdf" }), r.single.name);
+    const day = data ? printDays(data).days.find((dd) => dd.sessions.some((x) => x.id === s.id)) : null, ui = day ? uiFor(day.key) : null;
+    (ui ? ui.st : status).textContent = packDoneText(p, r, { nameOf }).text;
   }
   /* Inhalt eines Tages: Gruppen der Sitzungen mit Druckaufträgen, sonst ein Satz; darunter „Ohne Druckaufträge: …“ (Elemente je Tag gemerkt) */
   const textEl = (box, key, cls, text) => { let el = box.get(key); if (!el) { el = h("p", { class: cls }); box.set(key, el); } if (el.textContent !== text) el.textContent = text; return el; };
@@ -405,6 +459,7 @@ export function printNextCards(load = () => tapi("GET", "/api/teacher/print-next
     for (const k of Array.from(groupEls.keys())) if (!shown.has(k) || !card.contains(groupEls.get(k).sec)) groupEls.delete(k);
     for (const k of Array.from(rowEls.keys())) if (!fids.has(k) || !card.contains(rowEls.get(k).row)) rowEls.delete(k);
     for (const [k, x] of Array.from(dayEls)) if (!card.contains(x.sec)) dayEls.delete(k);
+    for (const [k, x] of Array.from(spEls)) if (!card.contains(x.el)) spEls.delete(k);
     paintAll();
     keepFocus(had, card, heading);
     paintPack();
@@ -486,21 +541,54 @@ export function printNextCards(load = () => tapi("GET", "/api/teacher/print-next
       return;
     }
     running = true;
-    const texts = new Map(), failed = [], zip = new ZipBlob(), zipName = zipNameOf(date0);
-    let n = 0, left = false;
+    const texts = new Map(), failed = [], zip = new ZipBlob(), zipName = zipNameOf(date0), info = [];
+    let n = 0, left = false, made = 0, k = 0;
     // gleiche Namen (Nachtrag 32: z. B. dasselbe Arbeitsblatt für 8A und 8B → beide „28x - sw - beidseitig - PoWi8 - …“) eindeutig wie in der ZIP-Datei: „… (2).pdf“
+    // (Nachtrag 42: auch zwei gleich benannte Sitzungspakete zweier Sitzungen) – ZipBlob.add macht die Namen eindeutig
     const names = uniqueNames(ready.map(({ f, s }) => printNameOf(f, s.printCourse)));
+    const nameAt = new Map(ready.map((x, i) => [x, names[i]]));
+    // Nachtrag 42: je Sitzung zuerst ihre Sitzungspakete (die fertigen Dateien zu einer PDF in der Reihenfolge des Verlaufsplans), dann die übrigen Dateien
+    const units = [];
+    for (const s of ui.dd.sessions) {
+      const inPack = new Set();
+      for (const p of sessionPacks(s)) {
+        for (const f of p.files) inPack.add(f.id);
+        const rs = ready.filter((x) => x.s === s && p.files.includes(x.f));
+        if (rs.length) units.push({ p, s, xs: p.files.map((f) => rs.find((x) => x.f === f)).filter(Boolean) });
+      }
+      for (const x of ready) if (x.s === s && !inPack.has(x.f.id)) units.push({ s, xs: [x] });
+    }
+    const fetchOne = async (x) => {
+      st.textContent = "Packe " + (++k) + " von " + ready.length + ": „" + nameAt.get(x) + "“ …";
+      try { return await pdfBytes(x.f, x.s, texts); } catch (e) { failed.push({ f: x.f, msg: (e && e.message) || String(e) }); return null; }
+    };
     await work(btn, async () => {
-      for (let i = 0; i < ready.length; i++) {
+      for (const u of units) {
         if (stopped || !card.isConnected) { left = true; break; }
-        const { f, s } = ready[i];
-        st.textContent = "Packe " + (i + 1) + " von " + ready.length + ": „" + names[i] + "“ …";
-        try {
-          const bytes = await pdfBytes(f, s, texts);
+        if (!u.p) {
+          const bytes = await fetchOne(u.xs[0]);
           if (stopped || !card.isConnected) { left = true; break; }
-          zip.add(names[i], bytes);
-          n++;
-        } catch (e) { failed.push({ f, msg: (e && e.message) || String(e) }); }
+          if (bytes) { zip.add(nameAt.get(u.xs[0]), bytes); n++; }
+          continue;
+        }
+        const parts = [];
+        for (const x of u.xs) {
+          if (stopped || !card.isConnected) { left = true; break; }
+          const data = await fetchOne(x);
+          if (data) parts.push({ f: x.f, name: nameAt.get(x), data });
+        }
+        if (left || stopped || !card.isConnected) { left = true; break; }
+        const missing = u.p.files.filter((f) => !u.xs.some((x) => x.f === f));   // noch nicht fertig (nicht ladbare nennt „Nicht in der ZIP-Datei“)
+        let m = null;
+        if (parts.length >= PACK_MIN) { try { m = await mergePrintPack(parts, await pdfLib(), { duplex: !!u.p.print.duplex, title: u.p.name }); } catch { m = null; } }
+        if (m && m.bytes) {
+          zip.add(u.p.name, m.bytes); n++; made++;
+          for (const b of m.bad) { zip.add(b.part.name, b.part.data); n++; }
+          info.push({ pack: u.p, made: true, parts: m.used, bad: m.bad.map((x) => x.part), missing });
+        } else {
+          for (const x of parts) { zip.add(x.name, x.data); n++; }
+          info.push({ pack: u.p, made: false, parts: m ? m.used : parts, bad: m ? m.bad.map((x) => x.part) : [], missing });
+        }
       }
       if (!left && n) io.blob(zip.finish(), zipName);
     }, "Packe die Dateien …");
@@ -508,7 +596,8 @@ export function printNextCards(load = () => tapi("GET", "/api/teacher/print-next
     if (stopped || !card.isConnected) return;
     // die Statuszeile des Tages (steht der Tag nach einem Neuladen anders da, die jetzige)
     const now = uiFor(key), out = now && now.dd.date === date0 ? now.st : st;
-    out.textContent = doneText(n, wait.filter((f) => !stuck(f)), failed, left, wait.filter(stuck), zipName);
+    const extra = [...(made && !left ? ["Gleiche Druckangaben sind zu " + (made === 1 ? "einem " + PACK_TITLE : made + " Sitzungspaketen") + " zusammengefasst."] : []), ...(left ? [] : packNotes(info, "in der ZIP-Datei"))];
+    out.textContent = doneText(n, wait.filter((f) => !stuck(f)), failed, left, wait.filter(stuck), zipName, extra);
     if (due) refresh();
   }
 

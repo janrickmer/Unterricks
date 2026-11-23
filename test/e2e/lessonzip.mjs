@@ -2,7 +2,8 @@
 // danach gelöscht. Geprüft: Karte ganz unten (Gymnasium unter „Sitzung als Datei“), der heruntergeladene ZIP-Ordner (Präsentation wie hochgeladen, PowerPoint
 // mit Folienbildern und Notizen, Notizen-PDF, Druckliste mit Druck-Namen, Material nach Bereich, Text als PDF, Verlaufsplan ohne Zwischenstopp mit
 // Hausaufgabe, Link und Ordnerliste, ungespeicherte Hausaufgabe), in der kompakten Ansicht „Ich bin jetzt im Unterricht“ ausgeblendet; Grundschule mit
-// Vorlesetext, Arbeitsblatt für die Kinder und Verweis im Verlaufsplan als Pfad. Frei erfundene Inhalte.
+// Vorlesetext, Arbeitsblatt für die Kinder und Verweis im Verlaufsplan als Pfad; seit Nachtrag 42 mit einem Sitzungspaket (zwei Druckvorlagen mit gleichen
+// Druckangaben als eine PDF, Verweise mit „(Teil n)“). Frei erfundene Inhalte.
 // ctx = {tp (Seite der Lehrkraft, angemeldet), BASE, T, tool, ok, OUT, SHOT}
 import { join } from "node:path";
 import { mkdirSync, readFileSync } from "node:fs";
@@ -122,16 +123,25 @@ export async function lessonZipE2E({ tp, BASE, T, tool, ok, OUT, SHOT }) {
   const GS = await oneLesson("gs", course.id, "Josef und seine Brüder");
   const vt = await up(GS, "Vorlesetext Josef.pdf", "teacher", await a4("Vorlesetext Josef"));
   await up(GS, "Arbeitsblatt Josef.pdf", "student", await a4("Arbeitsblatt Josef"));
-  await T("PUT", "/api/teacher/lessons/" + GS + "/portal", { text: "**1) Sitzkreis**\n- __Lehrkraft liest " + pdfRef(vt.id) + " vor.__\n**2) Malen**\n- Ein Bild zur Versöhnung", force: true });
+  // Nachtrag 42: zwei Druckvorlagen mit gleichen Druckangaben (5x, sw, beidseitig) → im Ordner „Zum Ausdrucken“ EIN Sitzungspaket in der Reihenfolge des Verlaufsplans
+  const konz = await post("/api/teacher/lessons/" + GS + "/print?copies=5&duplex=1&name=" + encodeURIComponent("Konzentrationsaufgabe Josef.pdf"), await a4("Konzentrationsaufgabe Josef"));
+  const ausm = await post("/api/teacher/lessons/" + GS + "/print?copies=5&duplex=1&name=" + encodeURIComponent("Ausmalbild Josef.pdf"), await a4("Ausmalbild Josef"));
+  await T("PUT", "/api/teacher/lessons/" + GS + "/portal", { text: "**1) Sitzkreis**\n- __Lehrkraft liest " + pdfRef(vt.id) + " vor.__\n**2) Malen**\n- Ein Bild zur Versöhnung\n- " + pdfRef(ausm.id) +
+    "\n**3) Ruhe**\n- " + pdfRef(konz.id), force: true });
   await tp.goto(BASE + "/#/lk/s/" + GS);
   await tp.locator("#lessondocs").waitFor({ timeout: 15000 });
   ok(await tp.evaluate(() => { const s = [...document.querySelectorAll("main > section.card")]; return s.length && s[s.length - 1].id === "lessondocs"; }), "Grundschule: die Karte steht ganz unten");
   const gz = await download("gs");
   const gnames = [...gz.by.keys()].sort();
-  ok(JSON.stringify(gnames) === JSON.stringify(["Material für die Kinder/Arbeitsblatt Josef.pdf", "Material für die Lehrkraft/Vorlesetext Josef.pdf", "Verlaufsplan - Josef und seine Brüder.pdf"]),
+  const PACK = "Zum Ausdrucken/5x - sw - beidseitig - Reli2 - Sitzungspaket.pdf";
+  ok(JSON.stringify(gnames) === JSON.stringify(["Material für die Kinder/Arbeitsblatt Josef.pdf", "Material für die Lehrkraft/Vorlesetext Josef.pdf", "Verlaufsplan - Josef und seine Brüder.pdf", PACK]),
     "Grundschule: Ordner " + gnames.join(" | "));
   const gplan = await textOf(gz.by.get("Verlaufsplan - Josef und seine Brüder.pdf"));
   ok(gplan.includes("„Material für die Lehrkraft/Vorlesetext Josef.pdf“"), "Grundschule: der Verweis im Verlaufsplan nennt den Pfad im Ordner");
+  const packText = await textOf(gz.by.get(PACK));
+  ok(gz.by.has(PACK) && (await PDFDocument.load(gz.by.get(PACK))).getPageCount() === 4 && packText.indexOf("Ausmalbild Josef") >= 0 && packText.indexOf("Ausmalbild Josef") < packText.indexOf("Konzentrationsaufgabe Josef")
+    && gplan.includes("„" + PACK + " (Teil 1)“") && gplan.includes("„" + PACK + " (Teil 2)“"),
+    "Grundschule: Sitzungspaket im Ordner „Zum Ausdrucken“ (Ausmalbild, dann Konzentrationsaufgabe wie im Verlaufsplan; beidseitig je eine Leerseite → 4 Seiten), Verweise nennen Paket und Teil");
   ok(!!course.label && gplan.includes("Grundschule · " + course.label), "Grundschule: der Verlaufsplan nennt den Kurs („Grundschule · " + course.label + "“)");
   // gewünschter Name laut Rückmeldung der Seite (das Chromium dieser Testumgebung ersetzt Namen mit Umlauten durch „download“ – wie bei anderen Downloads)
   const gWant = "Unterlagen - Grundschule - " + course.short + " - ";

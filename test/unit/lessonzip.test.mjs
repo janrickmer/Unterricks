@@ -161,6 +161,37 @@ test("Grundschule: Material für die Kinder, Bildkarten über die Druckliste, Ve
   assert.deepEqual(r.notes, []);
 });
 
+test("Nachtrag 42: Sitzungspaket im Ordner „Zum Ausdrucken“ statt seiner Dateien; Verweise im Verlaufsplan nennen Paket und Teil; nicht lesbare Datei einzeln mit Hinweis", async () => {
+  const PP = await import("../../public/printpack.js");
+  const konz = await pdfOf(["Konzentrationsaufgabe"], 2), cards = await pdfOf(["Bildkarten"], 3), kaputt = new TextEncoder().encode("%PDF-1.7 kaputt");
+  const one = { copies: 1, duplex: false, color: true };
+  const files = [
+    { id: "a000000000000011", area: "print", kind: "file", name: "Konzentrationsaufgabe.pdf", mime: "application/pdf", status: "ready", print: one },
+    { id: "a000000000000012", area: "teacher", kind: "file", name: "Bildkarten Josef.pdf", mime: "application/pdf", status: "ready", cards: { texts: [] }, print: one },
+    { id: "a000000000000013", area: "print", kind: "file", name: "Ausmalbild.pdf", mime: "application/pdf", status: "ready", print: one },
+  ];
+  const portal = "**1) Ankommen**\n- " + S.pdfRef("a000000000000011") + "\n**2) Sitzkreis**\n- Bildkarten " + S.pdfRef("a000000000000012") + "\n- " + S.pdfRef("a000000000000013");
+  const nameOf = (f) => S.printFileName({ name: f.name, ...f.print, course: "Reli2" });
+  const packPrint = async () => {
+    const packs = S.printPacks(files, { plan: portal, gs: true, course: "Reli2" }).packs;
+    const r = await PP.packEntries([{ f: files[0], name: nameOf(files[0]), data: konz }, { f: files[1], name: nameOf(files[1]), data: cards }, { f: files[2], name: nameOf(files[2]), data: kaputt }], packs, async () => PL);
+    return { all: files, entries: r.entries, wait: [], cardsWait: [], packs: r.info };
+  };
+  const st = { lesson: { id: "g", subject: S.GS_SUBJECT, klass: "gs1234abcd", title: "Josef", date: "2026-11-24", durationMin: 45, portal: "", homework: "" }, files, sheets: [], refFiles: [], courseCards: [] };
+  const srv = serve({});
+  let r;
+  try { r = await LZ.buildLessonZip({ st, gs: true, course: { label: "Religion 2c", short: "Religion 2c", gradeText: "Jahrgang 2" }, portal, homework: "", packPrint, libs }); }
+  finally { srv.restore(); }
+  const z = await readZip(new Uint8Array(await r.blob.arrayBuffer())), names = z.map((e) => e.name).sort();
+  assert.deepEqual(names, ["Verlaufsplan - Josef.pdf", "Zum Ausdrucken/1x - farbig - einseitig - Reli2 - Ausmalbild.pdf", "Zum Ausdrucken/1x - farbig - einseitig - Reli2 - Sitzungspaket.pdf"]);
+  const pack = await PL.PDFDocument.load(z.find((e) => e.name.endsWith("Sitzungspaket.pdf")).data);
+  assert.equal(pack.getPageCount(), 5, "Konzentrationsaufgabe (2) und Bildkarten (3), einseitig ohne Leerseiten");
+  const plan = await pdfText(z.find((e) => e.name.startsWith("Verlaufsplan")).data);
+  for (const t of ["„Zum Ausdrucken/1x - farbig - einseitig - Reli2 - Sitzungspaket.pdf (Teil 1)“", "„Zum Ausdrucken/1x - farbig - einseitig - Reli2 - Sitzungspaket.pdf (Teil 2)“",
+    "„Zum Ausdrucken/1x - farbig - einseitig - Reli2 - Ausmalbild.pdf“"]) assert.ok(plan.includes(t), "Verlaufsplan: " + t + " – " + plan.slice(0, 600));
+  assert.deepEqual(r.notes, ["„1x - farbig - einseitig - Reli2 - Ausmalbild.pdf“ ließ sich nicht in das Sitzungspaket „1x - farbig - einseitig - Reli2 - Sitzungspaket.pdf“ einfügen (die PDF-Datei ist im Browser nicht lesbar) – sie liegt einzeln im Ordner „Zum Ausdrucken“."]);
+});
+
 test("Selbstlern-Phase: aktuelles Material wie auf der Seite, dazu die ursprüngliche Planung (archiviertes Material und Verlaufsplan) im eigenen Ordner", async () => {
   const st0 = await pdfOf(["Station 1"]), orig = await pdfOf(["Ursprüngliches Arbeitsblatt"]);
   const st = { lesson: { id: "l", subject: "powi", klass: "8B", title: "Wahlen", portal: "**Selbstlern-Phase**\n- Station 1" },

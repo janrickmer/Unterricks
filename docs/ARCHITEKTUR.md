@@ -89,6 +89,7 @@ implementiert und im End-to-End-Test geprüft (Ausnahmen unten ausdrücklich gen
 | Unterrichtseinheit mit KollegInnen teilen (Nachtrag 39 vom 18.11.2026) | Wunsch der Lehrkraft: ein Knopf ganz unten in jeder Einheit „Untereichtseinheit mit KollegInnen teilen“ (Tippfehler berichtigt) → ZIP-Ordner mit Leupold-Schema-PDF (darunter je Sitzung ein Absatz: was passiert, zentrale Kompetenz des KCGO, Ziel), Erklärung „Das ist ein Feibeitsblatt“ (fett: Notfall-Feibeitsblatt als Dokument genügt), je geplanter Sitzung ein Ordner „Sitzung n“ mit Präsentation (ohne Folien, die Unterricks verlangen, mit „Copyright Jan-Rickmer Feindt“ klein und blass in der Fußzeile), Verlaufsplan und allen PDF-Dateien für Schüler:innen, sowie „Fehlende Sitzungen“. Rückfragen beantwortet: die Absätze **schreibt Claude** (Prompt neben dem Knopf, Absätze in Unterricks prüfbar, künftig beim Planen jeder Stunde gleich mit); Feibeitsblatt **digital nur nach Absprache** (Abgaben kämen bei der Lehrkraft an); **alle Materialfolien bleiben** (nur die kleine Unterricks-Zeile wird überdeckt), nur reine Codefolien fallen weg; zusätzlich **Druckliste, Material für die Lehrkraft, Notizen zu den Folien (eigene PDF) und Grundschul-Einheiten** (dort ohne Präsentation und ohne Erklärung). Ergänzung: jede Präsentation **auch als PowerPoint-Datei**, die Notizen der Lehrkraft in den Notizen der Folien (Referentenansicht); Rückfragen beantwortet: **Folien als Bild** (nicht bearbeitbar), **Notizen-PDF bleibt**. Siehe 4zh |
 | Bewegung im Folien-Stil (Nachtrag 40 vom 19.11.2026) | Prüfauftrag der Lehrkraft: „inwiefern das Design mehr wie eine MotionSite“ (motionsites.ai: Prompt-Sammlung für animierte Landingpages mit Video-Hintergründen, Verläufen, Glas-Effekten). Rückfragen beantwortet: Unterricks; Startseite mit starkem ersten Eindruck plus dezente Bewegung in der App; erst Bericht und Entwurf, dann Einbau; Stil selbst in CSS/JS nachbauen, ohne Kauf, ohne fremde Videos oder Bibliotheken. Freigaben: Bewegungsregel in DESIGN.md ergänzen, neue Texte der Startseite; der Schriftzug darf bei keiner Breite in die Karte ragen. Siehe 4zi |
 | Alle Unterlagen dieser Sitzung (Nachtrag 41 vom 23.11.2026) | Wunsch der Lehrkraft: „bei jeder einzelnen Unterrichtssitzung einen Button ganz unten, mit dem ich einen ZIP-Ordner mit allen Unterlagen und Plänen zu jener Unterrichtssitzung herunterlade“. Rückfragen beantwortet: „Sitzung als Datei“ bleibt; ein ZIP-Ordner mit allen Dateien, die die Lehrkraft braucht, samt Präsentation (eigene PDF und PowerPoint) und Arbeitsblättern; Gymnasium und Grundschule. Siehe 4zj |
+| Sitzungspaket (Nachtrag 42, Teil 1, vom 23.11.2026) | Wunsch der Lehrkraft: „Wenn zu einer Unterrichtssitzung mehrere dieser Dateien so vorliegen, dass sie alle gleichhäufig und mit der gleichen Farbeinstellung und mit der gleichen Papiereinstellung (beidseitig oder einseitig) gedruckt werden sollen, fasst du diese Dateien für die Druckansicht zusammen und benennst sie weiterhin nach dem bekannten Muster … und nutzt anstelle des Namens dieses Materials einfach den Titel "Sitzungspaket" … Innerhalb der Datei "Sitzungspaket" sollen die Materialien in der Reihenfolge sortiert sein, wie sie laut Verlaufsplan gebraucht werden.“ Rückfragen beantwortet: **„Überall beim Drucken“** (Druckliste samt ZIP, „Druckaufträge …“ beider Startseiten samt ZIP je Tag, „Ich bin jetzt im Unterricht“, Ordner „Zum Ausdrucken“ von Nachtrag 41); Name nach dem **bisherigen Muster** (`printFileName`: „1x - farbig - einseitig - Reli2 - Sitzungspaket.pdf“ – das Beispiel der Lehrkraft vertauscht nur „einseitig“ und „farbig“); die einzelnen Dateien stehen **klein darunter**, damit sie ihre Druckeinstellungen ändern kann; beidseitig beginnt **jedes Material auf einem neuen Blatt**. Siehe 4zl |
 | Anweisungen an die Lehrkraft in den Foliennotizen (Nachtrag 42 vom 23.11.2026, Teil 3) | Wunsch der Lehrkraft: „Wenn zu einer Sitzung eine Präsentation erstellt wird, sollen (ähnlich wie bei Schritt 2 dieser Chatnachricht) eindeutige Anweisungen an die Lehrkraft formuliert und in den Folienanmerkungen angezeigt werden. Diese Anmerkungen dürfen niemals für Schüler sichtbar sein.“ Rückfrage beantwortet: **zu jeder Folie** eine klare Anweisung an die Lehrkraft in den Notizen („Lehrkraft: …“), danach die Hintergründe; nie für Schüler:innen sichtbar. Umsetzung ohne neues Format: der erste Stichpunkt jeder Folie beginnt mit „Lehrkraft:“; Präsentationsansicht, Anmerkungs-PDF und PowerPoint-Notizen heben ihn hervor; an der Codefolie vor Folie 1 steht schon die Anweisung aus Folie 1 (Gegenprüfung). Siehe 4zn |
 | Konzentrationsaufgabe mit Lückentext, Ankreuzaufgabe und Suchsel (Nachtrag 43 vom 23.11.2026) | Wunsch der Lehrkraft: Seite 1 und die obere Hälfte von Seite 2 weiterhin zum Ausmalen, auf der unteren Hälfte von Seite 2 ein Lückentext, eine Ankreuzaufgabe und ein Suchsel, „dem Alter des jeweiligen Jahrgangs dieser Lerngruppe bzgl. des Schwierigkeitsgrades angemessen“. Rückfragen beantwortet: die rote Karte kommt in den Seitenrand neben diese Aufgaben, darunter, dass der Abschnitt nur für Kinder mit roter Karte Pflicht ist; Stufen je Jahrgang wie von Claude vorgeschlagen; nur neue bzw. überarbeitete Konzentrationsaufgaben; passen die Aufgaben nicht in die halbe Seite, wird das Ausmalbild oben auf Seite 2 kleiner. Siehe 4zk |
 
@@ -181,6 +182,7 @@ implementiert und im End-to-End-Test geprüft (Ausnahmen unten ausdrücklich gen
 | | `public/sessionfile.js` | Sitzung als Datei: Name, Datumsanpassung, Feibeitsblatt → Entwurf, Prüfung |
 | | `public/sessionio.js` | Sitzungsdatei zusammenstellen und in eine Sitzung übernehmen – ohne geöffnete Sitzungsseite (Sitzung, Einheit, Sicherung) |
 | | `public/lessondocs.js`, `public/lessonzip.js` | „Alle Unterlagen dieser Sitzung“ (Nachtrag 41): Karte ganz unten und der ZIP-Ordner (erst beim Klick geladen), siehe 4zj |
+| | `public/printpack.js` | Sitzungspaket (Nachtrag 42): Dateien gleicher Druckangaben im Browser zu einer PDF zusammenfügen (pdf-lib, erst bei Bedarf), Hinweise; die Gruppierung selbst `printPacks` in `public/shared.js`, siehe 4zl |
 | | `public/unitfile.js`, `public/backup.js` | Einheit als Datei (Format, Ordnernamen, chronologische Ordnung) und große Sicherung; gesicherte Sitzungen bis zum Anlegen in IndexedDB |
 | | `worker/reset.js` | Zurücksetzen (Passwort, ein Batch für D1, Dateien in Runden über `reset_queue`) und Übersicht für die Sicherung |
 | | `public/notfall.js`, `public/fbanalog.js` | Notfall-Feibeitsblatt: Blatt, Checkliste und Bilder laden; das analoge Arbeitsblatt (aus dem Feibeitsblatt übernommen per `scripts/fbanalog-sync.mjs`) |
@@ -2497,6 +2499,78 @@ Ausdrucken“; Grundschule „Auch Grundschule“ – kompakt mit Verlaufsplan u
   Fassung auf drei.
 * **Nicht prüfbar hier:** ob Claude in claude.ai den Aufbau einhält und ein lösbares Suchsel baut – Unterricks meldet nur die Seitenzahl (eine
   dritte Seite heißt: zu voll).
+
+## 4zl. Sitzungspaket – gleiche Druckangaben in einer PDF (Nachtrag 42, Teil 1)
+
+* **Wunsch und Rückfragen:** Liegen zu einer Sitzung mehrere Druckdateien mit gleicher Anzahl, gleicher Farbe (sw/farbig) und gleicher Druckart
+  (einseitig/beidseitig) vor – typisch: mehrere Bildkarten- und Erzählkarten-Sätze für den Sitzkreis, je 1x, einseitig, farbig –, stehen sie beim Drucken
+  als **eine** PDF da, benannt nach dem bekannten Muster mit dem Titel „Sitzungspaket“, die Materialien in der Reihenfolge des Verlaufsplans. Die
+  Lehrkraft hat geklärt: überall beim Drucken; Name genau `printFileName` („1x - farbig - einseitig - Reli2 - Sitzungspaket.pdf“ – ihr Beispiel
+  „1x - einseitig - farbig - …“ vertauscht nur die beiden Wörter, das Muster gilt seit Nachtrag 32); die einzelnen Dateien klein darunter mit ihren
+  Druckeinstellungen; beidseitig beginnt jedes Material auf einem neuen Blatt.
+* **Bilden (rein, `public/shared.js`, Browser und Worker):** `PACK_TITLE = "Sitzungspaket"`, `PACK_MIN = 2`. `printSettingsOf(f)` liest die Druckangaben so,
+  wie der Druck-Name sie liest (`f.print`; ohne Angabe 1x, sw, einseitig), `printSettingsKey` → „1|farbig|einseitig“. `printPacks(files, {plan, gs,
+  course})` gruppiert die Dateien der Druckliste einer Sitzung nach diesem Schlüssel; ab zwei Dateien ein Paket `{key, print, name, files, planned}`
+  (`name = printFileName({name: PACK_TITLE, …print, course})`), die übrigen `single` in ihrer bisherigen Reihenfolge; Pakete nach der ersten Stelle im Plan.
+  Reihenfolge (`printPlanOrder`): **Grundschule** nach `planRefs(plan).all` (Verweise `[[pdf:…]]`, auch nach dem Zwischenstopp – gedruckt wird vor der
+  Stunde); **Gymnasium** nach der Stelle, an der der Schulportal-Eintrag den Titel nennt: zuerst die kursiven Läufe (`~~Titel~~`, aufeinanderfolgende
+  kursive Läufe zusammen), dann der Titel irgendwo im Text (nur ganze Wörter). Verglichen wird vereinheitlicht (`packTitleKey`: Druck-Präfix und „.pdf“
+  weg, Unicode-NFC, klein, alle Striche „-“, Anführungszeichen vereinheitlicht, Satzzeichen am Ende und umschließende Anführungszeichen weg). Nicht
+  genannte stehen hinten, in ihrer bisherigen Reihenfolge. `packMetaText` → „Sitzungspaket · 3 Materialien in der Reihenfolge des Verlaufsplans“
+  (teilweise genannt: „… (nicht darin genannte zuletzt)“, gar nicht: „… in der Reihenfolge der Druckliste (der Verlaufsplan nennt sie nicht)“).
+  Das Paket wird **nie gespeichert** (keine Spalte, keine Schemaänderung); die Druck-Namen der einzelnen Dateien (Server, Links mit `p=pr`) bleiben.
+* **Zusammenfügen (nur Browser, `public/printpack.js`):** pdf-lib wird erst geladen, wenn ein Paket mindestens zwei fertige Dateien hat (`/vendor/pdf-lib.esm.min.js`
+  wie bisher) – der Worker hat keine PDF-Bibliothek und 10 ms CPU. `mergePrintPack(parts, lib, {duplex, title})` fügt die Teile in Paketreihenfolge
+  zusammen (`copyPages`); beidseitig nach jedem Teil mit ungerader Seitenzahl eine Leerseite im Format seiner letzten Seite – damit endet die Datei
+  immer mit einer geraden Seitenzahl, und jede Kopie beginnt auf einem neuen Blatt. Titel = Paketname, **Betreff** = welche Datei auf welchen Seiten
+  steht (`packSubject`: „Sitzungspaket: Teil 1 „…“ (Seite 1–3); Teil 2 „…“ (Seite 5)“, Leerseiten zählen nicht). Nicht lesbare Teile bleiben draußen
+  (`bad`), weniger als zwei lesbare → kein Paket. `packEntries(entries, packs, lib)` (ZIP-Dateien): aus den schon geladenen Dateien die Pakete zuerst,
+  ihre Dateien nicht noch einmal; nicht lesbare liegen einzeln dabei; ist erst eine Datei eines Pakets fertig, kommt sie einzeln. `packNotes` nennt
+  beides („… ließ sich nicht in das Sitzungspaket „…“ einfügen (die PDF-Datei ist im Browser nicht lesbar) – sie liegt einzeln in der ZIP-Datei.“,
+  „Vom Sitzungspaket „…“ ist bisher nur „…“ fertig – sie liegt einzeln …“); noch nicht gedruckte nennen die Aufrufer wie bisher. `buildPack` (Knopf eines
+  Pakets) holt nur fertige Dateien (`printReady`; Bildkarten mit 409 `cards_not_printed` zählen als „noch nicht gedruckt“), `packDoneText` meldet
+  Materialien, Seiten und Leerseiten bzw. „Kein Sitzungspaket: Nur „…“ ist fertig – die Datei ist einzeln heruntergeladen.“
+* **Druckliste der Sitzung (`public/materialbox.js`):** neue Option `plan` (Gymnasium: `() => portalTA ? portalTA.value : L().portal` – auch ungespeichert;
+  Grundschule wie bisher `refPlan`). `layoutPrint` ordnet: je Paket eine Gruppe `div.printpack` (role group) mit der Paketzeile `.item.packrow` (Name,
+  `packMetaText`, `ol.pack-order` mit den Materialien, „Herunterladen“ → `downloadPack` mit derselben Bytes-Quelle wie die ZIP-Datei – `printBytes`:
+  Text über `markdownToPdf`, Bildkarten mit `print`, hochgeladene über `cardsA4`) und darunter in `.packmembers` die gewohnten Zeilen ihrer Dateien
+  (`.printrow.pack-member` mit Anzahl, Farbe, Druckart, „Herunterladen“ …); danach die übrigen Zeilen. Ändert sich die Gruppierung – Druckangaben einer
+  Zeile gespeichert (`save` → `syncPacks`), Verlaufsplan (Grundschule: `syncRefs`) bzw. Schulportal-Eintrag (Gymnasium: `paintPreview` → `packSync`) –,
+  stellt `syncPacks` die vorhandenen Zeilen nur um (eigene Zuordnung `prEls`, nicht `rowEls`, das bei „Auch ausdrucken“ auch die Zeile im Materialkasten
+  kennt); hat das Verschieben dem Feld den Fokus genommen, bekommt es ihn zurück (sonst die Überschrift). Unter der Liste `#print-pack-hint` (nur mit Paket).
+  `packPrint()` gibt Pakete statt ihrer Dateien zurück (`entries` samt `{pack, parts}`, `packs` = Infos für die Hinweise, `packError`, wenn pdf-lib nicht lädt –
+  dann alles einzeln); „Alle herunterladen (ZIP)“ meldet zusätzlich „Gleiche Druckangaben sind zu einem Sitzungspaket zusammengefasst.“ und die
+  Paket-Hinweise. Neu im Rückgabewert: `syncPacks`, `packs()`, `packActs(pack)`.
+* **„Druckaufträge …“ (`worker/printjobs.js`, `public/printnext.js`):** `DAY_SESSIONS_SQL` liest jetzt für beide Schulformen `portal AS plan` (vorher nur in der
+  Grundschule) – dieselbe Anweisung, weiter 8 D1-Anweisungen. Der Server bildet die Pakete selbst (`printPacks` über die Dateien der Sitzung samt
+  wiederverwendeter Bildkarten) und schickt je Sitzung `packs: [{key, name, print, planned, ids}]` (ids in Plan-Reihenfolge; nur wenn es Pakete gibt – eine
+  ältere offene Seite liest das Feld nicht; den Plan selbst schickt er nicht mit). Der Browser (`sessionPacks(s)`) zeigt je Paket `.pn-pack` mit der
+  Paketzeile `.pn-packrow` (Knopf `.pn-packdl` „Herunterladen“, Rückmeldung in der Statuszeile des Tages) und darunter die Zeilen seiner Dateien
+  (`.pn-row.pn-member`), dann die übrigen. „Alle Dateien herunterladen“ packt je Sitzung zuerst die Pakete (Dateien nacheinander holen, zusammenfügen,
+  sofort in die `ZipBlob`), dann die übrigen; zwei gleich benannte Pakete zweier Sitzungen (z. B. 8A und 8B) macht `ZipBlob.add` eindeutig („ (2)“);
+  `doneText` bekommt die Paket-Sätze als `extra`.
+* **„Ich bin jetzt im Unterricht“ (`public/inclasslib.js`, `public/inclass.js`):** `materialColumns(…, {packs})` stellt je Paket einen Eintrag
+  `{type: "pack", pack, members}` vor die übrigen Druckdateien der Spalte „Nur für die Lehrkraft“; `materialKey` kennt ihn. Die Ansicht zeigt
+  `li.ic-pack` (Name, Abzeichen „zum Ausdrucken“ und „Sitzungspaket“, `packMetaText`, „Herunterladen“ über `api.packActs`) mit den Dateien klein darunter
+  (`ul.ic-members`, `li.ic-member` mit ihren gewohnten Knöpfen). `session.js`/`gssession.js` reichen `packs`/`packActs` der Druckliste herein.
+* **„Alle Unterlagen dieser Sitzung“ (`public/lessonzip.js`):** Im Ordner „Zum Ausdrucken“ liegen die Pakete statt ihrer Dateien (über `packPrint`);
+  Verweise des Verlaufsplans auf eine Datei eines Pakets nennen das Paket und den Teil („Zum Ausdrucken/… - Sitzungspaket.pdf (Teil 2)“); „nach dem Druck
+  geändert“ gilt je Teil; Paket-Hinweise mit „im Ordner „Zum Ausdrucken““.
+* **Bewusst nicht:** Der Connector (`get_lesson`, MCP-Anweisungen) nennt weiter die einzelnen Druck-Namen; Sitzungsdatei, Sicherung und Teilen-Ordner
+  (Originalnamen) bleiben unverändert; der Einzel-Download einer Datei bleibt möglich (ihre Zeile unter dem Paket).
+* **Eigene Entscheidungen (ohne Rückfrage):** Pakete stehen oben, die übrigen Dateien darunter in ihrer bisherigen Reihenfolge; eine nicht lesbare Datei
+  eines Pakets kommt in ZIP-Dateien einzeln mit (sonst fehlte sie ganz – vorher war sie immer dabei); die Gymnasium-Reihenfolge erkennt Titel auch ohne
+  Kursivschrift, aber nur als ganze Wörter; die Zeile unter dem Paketnamen sagt, wenn der Verlaufsplan die Materialien (teilweise) nicht nennt; der Betreff
+  der Paket-PDF nennt die Seiten je Datei.
+* **Tests:** Unit `test/unit/printpack.test.mjs` (Gruppierung und Namen, beide Reihenfolgen samt Vereinheitlichung und nicht genannten, Zusammenfügen mit
+  echten pdf-lib-Dokumenten samt Leerseiten, gerader Seitenzahl und Betreff, nicht lesbare und nicht fertige Dateien, weniger als zwei, Druckliste im
+  Browser-Ersatz mit Umstellen ohne Fokusverlust, ZIP-Datei, Paket herunterladen, Grundschule mit wiederverwendeten Bildkarten, „Druckaufträge …“ mit
+  zwei gleich benannten Paketen, kompakte Ansicht), `printjobs.test.mjs` (`packs` beider Schulformen, Schulportal-Eintrag gelesen, weiter 8 Anweisungen),
+  `lessonzip.test.mjs` (Paket im Ordner, „(Teil n)“ im Verlaufsplan, Hinweis), `cardsprint.test.mjs` (geänderte Erwartung: drei Bildkarten-Sätze 1x, einseitig,
+  farbig → ein Sitzungspaket in der ZIP-Datei). E2E: `printnames.mjs` (zwei gleich benannte Vorlagen → Paket statt „… (2).pdf“, Paket einzeln, andere
+  Druckart löst es auf, Fokus bleibt), `cardsprint.mjs` (Teile der Pakete über den Betreff wie einzelne Einträge prüfen – `withPackParts`; Paket aus
+  „Bildkarten Schoepfung“ und „Bildkarten Arche“), `lessonzip.mjs` (Grundschule: Paket im Ordner, Reihenfolge, „(Teil 1/2)“), `inclass.mjs` (Paket in der
+  kompakten Ansicht, Download), `run.mjs` (ZIP des Tages: Erwartung mit den Paketen der Sitzungen).
 
 ## 4zn. Anweisungen an die Lehrkraft in den Foliennotizen (Nachtrag 42, Teil 3)
 

@@ -6,7 +6,8 @@
 //   Präsentation - <Titel>.pdf / .pptx    die Präsentation, wie sie hochgeladen ist, und als PowerPoint daraus (jede Folie ein Bild, Notizen in der
 //                                         Referentenansicht – sharepres.js pdfToPptx)
 //   Notizen zu den Folien - <Titel>.pdf   die Anmerkungs-PDF (nur mit Notizen)
-//   Zum Ausdrucken/                       die Druckliste wie „Alle herunterladen (ZIP)“: Druck-Name mit Anzahl, Druckart und Kurs (materialbox.js packPrint)
+//   Zum Ausdrucken/                       die Druckliste wie „Alle herunterladen (ZIP)“: Druck-Name mit Anzahl, Druckart und Kurs (materialbox.js packPrint),
+//                                         gleiche Druckangaben als ein Sitzungspaket (Nachtrag 42)
 //   Material für Schülerinnen und Schüler/ bzw. Material für die Kinder/, Material für die Lehrkraft/
 //   Aus anderen Sitzungen/                Grundschule: Dateien anderer Sitzungen, auf die der Verlaufsplan verweist ([[pdf:…]])
 //   Ursprüngliche Planung (archiviert)/   Selbstlern-Phase bzw. Vertretung: archiviertes Material und der ursprüngliche Verlaufsplan
@@ -20,7 +21,8 @@ import { pdfToPptx } from "./sharepres.js";
 import { annotatedPdfBytes } from "./pdfnotes.js";
 import { pdfLib } from "./pdfcut.js";
 import { planBlocks, planWithoutStop, unitMeta, namePart } from "./sharelib.js";
-import { GS_SUBJECT, subjectShort, subjectName, classShort, formatCode, fmtDay, planRefs, summaryOutdated } from "./shared.js";
+import { GS_SUBJECT, subjectShort, subjectName, classShort, formatCode, fmtDay, planRefs, summaryOutdated, PACK_TITLE } from "./shared.js";
+import { packNotes } from "./printpack.js";
 import { SUMMARY_STALE } from "./tsummary.js";
 
 export const LZ_FOLDERS = {
@@ -71,9 +73,20 @@ export async function buildLessonZip({ st, gs = false, course = null, portal = n
     if (pp) {
       for (const f of pp.all) onPrint.add(f.id);
       for (const e of pp.entries) {
-        placed.set(e.f.id, add(LZ_FOLDERS.print, e.name, e.data));
+        const path = add(LZ_FOLDERS.print, e.name, e.data);
+        // Sitzungspaket (Nachtrag 42): eine PDF für mehrere Dateien – Verweise des Verlaufsplans auf eine von ihnen nennen das Paket und den Teil
+        if (e.pack) {
+          e.parts.forEach((x, k) => {
+            placed.set(x.f.id, path + " (Teil " + (k + 1) + ")");
+            if (outdatedOf(x.f)) notes.push("„" + x.name + "“ (im " + PACK_TITLE + " „" + path + "“) wurde nach dem letzten Druck noch geändert – im Ordner liegt die zuletzt gedruckte Fassung.");
+          });
+          continue;
+        }
+        placed.set(e.f.id, path);
         if (outdatedOf(e.f)) notes.push("„" + e.name + "“ (Ordner „" + LZ_FOLDERS.print + "“) wurde nach dem letzten Druck noch geändert – im Ordner liegt die zuletzt gedruckte Fassung.");
       }
+      if (pp.packError) notes.push("Die Sitzungspakete ließen sich nicht bilden – die Druckvorlagen liegen einzeln im Ordner „" + LZ_FOLDERS.print + "“.");
+      notes.push(...packNotes(pp.packs || [], "im Ordner „" + LZ_FOLDERS.print + "“"));
       for (const x of pp.failed || []) notes.push("„" + x.f.name + "“ von der Druckliste ließ sich nicht laden – " + why(x.error) + ".");
       for (const f of pp.wait) notes.push("Nicht im Ordner „" + LZ_FOLDERS.print + "“: „" + f.name + "“ – " + (waitWhy ? waitWhy(f) : "wird gerade als PDF gedruckt – bitte gleich noch einmal herunterladen") + ".");
       if (pp.cardsWait.length && cardsNote) notes.push(cardsNote(pp.cardsWait));

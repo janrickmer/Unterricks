@@ -7,7 +7,7 @@
 // bei den Schüler:innen – WebSocket mit Wiederverbindung, ersatzweise höchstens alle 3 s abfragen; nur solange die Ansicht offen und der Tab sichtbar ist).
 import { h, clear, nn, toast, errToast, busy, modal, copyText, fmtBytes, fileIcon, downloadUrl, icon, wsUrl, stateLine, openLayerCount } from "./ui.js";
 import { T, tapi } from "./teacher.js";
-import { formatCode, hasStop, parsePortalMarkup, webUrlLabel } from "./shared.js";
+import { formatCode, hasStop, parsePortalMarkup, webUrlLabel, packMetaText, PACK_TITLE } from "./shared.js";
 import { paintPortalPreview } from "./portalview.js";
 import { ARROW_NAME, LIVE_POLL_MS, STAMP_POLL_MS, PRINT_TAG, materialColumns, materialKey, liveArrow, arrowText, liveSlideText } from "./inclasslib.js";
 
@@ -281,19 +281,31 @@ export function inClassView(api) {
     acts.forEach((a, i) => { if (a.dataset) a.dataset.k = f.id + (e.print ? ":p" : "") + ":" + i; labelled(a, name); });
     const metaText = f.kind === "link" ? "Link · " + webUrlLabel(f.url) : f.kind === "text" ? "Text (als PDF)" : f.size ? fmtBytes(f.size) : "";
     const badge = api.badge && !e.print && f.area === "student" ? api.badge(f) : null;
-    return h("li", { class: "ic-item" + (e.print ? " ic-print" : "") }, fileIcon(f.name, f.mime, f.kind),
+    return h("li", { class: "ic-item" + (e.print ? " ic-print" : "") + (e.member ? " ic-member" : "") }, fileIcon(f.name, f.mime, f.kind),
       h("div", { class: "ic-main" }, h("div", { class: "ic-name", text: name }),
         e.tags.length ? h("div", { class: "ic-tags" }, e.tags.map((t) => h("span", { class: "badge" + (t === PRINT_TAG ? " ic-printtag" : "") }, t === PRINT_TAG ? icon("printer") : null, t))) : null,
         h("div", { class: "ic-meta" }, meta || metaText), badge),
       h("div", { class: "ic-acts" }, acts));
   }
+  /* Sitzungspaket (Nachtrag 42): eine Zeile mit dem Namen des Pakets und „Herunterladen“ (die Dateien zu einer PDF, wie in der Druckliste), darunter klein
+     seine Dateien mit ihren eigenen Knöpfen */
+  function packItem(e) {
+    const { acts } = api.packActs(e.pack);
+    acts.forEach((a, i) => { if (a.dataset) a.dataset.k = "k:" + e.pack.key + ":" + i; labelled(a, e.pack.name); });
+    return h("li", { class: "ic-item ic-pack" }, fileIcon(e.pack.name, "application/pdf", "file"),
+      h("div", { class: "ic-main" }, h("div", { class: "ic-name", text: e.pack.name }),
+        h("div", { class: "ic-tags" }, h("span", { class: "badge ic-printtag" }, icon("printer"), PRINT_TAG), h("span", { class: "badge", text: PACK_TITLE })),
+        h("div", { class: "ic-meta", text: packMetaText(e.pack) })),
+      h("div", { class: "ic-acts" }, acts),
+      h("ul", { class: "ic-list ic-members", "aria-label": "Dateien im " + PACK_TITLE }, e.members.map(fileItem)));
+  }
   function paintMaterial() {
-    const cols = materialColumns(api.st.files, gym ? api.st.sheets : [], { gs: !gym, selbstlern: api.selbstlern(), refCards: api.refCards ? api.refCards() : [] });
+    const cols = materialColumns(api.st.files, gym ? api.st.sheets : [], { gs: !gym, selbstlern: api.selbstlern(), refCards: api.refCards ? api.refCards() : [], packs: api.packs ? api.packs() : [] });
     const key = materialKey(cols);
     if (key === matKey) return;
     matKey = key;
     const col = (id, title, list, empty) => h("section", { class: "ic-col", "aria-labelledby": id }, h("h3", { id, text: title }),
-      list.length ? h("ul", { class: "ic-list" }, list.map((e) => (e.type === "sheet" ? sheetItem(e.sheet) : fileItem(e)))) : h("p", { class: "muted small ic-empty", text: empty }));
+      list.length ? h("ul", { class: "ic-list" }, list.map((e) => (e.type === "sheet" ? sheetItem(e.sheet) : e.type === "pack" ? packItem(e) : fileItem(e)))) : h("p", { class: "muted small ic-empty", text: empty }));
     keepFocus(matBox, (x) => (x.dataset && x.dataset.k) || null, () => clear(matBox).append(
       col("ic-col-s", gym ? "Für Schüler:innen sichtbar" : "Für die Kinder sichtbar", cols.student, gym ? "Kein Material für Schüler:innen." : "Kein Material für die Kinder."),
       col("ic-col-t", "Nur für die Lehrkraft", cols.teacher, "Kein Material nur für die Lehrkraft.")));

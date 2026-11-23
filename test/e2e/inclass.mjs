@@ -334,6 +334,18 @@ export async function inClassE2E({ browser, tp, BASE, T, token, ok, OUT, SHOT, g
     "Grundschule Spalte 2: Vorlesetext, Druckdateien „zum Ausdrucken“ samt Arbeitsblatt (22×), Konzentrationsaufgabe und Bildkarten (" + gtN.join(" | ") + ")");
   d = await dlOf(tp, gT.locator(".ic-item", { hasText: "22x - sw" }).getByRole("button", { name: /^Herunterladen – 22x/ }));
   ok(d.name === "22x - sw - beidseitig - Sach3 - Arbeitsblatt Wasser.pdf", "Druckdatei der Grundschule herunterladen: „" + d.name + "“");
+  // Nachtrag 42: eine zweite Druckvorlage mit denselben Druckangaben wie die Konzentrationsaufgabe (5x, sw, beidseitig) → in der Spalte ein Sitzungspaket mit
+  // „Herunterladen“ (eine PDF: beide Vorlagen, beidseitig je eine Leerseite), seine Dateien klein darunter; nach dem Neuladen bleibt die kompakte Ansicht offen
+  await up(G, "/print?copies=5&duplex=1", "Ausmalbild Regentropfen.pdf", await a4("Ausmalbild"));
+  await tp.reload();
+  const gPack = tp.locator("#ic-material .ic-pack"), PACK_G = "5x - sw - beidseitig - Sach3 - Sitzungspaket.pdf";
+  await gPack.waitFor({ timeout: 20000 });
+  const gMembers = await gPack.locator(".ic-member .ic-name").allTextContents();
+  ok((await gPack.locator(".ic-name").first().textContent()) === PACK_G && gMembers.length === 2 && gMembers.every((n) => n.startsWith("5x - sw - beidseitig - Sach3 - "))
+    && (await gPack.locator(":scope > .ic-main > .ic-meta").textContent()).startsWith("Sitzungspaket · 2 Materialien") && await gPack.locator(".ic-member").getByRole("button", { name: /^Herunterladen – 5x/ }).count() === 2,
+    "„Ich bin jetzt im Unterricht“: Sitzungspaket „" + PACK_G + "“ in der Spalte der Lehrkraft, darunter klein seine Dateien mit eigenem Download (" + gMembers.join(" | ") + ")");
+  d = await dlOf(tp, gPack.getByRole("button", { name: "Herunterladen – " + PACK_G }));
+  ok(d.name === PACK_G && (await PDFDocument.load(d.bytes)).getPageCount() === 4, "… „Herunterladen“ des Pakets: eine PDF „" + d.name + "“ mit beiden Vorlagen (4 Seiten mit Leerseiten für den beidseitigen Druck)");
   // Zwischenstopp per Dialog der Grundschule, gespeichert; Hausaufgabe dasselbe Feld
   await tp.locator("#ic-stop").click();
   const gd = tp.locator(".modal", { hasText: "Wo haben Sie aufgehört?" });

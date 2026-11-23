@@ -961,6 +961,19 @@ body:has(> .presenter) #toasts { top: 1rem; bottom: auto; }   /* im Präsentatio
 /* „Wieder ausdrucken“ (wiederverwendete Bildkarten, Nachtrag 31b): Ziel für den Finger mindestens 44px, Beschriftung in einer Zeile (neben dem langen Stand
    brach sie sonst in „Wieder / ausdrucken“ um) */
 .refoff .btn.small { min-height: 44px; white-space: nowrap; }
+/* Sitzungspaket (Nachtrag 42): die Paketzeile ist eine gewöhnliche Zeile der Druckliste (Name in 700, darunter „Sitzungspaket · n Materialien …“ und die
+   Materialien als nummerierte Liste in --muted, rechts „Herunterladen“); darunter ihre Dateien eingerückt und etwas kleiner, links von einer 2px-Linie
+   --line-ui zusammengehalten – ohne neue Farbe. Gilt für die Druckliste der Sitzung (.printpack) und das Feld „Druckaufträge …“ (.pn-pack). */
+.card .list > * + .printpack, .card .list > * + .pn-pack { border-top: 1px solid var(--line); }
+.pack-order { margin: .3rem 0 0; padding-left: 1.4em; color: var(--muted); }
+.pack-order li { overflow-wrap: anywhere; }
+.packmembers, .pn-members { margin: 0 0 .55rem 1.5rem; padding-left: .35rem; border-left: 2px solid var(--line-ui); }
+.card .packmembers > .item, .card .pn-members > .item { padding-block: .5rem; }
+.card .packmembers > .item + .item, .card .pn-members > .item + .item { border-top: 1px solid var(--line); }
+:is(.pack-member, .pn-member) .name { font-size: .92rem; font-weight: 600; }
+:is(.pack-member, .pn-member) .ficon { width: 32px; height: 32px; border-radius: 9px; font-size: .62rem; }
+#print-pack-hint { margin: .5rem 0 0; }
+@media (max-width: 560px) { .packmembers, .pn-members { margin-left: .5rem; } }
 /* Feibeitsblatt-Verbindung: Kästchen „speichern“, Zeile mit dem Stand der gespeicherten Verbindung */
 .checkrow { display: flex; align-items: flex-start; gap: .5rem; cursor: pointer; }
 .checkrow input { margin-top: .18rem; flex: none; }
@@ -1369,6 +1382,8 @@ img.sub-photo { max-width: 100%; max-height: 60vh; border-radius: 12px; border: 
 .pn-edit { font-size: .92rem; }
 .card.printnext .item { padding-inline: .2rem; }
 .card.printnext .list > .item + .item { border-top-color: color-mix(in srgb, var(--orange) 22%, var(--line)); }
+.card.printnext .list > * + .pn-pack, .card.printnext .list > .pn-pack + .item { border-top-color: color-mix(in srgb, var(--orange) 22%, var(--line)); }
+.card.printnext .pn-members { border-left-color: color-mix(in srgb, var(--orange) 45%, var(--line-ui)); }
 .pn-none { margin: .8rem 0 0; }
 .pn-hint { margin: .8rem 0 0; }
 /* Nachtrag 33: zeigt das Feld auch heute, gibt es zwei Tagesabschnitte – je Tag eine kräftigere Linie, die Überschrift (h3) und „Alle Dateien herunterladen“
@@ -1708,6 +1723,11 @@ main.navwait p { opacity: 0; animation: navwait-zeigen .2s ease-out .5s forwards
 .ic-acts { grid-column: 2; display: flex; flex-wrap: wrap; gap: .4rem; }
 .ic-item .gs-badge { margin-top: .25rem; }
 .ic-empty { margin: 0; padding: .75rem .95rem; }
+/* Sitzungspaket (Nachtrag 42): Eintrag mit „Herunterladen“, darunter seine Dateien eingerückt und kleiner (2px-Linie --line-ui wie in der Druckliste) */
+.ic-pack > .ic-members { grid-column: 1 / -1; margin: .2rem 0 0 1.2rem; border-left: 2px solid var(--line-ui); }
+.ic-members .ic-item { padding: .5rem .7rem; }
+.ic-member .ic-name { font-size: .92rem; font-weight: 600; }
+.ic-member .ficon { width: 32px; height: 32px; border-radius: 9px; font-size: .62rem; }
 @media (max-width: 720px) {
   .ic-mat { grid-template-columns: minmax(0, 1fr); }
   .ic-col + .ic-col { border-left: 0; border-top: 2px solid var(--line-ui); }

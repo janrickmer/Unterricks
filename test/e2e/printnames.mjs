@@ -1,7 +1,8 @@
 // printnames.mjs – End-to-End-Prüfung „Dateinamen der Druckliste mit Kurs“ (Nachtrag 32): „<n>x - <sw|farbig> - <einseitig|beidseitig> - <Kurs> - <Titel>.pdf“.
 // Geprüft in einer eigenen Sitzung des Grundschulkurses „Sachunterricht 3c“ (aus dem Schritt „Grundschule“; anderes Fach als Religion → „Sach3“): Zeilen der
-// Druckliste, Hinweis mit Beispiel, Reihenfolge der Auswahlfelder, Einzel-Download (Name des Browsers und des Servers), ZIP-Datei mit zwei gleich benannten
-// Vorlagen (nichts überschrieben), Änderung des Kurses (neuer Name ohne Umstellung); Gymnasium: Ethik-Kurs 7-K → „Eth7“, PoWi E-Phase (EA) → „PoWiE“ über die API.
+// Druckliste, Hinweis mit Beispiel, Reihenfolge der Auswahlfelder, Einzel-Download (Name des Browsers und des Servers), zwei gleich benannte Vorlagen mit gleichen
+// Druckangaben als Sitzungspaket (Nachtrag 42: eine PDF mit beiden, nichts überschrieben; andere Druckart löst es auf, der Fokus bleibt), Änderung des Kurses (neuer
+// Name ohne Umstellung); Gymnasium: Ethik-Kurs 7-K → „Eth7“, PoWi E-Phase (EA) → „PoWiE“ über die API.
 // Bildschirmfotos 1366/820/390 px, hell und dunkel, in OUT („druckliste-namen-*.png“). Am Ende ist alles gelöscht. Frei erfundene Inhalte, ASCII-Titel
 // (Chromium dieser Umgebung speichert Downloads mit Umlauten im Namen als „download“).
 // ctx = {tp (Seite der Lehrkraft, angemeldet), BASE, T (Fetch mit Anmeldung), token, ok, OUT, SHOT, cand (nächster Arbeitstag), horizontalIssues, gym? [[Fach, Klasse, Kurs]]}
@@ -61,16 +62,26 @@ export async function printNamesE2E({ tp, BASE, T, token, ok, OUT, SHOT, cand, h
   // Einzel-Download unter dem Druck-Namen
   let [dl] = await Promise.all([tp.waitForEvent("download", { timeout: 30000 }), row.getByRole("button", { name: "Herunterladen" }).click()]);
   ok(dl.suggestedFilename() === NAME && readFileSync(await dl.path()).subarray(0, 5).toString() === "%PDF-", "Einzel-Download: „" + dl.suggestedFilename() + "“");
-  // ZIP-Datei: zwei gleich benannte Vorlagen – nichts überschrieben
+  // Nachtrag 42 (geänderte Erwartung, vorher beide Vorlagen einzeln als „… (2).pdf“): gleiche Druckangaben → EIN Sitzungspaket mit beiden Vorlagen – nichts überschrieben
+  const PACK = "21x - farbig - einseitig - Sach3 - Sitzungspaket.pdf";
+  ok(await card.locator(".printpack .packrow .name").textContent() === PACK && await card.locator(".printpack .printrow.pack-member").count() === 2
+    && !(await card.locator("#print-pack-hint").isHidden()), "Druckliste: Sitzungspaket „" + PACK + "“ oben, die beiden Vorlagen klein darunter, Hinweis zum Sitzungspaket");
   [dl] = await Promise.all([tp.waitForEvent("download", { timeout: 30000 }), card.getByRole("button", { name: "Alle herunterladen (ZIP)" }).click()]);
   const entries = await readZip(new Uint8Array(readFileSync(await dl.path())));
-  const texts = await Promise.all(entries.map(async (e) => (await PDFDocument.load(e.data)).getPageCount()));
-  ok(JSON.stringify(entries.map((e) => e.name)) === JSON.stringify([NAME, "21x - farbig - einseitig - Sach3 - Wasser (2).pdf"]) && texts.every((n) => n === 1)
-    && Buffer.compare(Buffer.from(entries[0].data), Buffer.from(entries[1].data)) !== 0,
-    "ZIP-Datei: beide Vorlagen, die zweite als „… (2).pdf“ (" + entries.map((e) => e.name).join(" | ") + ")");
-  // Druckart ändern: farbig → schwarz-weiß, einseitig → beidseitig
-  await row.locator('select[aria-label^="Schwarz-weiß oder farbig"]').selectOption("0");
+  const packDoc = entries.length === 1 ? await PDFDocument.load(entries[0].data) : null;
+  ok(JSON.stringify(entries.map((e) => e.name)) === JSON.stringify([PACK]) && packDoc && packDoc.getPageCount() === 2,
+    "ZIP-Datei: ein Sitzungspaket mit beiden Vorlagen (2 Seiten, einseitig ohne Leerseite) (" + entries.map((e) => e.name).join(" | ") + ")");
+  // das Paket allein über seine Zeile
+  [dl] = await Promise.all([tp.waitForEvent("download", { timeout: 30000 }), card.getByRole("button", { name: "Herunterladen – " + PACK }).click()]);
+  ok(dl.suggestedFilename() === PACK && (await PDFDocument.load(readFileSync(await dl.path()))).getPageCount() === 2, "Sitzungspaket einzeln: „" + dl.suggestedFilename() + "“, 2 Seiten");
+  // Druckart ändern: farbig → schwarz-weiß, einseitig → beidseitig – die Vorlage kommt aus dem Sitzungspaket, das Paket löst sich auf (nur noch eine mit diesen
+  // Angaben); der Fokus bleibt im Auswahlfeld, obwohl die Zeile wandert
+  const colorSel = row.locator('select[aria-label^="Schwarz-weiß oder farbig"]');
+  await colorSel.selectOption("0");
   await card.locator(".printrow .name", { hasText: "21x - sw - einseitig - Sach3 - Wasser.pdf" }).waitFor({ timeout: 10000 });
+  await card.locator(".printpack").waitFor({ state: "detached", timeout: 10000 });
+  ok(await tp.evaluate(() => (document.activeElement.getAttribute("aria-label") || "").startsWith("Schwarz-weiß oder farbig")) && await card.locator("#print-pack-hint").isHidden(),
+    "Druckart geändert: kein Sitzungspaket mehr, der Fokus bleibt im Auswahlfeld");
   await row.locator('select[aria-label^="Beidseitig oder einseitig"]').selectOption("1");
   await card.locator(".printrow .name", { hasText: "21x - sw - beidseitig - Sach3 - Wasser.pdf" }).waitFor({ timeout: 10000 });
   ok(true, "Druckart geändert: „21x - sw - beidseitig - Sach3 - Wasser.pdf“");

@@ -524,7 +524,7 @@ export async function gsSessionPage(id, d) {
   // kompakt: Verlaufsplan (mit Zwischenstopp, PDF-Verweise anklickbar), Material samt Druckdateien und Bildkarten, Hausaufgabe – ohne Präsentation und Pfeil
   const icApi = { kind: "gs", id, st, selbstlern: () => false, on: (k, fn) => { icOn[k].add(fn); return () => icOn[k].delete(fn); },
     planText: () => ta.value, paintPlan: (b) => paintPlanPreview(b, ta.value, { fileOf, onPending }), planState,
-    stopMenu, stopDialog, dropStop, stopNext: () => stopNext, openActs: box.openActs, refCards: () => box.refEntries(), badge: fileBadge, homework: hwField, homeworkWrap: true };
+    stopMenu, stopDialog, dropStop, stopNext: () => stopNext, openActs: box.openActs, refCards: () => box.refEntries(), packs: () => box.packs(), packActs: box.packActs, badge: fileBadge, homework: hwField, homeworkWrap: true };
   /* ======================= Alle Unterlagen dieser Sitzung (Nachtrag 41): ganz unten – ZIP-Ordner zum Lesen, Ausdrucken und Mitnehmen ======================= */
   const docsCard = lessonDocsCard({ gs: true, st, box, course, before: async () => { await flushPlan(); hwF.flush(); return { portal: ta.value, homework: hwTA.value || "" }; },
     dirty: () => [tsum && tsum.dirty() ? "der Zusammenfassung für die Lehrkraft" : "", bring.dirty() ? "den Gegenständen zum Mitbringen" : ""] });

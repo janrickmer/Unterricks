@@ -11,7 +11,7 @@ import { inflateSync } from "node:zlib";
 import { createHash } from "node:crypto";
 import { PDFDocument, StandardFonts, rgb, PDFName, PDFString } from "pdf-lib";
 import { startMockAI, startMockFeibeitsblatt, startMockPrinter } from "./mocks.mjs";
-import { readZip } from "../../public/zip.js";
+import { readZip, uniqueNames } from "../../public/zip.js";
 import { horizontalIssues, strayTexts } from "./mobile-audit.mjs";
 import { freeDaysE2E } from "./freedays.mjs";
 import { dialogsE2E } from "./dialogs.mjs";
@@ -3246,7 +3246,14 @@ async function main() {
       r = await tool("add_material_pdf", { lesson_id: gsL, titel: "Konzentrationsaufgabe – Die Schöpfung", html: CONC_HTML, file_id: concId });
       ok(!r.isError && r.structuredContent.pages === 2 && !r.content[0].text.includes("Achtung"), "… wieder zwei Seiten: kein Hinweis");
       const pn = await T("GET", "/api/teacher/print-next");
-      const pnFiles = pn.data.sessions.flatMap((x) => x.files), ready = pnFiles.filter((f) => !(f.design && f.status !== "ready")).map((f) => f.printName);
+      // Nachtrag 42: Dateien einer Sitzung mit gleichen Druckangaben stehen als EIN Sitzungspaket in der ZIP-Datei des Tages (je Sitzung zuerst die Pakete mit mindestens
+      // zwei fertigen Dateien, dann die übrigen fertigen Dateien; gleiche Namen „… (2)“) – ready = Namen, wie sie in der ZIP-Datei stehen müssen
+      const isReady = (f) => !(f.design && f.status !== "ready");
+      const ready = uniqueNames(pn.data.sessions.flatMap((s) => {
+        const packs = (s.packs || []).map((p) => s.files.filter((f) => p.ids.includes(f.id) && isReady(f)).sort((a, b) => p.ids.indexOf(a.id) - p.ids.indexOf(b.id)).map((f) => ({ p, f })));
+        const inPack = new Set((s.packs || []).flatMap((p) => p.ids));
+        return [...packs.flatMap((xs) => (xs.length >= 2 ? [xs[0].p.name] : xs.map((x) => x.f.printName))), ...s.files.filter((f) => isReady(f) && !inPack.has(f.id)).map((f) => f.printName)];
+      }));
       ok(pn.status === 200 && pn.data.candidate === cand && pn.data.date === cand && (await fetch(BASE + "/api/teacher/print-next")).status === 401,
         "GET /api/teacher/print-next: Tag " + cand + " (heute " + now0 + "), nur angemeldet");
       // Startseite Gymnasium: ganz oben, Tag, beide Schulformen gruppiert, Namen wie in der Druckliste der Sitzung

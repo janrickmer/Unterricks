@@ -41,6 +41,7 @@ export async function sessionPage(id) {
   const L = () => st.lesson;
   const analog = isAnalogClass(d.lesson.klass);
   let portalTA = null;
+  let packSync = null;   // Nachtrag 42: Sitzungspakete der Druckliste neu ordnen, wenn sich der Schulportal-Eintrag ändert (gesetzt, sobald die Druckliste steht)
   const row = () => (st.unit && L().unitRow ? (st.unit.rows || []).find((r) => r.uid === L().unitRow) || null : null);
   const ctx = () => ({ lessonId: id, code: L().code, subject: L().subject, klass: L().klass,
     lesson: { title: L().title, topic: L().topic, durationMin: L().durationMin, date: L().date, startTime: L().startTime, ideas: L().ideas, homework: L().homework },
@@ -236,7 +237,7 @@ export async function sessionPage(id) {
   const presPromptBtn = h("button", { class: "btn big", type: "button" }, "Prompt für die Präsentation kopieren");
   const presPromptOut = h("div");
   const genPortalBtn = h("button", { class: "btn primary", type: "button" }, "Schulportal-Eintrag erstellen");
-  function paintPreview() { paintPortalPreview(preview, portalTA.value); updateStopBtns(); tsum.paintNote(); icEmit("plan"); }
+  function paintPreview() { paintPortalPreview(preview, portalTA.value); updateStopBtns(); tsum.paintNote(); if (packSync) packSync(); icEmit("plan"); }
   /* ---- Zwischenstopp: Rechtsklick auf eine Zeile (Textfeld oder Vorschau) → „Zwischenstopp einfügen“ (vor dieser Zeile) ---- */
   const stopBtn = h("button", { class: "btn", type: "button", title: "Vor der Zeile mit der Schreibmarke einfügen" }, icon("pause"), "Zwischenstopp einfügen");
   const unstopBtn = h("button", { class: "btn ghost hidden", type: "button" }, "Zwischenstopp entfernen");
@@ -432,8 +433,10 @@ export async function sessionPage(id) {
     presPromptBtn, presPromptOut);
 
   /* ======================= Materialien (materialbox.js) ======================= */
-  const mbox = materialBox({ lessonId: id, st, L, onPaint: () => icEmit("files") });
+  // Nachtrag 42: Sitzungspakete ordnen ihre Materialien nach dem Schulportal-Eintrag (auch ungespeichert)
+  const mbox = materialBox({ lessonId: id, st, L, onPaint: () => icEmit("files"), plan: () => (portalTA ? portalTA.value : L().portal || "") });
   const { filesCard, printCard, paintFiles, paintPrint, filesKey, openActs } = mbox;
+  packSync = () => mbox.syncPacks();
 
   /* ======================= Präsentation ======================= */
   const presCard = h("section", { class: "card" });
@@ -1492,7 +1495,7 @@ export async function sessionPage(id) {
   const icApi = { kind: "gym", id, st, selbstlern: selbstNow, on: (k, fn) => { icOn[k].add(fn); return () => icOn[k].delete(fn); },
     planText: () => (portalTA ? portalTA.value : L().portal || ""), paintPlan: (box) => paintPortalPreview(box, portalTA ? portalTA.value : L().portal || ""), planState: portalState,
     stopMenu: (line, x, y) => { if (!portalTA) showPortalEditor(); stopMenu(line, x, y); }, insertStop: (line) => { if (!portalTA) showPortalEditor(); insertStopAt(line); }, dropStop,
-    stopNext: () => stopNext, openActs, homework: hwCard, annotated: (p) => st.files.find((f) => f.notesOf === p.id && f.area !== "archive") || null,
+    stopNext: () => stopNext, openActs, packs: () => mbox.packs(), packActs: mbox.packActs, homework: hwCard, annotated: (p) => st.files.find((f) => f.notesOf === p.id && f.area !== "archive") || null,
     // auch eine Präsentation, deren Folienbilder noch fehlen (die kompakte Ansicht sagt es; live starten nur „ready“ – startLive nimmt curPres)
     pres: () => st.files.find((f) => f.area === "presentation") || null,
     startLive: (focusAfter) => startLive(focusAfter),

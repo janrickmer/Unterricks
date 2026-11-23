@@ -5,9 +5,10 @@ import { lazy } from "./update.js";
 import { h, clear, toast, errToast, busy, modal, confirmDialog, fmtBytes, fmtTime, fileIcon, downloadUrl, downloadBlob, upload, apiUrl, nn, icon } from "./ui.js";
 import { onLeave } from "./app.js";
 import { T, tapi } from "./teacher.js";
-import { subjectName, formatCode, classShort, cleanWebUrl, webUrlLabel, printFileName, printCourse, subjectShort, printReady, CARD_PRINT, refCardsOf, fmtDay } from "./shared.js";
+import { subjectName, formatCode, classShort, cleanWebUrl, webUrlLabel, printFileName, printCourse, subjectShort, printReady, CARD_PRINT, refCardsOf, fmtDay, printPacks, packMetaText, PACK_TITLE } from "./shared.js";
 import { renderMarkdown } from "./markdown.js";
 import { designState, printDesignState, printQueue } from "./designrender.js";
+import { PACK_HINT, packEntries, packNotes, buildPack, packDoneText } from "./printpack.js";
 
 /* Ablagefläche für Dateien (Klick, Tastatur, Ziehen) */
 export function dropZone(label, hint, onFiles, accept, multiple = true) {
@@ -35,7 +36,8 @@ export function dropZone(label, hint, onFiles, accept, multiple = true) {
    onPaint() (Nachtrag 35): nach jedem Neuzeichnen der Listen bzw. einer Zeile – die kompakte Ansicht „Ich bin jetzt im Unterricht“ folgt dem Stand. */
 /* refPlan (Grundschule, Nachtrag 31b): () → Text des Verlaufsplans – Bildkarten einer anderen Sitzung des Kurses (st.courseCards), auf die er verweist, stehen auch
    auf der Druckliste dieser Sitzung (Druckangaben dieser Sitzung in st.cardPrints; „Nicht ausdrucken“ nur hier) */
-export function materialBox({ lessonId: id, st, L, gs = false, labels = {}, exclude = null, fileBadge = null, printCopies = null, subtitle = null, groupLabel = null, onChange = null, onPrintChange = null, beforeZip = null, course = null, onPaint = null, refPlan = null }) {
+/* plan (Gymnasium, Nachtrag 42): () → Schulportal-Eintrag (auch ungespeichert) – nach ihm ordnet das Sitzungspaket seine Materialien (Grundschule: refPlan) */
+export function materialBox({ lessonId: id, st, L, gs = false, labels = {}, exclude = null, fileBadge = null, printCopies = null, subtitle = null, groupLabel = null, onChange = null, onPrintChange = null, beforeZip = null, course = null, onPaint = null, refPlan = null, plan = null }) {
   const lb = { student: "Für Schüler:innen zugänglich", teacher: "Nur für Lehrkräfte", toStudent: "Für Schüler:innen", toTeacher: "Nur für Lehrkraft",
     nowStudent: "Jetzt für Schüler:innen sichtbar.", nowTeacher: "Jetzt nur noch für Lehrkräfte.", teacherHint: "Wird Schüler:innen nie angezeigt", hint: null, ...labels };
   const shown = (f) => !exclude || !exclude(f);
@@ -252,7 +254,8 @@ export function materialBox({ lessonId: id, st, L, gs = false, labels = {}, excl
         f.design ? f.design.htmlAt + "/" + f.design.pdfAt + "/" + (f.design.error || "") : ""]).join(":")).join("|");
   }
   let refsPainted = "";
-  const syncRefs = () => { if (refKey() !== refsPainted) paintPrint(); };
+  // … und ordnet die Sitzungspakete neu, wenn der Verlaufsplan sie jetzt anders braucht (Nachtrag 42; ohne Neuaufbau der Zeilen)
+  const syncRefs = () => { if (refKey() !== refsPainted) paintPrint(); else syncPacks(); };
   const printFiles = () => [...st.files.filter((f) => f.area === "print" || (gs && f.area === "student" && f.print && shown(f)) || (isCards(f) && f.print)), ...refEntries().filter((f) => !f.refOff)];
   const refFrom = (f) => "aus der Sitzung „" + (f.lessonTitle || "ohne Titel") + "“" + (f.date ? " (" + fmtDay(f.date) + ")" : "");
   /* Druckangaben dieser Sitzung für wiederverwendete Bildkarten speichern (PUT …/card-prints) – die Druckliste ihrer eigenen Sitzung bleibt unberührt.
@@ -305,9 +308,11 @@ export function materialBox({ lessonId: id, st, L, gs = false, labels = {}, excl
           const q = (st.cardPrints || {})[f.id];
           if (!row || !row.isConnected || !q || q.off) { syncRefs(); return; }   // inzwischen neu aufgebaut bzw. abgewählt: die Liste zeigt den Stand
           f.print = { copies: q.copies, duplex: q.duplex, color: q.color }; f.printName = refName(f.name, f.print);
-          showName(); refsPainted = refKey(); painted(); return;
+          showName(); refsPainted = refKey(); syncPacks(); painted(); return;
         }
         const r = await tapi("PATCH", "/api/teacher/files/" + f.id, { body }); Object.assign(f, r.file); showName(); printChanged(f);
+        // Nachtrag 42: andere Anzahl bzw. Druckart – die Datei kommt aus ihrem Sitzungspaket bzw. in ein anderes (die Zeile wandert, der Fokus bleibt in ihr)
+        syncPacks();
       }
       catch (e) { errToast(e); paintPrint(); }
     };
@@ -364,11 +369,11 @@ export function materialBox({ lessonId: id, st, L, gs = false, labels = {}, excl
         if (!(await confirmDialog("Druckvorlage löschen", "„" + nameOf(f) + "“ endgültig löschen?", "Löschen", true))) return;
         try { await tapi("DELETE", "/api/teacher/files/" + f.id); st.files = st.files.filter((x) => x !== f); paintPrint(); changed(); } catch (e) { errToast(e); }
       } }, icon("trash")));
-    row = h("div", { class: "item printrow" + (des && des.error ? " design-err" : "") }, fileIcon(f.name, "application/pdf", "file"), h("div", { class: "main" }, nameEl,
+    row = h("div", { class: "item printrow" + (des && des.error ? " design-err" : "") + (packMember.has(f.id) ? " pack-member" : "") }, fileIcon(f.name, "application/pdf", "file"), h("div", { class: "main" }, nameEl,
       h("div", { class: "pset" }, h("label", { class: "small pcount" }, copies, h("span", { text: "Exemplare" })), color, duplex),
       des ? h("div", { class: "meta" }, des.meta, (isCards(f) ? " · Bildkarten" + (f.ref ? " " + refFrom(f) : "") : "") + (des.d.ok ? " · " + fmtBytes(f.size) : "") + (f.source === "vertretung" ? " · Vertretung" : f.source === "selbstlern" ? " · Selbstlern-Phase" : f.source === "uebernommen" ? " · übernommen" : ""))
         : h("div", { class: "meta", text: (isCards(f) ? "Bildkarten" + (f.ref ? " " + refFrom(f) : "") + " · " : "") + (f.kind === "text" ? "Text (als A4-PDF)" : fmtBytes(f.size)) + (f.source === "claude" ? " · von Claude" : f.source === "uebernommen" ? " · übernommen" : "") })), acts);
-    rowEls.set(f.id, row);
+    rowEls.set(f.id, row); prEls.set(f.id, row);
     return row;
   }
   async function uploadPrint(files) {
@@ -411,7 +416,9 @@ export function materialBox({ lessonId: id, st, L, gs = false, labels = {}, excl
   /* Druckliste packen – für „Alle herunterladen (ZIP)“ und für „Alle Unterlagen dieser Sitzung“ (Nachtrag 41): Stand vom Server (Grundschule), fertige Dateien
      mit ihrem Druck-Namen. Gestaltete Vorlagen, die noch nicht gedruckt sind, fehlen (wait); Bildkarten erst mit der PDF ihrer aktuellen Gestaltung (printReady,
      cardsWait – noch nicht gedruckte werden dabei gedruckt). tolerant („Alle Unterlagen dieser Sitzung“): eine Datei, die sich nicht laden lässt, bricht nicht
-     alles ab, sondern steht in failed. → {all, entries: [{f, name, data}], wait, cardsWait, failed: [{f, error}]} */
+     alles ab, sondern steht in failed. Nachtrag 42: Dateien eines Sitzungspakets kommen als EINE PDF (printpack.js packEntries – Pakete zuerst, ihre Dateien
+     nicht noch einmal einzeln); packs = was mit den Paketen geschah (für die Hinweise, printpack.js packNotes).
+     → {all, entries: [{f, name, data} | {pack, name, data, pages, blanks, parts: [{f, name}]}], wait, cardsWait, failed: [{f, error}], packs, packError} */
   async function packPrint({ tolerant = false } = {}) {
     if (beforeZip) { try { await beforeZip(); } catch {} }   // Grundschule: Stand vom Server (ein Fehler hier hält die ZIP-Datei nicht auf)
     const all = printFiles();
@@ -430,21 +437,116 @@ export function materialBox({ lessonId: id, st, L, gs = false, labels = {}, excl
         cardsWait.push(f); setZipNote(cardsWait); repaintFile(f.id);
       }
     }
-    return { all, entries, wait, cardsWait, failed };
+    // Nachtrag 42: Sitzungspakete (Reihenfolge des Verlaufsplans) – lässt sich pdf-lib nicht laden, kommen die Dateien einzeln (nie ein Abbruch deswegen)
+    let packed = { entries, info: [] }, packError = null;
+    const packs = packsOf(all);
+    if (packs.length) {
+      try { packed = await packEntries(entries, packs, pdfLib); }
+      catch (err) { packError = err; packed = { entries, info: [] }; }
+    }
+    return { all, entries: packed.entries, wait, cardsWait, failed, packs: packed.info, packError };
   }
   const zipBtn = h("button", { class: "btn", type: "button", onclick: (e) => busy(e.currentTarget, async () => {
     try {
-      const { all, entries, wait, cardsWait } = await packPrint();
+      const { all, entries, wait, cardsWait, packs, packError } = await packPrint();
       if (!all.length) return;
       if (!entries.length) { toast(cardsWait.length ? cardsMissingText(cardsWait) : "Die Vorlagen werden gerade noch als PDF gedruckt – bitte gleich noch einmal.", "err", cardsWait.length ? 9000 : 4200); return; }
       const { makeZip } = await lazy(import("./zip.js"));
       downloadBlob(new Blob([makeZip(entries)], { type: "application/zip" }), zipName());
-      const late = wait.length || cardsWait.length;
+      const notes = packNotes(packs, "in der ZIP-Datei"), made = entries.filter((x) => x.pack).length;
+      const late = wait.length || cardsWait.length || notes.length || packError;
       toast((entries.length === 1 ? "Die Datei ist als ZIP-Datei heruntergeladen." : "Alle " + entries.length + " Dateien sind als eine ZIP-Datei heruntergeladen.") +
+        (made ? " Gleiche Druckangaben sind zu " + (made === 1 ? "einem " + PACK_TITLE : made + " Sitzungspaketen") + " zusammengefasst." : "") +
+        (packError ? " Die Sitzungspakete ließen sich nicht bilden – die Dateien liegen einzeln in der ZIP-Datei." : "") + (notes.length ? " " + notes.join(" ") : "") +
         (wait.length ? " Noch nicht dabei (wird gerade als PDF gedruckt): " + wait.map((f) => "„" + f.name + "“").join(", ") + "." : "") + (cardsWait.length ? " " + cardsMissingText(cardsWait) : ""),
         late ? "" : "ok", late ? 9000 : 4200);
     } catch (err) { errToast(err); }
   }, "Packe die Dateien …") }, icon("download"), "Alle herunterladen (ZIP)");
+  /* ======================= Sitzungspaket (Nachtrag 42) ======================= */
+  // Text des Verlaufsplans (Grundschule) bzw. Schulportal-Eintrags (Gymnasium), nach dem die Pakete ihre Materialien ordnen – auch ungespeichert
+  const planNow = () => { try { return String((gs ? (refPlan ? refPlan() : "") : plan ? plan() : "") || ""); } catch { return ""; } };
+  const packsOf = (fs) => printPacks(fs, { plan: planNow(), gs, course: pc() }).packs;
+  let packMember = new Set(), packsPainted = "";
+  // Stand der Pakete: welche Dateien in welcher Reihenfolge (und ob der Plan sie nennt); ändert er sich, ordnet layoutPrint die Zeilen neu
+  const packKeyOf = (packs, single) => packs.map((p) => p.name + "=" + p.planned + ":" + p.files.map((f) => f.id + "/" + f.name).join(",")).join("|") + "#" + single.map((f) => f.id).join(",");
+  const packEls = new Map();   // Paketzeilen je Stand – ein laufender Download behält seine Zeile
+  // Zeilen der Druckliste je Datei (rowEls kennt je Datei nur die zuletzt gebaute Zeile – bei einem Arbeitsblatt der Kinder mit „Auch ausdrucken“ auch die im Materialkasten)
+  const prEls = new Map();
+  /* Ein Paket herunterladen: die fertigen Dateien in der Reihenfolge des Plans zu einer PDF (printpack.js buildPack); nur eine fertig → einzeln; Rückmeldung als Toast */
+  async function downloadPack(pack) {
+    const r = await buildPack(pack, { bytesOf: printBytes, nameOf: (f) => nameOf(f), lib: pdfLib,
+      // Bildkarten, die inzwischen neu gestaltet und noch nicht gedruckt sind (409 cards_not_printed): nicht dabei, aber genannt – wie in der ZIP-Datei
+      wait: (f, err) => {
+        if (!(f.cards && err && err.code === "cards_not_printed")) return false;
+        for (const x of new Set([f, (f.ref && courseCard(f.id)) || f])) if (x.design) x.design = { ...x.design, outdated: true };
+        repaintFile(f.id); return true;
+      } });
+    if (r.bytes) downloadBlob(new Blob([r.bytes], { type: "application/pdf" }), pack.name);
+    else if (r.single) downloadBlob(new Blob([r.single.data], { type: "application/pdf" }), r.single.name);
+    const t = packDoneText(pack, r, { nameOf: (f) => nameOf(f), waitWhy: cardWhy });
+    toast(t.text, t.ok ? "ok" : r.bytes || r.single ? "" : "err", t.ok ? 4200 : 9000);
+  }
+  // Zeile eines Pakets: Name, „Sitzungspaket · n Materialien in der Reihenfolge des Verlaufsplans“, die Materialien der Reihe nach und „Herunterladen“
+  function packRow(pack) {
+    const k = pack.key, hid = "print-pack-" + k.replace(/[^a-z0-9]+/gi, "-");
+    const btn = h("button", { class: "btn small primary", type: "button", "aria-label": "Herunterladen – " + pack.name, dataset: { pack: k },
+      onclick: (e) => busy(e.currentTarget, async () => { try { await downloadPack(packsOf(printFiles()).find((p) => p.key === k) || pack); } catch (err) { errToast(err); } }, "Füge zusammen …") }, icon("download"), "Herunterladen");
+    return h("div", { class: "item packrow", id: hid }, fileIcon(pack.name, "application/pdf", "file"),
+      h("div", { class: "main" }, h("div", { class: "name", text: pack.name }), h("div", { class: "meta", text: packMetaText(pack) }),
+        h("ol", { class: "pack-order small", "aria-label": "Reihenfolge im " + PACK_TITLE }, pack.files.map((f) => h("li", { text: String(f.name || "").replace(/\.pdf$/i, "") })))),
+      h("div", { class: "acts" }, btn));
+  }
+  /* Druckliste anordnen: Pakete oben (je Paket die Paketzeile und darunter klein seine Dateien), dann die übrigen Dateien. rebuild = Zeilen neu bauen
+     (paintPrint); sonst nur umstellen (syncPacks – die Zeilen bleiben dieselben Elemente, der Fokus wird zurückgesetzt, falls das Umstellen ihn nahm) */
+  function layoutPrint(fs, rebuild) {
+    const { packs, single } = printPacks(fs, { plan: planNow(), gs, course: pc() });
+    packMember = new Set(packs.flatMap((p) => p.files.map((f) => f.id)));
+    packsPainted = packKeyOf(packs, single);
+    const had = printList.contains(document.activeElement) ? document.activeElement : null;
+    // alle Zeilen zuerst bestimmen (vorhandene bleiben dieselben Elemente), erst dann umstellen – sonst ginge eine Zeile beim Aufräumen eines Pakets verloren
+    const rows = new Map(fs.map((f) => {
+      const el = rebuild ? null : prEls.get(f.id);
+      const row = el && printList.contains(el) ? el : printRow(f);
+      row.classList.toggle("pack-member", packMember.has(f.id));
+      return [f.id, row];
+    }));
+    const rowOf = (f) => rows.get(f.id);
+    const used = new Set();
+    const groups = packs.map((p) => {
+      const sig = p.key + "|" + p.name + "|" + p.planned + "|" + p.files.map((f) => f.id + "/" + f.name).join(",");
+      let g = rebuild ? null : packEls.get(sig);
+      if (!g) g = h("div", { class: "printpack", role: "group", "aria-label": PACK_TITLE + " – " + p.name }, packRow(p), h("div", { class: "list packmembers" }));
+      used.add(sig); packEls.set(sig, g);
+      const box = g.lastChild, mine = p.files.map(rowOf);
+      mine.forEach((r, i) => { if (box.childNodes[i] !== r) box.insertBefore(r, box.childNodes[i] || null); });
+      while (box.childNodes.length > mine.length) box.lastChild.remove();
+      return g;
+    });
+    for (const k of Array.from(packEls.keys())) if (!used.has(k)) packEls.delete(k);
+    const kids = [...groups, ...single.map(rowOf)];
+    kids.forEach((el, i) => { if (printList.childNodes[i] !== el) printList.insertBefore(el, printList.childNodes[i] || null); });
+    while (printList.childNodes.length > kids.length) printList.lastChild.remove();
+    packHint.classList.toggle("hidden", !packs.length);
+    // das Umstellen nimmt einem verschobenen Element den Fokus – zurück auf dasselbe Bedienelement (nur wenn er sonst verloren wäre)
+    if (had && had.isConnected && document.activeElement !== had && (!document.activeElement || document.activeElement === document.body)) had.focus({ preventScroll: true });
+    else if (had && !had.isConnected && (!document.activeElement || document.activeElement === document.body)) { printHead.setAttribute("tabindex", "-1"); printHead.focus({ preventScroll: true }); }
+  }
+  // Pakete neu ordnen, wenn sich ihr Stand geändert hat (Druckangaben einer Zeile, Verlaufsplan bzw. Schulportal-Eintrag) – sonst bleibt alles stehen
+  function syncPacks() {
+    const fs = printFiles();
+    if (!fs.length) return;
+    const { packs, single } = printPacks(fs, { plan: planNow(), gs, course: pc() });
+    if (packKeyOf(packs, single) === packsPainted) return;
+    layoutPrint(fs, false);
+    painted();
+  }
+  const packHint = h("p", { class: "small muted hidden", id: "print-pack-hint", text: PACK_HINT });
+  /* Kompakte Ansicht „Ich bin jetzt im Unterricht“: Herunterladen eines Pakets wie in der Paketzeile */
+  function packActs(pack) {
+    return { acts: [h("button", { class: "btn small primary", type: "button", onclick: (e) => busy(e.currentTarget, async () => {
+      try { await downloadPack(packsOf(printFiles()).find((p) => p.key === pack.key) || pack); } catch (err) { errToast(err); }
+    }, "Füge zusammen …") }, icon("download"), "Herunterladen")], meta: null };
+  }
   // wiederverwendete Bildkarten, die in dieser Sitzung abgewählt sind (Nachtrag 31b): darunter, mit „Wieder ausdrucken“
   const refOffBox = h("div", { class: "list refoff hidden", id: "print-refoff" });
   function paintRefOff() {
@@ -465,7 +567,9 @@ export function materialBox({ lessonId: id, st, L, gs = false, labels = {}, excl
   function paintPrint() {
     const fs = printFiles();
     refsPainted = refKey();
-    clear(printList).append(...(fs.length ? fs.map(printRow) : [h("p", { class: "muted small", text: "Noch nichts zum Ausdrucken." })]));
+    // Nachtrag 42: Sitzungspakete oben, ihre Dateien klein darunter, dann die übrigen Dateien (layoutPrint baut die Zeilen hier neu)
+    if (fs.length) { clear(printList); layoutPrint(fs, true); }
+    else { packMember = new Set(); packsPainted = ""; packEls.clear(); packHint.classList.add("hidden"); clear(printList).append(h("p", { class: "muted small", text: "Noch nichts zum Ausdrucken." })); }
     paintRefOff();
     zipBtn.disabled = !fs.length;
     // Hinweis zur ZIP-Datei: Bildkarten, die inzwischen nicht mehr auf der Liste stehen (heruntergenommen, gelöscht), nennt er nicht mehr
@@ -481,7 +585,7 @@ export function materialBox({ lessonId: id, st, L, gs = false, labels = {}, excl
       "Der Dateiname nennt Anzahl, schwarz-weiß/farbig, einseitig/beidseitig, den Kurs und den Titel, z. B. „" + printFileName({ name: gs ? "Die Arche Noah" : "Arbeitsblatt", copies: gs ? 23 : 28, duplex: !gs, color: false, course: pc() }) + "“." }),
     lb.printHint ? h("p", { class: "small", id: "print-cards-hint", text: lb.printHint }) : null,
     dropZone("PDF-Dateien zum Ausdrucken hier ablegen oder auswählen", "Nur PDF · Farbe bitte nur, wenn sie unbedingt nötig ist", uploadPrint, "application/pdf,.pdf"),
-    printProg, printList, refOffBox, h("div", { class: "row", style: { marginTop: ".6rem" } }, zipBtn), gs ? zipNote : null,
+    printProg, printList, packHint, refOffBox, h("div", { class: "row", style: { marginTop: ".6rem" } }, zipBtn), gs ? zipNote : null,
     h("p", { class: "hint", text: "Claude gestaltet über den Connector auch Druckvorlagen selbst (mit Vorschlag für Anzahl, beidseitig und Farbe); Unterricks druckt sie als PDF – Sie prüfen sie hier." }));
   paintPrint();
   // Schlüssel des Dateistands: neue, gelöschte, umbenannte und (von Claude) neu gestaltete oder inzwischen gedruckte Dateien
@@ -508,5 +612,8 @@ export function materialBox({ lessonId: id, st, L, gs = false, labels = {}, excl
   // refKey: Stand der wiederverwendeten Bildkarten (Verweise, Druckangaben dieser Sitzung, Gestaltung); syncRefs(): ändert er sich (Verlaufsplan, anderes Fenster),
   // zeichnet die Druckliste neu – sonst bleibt sie stehen (Fokus und Eingaben)
   // waitWhy: warum eine gestaltete Vorlage (noch) nicht gedruckt ist – wie die Zeile unter „Alle herunterladen (ZIP)“
-  return { filesCard, printCard, paintFiles, paintPrint, repaintFile, filesKey, openActs, refEntries, refKey, syncRefs, packPrint, printName: (f) => nameOf(f), cardsMissingText, waitWhy: cardWhy };
+  // packs()/packActs (Nachtrag 42): Sitzungspakete der Druckliste und ihr Herunterladen – für die kompakte Ansicht; syncPacks(): nach einer Änderung des Plans
+  // (Gymnasium: Schulportal-Eintrag) die Pakete neu ordnen
+  return { filesCard, printCard, paintFiles, paintPrint, repaintFile, filesKey, openActs, refEntries, refKey, syncRefs, syncPacks, packs: () => packsOf(printFiles()), packActs,
+    packPrint, printName: (f) => nameOf(f), cardsMissingText, waitWhy: cardWhy };
 }

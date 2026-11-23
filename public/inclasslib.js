@@ -73,7 +73,9 @@ export const liveSlideText = (live) => (live.view === "code" && (live.slide === 
    → {student: [{type: "sheet", sheet} | {type: "file", file, tags}], teacher: [{type: "file", file, print, tags}]} */
 /* refCards (Grundschule, Nachtrag 31b): wiederverwendete Bildkarten einer anderen Sitzung, die auf der Druckliste dieser Sitzung stehen (materialbox refEntries,
    ohne die hier abgewählten) – hinten an „zum Ausdrucken“ */
-export function materialColumns(files, sheets, { gs = false, selbstlern = false, refCards = [] } = {}) {
+/* packs (Nachtrag 42): Sitzungspakete der Druckliste (materialbox packs() – shared.js printPacks) – wie in der Druckliste stehen sie vor den übrigen Dateien
+   zum Ausdrucken: {type: "pack", pack, members: [Einträge der Druckliste in der Reihenfolge des Pakets, member: true]} (nur mit mindestens zwei Dateien) */
+export function materialColumns(files, sheets, { gs = false, selbstlern = false, refCards = [], packs = [] } = {}) {
   const fs = (Array.isArray(files) ? files : []).filter((f) => f && typeof f.id === "string");
   const student = [], notfall = [], teacher = [], print = [];
   for (const s of Array.isArray(sheets) ? sheets : []) if (s && s.code && s.kind !== "escape") student.push({ type: "sheet", sheet: s });
@@ -91,12 +93,21 @@ export function materialColumns(files, sheets, { gs = false, selbstlern = false,
       print.push({ type: "file", file: f, print: true, tags: cards ? [CARDS_TAG, PRINT_TAG] : [PRINT_TAG] });
   }
   if (gs) for (const f of Array.isArray(refCards) ? refCards : []) if (f && typeof f.id === "string" && !f.refOff) print.push({ type: "file", file: f, print: true, tags: [CARDS_TAG, PRINT_TAG] });
-  return { student: [...student, ...notfall], teacher: [...teacher, ...print] };
+  const inPack = new Set(), packed = [];
+  for (const p of Array.isArray(packs) ? packs : []) {
+    if (!p || !Array.isArray(p.files)) continue;
+    const members = p.files.map((f) => f && print.find((e) => e.file.id === f.id && !inPack.has(e.file.id))).filter(Boolean);
+    if (members.length < 2) continue;
+    for (const e of members) inPack.add(e.file.id);
+    packed.push({ type: "pack", pack: p, members: members.map((e) => ({ ...e, member: true })) });
+  }
+  return { student: [...student, ...notfall], teacher: [...teacher, ...packed, ...print.filter((e) => !inPack.has(e.file.id))] };
 }
 
 /* Schlüssel des Materials: ändert er sich, baut die kompakte Ansicht die Spalten neu (sonst bleibt alles stehen – auch der Fokus) */
 export function materialKey(cols) {
   const one = (e) => (e.type === "sheet" ? "s:" + e.sheet.code + ":" + e.sheet.title
+    : e.type === "pack" ? "k:" + e.pack.name + "=" + (e.pack.planned || 0) + "[" + e.members.map(one).join(";") + "]"
     : [e.file.id, e.file.status, e.file.name, e.file.area, e.file.kind, e.print ? "p" + (e.file.printName || JSON.stringify(e.file.print || "")) : "", e.file.url || "",
       e.file.design ? [e.file.design.htmlAt, e.file.design.pdfAt, e.file.design.error || "", e.file.design.outdated ? 1 : 0].join("/") : ""].join(":"));
   return [...cols.student.map(one), "|", ...cols.teacher.map(one)].join("\n");

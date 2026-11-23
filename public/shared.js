@@ -207,6 +207,88 @@ export const CARD_PRINT = { copies: 1, duplex: false, color: true };
    mit der PDF ihrer AKTUELLEN Gestaltung (die bisherige zeigt alte Karten); hochgeladene Bildkarten haben ihre PDF sofort (status processing heißt nur: die
    Kartenbilder für die Eltern entstehen noch) */
 export const printReady = (f) => (f && f.cards ? !f.design || (f.status === "ready" && !f.design.outdated) : !(f && f.design && f.status !== "ready"));
+/* ---------- Sitzungspaket (Nachtrag 42 vom 23.11.2026) ----------
+ * Wunsch der Lehrkraft: Dateien einer Sitzung, die gleich oft, gleich farbig und gleich ein-/beidseitig gedruckt werden, stehen beim Drucken als EINE PDF
+ * „Sitzungspaket“ da (weniger Druckaufträge), benannt nach dem bekannten Muster: printFileName mit dem Titel „Sitzungspaket“, z. B. „1x - farbig - einseitig -
+ * Reli2 - Sitzungspaket.pdf“; darin die Materialien in der Reihenfolge, in der der Verlaufsplan sie braucht. Das Paket wird nie gespeichert – es entsteht beim
+ * Anzeigen aus den Druckangaben der Dateien (Browser: Druckliste, kompakte Ansicht, ZIP-Dateien; Worker: „Druckaufträge …“ – dieselben Funktionen). */
+export const PACK_TITLE = "Sitzungspaket";
+export const PACK_MIN = 2;   // ein Paket hat mindestens zwei Materialien
+/* Druckangaben, nach denen eine Datei der Druckliste heißt (wie printFileName sie liest: f.print; ohne Angabe 1x, sw, einseitig) */
+export const printSettingsOf = (f) => { const p = (f && f.print) || {}; return { copies: Number(p.copies) || 1, color: !!p.color, duplex: !!p.duplex }; };
+export const printSettingsKey = (p) => (Number(p.copies) || 1) + "|" + (p.color ? "farbig" : "sw") + "|" + (p.duplex ? "beidseitig" : "einseitig");
+// Titel vergleichbar machen: Unicode-NFC, klein, Striche und Anführungszeichen vereinheitlicht, Leerraum zusammengefasst (ohne „.pdf“ und Druck-Präfix)
+const packNorm = (s) => String(s == null ? "" : s).normalize("NFC").toLocaleLowerCase("de-DE").replace(/­/g, "")
+  .replace(/[‐-―−]/g, "-").replace(/[„“”‟«»″"]/g, "\"").replace(/[‚‘’‛‹›′`´]/g, "'").replace(/\s+/g, " ");
+// ohne Satzzeichen am Ende und ohne umschließende Anführungszeichen („~~„Josef“~~“ wie „Josef“)
+const unquote = (t) => { const s = t.trim().replace(/[\s:.,;!?]+$/, ""); const m = /^(["'])(.*)\1$/.exec(s); return m ? m[2].trim() : s; };
+export const packTitleKey = (name) => unquote(packNorm(printTitleOf(name).replace(/\s*\.pdf\s*$/i, "")).trim());
+const isWordCh = (ch) => !!ch && /[\p{L}\p{N}]/u.test(ch);
+/* Wo nennt der Schulportal-Eintrag (Gymnasium) diese Titel? → Map Titel-Schlüssel → Position (Zeichen im vereinheitlichten Text); zuerst die kursiven Titel
+   (~~Titel~~, wie die Vorlage Materialtitel schreibt), sonst der Titel irgendwo im Text (ganze Wörter) */
+function portalTitlePositions(text, keys) {
+  let flat = "";
+  const italic = [];
+  for (const ln of parsePortalMarkup(text)) {
+    let cur = null;
+    for (const r of ln.runs) {
+      const t = packNorm(r.text);
+      if (r.i) { if (!cur) cur = { t: "", at: flat.length }; cur.t += t; }
+      else if (cur) { italic.push(cur); cur = null; }
+      flat += t;
+    }
+    if (cur) italic.push(cur);
+    flat += "\n";
+  }
+  const out = new Map();
+  for (const k of keys) {
+    if (!k || out.has(k)) continue;
+    const hit = italic.find((x) => unquote(x.t.trim()) === k);
+    if (hit) { out.set(k, hit.at); continue; }
+    for (let i = flat.indexOf(k); i >= 0; i = flat.indexOf(k, i + 1)) if (!isWordCh(flat[i - 1]) && !isWordCh(flat[i + k.length])) { out.set(k, i); break; }
+  }
+  return out;
+}
+/* Reihenfolge, in der der Verlaufsplan die Dateien braucht: Grundschule nach den Verweisen [[pdf:…]] (planRefs.all – auch nach einem Zwischenstopp, gedruckt
+   wird vor der Stunde), Gymnasium nach der Stelle, an der der Schulportal-Eintrag ihren Titel nennt; nicht genannte danach in ihrer bisherigen Reihenfolge
+   → [{f, at}] (at = Stelle im Plan, -1 = nicht genannt) */
+export function printPlanOrder(files, plan, gs = false) {
+  const list = (Array.isArray(files) ? files : []).filter((f) => f && typeof f.id === "string");
+  let posOf;
+  if (gs) { const refs = planRefs(plan).all; posOf = (f) => refs.indexOf(f.id); }
+  else {
+    const keys = new Map(list.map((f) => [f, packTitleKey(f.name)]));
+    const pos = portalTitlePositions(plan, new Set(keys.values()));
+    posOf = (f) => (pos.has(keys.get(f)) ? pos.get(keys.get(f)) : -1);
+  }
+  return list.map((f, i) => ({ f, at: posOf(f), i }))
+    .sort((a, b) => (a.at < 0) - (b.at < 0) || (a.at >= 0 && b.at >= 0 ? a.at - b.at : 0) || a.i - b.i).map(({ f, at }) => ({ f, at }));
+}
+/* Pakete einer Sitzung: Dateien der Druckliste mit gleicher Anzahl, Farbe und Druckart (printSettingsOf) – ab PACK_MIN Dateien ein Paket. plan = Verlaufsplan
+   (Grundschule) bzw. Schulportal-Eintrag (Gymnasium), course = Kurs im Namen (printCourse).
+   → {packs: [{key, print: {copies, color, duplex}, name, files (Reihenfolge des Plans), planned (wie viele davon der Plan nennt)}] (nach der ersten Stelle im
+   Plan), single: [Dateien ohne Paket, bisherige Reihenfolge]} */
+export function printPacks(files, { plan = "", gs = false, course = "" } = {}) {
+  const list = (Array.isArray(files) ? files : []).filter((f) => f && typeof f.id === "string");
+  const groups = new Map();
+  for (const x of printPlanOrder(list, plan, gs)) {
+    const p = printSettingsOf(x.f), k = printSettingsKey(p);
+    if (!groups.has(k)) groups.set(k, { key: k, print: p, items: [] });
+    groups.get(k).items.push(x);
+  }
+  const packs = [], inPack = new Set();
+  for (const g of groups.values()) {
+    if (g.items.length < PACK_MIN) continue;
+    packs.push({ key: g.key, print: g.print, name: printFileName({ name: PACK_TITLE, ...g.print, course }), files: g.items.map((x) => x.f), planned: g.items.filter((x) => x.at >= 0).length });
+    for (const x of g.items) inPack.add(x.f);
+  }
+  return { packs, single: list.filter((f) => !inPack.has(f)) };
+}
+/* Zeile unter dem Namen eines Pakets: „Sitzungspaket · 3 Materialien in der Reihenfolge des Verlaufsplans“ */
+export function packMetaText(pack) {
+  const n = pack.files.length, all = pack.planned >= n, none = !pack.planned;
+  return PACK_TITLE + " · " + n + " Materialien in der Reihenfolge " + (none ? "der Druckliste (der Verlaufsplan nennt sie nicht)" : "des Verlaufsplans" + (all ? "" : " (nicht darin genannte zuletzt)"));
+}
 /* „Folie 1–12“ bzw. „Folie 1“ (Präsentation bis zur letzten gezeigten Folie) */
 export const slidesUpTo = (n) => (n === 1 ? "Folie 1" : "Folie 1–" + n);
 // Folienfenster der Schüler:innen nach der Sitzung (Nachtrag 19): so viele Folienlinks liefert der Server je Anfrage (je Folie ein HMAC)

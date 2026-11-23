@@ -521,7 +521,8 @@ test("Prüfung: ZIP-Datei der Grundschule – holt vorher den Stand vom Server (
   const st = { files: [uploaded, designed] };
   let box = null;
   const sync = async () => { st.files = (await globalThis.__tapi("GET", "/api/teacher/lessons/" + fid(99))).files; box.paintPrint(); };
-  box = MB.materialBox({ lessonId: fid(99), st, L: () => ({ subject: "gs", klass: "gsx", date: "2026-11-24" }), gs: true, exclude: (f) => f.cards != null, printCopies: () => 22, beforeZip: sync, groupLabel: "Grundschule - Religion 2ab" });
+  // course wie auf der Sitzungsseite der Grundschule (gssession.js) – das Sitzungspaket (Nachtrag 42) trägt den Kurs im Namen wie seine Dateien
+  box = MB.materialBox({ lessonId: fid(99), st, L: () => ({ subject: "gs", klass: "gsx", date: "2026-11-24" }), gs: true, exclude: (f) => f.cards != null, printCopies: () => 22, beforeZip: sync, groupLabel: "Grundschule - Religion 2ab", course: "Reli2" });
   const app = document.getElementById("app");
   for (const x of [...app.childNodes]) app.removeChild(x);
   app.append(box.filesCard, box.printCard);
@@ -537,9 +538,11 @@ test("Prüfung: ZIP-Datei der Grundschule – holt vorher den Stand vom Server (
     assert.ok(links.length === 3 && links.every((x) => x.body && x.body.print === true), "Bildkarten immer mit print (der Server prüft die Gestaltung)");
     const { readZip } = await import("../../public/zip.js");
     const entries = await readZip(new Uint8Array(await blobs[0].arrayBuffer()));
-    assert.deepEqual(entries.map((e) => e.name).sort(), ["1x - farbig - einseitig - Reli2 - Arche.pdf", "1x - farbig - einseitig - Reli2 - Verlag.pdf"], "neue Bildkarten dabei, die alte Gestaltung nicht");
-    const up = await lib.PDFDocument.load(entries.find((e) => e.name.endsWith("Verlag.pdf")).data);
-    assert.deepEqual(up.getPages().map((p) => [Math.round(p.getWidth()), Math.round(p.getHeight())]), Array(4).fill([842, 595]), "hochgeladene A5-Karten: alle 4 auf A4 quer");
+    // Nachtrag 42 (geänderte Erwartung, vorher die beiden Dateien einzeln): gleiche Druckangaben (1x, farbig, einseitig) → EIN Sitzungspaket; die neuen Bildkarten
+    // dabei, die alte Gestaltung nicht; ohne Verweise im Verlaufsplan in der Reihenfolge der Druckliste (Verlag, dann Arche)
+    assert.deepEqual(entries.map((e) => e.name), ["1x - farbig - einseitig - Reli2 - Sitzungspaket.pdf"], "neue Bildkarten im Sitzungspaket, die alte Gestaltung nicht");
+    const up = await lib.PDFDocument.load(entries[0].data);
+    assert.deepEqual(up.getPages().map((p) => [Math.round(p.getWidth()), Math.round(p.getHeight())]), Array(6).fill([842, 595]), "hochgeladene A5-Karten: alle 4 auf A4 quer, dahinter die 2 Seiten von „Arche“ (einseitig: keine Leerseite)");
     assert.equal($("#print-zip-note").textContent, "Nicht in der ZIP-Datei – die Bildkarten „1x - farbig - einseitig - Reli2 - Noah.pdf“ (wird gerade als PDF gedruckt – bitte gleich noch einmal herunterladen).");
     assert.ok(!$("#print-zip-note").classList.contains("hidden"));
     const noah = $$("#printcard .printrow").find((r) => r.textContent.includes("Noah.pdf"));

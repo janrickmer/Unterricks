@@ -231,7 +231,9 @@ gleich in `public/_headers`, im Worker und – für GitHub Pages – in `scripts
   Arbeitsblätter der Kinder mit „Auch ausdrucken“ und die Bildkarten der Sitzung, z. B. „1x - farbig - einseitig - Reli2 - Bildkarten – Josef.pdf“). Jede Datei lässt sich einzeln herunterladen; **„Alle Dateien herunterladen“** lädt
   seit dem 16.11.2026 (Nachtrag 36) alle Dateien des Tages als **eine ZIP-Datei**, z. B. „Druckaufträge - Dienstag, 17.11.2026.zip“ (vorher einzeln
   nacheinander). Am iPad öffnen Sie sie in der App „Dateien“: Antippen entpackt sie in einen Ordner. Heißen zwei Dateien gleich (z. B. dasselbe
-  Arbeitsblatt für die 8A und die 8B), bekommt die zweite in der ZIP-Datei „ (2)“ – damit nichts überschrieben wird. Lässt sich eine Datei nicht
+  Arbeitsblatt für die 8A und die 8B), bekommt die zweite in der ZIP-Datei „ (2)“ – damit nichts überschrieben wird. Dateien einer Sitzung mit
+  gleichen Druckangaben stehen als **Sitzungspaket** da (siehe unten) – im Feld oben mit „Herunterladen“, die einzelnen Dateien klein darunter, in
+  der ZIP-Datei als eine PDF. Lässt sich eine Datei nicht
   laden, fehlt nur sie, und die Meldung unter dem Knopf nennt sie. Von Claude gestaltete Vorlagen, die noch als PDF gedruckt werden, kommen
   erst danach dazu und werden genannt. Anzahl, Druckart und Namen ändern Sie in der Sitzung („In der Sitzung bearbeiten“ springt zu
   deren Druckliste); das Feld selbst ist nur eine Übersicht.
@@ -432,6 +434,21 @@ gleich in `public/_headers`, im Worker und – für GitHub Pages – in `scripts
   der Zeile ein – in dieser Reihenfolge. Laden Sie eine früher heruntergeladene Druckdatei wieder hoch (z. B. für eine andere Klasse), behält
   Unterricks nur ihren Titel: „23x - sw - einseitig - Reli4 - Die Arche Noah.pdf“ heißt in einer Sitzung der Reli3 mit 21 Exemplaren
   „21x - sw - einseitig - Reli3 - Die Arche Noah.pdf“ – nie doppelt.
+* **Sitzungspaket (seit dem 23.11.2026, Nachtrag 42):** Sollen mehrere Dateien einer Sitzung gleich oft, gleich farbig und gleich ein- bzw.
+  beidseitig gedruckt werden (z. B. Bildkarten und Erzählkarten für den Sitzkreis, je 1x, einseitig, farbig), fasst Unterricks sie beim Drucken
+  zu **einer** PDF-Datei zusammen – ein Druckauftrag statt vieler. Sie heißt nach dem bekannten Muster, nur mit dem Titel „Sitzungspaket“, z. B.
+  **„1x - farbig - einseitig - Reli2 - Sitzungspaket.pdf“**. Darin stehen die Materialien in der Reihenfolge, in der der Verlaufsplan sie braucht:
+  in der Grundschule nach den PDF-Verweisen des Verlaufsplans, am Gymnasium nach der Stelle, an der der Schulportal-Eintrag ihren Titel nennt
+  (kursiv, z. B. „~~AB - Gewaltenteilung~~“); nicht genannte stehen dahinter. Beim beidseitigen Druck beginnt jedes Material auf einem neuen Blatt
+  (nach einem Material mit ungerader Seitenzahl eine Leerseite; die Datei endet mit einer geraden Seitenzahl, damit auch die nächste Kopie auf
+  einem neuen Blatt beginnt). Das Paket gilt überall beim Drucken: in der Druckliste der Sitzung (oben die Paketzeile mit „Herunterladen“ und der
+  Reihenfolge, darunter klein die einzelnen Dateien – ändern Sie dort Anzahl oder Druckart einer Datei, kommt sie aus dem Paket bzw. in ein anderes),
+  in „Alle herunterladen (ZIP)“, in den „Druckaufträgen …“ der Startseiten samt der ZIP-Datei des Tages (zwei gleich benannte Pakete zweier
+  Sitzungen bekommen „ (2)“), in „Ich bin jetzt im Unterricht“ und im Ordner „Zum Ausdrucken“ von „Alle Unterlagen dieser Sitzung“ (der
+  Verlaufsplan im Ordner nennt dann das Paket und den Teil, z. B. „Zum Ausdrucken/… - Sitzungspaket.pdf (Teil 2)“). Was noch nicht als PDF
+  gedruckt ist oder sich nicht lesen lässt, bleibt draußen und wird genannt; ist erst eine Datei eines Pakets fertig, kommt sie einzeln. Die
+  Dokumenteigenschaften der Paket-PDF (Betreff) nennen, welche Datei auf welchen Seiten steht. Das Paket wird nicht gespeichert – es entsteht
+  jedes Mal neu aus den Druckangaben, die Namen der einzelnen Dateien bleiben, wie sie sind.
 * **Einheit als Datei:** Auf der Planungsseite einer Einheit, Karte **„Einheit als Datei“**, gibt es zwei Knöpfe.
   * **„Einheit als Datei herunterladen“** erzeugt eine ZIP-Datei. Darin liegt die Einheitsdatei mit Rahmendaten, Leupold-Schema und
     Ablauf. Dazu kommt je Sitzung ein Ordner, chronologisch nummeriert („01 - 12.11.2026 - …“), mit der Sitzungsdatei.

@@ -27,6 +27,23 @@ async function cardsPdf(n, size = [841.89, 595.28]) {
   for (let i = 0; i < n; i++) { const p = d.addPage(size); p.drawRectangle({ x: size[0] * 0.24, y: size[1] * 0.25, width: size[0] * 0.52, height: size[1] * 0.5, color: rgb(0.2, 0.4, 0.8) }); p.drawText("Bild " + (i + 1), { x: size[0] * 0.43, y: 30, size: 24 }); }
   return Buffer.from(await d.save());
 }
+// Nachtrag 42: Dateien mit gleichen Druckangaben (hier fast immer 1x, einseitig, farbig) stehen als EIN Sitzungspaket in der ZIP-Datei. Damit die Schritte
+// unten jede Bildkarten-Datei weiter für sich prüfen können, kommen die Teile eines Pakets zusätzlich als eigene Einträge dazu – Name und Seiten stehen im
+// Betreff der Paket-PDF („Sitzungspaket: Teil 1 „…“ (Seite 1–3); …“, printpack.js packSubject); die Einträge tragen pack = Name des Pakets
+export async function withPackParts(entries) {
+  const out = [];
+  for (const e of entries) {
+    out.push(e);
+    if (!/Sitzungspaket(?: \(\d+\))?\.pdf$/.test(e.name)) continue;
+    const doc = await PDFDocument.load(e.data);
+    for (const m of (doc.getSubject() || "").matchAll(/„([^“]+)“ \(Seite (\d+)(?:–(\d+))?\)/g)) {
+      const from = Number(m[2]), to = Number(m[3] || m[2]), part = await PDFDocument.create();
+      for (const pg of await part.copyPages(doc, Array.from({ length: to - from + 1 }, (_, i) => from - 1 + i))) part.addPage(pg);
+      out.push({ name: m[1], data: await part.save(), pack: e.name });
+    }
+  }
+  return out;
+}
 // alle Seiten A4 quer?
 async function pdfInfo(buf) {
   const doc = await PDFDocument.load(buf), sizes = doc.getPages().map((p) => p.getSize());
@@ -50,7 +67,8 @@ export async function cardsPrintE2E({ tp, BASE, T, tool, ok, OUT, SHOT, gsL, pri
     await allOfDay().click();
     await statusOfDay().filter({ hasText: /^Fertig/ }).waitFor({ timeout: 120000 });
     await sleep(500); tp.off("download", onDl);
-    return { count: got.length, entries: got.length === 1 ? await readZip(new Uint8Array(readFileSync(await got[0].path()))) : [] };
+    const raw = got.length === 1 ? await readZip(new Uint8Array(readFileSync(await got[0].path()))) : [];
+    return { count: got.length, raw: raw.map((e) => e.name), entries: await withPackParts(raw) };
   };
   // die Sitzung frisch laden (derselbe Hash lädt mit goto nicht neu)
   const openSession = async () => {
@@ -58,13 +76,14 @@ export async function cardsPrintE2E({ tp, BASE, T, tool, ok, OUT, SHOT, gsL, pri
     if (tp.url() === want) await tp.reload(); else await tp.goto(want);
     await card.locator(".printrow").first().waitFor({ timeout: 20000 }); await cbox.waitFor({ timeout: 15000 });
   };
-  // ZIP-Datei der Druckliste herunterladen und entpacken → {names, entries}
+  // ZIP-Datei der Druckliste herunterladen und entpacken → {raw (Namen in der ZIP-Datei), names, entries} – names/entries samt den Teilen der Sitzungspakete
   const zip = async () => {
-    if (await card.getByRole("button", { name: "Alle herunterladen (ZIP)" }).isDisabled()) return { names: [], entries: [] };   // nichts auf der Liste
+    if (await card.getByRole("button", { name: "Alle herunterladen (ZIP)" }).isDisabled()) return { raw: [], names: [], entries: [] };   // nichts auf der Liste
     const [dl] = await Promise.all([tp.waitForEvent("download", { timeout: 60000 }), card.getByRole("button", { name: "Alle herunterladen (ZIP)" }).click()]);
-    const entries = await readZip(new Uint8Array(readFileSync(await dl.path())));
-    return { names: entries.map((e) => e.name), entries };
+    const raw = await readZip(new Uint8Array(readFileSync(await dl.path()))), entries = await withPackParts(raw);
+    return { raw: raw.map((e) => e.name), names: entries.map((e) => e.name), entries };
   };
+  const PACK1 = "1x - farbig - einseitig - Reli2 - Sitzungspaket.pdf";
   const plan0 = (await T("GET", "/api/teacher/lessons/" + gsL)).data.lesson;
 
   /* ---------- a) Claude gestaltet Bildkarten (Connector): auf der Druckliste, 1x einseitig farbig ---------- */
@@ -190,6 +209,11 @@ export async function cardsPrintE2E({ tp, BASE, T, tool, ok, OUT, SHOT, gsL, pri
   await tp.locator("#print-zip-note", { hasText: "jetzt gedruckt" }).waitFor({ timeout: 10000 });
   z = await zip(); ze = z.entries.find((e) => e.name === NAME3); info = ze ? await pdfInfo(Buffer.from(ze.data)) : { pages: 0 };
   ok(info.pages === 2 && info.landscape && await tp.locator("#print-zip-note").isHidden(), "… sobald der Drucker wieder druckt: Hinweis „jetzt gedruckt“, danach in der ZIP-Datei (2 Seiten A4 quer)");
+  // Nachtrag 42: zwei Bildkarten-Sätze mit 1x, einseitig, farbig → EIN Sitzungspaket in der ZIP-Datei (statt der beiden Dateien), auf der Druckliste oben mit
+  // seinen Dateien klein darunter
+  ok(z.raw.includes(PACK1) && !z.raw.includes(NAME) && !z.raw.includes(NAME3) && z.entries.filter((e) => e.pack === PACK1).map((e) => e.name).sort().join("|") === [NAME, NAME3].sort().join("|")
+    && await card.locator(".printpack .packrow .name", { hasText: PACK1 }).count() === 1 && await card.locator(".printpack .printrow.pack-member").count() >= 2,
+    "Sitzungspaket „" + PACK1 + "“: in der ZIP-Datei statt „Bildkarten Schoepfung“ und „Bildkarten Arche“ (" + z.raw.join(" | ") + "), auf der Druckliste oben");
   // Druck der neuen Gestaltung schlägt fehl: die bisherige PDF zeigt alte Karten – nicht herunterladbar, „Erneut drucken“, im ZIP-Hinweis und auf der Startseite genannt
   printer.mode = "fail";
   r = await tool("add_picture_cards", { lesson_id: gsL, titel: "Bildkarten Arche", html: cardsHtml(3, "Arche"), erzaehltexte: ["Noah baut.", "Die Tiere.", "Der Regenbogen."], file_id: aid });

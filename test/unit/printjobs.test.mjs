@@ -167,6 +167,32 @@ test("print-next: Mitternacht in Berlin, Freitag → Montag, freier Tag überspr
 });
 
 // Nachtrag 31 (16.11.2026): Bildkarten mit Druckangaben gehören dazu (vorher ausdrücklich „ohne Bildkarten“ – geändert, weil die Regel sich ändert)
+test("Nachtrag 42: Sitzungspakete je Sitzung (packs) – Gymnasium nach den kursiven Titeln im Schulportal-Eintrag, Grundschule nach den Verweisen; weiter 8 D1-Anweisungen", async () => {
+  const c = await ctx(berlin(17));   // Dienstag → Mittwoch, 18.11.
+  const gs = await gsCourse(c);
+  const G = await lesson(c, { date: "2026-11-18", time: "08:00", title: "Gewaltenteilung" });
+  const K = await lesson(c, { subject: "gs", klass: gs, date: "2026-11-18", time: "07:55", title: "Josef" });
+  const E = await lesson(c, { subject: "ethik", klass: "10C", date: "2026-11-18", time: "11:30", title: "Glück" });
+  const quiz = await file(c, G, { name: "Quiz.pdf", copies: 28 }), ab = await file(c, G, { name: "AB Gewaltenteilung.pdf", copies: 28 }), rolle = await file(c, G, { name: "Rollenkarten.pdf", copies: 28 });
+  await file(c, G, { name: "Tafel.pdf", copies: 1 });   // allein mit diesen Druckangaben – kein Paket
+  const konz = await file(c, K, { name: "Konzentrationsaufgabe.pdf", copies: 1, duplex: 0, color: 1 }), karten = await file(c, K, { area: "teacher", name: "Bildkarten Josef.pdf", copies: 1, duplex: 0, color: 1, cards: '{"v":1}' });
+  await file(c, E, { name: "Text.pdf", copies: 20 });
+  await c.db.prepare("UPDATE lessons SET portal=?1 WHERE id=?2").bind("**2) Erarbeitung**\n- ~~AB Gewaltenteilung~~\n**3) Rollenspiel**\n- ~~Rollenkarten~~", G).run();
+  await c.db.prepare("UPDATE lessons SET portal=?1 WHERE id=?2").bind("- Erzählen mit [[pdf:" + karten + "]]\n- Danach [[pdf:" + konz + "]]", K).run();
+  c.db.counter.n = 0;
+  const r = await call(c);
+  assert.equal(r.status, 200, JSON.stringify(r.data));
+  assert.ok(c.db.counter.n <= 8, "D1-Anweisungen wie bisher: " + c.db.counter.n);
+  const by = new Map(r.data.sessions.map((s) => [s.id, s]));
+  assert.deepEqual(by.get(G).packs, [{ key: "28|sw|beidseitig", name: "28x - sw - beidseitig - PoWi8 - Sitzungspaket.pdf", print: { copies: 28, color: false, duplex: true }, planned: 2, ids: [ab, rolle, quiz] }],
+    "Reihenfolge des Schulportal-Eintrags, nicht genannte zuletzt");
+  assert.deepEqual(by.get(K).packs, [{ key: "1|farbig|einseitig", name: "1x - farbig - einseitig - Reli2 - Sitzungspaket.pdf", print: { copies: 1, color: true, duplex: false }, planned: 2, ids: [karten, konz] }]);
+  assert.equal("packs" in by.get(E), false, "ohne Paket kein Feld");
+  assert.deepEqual(by.get(G).files.map((f) => f.name), ["Quiz.pdf", "AB Gewaltenteilung.pdf", "Rollenkarten.pdf", "Tafel.pdf"], "die Dateien selbst wie bisher (Druck-Namen unverändert)");
+  assert.equal("plan" in by.get(G), false, "den Schulportal-Eintrag selbst schickt der Server nicht mit");
+  assert.match(DAY_SESSIONS_SQL, /portal AS plan/);
+});
+
 test("Auswahl der Druckliste: dieselbe Regel wie printFiles() in der Sitzung (Druckliste; Grundschule auch „Auch ausdrucken“ und Bildkarten mit Druckangaben)", () => {
   assert.match(PRINT_FILES_SQL, /area='print' OR \(print_copies IS NOT NULL AND \(\(area='student' AND cards IS NULL\) OR \(area='teacher' AND cards IS NOT NULL\)\) AND lesson_id IN \(SELECT id FROM lessons WHERE lesson_date IN \(\?1, \?2\) AND cancelled=0 AND subject='gs'\)\)/);   // Nachtrag 33: zwei Tage (geändert)
   const cols = PRINT_FILES_SQL.slice("SELECT ".length, PRINT_FILES_SQL.indexOf(" FROM files")).split(", ").map((x) => x.trim());

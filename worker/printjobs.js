@@ -9,7 +9,7 @@ import { fileOut, PRINT_COURSE_COL } from "./lessons.js";
 import { loadSubjectConfigs } from "./bases.js";
 import { scheduleUnit } from "./units.js";
 import { gsCourseOut } from "./gs.js";
-import { berlinToday, berlinTime, addDays, lessonTimes, subjectName, subjectShort, classShort, printCourse, printFileName, cardPrintsOf, refCardsOf, GS_SUBJECT } from "../public/shared.js";
+import { berlinToday, berlinTime, addDays, lessonTimes, subjectName, subjectShort, classShort, printCourse, printFileName, cardPrintsOf, refCardsOf, printPacks, GS_SUBJECT } from "../public/shared.js";
 import { nextWorkday, printTargetDay, PRINT_AHEAD_DAYS, withSchoolBreaks } from "../public/planning.js";
 import { freeDaysStmt, freeDaysOf } from "./freedays.js";
 import { bringRead } from "../public/bring.js";
@@ -36,9 +36,10 @@ export const FIRST_DAY_SQL = "SELECT MIN(lesson_date) AS d FROM lessons WHERE le
 // … samt den Gegenständen, die die Lehrkraft mitbringen muss (Nachtrag 28: roter Kasten „Für den nächsten Arbeitstag einpacken“ – dieselbe Anweisung) und
 // ob eine Krankheitsvertretung bzw. Selbstlern-Phase aktiv ist (Gymnasium: dann kommt die Lehrkraft nicht und packt nichts ein – Prüfbefund; Suche über den Schlüssel von substitutes);
 // ?1 und ?2 wie bei PRINT_FILES_SQL (Tag der Druckaufträge und heute)
-// … in der Grundschule samt Verlaufsplan und den Druckangaben für wiederverwendete Bildkarten (Nachtrag 31b – die Verweise darin bestimmen sie)
+// … in der Grundschule samt Verlaufsplan und den Druckangaben für wiederverwendete Bildkarten (Nachtrag 31b – die Verweise darin bestimmen sie); seit Nachtrag 42
+// in beiden Schulformen samt Verlaufsplan bzw. Schulportal-Eintrag (portal): danach ordnen die Sitzungspakete ihre Materialien (dieselbe Anweisung)
 export const DAY_SESSIONS_SQL = "SELECT id, subject, klass, title, lesson_date, start_time, duration_min, bring, (SELECT status FROM substitutes WHERE lesson_id=lessons.id) AS sub, " +
-  "CASE WHEN subject='" + GS_SUBJECT + "' THEN portal END AS plan, CASE WHEN subject='" + GS_SUBJECT + "' THEN card_prints END AS card_prints " +
+  "portal AS plan, CASE WHEN subject='" + GS_SUBJECT + "' THEN card_prints END AS card_prints " +
   "FROM lessons WHERE lesson_date IN (?1, ?2) AND cancelled=0";
 
 /* Sitzungen nach Beginn (ohne Uhrzeit zuletzt), dann Kurs bzw. Klasse, dann Titel (auch für den Podcast, worker/podcast.js) */
@@ -125,11 +126,15 @@ export async function routePrintNext(c) {
     // Selbstlern-Phase (Nachtrag 29) wie eine aktive Vertretung: die Lehrkraft kommt nicht, packt also nichts ein – ihre Ausdrucke (z. B. analoge Stationen
     // in Jg. 5/6) bleiben auf der Liste und tragen den Hinweis „Selbstlern-Phase“ (für die Aufsicht); für heute genauso
     const isGs = l.subject === GS_SUBJECT, course = isGs ? gs.get(l.klass) || null : null, bring = l.sub === "aktiv" || l.sub === "selbstlern" ? [] : bringRead(l.bring).items;
+    const pc = printCourse(l.subject, l.klass, course), files = [...(byLesson.get(l.id) || []), ...(isGs ? refCards(l, course) : [])];
+    // Sitzungspakete (Nachtrag 42): gleiche Anzahl, Farbe und Druckart → eine PDF; ids in der Reihenfolge des Verlaufsplans bzw. Schulportal-Eintrags (der Browser
+    // fügt die Dateien zusammen – der Worker hat keine PDF-Bibliothek); nur wenn es welche gibt (eine ältere offene Seite liest das Feld nicht)
+    const packs = printPacks(files, { plan: l.plan || "", gs: isGs, course: pc }).packs.map((p) => ({ key: p.key, name: p.name, print: p.print, planned: p.planned, ids: p.files.map((f) => f.id) }));
     return { id: l.id, subject: l.subject, klass: l.klass, title: l.title || "", date: l.lesson_date, startTime: l.start_time || null, durationMin: l.duration_min ?? null,
       school: isGs ? "gs" : "gym", label: isGs ? (course ? course.short : "Grundschule") : subjectShort(l.subject) + " " + classShort(l.klass),
       subtitle: isGs ? (course ? course.label : "Grundschule") : subjectName(l.subject) + " · " + classShort(l.klass),
-      printCourse: printCourse(l.subject, l.klass, course),
-      ...(course ? { course: { id: course.id, short: course.short, label: course.label } } : {}), files: [...(byLesson.get(l.id) || []), ...(isGs ? refCards(l, course) : [])], ...(bring.length ? { bring } : {}),
+      printCourse: pc,
+      ...(course ? { course: { id: course.id, short: course.short, label: course.label } } : {}), files, ...(packs.length ? { packs } : {}), ...(bring.length ? { bring } : {}),
       ...(l.sub === "selbstlern" ? { selbstlern: true } : {}) };
   };
   const rows = ls.results || [];
