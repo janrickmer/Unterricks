@@ -20,7 +20,7 @@ import { berlinToday, berlinTime, addDays, daysBetween, isIsoDate, isWeekend, pr
 import { printDesignState as designState, printQueue } from "./designrender.js";   // Bildkarten (Nachtrag 31): erst die PDF ihrer aktuellen Gestaltung zählt
 import { freeScopeText } from "./planning.js";
 import { packList, placeLabel, placeText, BRING_BOX_TITLE } from "./bring.js";
-import { uniqueNames, ZipBlob } from "./zip.js";
+import { ZipBlob } from "./zip.js";
 import { buildPack, packDoneText, mergePrintPack, packNotes } from "./printpack.js";   // Sitzungspakete (Nachtrag 42)
 
 /* Ein- und Ausgänge, die Unit-Tests ersetzen (Downloads, Abruf der PDF) */
@@ -331,12 +331,26 @@ export function printNextCards(load = () => tapi("GET", "/api/teacher/print-next
     const hit = (() => { for (const s of allSessions()) for (const p of sessionPacks(s)) if (s.id + ":" + p.key === k) return { s, p }; return null; })();
     if (!hit) return;
     const { s, p } = hit, texts = new Map(), nameOf = (f) => printNameOf(f, s.printCourse);
-    const r = await buildPack(p, { bytesOf: (f) => pdfBytes(f, s, texts), nameOf, lib: pdfLib });
+    let late = false;
+    const r = await buildPack(p, { bytesOf: (f) => pdfBytes(f, s, texts), nameOf, lib: pdfLib,
+      // Bildkarten, die seit dem Laden neu gestaltet und noch nicht gedruckt sind (409 cards_not_printed – Prüfbefund): nicht dabei, aber genannt wie noch nicht
+      // gedruckte; die Warteschlange druckt sie (wie beim Neuladen der Liste), danach lädt die Liste neu
+      wait: (f, err) => {
+        if (!(f.cards && err && err.code === "cards_not_printed")) return false;
+        if (f.design) { f.design = { ...f.design, outdated: true }; const d = designState(f); if (d && d.need) rq.add(f); }
+        late = true; return true;
+      } });
     if (r.bytes) io.blob(new Blob([r.bytes], { type: "application/pdf" }), p.name);
     else if (r.single) io.blob(new Blob([r.single.data], { type: "application/pdf" }), r.single.name);
     const day = data ? printDays(data).days.find((dd) => dd.sessions.some((x) => x.id === s.id)) : null, ui = day ? uiFor(day.key) : null;
-    (ui ? ui.st : status).textContent = packDoneText(p, r, { nameOf }).text;
+    (ui ? ui.st : status).textContent = packDoneText(p, r, { nameOf, waitWhy: waitWhyOf }).text;
+    if (late) refresh();   // läuft der Download noch (busy), wartet das Neuladen bis danach
   }
+  /* warum eine Datei eines Pakets noch nicht dabei ist – wie „Alle Dateien herunterladen“ (doneText: gestaltete Vorlagen, deren PDF-Druck nicht geklappt hat bzw.
+     heute nicht mehr möglich ist, tragen „Erneut drucken“) */
+  const waitWhyOf = (f) => { const d = designState(f);
+    return d && (d.error || (d.need && rq.failed(f))) ? "der PDF-Druck hat nicht geklappt – in der Sitzung „Erneut drucken“"
+      : d && d.need && rq.quota ? "noch nicht gedruckt – " + rq.quota : "wird gerade als PDF gedruckt – bitte gleich noch einmal"; };
   /* Inhalt eines Tages: Gruppen der Sitzungen mit Druckaufträgen, sonst ein Satz; darunter „Ohne Druckaufträge: …“ (Elemente je Tag gemerkt) */
   const textEl = (box, key, cls, text) => { let el = box.get(key); if (!el) { el = h("p", { class: cls }); box.set(key, el); } if (el.textContent !== text) el.textContent = text; return el; };
   const textEls = new Map();
@@ -544,9 +558,10 @@ export function printNextCards(load = () => tapi("GET", "/api/teacher/print-next
     const texts = new Map(), failed = [], zip = new ZipBlob(), zipName = zipNameOf(date0), info = [];
     let n = 0, left = false, made = 0, k = 0;
     // gleiche Namen (Nachtrag 32: z. B. dasselbe Arbeitsblatt für 8A und 8B → beide „28x - sw - beidseitig - PoWi8 - …“) eindeutig wie in der ZIP-Datei: „… (2).pdf“
-    // (Nachtrag 42: auch zwei gleich benannte Sitzungspakete zweier Sitzungen) – ZipBlob.add macht die Namen eindeutig
-    const names = uniqueNames(ready.map(({ f, s }) => printNameOf(f, s.printCourse)));
-    const nameAt = new Map(ready.map((x, i) => [x, names[i]]));
+    // (Nachtrag 42: auch zwei gleich benannte Sitzungspakete zweier Sitzungen) – ZipBlob.add macht die Namen eindeutig, und zwar nur über die Einträge, die
+    // wirklich in der ZIP-Datei stehen (Prüfbefund: vorher wurden die Namen aller fertigen Dateien vorab eindeutig gemacht – auch die, die nur als Teil eines
+    // Pakets mitkamen; dann stand z. B. „… AB (2).pdf“ ohne „… AB.pdf“ in der ZIP-Datei)
+    const nameAt = (x) => printNameOf(x.f, x.s.printCourse);
     // Nachtrag 42: je Sitzung zuerst ihre Sitzungspakete (die fertigen Dateien zu einer PDF in der Reihenfolge des Verlaufsplans), dann die übrigen Dateien
     const units = [];
     for (const s of ui.dd.sessions) {
@@ -559,7 +574,7 @@ export function printNextCards(load = () => tapi("GET", "/api/teacher/print-next
       for (const x of ready) if (x.s === s && !inPack.has(x.f.id)) units.push({ s, xs: [x] });
     }
     const fetchOne = async (x) => {
-      st.textContent = "Packe " + (++k) + " von " + ready.length + ": „" + nameAt.get(x) + "“ …";
+      st.textContent = "Packe " + (++k) + " von " + ready.length + ": „" + nameAt(x) + "“ …";
       try { return await pdfBytes(x.f, x.s, texts); } catch (e) { failed.push({ f: x.f, msg: (e && e.message) || String(e) }); return null; }
     };
     await work(btn, async () => {
@@ -568,26 +583,28 @@ export function printNextCards(load = () => tapi("GET", "/api/teacher/print-next
         if (!u.p) {
           const bytes = await fetchOne(u.xs[0]);
           if (stopped || !card.isConnected) { left = true; break; }
-          if (bytes) { zip.add(nameAt.get(u.xs[0]), bytes); n++; }
+          if (bytes) { zip.add(nameAt(u.xs[0]), bytes); n++; }
           continue;
         }
         const parts = [];
         for (const x of u.xs) {
           if (stopped || !card.isConnected) { left = true; break; }
           const data = await fetchOne(x);
-          if (data) parts.push({ f: x.f, name: nameAt.get(x), data });
+          if (data) parts.push({ f: x.f, name: nameAt(x), data });
         }
         if (left || stopped || !card.isConnected) { left = true; break; }
         const missing = u.p.files.filter((f) => !u.xs.some((x) => x.f === f));   // noch nicht fertig (nicht ladbare nennt „Nicht in der ZIP-Datei“)
-        let m = null;
-        if (parts.length >= PACK_MIN) { try { m = await mergePrintPack(parts, await pdfLib(), { duplex: !!u.p.print.duplex, title: u.p.name }); } catch { m = null; } }
+        // lässt sich das Paket nicht zusammenfügen (auch pdf-lib nicht ladbar), liegen seine Dateien einzeln in der ZIP-Datei – mit Hinweis (packNotes)
+        let m = null, mergeErr = null;
+        if (parts.length >= PACK_MIN) { try { m = await mergePrintPack(parts, await pdfLib(), { duplex: !!u.p.print.duplex, title: u.p.name }); } catch (e) { m = null; mergeErr = e; } }
+        if (m && m.error) { mergeErr = m.error; m = null; }
         if (m && m.bytes) {
           zip.add(u.p.name, m.bytes); n++; made++;
           for (const b of m.bad) { zip.add(b.part.name, b.part.data); n++; }
           info.push({ pack: u.p, made: true, parts: m.used, bad: m.bad.map((x) => x.part), missing });
         } else {
           for (const x of parts) { zip.add(x.name, x.data); n++; }
-          info.push({ pack: u.p, made: false, parts: m ? m.used : parts, bad: m ? m.bad.map((x) => x.part) : [], missing });
+          info.push({ pack: u.p, made: false, parts: m ? m.used : parts, bad: m ? m.bad.map((x) => x.part) : [], missing, ...(mergeErr ? { error: mergeErr } : {}) });
         }
       }
       if (!left && n) io.blob(zip.finish(), zipName);

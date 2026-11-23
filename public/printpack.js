@@ -6,16 +6,20 @@
 // Genutzt von der Druckliste der Sitzung (materialbox.js, auch für „Alle Unterlagen dieser Sitzung“ und die kompakte Ansicht) und den „Druckaufträgen …“
 // der Startseiten (printnext.js).
 import { printReady, PACK_MIN, PACK_TITLE } from "./shared.js";
+import { uniqueNames } from "./zip.js";
 
 export const PACK_HINT = "Materialien mit gleicher Anzahl, gleicher Farbe und gleicher Druckart (einseitig/beidseitig) fasst Unterricks zu einem " + PACK_TITLE +
   " zusammen: eine PDF-Datei in der Reihenfolge des Verlaufsplans, also ein Druckauftrag statt vieler – beim beidseitigen Druck beginnt jedes Material auf einem " +
-  "neuen Blatt. Die einzelnen Dateien stehen klein darunter: Ändern Sie dort Anzahl oder Druckart, kommt die Datei aus dem Paket bzw. in ein anderes.";
+  "neuen Blatt. Die einzelnen Dateien stehen klein darunter: Ändern Sie dort Anzahl, Farbe oder Druckart, kommt die Datei aus dem Paket bzw. in ein anderes.";
 
 /* Betreff der Paket-PDF (Dokumenteigenschaften): welche Datei auf welchen Seiten steht – „Sitzungspaket: Teil 1 „…“ (Seite 1–3); Teil 2 „…“ (Seite 5)“
-   (Leerseiten zählen nicht zu einem Teil). ranges = [{name, from, to}] */
-export const packSubject = (ranges) => PACK_TITLE + ": " + ranges.map((r, i) => "Teil " + (i + 1) + " „" + r.name + "“ (Seite " + r.from + (r.to > r.from ? "–" + r.to : "") + ")").join("; ");
+   (Leerseiten zählen nicht zu einem Teil). ranges = [{name, from, to}]; gleiche Namen zweier Teile (z. B. zwei Vorlagen mit demselben Titel) eindeutig nur
+   innerhalb des Pakets („… (2).pdf“) */
+export const packSubject = (ranges) => { const nm = uniqueNames(ranges.map((r) => r.name)); return PACK_TITLE + ": " + ranges.map((r, i) => "Teil " + (i + 1) + " „" + nm[i] + "“ (Seite " + r.from + (r.to > r.from ? "–" + r.to : "") + ")").join("; "); };
 /* parts = [{data: Uint8Array, name?, …}] in der Reihenfolge des Pakets; lib = pdf-lib → {bytes (null bei weniger als zwei lesbaren), pages, blanks, used: [part],
-   bad: [{part, error}]} */
+   bad: [{part, error}], error?}. Wirft nie (Prüfbefund): Ein Teil, dessen Seiten sich nicht übernehmen lassen, zählt wie ein nicht lesbarer (bad); scheitert
+   das Zusammenfügen selbst (z. B. beim Speichern), ist bytes null und error gesetzt – die Aufrufer nehmen dann die Dateien einzeln (used = alle lesbaren).
+   Titel der PDF = Paketname ohne „.pdf“ */
 export async function mergePrintPack(parts, lib, { duplex = false, title = PACK_TITLE } = {}) {
   const { PDFDocument } = lib;
   const docs = [], bad = [];
@@ -27,26 +31,36 @@ export async function mergePrintPack(parts, lib, { duplex = false, title = PACK_
       docs.push({ part, d, n });
     } catch (e) { bad.push({ part, error: e }); }
   }
-  const used = docs.map((x) => x.part);
-  if (docs.length < PACK_MIN) return { bytes: null, pages: 0, blanks: 0, used, bad };
-  const out = await PDFDocument.create();
-  let blanks = 0;
-  const ranges = [];
-  for (const { part, d, n } of docs) {
-    const pages = await out.copyPages(d, d.getPageIndices()), from = out.getPageCount() + 1;
-    for (const p of pages) out.addPage(p);
-    ranges.push({ name: String(part.name || "Datei"), from, to: from + n - 1 });
-    // beidseitig: das nächste Material (bzw. die nächste Kopie) beginnt auf einem neuen Blatt – Leerseite im Format der letzten Seite
-    if (duplex && n % 2) { const { width, height } = pages[pages.length - 1].getSize(); out.addPage([width, height]); blanks++; }
+  if (docs.length < PACK_MIN) return { bytes: null, pages: 0, blanks: 0, used: docs.map((x) => x.part), bad };
+  const used = [];
+  try {
+    const out = await PDFDocument.create();
+    let blanks = 0;
+    const ranges = [];
+    for (const { part, d, n } of docs) {
+      let pages;
+      try { pages = await out.copyPages(d, d.getPageIndices()); } catch (e) { bad.push({ part, error: e }); continue; }
+      const from = out.getPageCount() + 1;
+      for (const p of pages) out.addPage(p);
+      used.push(part);
+      ranges.push({ name: String(part.name || "Datei"), from, to: from + n - 1 });
+      // beidseitig: das nächste Material (bzw. die nächste Kopie) beginnt auf einem neuen Blatt – Leerseite im Format der letzten Seite
+      if (duplex && n % 2) { const { width, height } = pages[pages.length - 1].getSize(); out.addPage([width, height]); blanks++; }
+    }
+    if (used.length < PACK_MIN) return { bytes: null, pages: 0, blanks: 0, used, bad };
+    try { out.setTitle(String(title).replace(/\.pdf$/i, "")); out.setSubject(packSubject(ranges)); out.setProducer("Unterricks"); out.setCreator("Unterricks"); } catch {}
+    return { bytes: await out.save(), pages: out.getPageCount(), blanks, used, bad };
+  } catch (e) {
+    const off = new Set(bad.map((x) => x.part));
+    return { bytes: null, pages: 0, blanks: 0, used: docs.map((x) => x.part).filter((p) => !off.has(p)), bad, error: e };
   }
-  try { out.setTitle(title); out.setSubject(packSubject(ranges)); out.setProducer("Unterricks"); out.setCreator("Unterricks"); } catch {}
-  return { bytes: await out.save(), pages: out.getPageCount(), blanks, used, bad };
 }
 
 /* Pakete aus den schon geladenen Dateien bilden („Alle herunterladen (ZIP)“, „Alle Dateien herunterladen“, „Alle Unterlagen dieser Sitzung“): entries =
    [{f, name, data}] (fertige Dateien), packs = printPacks(…).packs, lib = () → pdf-lib (erst geladen, wenn ein Paket mindestens zwei fertige Dateien hat).
    → {entries: [Pakete zuerst {pack, name, data, pages, blanks, parts: [{f, name}]}, dann die übrigen Dateien unverändert], info: [{pack, made, parts, bad,
-   missing}]} – missing = Dateien des Pakets ohne fertige PDF (stehen schon in den Hinweisen der Aufrufer), bad = nicht lesbare (liegen einzeln dabei) */
+   missing, error?}] – missing = Dateien des Pakets ohne fertige PDF (stehen schon in den Hinweisen der Aufrufer), bad = nicht lesbare (liegen einzeln dabei),
+   error = das Zusammenfügen ist gescheitert (dann liegen die Dateien dieses Pakets einzeln dabei – die übrigen Pakete bleiben) */
 export async function packEntries(entries, packs, lib) {
   const byId = new Map(entries.map((e) => [e.f.id, e]));
   const done = new Set(), made = [], info = [];
@@ -55,8 +69,10 @@ export async function packEntries(entries, packs, lib) {
     const parts = pack.files.map((f) => byId.get(f.id)).filter(Boolean), missing = pack.files.filter((f) => !byId.has(f.id));
     if (parts.length < PACK_MIN) { info.push({ pack, made: false, parts, bad: [], missing }); continue; }
     if (!L) L = await lib();
-    const m = await mergePrintPack(parts, L, { duplex: pack.print.duplex, title: pack.name });
-    if (!m.bytes) { info.push({ pack, made: false, parts: m.used, bad: m.bad.map((x) => x.part), missing }); continue; }
+    let m;
+    try { m = await mergePrintPack(parts, L, { duplex: pack.print.duplex, title: pack.name }); }
+    catch (e) { m = { bytes: null, used: parts, bad: [], error: e }; }
+    if (!m.bytes) { info.push({ pack, made: false, parts: m.used, bad: m.bad.map((x) => x.part), missing, ...(m.error ? { error: m.error } : {}) }); continue; }
     for (const p of m.used) done.add(p.f.id);
     made.push({ pack, name: pack.name, data: m.bytes, pages: m.pages, blanks: m.blanks, parts: m.used.map((p) => ({ f: p.f, name: p.name })) });
     info.push({ pack, made: true, parts: m.used, bad: m.bad.map((x) => x.part), missing });
@@ -64,11 +80,12 @@ export async function packEntries(entries, packs, lib) {
   return { entries: [...made, ...entries.filter((e) => !done.has(e.f.id))], info };
 }
 
-/* Hinweise zu den Paketen (where = „in der ZIP-Datei“ bzw. „im Ordner „Zum Ausdrucken““): nicht lesbare Dateien und Pakete, von denen erst eine Datei fertig
-   ist – noch nicht gedruckte nennen die Aufrufer schon selbst */
+/* Hinweise zu den Paketen (where = „in der ZIP-Datei“ bzw. „im Ordner „Zum Ausdrucken““): nicht lesbare Dateien, Pakete, die sich nicht zusammenfügen ließen,
+   und Pakete, von denen erst eine Datei fertig ist – noch nicht gedruckte nennen die Aufrufer schon selbst */
 export function packNotes(info, where) {
   const out = [];
   for (const x of info || []) {
+    if (x.error) { out.push("Das " + PACK_TITLE + " „" + x.pack.name + "“ ließ sich im Browser nicht zu einer PDF-Datei zusammenfügen – seine Dateien liegen einzeln " + where + "."); continue; }
     for (const b of x.bad) out.push("„" + b.name + "“ ließ sich nicht in das " + PACK_TITLE + " „" + x.pack.name + "“ einfügen (die PDF-Datei ist im Browser nicht lesbar) – sie liegt einzeln " + where + ".");
     if (!x.made && x.parts.length === 1 && !x.bad.length && x.missing.some((f) => !printReady(f))) out.push("Vom " + PACK_TITLE + " „" + x.pack.name + "“ ist bisher nur „" + x.parts[0].name + "“ fertig – sie liegt einzeln " + where + ".");
   }
@@ -77,7 +94,8 @@ export function packNotes(info, where) {
 
 /* Ein Paket für sich herunterladen (Knopf in der Paketzeile): bytesOf(f) → Bytes der Druck-PDF, nameOf(f) → Druck-Name, wait(f, err) → true, wenn der Fehler
    „noch nicht gedruckt“ heißt (Bildkarten mit neuer Gestaltung), lib = () → pdf-lib. → {bytes (Paket) | null, single: {f, name, data} | null (nur eine Datei
-   fertig bzw. lesbar), pages, blanks, used, bad, wait: [f], failed: [{f, error}]} */
+   fertig bzw. lesbar), pages, blanks, used, bad, wait: [f], failed: [{f, error}], error?} – error: Das Zusammenfügen ist gescheitert (nichts heruntergeladen;
+   die Dateien lassen sich über ihre eigenen Zeilen einzeln herunterladen – packDoneText sagt es) */
 export async function buildPack(pack, { bytesOf, nameOf, lib, wait: isWait = () => false }) {
   const wait = [], failed = [], parts = [];
   for (const f of pack.files) {
@@ -86,9 +104,14 @@ export async function buildPack(pack, { bytesOf, nameOf, lib, wait: isWait = () 
     catch (e) { if (isWait(f, e)) wait.push(f); else failed.push({ f, error: e }); }
   }
   if (parts.length < PACK_MIN) return { bytes: null, single: parts[0] || null, pages: 0, blanks: 0, used: parts, bad: [], wait, failed };
-  const m = await mergePrintPack(parts, await lib(), { duplex: pack.print.duplex, title: pack.name });
-  if (!m.bytes) return { bytes: null, single: m.used[0] || null, pages: 0, blanks: 0, used: m.used, bad: m.bad.map((x) => x.part), wait, failed };
-  return { bytes: m.bytes, single: null, pages: m.pages, blanks: m.blanks, used: m.used, bad: m.bad.map((x) => x.part), wait, failed };
+  const L = await lib();   // lässt sich pdf-lib nicht laden, meldet das lazy() wie überall (Hinweis auf einen neuen Stand)
+  let m;
+  try { m = await mergePrintPack(parts, L, { duplex: pack.print.duplex, title: pack.name }); }
+  catch (e) { m = { bytes: null, used: parts, bad: [], error: e }; }
+  const bad = m.bad.map((x) => x.part);
+  if (m.error) return { bytes: null, single: null, pages: 0, blanks: 0, used: m.used, bad, wait, failed, error: m.error };
+  if (!m.bytes) return { bytes: null, single: m.used[0] || null, pages: 0, blanks: 0, used: m.used, bad, wait, failed };
+  return { bytes: m.bytes, single: null, pages: m.pages, blanks: m.blanks, used: m.used, bad, wait, failed };
 }
 
 const q = (xs) => xs.map((x) => "„" + x + "“").join(", ");
@@ -97,6 +120,8 @@ export function packDoneText(pack, r, { nameOf, waitWhy = null } = {}) {
   const parts = [];
   if (r.bytes) parts.push("„" + pack.name + "“ ist heruntergeladen: " + r.used.length + " Materialien, " + r.pages + " Seiten" +
     (r.blanks ? " (davon " + (r.blanks === 1 ? "eine Leerseite" : r.blanks + " Leerseiten") + ", damit beim beidseitigen Druck jedes Material auf einem neuen Blatt beginnt)" : "") + ".");
+  else if (r.error) parts.push("Kein " + PACK_TITLE + ": Die Dateien ließen sich im Browser nicht zu einer PDF-Datei zusammenfügen – bitte einzeln herunterladen (sie stehen klein darunter): " +
+    q(r.used.map((x) => x.name)) + ".");
   else if (r.single) parts.push("Kein " + PACK_TITLE + ": " + (r.bad.length ? "„" + r.single.name + "“ ist als einzige Datei lesbar" : "Nur „" + r.single.name + "“ ist fertig") + " – die Datei ist einzeln heruntergeladen.");
   else parts.push("Kein " + PACK_TITLE + ": " + (r.wait.length && !r.failed.length && !r.bad.length ? "Die Materialien werden gerade noch als PDF gedruckt – bitte gleich noch einmal." : "Keine Datei ließ sich laden."));
   if (r.wait.length) parts.push("Noch nicht dabei" + (waitWhy ? "" : " (wird gerade als PDF gedruckt)") + ": " + r.wait.map((f) => "„" + nameOf(f) + "“" + (waitWhy ? " (" + waitWhy(f) + ")" : "")).join(", ") + ".");

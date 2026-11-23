@@ -225,7 +225,8 @@ const unquote = (t) => { const s = t.trim().replace(/[\s:.,;!?]+$/, ""); const m
 export const packTitleKey = (name) => unquote(packNorm(printTitleOf(name).replace(/\s*\.pdf\s*$/i, "")).trim());
 const isWordCh = (ch) => !!ch && /[\p{L}\p{N}]/u.test(ch);
 /* Wo nennt der Schulportal-Eintrag (Gymnasium) diese Titel? → Map Titel-Schlüssel → Position (Zeichen im vereinheitlichten Text); zuerst die kursiven Titel
-   (~~Titel~~, wie die Vorlage Materialtitel schreibt), sonst der Titel irgendwo im Text (ganze Wörter) */
+   (~~Titel~~, wie die Vorlage Materialtitel schreibt), sonst der Titel irgendwo im Text (ganze Wörter) – aber nie innerhalb eines kursiven Titels, der genau
+   eine andere Datei nennt (Prüfbefund: „Wasser.pdf“ stand sonst an der Stelle von „~~AB Wasser im Alltag~~“, wenn es diese Datei auch gibt) */
 function portalTitlePositions(text, keys) {
   let flat = "";
   const italic = [];
@@ -240,12 +241,17 @@ function portalTitlePositions(text, keys) {
     if (cur) italic.push(cur);
     flat += "\n";
   }
-  const out = new Map();
+  const out = new Map(), taken = [], rest = [];
   for (const k of keys) {
     if (!k || out.has(k)) continue;
-    const hit = italic.find((x) => unquote(x.t.trim()) === k);
-    if (hit) { out.set(k, hit.at); continue; }
-    for (let i = flat.indexOf(k); i >= 0; i = flat.indexOf(k, i + 1)) if (!isWordCh(flat[i - 1]) && !isWordCh(flat[i + k.length])) { out.set(k, i); break; }
+    const hits = italic.filter((x) => unquote(x.t.trim()) === k);
+    if (hits.length) { out.set(k, hits[0].at); for (const x of hits) taken.push([x.at, x.at + x.t.length]); }
+    else rest.push(k);
+  }
+  const inTaken = (i, j) => taken.some(([a, b]) => i < b && j > a);
+  for (const k of rest) {
+    if (out.has(k)) continue;
+    for (let i = flat.indexOf(k); i >= 0; i = flat.indexOf(k, i + 1)) if (!isWordCh(flat[i - 1]) && !isWordCh(flat[i + k.length]) && !inTaken(i, i + k.length)) { out.set(k, i); break; }
   }
   return out;
 }

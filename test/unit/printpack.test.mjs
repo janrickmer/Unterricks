@@ -86,6 +86,15 @@ test("Reihenfolge Gymnasium: kursive Titel im Schulportal-Eintrag (vereinheitlic
   // ganze Wörter: „Roll“ ist nicht „Rollenkarten“, „AB“ nicht in „Abstimmung“
   assert.deepEqual(S.printPlanOrder([pf(6, "Roll.pdf", CLASS), pf(7, "AB.pdf", CLASS)], "- Rollenkarten\n**4) Abstimmung**").map((x) => x.at), [-1, -1]);
   assert.equal(S.packTitleKey("1x - farbig - einseitig - Reli2 - „Josef“ in Ägypten.PDF"), "\"josef\" in ägypten");
+  // Prüfbefund: der Titel im Text zählt nie innerhalb eines kursiven Titels, der genau eine andere Datei nennt – „Wasser.pdf“ steht nicht an der Stelle von
+  // „~~AB Wasser im Alltag~~“, wenn es diese Datei gibt; nennt der kursive Titel keine andere Datei, gilt der Treffer darin (z. B. „~~AB Wasser~~“ für „Wasser.pdf“)
+  const w = pf(8, "Wasser.pdf", CLASS), wa = pf(9, "AB Wasser im Alltag.pdf", CLASS), q = pf(10, "Quiz.pdf", CLASS);
+  const p2 = "- ~~AB Wasser im Alltag~~ lesen\n- ~~Quiz~~ lösen\n- Wasser-Versuch: Wasser im Glas";
+  assert.deepEqual(S.printPlanOrder([w, q, wa], p2).map((x) => [x.f.name, x.at >= 0]), [["AB Wasser im Alltag.pdf", true], ["Quiz.pdf", true], ["Wasser.pdf", true]],
+    "Wasser.pdf erst im Text nach dem Quiz");
+  assert.deepEqual(S.printPlanOrder([w, q], "- ~~AB Wasser~~ lesen\n- ~~Quiz~~ lösen").map((x) => x.f.name), ["Wasser.pdf", "Quiz.pdf"], "im kursiven Titel, der keine andere Datei nennt");
+  assert.deepEqual(S.printPlanOrder([w, q, wa], "- ~~AB Wasser im Alltag~~\n- ~~Quiz~~").map((x) => [x.f.name, x.at >= 0]), [["AB Wasser im Alltag.pdf", true], ["Quiz.pdf", true], ["Wasser.pdf", false]],
+    "sonst nirgends genannt → zuletzt");
 });
 
 /* ---------- Zusammenfügen mit pdf-lib (printpack.js) ---------- */
@@ -96,7 +105,7 @@ test("mergePrintPack: Reihenfolge der Teile; beidseitig nach jedem Material mit 
     "A (3) + Leerseite, B (2), C (1) + Leerseite – jedes Material und jede Kopie beginnt auf einem neuen Blatt");
   assert.deepEqual([two.pages, two.blanks, two.used.map((x) => x.name), two.bad], [8, 2, ["A", "B", "C"], []]);
   const meta = await lib.PDFDocument.load(two.bytes);
-  assert.equal(meta.getTitle(), "1x - sw - beidseitig - Sitzungspaket.pdf");
+  assert.equal(meta.getTitle(), "1x - sw - beidseitig - Sitzungspaket", "Titel der PDF ohne „.pdf“ (Prüfbefund)");
   assert.equal(meta.getSubject(), "Sitzungspaket: Teil 1 „A“ (Seite 1–3); Teil 2 „B“ (Seite 5–6); Teil 3 „C“ (Seite 7)", "der Betreff nennt, welche Datei auf welchen Seiten steht (Leerseiten nicht)");
   const one = await PP.mergePrintPack(parts, lib, { duplex: false });
   assert.deepEqual((await pagesOf(one.bytes)).map((x) => x[0]), [500, 501, 502, 510, 511, 520]);
@@ -111,6 +120,65 @@ test("mergePrintPack: nicht lesbare Teile bleiben draußen (genannt); weniger al
   assert.deepEqual([r.used.map((x) => x.name), r.bad.map((x) => x.part.name), r.pages, r.blanks], [["A", "B"], ["Kaputt"], 4, 1]);
   const lone = await PP.mergePrintPack([{ data: await pdf([500]), name: "A" }, bad], lib, {});
   assert.deepEqual([lone.bytes, lone.used.map((x) => x.name), lone.bad.length], [null, ["A"], 1]);
+});
+
+/* pdf-lib mit einem Fehler beim Übernehmen der Seiten (copyPages) für Dokumente mit genau badPages Seiten bzw. beim Speichern (save) – wie eine PDF, die sich
+   laden, aber nicht zusammenfügen lässt */
+const brokenLib = ({ badPages = 0, save = false } = {}) => ({ ...lib, PDFDocument: { load: (...a) => lib.PDFDocument.load(...a), create: async () => {
+  const d = await lib.PDFDocument.create(), copy = d.copyPages.bind(d);
+  d.copyPages = async (src, idx) => { if (src.getPageCount() === badPages) throw new Error("Seiten nicht übernehmbar"); return copy(src, idx); };
+  if (save) d.save = async () => { throw new Error("Speichern gescheitert"); };
+  return d;
+} } });
+
+test("Prüfbefund: mergePrintPack wirft nie – nicht übernehmbare Seiten zählen wie nicht lesbar, ein gescheitertes Speichern setzt error (Dateien dann einzeln)", async () => {
+  const parts = [{ data: await pdf([500]), name: "A" }, { data: await pdf([510, 511, 512, 513, 514, 515, 516]), name: "Sieben" }, { data: await pdf([520]), name: "C" }];
+  const r = await PP.mergePrintPack(parts, brokenLib({ badPages: 7 }), { duplex: false });
+  assert.deepEqual([r.used.map((x) => x.name), r.bad.map((x) => x.part.name), r.pages, !!r.error], [["A", "C"], ["Sieben"], 2, false]);
+  assert.equal((await lib.PDFDocument.load(r.bytes)).getSubject(), "Sitzungspaket: Teil 1 „A“ (Seite 1); Teil 2 „C“ (Seite 2)");
+  const lone = await PP.mergePrintPack(parts.slice(0, 2), brokenLib({ badPages: 7 }), {});
+  assert.deepEqual([lone.bytes, lone.used.map((x) => x.name), lone.bad.map((x) => x.part.name)], [null, ["A"], ["Sieben"]]);
+  const sv = await PP.mergePrintPack(parts, brokenLib({ save: true }), { duplex: true });
+  assert.deepEqual([sv.bytes, sv.used.map((x) => x.name), sv.bad, sv.error && sv.error.message], [null, ["A", "Sieben", "C"], [], "Speichern gescheitert"]);
+});
+
+test("Prüfbefund: gleiche Namen zweier Teile stehen im Betreff nur innerhalb des Pakets eindeutig; Titel ohne „.pdf“; Hinweis nennt auch die Farbe", async () => {
+  const m = await PP.mergePrintPack([{ data: await pdf([500]), name: "21x - farbig - einseitig - Sach3 - Wasser.pdf" }, { data: await pdf([510]), name: "21x - farbig - einseitig - Sach3 - Wasser.pdf" }], lib,
+    { title: "21x - farbig - einseitig - Sach3 - Sitzungspaket.pdf" });
+  const doc = await lib.PDFDocument.load(m.bytes);
+  assert.equal(doc.getSubject(), "Sitzungspaket: Teil 1 „21x - farbig - einseitig - Sach3 - Wasser.pdf“ (Seite 1); Teil 2 „21x - farbig - einseitig - Sach3 - Wasser (2).pdf“ (Seite 2)");
+  assert.equal(doc.getTitle(), "21x - farbig - einseitig - Sach3 - Sitzungspaket");
+  assert.deepEqual(m.used.map((x) => x.name), ["21x - farbig - einseitig - Sach3 - Wasser.pdf", "21x - farbig - einseitig - Sach3 - Wasser.pdf"], "die Teile selbst behalten ihren Druck-Namen");
+  assert.match(PP.PACK_HINT, /Ändern Sie dort Anzahl, Farbe oder Druckart, kommt die Datei aus dem Paket bzw\. in ein anderes\.$/);
+});
+
+test("Prüfbefund: ein Paket, das sich nicht zusammenfügen lässt, kostet nur dieses Paket – seine Dateien einzeln mit Hinweis; buildPack lädt dann nichts und sagt es", async () => {
+  const a = pf(1, "A.pdf", ONE), b = pf(2, "B.pdf", ONE), x = pf(3, "X.pdf", CLASS), y = pf(4, "Y.pdf", CLASS);
+  const packs = S.printPacks([a, b, x, y], { course: "PoWi8" }).packs;
+  const entries = [{ f: a, name: a.printName, data: await pdf([500, 501, 502, 503, 504, 505, 506]) }, { f: b, name: b.printName, data: await pdf([510]) },
+    { f: x, name: x.printName, data: await pdf([600]) }, { f: y, name: y.printName, data: await pdf([610]) }];
+  // copyPages scheitert für A (7 Seiten): B allein ist kein Paket – A und B einzeln; das zweite Paket entsteht trotzdem
+  const r = await PP.packEntries(entries, packs, async () => brokenLib({ badPages: 7 }));
+  assert.deepEqual(r.entries.map((e) => e.name), ["28x - sw - beidseitig - PoWi8 - Sitzungspaket.pdf", a.printName, b.printName]);
+  assert.deepEqual(PP.packNotes(r.info, "in der ZIP-Datei"), ["„" + a.printName + "“ ließ sich nicht in das Sitzungspaket „1x - farbig - einseitig - PoWi8 - Sitzungspaket.pdf“ einfügen (die PDF-Datei ist im Browser nicht lesbar) – sie liegt einzeln in der ZIP-Datei."]);
+  // Speichern scheitert: alle Dateien einzeln, je Paket ein Hinweis (kein Abbruch)
+  const sv = await PP.packEntries(entries, packs, async () => brokenLib({ save: true }));
+  assert.deepEqual(sv.entries.map((e) => e.name), entries.map((e) => e.name));
+  assert.deepEqual(PP.packNotes(sv.info, "im Ordner „Zum Ausdrucken“"), [
+    "Das Sitzungspaket „1x - farbig - einseitig - PoWi8 - Sitzungspaket.pdf“ ließ sich im Browser nicht zu einer PDF-Datei zusammenfügen – seine Dateien liegen einzeln im Ordner „Zum Ausdrucken“.",
+    "Das Sitzungspaket „28x - sw - beidseitig - PoWi8 - Sitzungspaket.pdf“ ließ sich im Browser nicht zu einer PDF-Datei zusammenfügen – seine Dateien liegen einzeln im Ordner „Zum Ausdrucken“."]);
+  // ein unerwarteter Fehler in einem Paket (hier: pdf-lib ohne PDFDocument.create) ebenso
+  const odd = await PP.packEntries(entries, packs, async () => ({ PDFDocument: { load: lib.PDFDocument.load } }));
+  assert.equal(odd.entries.length, 4);
+  assert.equal(odd.info.filter((x) => x.error).length, 2);
+  // Knopf des Pakets: nichts heruntergeladen, der Hinweis nennt die Dateien zum einzelnen Herunterladen
+  const bytes = { [a.id]: entries[0].data, [b.id]: entries[1].data };
+  const nameOf = (f) => f.printName;
+  const k = await PP.buildPack(packs[0], { nameOf, lib: async () => brokenLib({ save: true }), bytesOf: async (f) => bytes[f.id] });
+  assert.deepEqual([k.bytes, k.single, !!k.error, k.used.map((p) => p.f.id)], [null, null, true, [a.id, b.id]]);
+  const t = PP.packDoneText(packs[0], k, { nameOf });
+  assert.equal(t.text, "Kein Sitzungspaket: Die Dateien ließen sich im Browser nicht zu einer PDF-Datei zusammenfügen – bitte einzeln herunterladen (sie stehen klein darunter): „" + a.printName + "“, „" + b.printName + "“.");
+  assert.equal(t.ok, false);
 });
 
 test("packEntries/packNotes: Pakete zuerst (eine PDF), ihre Dateien nicht noch einmal; nicht lesbare einzeln mit Hinweis; nur eine fertige → einzeln mit Hinweis", async () => {
@@ -341,6 +409,73 @@ test("„Druckaufträge …“: je Sitzung das Paket (vom Server: packs) oben, d
     assert.deepEqual((await pagesOf(entries[2].data)).map((p) => p[0]), [505, 505, 506, 506]);
     assert.equal($("#pn-status", card).textContent, "Fertig: Alle 3 Dateien sind als eine ZIP-Datei „Druckaufträge - Dienstag, 24.11.2026.zip“ heruntergeladen. Gleiche Druckangaben sind zu 2 Sitzungspaketen zusammengefasst.");
   } finally { Object.assign(PN.io, io0); }
+});
+
+test("Prüfbefund „Druckaufträge …“: Gründe beim Paket-Download wie in der ZIP-Datei (PDF-Druck gescheitert, Bildkarten mit 409 noch nicht gedruckt); ZIP des Tages ohne „(2)“ ohne Original; ein Paket, das sich nicht zusammenfügen lässt, liegt einzeln mit Hinweis", async () => {
+  const a = pf(1, "AB.pdf", CLASS), b = pf(2, "Quiz.pdf", CLASS), a2 = pf(3, "AB.pdf", CLASS);
+  const c = pf(4, "Gescheitert.pdf", ONE, { status: "pending", source: "claude", design: { htmlAt: 5, pdfAt: null, error: "Zeitüberschreitung", outdated: true } });
+  const e = pf(5, "Bildkarten.pdf", ONE, { area: "teacher", source: "claude", cards: { texts: [], share: false, rev: 0, pages: 1, current: true, version: 1 }, design: { htmlAt: 5, pdfAt: 5, error: null, outdated: false } });
+  const g = pf(6, "Gebet.pdf", ONE);
+  const data = { ok: true, today: "2026-11-23", candidate: "2026-11-24", date: "2026-11-24", sessions: [
+    { id: id("s1"), subject: "powi", klass: "8A", title: "Gewaltenteilung", date: "2026-11-24", startTime: "08:00", school: "gym", label: "PoWi 8A", subtitle: "Politik und Wirtschaft · 8A", printCourse: "PoWi8", files: [a, b],
+      packs: [{ key: "28|sw|beidseitig", name: "28x - sw - beidseitig - PoWi8 - Sitzungspaket.pdf", print: CLASS, planned: 0, ids: [a.id, b.id] }] },
+    { id: id("s2"), subject: "powi", klass: "8B", title: "Gewaltenteilung", date: "2026-11-24", startTime: "09:50", school: "gym", label: "PoWi 8B", subtitle: "Politik und Wirtschaft · 8B", printCourse: "PoWi8", files: [a2, c, e, g],
+      packs: [{ key: "1|farbig|einseitig", name: "1x - farbig - einseitig - PoWi8 - Sitzungspaket.pdf", print: ONE, planned: 0, ids: [c.id, e.id, g.id] }] },
+  ] };
+  if (globalThis.__leave) globalThis.__leave();
+  DR.resetPrintQueue();
+  const bytes = { [a.id]: await pdf([501]), [b.id]: await pdf([502]), [a2.id]: await pdf([503]), [g.id]: await pdf([506]) };
+  const blobs = [], calls = [];
+  globalThis.__tapi = async (method, path, o = {}) => {
+    calls.push(method + " " + path);
+    if (path === "/api/teacher/print-next") return data;
+    if (/\/render$/.test(path)) return new Promise(() => {});   // die Warteschlange druckt – hier ohne Ende
+    const m = /^\/api\/teacher\/files\/(\w+)\/link$/.exec(path);
+    if (m && m[1] === e.id && o.body && o.body.print) throw new ApiError("Die Bildkarten „Bildkarten“ sind in ihrer neuen Gestaltung noch nicht als PDF gedruckt – bitte die Seite neu laden, dann druckt Unterricks sie.", 409, { code: "cards_not_printed" });
+    if (m) return { url: "/api/dl/" + m[1] };
+    throw new ApiError("nicht nachgebildet: " + path, 404, { code: "not_found" });
+  };
+  const io0 = { ...PN.io };
+  Object.assign(PN.io, { blob: (bl, n) => blobs.push([bl, n]), url: () => assert.fail("Einzel-Download über den Link nicht erwartet"),
+    fetch: async (u) => { const k = String(u).split("/").pop(), u8 = bytes[k]; return { ok: true, status: 200, arrayBuffer: async () => u8.buffer.slice(u8.byteOffset, u8.byteOffset + u8.byteLength) }; } });
+  const app = document.getElementById("app");
+  while (app.firstChild) app.firstChild.remove();
+  const card = PN.printNextCard();
+  app.append(card);
+  const saveOrig = lib.PDFDocument.prototype.save;
+  try {
+    await until(() => $$(".pn-pack", card).length === 2, "zwei Pakete");
+    const g2 = $$(".pn-group", card)[1];
+    // Paket der 8B: „Gescheitert“ (PDF-Druck nicht geklappt), „Bildkarten“ (409 – seit dem Laden neu gestaltet), nur „Gebet“ fertig → einzeln
+    D.userClick($(".pn-packdl", g2));
+    await until(() => blobs.length === 1, "Gebet einzeln");
+    assert.equal(blobs[0][1], "1x - farbig - einseitig - PoWi8 - Gebet.pdf");
+    assert.equal($("#pn-status", card).textContent, "Kein Sitzungspaket: Nur „1x - farbig - einseitig - PoWi8 - Gebet.pdf“ ist fertig – die Datei ist einzeln heruntergeladen. Noch nicht dabei: " +
+      "„1x - farbig - einseitig - PoWi8 - Gescheitert.pdf“ (der PDF-Druck hat nicht geklappt – in der Sitzung „Erneut drucken“), „1x - farbig - einseitig - PoWi8 - Bildkarten.pdf“ (wird gerade als PDF gedruckt – bitte gleich noch einmal).");
+    assert.ok(!$("#pn-status", card).textContent.includes("ließ sich nicht laden"), "die Bildkarten nicht unter „ließ sich nicht laden“");
+    assert.equal(e.design.outdated, true);
+    await until(() => calls.includes("POST /api/teacher/files/" + e.id + "/render"), "die Warteschlange druckt die Bildkarten");
+    await until(() => calls.filter((x) => x === "GET /api/teacher/print-next").length >= 2, "danach lädt die Liste neu");
+    await D.sleep(5);
+    // ZIP des Tages: 8A als Paket (AB + Quiz), 8B „AB.pdf“ – ohne „(2)“, denn „AB.pdf“ der 8A steht nur im Paket (vorher: „… AB (2).pdf“ ohne „… AB.pdf“)
+    blobs.length = 0;
+    D.userClick($("button.pn-all", card));
+    await until(() => blobs.length === 1 && /^Fertig/.test($("#pn-status", card).textContent), "ZIP");
+    let entries = await readZip(new Uint8Array(await blobs[0][0].arrayBuffer()));
+    assert.deepEqual(entries.map((x) => x.name), ["28x - sw - beidseitig - PoWi8 - Sitzungspaket.pdf", "1x - farbig - einseitig - PoWi8 - Gebet.pdf", "28x - sw - beidseitig - PoWi8 - AB.pdf"]);
+    assert.equal((await lib.PDFDocument.load(entries[0].data)).getSubject(), "Sitzungspaket: Teil 1 „28x - sw - beidseitig - PoWi8 - AB.pdf“ (Seite 1); Teil 2 „28x - sw - beidseitig - PoWi8 - Quiz.pdf“ (Seite 3)");
+    assert.match($("#pn-status", card).textContent, /Vom Sitzungspaket „1x - farbig - einseitig - PoWi8 - Sitzungspaket\.pdf“ ist bisher nur „1x - farbig - einseitig - PoWi8 - Gebet\.pdf“ fertig/);
+    // das Zusammenfügen scheitert (Speichern): die Dateien der 8A einzeln, mit Hinweis – keine stille Auflösung
+    lib.PDFDocument.prototype.save = async function () { throw new Error("Speichern gescheitert"); };
+    blobs.length = 0;
+    D.userClick($("button.pn-all", card));
+    await until(() => blobs.length === 1 && /^Fertig/.test($("#pn-status", card).textContent), "ZIP ohne Paket");
+    entries = await readZip(new Uint8Array(await blobs[0][0].arrayBuffer()));
+    assert.deepEqual(entries.map((x) => x.name), ["28x - sw - beidseitig - PoWi8 - AB.pdf", "28x - sw - beidseitig - PoWi8 - Quiz.pdf", "1x - farbig - einseitig - PoWi8 - Gebet.pdf", "28x - sw - beidseitig - PoWi8 - AB (2).pdf"]);
+    assert.ok($("#pn-status", card).textContent.includes("Das Sitzungspaket „28x - sw - beidseitig - PoWi8 - Sitzungspaket.pdf“ ließ sich im Browser nicht zu einer PDF-Datei zusammenfügen – seine Dateien liegen einzeln in der ZIP-Datei."),
+      $("#pn-status", card).textContent);
+    assert.ok(!$("#pn-status", card).textContent.includes("zusammengefasst"));
+  } finally { lib.PDFDocument.prototype.save = saveOrig; Object.assign(PN.io, io0); }
 });
 
 test("sessionPacks: nur Pakete mit mindestens zwei Dateien der Sitzung; ein älterer Server ohne packs → keine", () => {

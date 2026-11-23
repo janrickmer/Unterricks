@@ -166,7 +166,6 @@ test("print-next: Mitternacht in Berlin, Freitag → Montag, freier Tag überspr
   assert.deepEqual((await call(c, routeSchedule, "/api/teacher/schedule")).data.units.map((u) => u.klass), ["10C"]);
 });
 
-// Nachtrag 31 (16.11.2026): Bildkarten mit Druckangaben gehören dazu (vorher ausdrücklich „ohne Bildkarten“ – geändert, weil die Regel sich ändert)
 test("Nachtrag 42: Sitzungspakete je Sitzung (packs) – Gymnasium nach den kursiven Titeln im Schulportal-Eintrag, Grundschule nach den Verweisen; weiter 8 D1-Anweisungen", async () => {
   const c = await ctx(berlin(17));   // Dienstag → Mittwoch, 18.11.
   const gs = await gsCourse(c);
@@ -193,6 +192,7 @@ test("Nachtrag 42: Sitzungspakete je Sitzung (packs) – Gymnasium nach den kurs
   assert.match(DAY_SESSIONS_SQL, /portal AS plan/);
 });
 
+// Nachtrag 31 (16.11.2026): Bildkarten mit Druckangaben gehören dazu (vorher ausdrücklich „ohne Bildkarten“ – geändert, weil die Regel sich ändert)
 test("Auswahl der Druckliste: dieselbe Regel wie printFiles() in der Sitzung (Druckliste; Grundschule auch „Auch ausdrucken“ und Bildkarten mit Druckangaben)", () => {
   assert.match(PRINT_FILES_SQL, /area='print' OR \(print_copies IS NOT NULL AND \(\(area='student' AND cards IS NULL\) OR \(area='teacher' AND cards IS NOT NULL\)\) AND lesson_id IN \(SELECT id FROM lessons WHERE lesson_date IN \(\?1, \?2\) AND cancelled=0 AND subject='gs'\)\)/);   // Nachtrag 33: zwei Tage (geändert)
   const cols = PRINT_FILES_SQL.slice("SELECT ".length, PRINT_FILES_SQL.indexOf(" FROM files")).split(", ").map((x) => x.trim());

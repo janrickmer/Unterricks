@@ -75,13 +75,18 @@ export async function printNamesE2E({ tp, BASE, T, token, ok, OUT, SHOT, cand, h
   [dl] = await Promise.all([tp.waitForEvent("download", { timeout: 30000 }), card.getByRole("button", { name: "Herunterladen – " + PACK }).click()]);
   ok(dl.suggestedFilename() === PACK && (await PDFDocument.load(readFileSync(await dl.path()))).getPageCount() === 2, "Sitzungspaket einzeln: „" + dl.suggestedFilename() + "“, 2 Seiten");
   // Druckart ändern: farbig → schwarz-weiß, einseitig → beidseitig – die Vorlage kommt aus dem Sitzungspaket, das Paket löst sich auf (nur noch eine mit diesen
-  // Angaben); der Fokus bleibt im Auswahlfeld, obwohl die Zeile wandert
+  // Angaben); der Fokus bleibt im Auswahlfeld, obwohl die Zeile wandert. selectOption setzt nur den Wert (Playwright fokussiert das Feld nicht) – deshalb vorher
+  // fokussieren wie die Lehrkraft, die das Feld anklickt bzw. mit der Tabulatortaste erreicht (Prüfbefund: sonst stand der Fokus noch auf dem Knopf des Pakets)
   const colorSel = row.locator('select[aria-label^="Schwarz-weiß oder farbig"]');
+  await colorSel.focus();
+  const selLabel = await colorSel.getAttribute("aria-label");
   await colorSel.selectOption("0");
   await card.locator(".printrow .name", { hasText: "21x - sw - einseitig - Sach3 - Wasser.pdf" }).waitFor({ timeout: 10000 });
   await card.locator(".printpack").waitFor({ state: "detached", timeout: 10000 });
-  ok(await tp.evaluate(() => (document.activeElement.getAttribute("aria-label") || "").startsWith("Schwarz-weiß oder farbig")) && await card.locator("#print-pack-hint").isHidden(),
-    "Druckart geändert: kein Sitzungspaket mehr, der Fokus bleibt im Auswahlfeld");
+  // (beide Vorlagen heißen „Wasser.pdf“ – welche Datei es ist, sagt der Druck-Name der Zeile mit dem Fokus)
+  const focusAt = await tp.evaluate(() => { const a = document.activeElement, r = a && a.closest(".printrow"); return [a ? a.tagName : "", (a && a.getAttribute("aria-label")) || "", r ? r.querySelector(".name").textContent : ""]; });
+  ok(JSON.stringify(focusAt) === JSON.stringify(["SELECT", selLabel, "21x - sw - einseitig - Sach3 - Wasser.pdf"]) && await card.locator("#print-pack-hint").isHidden(),
+    "Druckart geändert: kein Sitzungspaket mehr, der Fokus bleibt im Auswahlfeld derselben Datei (" + focusAt.join(" | ") + ")");
   await row.locator('select[aria-label^="Beidseitig oder einseitig"]').selectOption("1");
   await card.locator(".printrow .name", { hasText: "21x - sw - beidseitig - Sach3 - Wasser.pdf" }).waitFor({ timeout: 10000 });
   ok(true, "Druckart geändert: „21x - sw - beidseitig - Sach3 - Wasser.pdf“");

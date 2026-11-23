@@ -442,13 +442,17 @@ gleich in `public/_headers`, im Worker und – für GitHub Pages – in `scripts
   (kursiv, z. B. „~~AB - Gewaltenteilung~~“); nicht genannte stehen dahinter. Beim beidseitigen Druck beginnt jedes Material auf einem neuen Blatt
   (nach einem Material mit ungerader Seitenzahl eine Leerseite; die Datei endet mit einer geraden Seitenzahl, damit auch die nächste Kopie auf
   einem neuen Blatt beginnt). Das Paket gilt überall beim Drucken: in der Druckliste der Sitzung (oben die Paketzeile mit „Herunterladen“ und der
-  Reihenfolge, darunter klein die einzelnen Dateien – ändern Sie dort Anzahl oder Druckart einer Datei, kommt sie aus dem Paket bzw. in ein anderes),
+  Reihenfolge, darunter klein die einzelnen Dateien – ändern Sie dort Anzahl, Farbe oder Druckart einer Datei, kommt sie aus dem Paket bzw. in ein anderes),
   in „Alle herunterladen (ZIP)“, in den „Druckaufträgen …“ der Startseiten samt der ZIP-Datei des Tages (zwei gleich benannte Pakete zweier
   Sitzungen bekommen „ (2)“), in „Ich bin jetzt im Unterricht“ und im Ordner „Zum Ausdrucken“ von „Alle Unterlagen dieser Sitzung“ (der
-  Verlaufsplan im Ordner nennt dann das Paket und den Teil, z. B. „Zum Ausdrucken/… - Sitzungspaket.pdf (Teil 2)“). Was noch nicht als PDF
-  gedruckt ist oder sich nicht lesen lässt, bleibt draußen und wird genannt; ist erst eine Datei eines Pakets fertig, kommt sie einzeln. Die
-  Dokumenteigenschaften der Paket-PDF (Betreff) nennen, welche Datei auf welchen Seiten steht. Das Paket wird nicht gespeichert – es entsteht
-  jedes Mal neu aus den Druckangaben, die Namen der einzelnen Dateien bleiben, wie sie sind.
+  Verlaufsplan im Ordner nennt dann das Paket und den Teil, z. B. „Zum Ausdrucken/… - Sitzungspaket.pdf (Teil 2)“; ein Arbeitsblatt der Kinder
+  mit „Auch ausdrucken“, das in einem Paket steckt, liegt zusätzlich als eigene Datei in „Material für die Kinder“). Was noch nicht als PDF
+  gedruckt ist oder sich nicht lesen lässt, bleibt draußen und wird genannt – mit dem Grund, z. B. „wird gerade als PDF gedruckt“ oder „der
+  PDF-Druck hat nicht geklappt – in der Sitzung „Erneut drucken““; ist erst eine Datei eines Pakets fertig, kommt sie einzeln. Lässt sich ein
+  Paket im Browser nicht zusammenfügen, liegen seine Dateien in den ZIP-Dateien einzeln (mit Hinweis); „Herunterladen“ des Pakets sagt es und
+  nennt die Dateien, die Sie dann über ihre eigenen Zeilen darunter herunterladen. Die Dokumenteigenschaften der Paket-PDF (Betreff) nennen,
+  welche Datei auf welchen Seiten steht. Das Paket wird nicht gespeichert – es entsteht jedes Mal neu aus den Druckangaben, die Namen der
+  einzelnen Dateien bleiben, wie sie sind.
 * **Einheit als Datei:** Auf der Planungsseite einer Einheit, Karte **„Einheit als Datei“**, gibt es zwei Knöpfe.
   * **„Einheit als Datei herunterladen“** erzeugt eine ZIP-Datei. Darin liegt die Einheitsdatei mit Rahmendaten, Leupold-Schema und
     Ablauf. Dazu kommt je Sitzung ein Ordner, chronologisch nummeriert („01 - 12.11.2026 - …“), mit der Sitzungsdatei.

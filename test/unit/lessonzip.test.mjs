@@ -192,6 +192,36 @@ test("Nachtrag 42: Sitzungspaket im Ordner „Zum Ausdrucken“ statt seiner Dat
   assert.deepEqual(r.notes, ["„1x - farbig - einseitig - Reli2 - Ausmalbild.pdf“ ließ sich nicht in das Sitzungspaket „1x - farbig - einseitig - Reli2 - Sitzungspaket.pdf“ einfügen (die PDF-Datei ist im Browser nicht lesbar) – sie liegt einzeln im Ordner „Zum Ausdrucken“."]);
 });
 
+test("Prüfbefund Nachtrag 42: ein Arbeitsblatt der Kinder mit „Auch ausdrucken“ im Sitzungspaket liegt zusätzlich als eigene Datei in „Material für die Kinder“; der Verweis nennt weiter das Paket", async () => {
+  const PP = await import("../../public/printpack.js");
+  const ab = await pdfOf(["Arbeitsblatt Josef"]), cards = await pdfOf(["Bildkarten"], 2), solo = await pdfOf(["Lied"]);
+  const one = { copies: 1, duplex: false, color: true };
+  const files = [
+    { id: "a000000000000021", area: "student", kind: "file", name: "Arbeitsblatt Josef.pdf", mime: "application/pdf", status: "ready", print: one },   // „Auch ausdrucken“ (1x)
+    { id: "a000000000000022", area: "teacher", kind: "file", name: "Bildkarten Josef.pdf", mime: "application/pdf", status: "ready", cards: { texts: [] }, print: one },
+    { id: "a000000000000023", area: "student", kind: "file", name: "Lied.pdf", mime: "application/pdf", status: "ready", print: { copies: 22, duplex: false, color: false } },   // allein: kein Paket
+  ];
+  const portal = "- Bildkarten " + S.pdfRef("a000000000000022") + "\n- Malen " + S.pdfRef("a000000000000021") + "\n- Singen " + S.pdfRef("a000000000000023");
+  const nameOf = (f) => S.printFileName({ name: f.name, ...f.print, course: "Reli2" });
+  const packPrint = async () => {
+    const packs = S.printPacks(files, { plan: portal, gs: true, course: "Reli2" }).packs;
+    const r = await PP.packEntries([{ f: files[0], name: nameOf(files[0]), data: ab }, { f: files[1], name: nameOf(files[1]), data: cards }, { f: files[2], name: nameOf(files[2]), data: solo }], packs, async () => PL);
+    return { all: files, entries: r.entries, wait: [], cardsWait: [], packs: r.info };
+  };
+  const st = { lesson: { id: "g", subject: S.GS_SUBJECT, klass: "gs1234abcd", title: "Josef", date: "2026-11-24", durationMin: 45, portal: "", homework: "" }, files, sheets: [], refFiles: [], courseCards: [] };
+  const srv = serve({ a000000000000021: ab, a000000000000023: solo });
+  let r;
+  try { r = await LZ.buildLessonZip({ st, gs: true, course: { label: "Religion 2c", short: "Religion 2c", gradeText: "Jahrgang 2" }, portal, homework: "", packPrint, libs }); }
+  finally { srv.restore(); }
+  const z = await readZip(new Uint8Array(await r.blob.arrayBuffer())), names = z.map((e) => e.name).sort();
+  assert.deepEqual(names, ["Material für die Kinder/Arbeitsblatt Josef.pdf", "Verlaufsplan - Josef.pdf", "Zum Ausdrucken/1x - farbig - einseitig - Reli2 - Sitzungspaket.pdf",
+    "Zum Ausdrucken/22x - sw - einseitig - Reli2 - Lied.pdf"], "das Lied steht als eigene Druckdatei schon im Ordner – nicht noch einmal bei den Kindern");
+  const plan = await pdfText(z.find((e) => e.name.startsWith("Verlaufsplan")).data);
+  for (const t of ["„Zum Ausdrucken/1x - farbig - einseitig - Reli2 - Sitzungspaket.pdf (Teil 1)“", "„Zum Ausdrucken/1x - farbig - einseitig - Reli2 - Sitzungspaket.pdf (Teil 2)“",
+    "„Zum Ausdrucken/22x - sw - einseitig - Reli2 - Lied.pdf“"]) assert.ok(plan.includes(t), "Verlaufsplan: " + t + " – " + plan.slice(0, 600));
+  assert.deepEqual(r.notes, []);
+});
+
 test("Selbstlern-Phase: aktuelles Material wie auf der Seite, dazu die ursprüngliche Planung (archiviertes Material und Verlaufsplan) im eigenen Ordner", async () => {
   const st0 = await pdfOf(["Station 1"]), orig = await pdfOf(["Ursprüngliches Arbeitsblatt"]);
   const st = { lesson: { id: "l", subject: "powi", klass: "8B", title: "Wahlen", portal: "**Selbstlern-Phase**\n- Station 1" },

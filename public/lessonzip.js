@@ -64,7 +64,7 @@ export async function buildLessonZip({ st, gs = false, course = null, portal = n
   const textPdf = async (f, nameLine) => new Uint8Array(await (await markdownToPdf(f.name, f.text || "", { nameLine })).arrayBuffer());
 
   // 1. Druckliste – wie „Alle herunterladen (ZIP)“ (Grundschule: liest dabei den Stand vom Server, st.files ist danach aktuell)
-  const onPrint = new Set();
+  const onPrint = new Set(), inPack = new Set();   // inPack: Dateien, die nur als Teil eines Sitzungspakets im Ordner „Zum Ausdrucken“ liegen (Nachtrag 42)
   if (packPrint) {
     onStep("Lade die Druckliste …");
     let pp = null;
@@ -77,7 +77,7 @@ export async function buildLessonZip({ st, gs = false, course = null, portal = n
         // Sitzungspaket (Nachtrag 42): eine PDF für mehrere Dateien – Verweise des Verlaufsplans auf eine von ihnen nennen das Paket und den Teil
         if (e.pack) {
           e.parts.forEach((x, k) => {
-            placed.set(x.f.id, path + " (Teil " + (k + 1) + ")");
+            placed.set(x.f.id, path + " (Teil " + (k + 1) + ")"); inPack.add(x.f.id);
             if (outdatedOf(x.f)) notes.push("„" + x.name + "“ (im " + PACK_TITLE + " „" + path + "“) wurde nach dem letzten Druck noch geändert – im Ordner liegt die zuletzt gedruckte Fassung.");
           });
           continue;
@@ -121,24 +121,29 @@ export async function buildLessonZip({ st, gs = false, course = null, portal = n
   }
 
   // 3. Material der Sitzung (was auf der Druckliste steht, liegt schon unter „Zum Ausdrucken“; Links stehen im Verlaufsplan)
-  async function put(folder, f, nameLine) {
+  // again: die Datei liegt schon als Teil eines Sitzungspakets im Ordner – der Verweis im Verlaufsplan bleibt beim Paket, „nach dem Druck geändert“ steht schon da
+  async function put(folder, f, nameLine, again = false) {
     if (f.kind === "link") return;
+    const mark = (p) => { if (!again) placed.set(f.id, p); };
     if (f.kind === "text") {
-      try { placed.set(f.id, add(folder, (namePart(f.name, 110) || "Text") + ".pdf", await textPdf(f, nameLine))); }
+      try { mark(add(folder, (namePart(f.name, 110) || "Text") + ".pdf", await textPdf(f, nameLine))); }
       catch (e) { notes.push("„" + f.name + "“ ließ sich nicht als PDF erzeugen – " + why(e) + "."); }
       return;
     }
     if (f.status !== "ready") { notes.push("„" + f.name + "“ ist noch nicht fertig (z. B. noch nicht als PDF gedruckt) und fehlt im Ordner."); return; }
     onStep("Lade „" + f.name + "“ …");
     try {
-      placed.set(f.id, add(folder, fileName(f), await fetchFileBytes(f)));
-      if (outdatedOf(f)) notes.push("„" + f.name + "“ wurde nach dem letzten Druck noch geändert – im Ordner liegt die zuletzt gedruckte Fassung.");
+      mark(add(folder, fileName(f), await fetchFileBytes(f)));
+      if (outdatedOf(f) && !again) notes.push("„" + f.name + "“ wurde nach dem letzten Druck noch geändert – im Ordner liegt die zuletzt gedruckte Fassung.");
     } catch (e) { notes.push("„" + f.name + "“ ließ sich nicht laden – " + why(e) + "."); }
   }
   const area = { student: gs ? LZ_FOLDERS.kids : LZ_FOLDERS.student, teacher: LZ_FOLDERS.teacher };
   for (const f of files) {
-    if (!area[f.area] || f.notesOf || onPrint.has(f.id)) continue;
-    await put(area[f.area], f, f.area === "student");
+    // Nachtrag 42 (Prüfbefund): ein Arbeitsblatt der Kinder mit „Auch ausdrucken“ liegt sonst nur unter „Zum Ausdrucken“ – steckt es dort in einem
+    // Sitzungspaket, fehlte es als eigene Datei; dann liegt es zusätzlich in „Material für die Kinder“ (der Verweis im Verlaufsplan nennt weiter das Paket)
+    const again = f.area === "student" && inPack.has(f.id);
+    if (!area[f.area] || f.notesOf || (onPrint.has(f.id) && !again)) continue;
+    await put(area[f.area], f, f.area === "student", again);
   }
   // Grundschule: Verweise des Verlaufsplans auf Dateien anderer Sitzungen (z. B. Vorlesetext der vorigen Stunde, Bildkarten des Kurses)
   if (gs) {
