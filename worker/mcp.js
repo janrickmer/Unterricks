@@ -18,7 +18,7 @@ import { insertTextMaterial, insertPrintText, saveDesign, renderDesign, getFile 
 import { shortImages } from "./render.js";
 import { ESCAPE_FORMAT_HINT, PART_TYPES } from "../public/escape-data.js";
 import { SUBJECTS, ALL_CLASSES, subjectName, gradeInfo, formatCode, lessonContext, chatTranscript, PORTAL_RULES, PORTAL_EXAMPLE, PORTAL_TEACHER_RULE, SYSTEM_PROMPT_ROLE, FEIBEITSBLATT_INFO, FB_LINK_HINT, classShort, fmtDay, materialDesignText, printFileName, printCourse, GS_SUBJECT,
-  STOP_LINE, hasStop, planRefs, pdfRef, PLAN_REF_RE, NOTES_FILE, NOTE_DO_LABEL, TEACHER_SUMMARY_TITLE, TEACHER_SUMMARY_MAX, teacherSummaryRules, summaryHead, summaryOutdated, fmtStampBerlin, addDays, berlinToday, cardPrintsOf, refCardsOf, FB_MEDIA } from "../public/shared.js";
+  STOP_LINE, hasStop, planRefs, pdfRef, PLAN_REF_RE, NOTES_FILE, NOTE_DO_LABEL, TEACHER_SUMMARY_TITLE, TEACHER_SUMMARY_MAX, teacherSummaryRules, summaryHead, summaryOutdated, fmtStampBerlin, addDays, berlinToday, cardPrintsOf, refCardsOf, FB_MEDIA, portalPhases } from "../public/shared.js";
 import { gsLessonContext, GS_MATERIAL_RULES, CARD_DESIGN_RULES, VERLAUFSPLAN_EXAMPLE, VERLAUFSPLAN_RULES, CONC_TITLE, CONC_PRINT, CONC_PAGES_MAX, isConcName, concTitleOf, concSaveArgs, concSection, concMissingText, concUnplannedText,
   storyInPlan, cardsMissingText, CARD_PRINT_TEXT, printSettingsText } from "../public/gsplanning.js";
 import { saveCardSet, setCardTexts } from "./cards.js";
@@ -26,6 +26,7 @@ import { parentFiles, refCounts } from "./parents.js";
 import { BRING_LIMITS, bringSection, bringRead } from "../public/bring.js";
 import { videoSlidesData, videoSlidesOf, videoWatchUrl, videoClipText, VIDEO_MARK } from "../public/videoslides.js";
 import { SHARE_LIMITS, SHARE_RULES, SHARE_TEXT_TITLE, cleanShareText, shareTextOf, shareTextStore, shareTextComplete, shareSessions, competenceSource } from "../public/sharelib.js";
+import { TEACHER_PLAN_TITLE, TEACHER_PLAN_LIMITS, teacherPlanRules, teacherPlanFromArgs, teacherPlanOf, teacherPlanFits, phaseList } from "../public/teacherplan.js";
 
 const MODERN = "2026-07-28";
 const LEGACY = ["2025-11-25", "2025-06-18", "2025-03-26", "2024-11-05"];
@@ -61,7 +62,8 @@ const WEITERGABE_ARG = { type: "object", description: "„" + SHARE_TEXT_TITLE +
   required: ["passiert", "kompetenz", "ziel"], additionalProperties: false };
 const ro = { readOnlyHint: true, destructiveHint: false, openWorldHint: false };
 // Speicher-Werkzeuge der Planung (Nachtrag 21): danach die Zusammenfassung für die Lehrkraft
-const SUMMARY_AFTER_SAVE = "Schreibe danach auch die „" + TEACHER_SUMMARY_TITLE + "“ mit update_lesson (zusammenfassung_lehrkraft) bzw. passe sie an – ebenso den „" + SHARE_TEXT_TITLE + "“ (weitergabe).";
+const SUMMARY_AFTER_SAVE = "Schreibe danach auch die „" + TEACHER_SUMMARY_TITLE + "“ mit update_lesson (zusammenfassung_lehrkraft) bzw. passe sie an – ebenso den „" + SHARE_TEXT_TITLE + "“ (weitergabe) " +
+  "und den „" + TEACHER_PLAN_TITLE + "“ (kurzplan_lehrkraft).";
 const wr = { readOnlyHint: false, destructiveHint: false, openWorldHint: false };
 
 const T = (d) => ({ type: "string", description: d }), I = (d) => ({ type: "integer", description: d });
@@ -103,7 +105,9 @@ const TOOLS = [
       "Mit zusammenfassung_lehrkraft speicherst du die „" + TEACHER_SUMMARY_TITLE + "“ (Gymnasium und Grundschule; Unterricks zeigt sie ganz oben in der Sitzung, nur der Lehrkraft) – " +
       "immer, wenn du Unterrichtsinhalte der Sitzung ablegst, als letzten Speicherschritt (auch wenn die Lehrkraft nur einen Teil freigibt, ohne eigene Rückfrage), und erneut, wenn du die Planung später überarbeitest – nicht für eine Selbstlern-Phase. " +
       "Mit mitbringen hältst du fest, welche Gegenstände die Lehrkraft für die Stunde mitbringen muss (Gymnasium und Grundschule; Unterricks zeigt sie ihr am Vortag auf der Startseite). " +
-      "Mit weitergabe speicherst du den „" + SHARE_TEXT_TITLE + "“ (was passiert, zentrale Kompetenz, Ziel) – zusammen mit der Zusammenfassung, wenn du eine Stunde planst; für viele Sitzungen einer Einheit auf einmal gibt es save_weitergabe.",
+      "Mit weitergabe speicherst du den „" + SHARE_TEXT_TITLE + "“ (was passiert, zentrale Kompetenz, Ziel) – zusammen mit der Zusammenfassung, wenn du eine Stunde planst; für viele Sitzungen einer Einheit auf einmal gibt es save_weitergabe. " +
+      "Mit kurzplan_lehrkraft speicherst du den „" + TEACHER_PLAN_TITLE + "“ (Gymnasium und Grundschule; Unterricks zeigt ihn nur der Lehrkraft in „Ich bin jetzt im Unterricht“ statt des langen Verlaufsplans) – zusammen mit der Zusammenfassung, " +
+      "nachdem der Schulportal-Eintrag bzw. Verlaufsplan gespeichert ist, und neu, wenn er sich ändert.",
     inputSchema: { type: "object", properties: { lesson_id: ID_ARG, titel: { type: "string", maxLength: 200 }, thema: { type: "string", maxLength: 500 },
       dauer_minuten: { type: "integer", minimum: 5, maximum: 600 }, datum: { type: "string", pattern: "^\\d{4}-\\d{2}-\\d{2}$" },
       beginn: { type: "string", pattern: "^([01]\\d|2[0-3]):[0-5]\\d$", description: "Uhrzeit des Unterrichtsbeginns, z. B. 07:45" }, ideen: { type: "string", maxLength: 20000 },
@@ -112,6 +116,13 @@ const TOOLS = [
       zwischenstopp: { type: "string", enum: STOP_CHOICES, description: "Entscheidung der Lehrkraft zum offenen Teil der vorigen Sitzung nach ihrem Zwischenstopp: \"uebernehmen\" (in diese Stunde einbauen) oder \"verzichten\" – nur, was die Lehrkraft entschieden hat; halte sie gleich nach ihrer Antwort fest, vor dem Speichern der Planung dieser Stunde (erst eine danach gespeicherte Planung erledigt den Hinweis darauf in Unterricks)" },
       zusammenfassung_lehrkraft: { type: "string", maxLength: TEACHER_SUMMARY_MAX, description: TEACHER_SUMMARY_TITLE + " (nie für Schüler:innen oder Eltern sichtbar). " + teacherSummaryRules("beide") + " Leer = löschen." },
       weitergabe: WEITERGABE_ARG,
+      kurzplan_lehrkraft: { type: "array", maxItems: TEACHER_PLAN_LIMITS.phases, description: "„" + TEACHER_PLAN_TITLE + "“ (nie für Schüler:innen oder Eltern sichtbar): Im Unterricht sieht die Lehrkraft damit auf einen Blick, was sie in jeder Phase tun muss. " +
+        "Je Phase des gespeicherten Schulportal-Eintrags bzw. Verlaufsplans ein Eintrag: phase = die Nummer der Phase, wie sie dort steht („**3) Partnerarbeit**“ → 3), anweisungen = " +
+        teacherPlanRules("beide") + " Ersetzt den bisherigen Kurzplan; [] löscht ihn. Ändert sich der Schulportal-Eintrag bzw. Verlaufsplan danach, kürzt Unterricks ihn selbst, bis du den Kurzplan neu schreibst.",
+        items: { type: "object", properties: { phase: { type: "integer", minimum: 1, maximum: 99, description: "Nummer der Phase im Schulportal-Eintrag bzw. Verlaufsplan" },
+          anweisungen: { type: "array", minItems: 1, maxItems: TEACHER_PLAN_LIMITS.steps, items: { type: "string", maxLength: TEACHER_PLAN_LIMITS.chars },
+            description: "was die Lehrkraft in dieser Phase tut, z. B. „Lehrkraft erklärt kurz, was Martin Luther am Ablasshandel kritisiert hat.“" } },
+          required: ["phase", "anweisungen"], additionalProperties: false } },
       mitbringen: { type: "array", maxItems: BRING_LIMITS.items, description: "Gegenstände, die die Lehrkraft für diese Stunde mitbringen muss – nur, was sie von zu Hause oder aus dem Lehrerzimmer mitnimmt (z. B. eine Bibel oder einen Beutel), " +
         "nicht die übliche Ausstattung des Klassenraums und nicht das Material ihrer Druckliste; nur nach ihrer Freigabe. Ersetzt die bisherige Liste (siehe get_lesson); [] leert sie. Nie Namen von Schüler:innen oder Kindern.",
         items: { type: "object", properties: { gegenstand: { type: "string", maxLength: BRING_LIMITS.item, description: "z. B. „Bibel“" },
@@ -269,7 +280,7 @@ const TOOLS = [
       "Die Schüler:innen sehen oben eine Erklärung (einleitung ergänzt sie), darunter die stationen in dieser Reihenfolge und von Anfang an die hausaufgabe: alle Stationen bis zum Beginn der nächsten Sitzung mit der Lehrkraft (get_lesson nennt den Termin; ohne hausaufgabe setzt Unterricks diesen Satz selbst). " +
       "Lege Material vorher mit add_material_pdf und selbstlern: true an (die Schüler:innen sehen es erst nach dem Umstellen), Feibeitsblatt-Entwürfe mit propose_feibeitsblatt. Den Erklär-Chatbot baut Unterricks aus erklaeren, kernpunkte und fehlvorstellungen – schreib keinen Prompt für ihn. " +
       "Jahrgang 5/6: nur analoge Stationen (material auf der Druckliste, aufgabe), Laufzettel und Lösungskontrolle in material. Erneut aufgerufen ersetzt es die Selbstlern-Phase (das Archiv bleibt). " +
-      "Die „" + TEACHER_SUMMARY_TITLE + "“ (zusammenfassung_lehrkraft) änderst du dabei nicht – sie beschreibt die ursprüngliche Planung.",
+      "Die „" + TEACHER_SUMMARY_TITLE + "“ (zusammenfassung_lehrkraft) und den „" + TEACHER_PLAN_TITLE + "“ (kurzplan_lehrkraft) änderst du dabei nicht – sie beschreiben die ursprüngliche Planung.",
     inputSchema: { type: "object", properties: { lesson_id: ID_ARG,
       einleitung: { type: "string", maxLength: SELBSTLERN_LIMITS.intro, description: "optional: ein eigener Satz unter der Erklärung von Unterricks (z. B. zum Ziel der Stunde)" },
       stationen: { type: "array", minItems: 1, maxItems: SELBSTLERN_LIMITS.stations, description: "die Stationen in der Reihenfolge der Bearbeitung", items: { type: "object", properties: {
@@ -316,6 +327,45 @@ function shareSection(l) {
   return ["", "## " + SHARE_TEXT_TITLE, "Was passiert: " + (t.passiert || "(leer)"), competenceSource(l.subject, l.klass).label + ": " + (t.kompetenz || "(leer)"), "Ziel: " + (t.ziel || "(leer)"),
     "(Stand: " + (t.at ? fmtStampBerlin(t.at) : "unbekannt") + ")"];
 }
+/* Abschnitt „Kurzplan für die Lehrkraft“ von get_lesson (Nachtrag 42): je Phase die Anweisungen, Stand und – passt er nicht mehr zur Planung bzw. gilt eine
+   Selbstlern-Phase oder ältere Vertretung – ein Hinweis */
+function teacherPlanSection(l, { substitute = false, selbstlern = false } = {}) {
+  const gs = l.subject === GS_SUBJECT, plan = gs ? "Verlaufsplan" : "Schulportal-Eintrag", tp = teacherPlanOf(l.teacher_plan);
+  const head = ["", "## " + TEACHER_PLAN_TITLE + " (zeigt Unterricks nur in „Ich bin jetzt im Unterricht“)"];
+  if (!tp) return [...head, "(noch keiner – schreibe ihn mit update_lesson und kurzplan_lehrkraft, sobald du die Planung dieser Sitzung ablegst: je Phase des " + plan + "s 1–" +
+    TEACHER_PLAN_LIMITS.steps + " kurze Anweisungen, was die Lehrkraft tut)"];
+  const out = [...head, ...tp.phases.map((p) => "- Phase " + p.n + ": " + p.steps.join(" | ")), "(Stand: " + (tp.at ? fmtStampBerlin(tp.at) : "unbekannt") + ")"];
+  if (selbstlern) out.push("Für diese Sitzung gilt die Selbstlern-Phase – der Kurzplan beschreibt die ursprüngliche Planung.");
+  else if (substitute) out.push("Für diese Sitzung gilt die bestätigte Vertretungsstunde – der Kurzplan beschreibt die ursprüngliche Planung.");
+  else {
+    const fit = teacherPlanFits(tp, l.portal);
+    if (fit.why === "changed") out.push("Achtung: Der " + plan + " wurde danach geändert – Unterricks zeigt solange eine automatisch gekürzte Fassung. Schreibe den Kurzplan mit update_lesson (kurzplan_lehrkraft) neu, wenn du die Planung überarbeitest.");
+    else if (fit.why === "phases") out.push("Achtung: " + phaseList(fit.missing) + " gibt es im " + plan + " nicht – Unterricks zeigt solange eine automatisch gekürzte Fassung. Nimm die Nummern der Phasen („**n) …**“) aus dem " + plan + ".");
+  }
+  return out;
+}
+/* Rückmeldung von update_lesson zum Kurzplan (Nachtrag 42): kurz, mit Phasen, die es im Plan nicht gibt bzw. die keine Anweisungen haben, und Hinweisen zur Form */
+function teacherPlanNote(l) {
+  const tp = teacherPlanOf(l.teacher_plan);
+  if (!tp) return TEACHER_PLAN_TITLE + " gelöscht.";
+  const gs = l.subject === GS_SUBJECT, plan = gs ? "Verlaufsplan" : "Schulportal-Eintrag", steps = tp.phases.reduce((a, p) => a + p.steps.length, 0);
+  const out = [TEACHER_PLAN_TITLE + " gespeichert (" + tp.phases.length + (tp.phases.length === 1 ? " Phase, " : " Phasen, ") + steps + (steps === 1 ? " Anweisung" : " Anweisungen") +
+    ") – Unterricks zeigt ihn der Lehrkraft nur in „Ich bin jetzt im Unterricht“."];
+  const fit = teacherPlanFits(tp, l.portal), have = [...new Set(portalPhases(l.portal).map((h) => h.n))];
+  if (!have.length) out.push("Achtung: Der " + plan + " hat noch keine nummerierten Phasen („**1) …**“) – speichere zuerst " + (gs ? "den Verlaufsplan (save_verlaufsplan)" : "den Schulportal-Eintrag (save_schulportal_entry)") + " und danach den Kurzplan erneut.");
+  else if (fit.missing.length) out.push("Achtung: " + phaseList(fit.missing) + " gibt es im " + plan + " nicht (dort: " + have.join(", ") + ") – solange zeigt Unterricks eine automatisch gekürzte Fassung. Nimm die Nummern der Phasen aus dem gespeicherten " + plan + ".");
+  else if (fit.uncovered.length) out.push("Ohne Anweisungen: " + phaseList(fit.uncovered) + " – dort zeigt Unterricks die unterstrichenen Aufforderungen an die Lehrkraft bzw. den ersten Stichpunkt.");
+  if (tp.phases.some((p) => p.steps.some((t) => /\*\*|~~|__|`|\[\[pdf:/i.test(t)))) out.push("Achtung: Der Kurzplan erscheint als schlichter Text – schreibe ihn ohne Schulportal-Zeichen und ohne Verweise [[pdf:…]] (Material mit seinem Titel).");
+  return out.join(" ");
+}
+/* Erinnerung in der Antwort von save_schulportal_entry und save_verlaufsplan (Nachtrag 42): nur, wenn es einen Kurzplan gibt, der zur neuen Planung nicht mehr
+   passt – sonst bleibt die Antwort wie bisher (auch ohne Kurzplan: daran erinnern die Prompts und die Werkzeugbeschreibungen) */
+async function teacherPlanReminder(db, l, planText) {
+  const tp = teacherPlanOf(l.teacher_plan);
+  if (!tp || teacherPlanFits(tp, planText).fits) return "";
+  if (l.subject !== GS_SUBJECT) { const s = await getSubstitute(db, l.id); if (s && isAbsent(s.status)) return ""; }
+  return " Der „" + TEACHER_PLAN_TITLE + "“ passt nicht mehr zur neuen Planung – schreibe ihn zum Schluss mit update_lesson (kurzplan_lehrkraft) neu.";
+}
 /* Liste „Absätze für die Weitergabe“ in get_unit (Nachtrag 39): je Stunde mit Sitzung, ob sie geplant ist und ob es einen Absatz gibt */
 async function shareUnitLines(db, u) {
   const ls = await shareLessons(db, u.id), list = shareSessions(u.rows || [], ls).filter((s) => s.lesson);
@@ -343,6 +393,7 @@ async function lessonDump(db, l, now = Date.now()) {
     ...(ps ? stopLessonLines(ps, { gs: false, unitId: ctx.unit ? ctx.unit.id : null, unit: ctx.unit, now }) : []),
     ...slBefore,
     ...summarySection(l, null, { substitute: !!sub && sub.status === "aktiv", selbstlern: !!sub && sub.status === SELBSTLERN }),
+    ...teacherPlanSection(l, { substitute: !!sub && sub.status === "aktiv", selbstlern: !!sub && sub.status === SELBSTLERN }),
     ...shareSection(l),
     ...bringSection(bringRead(l.bring).items),
     "", "## Planungsverlauf", chatTranscript(msgs, 60000) || "(leer)",
@@ -454,6 +505,7 @@ async function gsLessonDump(c, l) {
     parentsLine,
     ...(ps ? stopLessonLines({ ...ps, openFiles: openFilesOf(ps, [...ctx.files, ...others]) }, { gs: true, unitId: ctx.unit ? ctx.unit.id : null, unit: ctx.unit, now: c.now }) : []),
     ...(l.cancelled ? [] : summarySection(l, ctx.course)),
+    ...(l.cancelled ? [] : teacherPlanSection(l)),
     ...(l.cancelled ? [] : shareSection(l)),
     ...(l.cancelled ? [] : bringSection(bringRead(l.bring).items)),
     "", "## Inhalt der Unterrichtsstunde (für die Eltern)", l.parent_summary || (l.cancelled ? "(Ausfall-Eintrag – keiner)" : "(noch leer – formuliere ihn mit update_lesson und inhalt_eltern)"),
@@ -836,6 +888,10 @@ async function callTool(c, name, a) {
         try { cleanShareText(a.weitergabe, true); } catch (e) { return toolError("weitergabe: " + e.message); }
         b.shareText = a.weitergabe;
       }
+      // Kurzplan für die Lehrkraft (Nachtrag 42): streng geprüft (Phasennummer, 1–3 Anweisungen, Länge) – Fehler als Meldung, nie still gekürzt
+      if (a.kurzplan_lehrkraft !== undefined) {
+        try { b.teacherPlan = teacherPlanFromArgs(a.kurzplan_lehrkraft); } catch (e) { return toolError("kurzplan_lehrkraft: " + e.message); }
+      }
       // Gegenstände zum Mitbringen (Nachtrag 28): die ganze Liste; geprüft wie auf der Sitzungsseite (Länge, höchstens zwei Sätze, doppelt) – Fehler als Meldung
       if (a.mitbringen !== undefined) {
         if (!Array.isArray(a.mitbringen)) return toolError("mitbringen ist eine Liste [{gegenstand, wofuer}] ([] leert sie).");
@@ -854,13 +910,14 @@ async function callTool(c, name, a) {
           (l.unit_id || stopPrev.unit_row ? " Passe die Einheit an, sobald die Lehrkraft die Planung dieser Stunde bestätigt hat (siehe get_lesson)." : "");
       }
       const sumNote = a.zusammenfassung_lehrkraft !== undefined ? " " + (await summaryNote(c, l)) : "";
+      const planNote = a.kurzplan_lehrkraft !== undefined ? " " + teacherPlanNote(l) : "";
       const items = bringRead(l.bring).items;
       // ohne Lehrkraft (Selbstlern-Phase bzw. ältere Vertretung) zeigt die Startseite sie nicht (printjobs.js) – das sagt die Antwort dann auch
       const away = a.mitbringen !== undefined && items.length ? isAbsent(((await getSubstitute(c.db, l.id)) || {}).status) : false;
       const bringNote = a.mitbringen === undefined ? "" : items.length ? " Mitbringen (" + items.length + (items.length === 1 ? " Gegenstand" : " Gegenstände") + "): " + items.map((x) => x.item).join(", ") +
         (away ? " – gespeichert; solange für diese Sitzung eine Selbstlern-Phase gilt (die Lehrkraft kommt nicht), zeigt Unterricks sie nicht auf der Startseite (nach „Wiederherstellen“ wieder)."
           : " – Unterricks zeigt sie der Lehrkraft am Vortag auf der Startseite („Für den nächsten Arbeitstag einpacken“).") : " Die Liste „Mitbringen“ ist leer.";
-      return toolText("Gespeichert." + stopNote + sumNote + bringNote, { lesson: lessonOut(l), ...(stopPrev ? { zwischenstopp: a.zwischenstopp } : {}) });
+      return toolText("Gespeichert." + stopNote + sumNote + planNote + bringNote, { lesson: lessonOut(l), ...(stopPrev ? { zwischenstopp: a.zwischenstopp } : {}) });
     }
     case "save_weitergabe": {
       const u = await getUnit(c.db, a.unit_id);
@@ -898,7 +955,7 @@ async function callTool(c, name, a) {
       if (typeof a.text !== "string" || !a.text.trim()) return toolError("Der Eintrag ist leer.");
       try {
         const p = await savePortal(c.db, a.lesson_id, a.text, Number.isInteger(a.base_version) ? a.base_version : null, "claude", c.now, true);
-        return toolText("Schulportal-Eintrag gespeichert (Version " + p.version + ")." + (await summaryReminder(c.db, lx, p.text)), { version: p.version });
+        return toolText("Schulportal-Eintrag gespeichert (Version " + p.version + ")." + (await teacherPlanReminder(c.db, lx, p.text)) + (await summaryReminder(c.db, lx, p.text)), { version: p.version });
       } catch (e) {
         if (e instanceof HttpError && e.code === "portal_conflict") return toolError("Der Eintrag wurde inzwischen geändert (aktuelle Version " + e.extra.current.version + "). Bitte get_lesson erneut aufrufen und die Änderungen der Lehrkraft berücksichtigen.");
         throw e;
@@ -1054,7 +1111,7 @@ async function callTool(c, name, a) {
       if (reused.length) t.push(reused.every((x) => x.how === reused[0].how)
         ? "Wiederverwendete Bildkarten " + reused.map((x) => "„" + x.name + "“").join(", ") + " stehen auch auf der Druckliste dieser Sitzung (" + reused[0].how + ")."
         : "Wiederverwendete Bildkarten stehen auch auf der Druckliste dieser Sitzung: " + reused.map((x) => "„" + x.name + "“ (" + x.how + ")").join(", ") + ".");
-      return toolText(t.join(" ") + concText + (story ? cardsMissingText(story) : "") + (await summaryReminder(c.db, l, p.text)),
+      return toolText(t.join(" ") + concText + (story ? cardsMissingText(story) : "") + (await teacherPlanReminder(c.db, l, p.text)) + (await summaryReminder(c.db, l, p.text)),
         { version: p.version, unknown_refs: unknown, invalid_refs: invalid, later_refs: later, konzentrationsaufgabe: conc.length > 0, ...(story ? { bildkarten_fehlen: true } : {}) });
     }
     case "add_text_material": {

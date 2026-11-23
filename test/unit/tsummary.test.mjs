@@ -128,8 +128,10 @@ test("Connector: Werkzeugschema, Beschreibungen und Anweisungen nennen die Zusam
   assert.ok(init.instructions.includes("Legst du Unterrichtsinhalte einer Sitzung ab (nach Freigabe der Lehrkraft, auch wenn sie nur einen Teil freigibt), schreibe zum Schluss immer auch die „" + S.TEACHER_SUMMARY_TITLE +
     "“ mit update_lesson (zusammenfassung_lehrkraft) – ohne eigene Rückfrage und auch, wenn du die Planung später überarbeitest (z. B. nach einem Zwischenstopp); das gilt am Gymnasium und in der Grundschule, nicht für eine Selbstlern-Phase."));
   assert.ok(by("update_lesson").description.includes("(auch wenn die Lehrkraft nur einen Teil freigibt, ohne eigene Rückfrage)") && by("update_lesson").description.includes("nicht für eine Selbstlern-Phase"));
-  // Selbstlern-Phase (Nachtrag 29, statt Vertretung): die Zusammenfassung beschreibt die ursprüngliche Planung – Claude ändert sie dabei nicht
-  assert.ok(by("save_selbstlern").description.endsWith("Die „" + S.TEACHER_SUMMARY_TITLE + "“ (zusammenfassung_lehrkraft) änderst du dabei nicht – sie beschreibt die ursprüngliche Planung."));
+  // Selbstlern-Phase (Nachtrag 29, statt Vertretung): die Zusammenfassung beschreibt die ursprüngliche Planung – Claude ändert sie dabei nicht (seit Nachtrag 42
+  // ebenso den Kurzplan für die Lehrkraft)
+  assert.ok(by("save_selbstlern").description.endsWith("Die „" + S.TEACHER_SUMMARY_TITLE + "“ (zusammenfassung_lehrkraft) und den „Kurzplan für die Lehrkraft“ (kurzplan_lehrkraft) " +
+    "änderst du dabei nicht – sie beschreiben die ursprüngliche Planung."));
 });
 
 test("Gymnasium: update_lesson speichert (Zeitpunkt, Fingerabdruck), meldet Kopfzeile und Form, leer löscht, zu lang abgelehnt; get_lesson-Abschnitt mit Hinweisen", async () => {

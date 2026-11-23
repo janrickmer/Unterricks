@@ -519,6 +519,19 @@ async function main() {
     await tp.locator('#tsum .save-state[data-state="ok"]', { hasText: "Gespeichert" }).waitFor({ timeout: 10000 });
     ok((await T("GET", "/api/teacher/lessons/" + lessonId)).data.lesson.teacherSummary.endsWith("Zum Schluss das Tafelbild fotografieren.") && (await tp.locator("#tsum-text p").count()) === 3
       && await tp.evaluate(() => document.activeElement && document.activeElement.id === "tsum-edit-btn"), "von der Lehrkraft geändert und gespeichert, Fokus zurück auf „Bearbeiten“");
+    // Nachtrag 42: Speicherschritt „Kurzplan für die Lehrkraft“ direkt nach dem Absatz für die Weitergabe; Claude speichert ihn (update_lesson kurzplan_lehrkraft),
+    // get_lesson zeigt ihn – auf der Sitzungsseite erscheint er nicht (nur in „Ich bin jetzt im Unterricht“, siehe inclass.mjs); danach wieder gelöscht
+    ok(lessonPrompt.includes("`update_lesson` mit `weitergabe`") && lessonPrompt.indexOf("`update_lesson` mit `kurzplan_lehrkraft`") > lessonPrompt.indexOf("`update_lesson` mit `weitergabe`") &&
+      lessonPrompt.indexOf("`update_lesson` mit `kurzplan_lehrkraft`") < lessonPrompt.indexOf("Sage mir zum Schluss kurz"), "Prompt: Speicherschritt „Kurzplan für die Lehrkraft“ nach dem Absatz für die Weitergabe");
+    r = await tool("update_lesson", { lesson_id: lessonId, kurzplan_lehrkraft: [{ phase: 1, anweisungen: ["Lehrkraft zeigt die Karikatur und sammelt erste Antworten (KURZPLANTEST)."] }] });
+    const kpLesson = (await T("GET", "/api/teacher/lessons/" + lessonId)).data.lesson;
+    ok(!r.isError && r.content[0].text.startsWith("Gespeichert. Kurzplan für die Lehrkraft gespeichert (1 Phase, 1 Anweisung)") && kpLesson.teacherPlan && kpLesson.teacherPlan.phases[0].n === 1 &&
+      (await tool("get_lesson", { lesson_id: lessonId })).content[0].text.includes("## Kurzplan für die Lehrkraft (zeigt Unterricks nur in „Ich bin jetzt im Unterricht“)\n- Phase 1: Lehrkraft zeigt die Karikatur"),
+      "Claude speichert den Kurzplan für die Lehrkraft; get_lesson zeigt ihn");
+    await tp.evaluate(() => document.dispatchEvent(new Event("visibilitychange"))); await tp.waitForTimeout(800);
+    ok(!(await tp.locator("main").textContent()).includes("KURZPLANTEST"), "… die vollständige Sitzungsseite zeigt ihn nicht");
+    r = await tool("update_lesson", { lesson_id: lessonId, kurzplan_lehrkraft: [] });
+    ok(!r.isError && (await T("GET", "/api/teacher/lessons/" + lessonId)).data.lesson.teacherPlan === null, "… und mit [] wieder gelöscht");
 
     step("Material hochladen (zwei getrennte Bereiche) und aus dem Chat übernehmen");
     await tp.locator(".zones input[type=file]").nth(0).setInputFiles({ name: "Arbeitsblatt BVerfG.pdf", mimeType: "application/pdf", buffer: await pdf(1, "Arbeitsblatt") });

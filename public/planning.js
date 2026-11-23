@@ -5,6 +5,7 @@ import { subjectName, gradeInfo, classShort, isAnalogClass, ANALOG_RULE, fmtDay,
   GS_SUBJECT, isGsCourseId, parentOpensAt, berlinToday, stopParts, STOP_CHOICE_TEXT, STOP_CHOICES, stopDecidedOn, summarySaveStep, SUMMARY_FALLBACK, daysBetween } from "./shared.js";
 import { bringSaveStep } from "./bring.js";
 import { shareSaveStep } from "./sharelib.js";
+import { teacherPlanSaveStep } from "./teacherplan.js";
 export { UNIT_RULE } from "./shared.js";
 
 export const WEEKDAYS = [{ d: 1, n: "Montag" }, { d: 2, n: "Dienstag" }, { d: 3, n: "Mittwoch" }, { d: 4, n: "Donnerstag" }, { d: 5, n: "Freitag" }];
@@ -692,6 +693,7 @@ export function claudeLessonPrompt(ctx) {
     unit ? "   - Abgestimmte Abweichung von der Einheit (Stundenfrage, grober Ablauf) → `update_unit_row`." : null,
     summarySaveStep(false, analog),
     shareSaveStep(ctx.subject, ctx.klass),   // Nachtrag 39: Absatz für die Weitergabe an Kolleg:innen
+    teacherPlanSaveStep(false),   // Nachtrag 42: Kurzplan für die Lehrkraft („Ich bin jetzt im Unterricht“)
   ];
   return [
     "Chat-Name: " + chatName,
@@ -788,7 +790,7 @@ export function claudeGymRevisionPrompt(ctx) {
     "3. Warte auf meine Entscheidung.",
     "4. Soll verlängert werden, rufe zuerst `extend_unit` auf (mit `base_version` aus `get_unit` und `termine` – so viele Termine, wie gebraucht werden, höchstens 3). Inhalte und Stundenfragen änderst du mit `update_unit_row` (`unit_id`, `base_version` und `stunden` mit der Nummer `nr` jeder geänderten Stunde aus `get_unit`) – in einer Speicherung. " +
       "Willst du den ganzen Plan neu speichern (`save_unit_plan`): Am Gymnasium ordnet die Plattform die Stunden nach ihrer Position den bestehenden Sitzungen zu – behalte deshalb Anzahl und Reihenfolge der Stunden mit Sitzung bei (Inhalt und Stundenfrage darfst du ändern) und streiche höchstens Stunden ohne Sitzung am Ende. Stunden ohne Termin bekommen die freien Termine.",
-    "5. Passe betroffene Sitzungen nur nach meiner Zustimmung an (`save_schulportal_entry`, danach mit `update_lesson` auch die „Zusammenfassung der Sitzung für die Lehrkraft“ und den „Absatz für die Weitergabe“ (`weitergabe`)).",
+    "5. Passe betroffene Sitzungen nur nach meiner Zustimmung an (`save_schulportal_entry`, danach mit `update_lesson` auch die „Zusammenfassung der Sitzung für die Lehrkraft“, den „Absatz für die Weitergabe“ (`weitergabe`) und den „Kurzplan für die Lehrkraft“ (`kurzplan_lehrkraft`, je Phase 1–3 kurze Anweisungen, was ich tue)).",
     "",
     "Falls der Connector „Unterricks“ in diesem Chat nicht verfügbar ist, sage es mir sofort (er muss in claude.ai unter „Connectors“ eingerichtet und im Chat aktiviert sein).",
   ].filter((l) => l !== null).join("\n").replace(/\n{3,}/g, "\n\n");

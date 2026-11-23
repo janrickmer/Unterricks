@@ -1494,6 +1494,7 @@ export async function sessionPage(id) {
   // Lehrkraft ist dann nicht im Unterricht)
   const icApi = { kind: "gym", id, st, selbstlern: selbstNow, on: (k, fn) => { icOn[k].add(fn); return () => icOn[k].delete(fn); },
     planText: () => (portalTA ? portalTA.value : L().portal || ""), paintPlan: (box) => paintPortalPreview(box, portalTA ? portalTA.value : L().portal || ""), planState: portalState,
+    teacherPlan: () => L().teacherPlan || null,   // Kurzplan für die Lehrkraft (Nachtrag 42) – nur die kompakte Ansicht zeigt ihn
     stopMenu: (line, x, y) => { if (!portalTA) showPortalEditor(); stopMenu(line, x, y); }, insertStop: (line) => { if (!portalTA) showPortalEditor(); insertStopAt(line); }, dropStop,
     stopNext: () => stopNext, openActs, packs: () => mbox.packs(), packActs: mbox.packActs, homework: hwCard, annotated: (p) => st.files.find((f) => f.notesOf === p.id && f.area !== "archive") || null,
     // auch eine Präsentation, deren Folienbilder noch fehlen (die kompakte Ansicht sagt es; live starten nur „ready“ – startLive nimmt curPres)
@@ -1559,6 +1560,8 @@ export async function sessionPage(id) {
       d.nextLesson = r.nextLesson;
       tsum.update(r.lesson);   // Zusammenfassung (z. B. von Claude mit update_lesson) – nie in eine laufende Bearbeitung
       bring.update(r.lesson);  // Gegenstände zum Mitbringen (Nachtrag 28) – nie in ein offenes Formular
+      // Kurzplan für die Lehrkraft (Nachtrag 42, z. B. von Claude mit update_lesson): die kompakte Ansicht zeichnet ihren Verlaufsplan neu
+      if (JSON.stringify(r.lesson.teacherPlan || null) !== JSON.stringify(L().teacherPlan || null)) { L().teacherPlan = r.lesson.teacherPlan || null; icEmit("plan"); }
       // Hausaufgabe und Sitzungsdaten (z. B. von Claude mit update_lesson) – nie in ein Feld schreiben, das gerade bearbeitet wird
       const busyField = (el) => document.activeElement === el;
       if ((r.lesson.homework || "") !== (L().homework || "") && !busyField(hwTA) && !hwT && hwTA.value === (L().homework || "")) {

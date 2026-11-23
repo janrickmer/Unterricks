@@ -1,7 +1,9 @@
 // inclasslib.js – „Ich bin jetzt im Unterricht“ (Nachtrag 35 der Lehrkraft vom 16.11.2026): reine Funktionen der kompakten Sitzungsansicht (ohne DOM, ohne
 // Server) – die Phase der aktuellen Live-Folie (grüner Pfeil im Verlaufsplan), der Hinweis, warum gerade kein Pfeil zu sehen ist, und das Material in den zwei
-// Spalten „Für Schüler:innen sichtbar“ / „Nur für die Lehrkraft“ (Gymnasium und Grundschule). Die Oberfläche steht in public/inclass.js.
-import { portalPhases, slidePhasesOf } from "./shared.js";
+// Spalten „Für Schüler:innen sichtbar“ / „Nur für die Lehrkraft“ (Gymnasium und Grundschule) und – seit Nachtrag 42 – der Verlaufsplan kompakt (Kurzplan für
+// die Lehrkraft bzw. automatisch gekürzt, compactPlan). Die Oberfläche steht in public/inclass.js.
+import { portalPhases, slidePhasesOf, parsePortalMarkup, parsePlanMarkup } from "./shared.js";
+import { teacherPlanFits, phaseList } from "./teacherplan.js";
 
 export const INCLASS_LABEL = "Ich bin jetzt im Unterricht";
 export const FULL_LABEL = "Vollständige Ansicht";
@@ -121,3 +123,82 @@ export function inClassStored(storage, id) {
 export function setInClassStored(storage, id, on) {
   try { if (!storage) return; if (on) storage.setItem(INCLASS_KEY, id); else if (storage.getItem(INCLASS_KEY) === id) storage.removeItem(INCLASS_KEY); } catch {}
 }
+
+/* ---------- Kurzplan für die Lehrkraft (Nachtrag 42, Teil 2): der Verlaufsplan kompakt ----------
+ * Nur in dieser Ansicht: je Phase die fette Überschrift und darunter, was die Lehrkraft tut. Mit einem Kurzplan von Claude, der noch passt (gleicher Fingerabdruck
+ * der Planung, alle seine Phasen im Plan – teacherPlanFits), stehen dort seine Anweisungen; sonst (ältere Sitzungen, Planung danach geändert) kürzt Unterricks
+ * selbst: die unterstrichenen Aufforderungen an die Lehrkraft (__…__, in der Grundschule samt ihren Verweisen [[pdf:…]]) bzw. – hat eine Phase keine – ihr
+ * erster Stichpunkt gekürzt. „--> Nächste Stunde“ und der Zwischenstopp bleiben an ihrer Stelle; Text vor der ersten Phase entfällt.
+ * Jede Phase trägt die Zeile ihrer Überschrift (line = Index wie portalPhases/insertStop): Pfeil, Kontextmenü und Einfügen des Zwischenstopps arbeiten damit
+ * wie in der vollständigen Vorschau. Ein Zwischenstopp mitten in einer Phase steht in der kompakten Liste nach dieser Phase (genau zeigt ihn der vollständige
+ * Verlaufsplan darunter).
+ * text = Schulportal-Eintrag bzw. Verlaufsplan, gs = Grundschule (Verweise [[pdf:…]]), teacherPlan = {phases:[{n, steps}], plan, at} | null
+ * → {mode: "claude" | "auto" | "full", why, autoPhases: [n], items}
+ *   mode "full": keine nummerierten Phasen – die Ansicht zeigt den vollständigen Verlaufsplan wie bisher (items leer)
+ *   why (bei "auto"): "none" (kein Kurzplan) | "changed" (Planung danach geändert) | "phases" (seine Phasen fehlen im Plan)
+ *   items: {type: "phase", n, line, head: runs, steps: [{runs, kind: "claude" | "teacher" | "gist"}], auto} | {type: "stop", line} | {type: "next", line, runs} */
+export const COMPACT_GIST_MAX = 110;   // so viele Zeichen höchstens vom ersten Stichpunkt einer Phase ohne Aufforderung an die Lehrkraft
+const runText = (r) => (r.file !== undefined ? "" : r.text);
+const plainOf = (runs) => runs.map(runText).join("").replace(/\s+/g, " ").trim();
+const isNext = (ln) => ln.type === "p" && /^\s*-->/.test(plainOf(ln.runs));
+// eine Aufforderung an die Lehrkraft: alle Läufe mit Inhalt (Text oder Verweis) unterstrichen
+const isTeacherLine = (ln) => { const rs = ln.runs.filter((r) => r.file !== undefined || r.text.trim()); return rs.length > 0 && rs.every((r) => r.u) && rs.some((r) => r.file !== undefined || r.text.trim()); };
+// im Kurzplan steht sie ohne Unterstreichung (dort ist jede Zeile eine Aufforderung an die Lehrkraft)
+const plainRuns = (runs) => runs.map((r) => { const { u, ...rest } = r; return rest; });
+/* Läufe auf höchstens max Zeichen kürzen (an einer Wortgrenze, mit „…“); ein Link wird nie zerschnitten (dann entfällt er), ein Verweis zählt wie 20 Zeichen */
+export function shortRuns(runs, max = COMPACT_GIST_MAX) {
+  const out = [];
+  let used = 0;
+  for (const r of runs) {
+    const len = r.file !== undefined ? 20 : r.text.length;
+    if (used + len <= max) { out.push(r); used += len; continue; }
+    if (r.file === undefined && r.href === undefined) {
+      let cut = r.text.slice(0, Math.max(0, max - used));
+      const sp = cut.lastIndexOf(" ");
+      if (sp > cut.length * 0.5) cut = cut.slice(0, sp);
+      cut = cut.replace(/[\s,;:–-]+$/, "");
+      if (cut) out.push({ ...r, text: cut });
+    }
+    out.push({ text: " …" });
+    return out;
+  }
+  return out;
+}
+export function compactPlan(text, { gs = false, teacherPlan = null } = {}) {
+  const heads = portalPhases(text);
+  if (!heads.length) return { mode: "full", why: null, autoPhases: [], items: [] };
+  const lines = (gs ? parsePlanMarkup : parsePortalMarkup)(text);
+  const fit = teacherPlanFits(teacherPlan, text);
+  const byN = new Map(fit.fits ? teacherPlan.phases.map((p) => [p.n, p.steps]) : []);
+  const headAt = new Map(heads.map((x) => [x.line, x]));
+  const items = [], content = new Map();   // content: Phase → ihre Zeilen (für die automatische Kürzung)
+  let cur = null;
+  lines.forEach((ln, i) => {
+    const h = headAt.get(i);
+    if (h) { cur = { type: "phase", n: h.n, line: i, head: ln.runs, steps: [], auto: false }; items.push(cur); content.set(cur, []); return; }
+    if (ln.type === "stop") { items.push({ type: "stop", line: i }); return; }
+    if (isNext(ln)) { items.push({ type: "next", line: i, runs: ln.runs }); return; }
+    if ((ln.type === "li" || ln.type === "p") && cur && (plainOf(ln.runs) || ln.runs.some((r) => r.file !== undefined))) content.get(cur).push(ln);
+  });
+  const used = new Set(), autoPhases = [];
+  for (const it of items) {
+    if (it.type !== "phase") continue;
+    // dieselbe Nummer zweimal im Plan: die Anweisungen von Claude stehen bei der ersten
+    if (byN.has(it.n) && !used.has(it.n)) { used.add(it.n); it.steps = byN.get(it.n).map((t) => ({ runs: [{ text: t }], kind: "claude" })); continue; }
+    const ls = content.get(it), teacher = ls.filter(isTeacherLine);
+    it.steps = teacher.length ? teacher.map((ln) => ({ runs: plainRuns(ln.runs), kind: "teacher" })) : ls.length ? [{ runs: shortRuns(ls[0].runs), kind: "gist" }] : [];
+    it.auto = true;
+    if (fit.fits && !autoPhases.includes(it.n)) autoPhases.push(it.n);
+  }
+  return { mode: fit.fits ? "claude" : "auto", why: fit.fits ? null : fit.why, autoPhases, items };
+}
+/* kleiner Satz über der kompakten Liste: welche Fassung zu sehen ist (Sie-Form) */
+export function compactLabel(r, gs = false) {
+  const plan = gs ? "Verlaufsplan" : "Schulportal-Eintrag";
+  if (r.mode === "claude") return "Kurzplan von Claude" + (r.autoPhases.length ? " – " + phaseList(r.autoPhases) + " automatisch gekürzt (dazu hat Claude nichts geschrieben)" : "");
+  return "Automatisch gekürzt – " + ({
+    changed: "der Kurzplan von Claude passt nicht mehr zum geänderten " + plan + ".",
+    phases: "der Kurzplan von Claude passt nicht zu den Phasen im " + plan + ".",
+  }[r.why] || "die Phasen mit Ihren Aufgaben (unterstrichene Zeilen, sonst der erste Stichpunkt). Einen eigenen Kurzplan schreibt Claude beim Planen.");
+}
+export const FULL_PLAN_LABEL = "Vollständigen Verlaufsplan anzeigen";

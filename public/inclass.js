@@ -5,11 +5,13 @@
 // (materialbox.js openActs) und – an seinen Platz geliehen – dasselbe Hausaufgabenfeld (gleiches Speichern, gleicher Zustand, nichts geht beim Umschalten
 // verloren). Gymnasium: Ein grüner Pfeil am rechten Rand des Verlaufsplans zeigt die Phase, in der die Live-Präsentation gerade ist (Live-Verbindung wie
 // bei den Schüler:innen – WebSocket mit Wiederverbindung, ersatzweise höchstens alle 3 s abfragen; nur solange die Ansicht offen und der Tab sichtbar ist).
+// Nachtrag 42 (Teil 2): Der Verlaufsplan steht hier kompakt – je Phase die Überschrift und darunter, was die Lehrkraft tut (Kurzplan von Claude bzw.
+// automatisch gekürzt, compactPlan in inclasslib.js); der vollständige Verlaufsplan ist darunter aufklappbar.
 import { h, clear, nn, toast, errToast, busy, modal, copyText, fmtBytes, fileIcon, downloadUrl, icon, wsUrl, stateLine, openLayerCount } from "./ui.js";
 import { T, tapi } from "./teacher.js";
 import { formatCode, hasStop, parsePortalMarkup, webUrlLabel, packMetaText, PACK_TITLE } from "./shared.js";
-import { paintPortalPreview } from "./portalview.js";
-import { ARROW_NAME, LIVE_POLL_MS, STAMP_POLL_MS, PRINT_TAG, materialColumns, materialKey, liveArrow, arrowText, liveSlideText } from "./inclasslib.js";
+import { paintPortalPreview, runsNodes, stopField } from "./portalview.js";
+import { ARROW_NAME, LIVE_POLL_MS, STAMP_POLL_MS, PRINT_TAG, materialColumns, materialKey, liveArrow, arrowText, liveSlideText, compactPlan, compactLabel, FULL_PLAN_LABEL } from "./inclasslib.js";
 
 const SCROLL_QUIET_MS = 12000;   // so lange nach dem letzten Tippen, Klicken oder Scrollen der Lehrkraft rollt die Seite nie von selbst zur Phase
 
@@ -131,7 +133,9 @@ function stopLineDialog(text, preselect, onPick) {
    kind "gym" | "gs", id, st (files, sheets), selbstlern(), on(Art, fn) → abmelden (Art "plan": Verlaufsplan neu gezeichnet, "files": Material/Präsentation),
    planText(), paintPlan(box), planState (Zustandszeile der vollständigen Ansicht), stopMenu(Zeile, x, y), stopDialog?() (Grundschule), insertStop?(Zeile)
    (Gymnasium), dropStop(), stopNext() (Hinweis nach dem Setzen), openActs(f, druck), badge?(f) (Grundschule: „Eltern sehen sie“), homework (Element),
-   homeworkWrap (Grundschule: nur das Feld – die Karte baut diese Ansicht), Gymnasium: pres(), annotated(p), startLive(fokusDanach). → {el, destroy()} */
+   homeworkWrap (Grundschule: nur das Feld – die Karte baut diese Ansicht), Gymnasium: pres(), annotated(p), startLive(fokusDanach).
+   Nachtrag 42: teacherPlan() (Kurzplan der Sitzung, lessonOut.teacherPlan | null), planRuns(runs) (Läufe des Plans → Knoten; Grundschule mit gelben
+   PDF-Verweisen). → {el, destroy()} */
 export function inClassView(api) {
   const gym = api.kind === "gym";
   const offs = [], gives = [];
@@ -178,6 +182,10 @@ export function inClassView(api) {
 
   /* ======================= 2. Verlaufsplan ======================= */
   const planBox = h("div", { class: "portal-preview ic-plan" + (gym ? " ic-arrowed" : " gsplan-view"), id: "ic-plan", "aria-label": gym ? "Verlaufsplan (Schulportal-Eintrag)" : "Verlaufsplan" });
+  // Nachtrag 42: welche Fassung die kompakte Liste zeigt („Kurzplan von Claude“ bzw. „Automatisch gekürzt – …“) und darunter aufklappbar der vollständige Verlaufsplan
+  const srcLine = h("p", { class: "small ic-plansrc hidden", id: "ic-plan-src" });
+  const fullBox = h("div", { class: "portal-preview ic-planfull" + (gym ? "" : " gsplan-view"), id: "ic-plan-full", "aria-label": gym ? "Vollständiger Verlaufsplan (Schulportal-Eintrag)" : "Vollständiger Verlaufsplan" });
+  const more = h("details", { class: "box ic-planmore hidden", id: "ic-plan-more" }, h("summary", { text: FULL_PLAN_LABEL }), fullBox);
   const emptyPlan = h("p", { class: "muted hidden", text: gym ? "Noch kein Schulportal-Eintrag – er entsteht beim Planen mit Claude oder in der vollständigen Ansicht." : "Noch kein Verlaufsplan – Claude schreibt ihn beim Planen, oder Sie tragen ihn in der vollständigen Ansicht ein." });
   const arrowHint = h("p", { class: "small ic-arrowhint", id: "ic-arrow-hint" });
   const planState = h("span", { class: "save-state", id: "ic-plan-state" });
@@ -189,9 +197,9 @@ export function inClassView(api) {
   let arrowLine = null, lastUser = Date.now();
   const planCard = h("section", { class: "card ic-card ic-plancard", id: "ic-plancard", "aria-labelledby": "ic-plan-h" },
     h("div", { class: "section-title" }, h("h2", { id: "ic-plan-h" }, "Verlaufsplan", gym ? h("span", { class: "small muted ic-sub", text: " · Schulportal-Eintrag" }) : null), planState),
-    gym ? arrowHint : null, emptyPlan, planBox,
+    gym ? arrowHint : null, srcLine, emptyPlan, planBox, more,
     h("div", { class: "row ic-stopacts" }, stopBtn, unstopBtn), stopNext,
-    h("p", { class: "hint", text: "Zwischenstopp: Rechtsklick auf eine Zeile (am iPad: Zeile antippen) → „Zwischenstopp einfügen“ – oder „Zwischenstopp eintragen …“." +
+    h("p", { class: "hint", text: "Zwischenstopp: Rechtsklick auf eine Phase oder Zeile (am iPad: antippen) → „Zwischenstopp einfügen“ – er steht dann vor ihr – oder „Zwischenstopp eintragen …“." +
       (gym ? " Er bleibt intern und wird nicht ins Schulportal kopiert." : " Eltern sehen nur das Material bis dorthin.") }));
   stopBtn.addEventListener("click", () => {
     if (!gym) { api.stopDialog(); return; }
@@ -202,15 +210,41 @@ export function inClassView(api) {
     const a = document.activeElement;
     if (unstopBtn.classList.contains("hidden") && (!a || a === document.body || a === unstopBtn)) stopBtn.focus();
   });
-  // dasselbe Kontextmenü wie in der vollständigen Ansicht; am iPad (kein Rechtsklick) öffnet Antippen einer Zeile es
-  planBox.addEventListener("contextmenu", (e) => { const ln = e.target.closest("[data-line]"); if (!ln || e.shiftKey) return; e.preventDefault(); api.stopMenu(Number(ln.dataset.line), e.clientX, e.clientY); });
-  planBox.addEventListener("click", (e) => {
-    if (!window.matchMedia("(pointer: coarse)").matches || e.target.closest("a, button")) return;
-    const ln = e.target.closest("[data-line]"); if (ln) api.stopMenu(Number(ln.dataset.line), e.clientX, e.clientY);
-  });
+  // dasselbe Kontextmenü wie in der vollständigen Ansicht; am iPad (kein Rechtsklick) öffnet Antippen einer Zeile es – in der kompakten Liste trägt jede Phase
+  // die Zeile ihrer Überschrift (der Zwischenstopp kommt dann vor die Phase), im aufgeklappten vollständigen Verlaufsplan jede Zeile ihre eigene
+  for (const box of [planBox, fullBox]) {
+    box.addEventListener("contextmenu", (e) => { const ln = e.target.closest("[data-line]"); if (!ln || e.shiftKey) return; e.preventDefault(); api.stopMenu(Number(ln.dataset.line), e.clientX, e.clientY); });
+    box.addEventListener("click", (e) => {
+      if (!window.matchMedia("(pointer: coarse)").matches || e.target.closest("a, button")) return;
+      const ln = e.target.closest("[data-line]"); if (ln) api.stopMenu(Number(ln.dataset.line), e.clientX, e.clientY);
+    });
+  }
+  /* kompakte Liste (Nachtrag 42): je Phase ein Block mit der Zeile ihrer Überschrift (data-line – Pfeil, Kontextmenü, Zwischenstopp), darin die fette Überschrift
+     und die Anweisungen an die Lehrkraft; „--> Nächste Stunde“ und der Zwischenstopp (mit Abdeckblatt wie in der Vorschau) an ihrer Stelle */
+  const runsOf = (runs) => (api.planRuns ? api.planRuns(runs) : runsNodes(runs));
+  function paintCompact(box, cp) {
+    clear(box);
+    let target = box;
+    for (const it of cp.items) {
+      if (it.type === "stop") {
+        box.append(h("div", { class: "icp-stop", dataset: { line: String(it.line) } }, stopField()));
+        target = h("div", { class: "covered", "aria-label": gym ? "Noch nicht aufgedeckt (nach dem Zwischenstopp)" : "Noch nicht geschafft (nach dem Zwischenstopp)" });
+        box.append(target);
+      } else if (it.type === "next") target.append(h("p", { class: "pl icp-next", dataset: { line: String(it.line) } }, runsOf(it.runs)));
+      else target.append(h("div", { class: "icp-phase" + (it.auto ? " icp-auto" : ""), dataset: { line: String(it.line), phase: String(it.n) } },
+        h("p", { class: "pl icp-head" }, runsOf(it.head)),
+        it.steps.length ? h("ul", { class: "icp-steps" }, it.steps.map((x) => h("li", { class: "icp-step" + (x.kind === "gist" ? " icp-gist" : "") }, runsOf(x.runs)))) : null));
+    }
+  }
   function paintPlan() {
     const text = api.planText(), has = !!String(text || "").trim();
-    keepFocus(planBox, linkKey(planBox), () => { if (has) api.paintPlan(planBox); else clear(planBox); });
+    // ohne nummerierte Phasen („**1) …**“) gibt es nichts zu kürzen: dann steht hier der vollständige Verlaufsplan wie bisher
+    const cp = has ? compactPlan(text, { gs: !gym, teacherPlan: api.teacherPlan ? api.teacherPlan() : null }) : null, compact = !!cp && cp.mode !== "full";
+    keepFocus(planBox, linkKey(planBox), () => { if (!has) clear(planBox); else if (compact) paintCompact(planBox, cp); else api.paintPlan(planBox); });
+    keepFocus(fullBox, linkKey(fullBox), () => { if (compact) api.paintPlan(fullBox); else clear(fullBox); });
+    planBox.classList.toggle("ic-compact", compact); more.classList.toggle("hidden", !compact); srcLine.classList.toggle("hidden", !compact);
+    srcLine.textContent = compact ? compactLabel(cp, !gym) : "";
+    srcLine.classList.toggle("ic-fromclaude", compact && cp.mode === "claude");
     planBox.classList.toggle("hidden", !has); emptyPlan.classList.toggle("hidden", has);
     unstopBtn.classList.toggle("hidden", !hasStop(text));
     // Hinweis nach dem Setzen („Zwischenstopp gesetzt. …“) – derselbe wie in der vollständigen Ansicht

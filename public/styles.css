@@ -1707,6 +1707,19 @@ main.navwait p { opacity: 0; animation: navwait-zeigen .2s ease-out .5s forwards
 @media (prefers-reduced-motion: no-preference) { .phasearrow { animation: pfeil-kommt .35s var(--ease) both; } @keyframes pfeil-kommt { from { transform: translateX(.6rem); opacity: 0; } } }
 @media (forced-colors: active) { .phasearrow { background: Highlight; color: HighlightText; forced-color-adjust: none; } }
 .ic-stopacts { margin-top: .75rem; }
+/* Kurzplan für die Lehrkraft (Nachtrag 42): je Phase die fette Überschrift, darunter etwas größer, was die Lehrkraft tut; der vollständige Verlaufsplan aufklappbar */
+.ic-plansrc { margin: 0 0 .5rem; color: var(--muted); max-width: 75ch; }
+.ic-plansrc.ic-fromclaude { color: var(--text); font-weight: 700; }
+.ic-plan.ic-compact .icp-phase { padding-block: .45rem .5rem; }   /* seitlich nichts – die hinterlegte Phase (.ic-now) rückt mit ihrem Innenabstand ein */
+.ic-plan.ic-compact .icp-phase + .icp-phase { border-top: 1px solid var(--line); }
+.ic-plan .icp-head { font-weight: 800; }
+.ic-plan .icp-steps { margin: .2rem 0 0; padding-left: 1.3rem; font-size: 1.12rem; line-height: 1.5; }
+.ic-plan .icp-step + .icp-step { margin-top: .2rem; }
+.ic-plan .icp-step.icp-gist { font-size: 1rem; color: var(--muted); }
+.ic-plan .icp-next { margin: .35rem 0; font-weight: 700; }
+.ic-plan .icp-stop { margin-top: .35rem; }
+details.box.ic-planmore > summary { min-height: 44px; }
+.portal-preview.ic-planfull { min-height: 0; }
 /* Material: zwei Spalten wie eine Tabelle (je Spalte eine Überschrift – auch übereinander am Handy) */
 .ic-mat { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); border: 1px solid var(--line); border-radius: 12px; overflow: hidden; }
 .ic-col { min-width: 0; }

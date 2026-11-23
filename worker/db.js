@@ -141,6 +141,10 @@ export const COLUMNS = [
   // (Folie, YouTube-Kennung, Ausschnitt in Sekunden, Titel; nie eine Adresse); pdf = aus der unsichtbaren Zeile „Unterricks-Video: …“ erkannt, hand = von der
   // Lehrkraft festgelegt (gilt vor pdf, [] = bewusst keine). NULL = keine
   ["files", "video_slides", "TEXT"],
+  // Kurzplan für die Lehrkraft (Nachtrag 42, nur Lehrkraft; schreibt Claude mit update_lesson kurzplan_lehrkraft): {v:1, phases:[{n, steps}], plan, at} als JSON
+  // (public/teacherplan.js) – je Phase des Verlaufsplans 1–3 Anweisungen, plan = Fingerabdruck der Planung beim Speichern (passt er nicht mehr, kürzt
+  // „Ich bin jetzt im Unterricht“ selbst). NULL = keiner
+  ["lessons", "teacher_plan", "TEXT"],
 ];
 
 // Indizes über nachträglich ergänzte Spalten (nach den Spalten angelegt; ein Fehler – z. B. alte Doppelungen – hält den Betrieb nicht auf)

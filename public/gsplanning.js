@@ -4,6 +4,7 @@ import { fmtDay, SYSTEM_PROMPT_ROLE, UNIT_RULE_BASE, materialDesignText, summary
 import { lessonSlots, paramsText, freeSlots, normalizeParams, stopCarrySection, stopCarryStep, stopFallbackText, freeShiftText, freeDaysInRange, freeBreakOf, freeRowNote } from "./planning.js";
 import { bringSaveStep } from "./bring.js";
 import { shareSaveStep } from "./sharelib.js";
+import { teacherPlanSaveStep, TEACHER_PLAN_TITLE } from "./teacherplan.js";
 
 export const GS_RULE = "In der Grundschule arbeiten die Kinder nicht digital: Plane ausschließlich analoges Material (ausdruckbare Arbeitsblätter, Bildkarten, Tafel- und Bodenbilder) – keine Feibeitsblätter, keine Escape-Rooms, keine Online-Aufgaben, keine Präsentation zum Mitverfolgen.";
 
@@ -320,6 +321,7 @@ export function claudeGsLessonPrompt(ctx) {
     unit ? "   - Eine abgestimmte Abweichung von der Einheit (Stundenfrage, grober Ablauf) hältst du mit `update_unit_row` fest." : null,
     summarySaveStep(true),
     shareSaveStep("gs", "gs"),   // Nachtrag 39: Absatz für die Weitergabe an Kolleg:innen
+    teacherPlanSaveStep(true),   // Nachtrag 42: Kurzplan für die Lehrkraft („Ich bin jetzt im Unterricht“)
     k(5) + "Sage mir zum Schluss kurz, was du gespeichert hast.",
     "",
     "Vorlage für den Verlaufsplan (so sieht er aus; <file_id> durch die Kennungen deiner Dateien ersetzen):",
@@ -376,6 +378,8 @@ export function claudeUnitRevisionPrompt(ctx) {
     "3. Warte auf meine Entscheidung.",
     "4. Soll verlängert werden, rufe zuerst `extend_unit` auf (mit `base_version` aus `get_unit` und `termine` – so viele Termine, wie gebraucht werden, höchstens 3; neue Stunden nur, wenn wir welche vereinbart haben). Speichere dann die überarbeitete Einheit mit `save_unit_plan` (mit `base_version` aus `get_unit` bzw. aus der Antwort von `extend_unit`) und gib bei jeder Stunde, die bleibt, ihre `uid` an. Stunden, deren Sitzung schon geplant ist oder schon Inhalte hat, lässt du nicht weg (Inhalt und Stundenfrage darfst du ändern); nur Stunden ohne Sitzung oder mit „noch nicht geplant“ dürfen wegfallen. Die Termine verteilt die Plattform neu.",
     "5. Passe betroffene Sitzungen nur nach meiner Zustimmung an (`save_verlaufsplan`, `update_lesson` mit `inhalt_eltern` und – für mich – `zusammenfassung_lehrkraft`, die „Zusammenfassung der Sitzung für die Lehrkraft“, sowie `weitergabe`, den „Absatz für die Weitergabe“)." + CONC_REVISION + CARDS_REVISION,
+    // Nachtrag 42: eigene Zeile direkt nach Schritt 5 (Schritt 5 selbst bleibt wörtlich, wie er war)
+    "   Ändert sich dabei der Verlaufsplan einer Sitzung, schreibe auch ihren „" + TEACHER_PLAN_TITLE + "“ neu (`update_lesson` mit `kurzplan_lehrkraft`: je Phase 1–3 kurze Anweisungen, was ich tue).",
     "",
     "Nenne nie Namen von Kindern.",
     "",

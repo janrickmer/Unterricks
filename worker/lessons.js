@@ -19,6 +19,7 @@ import { validateBring, cleanBring, bringStore, bringRead, BRING_REV_SQL } from 
 import { selbstlernHomeworkNow } from "../public/selbstlern.js";
 import { videoSlidesData } from "../public/videoslides.js";
 import { cleanShareText, shareTextOf, shareTextStore } from "../public/sharelib.js";
+import { teacherPlanOf, teacherPlanStore, cleanTeacherPlanPhases, TEACHER_PLAN_LIMITS } from "../public/teacherplan.js";
 
 export const LIMITS = { title: 200, topic: 500, ideas: 20000, homework: 10000, portal: 30000, message: 30000, answer: 100000, textMaterial: 200000, parentSummary: 800, parentNote: 2000, teacherSummary: TEACHER_SUMMARY_MAX };
 
@@ -30,6 +31,8 @@ export const lessonOut = (r, extra = {}) => ({
   teacherSummary: r.teacher_summary || "", teacherSummaryAt: r.teacher_summary_at ?? null, teacherSummaryPlan: r.teacher_summary_plan || null,
   // Absatz für die Weitergabe an Kolleg:innen (Nachtrag 39; nur Lehrkraft): was passiert, zentrale Kompetenz, Ziel
   shareText: shareTextOf(r.share_text),
+  // Kurzplan für die Lehrkraft (Nachtrag 42; nur Lehrkraft – „Ich bin jetzt im Unterricht“): {phases:[{n, steps}], plan, at} | null
+  teacherPlan: teacherPlanOf(r.teacher_plan),
   // Gegenstände zum Mitbringen (Nachtrag 28, beide Schulformen; nur Lehrkraft) und ihr Stand (Schutz vor Überschreiben)
   ...bringOut(r),
   // Grundschule: Inhalt und Hinweis für die Eltern, Ausfall-Eintrag, ob es einen Elternlink gibt (nie der Link selbst)
@@ -177,6 +180,16 @@ function lessonFields(body, partial) {
   // Absatz für die Weitergabe (Nachtrag 39): {passiert, kompetenz, ziel}; alle leer bzw. null = löschen; zu lang → Meldung statt still zu kürzen
   if (partial && body.shareText !== undefined) {
     try { f.share_text = cleanShareText(body.shareText, true); } catch (e) { throw bad(e.message); }
+  }
+  // Kurzplan für die Lehrkraft (Nachtrag 42): [{n, steps}] (der Connector prüft kurzplan_lehrkraft vorher streng); [] bzw. null = löschen. Speicherform mit
+  // Fingerabdruck der Planung und Zeitpunkt setzt updateLesson
+  if (partial && body.teacherPlan !== undefined) {
+    if (body.teacherPlan !== null && !Array.isArray(body.teacherPlan)) throw bad("Der Kurzplan für die Lehrkraft ist eine Liste [{n, steps}].");
+    const raw = body.teacherPlan || [];
+    if (raw.length > TEACHER_PLAN_LIMITS.phases) throw bad("Der Kurzplan für die Lehrkraft hat zu viele Phasen (höchstens " + TEACHER_PLAN_LIMITS.phases + ").");
+    const ps = cleanTeacherPlanPhases(raw);
+    if (ps.length !== raw.length) throw bad("Der Kurzplan für die Lehrkraft ist ungültig: je Phase eine Nummer (1–99, jede nur einmal) und 1 bis " + TEACHER_PLAN_LIMITS.steps + " Anweisungen.");
+    f.teacher_plan = ps;
   }
   // Gegenstände zum Mitbringen (Nachtrag 28): die ganze Liste [{item, note}] – geprüft wie im Browser (bring.js), Fehler als Meldung statt still zu kürzen
   if (partial && body.bring !== undefined) {
@@ -490,6 +503,8 @@ export async function updateLesson(db, id, body, now) {
   // ein neues Datum nie an einem unterrichtsfreien Tag der Schule (Nachtrag 24) – ein bisheriges bleibt, auch wenn es inzwischen frei ist
   if (f.lesson_date && f.lesson_date !== old.lesson_date) await assertNotFree(db, f.lesson_date, old.subject);
   if (f.share_text !== undefined) f.share_text = shareTextStore(f.share_text, now);   // mit Zeitpunkt (Stand in der Karte der Einheit)
+  // Kurzplan für die Lehrkraft (Nachtrag 42): mit Zeitpunkt und Fingerabdruck der Planung – passt er nicht mehr, kürzt „Ich bin jetzt im Unterricht“ selbst
+  if (f.teacher_plan !== undefined) f.teacher_plan = teacherPlanStore(f.teacher_plan, planFingerprint(old.portal), now);
   // Zusammenfassung für die Lehrkraft (Nachtrag 21): mit Zeitpunkt und Fingerabdruck der Planung (Hinweis, wenn die Planung danach geändert wird).
   // teacherSummaryBase (Sitzungsseite): Stand, auf dem die Bearbeitung beruht – hat inzwischen jemand anderes (z. B. Claude) gespeichert, meldet der
   // Server 409 statt still zu überschreiben (wie beim Schulportal-Eintrag); ohne Base (Connector, „Meine Fassung speichern“) wird gespeichert
@@ -608,6 +623,10 @@ export async function routeLessonImport(c, id) {
   // Absatz für die Weitergabe (Nachtrag 39): kommt mit aus der Datei (fremde Daten – gekürzt wie beim Lesen); fehlt er, bleibt der bisherige
   // Absatz für die Weitergabe (Nachtrag 39): ersetzt wie die übrige Planung – null bzw. leer löscht einen bisherigen (er beschriebe die alte Planung)
   if (les.shareText !== undefined) f.share_text = shareTextStore(les.shareText && typeof les.shareText === "object" ? cleanShareText(les.shareText) : null, c.now);
+  // Kurzplan für die Lehrkraft (Nachtrag 42): kommt mit der Planung aus der Datei (fremde Daten – tolerant gelesen; ohne = gelöscht, er beschriebe die alte
+  // Planung); sein Fingerabdruck gehört zum Eintrag aus der Datei – passte er schon beim Herunterladen nicht mehr (teacherPlanOutdated), bleibt er unpassend
+  if (les.teacherPlan !== undefined) f.teacher_plan = teacherPlanStore(cleanTeacherPlanPhases(les.teacherPlan), les.teacherPlanOutdated === true ? PLAN_FINGERPRINT_STALE
+    : planFingerprint(typeof les.portal === "string" ? cleanText(les.portal, LIMITS.portal) : l.portal), c.now);
   const keys = Object.keys(f), stmts = [];
   if (keys.length) stmts.push(c.db.prepare("UPDATE lessons SET " + keys.map((k, i) => k + "=" + (k === "bring" ? "json_set(?" + (i + 2) + ", '$.rev', " + BRING_REV_SQL + " + 1)" : "?" + (i + 2))).join(", ") +
     ", updated_at=?" + (keys.length + 2) + " WHERE id=?1").bind(id, ...keys.map((k) => f[k]), c.now));

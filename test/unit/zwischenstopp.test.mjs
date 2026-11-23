@@ -13,6 +13,7 @@ const S = await import("../../public/shared.js");
 const F = await import("./stop-fixtures.mjs");
 const B = await import("../../public/bring.js");
 const SH = await import("../../public/sharelib.js");
+const TP = await import("../../public/teacherplan.js");
 const { fakeCtx } = await import("./fake-d1.mjs");
 const GS = await import("../../worker/gs.js");
 const U = await import("../../worker/units.js");
@@ -60,6 +61,13 @@ const withoutShare = (p, subject, klass) => {
   assert.equal(p.split(step).length - 1, 1, "der Schritt zum Absatz für die Weitergabe steht genau einmal im Prompt");
   return p.replace(step, "");
 };
+// Nachtrag 42 (23.11.2026): genau ein Speicherschritt „Kurzplan für die Lehrkraft“ direkt nach dem zum Absatz für die Weitergabe – ohne ihn byte-gleich
+const withoutTeacherPlan = (p, gs, subject, klass) => {
+  const step = "\n" + TP.teacherPlanSaveStep(gs);
+  assert.equal(p.split(step).length - 1, 1, "der Schritt zum Kurzplan für die Lehrkraft steht genau einmal im Prompt");
+  assert.ok(p.includes(SH.shareSaveStep(subject, klass) + step), "direkt nach dem Schritt zum Absatz für die Weitergabe");
+  return p.replace(step, "");
+};
 const withoutSummary = (p, gs, analog = false) => {
   const step = "\n" + S.summarySaveStep(gs, analog);
   assert.equal(p.split(step).length - 1, 1, "der Schritt zur Zusammenfassung steht genau einmal im Prompt");
@@ -96,13 +104,13 @@ const withoutCards = (p) => {
 };
 test("ohne Zwischenstopp: beide Prompts byte-gleich zum Stand vor S11 (Gymnasium: bis auf den Satz zu Links in Feibeitsblättern; beide bis auf die Zusammenfassung und die Gegenstände zum Mitbringen; Grundschule bis auf die Konzentrationsaufgabe)", () => {
   const s = F.sekCtx(P.unitContext), g = F.gsCtx(P.unitContext);
-  assert.equal(sha(withoutLinkRule(withoutSummary(withoutBring(withoutShare(P.claudeLessonPrompt(s), s.subject, s.klass), false), false))), BEFORE.sek);
+  assert.equal(sha(withoutLinkRule(withoutSummary(withoutBring(withoutShare(withoutTeacherPlan(P.claudeLessonPrompt(s), false, s.subject, s.klass), s.subject, s.klass), false), false))), BEFORE.sek);
   const sek6 = P.claudeLessonPrompt({ ...s, klass: "6B", unit: null, row: null, unitText: "", messages: [] }), gs = G.claudeGsLessonPrompt(g), gs0 = G.claudeGsLessonPrompt({ ...g, unit: null, row: null, unitText: "" });
   for (const p of [sek6, gs, gs0]) assert.ok(!p.includes(S.FB_LINK_RULE) && !p.includes("[Linktext](https://…)"));
   for (const p of [P.claudeLessonPrompt(s), sek6]) assert.ok(!p.includes("Konzentrationsaufgabe"), "Gymnasium (auch Jg. 5/6) ohne Konzentrationsaufgabe");
-  assert.equal(sha(withoutSummary(withoutBring(withoutShare(sek6, s.subject, "6B"), false), false, true)), BEFORE.sek6);
-  assert.equal(sha(withoutCards(withoutConc(withoutSummary(withoutBring(withoutShare(gs, "gs", "gs"), true), true), g.lesson))), BEFORE.gs);
-  assert.equal(sha(withoutCards(withoutConc(withoutSummary(withoutBring(withoutShare(gs0, "gs", "gs"), true), true), g.lesson))), BEFORE.gs0);
+  assert.equal(sha(withoutSummary(withoutBring(withoutShare(withoutTeacherPlan(sek6, false, s.subject, "6B"), s.subject, "6B"), false), false, true)), BEFORE.sek6);
+  assert.equal(sha(withoutCards(withoutConc(withoutSummary(withoutBring(withoutShare(withoutTeacherPlan(gs, true, "gs", "gs"), "gs", "gs"), true), true), g.lesson))), BEFORE.gs);
+  assert.equal(sha(withoutCards(withoutConc(withoutSummary(withoutBring(withoutShare(withoutTeacherPlan(gs0, true, "gs", "gs"), "gs", "gs"), true), true), g.lesson))), BEFORE.gs0);
   for (const p of [P.claudeLessonPrompt(s), sek6]) assert.ok(!p.includes(G.CARDS_ALWAYS) && !p.includes("add_picture_cards"), "Gymnasium ohne Bildkarten");
 });
 

@@ -11,7 +11,7 @@ import { unitContext } from "./planning.js";
 import { claudeGsLessonPrompt, gsChatName, CONC_TITLE, CONC_PRINT } from "./gsplanning.js";
 import { claudeHandoff } from "./claude.js";
 import { leupoldView } from "./units.js";
-import { paintPlanPreview, contextMenu, prevStopCard, stopNextHint, prevStopShown, prevStopAfterSave, keepFocusOn, removeKeepingView } from "./portalview.js";
+import { paintPlanPreview, planRunsNodes, contextMenu, prevStopCard, stopNextHint, prevStopShown, prevStopAfterSave, keepFocusOn, removeKeepingView } from "./portalview.js";
 import { renderMarkdown } from "./markdown.js";
 import { materialBox } from "./materialbox.js";
 import { cardsCard } from "./cards.js";
@@ -524,6 +524,8 @@ export async function gsSessionPage(id, d) {
   // kompakt: Verlaufsplan (mit Zwischenstopp, PDF-Verweise anklickbar), Material samt Druckdateien und Bildkarten, Hausaufgabe – ohne Präsentation und Pfeil
   const icApi = { kind: "gs", id, st, selbstlern: () => false, on: (k, fn) => { icOn[k].add(fn); return () => icOn[k].delete(fn); },
     planText: () => ta.value, paintPlan: (b) => paintPlanPreview(b, ta.value, { fileOf, onPending }), planState,
+    // Kurzplan für die Lehrkraft (Nachtrag 42) und die Läufe des Plans mit gelben PDF-Verweisen (automatisch gekürzt: Aufforderungen samt Verweisen)
+    teacherPlan: () => L().teacherPlan || null, planRuns: (runs) => planRunsNodes(runs, { fileOf, onPending }),
     stopMenu, stopDialog, dropStop, stopNext: () => stopNext, openActs: box.openActs, refCards: () => box.refEntries(), packs: () => box.packs(), packActs: box.packActs, badge: fileBadge, homework: hwField, homeworkWrap: true };
   /* ======================= Alle Unterlagen dieser Sitzung (Nachtrag 41): ganz unten – ZIP-Ordner zum Lesen, Ausdrucken und Mitnehmen ======================= */
   const docsCard = lessonDocsCard({ gs: true, st, box, course, before: async () => { await flushPlan(); hwF.flush(); return { portal: ta.value, homework: hwTA.value || "" }; },
@@ -566,6 +568,8 @@ export async function gsSessionPage(id, d) {
     d.nextLesson = r.nextLesson;
     tsum.update(r.lesson);   // Zusammenfassung (z. B. von Claude mit update_lesson) – nie in eine laufende Bearbeitung
     bring.update(r.lesson);  // Gegenstände zum Mitbringen (Nachtrag 28) – nie in ein offenes Formular
+    // Kurzplan für die Lehrkraft (Nachtrag 42, z. B. von Claude mit update_lesson): die kompakte Ansicht zeichnet ihren Verlaufsplan neu
+    if (JSON.stringify(r.lesson.teacherPlan || null) !== JSON.stringify(L().teacherPlan || null)) { L().teacherPlan = r.lesson.teacherPlan || null; icEmit("plan"); }
     if (r.lesson.portalVersion !== plan.version && !plan.dirty && !busyField(ta)) {
       plan.version = r.lesson.portalVersion; ta.value = r.lesson.portal || "";
       Object.assign(L(), { portal: r.lesson.portal, portalVersion: r.lesson.portalVersion, portalUpdatedAt: r.lesson.portalUpdatedAt, portalSource: r.lesson.portalSource });

@@ -214,6 +214,12 @@ gleich in `public/_headers`, im Worker und – für GitHub Pages – in `scripts
   Schulportal-Eintrag, welche gilt. Plant Claude ohne Connector, gibt es die Zusammenfassung am Ende zum Kopieren aus. Schüler:innen,
   Eltern, Beamer und Live-Präsentation sehen sie nie; sie kommt mit „Sitzung als Datei“ (Datumsangaben angepasst; war sie schon beim
   Herunterladen nicht mehr aktuell, bleibt der Hinweis) und der Sicherung mit.
+* **Kurzplan für die Lehrkraft (Nachtrag 42):** Zusammen mit der Zusammenfassung schreibt Claude beim Planen für jede Phase des
+  Schulportal-Eintrags bzw. Verlaufsplans 1–3 kurze, klare Anweisungen, was Sie dort tun (z. B. „Lehrkraft erklärt kurz, was Martin Luther am
+  Ablasshandel kritisiert hat.“). Unterricks zeigt ihn **nur in „Ich bin jetzt im Unterricht“** statt des langen Verlaufsplans (siehe dort).
+  Connector: `update_lesson` mit `kurzplan_lehrkraft` ([] = löschen; die Antwort nennt Phasen, die es im Plan nicht gibt), `get_lesson` zeigt ihn
+  im Abschnitt „Kurzplan für die Lehrkraft“ samt Hinweis, wenn die Planung danach geändert wurde; ändert `save_schulportal_entry` bzw.
+  `save_verlaufsplan` die Planung so, dass er nicht mehr passt, erinnert die Antwort daran. Beim Umbau in eine Selbstlern-Phase bleibt er.
 * **Feibeitsblatt-Verbindung:** Türcode und Feibeitsblatt-Passwort nur einmal eingeben (Haken „Verbindung verschlüsselt in meinem
   Benutzerkonto speichern“). Danach verbindet sich Unterricks auf jedem Gerät, auf dem Sie sich mit Ihrem Passwort anmelden,
   automatisch; Geräte, die schon vorher angemeldet waren, entsperren sie einmal mit dem Unterricks-Passwort. Der Server sieht dabei
@@ -386,11 +392,20 @@ gleich in `public/_headers`, im Worker und – für GitHub Pages – in `scripts
      „Präsentation als PDF-Datei herunterladen“ (die PDF, wie Sie sie hochgeladen haben) und – gibt es Notizen – „Präsentation mit Anmerkungen
      herunterladen“ (nur für Sie). Die Dateien werden wirklich heruntergeladen, auch über unterricks.janrickmer.de und am iPad. Daneben der Stand:
      „LIVE · Folie 5 / 12 · 23 verbunden“ bzw. „Gerade nicht live.“
-  2. **Verlaufsplan** (der Schulportal-Eintrag als Vorschau mit dem Zwischenstopp-Feld): Ein **grüner Pfeil** am rechten Rand („jetzt“) zeigt auf die
+  2. **Verlaufsplan – kompakt (Nachtrag 42):** je Phase nur die fette Überschrift und darunter, etwas größer, **was Sie als Lehrkraft tun** – z. B.
+     „Lehrkraft liest den Erzähltext ‚Josef‘ bis Nr. 3 vor und legt dabei die Bildkarten 1–3 hin.“ Diesen **„Kurzplan für die Lehrkraft“** schreibt Claude
+     beim Planen gleich mit (je Phase 1–3 kurze Anweisungen; Connector: `update_lesson` mit `kurzplan_lehrkraft`, `get_lesson` zeigt ihn). Gibt es
+     keinen (ältere Sitzungen) oder passt er nicht mehr, weil der Schulportal-Eintrag danach geändert wurde, kürzt Unterricks selbst: die Phasen mit Ihren
+     unterstrichenen Aufgaben (__…__), bei einer Phase ohne solche Zeile ihr erster Stichpunkt, gekürzt. Ein kleiner Satz darüber sagt, was Sie sehen
+     („Kurzplan von Claude“ bzw. „Automatisch gekürzt – …“). „--> Nächste Stunde“ und der Zwischenstopp stehen an ihrer Stelle; der **vollständige
+     Verlaufsplan** ist darunter aufklappbar („Vollständigen Verlaufsplan anzeigen“). Den Kurzplan sehen Sie nur hier – nicht in der vollständigen
+     Ansicht, nicht in „Alle Unterlagen dieser Sitzung“, und Schüler:innen, Eltern und Beamer nie; er kommt mit „Sitzung als Datei“ und in die Sicherung.
+     Ein **grüner Pfeil** am rechten Rand („jetzt“) zeigt auf die
      Phase, in der die Live-Präsentation gerade ist – er folgt jeder Folie ohne Neuladen, auch wenn Sie an einem anderen Gerät oder in einem anderen
      Tab blättern. Die Codefolie vor Folie 1 gehört zur Phase von Folie 1, eine Folie ohne Phase zur Phase der Folie davor. Läuft die Präsentation nicht
      live oder tragen die Folien keine Phasen (siehe „Phasen der Folien“), gibt es keinen Pfeil; ein ruhiger Satz darüber sagt, warum. Einen
-     Zwischenstopp setzen Sie hier auch von Hand: Rechtsklick auf eine Zeile (am iPad: antippen) oder „Zwischenstopp eintragen …“ (per Tastatur).
+     Zwischenstopp setzen Sie hier auch von Hand: Rechtsklick auf eine Phase (am iPad: antippen) – er steht dann vor ihr; genauer im aufgeklappten
+     vollständigen Verlaufsplan (jede Zeile) oder mit „Zwischenstopp eintragen …“ (per Tastatur).
   3. **Material** als Tabelle: links **„Für Schüler:innen sichtbar“** (Feibeitsblätter mit „Code kopieren und Feibeitsblatt öffnen“ wie bei den
      Schüler:innen, Material und Links für Schüler:innen, zuletzt die Notfall-Feibeitsblätter), rechts **„Nur für die Lehrkraft“** (Ihr Material,
      Notfall-Feibeitsblätter für Lehrkräfte und alles von der Druckliste, markiert **„zum Ausdrucken“**, unter dem Namen der Druckliste). Jeder
@@ -638,8 +653,10 @@ der **Podcast für den kommenden Unterricht** (derselbe wie auf der Startseite �
   Sitzung“** (ZIP-Ordner mit Verlaufsplan, Material für die Kinder und für Sie, Druckvorlagen unter ihrem Druck-Namen und Verweisen auf andere
   Sitzungen). Kein
   Schulportal-Eintrag, keine Präsentation, kein Sitzungscode.
-* **„Ich bin jetzt im Unterricht“ (wie am Gymnasium, Nachtrag 35):** ganz oben in der Sitzung; kompakt mit dem **Verlaufsplan** (PDF-Verweise
-  anklickbar, Zwischenstopp per „Zwischenstopp eintragen …“, Rechtsklick oder Antippen einer Zeile), dem **Material** als Tabelle – links „Für die
+* **„Ich bin jetzt im Unterricht“ (wie am Gymnasium, Nachtrag 35):** ganz oben in der Sitzung; kompakt mit dem **Verlaufsplan** – seit Nachtrag 42
+  je Phase nur, was Sie tun (der „Kurzplan für die Lehrkraft“, den Claude beim Planen schreibt; ohne ihn die unterstrichenen Aufforderungen samt
+  gelben PDF-Verweisen bzw. der erste Stichpunkt), der vollständige Verlaufsplan aufklappbar (PDF-Verweise anklickbar, Zwischenstopp per
+  „Zwischenstopp eintragen …“, Rechtsklick oder Antippen einer Phase bzw. Zeile) –, dem **Material** als Tabelle – links „Für die
   Kinder sichtbar“ (mit dem Hinweis, ob Eltern es sehen), rechts „Nur für die Lehrkraft“ samt allem, was Sie ausdrucken (Arbeitsblätter mit
   „Auch ausdrucken“, Konzentrationsaufgabe, Bildkarten – markiert **„zum Ausdrucken“**) – und der **Hausaufgabe** (dasselbe Feld). Ohne Präsentation
   und ohne Pfeil. „Vollständige Ansicht“ führt zurück.

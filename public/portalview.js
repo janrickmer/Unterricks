@@ -45,11 +45,12 @@ export const portalPreview = (text) => paintPortalPreview(h("div", { class: "por
    designed). Hochgeladene Dateien öffnen immer – auch Bildkarten, deren Bilder noch entstehen oder sich nicht erstellen ließen: ihre PDF liegt vor. */
 export const refPending = (f) => !!f && !!(f.design || f.designed) && f.status !== "ready";
 
-/* Verlaufsplan (Grundschule): wie die Vorschau des Schulportal-Eintrags; jeder Verweis [[pdf:<id>]] wird zum gelb markierten Link mit dem
-   aktuellen Namen der Datei, der sie in einem neuen Tab öffnet. opt = {fileOf(id) → Datei {name, status} oder null, href(id), onPending(datei)} */
-export function paintPlanPreview(box, text, opt = {}) {
+/* Läufe des Verlaufsplans (parsePlanMarkup) → Knoten: wie runsNodes, jeder Verweis [[pdf:<id>]] wird zum gelb markierten Link mit dem aktuellen Namen der
+   Datei, der sie in einem neuen Tab öffnet (auch für den Kurzplan in „Ich bin jetzt im Unterricht“, Nachtrag 42).
+   opt = {fileOf(id) → Datei {name, status} oder null, href(id), onPending(datei)} */
+export function planRunsNodes(runs, opt = {}) {
   const fileOf = opt.fileOf || (() => null), href = opt.href || ((id) => "#/lk/datei/" + id);
-  const nodes = (runs) => runs.map((r) => {
+  return runs.map((r) => {
     if (r.file === undefined) return runsNodes([r])[0];
     const f = fileOf(r.file);
     let n;
@@ -67,6 +68,11 @@ export function paintPlanPreview(box, text, opt = {}) {
     if (r.b) n = h("strong", null, n);
     return n;
   });
+}
+/* Verlaufsplan (Grundschule): wie die Vorschau des Schulportal-Eintrags; jeder Verweis [[pdf:<id>]] wird zum gelb markierten Link mit dem
+   aktuellen Namen der Datei, der sie in einem neuen Tab öffnet. opt wie planRunsNodes */
+export function paintPlanPreview(box, text, opt = {}) {
+  const nodes = (runs) => planRunsNodes(runs, opt);
   while (box.firstChild) box.firstChild.remove();
   let ul = null, target = box;
   parsePlanMarkup(text).forEach((ln, i) => {

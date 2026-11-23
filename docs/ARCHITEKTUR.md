@@ -90,6 +90,7 @@ implementiert und im End-to-End-Test geprüft (Ausnahmen unten ausdrücklich gen
 | Bewegung im Folien-Stil (Nachtrag 40 vom 19.11.2026) | Prüfauftrag der Lehrkraft: „inwiefern das Design mehr wie eine MotionSite“ (motionsites.ai: Prompt-Sammlung für animierte Landingpages mit Video-Hintergründen, Verläufen, Glas-Effekten). Rückfragen beantwortet: Unterricks; Startseite mit starkem ersten Eindruck plus dezente Bewegung in der App; erst Bericht und Entwurf, dann Einbau; Stil selbst in CSS/JS nachbauen, ohne Kauf, ohne fremde Videos oder Bibliotheken. Freigaben: Bewegungsregel in DESIGN.md ergänzen, neue Texte der Startseite; der Schriftzug darf bei keiner Breite in die Karte ragen. Siehe 4zi |
 | Alle Unterlagen dieser Sitzung (Nachtrag 41 vom 23.11.2026) | Wunsch der Lehrkraft: „bei jeder einzelnen Unterrichtssitzung einen Button ganz unten, mit dem ich einen ZIP-Ordner mit allen Unterlagen und Plänen zu jener Unterrichtssitzung herunterlade“. Rückfragen beantwortet: „Sitzung als Datei“ bleibt; ein ZIP-Ordner mit allen Dateien, die die Lehrkraft braucht, samt Präsentation (eigene PDF und PowerPoint) und Arbeitsblättern; Gymnasium und Grundschule. Siehe 4zj |
 | Sitzungspaket (Nachtrag 42, Teil 1, vom 23.11.2026) | Wunsch der Lehrkraft: „Wenn zu einer Unterrichtssitzung mehrere dieser Dateien so vorliegen, dass sie alle gleichhäufig und mit der gleichen Farbeinstellung und mit der gleichen Papiereinstellung (beidseitig oder einseitig) gedruckt werden sollen, fasst du diese Dateien für die Druckansicht zusammen und benennst sie weiterhin nach dem bekannten Muster … und nutzt anstelle des Namens dieses Materials einfach den Titel "Sitzungspaket" … Innerhalb der Datei "Sitzungspaket" sollen die Materialien in der Reihenfolge sortiert sein, wie sie laut Verlaufsplan gebraucht werden.“ Rückfragen beantwortet: **„Überall beim Drucken“** (Druckliste samt ZIP, „Druckaufträge …“ beider Startseiten samt ZIP je Tag, „Ich bin jetzt im Unterricht“, Ordner „Zum Ausdrucken“ von Nachtrag 41); Name nach dem **bisherigen Muster** (`printFileName`: „1x - farbig - einseitig - Reli2 - Sitzungspaket.pdf“ – das Beispiel der Lehrkraft vertauscht nur „einseitig“ und „farbig“); die einzelnen Dateien stehen **klein darunter**, damit sie ihre Druckeinstellungen ändern kann; beidseitig beginnt **jedes Material auf einem neuen Blatt**. Siehe 4zl (samt den Befunden der Gegenprüfung) |
+| Kurzplan für die Lehrkraft (Nachtrag 42, Teil 2, vom 23.11.2026) | Wunsch der Lehrkraft: „Wenn ich auf "Ich bin jetzt im Unterricht" klicke, ist der angezeigte Verlaufsplan teilsweise noch zu lang. … Mein Vorschlag ist, dass nur in dieser Ansicht der Verlaufsplan kompakter gehalten wird. Dort soll deutlich stehen, was die Lehrkraft zu tun hat (bspw. "Lehrkraft liest Erzähltext xy bis Nr. 3 vor und legt dabei Bildkarten hin" oder "Lehrkraft erklärt kurz, was Martin Luther am Ablasshandel kritisiert hat").“ Rückfrage beantwortet: **Claude schreibt ihn beim Planen** (je Sitzung gespeichert), angezeigt **nur** in „Ich bin jetzt im Unterricht“, der vollständige Verlaufsplan aufklappbar; ältere Sitzungen ohne Kurzplan werden **automatisch gekürzt** (Phasen + die unterstrichenen Aufforderungen an die Lehrkraft `__…__`). Gymnasium und Grundschule. Siehe 4zm |
 | Anweisungen an die Lehrkraft in den Foliennotizen (Nachtrag 42 vom 23.11.2026, Teil 3) | Wunsch der Lehrkraft: „Wenn zu einer Sitzung eine Präsentation erstellt wird, sollen (ähnlich wie bei Schritt 2 dieser Chatnachricht) eindeutige Anweisungen an die Lehrkraft formuliert und in den Folienanmerkungen angezeigt werden. Diese Anmerkungen dürfen niemals für Schüler sichtbar sein.“ Rückfrage beantwortet: **zu jeder Folie** eine klare Anweisung an die Lehrkraft in den Notizen („Lehrkraft: …“), danach die Hintergründe; nie für Schüler:innen sichtbar. Umsetzung ohne neues Format: der erste Stichpunkt jeder Folie beginnt mit „Lehrkraft:“; Präsentationsansicht, Anmerkungs-PDF und PowerPoint-Notizen heben ihn hervor; an der Codefolie vor Folie 1 steht schon die Anweisung aus Folie 1 (Gegenprüfung). Siehe 4zn |
 | Konzentrationsaufgabe mit Lückentext, Ankreuzaufgabe und Suchsel (Nachtrag 43 vom 23.11.2026) | Wunsch der Lehrkraft: Seite 1 und die obere Hälfte von Seite 2 weiterhin zum Ausmalen, auf der unteren Hälfte von Seite 2 ein Lückentext, eine Ankreuzaufgabe und ein Suchsel, „dem Alter des jeweiligen Jahrgangs dieser Lerngruppe bzgl. des Schwierigkeitsgrades angemessen“. Rückfragen beantwortet: die rote Karte kommt in den Seitenrand neben diese Aufgaben, darunter, dass der Abschnitt nur für Kinder mit roter Karte Pflicht ist; Stufen je Jahrgang wie von Claude vorgeschlagen; nur neue bzw. überarbeitete Konzentrationsaufgaben; passen die Aufgaben nicht in die halbe Seite, wird das Ausmalbild oben auf Seite 2 kleiner. Siehe 4zk |
 
@@ -164,7 +165,8 @@ implementiert und im End-to-End-Test geprüft (Ausnahmen unten ausdrücklich gen
 | | `public/app.js` | Router, Startseite, Schüleransicht |
 | | `public/teacher.js`, `public/session.js` | Lehrkräfteansicht (Fach → Klasse/Kurs → Einheiten), Sitzungsansicht |
 | | `public/materialbox.js` | Materialkasten einer Sitzung (Material für Schüler:innen und Lehrkräfte, Druckliste) – aus `session.js` ausgelagert |
-| | `public/inclassbar.js`, `public/inclass.js`, `public/inclasslib.js` | „Ich bin jetzt im Unterricht“ (Nachtrag 35): Knopf ganz oben und Umschalten (fest geladen, klein); kompakte Ansicht beider Schulformen mit Präsentation, Verlaufsplan samt grünem Pfeil, Material in zwei Spalten, Hausaufgabe (bei Bedarf über `lazy()` geladen); reine Helfer (Phase der Live-Folie, Spalten), siehe 4ze |
+| | `public/inclassbar.js`, `public/inclass.js`, `public/inclasslib.js` | „Ich bin jetzt im Unterricht“ (Nachtrag 35): Knopf ganz oben und Umschalten (fest geladen, klein); kompakte Ansicht beider Schulformen mit Präsentation, Verlaufsplan samt grünem Pfeil, Material in zwei Spalten, Hausaufgabe (bei Bedarf über `lazy()` geladen); reine Helfer (Phase der Live-Folie, Spalten, seit Nachtrag 42 der kompakte Verlaufsplan `compactPlan`), siehe 4ze und 4zm |
+| | `public/teacherplan.js` | „Kurzplan für die Lehrkraft“ (Nachtrag 42): Prüfung, Speicherform, ob er noch zur Planung passt, Regeln und Speicherschritt der Prompts – gemeinsam für Browser und Worker, siehe 4zm |
 | | `public/coursecard.js` | Karte „Kurseinstellungen“ auf der Klassen- bzw. Kursseite (Termine pro Woche, Schülerzahl) |
 | | `public/grundschule.js` | Bereich „Grundschule“ (Menüpunkt zwischen „Gymnasium“ und „Planungsgrundlagen“): Übersicht mit dem Wochenkalender beider Schulformen, den Kursen und „Neuen Kurs anlegen“ (Knopf im Kopf der Seite führt zum Formular; Jahrgang 1–4, Religion oder ein anderes Fach mit Namen); Kursseite (Einheiten, Kurseinstellungen, Fach/Klassen, Planungsgrundlagen); roter Kasten nach Ausfällen (`reviseBox`) |
 | | `public/gsplanning.js` | Prompts für Claude in der Grundschule (Einheit und Stunde planen, Einheit nach Ausfällen überarbeiten, Verlaufsplan-Regeln; nur analoges Material) |
@@ -2108,7 +2110,8 @@ Ausdrucken“; Grundschule „Auch Grundschule“ – kompakt mit Verlaufsplan u
   Ansicht, dazu ein vollständiger Abruf je Änderung. Die Grundschule (ohne Präsentation und Live-Stand) fragt nicht – dort ändert sich im Unterricht kaum
   etwas von außen, beim Zurückkehren in den Tab gleicht sie sich wie bisher ab.
 * **Verlaufsplan:** Gymnasium = Vorschau des Schulportal-Eintrags (`paintPortalPreview`) mit dem Zwischenstopp-Feld; Grundschule = `paintPlanPreview`
-  (PDF-Verweise gelb und anklickbar). Zwischenstopp von Hand wie in der vollständigen Ansicht: Rechtsklick auf eine Zeile, am iPad Antippen, per Tastatur
+  (PDF-Verweise gelb und anklickbar). Seit Nachtrag 42 steht hier der Verlaufsplan **kompakt** (je Phase, was die Lehrkraft tut), der vollständige ist
+  darunter aufklappbar – siehe 4zm. Zwischenstopp von Hand wie in der vollständigen Ansicht: Rechtsklick auf eine Zeile, am iPad Antippen, per Tastatur
   „Zwischenstopp eintragen …“ (Gymnasium: Auswahl der Zeile wie in der Grundschule, vorgewählt die Phase des Pfeils; Grundschule: ihr Dialog),
   „Zwischenstopp entfernen“; danach derselbe Hinweis zur nächsten Sitzung (Nachtrag 13/26) – auch, wenn „Bis hier gezeigt“ ihn genau dorthin setzt, wo er
   schon stand (Prüfbefund: ohne Textänderung meldete die Seite der kompakten Ansicht nichts).
@@ -2131,7 +2134,8 @@ Ausdrucken“; Grundschule „Auch Grundschule“ – kompakt mit Verlaufsplan u
   endet der Präsentationsmodus, geht der Fokus auf „Präsentation live starten“, wenn er sonst verloren wäre. Alle Flächen ≥ 44 px.
 * **Bestehende Prüfungen geändert (Anforderung):** Die beiden E2E-Prüfungen „die Zusammenfassung steht direkt unter dem Kopfband“ (Gymnasium und
   Grundschule) erlauben jetzt dazwischen genau den Knopf (`#inclass-bar`) und seinen leeren Platz (`#inclass`). Sonst keine Texte oder Prompts geändert;
-  die MCP-Anweisungen bleiben unverändert (Claude hat mit der Ansicht nichts zu tun).
+  die MCP-Anweisungen bleiben unverändert (Claude hat mit der Ansicht nichts zu tun – seit Nachtrag 42 schreibt Claude den Kurzplan für sie über
+  `update_lesson`; die Anweisungen bleiben trotzdem byte-gleich, siehe 4zm).
 * **Tests:** `test/unit/inclass.test.mjs` (Phase der Live-Folie, Pfeil und Gründe, Texte, Material beider Schulformen, Schlüssel, Zustand je Tab, Knopf
   und Umschalten mit der DOM-Nachbildung samt Selbstlern-Phase, Live-Verbindung mit Rückfall und Mindestabstand 3 s, Laden erst bei Bedarf). E2E
   `test/e2e/inclass.mjs` (nach „Speicher in der Fußzeile“; eigene Sitzungen PoWi 9E und Sachunterricht 3c weit in der Vergangenheit, danach gelöscht):
@@ -2595,6 +2599,102 @@ Ausdrucken“; Grundschule „Auch Grundschule“ – kompakt mit Verlaufsplan u
   „.pdf“, Hinweis mit „Farbe“, ein gescheitertes Paket kostet nur sich (packEntries, packNotes, buildPack/packDoneText), Gymnasium-Reihenfolge ohne Treffer
   in fremden kursiven Titeln, „Druckaufträge …“ mit Gründen beim Paket-Download (PDF-Druck gescheitert, 409) und ZIP des Tages ohne einzelnes „(2)“ samt
   gescheitertem Zusammenfügen; `lessonzip.test.mjs`: Arbeitsblatt der Kinder im Paket zusätzlich bei den Kindern.
+
+## 4zm. Kurzplan für die Lehrkraft in „Ich bin jetzt im Unterricht“ (Nachtrag 42, Teil 2)
+
+Wortlaut (Punkt 2 des Nachtrags vom 23.11.2026): „Wenn ich auf "Ich bin jetzt im Unterricht" klicke, ist der angezeigte Verlaufsplan teilsweise noch zu
+lang. Während der Unterrichtsstunde ist es mir darum leider nicht möglich, schnell reinzuschauen und schnell zu erfahren, was ich als Lehrkraft machen
+muss. Mein Vorschlag ist, dass nur in dieser Ansicht der Verlaufsplan kompakter gehalten wird. Dort soll deutlich stehen, was die Lehrkraft zu tun hat
+(bspw. "Lehrkraft liest Erzähltext xy bis Nr. 3 vor und legt dabei Bildkarten hin" oder "Lehrkraft erklärt kurz, was Martin Luther am Ablasshandel
+kritisiert hat").“ Antwort auf die Rückfrage: **Claude schreibt ihn beim Planen** (je Sitzung gespeichert), angezeigt nur in „Ich bin jetzt im
+Unterricht“, der vollständige Verlaufsplan aufklappbar; ältere Sitzungen ohne Kurzplan werden automatisch gekürzt (Phasen + die unterstrichenen
+Aufforderungen an die Lehrkraft `__…__`).
+
+* **Grundsatz – nur Lehrkraft, nur diese Ansicht:** Der Kurzplan steht nie in Schüler-, Eltern-, Beamer-, Live- oder Vertretungsrouten (die bauen ihre
+  Antworten aus einzeln gewählten Feldern; `lessonOut` gibt es nur in Lehrkraft-Routen und im Connector), nicht in der Liste der Sitzungen, nicht auf der
+  vollständigen Sitzungsseite, nicht in „Alle Unterlagen dieser Sitzung“ (4zj) und nicht im Podcast. `teacherplan.test.mjs` prüft das über die Routen
+  (Code einlösen, Schüleransicht auch in einer Selbstlern-Phase, Startliste, Elternansicht samt vorherigen Sitzungen, Elternvorschau der Lehrkraft) und
+  über eine feste Liste der Module, die `teacher_plan`, `teacherPlan` oder `kurzplan_lehrkraft` kennen (eigene Namen – die Liste der Zusammenfassung,
+  4p, bleibt unverändert).
+* **D1** (`worker/db.js`, additiv): `lessons.teacher_plan` (TEXT, NULL = keiner) = JSON `{v:1, phases:[{n, steps}], plan, at}` – `n` = Nummer der Phase
+  wie in `portalPhases` („**3) …**“ → 3, 1–99), `steps` = 1–3 Anweisungen mit je höchstens 240 Zeichen (einzeilig), höchstens 20 Phasen
+  (`TEACHER_PLAN_LIMITS`), `plan` = `planFingerprint` des Schulportal-Eintrags bzw. Verlaufsplans beim Speichern, `at` = Zeitpunkt. Die Spalte kommt im
+  bestehenden ALTER-Batch der Tabelle `lessons` dazu – keine zusätzliche Anweisung beim Anlegen des Schemas. `public/teacherplan.js` (Browser und Worker):
+  `teacherPlanFromArgs` (Connector, streng), `cleanTeacherPlanPhases` (fremde Daten, tolerant gekappt), `teacherPlanStore`/`teacherPlanOf`,
+  `teacherPlanFits` (passt, wenn der Fingerabdruck gleich ist – ein Zwischenstopp zählt nicht – und es jede seiner Phasen im Plan gibt; sonst `why`
+  „changed“ bzw. „phases“, dazu `missing` und `uncovered`). `lessonOut.teacherPlan` = `{phases, plan, at}` | null. Eine Sitzung, die nur einen Kurzplan
+  hat, ist nicht „leer“ (`EMPTY_LESSON` in `worker/units.js`: `teacher_plan IS NULL`) – sie fällt beim Überarbeiten einer Einheit nicht weg.
+* **Speichern** (`lessonFields`/`updateLesson` in `worker/lessons.js`): `PATCH …/lessons/:id {teacherPlan: [{n, steps}]}` (streng, ungültig → 400; [] bzw.
+  null löscht) – die Sitzungsseite selbst schickt ihn nicht (es gibt kein Bearbeiten im Browser); `updateLesson` setzt Fingerabdruck und Zeitpunkt.
+  Ausfall-Einträge der Grundschule lehnen ihn ab (wie alles außer dem Hinweis für die Eltern).
+* **Connector** (`worker/mcp.js`): `update_lesson` mit `kurzplan_lehrkraft` = `[{phase, anweisungen: [1–3 Texte]}]` (Schema: höchstens 20 Einträge,
+  `phase` ganzzahlig 1–99, je Anweisung höchstens 240 Zeichen; Beschreibung aus `teacherPlanRules("beide")`: was die Lehrkraft in der Phase tut, dritte
+  Person, konkret und knapp, die beiden Beispiele der Lehrkraft, schlichter Text ohne Schulportal-Zeichen und Verweise `[[pdf:…]]`, Material mit Titel,
+  nie Namen von Schüler:innen bzw. Kindern; „[] löscht ihn“). Geprüft wird vor dem Speichern (`teacherPlanFromArgs`: keine Liste, zu viele Phasen,
+  ungültige oder doppelte Phase, 0 oder mehr als 3 Anweisungen, leer, zu lang) – dann Fehlermeldung „kurzplan_lehrkraft: …“ und **nichts** gespeichert,
+  auch nicht die übrigen Felder des Aufrufs. Rückmeldung: „Kurzplan für die Lehrkraft gespeichert (4 Phasen, 5 Anweisungen) – Unterricks zeigt ihn der
+  Lehrkraft nur in „Ich bin jetzt im Unterricht“.“ und – nur wenn nötig – ein Hinweis: noch keine nummerierten Phasen (zuerst den Eintrag bzw. Verlaufsplan
+  speichern), „Phase 6 gibt es im Schulportal-Eintrag nicht (dort: 1, 2, 3, 4)“, „Ohne Anweisungen: Phasen 3 und 4 – …“, Zeichen bzw. Verweise im Text;
+  [] → „Kurzplan für die Lehrkraft gelöscht.“ Ohne den Parameter bleibt die Antwort wie bisher. `get_lesson`: Abschnitt „## Kurzplan für die Lehrkraft
+  (zeigt Unterricks nur in „Ich bin jetzt im Unterricht“)“ direkt nach der Zusammenfassung (Gymnasium und Grundschule, nicht bei Ausfall-Einträgen): je
+  Phase „- Phase n: Anweisung | Anweisung“, Stand, ohne Kurzplan „(noch keiner – schreibe ihn …)“, Hinweis bei geänderter Planung bzw. fehlenden Phasen,
+  in einer Selbstlern-Phase oder bestätigten Vertretung „… beschreibt die ursprüngliche Planung“. `save_schulportal_entry`/`save_verlaufsplan` erinnern
+  nur, wenn es einen Kurzplan gibt, der zur neuen Planung nicht mehr passt („Der „Kurzplan für die Lehrkraft“ passt nicht mehr zur neuen Planung –
+  schreibe ihn zum Schluss … neu.“, vor der Erinnerung an die Zusammenfassung) – sonst sind die Antworten byte-gleich. Werkzeugbeschreibungen:
+  `update_lesson`, der Satz nach dem Speichern der Planung (`SUMMARY_AFTER_SAVE`: „… und den „Kurzplan für die Lehrkraft“ (kurzplan_lehrkraft).“) und
+  `save_selbstlern` (Zusammenfassung und Kurzplan „änderst du dabei nicht – sie beschreiben die ursprüngliche Planung“; Test in `tsummary.test.mjs`
+  bewusst angepasst). **Die Server-Anweisungen (INSTRUCTIONS) bleiben byte-gleich** – gekürzte Clients lesen sonst nicht mehr alles (Tests in
+  `cardsprint.test.mjs` und `konzentration.test.mjs`); der Kurzplan steht deshalb in den Prompts und Werkzeugbeschreibungen.
+* **Prompts:** `teacherPlanSaveStep(gs)` als Unterpunkt von Schritt 4 direkt nach dem Absatz für die Weitergabe in „Stunde mit Claude planen“
+  (Gymnasium auch Jg. 5/6, `claudeLessonPrompt`; Grundschule `claudeGsLessonPrompt`): zusammen mit der Zusammenfassung, nachdem der Schulportal-Eintrag
+  bzw. Verlaufsplan gespeichert ist, für jede seiner Phasen `{phase, anweisungen}`, die Regeln wie im Connector; „Ändern wir … später, schreibe auch den
+  Kurzplan neu.“ Ohne diesen Schritt sind die Prompts byte-gleich (`withoutTeacherPlan` im SHA-Test von `zwischenstopp.test.mjs`). Überarbeitung der
+  Einheit: Gymnasium in Schritt 5 („… und den „Kurzplan für die Lehrkraft“ (`kurzplan_lehrkraft`, …)“), Grundschule als eigene Zeile direkt nach
+  Schritt 5 (Schritt 5 selbst bleibt wörtlich, `konzentration.test.mjs`). Nicht im Selbstlern-, Präsentations- und Backup-Prompt und nicht im Rückfall
+  ohne Connector (einen Kurzplan trägt die Lehrkraft nicht selbst ein – dort hilft die automatische Kürzung).
+* **Anzeige** (`compactPlan`/`compactLabel` rein in `public/inclasslib.js`, gezeichnet in `public/inclass.js`, Gymnasium und Grundschule): Die Karte
+  `#ic-plan` zeigt je Phase einen Block `.icp-phase` mit `data-line` = Zeile ihrer Überschrift (wie `portalPhases` und `insertStop`), darin die
+  Überschrift (`p.icp-head`, Läufe wie im Eintrag, fett) und die Anweisungen (`ul.icp-steps`, etwas größer). Mit einem Kurzplan, der passt, stehen dort
+  seine Anweisungen („Kurzplan von Claude“; eine Phase ohne Anweisungen von Claude wird automatisch gekürzt und im Satz genannt); sonst kürzt Unterricks
+  selbst: die Zeilen einer Phase, deren Inhalt ganz unterstrichen ist (Aufforderung an die Lehrkraft, ohne Unterstreichung gezeigt, in der Grundschule
+  samt gelbem PDF-Verweis über `planRunsNodes` aus `portalview.js`), bzw. – ohne solche Zeile – ihr erster Stichpunkt, gekürzt auf 110 Zeichen an einer
+  Wortgrenze mit „…“ (`shortRuns`: Links werden nie zerschnitten, ein Verweis zählt 20 Zeichen; Klasse `.icp-gist`). Der Satz `#ic-plan-src` sagt, was zu
+  sehen ist: „Kurzplan von Claude“ bzw. „Automatisch gekürzt – die Phasen mit Ihren Aufgaben (…)“, „… – der Kurzplan von Claude passt nicht mehr zum
+  geänderten Schulportal-Eintrag.“ (Grundschule „Verlaufsplan“), „… passt nicht zu den Phasen im …“. „--> Nächste Stunde“ (`p.icp-next`) und der
+  Zwischenstopp (`stopField()` mit Abdeckblatt wie in der Vorschau) stehen an ihrer Stelle mit ihrer eigenen Zeile; Text vor der ersten Phase entfällt.
+  Darunter `details.box#ic-plan-more` „Vollständigen Verlaufsplan anzeigen“ (zugeklappt) mit der bisherigen Vorschau `#ic-plan-full` (jede Zeile mit
+  eigener `data-line`). Ohne nummerierte Phasen gibt es nichts zu kürzen: dann steht wie bisher der vollständige Verlaufsplan in `#ic-plan` (ohne Satz und
+  ohne Aufklapper).
+* **Pfeil, Kontextmenü, Zwischenstopp, Rollen:** Der grüne Pfeil sucht wie bisher `[data-line="<Zeile der Überschrift>"]` – in der kompakten Liste ist das
+  der Block der Phase (er wird ganz hinterlegt, der Pfeil sitzt auf seiner ersten Zeile); `scrollToPhase` rollt zu ihm. Rechtsklick bzw. Antippen in einer
+  Phase (auch auf einer Anweisung) öffnet dasselbe Kontextmenü mit der Zeile der Überschrift – „Zwischenstopp einfügen“ setzt ihn **vor die Phase**; auf
+  dem Zwischenstopp selbst „Zwischenstopp entfernen“; im aufgeklappten vollständigen Verlaufsplan wie bisher jede Zeile. „Zwischenstopp eintragen …“
+  (Dialog) bleibt unverändert und kann jede Zeile wählen.
+* **Neu zeichnen:** wie bisher über `icEmit("plan")`; dazu übernimmt die Seite einen neuen Kurzplan von Claude (Gymnasium `doRefresh` – auch über den
+  Stand der Sitzung `…/stamp`, denn `update_lesson` ändert `updated_at`; Grundschule `onVis`) und meldet „plan“. Die Seiten reichen `teacherPlan()` und
+  (Grundschule) `planRuns()` herein.
+* **Sitzung als Datei / Sicherung** (`public/sessionio.js`, `public/sessionfile.js`, `routeLessonImport`): `lesson.teacherPlan` = `[{n, steps}]` nur, wenn
+  es einen gibt (sonst bleibt die Datei, wie sie war); passte er schon beim Herunterladen nicht mehr (Planung geändert), steht `teacherPlanOutdated: true`
+  darin. Beim Laden tolerant gelesen und gekappt, Datumsangaben in den Anweisungen wie in den übrigen Texten angepasst; der Fingerabdruck gehört zum
+  Eintrag aus der Datei bzw. ist `PLAN_FINGERPRINT_STALE` (dann automatisch gekürzt, bis Claude ihn neu schreibt); ohne Kurzplan in der Datei wird ein
+  bisheriger gelöscht (er beschriebe die alte Planung). Die Sicherung („Lies mich.txt“) nennt ihn. Grundschul-Sitzungen lassen sich wie bisher nicht aus
+  einer Datei laden.
+* **Selbst entschieden (Rückfrage nicht nötig):** (1) Der Zwischenstopp mitten in einer Phase steht in der kompakten Liste nach dieser Phase (die
+  Anweisungen von Claude haben keine Zeile im Eintrag; genau zeigt ihn der aufgeklappte vollständige Verlaufsplan). (2) Rechtsklick in der kompakten
+  Liste setzt den Zwischenstopp vor die Phase (wie „Bis hier gezeigt“), zeilengenau geht es im vollständigen Verlaufsplan und im Dialog. (3) Ein Kurzplan
+  gilt nur, wenn alle seine Phasen im Plan stehen; fehlende Anweisungen einzelner Phasen ergänzt die automatische Kürzung. (4) Aufforderungen an die
+  Lehrkraft stehen im Kurzplan ohne Unterstreichung (dort ist jede Zeile eine). (5) Kein Bearbeiten des Kurzplans im Browser (nicht gewünscht; der Weg
+  ist Claude), die Server-Anweisungen bleiben unverändert (siehe oben). (6) Das Beispiel „Erzähltext ~Josef~“ des Auftrags steht in den Regeln als
+  „Erzähltext ‚Josef‘“ – schlichter Text, typografische Anführungszeichen.
+* **Tests:** `test/unit/teacherplan.test.mjs` (reine Funktionen, `compactPlan` samt Zwischenstopp, „Nächste Stunde“, Grundschul-Verweisen und Kürzen,
+  Prompts und Überarbeitung, Connector mit Schema, Rückmeldungen, Fehlern, `get_lesson`, Erinnerungen, Selbstlern-Phase, Grundschule und Ausfall-Eintrag,
+  PATCH und Liste, `EMPTY_LESSON`, Isolation und Modul-Liste, Sitzungsdatei samt Import, kompakte Liste in der DOM-Nachbildung: Blöcke mit `data-line`,
+  Satz, Aufklapper, Kontextmenü, Pfeil am Block, Zwischenstopp mit Abdeckblatt, automatische Kürzung, ohne Phasen; Grundschul-Seite mit gelben Verweisen
+  und neuem Kurzplan beim Zurückkehren in den Tab); `zwischenstopp.test.mjs` (Stripper `withoutTeacherPlan`), `tsummary.test.mjs` (`save_selbstlern`).
+  E2E (hier nicht gelaufen): `test/e2e/inclass.mjs` – Kurzplan über PATCH, kompakte Liste mit Zeilen und Anweisungen, Schriftgrößen, Aufklapper
+  (Bildschirmfotos `unterricht-kompakt-kurzplan-1366.png`/`-390.png`), Pfeil liest die Überschrift des Blocks, geänderter Eintrag → automatisch gekürzt
+  mit der neuen unterstrichenen Aufforderung, Grundschule kompakt nur mit Vorlesetext und Arbeitsblatt, alle drei Verweise im vollständigen Verlaufsplan;
+  `test/e2e/run.mjs` – Speicherschritt im Prompt, `update_lesson kurzplan_lehrkraft`, `get_lesson`, nicht auf der vollständigen Seite, mit [] gelöscht.
 
 ## 4zn. Anweisungen an die Lehrkraft in den Foliennotizen (Nachtrag 42, Teil 3)
 

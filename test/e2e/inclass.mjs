@@ -15,10 +15,13 @@ const GSPLAN = (ab, vor, cards) => "**1) Ankommen im Sitzkreis (5 Min.)**\n- Beg
   "**3) Arbeitsblatt (15 Min., Einzelarbeit)**\n- [[pdf:" + ab + "]]\n**4) Abschluss (5 Min.)**\n- Lied";
 const a4 = async (label, pages = 1) => { const d = await PDFDocument.create(), f = await d.embedFont(StandardFonts.Helvetica); for (let i = 0; i < pages; i++) d.addPage([595.28, 841.89]).drawText(label + (pages > 1 ? " " + (i + 1) : ""), { x: 50, y: 760, size: 20, font: f }); return Buffer.from(await d.save()); };
 const SHEET1 = { code: "KQ4M7Z", title: "Gewaltenteilung" }, SHEET2 = { code: "PR3X8N", title: "Wehrhafte Demokratie" };
+// Kurzplan für die Lehrkraft (Nachtrag 42): je Phase von PORTAL, was die Lehrkraft tut (sonst schreibt ihn Claude mit update_lesson kurzplan_lehrkraft)
+const KURZPLAN = [{ n: 1, steps: ["Lehrkraft zeigt die Karikatur und fragt: Wer hat hier die Macht?"] }, { n: 2, steps: ["Lehrkraft nennt den Code des Feibeitsblatts.", "Lehrkraft geht herum und hilft."] },
+  { n: 3, steps: ["Lehrkraft schreibt das Tafelbild mit."] }, { n: 4, steps: ["Lehrkraft leitet die Diskussion zur Frage, ob das BVerfG zu mächtig ist."] }];
 
 export async function inClassE2E({ browser, tp, BASE, T, token, ok, OUT, SHOT, gsCourse, horizontalIssues, devices, watch = () => {} }) {
-  const { berlinToday, addDays, STOP_LINE } = await import("../../public/shared.js");
-  const { INCLASS_LABEL, FULL_LABEL, ARROW_NAME, INCLASS_KEY } = await import("../../public/inclasslib.js");
+  const { berlinToday, addDays, STOP_LINE, portalPhases } = await import("../../public/shared.js");
+  const { INCLASS_LABEL, FULL_LABEL, ARROW_NAME, INCLASS_KEY, FULL_PLAN_LABEL } = await import("../../public/inclasslib.js");
   const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
   const d0 = addDays(berlinToday(), -50), wd = new Date(d0 + "T12:00:00Z").getUTCDay();
   const made = [];
@@ -37,12 +40,13 @@ export async function inClassE2E({ browser, tp, BASE, T, token, ok, OUT, SHOT, g
   const noToasts = (p = tp) => p.evaluate(() => document.querySelectorAll(".toast").forEach((t) => t.remove()));
   const vis = (sel, p = tp) => p.locator(sel).isVisible();
   const hiddenFull = (p = tp) => p.evaluate(() => { const g = document.querySelector(".session-grid"); return !!g && getComputedStyle(g).display === "none"; });
+  const vp00 = tp.viewportSize();
   const dlOf = async (p, btn) => { const [d] = await Promise.all([p.waitForEvent("download", { timeout: 30000 }), btn.click()]); return { name: d.suggestedFilename(), bytes: readFileSync(await d.path()) }; };
 
   /* ======================= Gymnasium ======================= */
   const A = await oneLesson("powi", "9E", "Gewaltenteilung im Unterricht");
   await T("PUT", "/api/teacher/lessons/" + A + "/portal", { text: PORTAL, force: true });
-  await T("PATCH", "/api/teacher/lessons/" + A, { homework: "Lies M2." });
+  await T("PATCH", "/api/teacher/lessons/" + A, { homework: "Lies M2.", teacherPlan: KURZPLAN });
   // Präsentation (Phasen unsichtbar auf den Folien) über die Sitzungsseite hochladen – die Folienbilder entstehen im Browser
   await tp.goto(BASE + "/#/lk/s/" + A);
   const presCardFull = tp.locator("section.card", { hasText: "Präsentation für den Unterricht" });
@@ -80,6 +84,24 @@ export async function inClassE2E({ browser, tp, BASE, T, token, ok, OUT, SHOT, g
     "per Tastatur geöffnet: vollständige Ansicht ausgeblendet, Fokus auf „" + FULL_LABEL + "“");
   ok(JSON.stringify(await view.evaluate((v) => [...v.querySelectorAll(":scope > section, :scope > .ic-hwslot > section")].map((s) => s.querySelector("h2").textContent))) ===
     JSON.stringify(["Präsentation", "Verlaufsplan · Schulportal-Eintrag", "Material", "Hausaufgabe bis zur nächsten Sitzung"]), "kompakt in dieser Reihenfolge: Präsentation, Verlaufsplan, Material, Hausaufgabe");
+  /* ---- Nachtrag 42: der Verlaufsplan kompakt – Kurzplan von Claude, je Phase ein Block an der Zeile ihrer Überschrift; der vollständige Verlaufsplan zugeklappt ---- */
+  const blocks = () => tp.locator("#ic-plan .icp-phase").evaluateAll((bs) => bs.map((b) => [b.dataset.line, b.querySelector(".icp-head").textContent, [...b.querySelectorAll(".icp-step")].map((x) => x.textContent)]));
+  ok((await tp.locator("#ic-plan-src").textContent()) === "Kurzplan von Claude" && JSON.stringify(await blocks()) === JSON.stringify(portalPhases(PORTAL).map((x, i) => [String(x.line), x.label, KURZPLAN[i].steps])) &&
+    (await tp.locator("#ic-plan .icp-next").textContent()) === "--> Nächste Stunde" && (await tp.locator("#ic-plan .icp-head").first().evaluate((e) => getComputedStyle(e).fontWeight)) >= 700,
+    "kompakt: „Kurzplan von Claude“ – je Phase die fette Überschrift (an ihrer Zeile im Eintrag) und darunter, was die Lehrkraft tut; „--> Nächste Stunde“ an seiner Stelle");
+  const fs0 = await tp.evaluate(() => [parseFloat(getComputedStyle(document.querySelector("#ic-plan .icp-step")).fontSize), parseFloat(getComputedStyle(document.querySelector("#ic-plan .icp-head")).fontSize)]);
+  ok(fs0[0] > fs0[1], "die Anweisungen etwas größer als die Überschriften (" + fs0.join(" > ") + " px)");
+  const more = tp.locator("#ic-plan-more");
+  ok(!(await more.evaluate((d) => d.open)) && (await more.locator("summary").textContent()) === FULL_PLAN_LABEL && !(await tp.locator("#ic-plan-full").isVisible()),
+    "darunter zugeklappt „" + FULL_PLAN_LABEL + "“");
+  await more.locator("summary").click();
+  ok(await tp.locator("#ic-plan-full li", { hasText: "Karikatur Wer hat die Macht?" }).isVisible(), "aufgeklappt: der vollständige Verlaufsplan (Schulportal-Eintrag)");
+  for (const [w, hh] of [[1366, 900], [390, 844]]) {
+    await tp.setViewportSize({ width: w, height: hh }); await sleep(150);
+    await tp.locator("#ic-plancard").screenshot({ ...SHOT, path: join(OUT, "unterricht-kompakt-kurzplan-" + w + ".png") });
+  }
+  await tp.setViewportSize(vp00);
+  await more.locator("summary").click();
   const pc = tp.locator("#ic-pres");
   await tp.locator("#ic-live", { hasText: "Gerade nicht live." }).waitFor({ timeout: 10000 });
   ok(await pc.getByRole("button", { name: "Präsentation live starten" }).count() === 1 && (await tp.locator("#ic-live").textContent()) === "Gerade nicht live." &&
@@ -126,7 +148,8 @@ export async function inClassE2E({ browser, tp, BASE, T, token, ok, OUT, SHOT, g
   await p2.goto(BASE + "/#/lk/s/" + A);
   await p2.getByRole("button", { name: "Ich bin im Unterricht und starte die Präsentation für alle." }).click();
   await p2.locator(".presenter").waitFor({ timeout: 15000 });
-  const arrowAt = async () => tp.locator("#ic-plan .ic-now").evaluate((x) => x.textContent.replace("jetzt", "").trim()).catch(() => null);
+  // die ganze Phase ist hinterlegt (Block der kompakten Liste, Nachtrag 42) – verglichen wird ihre Überschrift
+  const arrowAt = async () => tp.locator("#ic-plan .ic-now").evaluate((x) => (x.querySelector(".icp-head") || x).textContent.replace("jetzt", "").trim()).catch(() => null);
   const waitArrow = async (label) => { for (let i = 0; i < 60; i++) { if ((await arrowAt()) === label) return true; await sleep(200); } return false; };
   ok(await waitArrow("1) Einstieg") && (await tp.locator(".phasearrow").getAttribute("aria-label")) === ARROW_NAME && (await tp.locator("#ic-live").textContent()).startsWith("LIVE Sitzungscode"),
     "Live (zweites Gerät, Codefolie vor Folie 1): grüner Pfeil an „1) Einstieg“ mit Namen „" + ARROW_NAME + "“, LIVE · Sitzungscode");
@@ -253,12 +276,16 @@ export async function inClassE2E({ browser, tp, BASE, T, token, ok, OUT, SHOT, g
   ok((await T("GET", "/api/teacher/lessons/" + A)).data.lesson.homework === "Lies M2 und beantworte Aufgabe 3 und 4." && !(await tp.evaluate((k) => sessionStorage.getItem(k), INCLASS_KEY)),
     "… und ist gespeichert; der Zustand für diesen Tab ist beendet");
   ok(await p2.locator(".presenter").isVisible(), "das Umschalten beendet die laufende Präsentation nicht (zweites Gerät zeigt weiter)");
-  // Schulportal-Eintrag in der vollständigen Ansicht geändert und sofort umgeschaltet: die kompakte Ansicht zeigt den neuen Stand, gespeichert wird wie sonst
+  // Schulportal-Eintrag in der vollständigen Ansicht geändert und sofort umgeschaltet: die kompakte Ansicht zeigt den neuen Stand, gespeichert wird wie sonst –
+  // der Kurzplan passt dann nicht mehr: automatisch gekürzt, die neue (unterstrichene) Aufforderung an die Lehrkraft steht in der kompakten Liste (Nachtrag 42)
   const before = await tp.inputValue("#portal");
-  await tp.fill("#portal", before + "\n- Zusatz: Argumentationswippe");
+  await tp.fill("#portal", before + "\n- __Zusatz: Argumentationswippe am Beamer zeigen__");
   await go.click();
   await view.waitFor();
-  ok((await tp.locator("#ic-plan").textContent()).includes("Zusatz: Argumentationswippe") && await waitArrow("2) Partnerarbeit"), "Schulportal-Eintrag eben geändert, dann „" + INCLASS_LABEL + "“: der Verlaufsplan zeigt den neuen Stand (der Pfeil bleibt)");
+  ok((await tp.locator("#ic-plan").textContent()).includes("Zusatz: Argumentationswippe") && await waitArrow("2) Partnerarbeit") &&
+    (await tp.locator("#ic-plan-src").textContent()) === "Automatisch gekürzt – der Kurzplan von Claude passt nicht mehr zum geänderten Schulportal-Eintrag." &&
+    (await tp.locator("#ic-plan-full").textContent()).includes("Zusatz: Argumentationswippe"),
+    "Schulportal-Eintrag eben geändert, dann „" + INCLASS_LABEL + "“: der Verlaufsplan zeigt den neuen Stand automatisch gekürzt (der Kurzplan passt nicht mehr), der Pfeil bleibt");
   for (let i = 0; i < 30 && !(await portalOf(A)).includes("Zusatz: Argumentationswippe"); i++) await sleep(250);
   ok((await portalOf(A)).includes("Zusatz: Argumentationswippe"), "… und die Änderung ist gespeichert (nichts geht beim Umschalten verloren)");
   await tp.locator("#inclass-back").click();
@@ -322,8 +349,11 @@ export async function inClassE2E({ browser, tp, BASE, T, token, ok, OUT, SHOT, g
   await gv.locator("#ic-plan a.pdfref").first().waitFor({ timeout: 15000 });
   ok(JSON.stringify(await gv.evaluate((v) => [...v.querySelectorAll(":scope > section, :scope > .ic-hwslot > section")].map((s) => s.querySelector("h2").textContent))) === JSON.stringify(["Verlaufsplan", "Material", "Hausaufgabe"]) &&
     await tp.locator("#ic-pres, .phasearrow, #ic-arrow-hint").count() === 0, "Grundschule kompakt: Verlaufsplan, Material, Hausaufgabe – ohne Präsentation und Pfeil");
-  ok(JSON.stringify(await gv.locator("#ic-plan a.pdfref").evaluateAll((xs) => xs.map((x) => x.firstChild.textContent))) === JSON.stringify(["Vorlesetext Regentropfen.pdf", "Bildkarten Regentropfen.pdf", "Arbeitsblatt Wasser.pdf"]),
-    "Verlaufsplan mit anklickbaren PDF-Verweisen (gelb markiert)");
+  // Nachtrag 42: ohne Kurzplan automatisch gekürzt – die Aufforderung an die Lehrkraft samt Verweis, sonst der erste Stichpunkt; alle Verweise im vollständigen Verlaufsplan
+  ok(JSON.stringify(await gv.locator("#ic-plan a.pdfref").evaluateAll((xs) => xs.map((x) => x.firstChild.textContent))) === JSON.stringify(["Vorlesetext Regentropfen.pdf", "Arbeitsblatt Wasser.pdf"]) &&
+    JSON.stringify(await gv.locator("#ic-plan-full a.pdfref").evaluateAll((xs) => xs.map((x) => x.firstChild.textContent))) === JSON.stringify(["Vorlesetext Regentropfen.pdf", "Bildkarten Regentropfen.pdf", "Arbeitsblatt Wasser.pdf"]) &&
+    (await tp.locator("#ic-plan-src").textContent()).startsWith("Automatisch gekürzt – die Phasen mit Ihren Aufgaben"),
+    "Verlaufsplan kompakt mit anklickbaren PDF-Verweisen (gelb markiert) – automatisch gekürzt; alle Verweise im aufklappbaren vollständigen Verlaufsplan");
   const gS = tp.locator("#ic-material .ic-col").nth(0), gT = tp.locator("#ic-material .ic-col").nth(1);
   const gsN = await names(gS), gtN = await names(gT);
   const cardsRow = gT.locator(".ic-item", { hasText: "Bildkarten Regentropfen" });
