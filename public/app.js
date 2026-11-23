@@ -9,6 +9,9 @@ import { slideViewer } from "./slideviewer.js";
 import { lazy, isModuleError, pageFailed, navCheckDue, navBlockers, beforeRoute, waitPage, holdReload, beforeReload, installUpdateChecks } from "./update.js";
 import { fbAgainItem } from "./fbagain.js";
 import { revealWatch, latestOnly } from "./reveal.js";
+// Nachtrag 44 (Teil 2): Hinweis „nicht die aktuellste Sitzung“ und Text zur Code-Eingabe
+import { newerNote } from "./newernote.js";
+import { CODE_WHERE_TEXT, NEWER_RECHECK_MS } from "./shared.js";
 
 // Nie in fremden Seiten eingebettet anzeigen: Auf GitHub Pages fehlen die Schutz-Header (frame-ancestors gilt nicht als <meta>)
 if (window.top !== window.self) { document.documentElement.hidden = true; throw new Error("Unterricks lässt sich nicht in andere Seiten einbetten."); }
@@ -164,6 +167,9 @@ function chooser(profile, onSave) {
     h("div", { class: "row end" }, save));
 }
 
+// „Aktuellste Sitzung laden“ (Nachtrag 44, Teil 2): die Eingabe des Sitzungscodes bekommt danach den Fokus – auch mit schon freigeschalteten Sitzungen
+// (gilt bis zum nächsten Zeichnen des Formulars, also auch nach einer Anmeldung bzw. der Wahl von Fach und Klasse dazwischen)
+let codeFocusWanted = false;
 async function studentHome() {
   if (!S.token) return go("#/");
   let me;
@@ -177,7 +183,8 @@ async function studentHome() {
       main.append(pageHead({ title: "Wähle dein Fach und deine Klasse", sub: "Danach siehst du nur die Sitzungen deines Kurses." }), chooser(profile, (p) => { me.profile = p; show(p); }));
       return;
     }
-    const code = h("input", { id: "code", inputmode: "text", autocapitalize: "characters", autocomplete: "off", spellcheck: "false", placeholder: "z. B. K7Q-M4X", maxlength: "9", class: "codein" });
+    const focusCode = codeFocusWanted; codeFocusWanted = false;
+    const code = h("input", { id: "code", inputmode: "text", autocapitalize: "characters", autocomplete: "off", spellcheck: "false", placeholder: "z. B. K7Q-M4X", maxlength: "9", class: "codein", "aria-describedby": "code-h" });
     const msg = h("p", { class: "err", role: "alert" });
     const btn = h("button", { class: "btn primary", type: "submit" }, "Sitzung öffnen");
     const form = h("form", { class: "card", onsubmit: async (e) => {
@@ -188,7 +195,9 @@ async function studentHome() {
         try { const r = await sapi("POST", "/api/student/join", { body: { code: c } }); go("#/schueler/s/" + r.lesson.id); }
         catch (err) { msg.textContent = err.message; }
       }, "Prüfe …");
-    } }, h("h2", { text: "Neue Sitzung freischalten" }), h("div", { class: "field" }, h("label", { for: "code" }, "Sitzungscode deiner Lehrkraft"), code), msg, btn,
+    } }, h("h2", { text: "Neue Sitzung freischalten" }), h("div", { class: "field" }, h("label", { for: "code" }, "Sitzungscode deiner Lehrkraft"), code,
+      // immer (Nachtrag 44, Teil 2): wo es den Code gibt – gezeigt zu Beginn der Stunde, im Schulportal im Feld „Hausaufgabe“
+      h("p", { class: "hint", id: "code-h", text: CODE_WHERE_TEXT })), msg, btn,
       h("p", { class: "hint", text: "Einmal eingegebene Codes merkt sich dieses Gerät – beim nächsten Mal findest du die Sitzung unten in der Liste." }));
     const list = h("div", { class: "list" });
     const lessons = me.lessons || [];
@@ -200,7 +209,7 @@ async function studentHome() {
       pageHead({ fach: profile.subject, title: "Hallo!", chips: [{ text: subjectName(profile.subject), strong: true }, classShort(profile.klass)],
         aside: h("button", { class: "btn small", type: "button", onclick: () => show(profile, true) }, "Klasse/Fach ändern") }),
       form, h("div", { class: "card" }, h("h2", { text: "Deine Sitzungen" }), list));
-    if (!lessons.length) setTimeout(() => code.focus(), 50);
+    if (!lessons.length || focusCode) setTimeout(() => code.focus(), 50);
   };
   show(me.profile || {});
 }
@@ -234,6 +243,12 @@ async function studentRoom(lessonId) {
   clear(main);
   main.append(pageHead({ fach: d.lesson.subject, crumbs: [["#/schueler", "Meine Sitzungen"], d.lesson.title], title: d.lesson.title,
     chips: [{ text: d.lesson.subjectName, strong: true }, classShort(d.lesson.klass), d.lesson.date ? fmtDay(d.lesson.date) : null] }));
+  // 0) Nachtrag 44 (Teil 2): ist eine spätere Sitzung des Kurses schon dran (laut Plan oder schon live), ganz oben – vor allem anderen, auch in einer
+  // Selbstlern-Phase oder Vertretung – der rote Hinweis mit „Aktuellste Sitzung laden“ (zur Eingabe des Sitzungscodes; die Sitzung wird dabei wie bei
+  // jedem Seitenwechsel verlassen: Live-Verbindung und Zeitgeber enden). Ohne spätere Sitzung bleibt der Platz leer.
+  const newerBox = newerNote({ onGo: () => { codeFocusWanted = true; } });
+  newerBox.set(d.newer);
+  main.append(newerBox.el);
   const fileRow = (f) => materialRow(f, d);
   const sheetRow = (s) => sheetItem(s, d.feibeitsblattUrl);
 
@@ -258,7 +273,12 @@ async function studentRoom(lessonId) {
   // Hausaufgabe aus dieser Sitzung bis zur nächsten Sitzung – der Server liefert sie erst ab 15 Minuten vor dem Ende der Sitzung
   // (in einer Selbstlern-Phase von Anfang an: alle Stationen bis zur nächsten Stunde mit der Lehrkraft)
   const hwBox = h("div");
+  let hwKey = null;
   const paintHomework = (hw) => {
+    // unverändert (z. B. Neuladen beim Aufwachen, Nachtrag 44 Teil 2): stehen lassen – sonst ginge ein Fokus auf einem Link darin verloren
+    const key = JSON.stringify(hw || null);
+    if (key === hwKey) return;
+    hwKey = key;
     clear(hwBox);
     if (hw) hwBox.append(h("section", { class: "card homework", style: { marginBottom: "1rem" }, "aria-label": "Hausaufgabe" },
       h("h2", { text: "Deine Hausaufgabe" }),
@@ -485,6 +505,7 @@ async function studentRoom(lessonId) {
   // Reihenfolge der Antworten (Befund der Gegenprüfung): Die Antwort einer früher gestellten Anfrage, die nach einer späteren ankommt, wird nicht mehr
   // angewendet (latestOnly) – sonst verschwände eben erschienenes Material wieder
   const order = latestOnly();
+  let loadedAt = Date.now();   // letzter Stand vom Server (für die Prüfung beim Aufwachen, Nachtrag 44 Teil 2)
   const refresh = async () => {
     const my = order.start();
     try {
@@ -493,6 +514,7 @@ async function studentRoom(lessonId) {
       // Selbstlern-Phase inzwischen eingerichtet bzw. wiederhergestellt: die Seite neu aufbauen
       const kind = (x) => (x.selbstlern ? (x.selbstlern.analog ? "a" : "d") : "n");
       if (kind(r) !== kind(d)) { if (location.hash === "#/schueler/s/" + lessonId) route(); return; }
+      loadedAt = Date.now(); newerBox.set(r.newer);   // Nachtrag 44 (Teil 2)
       pres = r.presentation; renderPres(); paintHomework(r.homework); aiHelp = r.aiHelp; paintKi(); if (slv) slv.update(r); pending.splice(0, pending.length, ...(r.changesAt || [])); plan();
       // Material (Nachtrag 44): neu Freigegebenes erscheint ohne Neuladen der Seite (unveränderte Zeilen bleiben stehen – samt Fokus und aufgeklapptem Text)
       rw.seen(r.revealAt);
@@ -503,10 +525,11 @@ async function studentRoom(lessonId) {
   let chT = null;
   const plan = () => { clearTimeout(chT); const next = Math.min(...pending); if (Number.isFinite(next)) chT = setTimeout(refresh, Math.max(1000, Math.min(next - (Date.now() + offset) + 1500, 6 * 3600e3))); };
   plan();
-  // wieder sichtbar: fällige Zeitpunkte – und freigegebenes Material, dessen Neuladen bisher nicht geklappt hat (Nachtrag 44, neue Versuche)
+  // wieder sichtbar: fällige Zeitpunkte, freigegebenes Material, dessen Neuladen bisher nicht geklappt hat (Nachtrag 44, Teil 1), und höchstens einmal je
+  // Minute ein neuer Blick, ob eine spätere Sitzung inzwischen live gezeigt wird (Nachtrag 44, Teil 2)
   const onVisCh = () => {
     if (document.visibilityState !== "visible") return;
-    if (rw.visible() || pending.some((t) => Date.now() + offset >= t)) refresh();
+    if (rw.visible() || pending.some((t) => Date.now() + offset >= t) || Date.now() - loadedAt >= NEWER_RECHECK_MS) refresh();
   };
   document.addEventListener("visibilitychange", onVisCh);
   onLeave(() => { clearTimeout(chT); document.removeEventListener("visibilitychange", onVisCh); });

@@ -9,7 +9,7 @@ import { getSubstitute, studentSubstitute } from "./substitute.js";
 import { SELBSTLERN, readSelbstlern, selbstlernAiWindow, selbstlernHelpPrompt, explainBotPrompt, explainSigText, helpSigText, selbstlernHomeworkNow, EXPLAIN_BOT_LIMITS, EXPLAIN_FINISH_MESSAGE } from "../public/selbstlern.js";
 import { liveTicket, liveState } from "./live.js";
 import { normalizeCode, isValidCode, subjectName, classShort, isCourseClass, courseMembers, cleanWebUrl, lessonTimes, fmtClockBerlin, fmtDayBerlin, studentHelpPrompt, STUDENT_HELP_LIMITS, GS_SUBJECT, STUDENT_SLIDE_BLOCK,
-  isAnalogClass, cleanCodeSlides } from "../public/shared.js";
+  isAnalogClass, cleanCodeSlides, laterLessonState } from "../public/shared.js";
 import { loadSubjectConfigs } from "./bases.js";
 import { videoSlidesData, videoSlidesOf, videoAt, videoWatchUrl, videoClipText } from "../public/videoslides.js";
 import { materialGate, revealFilterFiles, revealFilterSheets, revealRefOf, REVEAL_ABSENT } from "../public/reveal.js";
@@ -36,6 +36,23 @@ function selbstNotNow(win, now, who, gone) {
 }
 const lessonCard = (l, joinedAt, now) => ({ id: l.id, subject: l.subject, subjectName: subjectName(l.subject), klass: l.klass, title: l.title, date: l.lesson_date || null, joinedAt,
   hasHomework: homeworkShown(l, now) });
+/* „Nicht die aktuellste Sitzung“ (Nachtrag 44, Teil 2): die früheste spätere Sitzung desselben Kurses – gleiches Fach und dieselbe Klasse bzw. derselbe
+   Kurs (ein Kurs 8-K zählt nur mit seinen eigenen Sitzungen, GK und LK getrennt), nicht ausgefallen. Später = späteres Datum oder derselbe Tag mit späterem
+   Beginn (nur, wenn beide einen Beginn haben); ohne Datum der geöffneten Sitzung keine. Selbstlern-Phasen und Vertretungen zählen wie jede Sitzung.
+   Reihenfolge wie plannedStart (ohne Beginn = 0:00 Uhr); eine Anweisung im Batch der Sitzung, Index lessons_date. Nur für den Server: Kennung (für die
+   Live-Präsentation), Datum und Beginn – an den Browser gehen nie mehr als newer (ja/nein) und der geplante Beginn in changesAt. */
+const laterLessonStmt = (db, l) => db.prepare("SELECT id, lesson_date, start_time FROM lessons WHERE subject=?1 AND klass=?2 AND id<>?3 AND cancelled=0 " +
+  "AND (lesson_date > ?4 OR (lesson_date = ?4 AND ?5 IS NOT NULL AND start_time > ?5)) ORDER BY lesson_date, COALESCE(start_time, '') LIMIT 1")
+  .bind(l.subject, l.klass, l.id, l.lesson_date || null, l.start_time || null);
+/* newer: laut Plan begonnen – oder an ihrem Tag schon live gezeigt (Durable Object der späteren Sitzung, nur dann eine Anfrage; eine Vorschau an einem
+   früheren Tag zählt nicht). Ein Fehler der Live-Abfrage zählt als „nicht live“. → {newer, nextAt (geplanter Beginn, noch nicht erreicht) | null} */
+async function laterLessonInfo(c, row) {
+  const st = laterLessonState(row ? { date: row.lesson_date, startTime: row.start_time } : null, c.now);
+  if (st.begun) return { newer: true, nextAt: null };
+  let live = false;
+  if (st.today && row && c.env && c.env.LIVE) { try { live = !!(await liveState(c, row.id, "student")).active; } catch {} }
+  return { newer: live, nextAt: st.at };
+}
 
 export async function routeStudentMe(c) {
   const s = await requireStudent(c);
@@ -97,11 +114,13 @@ export function studentGate(lesson, pres, files, sheets, now) {
 }
 export async function routeStudentLesson(c, lessonId) {
   const { lesson, joinedAt } = await requireAccess(c, lessonId);
-  const [files, sheets, pres] = await c.db.batch([
+  const [files, sheets, pres, later] = await c.db.batch([
     c.db.prepare("SELECT id, kind, name, mime, size, CASE WHEN kind IN ('text','link') THEN text END AS text, source, fb_code, area, created_at FROM files WHERE lesson_id=?1 AND area='student' AND status='ready' AND " + SELBSTLERN_FILE_OK + " ORDER BY created_at").bind(lessonId),
     sheetsAgainStmt(c.db, lesson),
     c.db.prepare("SELECT id, name, pages, shown_until, cut_size, code_slides FROM files WHERE lesson_id=?1 AND area='presentation' AND status='ready' LIMIT 1").bind(lessonId),
+    laterLessonStmt(c.db, lesson),
   ]);
+  const newer = await laterLessonInfo(c, (later.results || [])[0] || null);
   const sd = selbstDigital(lesson), selbst = lesson.sub_status === SELBSTLERN;
   // Selbstlern-Phase (auch Jg. 5/6): keine Präsentation der ursprünglichen Planung – sie ist mit ihr archiviert, die Stationen ersetzen den Unterricht
   // mit der Lehrkraft (Prüfbefund: in Jg. 5/6 wurde sie sonst nach der Sitzung freigegeben)
@@ -132,7 +151,10 @@ export async function routeStudentLesson(c, lessonId) {
     presentation: p ? { name: p.name, pages: p.pages, unlockAt, unlocked: unlockAt !== null && c.now >= unlockAt, upTo } : null,
     homework: hw ? { text: hw, dueDate: selbst ? (nextT ? nextT.date : null) : await nextLessonDate(c.db, lesson) } : null,
     // wann sich die Ansicht ändert (Begriffshilfe beginnt/endet, Hausaufgabe erscheint, Präsentation wird frei) – unabhängig davon, ob es eine Hausaufgabe gibt
-    changesAt: [...(times ? [times.start, times.end + 1000, times.homeworkAt, times.presentationAt] : []), ...(win ? [win.start, win.end + 1000] : [])].filter((t) => t > c.now),
+    changesAt: [...(times ? [times.start, times.end + 1000, times.homeworkAt, times.presentationAt] : []), ...(win ? [win.start, win.end + 1000] : []),
+      ...(newer.nextAt !== null ? [newer.nextAt] : [])].filter((t) => t > c.now),
+    // Nachtrag 44 (Teil 2): eine spätere Sitzung des Kurses ist schon dran – nur ja/nein (der Zeitpunkt steht als Neuladen in changesAt)
+    newer: newer.newer,
     // KI-Begriffshilfe: nur zwischen Beginn und Ende der Stunde (Selbstlern-Phase: bis zur nächsten Stunde mit der Lehrkraft); die Dienste stehen im Einwilligungstext
     aiHelp: aiOn ? { start: sd ? win.start : times.start, end: sd ? win.end : times.end, providers, ...(sd ? { selbstlern: true, untilNext: win.untilNext } : {}) } : null,
     // Erklär-Chatbot der Stationen (nur Selbstlern-Phase mit iPads): Zeitraum wie die Begriffshilfe (unabhängig von ihrem Schalter in der Sitzung)

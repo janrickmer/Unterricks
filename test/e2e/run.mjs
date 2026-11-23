@@ -25,6 +25,7 @@ import { storageE2E } from "./storage.mjs";
 import { selbstlernStopE2E } from "./selbstlernstop.mjs";
 import { phaseStopE2E } from "./phasestop.mjs";
 import { videoSlidesE2E, PLAYER_FAKE } from "./videoslides.mjs";
+import { newerE2E } from "./newer.mjs";
 import { shareE2E, shareE2Epart2 } from "./share.mjs";
 import { motionE2E } from "./motion.mjs";
 import { lessonZipE2E } from "./lessonzip.mjs";
@@ -659,6 +660,9 @@ async function main() {
     await sp.getByRole("button", { name: "Politik und Wirtschaft" }).click(); await sp.getByRole("button", { name: "Q2 GK", exact: true }).click();
     await sp.getByRole("button", { name: "Speichern und weiter" }).click();
     await sp.locator("#code").waitFor(); await sp.screenshot({ ...SHOT, path: join(OUT, "schueler-start.png") });
+    // Nachtrag 44 (Teil 2): unter dem Feld immer, wo es den Code gibt (zu Beginn der Stunde gezeigt, im Schulportal im Feld „Hausaufgabe“)
+    ok((await sp.locator("#code-h").textContent()) === "Den Sitzungscode hat deine Lehrkraft zu Beginn der Unterrichtsstunde gezeigt. Er steht auch im Schulportal im Feld „Hausaufgabe“."
+      && (await sp.locator("#code").getAttribute("aria-describedby")) === "code-h", "Code-Eingabe: fester Text zum Sitzungscode (Beginn der Stunde, Schulportal), mit dem Feld verbunden");
     await sp.fill("#code", lesson0.code.slice(0, 3) + "-" + lesson0.code.slice(3)); await sp.getByRole("button", { name: "Sitzung öffnen" }).click();
     await sp.waitForURL(/#\/schueler\/s\//);
     ok(true, "Sitzungscode eingelöst");
@@ -2203,6 +2207,9 @@ async function main() {
     /* ---------- Nachtrag 38: YouTube-Video an der Stelle einer Videofolie eingebettet abspielen ---------- */
     step("Videofolien (Nachtrag 38): Präsentations-Prompt mit Video, Erkennen beim Hochladen, „Videofolien“ prüfen und ändern, Sitzungsdatei, Abspielen hier, im Beamerfenster (auch blockiert, Einbetten verboten) und am Beamergerät; Schüler:innen live nur die Folie, danach der Link im Folienfenster");
     await videoSlidesE2E({ browser, tctx, tp, BASE, T, ok, OUT, SHOT, devices, watch });
+    /* ---------- Nachtrag 44 (Teil 2): Hinweis „nicht die aktuellste Sitzung“ und fester Text zur Eingabe des Sitzungscodes ---------- */
+    step("Nicht die aktuellste Sitzung (Nachtrag 44, Teil 2): roter Hinweis ganz oben, sobald eine spätere Sitzung des Kurses schon live gezeigt wird (ohne Neuladen der Seite) bzw. laut Plan begonnen hat; „Aktuellste Sitzung laden“ führt zur Eingabe des Sitzungscodes mit festem Text");
+    await newerE2E({ browser, tp, BASE, T, ok, OUT, SHOT, devices, watch });
 
     step("Selbstlern-Phase mit Escape-Room: streng geprüft, Vorschau, Finale anlegen, Schüler:in spielt alle 6 Stationen, Überblick-PDF, Tunnel ins Feibeitsblatt");
     const escRoom = escapeFixture();

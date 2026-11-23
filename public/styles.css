@@ -990,6 +990,19 @@ body:has(> .presenter) #toasts { top: 1rem; bottom: auto; }   /* im Präsentatio
 .reveal-slot:empty { display: none; }
 .fbagain-t { margin-top: .25rem; }
 .fbagain-t .badge { margin-right: .3rem; }
+/* „Das ist nicht die aktuellste Sitzung“ (Nachtrag 44, Teil 2): roter Hinweis ganz oben in der Sitzung der Schüler:innen, direkt unter dem Kopfband.
+   Wunsch der Lehrkraft („in einem roten Hinweis-Feld“) – dieselbe Fläche wie der Hinweis der Notfall-Feibeitsblätter; der Knopf weiß mit Tinte (16,9 : 1),
+   auf Rot mit weißem Fokusring (5,6 : 1), mindestens 44px. Ohne Hinweis bleibt der Platz leer (kein Abstand). */
+.newer-note { margin: 0 0 1.15rem; font-size: 1rem; padding: 1rem 1.15rem; }
+.newer-note > .ico { margin-top: .15rem; }
+.newer-body { display: grid; gap: .5rem; justify-items: start; min-width: 0; }
+.newer-note h2 { color: #fff; font-size: 1.15rem; margin: 0; overflow-wrap: anywhere; }
+.newer-note p { margin: 0; overflow-wrap: anywhere; }
+.newer-note .btn.newer-go { min-height: 44px; margin-top: .25rem; background: #fff; border-color: #fff; color: #13213b; font-weight: 800; text-decoration: none; max-width: 100%; white-space: normal; }
+.newer-note .btn.newer-go .ico { stroke: currentColor; width: 1.15em; height: 1.15em; }
+@media (hover: hover) { .newer-note .btn.newer-go:hover { background: #fbe9e7; border-color: #fbe9e7; color: #13213b; } }
+.newer-note .btn.newer-go:focus-visible { outline: 3px solid #fff; outline-offset: 3px; box-shadow: 0 0 0 2px #13213b; }
+.newer-slot:focus { outline: none; }
 /* Druckliste „Von der Lehrkraft auszudrucken“: je Datei Anzahl, beidseitig/einseitig, schwarz-weiß/Farbe */
 .printrow .pset { display: flex; flex-wrap: wrap; gap: .4rem .6rem; align-items: center; margin: .3rem 0 .15rem; }
 .printrow .pset select { width: auto; max-width: 100%; min-width: 0; flex: 0 1 auto; }

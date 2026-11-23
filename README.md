@@ -61,6 +61,10 @@ gleich in `public/_headers`, im Worker und – für GitHub Pages – in `scripts
   In Ev. Religion und Ethik wählen sie ebenfalls ihre eigene Klasse – die Plattform ordnet sie dem Kurs ihres Jahrgangs zu.
   Oben läuft die Live-Präsentation, darunter Material (Download, z. B. für GoodNotes) und Feibeitsblätter – Material mit eigener
   Materialfolie erscheint erst, wenn die Lehrkraft diese Folie live zeigt.
+  Unter dem Feld für den Sitzungscode steht immer, wo es ihn gibt: Die Lehrkraft zeigt ihn zu Beginn der Stunde, und er steht im
+  Schulportal im Feld „Hausaufgabe“. Hat eine spätere Sitzung des Kurses schon begonnen (laut Datum und Beginn – oder ihre
+  Live-Präsentation läuft an ihrem Tag schon), steht in der älteren Sitzung ganz oben ein roter Hinweis „Das ist nicht die aktuellste
+  Sitzung“ mit dem Knopf „Aktuellste Sitzung laden“ (führt zur Eingabe des Sitzungscodes); er erscheint auch ohne Neuladen der Seite.
 * **Lehrkraft:** Einmalig unter **Planungsgrundlagen** je Fach Schulcurriculum, KCGO, E-Phasen-Curriculum und Abiturerlass
   (je Q-Kurs; bei Ev. Religion auch das Schulcurriculum der Grundschule, Jahrgänge 1–4) als PDF hochladen und die Fach-Einstellungen
   prüfen. Jede Planungsgrundlage lässt sich aus der Planung heraus in einem neuen Tab öffnen (Original-PDF; ältere ohne PDF als Text,
