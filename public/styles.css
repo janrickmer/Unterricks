@@ -1035,7 +1035,7 @@ body:has(> .presenter) #toasts { top: 1rem; bottom: auto; }   /* im Präsentatio
 .fba-status.ok { color: var(--ok); }
 .fba-foot { display: flex; flex-wrap: wrap; align-items: center; gap: .2rem .9rem; margin-top: .55rem; font-size: .85rem; color: var(--muted); }
 .fba-code .mono { font-weight: 800; letter-spacing: .06em; color: var(--text); }
-.fba-restart { min-height: 44px; font-size: .85rem; }
+.fba-foot .btn.fba-restart { min-height: 44px; font-size: .85rem; }   /* stärker als .btn.small (36 px): Zielgröße auf dem iPad mindestens 44 px */
 /* Lehrkraft – Material mit eigener Materialfolie (Nachtrag 44): wartet noch (gelb hinterlegt, mit „Jetzt freigeben“ ≥ 44 px) bzw. sichtbar seit … (ruhig);
    Feibeitsblatt aus einer früheren Sitzung (Nachtrag 45): „Wieder gebraucht“ in der Liste der Feibeitsblätter */
 .reveal-note { display: flex; flex-wrap: wrap; align-items: center; gap: .3rem .6rem; margin-top: .3rem; font-size: .85rem; color: var(--muted); overflow-wrap: anywhere; }

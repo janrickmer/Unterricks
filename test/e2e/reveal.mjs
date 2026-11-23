@@ -194,12 +194,13 @@ export async function revealE2E({ browser, tp, BASE, FB, T, token, tool, ok, OUT
   const again = rp.locator(".item.fbagain", { hasText: SHEET.title });
   await again.waitFor({ timeout: 15000 });
   const input = again.locator("input.fba-file"), go = again.getByRole("button", { name: "Im Feibeitsblatt weiterarbeiten" }), status = again.locator(".fba-status");
-  ok((await again.locator(".badge.again").textContent()) === "Wieder gebraucht" && (await again.locator(".fba-pick").textContent()).trim() === "Zwischenstand-PDF auswählen"
-    && (await again.locator(".fba-code").textContent()) === "Feibeitsblatt-Code GWT-4KQ" && !(await go.isVisible())
-    && await again.getByRole("button", { name: /^Von vorn beginnen/ }).count() === 1 && (await again.locator(".fba-pick").boundingBox()).height >= 54
-    && (await again.locator(".fba-restart").boundingBox()).height >= 44
-    && parseFloat(await again.locator(".fba-code").evaluate((e) => getComputedStyle(e).fontSize)) < parseFloat(await again.locator(".name").evaluate((e) => getComputedStyle(e).fontSize)),
-    "Schüler:in (Sitzung B): „Wieder gebraucht“, ein klares Feld für die Zwischenstand-PDF, darunter klein der Code und der kleine Knopf „Von vorn beginnen“ – noch kein „Im Feibeitsblatt weiterarbeiten“");
+  const seen = { badge: await again.locator(".badge.again").textContent(), pick: (await again.locator(".fba-pick").textContent()).trim(), code: await again.locator(".fba-code").textContent(),
+    go: await go.isVisible(), restart: await again.getByRole("button", { name: /^Von vorn beginnen/ }).count(), pickH: (await again.locator(".fba-pick").boundingBox()).height,
+    restartH: (await again.locator(".fba-restart").boundingBox()).height, codePx: parseFloat(await again.locator(".fba-code").evaluate((e) => getComputedStyle(e).fontSize)),
+    namePx: parseFloat(await again.locator(".name").first().evaluate((e) => getComputedStyle(e).fontSize)) };
+  ok(seen.badge === "Wieder gebraucht" && seen.pick === "Zwischenstand-PDF auswählen" && seen.code === "Feibeitsblatt-Code GWT-4KQ" && !seen.go && seen.restart === 1 && seen.pickH >= 54
+    && seen.restartH >= 44 && seen.codePx < seen.namePx,
+    "Schüler:in (Sitzung B): „Wieder gebraucht“, ein klares Feld für die Zwischenstand-PDF, darunter klein der Code und der kleine Knopf „Von vorn beginnen“ – noch kein „Im Feibeitsblatt weiterarbeiten“ (" + JSON.stringify(seen) + ")");
   for (const [w, hh] of [[820, 1180], [390, 844]]) for (const dark of [false, true]) {
     await rp.setViewportSize({ width: w, height: hh }); await rp.emulateMedia({ colorScheme: dark ? "dark" : "light" }); await sleep(150);
     await again.scrollIntoViewIfNeeded();
