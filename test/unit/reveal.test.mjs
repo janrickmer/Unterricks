@@ -528,7 +528,7 @@ test("Schüler:innen-Seite: revealAt vor der Prüfung von v, Neuladen der Daten 
   const r = app.slice(app.indexOf("const refresh = async () => {"), app.indexOf("let chT = null;"));
   assert.ok(r.includes("const my = order.start();") && r.includes("if (gone || !order.take(my)) return;") && r.indexOf("rw.seen(r.revealAt);") < r.indexOf("paintMats(r);"));
   assert.ok(r.includes("finally { rw.after(); }"), "nach jedem Neuladen – auch einem gescheiterten – prüft die Seite, ob noch etwas fehlt");
-  assert.ok(app.includes("if (rw.visible() || pending.some((t) => Date.now() + offset >= t)) refresh();"));
+  assert.ok(app.includes("if (rw.visible() || pending.some((t) => Date.now() + offset >= t) || Date.now() - loadedAt >= NEWER_RECHECK_MS) refresh(); else if (soon) plan();"));
   assert.ok(app.includes("onLeave(() => { gone = true; rw.stop(); });"));
   // „neu“ nur für das zuletzt Erschienene
   assert.ok(app.includes("for (const row of freshRows) if (!fresh.some((x) => x.row === row)) { row.classList.remove(\"fresh\"); const b = row.querySelector(\".badge.neu\"); if (b) b.remove(); }"));

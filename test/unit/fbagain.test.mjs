@@ -38,7 +38,7 @@ test("Datei prüfen: höchstens 5 MB, beginnt mit „%PDF-“; Adresse mit der M
   assert.equal(A.AGAIN_TEXT.fallback, "Tippe im Feibeitsblatt auf „Zwischenstand-PDF hochladen“ und wähle deine PDF-Datei.");
 });
 
-test("Übergabe: neuer Tab ohne noopener, Bereitschaft nur aus diesem Tab und von seiner Herkunft, genau einmal gesendet (übertragen), Antwort ok", () => {
+test("Übergabe: neuer Tab ohne noopener, Bereitschaft nur aus diesem Tab und von seiner Herkunft, genau einmal gesendet (eine Kopie übertragen), Antwort ok", () => {
   const win = fakeWin(), states = [], buf = pdf();
   const run = A.fbHandover({ url: FB, name: "Zwischenstand – Wehrhafte Demokratie.pdf", buf, win, onStatus: (s) => states.push(s), readyMs: 60000 });
   assert.ok(run);
@@ -55,7 +55,8 @@ test("Übergabe: neuer Tab ohne noopener, Bereitschaft nur aus diesem Tab und vo
   assert.equal(tab.posted.length, 1, "genau einmal");
   const p = tab.posted[0];
   assert.deepEqual([p.data.kind, p.data.v, p.data.name, p.origin], ["unterricks-zwischenstand", 1, "Zwischenstand – Wehrhafte Demokratie.pdf", ORIGIN]);
-  assert.equal(p.data.pdf, buf); assert.deepEqual(p.transfer, [buf], "übertragen, nicht kopiert");
+  assert.ok(p.data.pdf !== buf && p.data.pdf.byteLength === buf.byteLength && p.transfer.length === 1 && p.transfer[0] === p.data.pdf, "eine Kopie wird übertragen …");
+  assert.ok(buf.byteLength > 0 && new Uint8Array(buf)[0] === 0x25, "… die gewählte Datei bleibt für einen weiteren Versuch erhalten");
   assert.deepEqual(states, ["opening", "sending"]);
   win.say(tab, { kind: "feibeitsblatt-zwischenstand-angekommen", v: 1, ok: true }, "https://boese.example");
   assert.deepEqual(states, ["opening", "sending"]);

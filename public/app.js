@@ -512,7 +512,7 @@ async function studentRoom(lessonId) {
   let loadedAt = Date.now();   // letzter Stand vom Server (für die Prüfung beim Aufwachen, Nachtrag 44 Teil 2)
   // Nachtrag 44 (Teil 2, Gegenprüfung): beginnt eine spätere Sitzung des Kurses heute in höchstens 30 Minuten (newerSoon), fragt die sichtbare Seite jede
   // Minute, ob sie schon live gezeigt wird – startet die Lehrkraft früher, erscheint der Hinweis auch bei offener Seite (sonst erst zum geplanten Beginn)
-  let soon = d.newerSoon === true, gone = false;   // gone: Sitzung verlassen – eine Antwort, die erst danach kommt, plant nichts mehr ein
+  let soon = d.newerSoon === true;   // gone (oben): Sitzung verlassen – eine Antwort, die erst danach kommt, plant nichts mehr ein
   const refresh = async () => {
     const my = order.start();
     try {

@@ -415,10 +415,10 @@ test("app.js: Hinweis direkt unter dem Kopfband (vor Vertretung, Live-Fenster un
   assert.ok(room.includes("loadedAt = Date.now(); newerBox.set(r.newer); soon = r.newerSoon === true;"));
   assert.ok(room.includes("Date.now() - loadedAt >= NEWER_RECHECK_MS) refresh(); else if (soon) plan();"), "beim Aufwachen höchstens einmal je Minute neu fragen, sonst die Abfrage wieder einplanen");
   // Gegenprüfung: bald (newerSoon) fragt die sichtbare Seite jede Minute – auch ohne Aufwachen; nach dem Verlassen plant eine späte Antwort nichts mehr ein
-  assert.ok(room.includes("let soon = d.newerSoon === true, gone = false;"));
+  assert.ok(room.includes("let soon = d.newerSoon === true;") && (room.match(/let gone\b/g) || []).length === 1, "ein gemeinsamer Merker gone (Teil 1 und 2) – zweimal let wäre ein Syntaxfehler");
   assert.ok(room.includes('const poll = soon && document.visibilityState === "visible" ? loadedAt + offset + NEWER_RECHECK_MS : Infinity;')
     && room.includes("const next = Math.min(...pending, poll);"));
-  assert.ok(room.includes("if (gone) return;") && room.includes("onLeave(() => { gone = true; clearTimeout(chT);"));
+  assert.ok(room.includes("if (gone || !order.take(my)) return;") && room.includes("onLeave(() => { gone = true; clearTimeout(chT);"), "verlassen: nichts mehr anwenden (und nur die neueste Antwort, Nachtrag 44 Teil 1)");
   assert.ok(room.includes("if (soon && !gone) { clearTimeout(chT); chT = setTimeout(refresh, NEWER_RECHECK_MS); }"), "gescheiterte Abfrage: in einer Minute noch einmal");
   // zurück in eine Sitzung: der Wunsch „Fokus in die Code-Eingabe“ gilt nicht mehr
   assert.ok(/async function studentRoom\(lessonId\) \{\n  dropCodeFocus\(\);/.test(app));

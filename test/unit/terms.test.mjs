@@ -316,7 +316,7 @@ test("Nie an Eltern, Beamer, Live-Zustand oder in die Sitzungsliste: nur bestimm
   for (const f of ["worker/parents.js", "worker/beamer.js", "worker/live.js", "worker/livestate.js", "public/parents.js", "public/beamer.js", "public/presenter.js", "public/inclass.js", "worker/podcast.js"])
     assert.ok(!/termsRead|fachbegriffe|termCards|TERMS_|\.terms\b/.test(src(f)), f);
   const st = src("worker/student.js");
-  assert.ok(st.includes('" + LESSON_COLS + ", l.created_at, l.terms FROM student_access'), "nur die Abfrage einer Sitzung liest die Spalte");
+  assert.ok(st.includes('" + LESSON_COLS + ", l.created_at, l.reveals, l.terms FROM student_access'), "nur die Abfrage einer Sitzung liest die Spalte");
   assert.ok(!/LESSON_COLS = [^\n]*terms/.test(st), "nicht in LESSON_COLS (Sitzungsliste und Code einlösen)");
 });
 

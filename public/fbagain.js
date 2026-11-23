@@ -65,7 +65,9 @@ export function fbHandover({ url, name, buf, win = window, onStatus = () => {}, 
     if (!d || typeof d !== "object" || d.v !== FB_AGAIN.v) return;
     if (d.kind === FB_AGAIN.ready && !sent) {
       sent = true; clearTimeout(readyT);
-      try { w.postMessage({ kind: FB_AGAIN.send, v: FB_AGAIN.v, name: String(name || "Zwischenstand.pdf").slice(0, FB_AGAIN.nameMax), pdf: buf }, t.origin, [buf]); onStatus("sending"); }
+      // eine Kopie übertragen: die gewählte Datei bleibt für einen weiteren Versuch erhalten (Befund der Gegenprüfung auf der Feibeitsblatt-Seite – sonst wäre
+      // sie nach dem ersten Senden leer und ein zweiter Klick schickte 0 Bytes)
+      try { const pdf = buf.slice(0); w.postMessage({ kind: FB_AGAIN.send, v: FB_AGAIN.v, name: String(name || "Zwischenstand.pdf").slice(0, FB_AGAIN.nameMax), pdf }, t.origin, [pdf]); onStatus("sending"); }
       catch { stop(); onStatus("fallback"); }
     } else if (d.kind === FB_AGAIN.ack && sent) {
       stop(); onStatus(d.ok === true ? "ok" : "fallback", typeof d.grund === "string" ? d.grund : "");

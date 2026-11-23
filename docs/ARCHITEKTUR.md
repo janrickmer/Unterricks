@@ -3051,7 +3051,7 @@ laut Plan beginnt** (Datum + Startzeit) **oder früher, wenn sie schon live geze
   1. `window.open(<Feibeitsblatt>#von-unterricks, "_blank")` **ohne** `noopener` (das Feibeitsblatt antwortet über `window.opener`).
   2. Das Feibeitsblatt meldet `{kind:"feibeitsblatt-bereit", v:1}` – angenommen nur von seiner Herkunft (`origin`) und aus genau diesem Tab (`source`).
   3. Unterricks schickt **genau einmal** `{kind:"unterricks-zwischenstand", v:1, name, pdf: ArrayBuffer}` an genau diese Herkunft, der Puffer wird
-     übertragen (nicht kopiert); Status „Dein Zwischenstand wird ans Feibeitsblatt übergeben …“.
+     als Kopie übertragen (die gewählte Datei bleibt für einen weiteren Versuch erhalten – Befund der Gegenprüfung der Feibeitsblatt-Seite); Status „Dein Zwischenstand wird ans Feibeitsblatt übergeben …“.
   4. Antwort `{kind:"feibeitsblatt-zwischenstand-angekommen", v:1, ok, grund?}`: `ok:true` → „Dein Zwischenstand ist im Feibeitsblatt geöffnet.“; sonst
      und wenn binnen **10 s** keine Bereitschaft kommt (älteres Feibeitsblatt ohne Übergabe) ruhig die Anleitung „Tippe im Feibeitsblatt auf
      „Zwischenstand-PDF hochladen“ und wähle deine PDF-Datei.“ – kommt die Bereitschaft später doch (≤ 2 Minuten), wird noch übergeben.
@@ -3066,7 +3066,7 @@ laut Plan beginnt** (Datum + Startzeit) **oder früher, wenn sie schon live geze
   Grundschule) sagt: Arbeiten die Schüler:innen im offenen Teil mit einem Feibeitsblatt der vorigen Stunde weiter, verknüpfe es mit `link_feibeitsblatt`
   (ohne Speichern: Hinweis an die Lehrkraft auf „Vorhandenes Feibeitsblatt verknüpfen“).
 * **Mit Nachtrag 44:** Ein „wieder gebrauchtes“ Feibeitsblatt mit Materialfolie wartet wie jedes andere auf seine Folie.
-* **Tests:** Unit `fbagain.test.mjs` (Dateiprüfung, Adresse mit Marke, Protokoll: Herkunft, Quelle, Fassung, genau einmal, übertragen, Antwort, Rückfall
+* **Tests:** Unit `fbagain.test.mjs` (Dateiprüfung, Adresse mit Marke, Protokoll: Herkunft, Quelle, Fassung, genau einmal, Kopie übertragen (Datei bleibt), Antwort, Rückfall
   nach der Wartezeit, verspätete Bereitschaft, blockierter Tab; Zeile mit Feld, Knopf erst mit Datei, Meldungen, „Von vorn beginnen“), `reveal.test.mjs`
   (`again` nur bei früherer Sitzung desselben Kurses; Connector `link_feibeitsblatt` samt Fehlern, Abschnitt in `get_lesson`, Zwischenstopp-Prompt). E2E
   `test/e2e/reveal.mjs`: Attrappe des Feibeitsblatts per Route mit dem Protokoll, Übergabe der PDF byte-genau (danach Fokus auf der Statuszeile), älteres
