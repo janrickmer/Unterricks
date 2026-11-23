@@ -97,6 +97,13 @@ export async function motionE2E({ browser, BASE, tp, ok, OUT, SHOT }) {
     const gap = await rp.evaluate(() => { const rg = document.createRange(); rg.selectNodeContents(document.querySelector(".reveal")); return Math.round(document.querySelector(".login").getBoundingClientRect().left - rg.getBoundingClientRect().right); });
     ok(gap >= 16, "Startseite " + w + "px: zwischen Schriftzug und Karte " + gap + "px Abstand (mindestens 16)");
   }
+  // große Textgröße (200 %, z. B. Bedienungshilfen im Browser): der Schriftzug folgt nur der Spalte und wird auch auf schmalen Bildschirmen nicht abgeschnitten
+  for (const w of [320, 360, 400, 768]) {
+    await rp.setViewportSize({ width: w, height: 900 }); await rp.goto(BASE + "/"); await rp.locator("#spw").waitFor();
+    await rp.evaluate(() => { document.documentElement.style.fontSize = "200%"; });
+    const bad = await rp.evaluate(TEXT_CHECK);
+    ok(!bad.length, "Startseite " + w + "px bei 200 % Textgröße: „Unterricks“ ganz zu sehen, kein abgeschnittener, verdeckter oder überlappender Text, kein seitliches Schieben" + (bad.length ? " – " + bad.join(" | ") : ""));
+  }
   for (const [w, hgt, scheme] of [[820, 1180, "light"], [390, 844, "light"], [390, 844, "dark"], [1366, 860, "dark"]]) {
     await rp.setViewportSize({ width: w, height: hgt }); await rp.emulateMedia({ colorScheme: scheme, reducedMotion: "reduce" }); await rp.goto(BASE + "/"); await rp.locator("#spw").waitFor();
     await rp.screenshot({ ...SHOT, path: join(OUT, "nr40-start-" + w + (scheme === "dark" ? "-dunkel" : "") + ".png") });
@@ -111,21 +118,49 @@ export async function motionE2E({ browser, BASE, tp, ok, OUT, SHOT }) {
   ok(lan.play && lan.card === "karte-legt" && lan.pile && lan.logo && lan.lehrk === "Lehrkräfte", "Anmeldung der Lehrkräfte: Folien legen sich auf, die violette liegt hinter der Karte, der Stift schreibt das U, die Karte legt sich hin");
   await lp.waitForFunction(() => !document.getAnimations().length, null, { timeout: 5000 });
   await lp.screenshot({ ...SHOT, path: join(OUT, "nr40-lehrkraft-1366.png") });
+  // ohne Antwort des Servers: die Meldung steht statt des Stapels (früher lag sie auf der violetten Folie, die zu einem Streifen schrumpfte – 2,7:1)
+  await lp.route("**/api/teacher/status", (r) => r.fulfill({ status: 503, contentType: "application/json", body: JSON.stringify({ ok: false, error: "Der Server antwortet gerade nicht.", code: "test" }) }));
+  for (const [w, hgt] of [[390, 844], [810, 1080], [1366, 860]]) {
+    await lp.setViewportSize({ width: w, height: hgt }); await lp.reload(); await lp.locator(".login-wrap > p.err").waitFor();
+    const e = await lp.evaluate(() => ({ pile: document.querySelectorAll(".login-pile, .lfoil-b").length, text: document.querySelector(".login-wrap > p.err").textContent }));
+    const bad = await lp.evaluate(TEXT_CHECK);
+    ok(e.pile === 0 && e.text === "Der Server antwortet gerade nicht." && !bad.length, "Anmeldung der Lehrkräfte ohne Antwort des Servers (" + w + "px): die Meldung ersetzt den Stapel, keine violette Folie darunter" + (bad.length ? " – " + bad.join(" | ") : ""));
+  }
+  await lp.screenshot({ ...SHOT, path: join(OUT, "nr40-lehrkraft-fehler-1366.png") });
   await lctx.close();
   /* ---------- in der App: Folie wechseln, Karten legen sich auf, Woche, Meldungen ---------- */
   await tp.goto(BASE + "/#/lk"); await tp.locator(".tiles .tile").first().waitFor();
   ok(await tp.locator("main[data-settle]").count() === 1, "Fächer: die Seite lässt ihre Karten auflegen (data-settle)");
   await tp.getByRole("link", { name: /Politik und Wirtschaft/ }).first().click();
   // nach dem Laden legen sich die Karten der Fachseite auf (main.settle hält gut eine Sekunde)
-  const settleSeen = await tp.waitForFunction(() => location.hash === "#/lk/f/powi" && document.querySelector("main.settle"), null, { timeout: 4000, polling: 20 }).then(() => true, () => false);
-  ok(settleSeen, "Karten legen sich auf: nach dem Laden der Fachseite (main.settle)");
+  const settle = await tp.waitForFunction(() => { const m = location.hash === "#/lk/f/powi" && document.querySelector("main.settle"); if (!m) return null;
+    return [...m.children].slice(0, 7).map((c) => { const s = getComputedStyle(c); return c.classList.contains("pagehead") ? "kopf" : s.animationName + " " + s.animationDelay; }); },
+  null, { timeout: 4000, polling: 20 }).then((x) => x.jsonValue(), () => null);
+  ok(!!settle, "Karten legen sich auf: nach dem Laden der Fachseite (main.settle)");
+  // die Staffelung greift wirklich (früher setzte die Kurzform „animation“ die Verzögerungen zurück)
+  const delays = ["0s", "0s", "0.05s", "0.1s", "0.15s", "0.2s", "0.25s"];
+  ok(!!settle && settle.length >= 3 && settle[0] === "kopf" && settle.slice(1).every((x, i) => x === "karten " + delays[i + 1]),
+    "Karten legen sich auf: nacheinander, je 50 ms versetzt (ohne das Kopfband) – " + JSON.stringify(settle));
   ok(await tp.locator("header.pagehead.relay").count() === 1, "Folie wechseln: vom Fach-Überblick ins Fach legt sich die Fachfolie neu auf");
   ok(await tp.evaluate(() => getComputedStyle(document.querySelector(".pagehead.relay .foils i")).animationName) === "auflegen", "… mit der Bewegung „auflegen“");
   await tp.evaluate(() => { document.querySelector("header.pagehead").dataset.alt = "1"; });   // das alte Kopfband erkennen
   await tp.locator(".class-btn").first().click();
   await tp.waitForFunction(() => /^#\/lk\/f\/powi\//.test(location.hash) && document.querySelector("header.pagehead:not([data-alt])"), null, { timeout: 10000 });
   ok(await tp.locator("header.pagehead.relay").count() === 0, "Folie wechseln: innerhalb desselben Fachs (Lerngruppe) legt sich nichts neu auf");
+  // die Sitzung hat ein Kopfband mit Fach, bleibt aber ruhig: von „Fächer“ (ohne Fach) in eine Sitzung legt sich nichts neu auf
   await tp.goto(BASE + "/#/lk"); await tp.locator(".tiles .tile").first().waitFor();
+  const tok = await tp.evaluate(() => localStorage.getItem("u.ttoken"));
+  const lessons = (await (await fetch(BASE + "/api/teacher/lessons", { headers: { Authorization: "Bearer " + tok } })).json()).lessons || [];
+  ok(lessons.length > 0, "für die Prüfung der Sitzungsseite gibt es eine Sitzung (" + lessons.length + ")");
+  if (lessons.length) {
+    await tp.evaluate(() => { document.querySelector("header.pagehead").dataset.alt = "1"; });
+    await tp.evaluate((id) => { location.hash = "#/lk/s/" + id; }, lessons[0].id);
+    await tp.waitForFunction(() => /^#\/lk\/s\//.test(location.hash) && document.querySelector("header.pagehead:not([data-alt])"), null, { timeout: 10000 });
+    const quiet = await tp.evaluate(() => ({ relay: !!document.querySelector("header.pagehead.relay"), settle: !!document.querySelector("main[data-settle]"), foils: [...document.querySelectorAll("header.pagehead .foils i")].map((i) => getComputedStyle(i).animationName),
+      anims: document.getAnimations().map((a) => a.animationName).filter((n) => n === "auflegen" || n === "karten") }));
+    ok(!quiet.settle && quiet.foils.length > 0 && quiet.foils.every((n) => n === "none") && !quiet.anims.length, "Sitzungsseite: das Kopfband bleibt ruhig, auch wenn sich das Fach ändert – " + JSON.stringify(quiet));
+    await tp.goto(BASE + "/#/lk"); await tp.locator(".tiles .tile").first().waitFor();
+  }
   await tp.getByRole("button", { name: "Nächste Woche" }).click();
   ok(await tp.locator(".wk-body.wk-swap").count() === 1, "Wochenkalender: die geblätterte Woche blendet ein");
   await tp.getByRole("button", { name: "Zur Woche von heute" }).click();

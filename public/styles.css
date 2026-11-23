@@ -181,15 +181,16 @@ main.narrow { max-width: 780px; }
 @media (prefers-reduced-motion: no-preference) {
   :root:not([data-laid]) .pagehead .foils i:nth-child(1) { animation: auflegen .75s var(--ease) both; }
   @keyframes auflegen { from { transform: translate(6px, -14px) rotate(-4deg) scale(1.025); box-shadow: 0 30px 34px -16px rgba(19, 33, 59, .5); } }
-  /* „Folie wechseln“ (Nachtrag 40): ändert sich das Fach, legen sich die Folien des neuen Kopfbands auf (nicht bei jedem Neuzeichnen) */
-  .pagehead.relay .foils i { animation: auflegen .7s var(--ease) both; }
-  .pagehead.relay .foils i:nth-child(2) { animation-delay: .08s; } .pagehead.relay .foils i:nth-child(3) { animation-delay: .16s; }
+  /* „Folie wechseln“ (Nachtrag 40): ändert sich das Fach, legen sich die Folien des neuen Kopfbands auf (nicht bei jedem Neuzeichnen) – nur auf den
+     Übersichtsseiten (main[data-settle]); Sitzung, Sitzungsraum und Live-Ansichten bleiben ruhig */
+  main[data-settle] > .pagehead.relay .foils i { animation: auflegen .7s var(--ease) both; }
+  main[data-settle] > .pagehead.relay .foils i:nth-child(2) { animation-delay: .08s; } main[data-settle] > .pagehead.relay .foils i:nth-child(3) { animation-delay: .16s; }
   /* „Karten legen sich auf“ (Nachtrag 40): einmal je Seitenaufbau (main.settle, ui.js settleIn) rücken die ersten Bereiche 10px nach oben auf ihren
      Platz – nur Lage, lesbar von Anfang an; nie das Kopfband (es mischt sich mit seinen Folien) */
   @keyframes karten { from { transform: translateY(10px); } }
-  main.settle > :not(.pagehead):nth-child(-n+7) { animation: karten .34s var(--ease) backwards; }
-  main.settle > :nth-child(3) { animation-delay: .05s; } main.settle > :nth-child(4) { animation-delay: .1s; } main.settle > :nth-child(5) { animation-delay: .15s; }
-  main.settle > :nth-child(6) { animation-delay: .2s; } main.settle > :nth-child(7) { animation-delay: .25s; }
+  main.settle > :not(.pagehead):nth-child(-n+7) { animation: karten .34s var(--ease) var(--sd, 0s) backwards; }   /* Staffelung über --sd: die Kurzform setzt sonst die Verzögerung zurück */
+  main.settle > :nth-child(3) { --sd: .05s; } main.settle > :nth-child(4) { --sd: .1s; } main.settle > :nth-child(5) { --sd: .15s; }
+  main.settle > :nth-child(6) { --sd: .2s; } main.settle > :nth-child(7) { --sd: .25s; }
   /* Meldungen gleiten herein (nicht im Präsentationsmodus), der Hintergrund eines Dialogs dunkelt kurz ab, eine geblätterte Woche blendet ein */
   @keyframes gleitet { from { transform: translateY(10px); opacity: 0; } }
   @keyframes abdunkeln { from { opacity: 0; } }
@@ -299,9 +300,10 @@ input[type=checkbox]:focus-visible, input[type=radio]:focus-visible { outline: 3
 .start-hero { width: min(1120px, 100%); display: grid; gap: clamp(1.5rem, 4vw, 3.5rem); align-items: center; grid-template-columns: minmax(0, 1.15fr) minmax(0, 440px); }
 @media (max-width: 900px) { .start-hero { grid-template-columns: minmax(0, 1fr); justify-items: center; text-align: center; } .start-hero .login { text-align: left; } }
 /* Der Schriftzug richtet sich nach der Breite seiner Spalte, nicht nach dem Fenster: Logo und „Unterricks“ brauchen rund 5,9 em, bei 16 % der Spaltenbreite
-   je em bleiben etwa 6 % Luft – so ragt er nie in die Anmeldekarte und wird nie abgeschnitten (Container-Einheiten: Safari 16, also auch iPad 7) */
+   je em bleiben etwa 6 % Luft – so ragt er nie in die Anmeldekarte und wird nie abgeschnitten (Container-Einheiten: Safari 16, also auch iPad 7). Bewusst
+   keine Mindestgröße in rem: bei großer Textgröße (200 %) wäre sie breiter als eine schmale Spalte */
 .start-text { container-type: inline-size; width: 100%; min-width: 0; }
-.wordmark { display: flex; align-items: center; gap: .15em; margin: 0; font-weight: 800; letter-spacing: -.035em; line-height: 1; font-size: 3rem; font-size: clamp(2.25rem, 16cqi, 6.6rem); max-width: none; }
+.wordmark { display: flex; align-items: center; gap: .15em; margin: 0; font-weight: 800; letter-spacing: -.035em; line-height: 1; font-size: 3rem; font-size: min(16cqi, 6.6rem); max-width: none; }
 @media (max-width: 900px) { .wordmark { justify-content: center; } }
 .wordmark .umark { width: .92em; height: .92em; flex: none; }
 /* der Schriftzug liegt unter einem Abdeckblatt, das nach unten weggezogen wird (in Ruhe ganz darunter) */
@@ -309,11 +311,11 @@ input[type=checkbox]:focus-visible, input[type=radio]:focus-visible { outline: 3
 .reveal::after { content: ""; position: absolute; inset: 0; background: var(--paper); border-top: 3px solid var(--rot); transform: translateY(140%); }
 .start-lead { margin: clamp(1rem, 2.4vw, 1.6rem) 0 0; font-size: clamp(1.15rem, 1rem + .7vw, 1.5rem); font-weight: 700; line-height: 1.4; max-width: 26ch; }
 @media (max-width: 900px) { .start-lead { margin-inline: auto; } }
-/* Markerstrich des gelben Folienstifts unter den Worten (dunkel: gedämpftes Gelb per screen) */
+/* Markerstrich des gelben Folienstifts unter den Worten (dunkel: gedämpftes Gelb, deckend – per screen über den Folien würde er zu hell, 3,2:1) */
 .start-lead .hl { position: relative; white-space: nowrap; }
 .start-lead .hl::before { content: ""; position: absolute; z-index: -1; left: -.12em; right: -.12em; top: .42em; bottom: -.04em; background: var(--gelb); mix-blend-mode: multiply;
   border-radius: .18em .35em .22em .3em; transform: rotate(-1.2deg); transform-origin: left center; }
-@media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) .start-lead .hl::before { background: #6b5a12; mix-blend-mode: screen; } }
+@media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) .start-lead .hl::before { background: #6b5a12; mix-blend-mode: normal; } }
 .start-steps { display: flex; flex-wrap: wrap; gap: .45rem; margin: 1.4rem 0 0; padding: 0; list-style: none; }
 @media (max-width: 900px) { .start-steps { justify-content: center; } }
 .start-steps li { font-weight: 700; font-size: .92rem; padding: .32rem .8rem; border-radius: 999px; background: var(--surface); border: 1px solid var(--line); box-shadow: var(--shadow); }

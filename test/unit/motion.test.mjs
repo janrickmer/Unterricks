@@ -44,8 +44,16 @@ test("jede neue Bewegung steht in @media (prefers-reduced-motion: no-preference)
     const outside = css.replace(/@media \(prefers-reduced-motion: no-preference\) \{[\s\S]*?\n\}/g, "");
     assert.ok(!new RegExp("animation: " + kf + "\\b").test(outside), kf + " wird nirgends außerhalb gestartet");
   }
-  for (const sel of [".login-wrap.play .lfoil-a", ".login-wrap.play .login", "main.settle > :not(.pagehead):nth-child(-n+7)", ".pagehead.relay .foils i", ".toast", ".modal-back", ".wk-body.wk-swap"])
+  for (const sel of [".login-wrap.play .lfoil-a", ".login-wrap.play .login", "main.settle > :not(.pagehead):nth-child(-n+7)", "main[data-settle] > .pagehead.relay .foils i", ".toast", ".modal-back", ".wk-body.wk-swap"])
     assert.ok(blocks.includes(sel + " {"), sel);
+  // „Folie wechseln“ nur auf Übersichtsseiten: Sitzung, Sitzungsraum der Schüler:innen und GS-Sitzung haben auch ein Kopfband mit Fach, bleiben aber ruhig
+  const relay = [...css.matchAll(/([^{}\n]*\.relay[^{}]*)\{/g)].map((m) => m[1].trim());
+  assert.equal(relay.length, 3, "Bewegung und zwei Verzögerungen");
+  for (const r of relay) assert.ok(r.startsWith("main[data-settle] > .pagehead.relay"), "nur unter main[data-settle]: " + r);
+  // Staffelung der Karten über --sd: die Kurzform „animation“ setzte eine eigene Verzögerung sonst zurück (höhere Spezifität)
+  assert.match(blocks, /main\.settle > :not\(\.pagehead\):nth-child\(-n\+7\) \{ animation: karten \.34s var\(--ease\) var\(--sd, 0s\) backwards; \}/);
+  for (const [n, d] of [[3, ".05s"], [4, ".1s"], [5, ".15s"], [6, ".2s"], [7, ".25s"]]) assert.ok(blocks.includes("main.settle > :nth-child(" + n + ") { --sd: " + d + "; }"), "Staffelung " + n);
+  assert.ok(!/main\.settle[^{]*\{ animation-delay/.test(blocks), "keine animation-delay-Regel, die die Kurzform überschreiben müsste");
   assert.ok(!/backdrop-filter|filter: blur|linear-gradient\((?!var\(--fach\) 0 0)/.test(blocks), "keine Verläufe oder Weichzeichner in der Bewegung");
   assert.match(blocks, /body:has\(> \.presenter\) \.toast \{ animation: none; \}/, "im Präsentationsmodus gleiten Meldungen nicht");
 });
@@ -60,9 +68,14 @@ test("die Folge der Anmeldeseiten hält nach dem Ende nichts fest (backwards) un
 
 test("Schriftzug der Startseite: Größe nach der Breite seiner Spalte (Container-Einheiten), nie gestaucht; Abdeckblatt in Ruhe unter dem Wort", () => {
   assert.match(css, /\.start-text \{ container-type: inline-size; width: 100%; min-width: 0; \}/);
-  assert.match(css, /\.wordmark \{[^}]*font-size: 3rem; font-size: clamp\(2\.25rem, 16cqi, 6\.6rem\);/);
+  // ohne Mindestgröße in rem: bei 200 % Textgröße wäre sie breiter als eine schmale Spalte (Prüfbefund vom 23.11.2026)
+  assert.match(css, /\.wordmark \{[^}]*font-size: 3rem; font-size: min\(16cqi, 6\.6rem\);/);
   assert.match(css, /\.reveal \{[^}]*flex: none; overflow: hidden;/);
   assert.match(css, /\.reveal::after \{[^}]*transform: translateY\(140%\); \}/);
+});
+
+test("Markerstrich im Dunkelmodus deckend (nicht per screen über den Folien – sonst 3,2:1 bei schmalen Bildschirmen)", () => {
+  assert.match(css, /:root:not\(\[data-theme="light"\]\) \.start-lead \.hl::before \{ background: #6b5a12; mix-blend-mode: normal; \}/);
 });
 
 test("„Folie wechseln“: das Kopfband legt sich nur neu auf, wenn sich das Fach gegenüber dem vorigen ändert (nicht beim ersten und nicht beim Neuzeichnen)", () => {
@@ -117,4 +130,6 @@ test("Anmeldeseiten: die Folge nur beim ersten Bild nach dem Laden (firstLay), d
   assert.deepEqual([...m.querySelectorAll("path")].map((p) => [p.getAttribute("class"), p.getAttribute("pathLength")]), [["u1", "1"], ["u2", "1"]]);
   assert.ok(!/\.login::before|\.login-wrap::before|\.login-wrap::after/.test(css), "keine Folien mehr als Pseudo-Elemente der Karte bzw. Seite");
   assert.ok(src("teacher.js").includes('h("div", { class: "login-pile" }, ...loginFoils("b"))'), "Lehrkräfte: violette Folie hinter der Karte");
+  assert.ok(src("teacher.js").includes('pile.replaceWith(h("p", { class: "err", text: e.message }))') && !/pile\.append\(h\("p"/.test(src("teacher.js")),
+    "ohne Antwort des Servers ersetzt die Meldung den Stapel – sonst läge sie auf der violetten Folie (zu wenig Kontrast)");
 });

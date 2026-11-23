@@ -251,7 +251,7 @@ async function loginPage() {
   render(wrap, h("footer", { class: "footer" }, h("a", { href: "#/" }, "Zur Schüleransicht"), h("span", { class: "footsep", "aria-hidden": "true", text: "·" }),
     h("a", { href: "#/beamer", class: "footbeamer" }, "Dieses Gerät als Beamer verwenden")));   // Gerät am Beamer (Nachtrag 15)
   let st;
-  try { st = await api("POST", "/api/teacher/status"); } catch (e) { loginShown = null; pile.append(h("p", { class: "err", text: e.message })); return; }   // ohne Formular: ein neuer Aufruf darf es erneut versuchen
+  try { st = await api("POST", "/api/teacher/status"); } catch (e) { loginShown = null; pile.replaceWith(h("p", { class: "err", text: e.message })); return; }   // ohne Formular: ein neuer Aufruf darf es erneut versuchen; die Meldung statt des Stapels (sonst läge sie auf der violetten Folie)
   const user = h("input", { id: "tu", autocomplete: "username", autocapitalize: "off", spellcheck: "false", required: true });
   const pw = h("input", { id: "tp", type: "password", autocomplete: st.setup ? "current-password" : "new-password", required: true });
   const pw2 = h("input", { id: "tp2", type: "password", autocomplete: "new-password", required: true });

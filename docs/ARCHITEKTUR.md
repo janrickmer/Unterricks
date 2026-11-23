@@ -2360,15 +2360,17 @@ Ausdrucken“; Grundschule „Auch Grundschule“ – kompakt mit Verlaufsplan u
 * **Startseite der Schüler:innen** (`studentStart`, public/app.js): Schriftzug `h1.wordmark` (Inline-SVG `logoMark()` + „Unterricks“), Satz
   „Präsentation, Material und Hausaufgabe deiner Stunde – an einem Ort.“ mit Markerstrich, drei Schritte, Karte „Anmelden“ mit Hinweis am Feld
   (`aria-describedby`) und „Weiter“ mit Pfeil; IDs (`#spw`, `#spw-note`), Knopfname und `.err` unverändert. Die Größe des Schriftzugs folgt der Breite
-  seiner Spalte (Container-Einheiten, `clamp(2.25rem, 16cqi, 6.6rem)`, `.reveal` mit `flex: none`) – im Entwurf ragte er zwischen 910 und 1070px in die
+  seiner Spalte (Container-Einheiten, `min(16cqi, 6.6rem)` ohne Mindestgröße in rem – sonst bei 200 % Textgröße abgeschnitten –, `.reveal` mit `flex: none`) – im Entwurf ragte er zwischen 910 und 1070px in die
   Karte und wurde abgeschnitten (Schriftgröße nach Fensterbreite, `overflow: hidden` mit `min-width: 0` als Flex-Element); geprüft von 320 bis 2000px.
 * **Folien der Anmeldeseiten** als eigene Elemente (`loginFoils()`, `.lfoil-a/-b/-c`) statt `::before`/`::after`: Die violette lag bisher in
   `.login::before` – eine bewegte Karte (eigener Stapelkontext) hätte sie über ihren weißen Hintergrund gelegt. Lehrkräfte: `.login-pile` hält die
-  violette Folie hinter der Karte; die Karte kommt erst nach `/api/teacher/status` (Verzögerung .1s statt .42s).
+  violette Folie hinter der Karte; die Karte kommt erst nach `/api/teacher/status` (Verzögerung .1s statt .42s). Antwortet der Server nicht, ersetzt die
+  Meldung den Stapel (`pile.replaceWith`) – im leeren Stapel schrumpfte die Folie zu einem Streifen unter der Meldung (Kontrast 2,7:1).
 * **Folge „Folien auflegen“:** nur beim ersten Bild nach dem Laden (`firstLay()`: setzt nach 1,5 s `data-laid` – auch das erste Kopfband nach der
   Anmeldung legt dann nichts mehr auf, Abmelden und erneutes Anmelden nach 90 Minuten spielen sie nicht noch einmal); alle Animationen mit
   `backwards` und nur Lage/Drehung, also von Anfang an lesbar und danach ohne festgehaltene Animation; Fokus im Passwortfeld wie bisher nach 50 ms.
-* **In der App:** „Folie wechseln“ (`pageHead`: anderes Fach als beim vorigen Kopfband → `.relay`), „Karten legen sich auf“ (`settleIn()` aus
+* **In der App:** „Folie wechseln“ (`pageHead`: anderes Fach als beim vorigen Kopfband → `.relay`; bewegt nur unter `main[data-settle]`, Sitzungsseiten
+  bleiben ruhig), „Karten legen sich auf“ (Versatz über `--sd`; `settleIn()` aus
   `render()`: nur `main[data-settle]` – Fächer, Klassen, Lerngruppe, Einheit, Planungsgrundlagen, Einstellungen, Grundschule, Fach/Klasse und
   „Meine Sitzungen“ –, wartet per MutationObserver, bis `.skeleton` ersetzt ist, einmal je Seitenaufbau, Klasse `settle` 1,1 s), geblätterte Woche
   (`.wk-swap`, nur Deckkraft, nicht beim ersten Laden), Meldungen (nicht im Präsentationsmodus), Hintergrund der Dialoge; Heben der Kacheln nur mit Maus.
@@ -2377,7 +2379,9 @@ Ausdrucken“; Grundschule „Auch Grundschule“ – kompakt mit Verlaufsplan u
 * **Tests:** Unit `test/unit/motion.test.mjs` (Regeln in styles.css, `pageHead`-Relay, `settleIn`, `firstLay`, opt-in je Seite); E2E
   `test/e2e/motion.mjs` (Folge beim ersten Bild, lesbar von Anfang an, Fokus, keine zweite Folge, reduzierte Bewegung samt Pseudo-Elementen, alle Breiten
   320–2000px bei zwei Höhen ohne abgeschnittenen, verdeckten oder überlappenden Text – `TEXT_CHECK` –, Abstand Schriftzug–Karte bei 910–1070px,
-  Anmeldung der Lehrkräfte, Folie wechseln, Karten legen sich auf, Woche, Meldungen; Bildschirmfotos `nr40-*.png`).
+  Anmeldung der Lehrkräfte samt Meldung ohne Server, Folie wechseln, ruhiges Kopfband der Sitzung, Karten legen sich auf samt gemessener Staffelung,
+  Woche, Meldungen; Bildschirmfotos `nr40-*.png`). Die Gegenprüfung vom 23.11.2026 fand fünf Befunde (Meldung auf der Folie, Markerkontrast dunkel,
+  „Folie wechseln“ in der Sitzung, Schriftzug bei 200 % Textgröße, Staffelung ohne Wirkung) – alle behoben und mit Tests abgedeckt.
 
 ## 4i. Druckliste „Von der Lehrkraft auszudrucken“ (Ergänzung vom 10.11.2026)
 
