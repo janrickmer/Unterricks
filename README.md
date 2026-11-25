@@ -589,6 +589,18 @@ gleich in `public/_headers`, im Worker und – für GitHub Pages – in `scripts
   hochlädt. Darunter klein der Code und „Von vorn beginnen“ (Code kopieren und Feibeitsblatt öffnen wie bisher). Vor dem ersten Einsatz
   einmal auf einem echten iPad ausprobieren: Safari kann den Unterricks-Tab im Hintergrund anhalten – dann käme die PDF erst an, wenn
   man kurz zu Unterricks zurückwechselt.
+* **Anonyme Umfrage in der Präsentation (Nachtrag 46):** Eine Folie der Präsentation kann eine Umfrage sein – mit einer Frage und zwei
+  bis sechs Antworten, von denen genau eine wählbar ist. Sie legen die Umfrage beim Erstellen der Präsentation fest: im Stundenverlauf
+  (z. B. „Umfrage: …“) oder im Chat mit Claude; Claude baut dann eine Umfragefolie, die Unterricks beim Hochladen erkennt. In der
+  Präsentationskarte prüfen, ändern oder ergänzen Sie sie unter **„Umfragefolien“**. Die Schüler:innen stimmen in ihrer Sitzung direkt
+  unter der Live-Präsentation ab – **nur solange Sie genau diese Folie zeigen und von jedem Gerät nur einmal**. Die Umfrage ist anonym:
+  Gezählt wird nur, wie oft jede Antwort gewählt wurde; welches Gerät was gewählt hat, wird nicht gespeichert. **Etwa 2 Minuten nach
+  der ersten Antwort endet die Abstimmung**; ab dann sehen die Schüler:innen das Ergebnis ganz unten in ihrer Sitzung unter
+  **„Abstimmungsergebnis“** (aufklappbar, ohne die Seite neu zu laden). Sie sehen in Ihrer Präsentationsansicht live, wie viele
+  abgestimmt haben; am Beamer steht nur die Zahl der Antworten, bis Sie – **nach dem Ende der Abstimmung** – **„Ergebnis am Beamer
+  zeigen“** wählen. Nach einem Probelauf löschen Sie die Zählung mit „Ergebnis löschen und Umfrage neu öffnen“ (in der
+  Präsentationsansicht oder unter „Umfragefolien“). Abgestimmt werden kann nur, solange Ihre Präsentation geöffnet ist. „Je Gerät“ meint das angemeldete Gerät:
+  Wer die Daten der Seite löscht und sich neu anmeldet, könnte noch einmal abstimmen.
 * **Kurse in Ev. Religion und Ethik (Jg. 5–10, E-Phase):** Je Jahrgang gibt es einen Kurs mit Schüler:innen aus mehreren
   Klassen. Fach wählen → beim Jahrgang **„Kurs anlegen“** → alle Klassen ankreuzen, die im Kurs vertreten sind (später über
   „Klassen ändern“ anpassbar). Sitzungen und Einheiten, die bisher in einer dieser Klassen lagen, ziehen dabei in den Kurs um.

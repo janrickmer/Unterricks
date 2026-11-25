@@ -7,9 +7,13 @@
 import { cleanLine, isId } from "./lib.js";
 import { isValidCode, cleanCodeSlides, nextSlideOf, TIMER_MAX_MIN, TIMER_TOTAL_MAX_MIN, TIMER_ADDS } from "../public/shared.js";
 import { cleanVideoSpec, clampPos } from "../public/videoslides.js";
+import { cleanPollSlides, pollKey } from "../public/polls.js";
 
 // revealAt (Nachtrag 44) = zuletzt Material freigegeben (Materialfolie live gezeigt bzw. von Hand, ms) – bleibt wie v über „stop“ und „Präsentation für alle beenden“
-export const LIVE_IDLE = { active: false, fileId: null, pages: 0, slide: 1, startedAt: null, updatedAt: null, v: 0, code: null, title: "", codeSlides: [], codeShown: false, timer: null, video: null, vrev: 0, revealAt: 0 };
+// pollSlides (Nachtrag 46) = Umfragefolien der laufenden Präsentation [{n, q, options}] (schickt die Lehrkraft beim Start, wie codeSlides), pollShown = Folie,
+// deren Ergebnis gerade am Beamer steht („Ergebnis am Beamer zeigen“; endet mit jedem Folienwechsel), pollAt = zuletzt wurde eine Umfrage beendet (ms; bleibt wie revealAt)
+export const LIVE_IDLE = { active: false, fileId: null, pages: 0, slide: 1, startedAt: null, updatedAt: null, v: 0, code: null, title: "", codeSlides: [], codeShown: false, timer: null, video: null, vrev: 0, revealAt: 0,
+  pollSlides: [], pollShown: null, pollAt: 0 };
 
 /* Nachricht der Lehrkraft auf den Zustand anwenden (verändert st). true = geändert (v zählt hoch, alle bekommen den neuen Stand). */
 export function liveReduce(st, m, now) {
@@ -24,22 +28,28 @@ export function liveReduce(st, m, now) {
     // Wiederverbindung): sonst endete das Video am Beamer bei jedem kurzen WLAN-Aussetzer der Lehrkraft
     const samePres = st.active && st.fileId === m.fileId && st.pages === m.pages && st.code === code;
     Object.assign(st, { active: true, fileId: m.fileId, pages: m.pages, slide, startedAt: same ? st.startedAt : now, code, title: cleanLine(m.title, 200),
-      codeSlides: code ? cleanCodeSlides(m.codeSlides, m.pages) : [], codeShown, video: samePres && st.video && st.video.n === slide && !codeShown ? st.video : null });
+      codeSlides: code ? cleanCodeSlides(m.codeSlides, m.pages) : [], codeShown, video: samePres && st.video && st.video.n === slide && !codeShown ? st.video : null,
+      // Umfragefolien (Nachtrag 46): fehlen sie in der Nachricht (ältere, gecachte Seite der Lehrkraft), bleiben die der laufenden Präsentation
+      pollSlides: m.pollSlides === undefined && samePres ? st.pollSlides || [] : cleanPollSlides(m.pollSlides, m.pages),
+      pollShown: samePres && st.pollShown === slide && !codeShown ? st.pollShown : null });
   } else if (m.t === "goto" && st.active && Number.isInteger(m.slide)) {
     st.slide = Math.min(Math.max(st.code ? 0 : 1, m.slide), st.pages);
     st.codeShown = false; st.video = null;   // eine andere Folie: das Video endet
+    if (st.pollShown !== st.slide) st.pollShown = null;   // … und das Ergebnis einer Umfrage steht nicht mehr am Beamer
   } else if (m.t === "code" && st.active && st.code) {   // „Sitzungscode zeigen“ über der aktuellen Folie
     const on = m.on === true && st.slide >= 1;
     if (on === !!st.codeShown) return false;
     st.codeShown = on;
-    if (on) st.video = null;
+    if (on) { st.video = null; st.pollShown = null; }
   } else if (m.t === "stop") {
-    Object.assign(st, { ...LIVE_IDLE, v: st.v, vrev: st.vrev || 0, revealAt: st.revealAt || 0 });   // v, vrev und revealAt bleiben monoton (die Schüler:innen-Seite überspringt bekannte Stände); der Timer endet mit
+    Object.assign(st, { ...LIVE_IDLE, v: st.v, vrev: st.vrev || 0, revealAt: st.revealAt || 0, pollAt: st.pollAt || 0 });   // v, vrev und revealAt bleiben monoton (die Schüler:innen-Seite überspringt bekannte Stände); der Timer endet mit
   } else if (m.t === "timer") {
     // v und updatedAt bleiben: v ist der Stand der Folie – die Seiten gleichen den Timer vor der Prüfung von v ab, das Folienbild lädt nicht neu
     return st.active ? timerReduce(st, m, now) : false;
   } else if (m.t === "video") {
     return videoReduce(st, m, now);   // wie der Timer: v bleibt (das Folienbild ändert sich nicht)
+  } else if (m.t === "poll") {
+    return pollReduce(st, m);   // ebenso: v bleibt
   } else return false;
   st.v = (st.v || 0) + 1; st.updatedAt = now;
   return true;
@@ -130,4 +140,22 @@ export function liveVideo(st, now) {
   const spec = cleanVideoSpec(v);
   if (!spec) return null;
   return { n: v.n, ...spec, playing: v.playing === true, pos: Math.round(clampPos(spec, posAt(v, now)) * 10) / 10, rev: Number.isInteger(v.rev) ? v.rev : 0 };
+}
+
+/* ---------- Umfragefolien (Nachtrag 46 der Lehrkraft vom 24.11.2026) ----------
+   Die Umfrage der aktuellen Folie: nur bei laufender Präsentation, auf einer echten Folie (keine Codefolie, nicht unter „Sitzungscode zeigen“).
+   → {k (Kennung: Datei und Folie), n, q, options} oder null. Gezählt wird im Durable Object (worker/live.js), nicht in diesem Zustand. */
+export function livePoll(st) {
+  if (!st || !st.active || !st.fileId || !(st.slide >= 1) || liveView(st).code) return null;
+  const p = (Array.isArray(st.pollSlides) ? st.pollSlides : []).find((x) => x && x.n === st.slide);
+  return p ? { k: pollKey(st.fileId, p.n), n: p.n, q: p.q, options: p.options } : null;
+}
+/* {t:"poll", op:"show", on} der Lehrkraft: Ergebnis der Umfrage der aktuellen Folie am Beamer zeigen bzw. wieder ausblenden. Ungültig → false. */
+export function pollReduce(st, m) {
+  if (m.op !== "show" || typeof m.on !== "boolean") return false;
+  const cur = livePoll(st), want = m.on && cur ? cur.n : null;
+  if (m.on && !cur) return false;
+  if ((st.pollShown ?? null) === want) return false;
+  st.pollShown = want;
+  return true;
 }

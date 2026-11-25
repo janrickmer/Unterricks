@@ -23,6 +23,7 @@ import { cleanVideoState, videoName } from "./videoslides.js";
 import { ytPlayer } from "./ytplayer.js";
 import { codeSlideDom } from "./codeslide.js";
 import { timerBand } from "./timerband.js";
+import { beamerPoll } from "./pollview.js";
 import { holdReload } from "./update.js";
 
 const hex = (b) => Array.from(b, (x) => x.toString(16).padStart(2, "0")).join("");
@@ -69,11 +70,17 @@ export function beamerPage() {
   const closeBtn = h("button", { class: "btn small", type: "button", onclick: () => window.close() }, "Fenster schließen");
   // Raster: Band oben, Folie darunter eingepasst; nach einem Ruhezustand holt das Beamergerät den Stand neu (lokal tut es das Präsentationsfenster)
   const tband = timerBand({ onPaint: (v) => root.classList.toggle("has-timer", !!v), onStale: () => { if (dev && link && !localOn()) livePoll(); } });
-  const root = h("main", { class: "beamer", tabindex: "-1", "aria-label": "Beamerfenster von Unterricks" }, tband.el, stage, h("div", { class: "bm-bar" }, hint, note, fsBtn, closeBtn), tband.say);
+  // Umfrage der aktuellen Folie (Nachtrag 46): Zahl der Antworten über der Folie, nach „Ergebnis am Beamer zeigen“ die Verteilung – lokal nach dem Stand aus
+  // dem Präsentationsfenster (show/poll), am Beamergerät nach dem Stand vom Server; nur über einer Folie
+  const bpoll = beamerPoll();
+  let localPoll = null, srvPoll = null;
+  const syncPoll = () => bpoll.set(!alive || !showingSlide() ? null : localOn() ? localPoll : dev && srvLive && srvLive.active ? srvPoll : null);
+  const root = h("main", { class: "beamer", tabindex: "-1", "aria-label": "Beamerfenster von Unterricks" }, tband.el, stage, bpoll.el, h("div", { class: "bm-bar" }, hint, note, fsBtn, closeBtn), tband.say);
   // Timer: je Quelle der zuletzt empfangene Stand mit seinem Empfangszeitpunkt; angezeigt nur über einer Folie
   let localTimer = null, srvTimer = null, tbSrc = null;
   const showingSlide = () => stage.firstChild === img || !!(stage.firstChild && stage.firstChild.classList && (stage.firstChild.classList.contains("codeslide") || stage.firstChild.classList.contains("bm-video")));
   function syncTimer() {
+    syncPoll();   // dieselben Anlässe: Folie gewechselt, Quelle gewechselt, nichts zu sehen
     const showing = showingSlide();
     const src = !alive || !showing ? null : localOn() ? localTimer : dev && srvLive && srvLive.active ? srvTimer : null;
     if (src === tbSrc) return;   // dieselbe Nachricht: das Band zählt selbst weiter
@@ -109,6 +116,10 @@ export function beamerPage() {
       if (st && !st.ended && st.id === m.id) { localTimer = { raw: m.timer || null, at: performance.now() }; syncTimer(); }
       return;
     }
+    if (m.t === "poll") {   // nur die Umfrage der aktuellen Folie hat sich geändert (Nachtrag 46)
+      if (st && !st.ended && st.id === m.id) { localPoll = m.poll || null; syncPoll(); }
+      return;
+    }
     if (m.t === "video") {   // Video der aktuellen Folie (Nachtrag 38): abspielen, pausieren, springen, schließen
       if (st && !st.ended && st.id === m.id) { setLocalVideo(m); syncVideo(); }
       return;
@@ -119,7 +130,7 @@ export function beamerPage() {
     if (!st || st.id !== m.id) return;   // gehört zu einem anderen Präsentationsfenster
     if (m.t === "end") {
       if (before && !before.ended) {
-        localTimer = null; localVideo = null; localSlide = null; dropVideo();
+        localTimer = null; localPoll = null; localVideo = null; localSlide = null; dropVideo();
         if (dev) { localNote = m.why === "stop" ? BEAMER_STOPPED : BEAMER_CLOSED; setFach(srvFach); paint(); }   // Beamergerät: wieder Server bzw. Code
         else { setFach(null); wait(m.why === "stop" ? BEAMER_STOPPED : BEAMER_CLOSED); }
         tell(); syncHold();
@@ -132,7 +143,7 @@ export function beamerPage() {
     if (m.t === "claim" || st !== before) tell();   // übernommen bzw. neu beansprucht: das Präsentationsfenster schickt dann die Folie
     if (m.t === "show") {
       const v = cleanBeamerView(m.view, slideBase);
-      if (v) { localFach = typeof m.fach === "string" ? m.fach : null; localNote = ""; localTimer = { raw: m.timer || null, at: performance.now() }; setLocalVideo(m); setFach(localFach); show(v); codeSince = null; stopPairing(); syncHold(); }
+      if (v) { localFach = typeof m.fach === "string" ? m.fach : null; localNote = ""; localTimer = { raw: m.timer || null, at: performance.now() }; localPoll = m.poll || null; setLocalVideo(m); setFach(localFach); show(v); codeSince = null; stopPairing(); syncHold(); }
     }
   };
 
@@ -319,13 +330,13 @@ export function beamerPage() {
     if (!v) { ensurePairing(); return; }
     closeLive();
     link = v; store.set(LINK_KEY, JSON.stringify(v));
-    srvLive = null; srvWas = false; srvNote = ""; localNote = ""; srvTimer = null;
+    srvLive = null; srvWas = false; srvNote = ""; localNote = ""; srvTimer = null; srvPoll = null;
     connect(); paint();
   }
   function dropLink(why) {
     closeLive();
     link = null; store.del(LINK_KEY);
-    srvLive = null; srvWas = false; srvNote = why || ""; srvFach = null; srvTimer = null;
+    srvLive = null; srvWas = false; srvNote = why || ""; srvFach = null; srvTimer = null; srvPoll = null;
     if (!localOn()) setFach(null);
     paint();
   }
@@ -341,7 +352,8 @@ export function beamerPage() {
     srvTimer = { raw: m.active ? m.timer || null : null, at: performance.now() };   // vor der Prüfung von v: der Timer ändert v nicht
     const sv = m.active ? cleanVideoState(m.video) : null;   // Video (Nachtrag 38) – ändert v ebenfalls nicht
     srvVideo = sv ? { ...sv, at: performance.now() } : null;
-    if (srvLive && m.v === srvLive.v && !!m.active === !!srvLive.active) { syncTimer(); if (!localOn()) syncVideo(); return; }
+    srvPoll = m.active ? m.poll || null : null;   // Umfrage (Nachtrag 46) – ändert v ebenfalls nicht
+    if (srvLive && m.v === srvLive.v && !!m.active === !!srvLive.active) { syncTimer(); syncPoll(); if (!localOn()) syncVideo(); return; }
     const was = !!(srvLive && srvLive.active);
     srvLive = m;
     if (m.active) { srvWas = true; srvNote = ""; localNote = ""; } else if (was) srvNote = BEAMER_STOPPED;

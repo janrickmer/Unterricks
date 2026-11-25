@@ -3,10 +3,11 @@
 import { HttpError, bad, json, readJson, randomId, cleanLine, cleanText, isId, requireSecret, signLink, checkLink, contentDisposition, INLINE_SAFE } from "./lib.js";
 import { courseClassSize } from "./courses.js";
 import { requireTeacher } from "./auth.js";
-import { getLesson, fileOut, codeSlidesOf, slidePhasesOf, videoSlidesFileOf, LIMITS, onPrintList, cardVersion, notesData, PRINT_COURSE_COL, printNameOf, keepEndReleases } from "./lessons.js";
+import { getLesson, fileOut, codeSlidesOf, slidePhasesOf, videoSlidesFileOf, pollSlidesFileOf, LIMITS, onPrintList, cardVersion, notesData, PRINT_COURSE_COL, printNameOf, keepEndReleases } from "./lessons.js";
 import { normalizeCode, isValidCode, cleanWebUrl, slidesUpTo, cleanCopies, isAnalogClass, cleanCodeSlides, GS_SUBJECT, cleanSlideNotes, annotatedName, CARD_PRINT, printTitleOf, cleanSlidePhases, PHASE_MAX } from "../public/shared.js";
 import { cleanDesignHtml, renderPdf, htmlText, keepImages, shortImages, HTML_MAX, RenderError, renderUsage, printerConfigured } from "./render.js";
 import { cleanVideoSlides, videoSlidesStore, VIDEO_LIMITS } from "../public/videoslides.js";
+import { cleanPollSlides, pollSlidesStore, pollResultsDrop, POLL_LIMITS } from "../public/polls.js";
 
 export const MAX_FILE = 100 * 1024 * 1024;         // Grenze einer Anfrage im Cloudflare-Free-Plan
 export const MAX_SLIDE = 4 * 1024 * 1024;
@@ -438,11 +439,21 @@ export async function routeFileDelete(c, fileId) {
   await requireTeacher(c);
   const f = await getFile(c.db, fileId);
   await deleteFileObjects(c, f);
-  if (f.area === "presentation") await stopLive(c, f.lesson_id);
+  if (f.area === "presentation") await stopLive(c, f.lesson_id, f.id);
   return json({ ok: true });
 }
-async function stopLive(c, lessonId) {
-  try { await c.env.LIVE.get(c.env.LIVE.idFromName(lessonId)).fetch("https://live/reset", { method: "POST" }); } catch {}
+/* Ergebnisse der Umfragen einer Präsentation entfernen (sie wurde gelöscht bzw. ersetzt, stopLive) – das Durable Object räumt über /reset?pollsFile */
+async function dropFilePollResults(db, lessonId, fileId) {
+  const row = await db.prepare("SELECT polls FROM lessons WHERE id=?1").bind(lessonId).first();
+  if (!row || !row.polls) return;
+  const next = pollResultsDrop(row.polls, { fileId });
+  if (next !== row.polls) await db.prepare("UPDATE lessons SET polls=?2 WHERE id=?1").bind(lessonId, next).run();
+}
+// fileId = die gelöschte bzw. ersetzte Präsentation: ihre Umfragen (Zählung im Durable Object, Ergebnisse in lessons.polls) verschwinden mit ihr (Nachtrag 46)
+async function stopLive(c, lessonId, fileId = null) {
+  // erst die Ergebnisse aus D1, dann das Durable Object: seine Nachricht lässt die Seiten der Schüler:innen ihre Daten neu laden
+  if (fileId) { try { await dropFilePollResults(c.db, lessonId, fileId); } catch {} }
+  try { await c.env.LIVE.get(c.env.LIVE.idFromName(lessonId)).fetch("https://live/reset" + (fileId ? "?pollsFile=" + fileId : ""), { method: "POST" }); } catch {}
 }
 
 /* ---------- Präsentation (nur PDF; die Folienbilder rendert der Browser der Lehrkraft mit PDF.js) ---------- */
@@ -457,7 +468,7 @@ export async function routePresentationUpload(c, lessonId) {
   await checkStorage(c, len);
   const old = await c.db.prepare("SELECT * FROM files WHERE lesson_id=?1 AND area='presentation'").bind(lessonId).all();
   for (const f of old.results || []) await deleteFileObjects(c, f);
-  if ((old.results || []).length) await stopLive(c, lessonId);
+  if ((old.results || []).length) { await stopLive(c, lessonId, old.results[0].id); for (const f of old.results.slice(1)) { try { await dropFilePollResults(c.db, lessonId, f.id); } catch {} } }
   const id = randomId(8);
   await c.env.FILES.put(fileKey(lessonId, id), c.request.body, { httpMetadata: { contentType: "application/pdf" } });
   await c.db.prepare("INSERT INTO files(id, lesson_id, area, kind, name, mime, size, status, source, created_at, updated_at) VALUES(?1, ?2, 'presentation', 'file', ?3, 'application/pdf', ?4, 'processing', 'upload', ?5, ?5)")
@@ -509,8 +520,11 @@ export async function routePresentationReady(c, fileId) {
   // Videofolien (Nachtrag 38): videos = aus der PDF erkannt, videosHand = von der Lehrkraft festgelegt (Sitzungsdatei bzw. Sicherung); fehlen beide, bleibt die Spalte
   const videosJson = body.videos === undefined && body.videosHand === undefined ? f.video_slides ?? null
     : videoSlidesStore({ pdf: checkVideos(body.videos, pages), hand: body.videosHand === undefined || body.videosHand === null ? null : checkVideos(body.videosHand, pages, true) });
-  await c.db.prepare("UPDATE files SET pages=?2, status='ready', code_slides=?4, notes=?5, clean_size=CASE WHEN ?6 THEN COALESCE(clean_size, 0) ELSE clean_size END, slide_phases=?7, video_slides=?8, updated_at=?3 WHERE id=?1")
-    .bind(f.id, pages, c.now, cs.length ? JSON.stringify(cs) : null, notesJson, body.clean === true ? 1 : 0, phasesJson, videosJson).run();
+  // Umfragefolien (Nachtrag 46): polls = aus der PDF erkannt, pollsHand = von der Lehrkraft festgelegt (Sitzungsdatei bzw. Sicherung); fehlen beide, bleibt die Spalte
+  const pollsJson = body.polls === undefined && body.pollsHand === undefined ? f.poll_slides ?? null
+    : pollSlidesStore({ pdf: checkPolls(body.polls, pages), hand: body.pollsHand === undefined || body.pollsHand === null ? null : checkPolls(body.pollsHand, pages, true) });
+  await c.db.prepare("UPDATE files SET pages=?2, status='ready', code_slides=?4, notes=?5, clean_size=CASE WHEN ?6 THEN COALESCE(clean_size, 0) ELSE clean_size END, slide_phases=?7, video_slides=?8, poll_slides=?9, updated_at=?3 WHERE id=?1")
+    .bind(f.id, pages, c.now, cs.length ? JSON.stringify(cs) : null, notesJson, body.clean === true ? 1 : 0, phasesJson, videosJson, pollsJson).run();
   return json({ ok: true, file: fileOut(await getFile(c.db, f.id)) });
 }
 /* Phasen der Folien prüfen (fehlt/null = keine); ungültig → 400 */
@@ -527,6 +541,25 @@ function checkVideos(raw, pages, keep = false) {
   const v = cleanVideoSlides(raw, pages, keep);
   if (v === undefined) throw bad("Ungültige Videofolien: je Eintrag eine Folie von 1 bis " + pages + " (jede nur einmal), ein YouTube-Video und – falls angegeben – Start vor Ende (höchstens " + VIDEO_LIMITS.slides + ").");
   return keep ? v : v.length ? v : null;
+}
+/* Umfragefolien prüfen (Nachtrag 46): aus der PDF gelesen nachsichtig (Ungültiges entfällt, leer = keine), von der Lehrkraft (keep: [] bleibt [] = bewusst keine) streng – ungültig → 400 */
+function checkPolls(raw, pages, keep = false) {
+  if (raw === undefined || raw === null) return null;
+  const v = cleanPollSlides(raw, pages, keep);
+  if (v === undefined) throw bad("Ungültige Umfragefolien: je Eintrag eine Folie von 1 bis " + pages + " (jede nur einmal), eine Frage (höchstens " + POLL_LIMITS.question + " Zeichen) und " +
+    POLL_LIMITS.optionsMin + " bis " + POLL_LIMITS.optionsMax + " verschiedene Antworten (je höchstens " + POLL_LIMITS.option + " Zeichen); höchstens " + POLL_LIMITS.slides + " Umfragen.");
+  return keep ? v : v.length ? v : null;
+}
+/* Umfragefolien ändern (Nachtrag 46, nur Lehrkraft): hand = Liste der Lehrkraft ([] = keine Umfragefolien), null = wieder die aus der PDF */
+export async function routePollsPut(c, fileId) {
+  await requireTeacher(c);
+  const f = await getFile(c.db, fileId);
+  if (f.area !== "presentation" || f.status !== "ready") throw bad("Die Präsentation ist noch nicht bereit.");
+  const body = await readJson(c.request, 60000);
+  if (body.hand === undefined) throw bad("Bitte die Umfragefolien angeben.");
+  const cur = pollSlidesFileOf(f), hand = body.hand === null ? null : checkPolls(body.hand, f.pages, true);
+  await c.db.prepare("UPDATE files SET poll_slides=?2, updated_at=?3 WHERE id=?1").bind(f.id, pollSlidesStore({ pdf: cur.pdf, hand }), c.now).run();
+  return json({ ok: true, file: fileOut(await getFile(c.db, f.id)) });
 }
 /* Videofolien ändern (Nachtrag 38, nur Lehrkraft): hand = Liste der Lehrkraft ([] = keine Videofolien), null = wieder die aus der PDF */
 export async function routeVideosPut(c, fileId) {
@@ -662,7 +695,7 @@ export async function routeTeacherSlides(c, fileId) {
   const secret = requireSecret(c.env), urls = [], nd = notesData(f);
   for (let n = 1; n <= f.pages; n++) urls.push(await slideUrl(secret, f.id, n, 12 * 3600e3, c.now));
   // Notizen (Nachtrag 20): nur hier und in …/notes – beide nur für die angemeldete Lehrkraft
-  return json({ ok: true, pages: f.pages, urls, codeSlides: codeSlidesOf(f), notes: nd.slides, notesRev: nd.rev, phases: slidePhasesOf(f), videos: videoSlidesFileOf(f) });
+  return json({ ok: true, pages: f.pages, urls, codeSlides: codeSlidesOf(f), notes: nd.slides, notesRev: nd.rev, phases: slidePhasesOf(f), videos: videoSlidesFileOf(f), polls: pollSlidesFileOf(f) });
 }
 export async function slideUrl(secret, fileId, n, ttl, now = Date.now()) {
   const { e, s } = await signLink(secret, ["slide", fileId, n], ttl, now);

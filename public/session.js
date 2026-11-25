@@ -26,6 +26,8 @@ import { inClassToggle } from "./inclassbar.js";
 import { lessonDocsCard } from "./lessondocs.js";
 import { videoSlidesOf, videoAt, videoName, lessonVideos, videoPromptSection } from "./videoslides.js";
 import { videosPanel } from "./videopanel.js";
+import { pollsPanel } from "./pollpanel.js";
+import { pollSlidesOf, pollSlideAt, pollPromptSection } from "./polls.js";
 import { teacherGate, revealStateKey } from "./reveal.js";
 import { revealBadge } from "./revealui.js";
 
@@ -359,7 +361,9 @@ export async function sessionPage(id) {
     if (!portalTA || !portalTA.value.trim()) return;
     const text = portalTA.value;
     // Videofolien (Nachtrag 38): YouTube-Videos aus genau diesem Stand des Schulportal-Eintrags (mit Phase) und den Links der Sitzung
-    const c = ctx(), prompt = claudePresentationPrompt({ ...c, videoSection: videoPromptSection(lessonVideos(text, c.materials), { analog: isAnalogClass(c.klass) }) }, text, st.messages);
+    // Umfragefolien (Nachtrag 46): der Abschnitt steht immer im Prompt (außer in Jg. 5/6 ohne iPads) – eine Umfrage legt die Lehrkraft im Stundenverlauf oder im Chat fest
+    const c = ctx(), prompt = claudePresentationPrompt({ ...c, videoSection: videoPromptSection(lessonVideos(text, c.materials), { analog: isAnalogClass(c.klass) }),
+      pollSection: pollPromptSection({ analog: isAnalogClass(c.klass) }) }, text, st.messages);
     const ok = await copyText(prompt);
     flushPortal();
     clear(presPromptOut).append(h("details", { class: "box", open: ok ? null : true }, h("summary", null, ok ? [icon("check"), "Prompt kopiert – in claude.ai einfügen (anzeigen)"] : "Bitte den Prompt manuell kopieren"),
@@ -487,7 +491,7 @@ export async function sessionPage(id) {
   const presRel = h("p", { class: "small presrel" });
   const curPres = () => st.files.find((f) => f.area === "presentation" && f.status === "ready") || null;
   // was die Präsentationskarte zeigt (Datei, Markierung, Phasen, Notizen, Codefolien) – ändert es sich von außen, wird sie neu gezeichnet (doRefresh)
-  const presSig = (fs) => { const p = fs.find((f) => f.area === "presentation"); return p ? JSON.stringify([p.id, p.status, p.name, p.pages, p.shownUntil, p.phases, p.cleanNeeded, p.cleanReady, p.notes, p.notesRev, p.codeSlides, p.videos]) : ""; };
+  const presSig = (fs) => { const p = fs.find((f) => f.area === "presentation"); return p ? JSON.stringify([p.id, p.status, p.name, p.pages, p.shownUntil, p.phases, p.cleanNeeded, p.cleanReady, p.notes, p.notesRev, p.codeSlides, p.videos, p.polls]) : ""; };
   let presPainted = null, lessonStamp = d.stamp || null;
   const shownOf = (p) => (p && p.shownUntil && p.shownUntil < p.pages ? p.shownUntil : null);
   function paintPresRel() {
@@ -586,7 +590,7 @@ export async function sessionPage(id) {
   /* ---- „Phasen der Folien“ (Nachtrag 34): Rückfall für Präsentationen ohne die unsichtbare Zeile „Unterricks-Phase: n“ (ältere, eigene PowerPoint-Exporte)
    * und zum Korrigieren – je Phase des Schulportal-Eintrags „beginnt bei Folie …“, vorbelegt aus den Phasen der PDF; gespeichert an der Präsentation (hand,
    * gilt vor der PDF). Baut sich nur beim Aufklappen neu (nie unter dem Fokus); Speichern ändert nur Status und Übersicht. ---- */
-  const phaseUi = { open: false }, videoUi = { open: false };
+  const phaseUi = { open: false }, videoUi = { open: false }, pollUi = { open: false };
   function phasesPanel(p, onSaved) {
     const sum = h("summary"), body = h("div", { class: "stack phasebody" });
     const box = h("details", { class: "box phasebox", id: "phases" }, sum, body);
@@ -716,8 +720,10 @@ export async function sessionPage(id) {
     const holders = new Set(((st.slides && st.slides.codeSlides) || p.codeSlides || []).map((c) => c.n));   // Platzhalterfolien (live: Codefolie)
     const phases = slidePhasesOf(p);   // Phase je Folie (Nachtrag 34)
     const vidOn = (n) => (holders.has(n) ? null : videoAt(videoSlidesOf(p), n));   // Videofolie (Nachtrag 38) – eine Codefolie zeigt live den Code
+    const pollOn = (n) => (holders.has(n) ? null : pollSlideAt(pollSlidesOf(p), n));   // Umfragefolie (Nachtrag 46)
     const thumbLabel = (n, ph) => "Folie " + n + (ph && ph[n - 1] ? " (Phase " + ph[n - 1] + ")" : "") + (holders.has(n) ? " – Codefolie: live zeigt Unterricks hier den Sitzungscode" : "") +
       (vidOn(n) ? " – Videofolie: live spielt Unterricks hier das Video „" + videoName(vidOn(n)) + "“ ab" : "") +
+      (pollOn(n) ? " – Umfragefolie: live stimmen die Schüler:innen hier anonym ab („" + pollOn(n).q + "“)" : "") +
       (shown === n ? " – letzte gezeigte Folie" : !!shown && n > shown ? " – für Schüler:innen nicht freigegeben" : "") + ". Kontextmenü: als letzte gezeigte Folie markieren";
     const thumbs = h("div", { class: "thumbs", role: "list", "aria-label": "Folien der Präsentation" }, st.slides ? st.slides.urls.map((u, i) => {
       const n = i + 1, after = !!shown && n > shown;
@@ -726,7 +732,8 @@ export async function sessionPage(id) {
         oncontextmenu: (e) => { e.preventDefault(); slideMenu(e.clientX, e.clientY, n); },
         onkeydown: (e) => { if (e.key === "ContextMenu" || (e.shiftKey && e.key === "F10")) { e.preventDefault(); const r = e.currentTarget.getBoundingClientRect(); slideMenu(r.left + 8, r.bottom - 8, n); } } },
         h("img", { src: apiUrl(u), alt: "", loading: "lazy" }), h("figcaption", null, String(n), holders.has(n) ? h("span", { class: "badge", text: "Code" }) : null,
-          vidOn(n) ? h("span", { class: "badge video", text: "Video" }) : null, shown === n ? h("span", { class: "badge ink", text: "bis hier" }) : null));
+          vidOn(n) ? h("span", { class: "badge video", text: "Video" }) : null, pollOn(n) ? h("span", { class: "badge poll", text: "Umfrage" }) : null,
+          shown === n ? h("span", { class: "badge ink", text: "bis hier" }) : null));
     }) : null);
     const shownSel = h("select", { id: "shown-sel", "aria-describedby": "shown-hint" }, h("option", { value: "" }, "Keine Markierung – nach der Freigabe alle Folien"),
       Array.from({ length: Math.max(0, p.pages - 1) }, (_, i) => h("option", { value: String(i + 1), selected: shown === i + 1 ? true : null }, "Folie " + (i + 1))));
@@ -765,6 +772,17 @@ export async function sessionPage(id) {
         else if (!vidOn(k) && had) had.remove();
       }
     } });
+    // „Umfragefolien“ (Nachtrag 46): gespeichert → Vorschaubilder (Name und Kennzeichen) an Ort und Stelle angleichen
+    const pollsBox = pollsPanel({ p, lessonId: id, ui: pollUi, request: (m, path, o) => tapi(m, path, o), onSaved: (file) => {
+      if (st.slides) st.slides.polls = file.polls;
+      presPainted = presSig(st.files);
+      for (const fig of thumbs ? thumbs.querySelectorAll("figure.thumb") : []) {
+        const k = Number(fig.dataset.n), cap = fig.querySelector("figcaption"), had = cap && cap.querySelector(".badge.poll");
+        fig.setAttribute("aria-label", thumbLabel(k, slidePhasesOf(p)));
+        if (pollOn(k) && !had && cap) { const after = cap.querySelector(".badge.ink"); cap.insertBefore(h("span", { class: "badge poll", text: "Umfrage" }), after); }
+        else if (!pollOn(k) && had) had.remove();
+      }
+    } });
     paintPresRel();
     const liveLine = h("div", { class: "small" });
     const startBtn = h("button", { class: "btn onair big", type: "button" }, "Ich bin im Unterricht und starte die Präsentation für alle.");
@@ -784,7 +802,7 @@ export async function sessionPage(id) {
             if (!(await confirmDialog("Präsentation löschen", p.notes ? NOTES_DELETE_TEXT : "Präsentation und Folienbilder löschen? Eine laufende Live-Anzeige endet.", "Löschen", true))) return;
             try { await tapi("DELETE", "/api/teacher/files/" + p.id); st.files = st.files.filter((x) => x !== p); st.slides = null; swapAnnotated(p.id, null); paintPres(); } catch (e) { errToast(e); }
           } }, icon("trash")))),
-      ...nn(thumbs, cleanBox, shownBox, phasesBox, videosBox, presRel, notesBox, startBtn, liveLine),
+      ...nn(thumbs, cleanBox, shownBox, phasesBox, videosBox, pollsBox, presRel, notesBox, startBtn, liveLine),
       h("p", { class: "hint", text: "Startet das Vollbild hier und zeigt dieselbe Folie oben in der Schüleransicht aller freigeschalteten Schüler:innen. Beim Start erscheint zuerst die Codefolie mit dem Sitzungscode und dem QR-Code dieser Sitzung; läuft die Präsentation schon, geht es an der laufenden Stelle weiter. „Sitzungscode zeigen“ (Taste C) blendet die Codefolie jederzeit wieder ein. Weiter mit →, Leertaste, Bildtaste (Presenter) oder Tippen; Schüler:innen können nicht selbst blättern. Selbst öffnen können sie die Präsentation erst " + PRESENTATION_AFTER_END_MIN + " Minuten nach dem Ende der Sitzung – bei markierter letzter Folie nur bis dorthin." }),
       h("details", { class: "box" }, h("summary", null, "Andere Präsentation hochladen"), p.notes ? h("p", { class: "hint", text: NOTES_REPLACE_HINT }) : null, zone));
   }
@@ -802,7 +820,7 @@ export async function sessionPage(id) {
     }, "Öffne …");
   }
   // moreSheetCodes: Feibeitsblätter der Sitzung, aus der eine Sitzungsdatei stammt; notes: Notizen aus der Sitzungsdatei (sonst aus der PDF)
-  async function uploadPres(file, moreSheetCodes = [], notes, phases, videos) {
+  async function uploadPres(file, moreSheetCodes = [], notes, phases, videos, polls) {
     if (!file) return;
     if (!/\.pdf$/i.test(file.name) && file.type !== "application/pdf") { toast("Bitte eine PDF-Datei wählen.", "err"); return; }
     pendingPdf = file;
@@ -815,7 +833,7 @@ export async function sessionPage(id) {
       st.files = st.files.filter((f) => f.area !== "presentation" && !oldPres.includes(f.notesOf)); st.files.push(r.file); st.slides = null; stopSync = null; paintFiles();
       const { rasterizeAndUpload } = await lazy(import("./presenter.js"));
       const out = await rasterizeAndUpload(pendingPdf, r.file.id, T.token, (i, n) => { label.textContent = "Erzeuge Folie " + i + " von " + n + " …"; bar.style.width = (30 + Math.round((i / n) * 70)) + "%"; },
-        { code: L().code, exclude: [...st.sheets.map((s) => s.code), ...moreSheetCodes], notes, phases, videos });
+        { code: L().code, exclude: [...st.sheets.map((s) => s.code), ...moreSheetCodes], notes, phases, videos, polls });
       Object.assign(r.file, out.file);
       if (out.annotated && out.annotated.file) swapAnnotated(r.file.id, out.annotated.file, out.annotated.removed || []);
       const sw = out.swapped;   // stiller Rückfall: ältere Präsentation mit dem Code einer früheren Sitzung auf den Folien
@@ -831,7 +849,10 @@ export async function sessionPage(id) {
         (out.phases ? " Auf " + out.phases + " von " + out.pages + " Folien steht die Phase des Schulportal-Eintrags – den Zwischenstopp trägt Unterricks beim Markieren der letzten gezeigten Folie selbst ein." : "") +
         // Videofolien (Nachtrag 38)
         (out.videos && out.videos.length ? " Auf " + (out.videos.length === 1 ? "Folie " + out.videos[0].n + " spielt Unterricks im Unterricht das Video „" + videoName(out.videos[0]) + "“"
-          : "den Folien " + out.videos.map((v) => v.n).join(", ") + " spielt Unterricks im Unterricht die Videos") + " eingebettet ab (siehe „Videofolien“)." : "");
+          : "den Folien " + out.videos.map((v) => v.n).join(", ") + " spielt Unterricks im Unterricht die Videos") + " eingebettet ab (siehe „Videofolien“)." : "") +
+        // Umfragefolien (Nachtrag 46)
+        (out.polls && out.polls.length ? " Auf " + (out.polls.length === 1 ? "Folie " + out.polls[0].n : "den Folien " + out.polls.map((v) => v.n).join(", ")) +
+          " stimmen die Schüler:innen im Unterricht anonym ab (siehe „Umfragefolien“)." : "");
       const extra = (out.notesBad ? " " + NOTES_UNREADABLE : "") + (out.annotated && out.annotated.error ? " Die Anmerkungs-PDF ließ sich nicht erstellen (" + out.annotated.error + ") – speichern Sie die Notizen in der Präsentationskarte erneut." : "") +
         (out.clean && !out.clean.ok ? " Die Fassung ohne Notizen für Schüler:innen ließ sich nicht erzeugen (" + out.clean.error + ") – siehe Hinweis in der Präsentationskarte." : "");
       const bad = (sw && sw.missed.length) || !!extra;

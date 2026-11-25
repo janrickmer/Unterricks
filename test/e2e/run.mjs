@@ -31,6 +31,7 @@ import { motionE2E } from "./motion.mjs";
 import { lessonZipE2E } from "./lessonzip.mjs";
 import { inClassE2E } from "./inclass.mjs";
 import { revealE2E } from "./reveal.mjs";
+import { pollsE2E } from "./polls.mjs";
 import { termsE2E } from "./terms.mjs";
 import { escapeFixture } from "./escape-fixture.mjs";
 
@@ -3451,6 +3452,10 @@ async function main() {
       /* ---------- Nachtrag 44 (Teil 1) und 45: Material erscheint mit seiner Materialfolie; Feibeitsblatt aus einer früheren Sitzung mit dem Zwischenstand ---------- */
       step("Material erscheint live mit seiner Materialfolie (Nachtrag 44): Schüler:in sieht es erst ab der Folie bzw. nach „Jetzt freigeben“ – ohne Neuladen, auch nicht über die Schnittstelle; Notfall-Feibeitsblatt folgt; Hinweise der Lehrkraft. Nachtrag 45: Claude verknüpft das Blatt mit der nächsten Sitzung, „wieder gebraucht“, Übergabe der Zwischenstand-PDF an das Feibeitsblatt (Attrappe), Rückfall, „Von vorn beginnen“");
       await revealE2E({ browser, tp, BASE, FB, T, token, tool, ok, OUT, SHOT, horizontalIssues, devices, watch });
+
+      /* ---------- Nachtrag 46: anonyme Umfrage in der Live-Präsentation ---------- */
+      step("Anonyme Umfrage in der Präsentation (Nachtrag 46): Umfragefolie erkannt und auf der Sitzungsseite geprüft; abstimmen nur bei offener Folie und je Gerät einmal; Lehrkraft live, „Ergebnis am Beamer zeigen“; nach etwa 2 Minuten „Abstimmungsergebnis“ bei den Schüler:innen ohne Neuladen; Ergebnis löschen und neu öffnen");
+      await pollsE2E({ browser, tp, BASE, T, ok, OUT, SHOT, horizontalIssues, devices, watch });
     }
 
     /* ---------- Podcast für den kommenden Unterricht (Nachtrag 22) ---------- */

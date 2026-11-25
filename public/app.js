@@ -7,6 +7,8 @@ import { timerBand } from "./timerband.js";
 import { renderMarkdown } from "./markdown.js";
 import { slideViewer } from "./slideviewer.js";
 import { termCards } from "./termcards.js";
+import { studentPoll, pollResults } from "./pollview.js";
+import { POLL_STUDENT } from "./polls.js";
 import { lazy, isModuleError, pageFailed, navCheckDue, navBlockers, beforeRoute, waitPage, holdReload, beforeReload, installUpdateChecks } from "./update.js";
 import { fbAgainItem } from "./fbagain.js";
 import { revealWatch, latestOnly } from "./reveal.js";
@@ -291,6 +293,12 @@ async function studentRoom(lessonId) {
   // Fachbegriffe dieser Sitzung (Nachtrag 44, Teil 3; nur Oberstufe): Karteikarten ganz unten – der Server liefert sie erst ab 2 Minuten vor dem Ende
   const termsView = termCards();
   termsView.update(d.terms);
+  // Anonyme Umfrage (Nachtrag 46): abstimmen direkt unter der Live-Präsentation – nur solange die Lehrkraft die Umfragefolie zeigt (der Stand kommt über die
+  // Live-Verbindung); das Ergebnis steht ab etwa 2 Minuten nach der ersten Antwort ganz unten unter „Abstimmungsergebnis“ (aus den Daten der Sitzung)
+  let pollBadgeSync = () => {};   // Hinweis im Live-Fenster (startLive)
+  const pollVote = studentPoll({ vote: (k, choice) => sapi("POST", "/api/student/lessons/" + lessonId + "/poll", { body: { k, choice } }), onVoted: () => pollBadgeSync() });
+  const pollRes = pollResults();
+  pollRes.update(d.polls);
   // KI-Begriffshilfe unter der Live-Präsentation: nur während der Stunde, nur nach Einwilligung; Fragen und Antworten nur im Arbeitsspeicher.
   // Selbstlern-Phase: ganz unten, ab dem Beginn der Sitzung bis zur nächsten Stunde mit der Lehrkraft; dieselbe Einwilligung gilt für den Erklär-Chatbot
   // Selbstlern-Phase: eigene Einwilligung (ihr Text nennt beide Chatbots) – eine Einwilligung aus der normalen Sitzung (nur Begriffshilfe) gilt dort nicht
@@ -379,7 +387,12 @@ async function studentRoom(lessonId) {
   // public/reveal.js: zufällig bis zu 2 s später; scheitert das Neuladen, weitere Versuche)
   let gone = false;
   const rw = revealWatch({ seen: d.revealAt, reload: () => refresh() });
-  onLeave(() => { gone = true; rw.stop(); });
+  // ebenso das Abstimmungsergebnis (Nachtrag 46): Das Durable Object meldet pollAt, sobald eine Umfrage beendet (bzw. ihr Ergebnis gelöscht) wurde. Der Stand
+  // der Daten ist der Zeitpunkt ihrer Antwort (now des Servers, mit etwas Abstand für ungleich gehende Uhren): Das Ergebnis steht schon in D1, bevor pollAt
+  // vorrückt – Daten, die danach geladen wurden, enthalten es (Befund der Gegenprüfung: sonst lüde die Seite nach jeder Umfrage mehrfach vergeblich neu)
+  const POLL_SKEW_MS = 1500;
+  const pw = revealWatch({ seen: (d.now || 0) - POLL_SKEW_MS, reload: () => refresh() });
+  onLeave(() => { gone = true; rw.stop(); pw.stop(); });
   if (selbst) {
     // Ablaufplan der Selbstlern-Phase; die Hausaufgabe gleich darunter (von Anfang an sichtbar)
     main.classList.add("slv-room");
@@ -420,13 +433,16 @@ async function studentRoom(lessonId) {
       document.removeEventListener("fullscreenchange", syncLiveLayer); document.removeEventListener("webkitfullscreenchange", syncLiveLayer);
       live.classList.remove("max"); if (liveLayer) { liveLayer.release(false); liveLayer = null; }
     });
-    main.append(live, presRow, kiBox, hwBox);
+    main.append(live, pollVote.el, presRow, kiBox, hwBox);
     let lastV = -1, seq = 0, codeEl = null;
     const dropCode = () => { if (codeEl) { codeEl.remove(); codeEl = null; } };
     function showState(st) {
       if (!st || typeof st !== "object") return;
       tband.set(st.active ? st.timer : null);   // vor der Prüfung von v: der Timer ändert v nicht, jede Nachricht gleicht die Restzeit neu ab
       rw.want(st.revealAt);   // ebenso: Material freigegeben (Nachtrag 44) – neuer Stand → die Daten bald neu laden
+      // Umfrage (Nachtrag 46): ändert v ebenfalls nicht (offen → beendet); eine eben beendete Umfrage → das Ergebnis bald laden
+      pollVote.set(st.active ? st.poll : null); pw.want(st.pollAt);
+      pollBadgeSync();
       if (st.v !== undefined && st.v === lastV && st.active) return;
       lastV = st.v;
       const my = ++seq;   // ein spät geladenes Folienbild überschreibt nie einen neueren Stand
@@ -451,7 +467,11 @@ async function studentRoom(lessonId) {
       } else {
         img.remove(); dropCode(); if (!ph.isConnected) live.prepend(ph);
       }
+      pollBadgeSync();   // die Statuszeile wurde neu aufgebaut
     }
+    // Umfrage offen und von diesem Gerät noch nicht abgestimmt: Hinweis in der Statuszeile – im vergrößerten Live-Fenster ist das Feld darunter nicht zu sehen
+    const pollBadge = h("span", { class: "badge pollbadge", text: POLL_STUDENT.badge });
+    pollBadgeSync = () => { if (pollVote.open && !live.classList.contains("idle")) { if (pollBadge.parentNode !== status) status.append(pollBadge); } else pollBadge.remove(); };
     // WebSocket mit Wiederverbindung; ersatzweise alle 2 s abfragen
     let ws = null, closed = false, fails = 0, pollT = null, pingT = null, reT = null, got = 0;
     // brachte der WebSocket während der Abfrage eine Nachricht, ist ihre Antwort überholt (sonst höbe sie z. B. eine eben gesetzte Pause des Timers wieder auf)
@@ -514,7 +534,7 @@ async function studentRoom(lessonId) {
   // Minute, ob sie schon live gezeigt wird – startet die Lehrkraft früher, erscheint der Hinweis auch bei offener Seite (sonst erst zum geplanten Beginn)
   let soon = d.newerSoon === true;   // gone (oben): Sitzung verlassen – eine Antwort, die erst danach kommt, plant nichts mehr ein
   const refresh = async () => {
-    const my = order.start();
+    const my = order.start(), pollWant = pw.state.want;   // der Stand der Umfragen, den diese Anfrage holen soll
     try {
       const r = await sapi("GET", "/api/student/lessons/" + lessonId);
       if (gone || !order.take(my)) return;
@@ -523,6 +543,7 @@ async function studentRoom(lessonId) {
       if (kind(r) !== kind(d)) { if (location.hash === "#/schueler/s/" + lessonId) route(); return; }
       loadedAt = Date.now(); newerBox.set(r.newer); soon = r.newerSoon === true;   // Nachtrag 44 (Teil 2)
       termsView.update(r.terms);   // Fachbegriffe (Nachtrag 44): erscheinen 2 Minuten vor dem Ende – dieselben bleiben stehen
+      pollRes.update(r.polls); pw.seen(Math.max(pollWant, (r.now || 0) - POLL_SKEW_MS));   // Abstimmungsergebnis (Nachtrag 46): der beim Absenden gewünschte Stand ist jetzt da
       pres = r.presentation; renderPres(); paintHomework(r.homework); aiHelp = r.aiHelp; paintKi(); if (slv) slv.update(r); pending.splice(0, pending.length, ...(r.changesAt || [])); plan();
       // Material (Nachtrag 44): neu Freigegebenes erscheint ohne Neuladen der Seite (unveränderte Zeilen bleiben stehen – samt Fokus und aufgeklapptem Text)
       rw.seen(r.revealAt);
@@ -531,7 +552,7 @@ async function studentRoom(lessonId) {
       // gescheitert (z. B. kurz kein Netz), während die spätere Sitzung bald beginnt: in einer Minute noch einmal (sonst wie bisher erst beim Aufwachen)
       if (soon && !gone) { clearTimeout(chT); chT = setTimeout(refresh, NEWER_RECHECK_MS); }
     }
-    finally { rw.after(); }   // fehlt noch ein freigegebener Stand: später noch einmal
+    finally { rw.after(); pw.after(); }   // fehlt noch ein freigegebener Stand bzw. ein Abstimmungsergebnis: später noch einmal
   };
   let chT = null;
   const plan = () => {
@@ -545,7 +566,7 @@ async function studentRoom(lessonId) {
   // Minute ein neuer Blick, ob eine spätere Sitzung inzwischen live gezeigt wird (Nachtrag 44, Teil 2)
   const onVisCh = () => {
     if (document.visibilityState !== "visible") return;
-    if (rw.visible() || pending.some((t) => Date.now() + offset >= t) || Date.now() - loadedAt >= NEWER_RECHECK_MS) refresh(); else if (soon) plan();
+    if (rw.visible() || pw.visible() || pending.some((t) => Date.now() + offset >= t) || Date.now() - loadedAt >= NEWER_RECHECK_MS) refresh(); else if (soon) plan();
   };
   document.addEventListener("visibilitychange", onVisCh);
   onLeave(() => { gone = true; clearTimeout(chT); document.removeEventListener("visibilitychange", onVisCh); });
@@ -622,6 +643,8 @@ async function studentRoom(lessonId) {
   paintMats(d);
   // Fachbegriffe dieser Sitzung (Nachtrag 44, Teil 3): ganz unten – in der Selbstlern-Phase über der KI-Begriffshilfe, die dort ganz unten bleibt
   main.append(termsView.el);
+  // Abstimmungsergebnis (Nachtrag 46): ganz unten – nach den Fachbegriffen
+  main.append(pollRes.el);
   // Selbstlern-Phase: die KI-Begriffshilfe ganz unten (Wortlaut der Lehrkraft)
   if (selbst) main.append(kiBox);
 }

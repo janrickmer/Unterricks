@@ -14,9 +14,15 @@
 // D1 (lessons.reveals, eine Anweisung – die Kennung der Sitzung trägt die Verbindung der Lehrkraft als Anhang) und schickt allen noch einmal den Stand mit
 // revealAt (Zeitpunkt, kein Titel): Die Schüler:innen-Seiten laden dann ihr Material neu (zugeordnet wird erst dort, public/reveal.js). Eine Freigabe von Hand
 // stößt /reveal an. Ältere, gecachte Seiten überspringen den Stand (dasselbe v) – es gibt keine neue Art von Nachricht.
+// Anonyme Umfrage (Nachtrag 46, public/polls.js): Zeigt die Präsentation eine Umfragefolie, bekommen alle poll (Frage, Antworten, offen/beendet; Lehrkraft mit
+// Zahlen, Beamer nur mit der Zahl der Antworten bzw. – nach „Ergebnis am Beamer zeigen“ – der Verteilung, Schüler:innen nie mit Zahlen). Gezählt wird hier im
+// Objekt (Speicher „polls“ = Einträge je Umfrage, „pv:<Kennung>“ = Prüfwerte der Geräte, die schon abgestimmt haben – getrennt von den Antworten): /poll-vote
+// nimmt eine Stimme nur an, solange genau diese Folie gezeigt wird, je Gerät einmal. 2 Minuten nach der ersten Antwort beendet der Wecker (alarm) die Umfrage,
+// schreibt das Ergebnis nach D1 (lessons.polls) und schickt allen den Stand mit pollAt – die Schüler:innen-Seiten laden dann ihr Ergebnis.
 import { DurableObject } from "cloudflare:workers";
-import { HttpError, json, requireSecret, signLink, checkLink, isId } from "./lib.js";
-import { LIVE_IDLE as IDLE, liveReduce, liveView, liveNext, liveTimer, liveVideo } from "./livestate.js";
+import { HttpError, json, requireSecret, signLink, checkLink, isId, readJson, bad } from "./lib.js";
+import { LIVE_IDLE as IDLE, liveReduce, liveView, liveNext, liveTimer, liveVideo, livePoll } from "./livestate.js";
+import { cleanPollEntry, newPoll, pollVote, pollMessage, pollClosed, pollClosesAt, pollResultOf, pollResultsPut, pollResultsDrop, pollFileOf, POLL_KEY_RE, POLL_LIMITS } from "../public/polls.js";
 import { cleanVideoReport } from "../public/videoslides.js";
 import { REVEAL_SEEN_SQL, REVEAL_LIMITS, revealKeyOf } from "../public/reveal.js";
 import { requireTeacher } from "./auth.js";
@@ -45,6 +51,10 @@ export class LiveRoom extends DurableObject {
     if (video) out.video = video;
     // Material freigegeben (Nachtrag 44): nur der Zeitpunkt – für alle Rollen gleich (nie Titel oder Daten des Materials)
     if (st.revealAt > 0) out.revealAt = st.revealAt;
+    // Umfrage der aktuellen Folie (Nachtrag 46): je Rolle (pollMessage) – und für alle der Zeitpunkt, zu dem zuletzt eine Umfrage beendet wurde
+    const spec = livePoll(st);
+    if (spec) out.poll = pollMessage(role, spec, (await this.polls())[spec.k] || null, st.pollShown === spec.n, Date.now(), ((await this.ctx.storage.get("pollr")) || {})[spec.k] || 0);
+    if (st.pollAt > 0) out.pollAt = st.pollAt;
     if (role === "teacher") { out.fileId = st.fileId; out.students = this.ctx.getWebSockets("student").length; out.beamers = this.ctx.getWebSockets("beamer").filter((ws) => !gone.includes(ws)).length; }
     if (role === "beamer") { const k = liveNext(st); if (k) out.next = await slideUrl(requireSecret(this.env), st.fileId, k, SLIDE_TTL); }   // vorladen
     return out;
@@ -74,6 +84,63 @@ export class LiveRoom extends DurableObject {
     const n = (role) => this.ctx.getWebSockets(role).filter((ws) => !gone.includes(ws)).length;
     const msg = JSON.stringify({ t: "count", students: n("student"), beamers: n("beamer") });
     for (const ws of this.ctx.getWebSockets("teacher")) { try { ws.send(msg); } catch {} }
+  }
+  /* ---------- Anonyme Umfrage (Nachtrag 46) ---------- */
+  async polls() {
+    const raw = (await this.ctx.storage.get("polls")) || {}, out = {};
+    for (const k of Object.keys(raw)) { const e = cleanPollEntry(raw[k]); if (e) out[e.k] = e; }
+    return out;
+  }
+  // Wecker auf das früheste Ende einer laufenden Umfrage (bzw. auf einen neuen Versuch, das Ergebnis zu speichern)
+  async armAlarm(polls, now, retryAt = null) {
+    // überfällige (beendet, Ergebnis noch nicht gespeichert): gleich bzw. zum neuen Versuch (retryAt) – laufende: zu ihrem Ende
+    let at = null;
+    for (const p of Object.values(polls)) {
+      if (p.saved) continue;
+      const c = pollClosesAt(p);
+      if (c === null) continue;
+      const cand = c > now ? c : retryAt !== null ? retryAt : now + 50;
+      if (at === null || cand < at) at = cand;
+    }
+    if (at === null) return;
+    try { await this.ctx.storage.setAlarm(Math.max(at, now + 50)); } catch {}
+  }
+  /* Beendete Umfragen abschließen: Ergebnis nach D1 (lessons.polls) – danach bekommen alle den Stand mit pollAt (die Schüler:innen-Seiten laden ihr Ergebnis).
+     Während der D1-Anfragen können weitere Stimmen (anderer Umfragen) ankommen: der Speicher wird deshalb danach frisch gelesen und nur der Vermerk gesetzt.
+     Scheitert D1, bleibt die Umfrage beendet (der Stand geht trotzdem an alle) und der Wecker versucht es erneut. → true = alles gespeichert */
+  async settlePolls() {
+    const now = Date.now(), all0 = await this.polls(), due = Object.values(all0).filter((p) => !p.saved && pollClosed(p, now));
+    // nichts fällig (der Wecker kam zu früh, oder seine Umfrage wurde inzwischen gelöscht): für eine noch laufende Umfrage neu stellen – sonst bliebe ihr Ergebnis aus
+    if (!due.length) { await this.armAlarm(all0, now); return true; }
+    const saved = [];
+    for (const p of due) {
+      let ok = !this.env || !this.env.DB || !isId(p.lid);   // ohne Datenbank bzw. Sitzung: nichts zu speichern
+      if (!ok) try {
+        const row = await this.env.DB.prepare("SELECT polls FROM lessons WHERE id=?1").bind(p.lid).first();
+        if (row) await this.env.DB.prepare("UPDATE lessons SET polls=?2 WHERE id=?1").bind(p.lid, pollResultsPut(row.polls, pollResultOf(p, now))).run();
+        ok = true;
+      } catch {}
+      if (ok) saved.push(p.k);
+    }
+    const fresh = await this.polls();
+    for (const k of saved) if (fresh[k]) fresh[k].saved = true;
+    const st = await this.state();
+    if (saved.length) st.pollAt = Math.max(now, (st.pollAt || 0) + 1);
+    await this.ctx.storage.put({ polls: fresh, state: st });
+    await this.broadcast(st);
+    const all = saved.length === due.length;
+    await this.armAlarm(fresh, now, all ? null : now + 20000);
+    return all;
+  }
+  async alarm() { await this.settlePolls(); }
+  // Einträge entfernen: eine Umfrage (k), alle einer Präsentation (fileId) bzw. alle (all) – samt den Prüfwerten der Geräte
+  async dropPolls({ k = null, fileId = null, all = false }) {
+    const raw = (await this.ctx.storage.get("polls")) || {}, gone = Object.keys(raw).filter((x) => all || x === k || (fileId !== null && pollFileOf(x) === fileId));
+    if (!gone.length) return false;
+    for (const x of gone) delete raw[x];
+    await this.ctx.storage.put("polls", raw);
+    await this.ctx.storage.delete(gone.map((x) => "pv:" + x));
+    return true;
   }
   async beamerGen() { return (await this.ctx.storage.get("bgen")) || 0; }
   // „Beamer trennen“ (und beim Löschen der Sitzung): neue Generation – alle Beamer-Schlüssel dieser Sitzung gelten nicht mehr
@@ -114,8 +181,65 @@ export class LiveRoom extends DurableObject {
       if (Number.isFinite(at) && at > (st.revealAt || 0)) { st.revealAt = at; await this.ctx.storage.put("state", st); await this.broadcast(st); }
       return Response.json({ ok: true });
     }
+    /* Anonyme Umfrage (Nachtrag 46): eine Stimme (worker/student.js routeStudentPollVote) – nur für die Umfrage der gerade gezeigten Folie, je Gerät einmal
+       (voter = Prüfwert aus Gerät und Umfrage), nicht mehr nach dem Ende. Zwischen Lesen und Schreiben stehen nur Speicherzugriffe – zwei gleichzeitige
+       Stimmen überschreiben einander nicht. Danach bekommen Lehrkraft und Beamer die neue Zahl (die Schüler:innen nicht). */
+    if (url.pathname === "/poll-vote" && request.method === "POST") {
+      let b = null; try { b = await request.json(); } catch {}
+      const now = Date.now(), st = await this.state(), spec = livePoll(st), lid = url.searchParams.get("lid");
+      const k = b && typeof b.k === "string" ? b.k : "", voter = b && typeof b.voter === "string" && b.voter.length >= 20 && b.voter.length <= 100 ? b.voter : "";
+      if (!spec || spec.k !== k || !voter) return Response.json({ ok: false, code: "not_open" });
+      // nur während der Live-Präsentation: eine Lehrkraft ist verbunden (bzw. ihre Verbindung ist erst seit höchstens 90 s weg, z. B. WLAN) – eine Präsentation, die
+      // nur „geschlossen“ wurde und auf der Umfragefolie stehen blieb, nimmt später (z. B. zu Hause) keine Stimmen mehr an
+      if (!this.ctx.getWebSockets("teacher").length && !(now - ((await this.ctx.storage.get("tgone")) || 0) < TEACHER_GRACE_MS)) return Response.json({ ok: false, code: "not_open" });
+      const polls = await this.polls(), p = polls[k] || newPoll(k, spec, isId(lid) ? lid : null);
+      const voters = (await this.ctx.storage.get("pv:" + k)) || [];
+      const r = pollVote(p, voters, voter, b.choice, now);
+      if (r.error) return Response.json({ ok: false, code: r.error });
+      if (isId(lid)) p.lid = lid;
+      polls[k] = p;
+      // sehr viele Einträge (alte Präsentationen): die ältesten gespeicherten fallen weg
+      const old = Object.values(polls).filter((x) => x.saved && x.k !== k).sort((a, b2) => a.firstAt - b2.firstAt);
+      const drop = old.slice(0, Math.max(0, Object.keys(polls).length - POLL_LIMITS.results)).map((x) => x.k);
+      for (const x of drop) delete polls[x];
+      await this.ctx.storage.put({ polls, ["pv:" + k]: voters });
+      if (drop.length) await this.ctx.storage.delete(drop.map((x) => "pv:" + x));
+      await this.armAlarm(polls, now);
+      await this.broadcast(st, { students: false });
+      return Response.json({ ok: true });
+    }
+    // Stand aller Umfragen dieser Sitzung für die Lehrkraft (Sitzungsseite): Zahlen je Antwort, läuft bzw. beendet; überfällige werden dabei abgeschlossen
+    if (url.pathname === "/polls") {
+      await this.settlePolls();
+      const now = Date.now(), st = await this.state(), cur = livePoll(st);
+      const list = Object.values(await this.polls()).sort((a, b) => a.n - b.n || a.firstAt - b.firstAt)
+        .map((p) => ({ k: p.k, n: p.n, q: p.q, options: p.options, counts: p.counts, total: p.total, firstAt: p.firstAt || null, open: !pollClosed(p, now), left: pollClosesAt(p) === null ? null : Math.max(0, pollClosesAt(p) - now) }));
+      return Response.json({ polls: list, current: cur ? cur.k : null, fileId: st.active ? st.fileId : null });
+    }
+    // „Ergebnis löschen und Umfrage neu öffnen“ (Lehrkraft): Eintrag und Prüfwerte weg; alle bekommen den Stand (die Schüler:innen-Seiten laden ihr Ergebnis neu)
+    if (url.pathname === "/poll-reset" && request.method === "POST") {
+      const k = url.searchParams.get("k") || "";
+      if (!POLL_KEY_RE.test(k)) return Response.json({ ok: false }, { status: 400 });
+      await this.dropPolls({ k });
+      const st = await this.state(), now = Date.now();
+      // gemerkt, wann diese Umfrage neu geöffnet wurde: die Seiten der Schüler:innen vergessen damit ihr „schon abgestimmt“ (höchstens 50 Einträge)
+      const pr = (await this.ctx.storage.get("pollr")) || {};
+      pr[k] = now;
+      const keys = Object.keys(pr).sort((a, b) => pr[a] - pr[b]);
+      for (const x of keys.slice(0, Math.max(0, keys.length - 50))) delete pr[x];
+      await this.ctx.storage.put("pollr", pr);
+      st.pollAt = Math.max(now, (st.pollAt || 0) + 1);
+      if (livePoll(st) && livePoll(st).k === k) st.pollShown = null;
+      await this.ctx.storage.put("state", st);
+      await this.broadcast(st);
+      return Response.json({ ok: true });
+    }
     if (url.pathname === "/reset" && request.method === "POST") {
-      const old = await this.state(), st = { ...IDLE, v: (old.v || 0) + 1, updatedAt: Date.now(), revealAt: old.revealAt || 0 };   // revealAt bleibt (Nachtrag 44)
+      // pollAt bleibt wie revealAt; Umfragen einer gelöschten bzw. ersetzten Präsentation (pollsFile) und einer gelöschten Sitzung (beamers=1) verschwinden
+      const pf = url.searchParams.get("pollsFile"), wipe = url.searchParams.get("beamers") === "1";
+      const dropped = wipe ? await this.dropPolls({ all: true }) : isId(pf) ? await this.dropPolls({ fileId: pf }) : false;
+      const old = await this.state(), now = Date.now();
+      const st = { ...IDLE, v: (old.v || 0) + 1, updatedAt: now, revealAt: old.revealAt || 0, pollAt: dropped ? Math.max(now, (old.pollAt || 0) + 1) : old.pollAt || 0 };   // revealAt bleibt (Nachtrag 44)
       await this.ctx.storage.put("state", st);
       await this.broadcast(st);
       if (url.searchParams.get("beamers") === "1") await this.resetBeamers();   // Sitzung gelöscht: auch die Beamer trennen
@@ -135,9 +259,11 @@ export class LiveRoom extends DurableObject {
       try { ws.send(JSON.stringify(await this.message("teacher", st))); } catch {}
       return;
     }
+    // „Ergebnis am Beamer zeigen“ (Nachtrag 46) erst nach dem Ende der Abstimmung – sonst sähe die Klasse das Ergebnis, während noch abgestimmt wird
+    if (m.t === "poll" && m.on === true) { const spec = livePoll(st), p = spec ? (await this.polls())[spec.k] : null; if (!p || !pollClosed(p, now)) return; }
     if (!liveReduce(st, m, now)) return;
     await this.ctx.storage.put("state", st);
-    await this.broadcast(st, { students: m.t !== "video" });
+    await this.broadcast(st, { students: m.t !== "video" && m.t !== "poll" });   // Video und „Ergebnis am Beamer zeigen“: nur Lehrkraft und Beamer
     if (m.t === "start" || m.t === "goto" || m.t === "code") await this.markReveal(ws, st);   // erst die Folie, dann (falls neu) der Vermerk
   }
   /* Nachtrag 44, Teil 1: Zeigt die aktuelle Folie eine Codefolie mit Überschrift (Materialfolie), ihre Überschrift in D1 vermerken (lessons.reveals.seen) – nur
@@ -176,6 +302,8 @@ export class LiveRoom extends DurableObject {
     const tags = this.ctx.getTags(ws), counted = !tags.includes("teacher");   // Schüler:innen und Beamer
     try { ws.close(code === 1005 || code === 1006 ? 1000 : code, reason); } catch {}
     if (counted) this.countToTeachers([ws]);
+    // die letzte Verbindung einer Lehrkraft endet: Zeitpunkt merken (Umfrage, /poll-vote)
+    else if (!this.ctx.getWebSockets("teacher").some((t) => t !== ws)) { try { await this.ctx.storage.put("tgone", Date.now()); } catch {} }
     // der erste Beamer ist weg, während ein Video läuft (Nachtrag 38): der nächste gibt jetzt den Ton – er erfährt es mit dem Stand
     if (tags.includes("beamer") && this.ctx.getWebSockets("beamer").some((b) => b !== ws)) {
       const st = await this.state();
@@ -183,10 +311,13 @@ export class LiveRoom extends DurableObject {
     }
   }
   async webSocketError(ws) {
+    if (this.ctx.getTags(ws).includes("teacher") && !this.ctx.getWebSockets("teacher").some((t) => t !== ws)) { try { await this.ctx.storage.put("tgone", Date.now()); } catch {} }
     try { ws.close(1011, "Fehler"); } catch {}
   }
 }
 
+// so lange nach dem Ende der letzten Verbindung einer Lehrkraft nimmt eine Umfrage noch Stimmen an (Nachtrag 46: kurzer Verbindungsabbruch im WLAN)
+export const TEACHER_GRACE_MS = 90e3;
 function beamerExpired(ws, now) {
   let a = null; try { a = ws.deserializeAttachment(); } catch {}
   return !!a && Number.isFinite(a.exp) && a.exp <= now;
@@ -226,6 +357,24 @@ export async function routeTeacherLiveTicket(c, lessonId) {
 export async function routeTeacherLiveState(c, lessonId) {
   await requireTeacher(c);
   return json({ ok: true, live: await liveState(c, lessonId, "teacher") });
+}
+/* Anonyme Umfrage (Nachtrag 46): Stand aller Umfragen der Sitzung für die Sitzungsseite der Lehrkraft (läuft / beendet, Zahlen je Antwort) */
+export async function routeTeacherPolls(c, lessonId) {
+  await requireTeacher(c);
+  await getLesson(c.db, lessonId);
+  const r = await stub(c.env, lessonId).fetch("https://live/polls");
+  return json({ ok: true, ...(await r.json()), now: c.now });
+}
+/* „Ergebnis löschen und Umfrage neu öffnen“: Zählung und Ergebnis dieser Umfrage verschwinden (z. B. nach einem Probelauf zu Hause) – danach kann wieder jedes
+   Gerät einmal abstimmen, sobald die Folie live gezeigt wird */
+export async function routeTeacherPollReset(c, lessonId) {
+  await requireTeacher(c);
+  const l = await getLesson(c.db, lessonId);
+  const body = await readJson(c.request, 2000);
+  if (typeof body.k !== "string" || !POLL_KEY_RE.test(body.k)) throw bad("Diese Umfrage gibt es nicht.");
+  await c.db.prepare("UPDATE lessons SET polls=?2 WHERE id=?1").bind(lessonId, pollResultsDrop(l.polls, { k: body.k })).run();
+  await stub(c.env, lessonId).fetch("https://live/poll-reset?k=" + encodeURIComponent(body.k), { method: "POST" });
+  return json({ ok: true });
 }
 export async function routeTeacherLiveStop(c, lessonId) {
   await requireTeacher(c);

@@ -7,7 +7,8 @@ import { getFile, downloadUrl, studentSlideUrl, studentSlideExp, studentSlideLim
 import { nextLessonDate, nextTeacherLesson, sheetsAgainStmt } from "./lessons.js";
 import { getSubstitute, studentSubstitute } from "./substitute.js";
 import { SELBSTLERN, readSelbstlern, selbstlernAiWindow, selbstlernHelpPrompt, explainBotPrompt, explainSigText, helpSigText, selbstlernHomeworkNow, EXPLAIN_BOT_LIMITS, EXPLAIN_FINISH_MESSAGE } from "../public/selbstlern.js";
-import { liveTicket, liveState } from "./live.js";
+import { liveTicket, liveState, stub } from "./live.js";
+import { pollResultsForStudents, POLL_KEY_RE, POLL_ERRORS } from "../public/polls.js";
 import { normalizeCode, isValidCode, subjectName, classShort, isCourseClass, courseMembers, cleanWebUrl, lessonTimes, fmtClockBerlin, fmtDayBerlin, studentHelpPrompt, STUDENT_HELP_LIMITS, GS_SUBJECT, STUDENT_SLIDE_BLOCK,
   isAnalogClass, cleanCodeSlides, laterLessonState, laterLiveCounts, NEWER_POLL_MS, isOberstufe } from "../public/shared.js";
 import { termsRead } from "../public/terms.js";
@@ -116,7 +117,7 @@ export async function requireAccess(c, lessonId) {
   const s = await requireStudent(c);
   if (!isId(lessonId)) throw new HttpError(404, "not_found", "Diese Sitzung gibt es nicht.");
   // l.terms (Fachbegriffe, Nachtrag 44 Teil 3) und l.reveals: gezeigte Materialfolien und Freigaben von Hand (Nachtrag 44) – nur für studentGate, nie in einer Antwort
-  const a = await c.db.prepare("SELECT a.joined_at, " + LESSON_COLS + ", l.created_at, l.reveals, l.terms FROM student_access a JOIN lessons l ON l.id = a.lesson_id WHERE a.device_id=?1 AND a.lesson_id=?2")
+  const a = await c.db.prepare("SELECT a.joined_at, " + LESSON_COLS + ", l.created_at, l.reveals, l.terms, l.polls FROM student_access a JOIN lessons l ON l.id = a.lesson_id WHERE a.device_id=?1 AND a.lesson_id=?2")
     .bind(s.id, lessonId).first();
   if (!a) throw new HttpError(403, "no_access", "Für diese Sitzung bist du nicht freigeschaltet. Bitte gib den Sitzungscode ein.");
   return { student: s, lesson: a, joinedAt: a.joined_at };
@@ -187,6 +188,9 @@ export async function routeStudentLesson(c, lessonId) {
     substitute: shown.substitute, ...(shown.selbstlern ? { selbstlern: shown.selbstlern } : {}),
     // Fachbegriffe dieser Sitzung als Karteikarten (Nachtrag 44, Teil 3): [{term, definition}] erst ab 2 Minuten vor dem Ende, sonst null
     terms: termsShown(lesson, c.now),
+    // Abstimmungsergebnis (Nachtrag 46): Ergebnisse beendeter Umfragen dieser Sitzung – nur Frage, Antworten und Zahlen je Antwort. Ob eine eben beendete
+    // Umfrage schon enthalten ist, erkennt die Seite an now (Zeitpunkt dieser Antwort) gegenüber pollAt des Durable Objects
+    polls: selbst ? [] : pollResultsForStudents(lesson.polls),
     feibeitsblattUrl: c.env.FEIBEITSBLATT_URL || "https://feibeitsblatt.janrickmer.de/",
     now: c.now });
 }
@@ -348,6 +352,20 @@ export async function routeStudentExplain(c, lessonId) {
 export async function routeStudentLiveTicket(c, lessonId) {
   const { student } = await requireAccess(c, lessonId);
   return json({ ok: true, ...(await liveTicket(c, lessonId, "student", student.id)) });
+}
+/* Anonyme Umfrage (Nachtrag 46): eine Stimme abgeben. Das Durable Object nimmt sie nur an, solange die Live-Präsentation genau diese Umfragefolie zeigt, und
+   je Gerät nur einmal: voter ist ein Prüfwert (HMAC) aus Sitzung, Umfrage und Gerät – das Objekt speichert ihn getrennt von den Antworten und kennt das Gerät
+   selbst nie. Welche Antwort ein Gerät gewählt hat, wird nirgends festgehalten. */
+export async function routeStudentPollVote(c, lessonId) {
+  const { student } = await requireAccess(c, lessonId);
+  const body = await readJson(c.request, 2000);
+  if (typeof body.k !== "string" || !POLL_KEY_RE.test(body.k) || !Number.isInteger(body.choice)) throw new HttpError(400, "poll_choice", POLL_ERRORS.choice);
+  const voter = await hmac(requireSecret(c.env), "poll|" + lessonId + "|" + body.k + "|" + student.id);
+  let d = null;
+  try { d = await (await stub(c.env, lessonId).fetch("https://live/poll-vote?lid=" + lessonId, { method: "POST", body: JSON.stringify({ k: body.k, choice: body.choice, voter }) })).json(); } catch {}
+  if (!d) throw new HttpError(503, "poll_failed", "Deine Stimme konnte gerade nicht gezählt werden. Bitte versuch es gleich noch einmal.");
+  if (!d.ok) throw new HttpError(409, "poll_" + d.code, POLL_ERRORS[d.code] || POLL_ERRORS.not_open);
+  return json({ ok: true, authLeftMs: c.authLeftMs });
 }
 export async function routeStudentLiveState(c, lessonId) {
   await requireAccess(c, lessonId);

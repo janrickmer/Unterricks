@@ -5,6 +5,7 @@
 import { subjectName, subjectShort, groupShort, isIsoDate, isClockTime, cleanWebUrl, cleanCopies, normalizeFbDraft, cleanSlideNotes, NOTES_LIMITS, PHASE_MAX, TEACHER_SUMMARY_MAX, isValidClass, isCourseClass, classShort } from "./shared.js";
 import { cleanBring } from "./bring.js";
 import { cleanVideoSlides } from "./videoslides.js";
+import { cleanPollSlides } from "./polls.js";
 import { cleanShareText } from "./sharelib.js";
 import { cleanTeacherPlanPhases } from "./teacherplan.js";
 import { cleanTerms } from "./terms.js";
@@ -128,6 +129,8 @@ export function cleanSessionFile(raw) {
       }
       // Videofolien, von der Lehrkraft festgelegt (Nachtrag 38): geprüft wie beim Server; Folien jenseits der PDF verwirft das Hochladen ([] = bewusst keine)
       if (o.area === "presentation" && f && Array.isArray(f.slideVideos)) o.slideVideos = cleanVideoSlides(f.slideVideos, 300);
+      // Umfragefolien, die die Lehrkraft festgelegt hat (Nachtrag 46) – gegen die Folienzahl prüft der Server beim Hochladen
+      if (o.area === "presentation" && f && Array.isArray(f.slidePolls)) o.slidePolls = cleanPollSlides(f.slidePolls, 300);
     }
     if (kind === "text") o.text = str(f && f.text, SESSION_LIMITS.text);
     if (kind === "link") o.url = cleanWebUrl(f && f.url) || "";

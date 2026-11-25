@@ -98,6 +98,7 @@ implementiert und im End-to-End-Test geprüft (Ausnahmen unten ausdrücklich gen
 | Fachbegriffe dieser Sitzung – Karteikarten in der Oberstufe (Nachtrag 44, Teil 3, vom 23.11.2026) | Wunsch der Lehrkraft: „Nur bei Kursen in der Oberstufe (E-Phase, Q1-Q4) soll ca. 2 Minuten vor Ende jeder Unterrichtssitzung in der Schüleransicht von Unterricks zu jeder Sitzung unten ein Bereich auftauchen "Fachbegriffe dieser Sitzung". Dort sollen drei bis maximal acht Karteikarten dargestellt werden, auf denen die Fachbegriffe stehen, die zu dieser Unterrichtssitzung passen. Wenn man auf die Karteikarte klickt, dreht sich die Karte und auf dessen Rückseite wird die Definition dieses Fachbegriffs gezeigt.“ Rückfragen beantwortet: **Claude schreibt sie beim Planen** (3–8 Begriffe mit kurzer Definition, je Sitzung gespeichert), die Lehrkraft ändert sie auf der Sitzungsseite; ältere Sitzungen ohne Begriffe zeigen den Bereich nicht; die Karteikarten bleiben **dauerhaft sichtbar** ab etwa 2 Minuten vor dem Ende (Zeitprüfung auf dem Server wie bei der Hausaufgabe). Siehe 4zr |
 | Feibeitsblatt aus einer früheren Sitzung – mit dem Zwischenstand weiterarbeiten (Nachtrag 45 vom 23.11.2026) | Wunsch der Lehrkraft: Ein Feibeitsblatt, das mit dieser und einer früheren Sitzung desselben Kurses verknüpft ist, steht bei den Schüler:innen als „wieder gebraucht“: Feld für die Zwischenstand-PDF, „Im Feibeitsblatt weiterarbeiten“ (Übergabe von Tab zu Tab nach dem mit Feibeitsblatt abgestimmten Protokoll v1, Rückfall nach 10 s), klein der Code und „Von vorn beginnen“. Claude verknüpft ein vorhandenes Blatt per Connector (`link_feibeitsblatt`, auch im Zwischenstopp-Prompt). Siehe 4zq |
 | Prüfung von Nachtrag 44 (Teil 1) und 45 (23.11.2026) | Die **KI-Begriffshilfe** bekommt den Schulportal-Eintrag **ohne Codes** (sie verriete sonst den Code eines wartenden Feibeitsblatts). Die Schüler:innen-Seite lädt nach einer Freigabe **erneut**, bis ihre Daten den Stand erreichen (gescheitertes Neuladen im WLAN der Schule), und wendet eine **ältere Antwort nie nach einer neueren** an. Was nach der Stunde frei geworden ist, bleibt frei, auch wenn die Lehrkraft **danach „Bis hier gezeigt“** setzt (festgehalten). Ein Feibeitsblatt ohne eigenen Titel („Feibeitsblatt“) nennt nicht jede Materialfolie. Fokus nach „Jetzt freigeben“ und nach der Übergabe der Zwischenstand-PDF; „Von vorn beginnen“ öffnet den Tab direkt im Klick; „neu“ nur am zuletzt Erschienenen; volle Liste der Freigaben → Meldung statt „sichtbar“. Bestätigt: Eine Präsentation, die nie live läuft, gibt ihr Material erst nach der Stunde frei („Jetzt freigeben“ sofort). Siehe 4zo, 4zq |
+| Anonyme Umfrage in der Live-Präsentation (Nachtrag 46 vom 24.11.2026) | Wunsch der Lehrkraft: „Baue ein, dass eine Präsentation zu einer anonymen Umfrage aufrufen kann. Dazu stellt die Präsentationsfolie die Umfrage-Frage und die Single-Choice-Antwortoptionen zur Verfügung. Beim Erstellen der Präsentation soll das durch die Lehrkraft festgelegt werden. Die Teilnahme der Umfrage soll pro Gerät nur einmal möglich sein und auch nur während der Live-Präsentation in dem Moment, in dem die Präsentation die Folie dazu offen hat. Das Ergebnis soll für die Schüler bei Unterricks ganz unten unter einem neuen Bereich "Abstimmungsergebnis" aufklappbar in der Schüler-Ansicht dieser Sitzung ca. 2 Minuten nach der ersten Schülerantwort auf die Umfrage angezeigt werden.“ Rückfragen beantwortet: festgelegt **über Claude mit Kontrolle** (Umfragefolie mit unsichtbarer Zeile „Unterricks-Umfrage: Frage \| Antwort \| Antwort“, auf der Sitzungsseite prüfen, ändern oder von Hand ergänzen); **die Abstimmung endet**, sobald das Ergebnis erscheint (2 Minuten nach der ersten Antwort – niemand sieht das Ergebnis vor der eigenen Stimme); die Lehrkraft sieht **live** die Zahl der Antworten und die Verteilung, der Beamer nur die Zahl, bis sie **„Ergebnis am Beamer zeigen“** wählt. Gezählt wird im Durable Object der Sitzung (Zahlen je Antwort, getrennt davon Prüfwerte der Geräte); das beendete Ergebnis steht in D1. Siehe 4zs |
 
 ## 2. Gesamtarchitektur
 
@@ -174,6 +175,7 @@ implementiert und im End-to-End-Test geprüft (Ausnahmen unten ausdrücklich gen
 | | `public/inclassbar.js`, `public/inclass.js`, `public/inclasslib.js` | „Ich bin jetzt im Unterricht“ (Nachtrag 35): Knopf ganz oben und Umschalten (fest geladen, klein); kompakte Ansicht beider Schulformen mit Präsentation, Verlaufsplan samt grünem Pfeil, Material in zwei Spalten, Hausaufgabe (bei Bedarf über `lazy()` geladen); reine Helfer (Phase der Live-Folie, Spalten, seit Nachtrag 42 der kompakte Verlaufsplan `compactPlan`), siehe 4ze und 4zm |
 | | `public/teacherplan.js` | „Kurzplan für die Lehrkraft“ (Nachtrag 42): Prüfung, Speicherform, ob er noch zur Planung passt, Regeln und Speicherschritt der Prompts – gemeinsam für Browser und Worker, siehe 4zm |
 | | `public/terms.js`, `public/termsedit.js`, `public/termcards.js` | „Fachbegriffe dieser Sitzung“ (Nachtrag 44, Teil 3, nur Oberstufe): Prüfung (3–8, Längen, Doppelte), Speicherform mit Stand, Bausteine für Prompt und `get_lesson` (gemeinsam für Browser und Worker); Karte der Sitzungsseite; Karteikarten der Schüler:innen (Umdrehen per Knopf, 3D nur ohne reduzierte Bewegung), siehe 4zr |
+| | `public/polls.js`, `public/pollview.js`, `public/pollpanel.js` | Anonyme Umfrage in der Live-Präsentation (Nachtrag 46): Umfragefolie erkennen und prüfen, Regeln der Abstimmung (je Gerät einmal, Ende 2 Minuten nach der ersten Antwort), was jede Rolle bekommt, Speicherform der Ergebnisse, Abschnitt des Präsentations-Prompts (gemeinsam für Browser und Worker); Abstimmen und „Abstimmungsergebnis“ der Schüler:innen, Balken, Anzeige am Beamer; Feld „Umfragefolien“ der Sitzungsseite mit dem Stand der Umfragen, siehe 4zs |
 | | `public/coursecard.js` | Karte „Kurseinstellungen“ auf der Klassen- bzw. Kursseite (Termine pro Woche, Schülerzahl) |
 | | `public/grundschule.js` | Bereich „Grundschule“ (Menüpunkt zwischen „Gymnasium“ und „Planungsgrundlagen“): Übersicht mit dem Wochenkalender beider Schulformen, den Kursen und „Neuen Kurs anlegen“ (Knopf im Kopf der Seite führt zum Formular; Jahrgang 1–4, Religion oder ein anderes Fach mit Namen); Kursseite (Einheiten, Kurseinstellungen, Fach/Klassen, Planungsgrundlagen); roter Kasten nach Ausfällen (`reviseBox`) |
 | | `public/gsplanning.js` | Prompts für Claude in der Grundschule (Einheit und Stunde planen, Einheit nach Ausfällen überarbeiten, Verlaufsplan-Regeln; nur analoges Material) |
@@ -3571,3 +3573,91 @@ stattdessen der von Anthropic vorgesehene Weg in umgekehrter Richtung (Connector
 * Ohne eingetragenen Beginn bleiben Hausaufgabe, Präsentation und KI-Begriffshilfe für Schüler:innen verborgen (die Sitzung weist darauf hin).
 * Ohne Markierung der letzten gezeigten Folie bekommen Schüler:innen nach der Freigabe die ganze Präsentation.
 * Ein Sitzungscode gilt nur für die Klasse und das Fach der Sitzung.
+
+## 4zs. Anonyme Umfrage in der Live-Präsentation (Nachtrag 46)
+
+Wortlaut (24.11.2026): „Baue ein, dass eine Präsentation zu einer anonymen Umfrage aufrufen kann. Dazu stellt die Präsentationsfolie die Umfrage-Frage und
+die Single-Choice-Antwortoptionen zur Verfügung. Beim Erstellen der Präsentation soll das durch die Lehrkraft festgelegt werden. Die Teilnahme der Umfrage
+soll pro Gerät nur einmal möglich sein und auch nur während der Live-Präsentation in dem Moment, in dem die Präsentation die Folie dazu offen hat. Das
+Ergebnis soll für die Schüler bei Unterricks ganz unten unter einem neuen Bereich "Abstimmungsergebnis" aufklappbar in der Schüler-Ansicht dieser Sitzung
+ca. 2 Minuten nach der ersten Schülerantwort auf die Umfrage angezeigt werden.“ Antworten auf die Rückfragen: festgelegt **über Claude mit Kontrolle**
+(wie Videofolien); **die Abstimmung endet, sobald das Ergebnis erscheint** – auch wenn die Folie noch offen ist oder später noch einmal gezeigt wird (so sieht
+niemand das Ergebnis vor der eigenen Stimme); die Lehrkraft sieht **live** Zahl und Verteilung, der Beamer nur die Zahl der Antworten, bis sie
+**„Ergebnis am Beamer zeigen“** wählt.
+
+**Umfragefolie.** Eine gewöhnliche Folie der Präsentation: oben die Frage, darunter die Antworten (2–6 verschiedene, genau eine wählbar), eine kurze
+Aufforderung („Stimme jetzt in Unterricks ab – unter der Präsentation.“) und genau eine unsichtbare Zeile
+`Unterricks-Umfrage: <Frage> | <Antwort> | <Antwort> …` (Textdarstellungsmodus 3 bzw. höchstens 2 pt in der Farbe des Hintergrunds, wie „Unterricks-Phase“).
+Der Abschnitt „Umfragefolien“ steht immer im Präsentations-Prompt (`pollPromptSection`, nicht in Jg. 5/6 ohne iPads): Claude legt eine Umfragefolie **nur**
+an, wenn die Lehrkraft sie im Stundenverlauf („Umfrage: …“) oder im Chat festlegt, und erfindet keine eigene. Beim Hochladen liest der Browser die Zeile
+(`pollMarkOf`: auch gesperrt gesetzt, umbrochen oder in Textstücken; es gilt der Kandidat mit den meisten Antworten) und schickt sie mit `…/ready`;
+gespeichert als `files.poll_slides = {v:1, pdf, hand}` – `hand` (von der Lehrkraft, streng geprüft) gilt vor `pdf`, `[]` = bewusst keine. Auf der
+Sitzungsseite steht in der Präsentationskarte das Feld **„Umfragefolien“** (`public/pollpanel.js`): Folie, Frage, Antworten (eine je Zeile) prüfen, ändern,
+ergänzen oder wieder die aus der PDF übernehmen; das Vorschaubild trägt das Kennzeichen „Umfrage“. Sitzungsdatei, Sicherung und Einheitsdatei tragen nur die
+von Hand festgelegten Umfragefolien (`slidePolls`), nie Zählungen oder Ergebnisse.
+
+**Live.** Die Präsentationsansicht schickt beim Start die geltenden Umfragefolien mit (`pollSlides`, wie `codeSlides`); der Zustand kennt damit die Umfrage der
+aktuellen Folie (`livePoll` in `worker/livestate.js`: nur bei laufender Präsentation, nie auf einer Codefolie oder unter „Sitzungscode zeigen“). Kennung einer
+Umfrage: Präsentation (Datei) und Folie – eine neu hochgeladene Präsentation beginnt neu. Jede Nachricht des Durable Objects trägt `poll`, je Rolle
+(`pollMessage`): **Schüler:innen** Frage, Antworten und offen/beendet – nie Zahlen; **Beamer** dazu die Zahl der Antworten und nur nach „Ergebnis am Beamer
+zeigen“ (`{t:"poll", op:"show"}`, im Zustand `pollShown`, endet mit jedem Folienwechsel; **erst nach dem Ende der Abstimmung** – vorher nimmt das Objekt den
+Befehl nicht an, sonst sähe die Klasse das Ergebnis, während noch abgestimmt wird) die Verteilung; **Lehrkraft** alles samt Restzeit. Eine Stimme und
+das Zeigen am Beamer ändern `v` nicht (das Folienbild lädt nicht neu) und gehen nur an Lehrkraft und Beamer.
+
+**Abstimmen.** `POST /api/student/lessons/:id/poll {k, choice}` – nur für Geräte mit Zugang zur Sitzung. Der Worker bildet aus Sitzung, Umfrage und Gerät einen
+Prüfwert (HMAC mit dem Geheimnis des Servers) und reicht ihn mit der Wahl an das Durable Object (`/poll-vote`). Dort gilt: nur die Umfrage der gerade
+gezeigten Folie (`not_open`) und nur, solange eine Lehrkraft mit der Präsentation verbunden ist (bzw. ihre Verbindung seit höchstens 90 Sekunden fehlt, z. B.
+WLAN – eine nur „geschlossene“ Präsentation, die auf der Umfragefolie stehen blieb, nimmt später keine Stimmen mehr an), eine gültige Antwort (`choice`), nicht
+nach dem Ende (`closed`), je Prüfwert einmal (`voted`). Gespeichert wird im Objekt
+getrennt: `polls` = je Umfrage die Zahlen je Antwort und der Zeitpunkt der ersten Antwort, `pv:<Kennung>` = die Liste der Prüfwerte. **Welche Antwort ein
+Gerät gewählt hat, wird nirgends festgehalten**; die Gerätekennung selbst erreicht das Objekt nie. Zwischen Lesen und Schreiben stehen nur Speicherzugriffe –
+gleichzeitige Stimmen überschreiben einander nicht. „Je Gerät“ heißt: je angemeldetem Gerät (wie die Freischaltung der Sitzung) – wer das Gerät neu
+einrichtet bzw. die Daten der Seite löscht und sich neu anmeldet, zählt als neues Gerät.
+
+**Ende und Ergebnis.** Mit der ersten Stimme stellt das Objekt einen Wecker (`alarm`) auf 2 Minuten später (`POLL_RESULT_MS`); überschneiden sich zwei
+Umfragen, steht er auf dem früheren Ende und danach auf dem nächsten. Der Wecker (bzw. der Abruf des Stands durch die Lehrkraft, falls er ausblieb) schließt
+ab (`settlePolls`): das Ergebnis `{k, n, q, options, counts, total, at}` wird in D1 unter `lessons.polls` eingetragen, im Zustand rückt `pollAt` vor, und alle
+bekommen den Stand (`open: false`). Scheitert D1, ist die Umfrage trotzdem beendet, und der Wecker versucht es nach 20 Sekunden erneut. Die Seite der
+Schüler:innen vergleicht `pollAt` mit dem Zeitpunkt ihrer Daten (`now` der Antwort; das Ergebnis steht in D1, bevor `pollAt` vorrückt) und lädt diese
+einmal neu (derselbe Mechanismus wie beim Material, `revealWatch`: zufällig bis zu 2 Sekunden später, bei Fehlschlag weitere Versuche; nach einer geglückten
+Antwort gilt der gewünschte Stand als erreicht) – das Ergebnis erscheint **ohne Neuladen der Seite** ganz unten unter **„Abstimmungsergebnis“**
+(`pollResults`: je Umfrage ein aufklappbares Feld mit Frage und Zahl der Antworten, aufgeklappt die Balken mit Zahl und Prozent). `GET
+/api/student/lessons/:id` liefert `polls` (nur Frage, Antworten, Zahlen – ohne Kennung der Datei); vor dem Ende steht dort nichts.
+`pollAt` bleibt wie `revealAt` über „Präsentation für alle beenden“.
+
+**Schüler:innen.** Direkt unter dem Live-Fenster erscheint – nur solange die Umfragefolie gezeigt wird – das Feld „Umfrage“ (`studentPoll`): Frage,
+Optionsfelder, Hinweis zur Anonymität, „Abstimmen“; danach „Danke – deine Stimme ist gezählt …“, nach dem Ende „Die Abstimmung ist beendet …“. Im
+Live-Fenster steht solange der Hinweis „Umfrage – stimme unter der Präsentation ab“ (im vergrößerten Fenster wäre das Feld darunter sonst nicht zu sehen).
+Dass dieses Gerät schon abgestimmt hat, merkt sich die Seite (`u.poll.<Kennung>`); der Server prüft es unabhängig davon.
+
+**Lehrkraft.** In der Präsentationsansicht steht unter der Umfragefolie das Feld „Umfrage“: Zahl der Antworten, Restzeit, Knopf „Ergebnis am Beamer zeigen“
+(solange abgestimmt wird ohne Wirkung, `aria-disabled`) und – nach dem Ende – „Ergebnis löschen und Umfrage neu öffnen“ (zweimal drücken; ein Dialog wäre im
+Vollbild nicht zu sehen).
+Die Verteilung selbst steht dort nur, wenn das Beamerbild getrennt läuft (Beamerfenster auf einem zweiten Bildschirm oder Beamergerät – dieselbe Regel wie
+bei den Notizen) oder sobald das Ergebnis gezeigt wird: ein gespiegeltes iPad zeigte sie sonst der Klasse, bevor alle abgestimmt haben (dort heißt der Knopf
+„Ergebnis zeigen“). Beamerfenster und Beamergerät zeigen über der Folie „Umfrage · n Antworten“ bzw. nach dem Zeigen Frage und Balken. Auf der
+Sitzungsseite steht unter „Umfragefolien“ der **Stand der Umfragen dieser Sitzung** (`GET /api/teacher/lessons/:id/polls`, aus dem Objekt) mit **„Ergebnis
+löschen und Umfrage neu öffnen“** (`POST …/polls/reset`, nach Rückfrage): Zählung, Prüfwerte und Ergebnis verschwinden – z. B. nach einem Probelauf zu Hause;
+die Nachricht trägt danach den Zeitpunkt des Neuöffnens (`r`), damit auch Geräte, die schon abgestimmt hatten, wieder einmal dürfen. Wird eine Umfrage
+geändert, die schon Antworten hat, gilt die Änderung erst nach dem Löschen (die Meldung beim Speichern sagt es). Wird die Präsentation
+gelöscht oder ersetzt, verschwinden Zählung und Ergebnisse ihrer Umfragen mit ihr; mit der Sitzung ohnehin. `get_lesson` nennt die Umfragefolien und die
+Ergebnisse beendeter Umfragen (nur Zahlen).
+
+**Grenzen.** Höchstens 20 Umfragefolien je Präsentation, Frage 240, Antwort 120 Zeichen, 600 Stimmen je Umfrage. Die Uhr zählt ab der ersten Antwort und läuft
+auch weiter, während eine andere Folie gezeigt wird; ohne Antwort bleibt die Umfrage offen, wann immer die Folie gezeigt wird. Eltern, Sitzungsliste, Podcast
+und Druckaufträge kennen die Umfrage nicht.
+
+**Befunde der Gegenprüfung (25.11.2026), behoben:** Die Seiten der Schüler:innen luden nach jeder beendeten Umfrage bis zu siebenmal neu (der Stand in D1
+und der des Objekts waren nie gleich) – jetzt einmal. „Ergebnis am Beamer zeigen“ ging auch, während noch abgestimmt wurde – jetzt erst nach dem Ende. Ein
+Wecker, der ohne fällige Umfrage auslöste (z. B. weil seine Umfrage gelöscht wurde), wurde nicht neu gestellt – das Ergebnis einer zweiten laufenden Umfrage
+blieb aus. Ohne verbundene Lehrkraft blieb die Umfrage auf einer stehen gebliebenen Folie offen. Die Verteilung blieb in der Präsentationsansicht stehen, wenn
+das Beamerfenster verschwand. Eine umbrochene Zeile, die mit „|“ endet, schluckte eine folgende andere unsichtbare Zeile. Kopierter Text mit zusammengesetzten
+Umlauten bzw. weichen Trennstrichen wurde im Formular ohne erkennbaren Grund abgelehnt. Dazu Ansagen für Screenreader (Umfrage geöffnet, neues Ergebnis) und
+44 px hohe Knöpfe im Feld der Präsentationsansicht. Bewusst so belassen: Mit getrennt laufendem Beamerbild sieht die Lehrkraft die Verteilung schon während
+der Abstimmung (Antwort der Lehrkraft) – bei sehr wenigen Stimmen ist eine einzelne Wahl damit für sie erkennbar; der Hinweis für die Schüler:innen sagt
+deshalb nur, was gespeichert wird.
+
+**Tests.** `test/unit/polls.test.mjs` (Zeile erkennen, Regeln, Rollen, Ergebnisse, Zustand, Durable Object mit gestellter Uhr: Stimme nur bei offener Folie,
+je Gerät einmal, Ende und Wecker, scheiterndes D1, zwei Umfragen, Löschen; Wege der Schüler:innen und der Lehrkraft; Prompt), `test/unit/pollui.test.mjs`
+(Abstimmen, „Abstimmungsergebnis“, Beamer, Formular) und `test/e2e/polls.mjs` (Lehrkraft mit Beamerfenster, iPad und Handy; die Prüfung wartet die 2 Minuten
+wirklich ab).

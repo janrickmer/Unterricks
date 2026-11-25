@@ -687,6 +687,27 @@ Der Kopf jeder Seite: Fach, Kurs und Stand auf einen Blick.
 - Bedienung: Pfeiltasten (auch Bild auf/ab, Pos1/Ende), solange das Fenster oder ein Knopf darin den Fokus hat; Wischen nach links/rechts über die Folie (senkrecht scrollt die Seite, `touch-action: pan-y pinch-zoom`). Eine unsichtbare Live-Region sagt „Folie 3 von 7“ an. Ohne Folienbilder (ältere Präsentation) nur der Satz „Die Folien lassen sich hier nicht anzeigen …“ in `--muted` und der Download.
 - **Videofolie** (Nachtrag 38): unter der Leiste (im Vollbild ebenso, hell auf dunkel) `p.sv-video` – rotes ▶, der Link „Video auf YouTube ansehen: „…“ (Ausschnitt 0:30–0:45)“ in 700 (neuer Tab, bricht um) und darunter eingerückt „Der Link öffnet YouTube (Google) in einem neuen Tab.“ (.9rem, `--muted`); nur auf Videofolien, sonst verborgen.
 
+### Anonyme Umfrage (`.pollbox`, `.pollbars`, `.pollresbox`, `.pollpane`, `.bm-poll`, `.polleditbox`, Nachtrag 46)
+- **Balken** (`.pollbars`): je Antwort der Text, darunter ein Balken (`.pb-track` .7rem, rund, `--surface-2`; Füllung in der Fachfarbe), rechts „Zahl · Prozent“
+  in Tabellenziffern. Die Zahl steht immer als Text da – der Balken ist Zierde (`aria-hidden`); die meistgewählte Antwort ist zusätzlich fett (nie nur farbig).
+  Die Füllung wächst in .35s, ohne Bewegung sofort.
+- **Schüler:innen – abstimmen** (`.pollbox`, direkt unter dem Live-Fenster): Karte in `--fach-t` mit Kante in der Fachfarbe; „Umfrage“ (h2), die Frage groß
+  und fett, die Antworten als Optionsfelder in eigenen Zeilen (weiß, 2px `--line-ui`, 12px rund, mindestens 48px hoch; gewählt: Kante in der Fachfarbe), der
+  Hinweis zur Anonymität, „Abstimmen“ (Hauptknopf, 48px). Danach nur noch die Meldung („Danke – deine Stimme ist gezählt …“ bzw. „Die Abstimmung ist beendet
+  …“, `role="status"`, bekommt den Fokus). Im Live-Fenster solange ein gelbes Abzeichen „Umfrage – stimme unter der Präsentation ab“ (bricht am Handy um).
+- **Schüler:innen – „Abstimmungsergebnis“** (`.pollresbox`, ganz unten): Karte mit h2; je Umfrage ein `details` – die Frage als `summary` (fett, mindestens
+  48px, Pfeil wie `details.box`) mit der Zahl der Antworten rechts, aufgeklappt die Balken. Zunächst zugeklappt; eine höfliche Live-Region sagt ein neues
+  Ergebnis an.
+- **Lehrkraft – Präsentationsansicht** (`.pollpane`, unter der aktuellen Folie wie das Feld der Videofolie, dunkel #141c2e): Balkensymbol in Gelb, „Umfrage“,
+  Zahl der Antworten, rechts die Restzeit; die Frage; die Balken (Füllung gelb) nur bei getrennt laufendem Beamerbild oder gezeigtem Ergebnis; Knopf
+  „Ergebnis am Beamer zeigen“ (`aria-pressed`; solange abgestimmt wird blass und ohne Wirkung, `aria-disabled`) und nach dem Ende „Ergebnis löschen und
+  Umfrage neu öffnen“ (zweimal drücken, beim zweiten Mal mit roter Kante), Knöpfe 44px hoch; darunter eine Statuszeile.
+- **Beamer** (`.bm-poll`): unten mittig eine Pille „Umfrage · 12 Antworten“ (#13213b, gelbe Kante, groß); nach dem Zeigen liegt über der abgedunkelten Folie
+  eine Karte mit der Frage und den Balken (Schrift mit der Fensterbreite, Füllung gelb).
+- **Lehrkraft – Sitzungsseite** (`.polleditbox` in der Präsentationskarte): wie „Videofolien“ – je Umfrage ein `fieldset` (Folie, Frage, Antworten als
+  Textfeld mit einer Antwort je Zeile), darunter „Stand der Umfragen in dieser Sitzung“ mit Balken und „Ergebnis löschen und Umfrage neu öffnen“ (Rückfrage).
+  Vorschaubilder tragen das Abzeichen „Umfrage“ (`.badge.poll`, `--gelb-t`).
+
 ### Material erscheint mit seiner Materialfolie (`.item.fresh`, `.badge.neu`, `.reveal-note`, Nachtrag 44)
 - **Schüler:innen:** Neu freigegebenes Material steht ohne Neuladen in der Liste „Material“ an seinem Platz (Feibeitsblätter vor den Dateien) – die übrigen
   Zeilen bleiben stehen, der Fokus auch. Die neue Zeile trägt einen 4px-Streifen innen links in der Fachfarbe (`inset 4px 0 0 var(--fach)`, Kante Fach 55 % in

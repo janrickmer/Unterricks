@@ -157,6 +157,7 @@ const ROUTES = [
   ["GET", "/api/teacher/files/" + ID + "/slides", F.routeTeacherSlides],
   ["PUT", "/api/teacher/files/" + ID + "/phases", F.routePhasesPut],
   ["PUT", "/api/teacher/files/" + ID + "/videos", F.routeVideosPut],
+  ["PUT", "/api/teacher/files/" + ID + "/polls", F.routePollsPut],
   // Notizen der Lehrkraft zu den Folien (Nachtrag 20): Fassung ohne Notizen für Schüler:innen, Notizen, Anmerkungs-PDF – nur angemeldet
   ["PUT", "/api/teacher/files/" + ID + "/clean", F.routeCleanPut],
   ["GET", "/api/teacher/files/" + ID + "/notes", F.routeNotesGet],
@@ -181,6 +182,8 @@ const ROUTES = [
   ["POST", "/api/teacher/lessons/" + ID + "/live-ticket", LV.routeTeacherLiveTicket],
   ["GET", "/api/teacher/lessons/" + ID + "/live", LV.routeTeacherLiveState],
   ["POST", "/api/teacher/lessons/" + ID + "/live/stop", LV.routeTeacherLiveStop],
+  ["GET", "/api/teacher/lessons/" + ID + "/polls", LV.routeTeacherPolls],
+  ["POST", "/api/teacher/lessons/" + ID + "/polls/reset", LV.routeTeacherPollReset],
   // Beamer über ein zweites Gerät (Nachtrag 15): koppeln und trennen (Lehrkraft), Beamer-Code und Live-Verbindung des Geräts (öffentlich)
   ["POST", "/api/teacher/lessons/" + ID + "/beamer", BM.routeTeacherBeamerPair],
   ["POST", "/api/teacher/lessons/" + ID + "/beamer/disconnect", BM.routeTeacherBeamerDisconnect],
@@ -201,6 +204,7 @@ const ROUTES = [
   ["POST", "/api/student/lessons/" + ID + "/explain", S.routeStudentExplain],
   ["POST", "/api/student/lessons/" + ID + "/live-ticket", S.routeStudentLiveTicket],
   ["GET", "/api/student/lessons/" + ID + "/live", S.routeStudentLiveState],
+  ["POST", "/api/student/lessons/" + ID + "/poll", S.routeStudentPollVote],
   // Ausliefern über signierte Links und Live-Verbindung
   ["GET", "/api/dl/" + ID, F.routeDownload],
   ["GET", "/api/base/" + ID, B.routeBaseFile],

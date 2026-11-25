@@ -1868,3 +1868,86 @@ details.box.ic-planmore > summary { min-height: 44px; }
 .sharecard .sharego { margin-top: 1rem; }
 .sharecmp { display: grid; grid-template-columns: max-content 1fr; gap: .25rem .75rem; margin: .3rem 0 0; }
 .sharecmp dt { font-weight: 700; } .sharecmp dd { margin: 0; overflow-wrap: anywhere; }
+
+/* ---------- Anonyme Umfrage in der Live-Präsentation (Nachtrag 46) ----------
+   Verteilung (pollBars): Antwort, Balken, Zahl · Prozent – die Zahl steht immer als Text daneben; die meistgewählte Antwort ist zusätzlich fett (nicht nur farbig). */
+.pollbars { list-style: none; margin: 0; padding: 0; display: grid; gap: .5rem; }
+.pollbar { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: .15rem .75rem; align-items: baseline; }
+.pollbar .pb-text { min-width: 0; overflow-wrap: anywhere; }
+.pollbar .pb-num { font-variant-numeric: tabular-nums; font-weight: 700; white-space: nowrap; }
+.pollbar .pb-track { grid-column: 1 / -1; height: .7rem; border-radius: 999px; background: var(--surface-2); border: 1px solid var(--line); overflow: hidden; }
+.pollbar .pb-fill { display: block; height: 100%; min-width: 0; background: var(--fach, var(--blau)); border-radius: 999px; transition: width .35s var(--ease); }
+.pollbar.lead .pb-text { font-weight: 800; }
+@media (prefers-reduced-motion: reduce) { .pollbar .pb-fill { transition: none; } }
+/* Schüler:innen: abstimmen (unter der Live-Präsentation) */
+.pollbox-wrap .pollbox { margin: 1rem 0; border-color: color-mix(in srgb, var(--fach, var(--blau)) 55%, var(--line)); background: var(--fach-t, var(--blau-t)); }
+.pollbox h2 { font-size: 1.1rem; margin-bottom: .35rem; }
+.pollbox .poll-q { font-size: 1.12rem; font-weight: 800; line-height: 1.35; margin: 0 0 .7rem; overflow-wrap: anywhere; }
+.pollbox .poll-opts { border: 0; margin: 0 0 .6rem; padding: 0; min-width: 0; display: grid; gap: .45rem; }
+.pollbox .poll-opt { display: flex; align-items: center; gap: .7rem; min-height: 48px; padding: .45rem .8rem; border: 2px solid var(--line-ui); border-radius: 12px; background: var(--surface); cursor: pointer; font-weight: 600; overflow-wrap: anywhere; }
+.pollbox .poll-opt input { flex: none; width: 1.3rem; height: 1.3rem; margin: 0; accent-color: var(--fach, var(--blau)); }
+.pollbox .poll-opt:has(input:checked) { border-color: var(--fach, var(--blau)); box-shadow: inset 0 0 0 1px var(--fach, var(--blau)); }
+.pollbox .poll-opt:has(input:focus-visible) { outline: 3px solid var(--ring, var(--fach-text)); outline-offset: 2px; }
+.pollbox .poll-state { margin: 0; font-weight: 700; }
+.pollbox .poll-state:focus { outline: none; }
+.pollbox .btn.primary { min-height: 48px; }
+.live .status:has(.pollbadge) { right: .65rem; flex-wrap: wrap; }   /* der Hinweis zur Umfrage ist lang: am Handy bricht die Zeile um, statt über den Rand zu ragen */
+.live .status .pollbadge { background: var(--gelb); color: #13213b; white-space: normal; text-align: left; }
+/* Schüler:innen: „Abstimmungsergebnis“ ganz unten */
+.pollres-wrap .pollresbox { margin-top: 1.15rem; }
+.pollresbox h2 { font-size: 1.1rem; }
+.pollresbox .hint { margin-bottom: .5rem; }
+.pollres { border-top: 1px solid var(--line); }
+.pollres > summary { cursor: pointer; list-style: none; display: flex; align-items: center; gap: .6rem; min-height: 48px; padding: .35rem 0; font-weight: 700; }
+.pollres > summary::-webkit-details-marker { display: none; }
+.pollres > summary::before { content: ""; width: .55em; height: .55em; border-right: 2px solid currentColor; border-bottom: 2px solid currentColor; transform: rotate(-45deg); transition: transform .2s var(--ease); flex: none; }
+.pollres[open] > summary::before { transform: rotate(45deg); }
+.pollres .pr-q { min-width: 0; overflow-wrap: anywhere; flex: 1; }
+.pollres .pr-n { flex: none; font-weight: 600; }
+.pollres .pr-body { padding: .2rem 0 .9rem; }
+/* Lehrkraft: Präsentationsansicht – Feld unter der aktuellen Folie (wie das Feld der Videofolie) */
+.presenter .pollpane { display: none; }
+.presenter.with-poll .curcol { grid-template-rows: minmax(0, 1fr) auto; gap: clamp(.4rem, 1vw, .8rem); }
+.presenter.with-poll.with-notes .curcol { grid-template-rows: minmax(0, 1fr) auto minmax(0, 22%); }
+.presenter.with-poll .pollpane { display: grid; gap: .4rem; justify-self: center; width: min(100%, 62rem); max-height: 46vh; overflow: auto; overscroll-behavior: contain; padding: .55rem .9rem .65rem; background: #141c2e; color: #f1f4fa;
+  border: 1px solid #33415c; border-radius: 12px; }
+.presenter.idle .pollpane { opacity: 1; }
+.presenter .pollpane .pv-head > .ico { color: #ffd43b; }
+.presenter .pp-count { font-weight: 800; font-variant-numeric: tabular-nums; color: #fff; }
+.presenter .pp-left { margin-left: auto; font-variant-numeric: tabular-nums; font-weight: 700; color: #c9d3e4; }
+.presenter .pp-q { margin: 0; font-weight: 700; line-height: 1.35; overflow-wrap: anywhere; }
+.presenter .pp-bars:empty { display: none; }
+.presenter .pollpane .pollbar .pb-track { background: #26324d; border-color: #46557a; }
+.presenter .pollpane .pollbar .pb-fill { background: #ffd43b; }
+.presenter .pollpane .btn { --ring: #fff; background: #1d2840; color: #fff; border-color: #6b7a96; min-height: 44px; }
+.presenter .pollpane .btn[aria-disabled="true"] { opacity: .55; cursor: default; }
+.presenter .pollpane .btn[hidden] { display: none; }
+.presenter .pollpane .pp-reset.sure { border-color: #ff8a80; }
+.presenter .pollpane .btn:hover { background: #26324d; }
+.presenter .pollpane .btn[aria-pressed="true"] { background: #2b4a8f; border-color: #8fb0f0; }
+/* Beamer: Zahl der Antworten unten über der Folie; nach „Ergebnis am Beamer zeigen“ die Verteilung groß */
+.beamer .bm-poll { position: absolute; left: 0; right: 0; bottom: clamp(.8rem, 3vh, 2.2rem); display: grid; justify-items: center; pointer-events: none; z-index: 2; padding: 0 1rem; }
+.beamer .bm-poll[hidden] { display: none; }
+.beamer .bmp-badge { margin: 0; padding: .45em 1.1em; border-radius: 999px; background: #13213b; color: #fff; border: 2px solid #ffd43b; font-size: clamp(1.1rem, 2.6vw, 2.2rem); font-variant-numeric: tabular-nums; box-shadow: 0 6px 22px rgba(0, 0, 0, .45); }
+.beamer .bm-poll.shown { inset: 0; align-content: center; background: rgba(8, 12, 22, .82); padding: 4vh 5vw; }
+.beamer .bmp-card { width: min(100%, 70rem); display: grid; gap: clamp(.8rem, 2.4vh, 1.8rem); padding: clamp(1rem, 3vw, 2.6rem); border-radius: 22px; background: #13213b; color: #fff; border: 2px solid #46557a; box-shadow: 0 12px 40px rgba(0, 0, 0, .55); }
+.beamer .bmp-q { margin: 0; font-size: clamp(1.3rem, 3.2vw, 3rem); font-weight: 800; line-height: 1.25; overflow-wrap: anywhere; }
+.beamer .bmp-card .pollbars { gap: clamp(.6rem, 1.8vh, 1.3rem); font-size: clamp(1.05rem, 2.4vw, 2.2rem); }
+.beamer .bmp-card .pollbar .pb-track { height: clamp(.8rem, 2.2vh, 1.6rem); background: #26324d; border-color: #46557a; }
+.beamer .bmp-card .pollbar .pb-fill { background: #ffd43b; }
+.beamer .bmp-n { margin: 0; color: #c9d3e4; font-size: clamp(1rem, 2vw, 1.7rem); font-variant-numeric: tabular-nums; }
+/* Lehrkraft: Sitzungsseite – „Umfragefolien“ in der Präsentationskarte */
+.badge.poll { background: var(--gelb-t); color: var(--text); border: 1px solid var(--gelb-kante); }
+.polleditbox { margin-bottom: .7rem; }
+.polleditbox .pollrows { display: grid; gap: .6rem; }
+.polleditbox .pollrow { display: grid; grid-template-columns: minmax(8rem, 10rem) minmax(12rem, 1fr); gap: .45rem .75rem; align-items: start; margin: 0; padding: .6rem .8rem .75rem; border: 1px solid var(--line); border-radius: 12px; min-width: 0; }
+.polleditbox .pollrow legend { font-weight: 700; padding: 0 .3rem; }
+.polleditbox .pollrow .field { margin: 0; min-width: 0; }
+.polleditbox .pol-o { grid-column: 1 / -1; }
+.polleditbox .pol-o .hint { margin: .25rem 0 0; }
+.polleditbox .pollrow > .btn { justify-self: start; }
+.polleditbox .ps-title { font-size: 1rem; margin: .6rem 0 0; }
+.polleditbox .pollstatus-list { display: grid; gap: .7rem; }
+.polleditbox .pollstatus { display: grid; gap: .4rem; padding: .65rem .8rem .75rem; border: 1px solid var(--line); border-radius: 12px; background: var(--surface-2); }
+.polleditbox .pollstatus p { margin: 0; overflow-wrap: anywhere; }
+@media (max-width: 40rem) { .polleditbox .pollrow { grid-template-columns: 1fr; } }

@@ -5,6 +5,8 @@ import { isValidCode, formatCode, slideTextLines, slideCodeBoxes, slideSessionCo
   nextSlideOf, nextSlideLabel, presenterKey, BEAMER_CHANNEL, normBeamerCode, PUBLIC_URL, beamerWindowNote,
   TIMER_PICKS, TIMER_MAX_MIN, TIMER_TOTAL_MAX_MIN, TIMER_ADDS, TIMER_OVER, normTimerMin } from "./shared.js";
 import { codeSlideDom } from "./codeslide.js";
+import { pollMarkOf, cleanPollSlides, pollSlidesOf, pollSlideAt, cleanPollState, pollKey, votesText, fmtLeft } from "./polls.js";
+import { pollBars } from "./pollview.js";
 import { timerBand } from "./timerband.js";
 import { videoMarkOf, cleanVideoSlides, videoSlidesOf, videoAt, videoName, videoClipText, videoWatchUrl, videoPosNow, clampPos, cleanVideoReport, ytErrorText, fmtClock, YT_STATE } from "./videoslides.js";
 import { ytPlayer } from "./ytplayer.js";
@@ -94,6 +96,8 @@ export async function pdfPageCount(file) {
    Server, opt.phases (Zuordnung der Lehrkraft aus einer Sitzungsdatei bzw. Sicherung) als phasesHand. Ergebnis zusätzlich phases = Zahl der Folien mit Phase.
    Videofolien (Nachtrag 38): je Folie mit der unsichtbaren Zeile „Unterricks-Video: …“ (videoMarkOf) {n, id, start?, end?, title?} als videos, opt.videos (aus einer
    Sitzungsdatei) als videosHand. Ergebnis zusätzlich videos = die geltenden Videofolien.
+   Umfragefolien (Nachtrag 46): je Folie mit der unsichtbaren Zeile „Unterricks-Umfrage: Frage | Antwort | Antwort“ (pollMarkOf) {n, q, options} als polls,
+   opt.polls (aus einer Sitzungsdatei) als pollsHand. Ergebnis zusätzlich polls = die geltenden Umfragefolien.
    Trägt die PDF Anhänge oder Notiz-Anmerkungen, bekommen Schüler:innen nur eine bereinigte Fassung (…/clean); die Folienbilder entstehen dann aus
    ihr. Mit Notizen entsteht danach die Anmerkungs-PDF (nur Lehrkraft). Ergebnis zusätzlich notes (Zahl), clean {needed, ok, error}, annotated
    {file, removed} | {error}. */
@@ -135,7 +139,7 @@ async function rasterize(file, fileId, token, onProgress, opt) {
   }
   const notes = cards ? [] : cleanSlideNotes(opt.notes !== undefined && opt.notes !== null ? opt.notes : scan.raw, n);
   const side = cards ? 1600 : 1920;
-  const thumbs = [], marks = new Array(n).fill(null), videos = [];
+  const thumbs = [], marks = new Array(n).fill(null), videos = [], polls = [];
   for (let i = 1; i <= n; i++) {
     const page = await doc.getPage(i);
     const v1 = page.getViewport({ scale: 1 });
@@ -153,6 +157,8 @@ async function rasterize(file, fileId, token, onProgress, opt) {
       marks[i - 1] = phaseMarkOf(lines, items);   // Phase der Folie (Nachtrag 34): unsichtbare Zeile „Unterricks-Phase: n“ (Textstücke zuerst)
       const vid = videoMarkOf(lines, items);   // Videofolie (Nachtrag 38): unsichtbare Zeile „Unterricks-Video: …“
       if (vid) videos.push({ n: i, ...vid });
+      const pol = pollMarkOf(lines, items);   // Umfragefolie (Nachtrag 46): unsichtbare Zeile „Unterricks-Umfrage: …“
+      if (pol) polls.push({ n: i, ...pol });
       const head = codeSlideLines(lines, canvas.height);
       if (head) { placeholder = true; codeSlides.push({ n: i, lines: head }); }
     } catch {}
@@ -193,7 +199,9 @@ async function rasterize(file, fileId, token, onProgress, opt) {
   const phases = cleanSlidePhases(marks, n) || null, phasesHand = opt.phases ? cleanSlidePhases(opt.phases, n) || null : null;
   // Videofolien (Nachtrag 38): aus der PDF; opt.videos = von der Lehrkraft festgelegt (Sitzungsdatei bzw. Sicherung; [] = bewusst keine)
   const vids = cleanVideoSlides(videos, n), videosHand = Array.isArray(opt.videos) ? cleanVideoSlides(opt.videos, n) : null;
-  const ready = await api("POST", "/api/teacher/files/" + fileId + "/ready", { token, body: { pages: n, codeSlides: sent, notes, clean: !!scan.needsClean, phases, phasesHand, videos: vids, videosHand } });
+  // Umfragefolien (Nachtrag 46): aus der PDF; opt.polls = von der Lehrkraft festgelegt (Sitzungsdatei bzw. Sicherung; [] = bewusst keine)
+  const pls = cleanPollSlides(polls, n), pollsHand = Array.isArray(opt.polls) ? cleanPollSlides(opt.polls, n) : null;
+  const ready = await api("POST", "/api/teacher/files/" + fileId + "/ready", { token, body: { pages: n, codeSlides: sent, notes, clean: !!scan.needsClean, phases, phasesHand, videos: vids, videosHand, polls: pls, pollsHand } });
   // Anmerkungs-PDF (nur Lehrkraft): ein Fehler hier lässt die Präsentation nutzbar
   let annotated = null;
   const rev = ready.file && ready.file.notesRev;
@@ -205,6 +213,7 @@ async function rasterize(file, fileId, token, onProgress, opt) {
   const notesBad = !(opt.notes !== undefined && opt.notes !== null) && !!scan.notesFile && !notes.length;
   return { pages: n, thumbs, file: ready.file, codeSlides: (ready.file && ready.file.codeSlides) || sent, notes: notes.length, notesBad, clean: cleanState, annotated, phases: phases ? phases.filter((v) => v !== null).length : 0,
     videos: videoSlidesOf(ready.file || { videos: { pdf: vids, hand: videosHand } }),
+    polls: pollSlidesOf(ready.file && ready.file.polls ? ready.file : { polls: { pdf: pls, hand: pollsHand } }),
     swapped: swappedOn.length || missedOn.length ? { from: oldCode, to: want, slides: swappedOn, missed: missedOn } : null };
 }
 
@@ -392,6 +401,81 @@ export async function startPresenter({ lessonId, file, token, startSlide = 0, on
   const videoPane = h("section", { class: "videopane", "aria-label": "Video dieser Folie" },
     h("div", { class: "pv-head" }, icon("play"), vTitle, vClip, vTime), h("div", { class: "pv-ctl" }, vPlay, vBack, vFwd, vRestart, vClose, vYt), vMsg);
   curCol.insertBefore(videoPane, notesBox);
+  /* ---------- Umfragefolien (Nachtrag 46): anonyme Umfrage an der Stelle der Folie ----------
+     Die Schüler:innen stimmen auf ihren Geräten ab, solange diese Folie gezeigt wird; gezählt wird im Durable Object, der Stand kommt mit jeder Nachricht
+     (pl = {k, n, q, options, open, total, counts, left, shown} samt Empfangszeit). Hier unter der Folie: Zahl der Antworten, Restzeit und der Knopf „Ergebnis am
+     Beamer zeigen“. Die Verteilung selbst steht hier nur, wenn das Beamerbild getrennt läuft (wie die Notizen) – oder sobald das Ergebnis gezeigt wird; ein
+     gespiegeltes iPad zeigte sie sonst der Klasse, bevor alle abgestimmt haben. */
+  const pollSlides = pollSlidesOf(s && s.polls ? s : file);
+  const pollOf = (k) => (k >= 1 && !(withCode && holders.has(k)) ? pollSlideAt(pollSlides, k) : null);
+  let pl = null, plAt = 0, plTick = null, plSureT = null;
+  const plQ = h("p", { class: "pp-q" }), plCount = h("span", { class: "pp-count" }), plLeft = h("span", { class: "pp-left" });
+  const plBars = h("div", { class: "pp-bars" }), plMsg = h("p", { class: "pv-msg", role: "status" });
+  // „Ergebnis am Beamer zeigen“ erst nach dem Ende der Abstimmung (Befund der Gegenprüfung: sonst sähe die Klasse das Ergebnis, während noch abgestimmt
+  // wird); bis dahin bleibt der Knopf erreichbar, aber ohne Wirkung (aria-disabled) – die Statuszeile sagt, warum
+  const plShow = h("button", { class: "btn small pp-show", type: "button", "aria-pressed": "false", onclick: () => {
+    if (!pl || pl.open) return;
+    const on = !pl.shown;
+    live.send({ t: "poll", op: "show", on }); pl = { ...pl, shown: on }; pPaint(); sendPollWin();
+  } }, "Ergebnis am Beamer zeigen");
+  // „Ergebnis löschen und Umfrage neu öffnen“ (nur nach dem Ende, z. B. nach einem Probelauf zu Hause): zweimal drücken – ein Dialog wäre im Vollbild nicht zu sehen
+  let plSure = false;
+  const plReset = h("button", { class: "btn small pp-reset", type: "button", hidden: true, onclick: async () => {
+    const p = pollNow();
+    if (!p || p.open || plReset.getAttribute("aria-busy") === "true") return;
+    if (!plSure) { plSure = true; clearTimeout(plSureT); plSureT = setTimeout(() => { plSure = false; pPaint(); }, 6000); pPaint(); return; }
+    plSure = false; clearTimeout(plSureT);
+    plReset.setAttribute("aria-busy", "true");
+    try { await api("POST", "/api/teacher/lessons/" + lessonId + "/polls/reset", { token, body: { k: p.k } }); pl = null; plNote = ""; live.hello(); }
+    catch (e) { plNote = "Nicht gelöscht: " + (e && e.message ? e.message : e); }
+    plReset.removeAttribute("aria-busy");
+    pPaint();
+    if (root.isConnected && (!document.activeElement || document.activeElement === document.body || document.activeElement === plReset)) { try { root.focus({ preventScroll: true }); } catch {} }
+  } }, "Ergebnis löschen und Umfrage neu öffnen");
+  let plNote = "";
+  const pollPane = h("section", { class: "pollpane", "aria-label": "Umfrage dieser Folie" },
+    h("div", { class: "pv-head" }, icon("chart"), h("p", { class: "pv-title", text: "Umfrage" }), plCount, plLeft), plQ, plBars, h("div", { class: "pv-ctl" }, plShow, plReset), plMsg);
+  curCol.insertBefore(pollPane, notesBox);
+  const pollNow = () => { const sp = !peek ? pollOf(cur) : null; return sp ? (pl && pl.n === cur ? pl : { k: pollKey(file.id, cur), n: cur, q: sp.q, options: sp.options, open: true, total: 0, counts: sp.options.map(() => 0), left: null, shown: false }) : null; };
+  const pollLeftNow = (p) => (p && p.open && Number.isFinite(p.left) ? Math.max(0, p.left - (performance.now() - plAt)) : null);
+  // was das Beamerfenster bekommt: Zahl der Antworten, die Verteilung nur bei „Ergebnis am Beamer zeigen“
+  const pollWire = () => { const p = pollNow(); return p ? { k: p.k, n: p.n, q: p.q, options: p.options, open: p.open, total: p.total, shown: !!p.shown, ...(p.shown ? { counts: p.counts } : {}) } : null; };
+  function sendPollWin() { if (bc && beamers.size) try { bc.postMessage({ t: "poll", id: pid, at: claimAt, slide: peek ? null : cur, poll: pollWire() }); } catch {} }
+  function setPoll(raw) {
+    const p = raw ? cleanPollState(raw) : null;
+    pl = p && p.n === cur && !peek && pollOf(cur) ? { counts: p.options.map(() => 0), total: 0, left: null, shown: false, ...p } : null;
+    plAt = performance.now();
+    pPaint(); sendPollWin();
+  }
+  let plKey = "";
+  function pPaint() {
+    const p = pollNow();
+    root.classList.toggle("with-poll", !!p);
+    if (!p) { clearInterval(plTick); plTick = null; plKey = ""; plSure = false; plNote = ""; clearTimeout(plSureT); return; }
+    const sep = separate(), showBars = sep || !!p.shown, left = pollLeftNow(p);
+    plQ.textContent = p.q;
+    plCount.textContent = votesText(p.total);
+    plLeft.textContent = !p.open ? "beendet" : left === null ? "wartet auf die erste Antwort" : "noch " + fmtLeft(left);
+    plShow.textContent = p.shown ? (sep ? "Ergebnis am Beamer ausblenden" : "Ergebnis ausblenden") : sep ? "Ergebnis am Beamer zeigen" : "Ergebnis zeigen";
+    plShow.setAttribute("aria-pressed", String(!!p.shown));
+    if (p.open) plShow.setAttribute("aria-disabled", "true"); else plShow.removeAttribute("aria-disabled");
+    plReset.hidden = p.open;
+    if (p.open) plSure = false;
+    plReset.textContent = plSure ? "Wirklich löschen? Noch einmal drücken" : "Ergebnis löschen und Umfrage neu öffnen";
+    plReset.classList.toggle("sure", plSure);
+    const key = JSON.stringify([p.k, showBars, p.counts, p.options]);
+    if (key !== plKey) { plKey = key; plBars.replaceChildren(...(showBars ? [pollBars(p.options, p.counts)] : [])); }
+    const msg = plNote ? plNote : plSure ? "Die gezählten Antworten und das Ergebnis werden gelöscht – auch bei den Schüler:innen. Danach kann jedes Gerät wieder einmal abstimmen."
+      : !p.open ? "Die Abstimmung ist beendet – die Schüler:innen sehen das Ergebnis jetzt ganz unten in ihrer Sitzung unter „Abstimmungsergebnis“." +
+        (showBars ? "" : " Hier sehen Sie die Verteilung, sobald Sie das Ergebnis zeigen.")
+      : (left === null ? "Die Schüler:innen stimmen jetzt auf ihren Geräten ab – nur solange diese Folie zu sehen ist, je Gerät einmal. " : "") +
+        "Etwa 2 Minuten nach der ersten Antwort endet die Abstimmung; dann sehen die Schüler:innen das Ergebnis in ihrer Sitzung, und Sie können es " + (sep ? "am Beamer " : "") + "zeigen." +
+        (showBars ? "" : " Die Verteilung steht hier erst dann – dieser Bildschirm ist für die Klasse mit zu sehen.");
+    if (plMsg.textContent !== msg) plMsg.textContent = msg;
+    const tick = p.open && left !== null;
+    if (tick && !plTick) plTick = setInterval(() => { const q = pollNow(), l = pollLeftNow(q); if (!q || l === null) return; if (l <= 0) { live.hello(); return; } plLeft.textContent = "noch " + fmtLeft(l); }, 500);
+    else if (!tick && plTick) { clearInterval(plTick); plTick = null; }
+  }
   const vTarget = () => (beamersN > 0 ? "device" : [...beamers].some((b) => beamVis.get(b) === true) ? "window" : beamers.size && !oneScreen() ? "window" : "here");
   // mehrere Beamerfenster: Ton und Rückmeldung nur vom ersten (die übrigen spielen stumm mit – sonst liefe das Video doppelt hörbar)
   const vLead = () => (beamers.size ? beamers.values().next().value : null);
@@ -484,6 +568,7 @@ export async function startPresenter({ lessonId, file, token, startSlide = 0, on
     goto(cur + 1);
   }
   function vPaint() {
+    pPaint();   // die Umfrage dieser Folie (Nachtrag 46) folgt denselben Anlässen: Folie, Beamer verbunden bzw. getrennt
     const v = !peek ? videoOf(cur) : null;
     root.classList.toggle("with-video", !!v);
     if (!v) { clearInterval(vTick); vTick = null; return; }
@@ -624,10 +709,13 @@ export async function startPresenter({ lessonId, file, token, startSlide = 0, on
     else if (m.t === "state") {
       if (typeof m.students === "number") students = m.students; connOk = true;
       tb.set(m.active ? m.timer : null); sendTimer();   // Timer: jede Nachricht gleicht die Restzeit neu ab (Uhr des Servers)
+      // Umfrage der aktuellen Folie (Nachtrag 46): Zahlen und Restzeit vom Server – nur, wenn er dieselbe Folie dieser Präsentation meint
+      if (adopted || moved || !m.active) setPoll(m.active && m.fileId === file.id && m.slide === cur ? m.poll : null);
       if (!adopted && !moved && m.active && m.fileId === file.id && Number.isInteger(m.slide)) {
         adopted = true;
         const k = Math.min(Math.max(first, m.slide), n), pk = withCode && k >= 1 && m.codeShown === true;
         if (k !== cur || pk !== peek) { cur = k; peek = pk; paint(); }
+        setPoll(m.slide === cur ? m.poll : null);
         // läuft am Beamergerät gerade das Video dieser Folie (Präsentation wieder geöffnet): weiter steuern
         const mv = m.video && !pk && m.video.n === cur && videoOf(cur) ? m.video : null;
         if (mv && !vs && Number.isInteger(mv.rev)) { vs = { n: mv.n, ...vSpec(mv), target: "device", playing: mv.playing === true, pos: Number(mv.pos) || 0, at: Date.now(), rev: mv.rev, anchored: mv.rev }; vRev = Math.max(vRev, mv.rev); vStarted = cur; vSentAt = performance.now(); vPaint(); }
@@ -789,14 +877,14 @@ export async function startPresenter({ lessonId, file, token, startSlide = 0, on
   }
   function goto(k) {
     if (peek) { setPeek(false); return; }   // erst zurück von der eingeblendeten Codefolie
-    k = Math.min(Math.max(first, k), n); if (k === cur) return; moved = true; vEnd({ paintNow: false }); vStarted = null; vNote = ""; cur = k; paint(); live.send({ t: "goto", slide: cur });
+    k = Math.min(Math.max(first, k), n); if (k === cur) return; moved = true; vEnd({ paintNow: false }); vStarted = null; vNote = ""; pl = null; cur = k; paint(); live.send({ t: "goto", slide: cur });
   }
   /* ---------- Beamerfenster (beamer.js): bekommt nur die aktuelle Folie, schickt Tasten zurück ---------- */
   function sendShow(cv = viewOf(cur, peek), nv) {
     if (!bc || !beamers.size) return;
     if (nv === undefined) { const nx = nextSlideOf({ cur, n, peek, holders, withCode }); nv = nx.end ? null : viewOf(nx.k, false); }
     const view = cv.kind === "img" ? { kind: "img", src: cv.src, next: nv && nv.kind === "img" ? nv.src : null } : { kind: "code", code: cv.code, title: cv.title, lines: cv.lines };
-    try { bc.postMessage({ t: "show", id: pid, at: claimAt, fach: document.documentElement.dataset.fach || null, view, timer: tb.snapshot(), slide: peek ? null : cur, lead: vLead(), video: vs && vs.target === "window" ? vWire() : null }); } catch {}
+    try { bc.postMessage({ t: "show", id: pid, at: claimAt, fach: document.documentElement.dataset.fach || null, view, timer: tb.snapshot(), slide: peek ? null : cur, lead: vLead(), video: vs && vs.target === "window" ? vWire() : null, poll: pollWire() }); } catch {}
   }
   const claim = () => { try { bc.postMessage({ t: "claim", id: pid, at: claimAt }); } catch {} };
   function paintBeam() {
@@ -843,12 +931,12 @@ export async function startPresenter({ lessonId, file, token, startSlide = 0, on
   // (sonst stünden die Notizen am iPad beim Wechsel zurück zu diesem Tab kurz auf dem gespiegelten Bildschirm, bevor das Beamerfenster „verdeckt“ meldet)
   const onVis = () => {
     for (const b of beamVis.keys()) beamVis.set(b, false);
-    paintNotes();
+    paintNotes(); pPaint();   // auch die Verteilung einer Umfrage (Nachtrag 46) folgt: ohne sichtbares Beamerfenster steht sie hier nicht
     if (document.visibilityState === "visible") { live.hello(); if (bc && beamers.size) try { bc.postMessage({ t: "who" }); } catch {} }
   };
   // Beamer als erweiterten Bildschirm eingerichtet bzw. wieder gespiegelt (Chrome, Edge): auch der Hinweis zum Beamerfenster in der Leiste folgt –
   // sonst stünde dort weiter „nur ein Bildschirm erkannt“, während schon die Notizen erscheinen
-  const onScreen = () => { if (beamers.size || beamOne) { beamOne = oneScreen(); paintBeam(); } paintNotes(); };
+  const onScreen = () => { if (beamers.size || beamOne) { beamOne = oneScreen(); paintBeam(); } paintNotes(); pPaint(); };
   const isFs = () => !!(document.fullscreenElement || document.webkitFullscreenElement);
   function toggleFs() {
     if (isFs()) (document.exitFullscreen || document.webkitExitFullscreen).call(document);
@@ -903,6 +991,7 @@ export async function startPresenter({ lessonId, file, token, startSlide = 0, on
   document.addEventListener("visibilitychange", onVis);
   try { if (window.screen && typeof window.screen.addEventListener === "function") window.screen.addEventListener("change", onScreen); } catch {}
   function end(stopForAll) {
+    clearInterval(plTick); clearTimeout(plSureT);
     vEnd({ paintNow: false }); clearInterval(vTick); clearTimeout(vSlowT); window.removeEventListener("blur", onBlur);   // ein laufendes Video endet mit der Präsentation (auch am Beamer)
     document.removeEventListener("keydown", onKey); clearTimeout(idleT); clearTimeout(devWaitT); clearTimeout(hintT); tb.stop();
     window.removeEventListener("pagehide", onHide); window.removeEventListener("pageshow", onShow); document.removeEventListener("visibilitychange", onVis);
@@ -929,7 +1018,7 @@ export async function startPresenter({ lessonId, file, token, startSlide = 0, on
   toggleFs();
   live.connect();
   // resume: läuft diese Präsentation schon, bleibt sie an der laufenden Stelle (neu gestartet beginnt sie mit der Codefolie)
-  live.send({ t: "start", fileId: file.id, pages: n, slide: cur, resume: true, ...(withCode ? { code, title, codeSlides: [...holders].map(([k, lines]) => ({ n: k, lines })) } : {}) });
+  live.send({ t: "start", fileId: file.id, pages: n, slide: cur, resume: true, pollSlides, ...(withCode ? { code, title, codeSlides: [...holders].map(([k, lines]) => ({ n: k, lines })) } : {}) });
   if (bc) claim();   // ein schon offenes Beamerfenster übernimmt diese Präsentation
   return { end };
 }

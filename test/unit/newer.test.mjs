@@ -409,7 +409,7 @@ test("app.js: Hinweis direkt unter dem Kopfband (vor Vertretung, Live-Fenster un
   const room = app.slice(app.indexOf("async function studentRoom("), app.indexOf("/* Zeile einer Datei im Material"));
   const iHead = room.indexOf("main.append(pageHead({ fach: d.lesson.subject"), iBox = room.indexOf("main.append(newerBox.el);"), iSub = room.indexOf("if (d.substitute && !selbst)");
   assert.ok(iHead > 0 && iBox > iHead && iSub > iBox, "Reihenfolge: Kopfband → Hinweis → Vertretung …");
-  assert.ok(room.indexOf("slv = SV.selbstlernView(") > iBox && room.indexOf("main.append(live, presRow, kiBox, hwBox);") > iBox, "… vor Selbstlern-Ansicht und Live-Fenster");
+  assert.ok(room.indexOf("slv = SV.selbstlernView(") > iBox && room.indexOf("main.append(live, pollVote.el, presRow, kiBox, hwBox);") > iBox, "… vor Selbstlern-Ansicht und Live-Fenster");
   assert.ok(room.includes("const newerBox = newerNote({ onGo: () => wantCodeFocus() });") && room.includes("newerBox.set(d.newer);"));
   // Neuladen der Daten (geplanter Beginn in changesAt, Aufwachen): der Hinweis folgt
   assert.ok(room.includes("loadedAt = Date.now(); newerBox.set(r.newer); soon = r.newerSoon === true;"));

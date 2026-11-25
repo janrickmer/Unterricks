@@ -27,6 +27,7 @@ import { saveCardSet, setCardTexts } from "./cards.js";
 import { parentFiles, refCounts } from "./parents.js";
 import { BRING_LIMITS, bringSection, bringRead } from "../public/bring.js";
 import { videoSlidesData, videoSlidesOf, videoWatchUrl, videoClipText, VIDEO_MARK } from "../public/videoslides.js";
+import { pollSlidesData, pollSlidesOf, pollResultsData, pollPercents, pollMarkLine, votesText, POLL_MARK } from "../public/polls.js";
 import { SHARE_LIMITS, SHARE_RULES, SHARE_TEXT_TITLE, cleanShareText, shareTextOf, shareTextStore, shareTextComplete, shareSessions, competenceSource } from "../public/sharelib.js";
 import { TEACHER_PLAN_TITLE, TEACHER_PLAN_LIMITS, teacherPlanRules, teacherPlanFromArgs, teacherPlanOf, teacherPlanFits, phaseList } from "../public/teacherplan.js";
 import { TERMS_LIMITS, TERMS_TITLE, TERMS_ONLY_OBERSTUFE, validateTerms, termsRead, termsSection } from "../public/terms.js";
@@ -447,7 +448,7 @@ async function lessonDump(db, l, now = Date.now()) {
   }
   parts.push(...(await designedSection(db, l.id, (a) => (a === "student" ? "für Schüler:innen" : a === "teacher" ? "nur Lehrkraft" : "zum Ausdrucken"))));
   // Notizen der Lehrkraft zur Präsentation (Nachtrag 20): nur kurz (Zahl), nur in diesem Werkzeug der Lehrkraft
-  const pn = await db.prepare("SELECT pages, CASE WHEN json_valid(notes) THEN json_array_length(notes, '$.slides') ELSE 0 END AS n, video_slides FROM files WHERE lesson_id=?1 AND area='presentation' AND status='ready' LIMIT 1").bind(l.id).first();
+  const pn = await db.prepare("SELECT pages, CASE WHEN json_valid(notes) THEN json_array_length(notes, '$.slides') ELSE 0 END AS n, video_slides, poll_slides FROM files WHERE lesson_id=?1 AND area='presentation' AND status='ready' LIMIT 1").bind(l.id).first();
   if (pn && pn.n > 0) parts.push("", "## Notizen der Lehrkraft zur Präsentation", "Zu " + pn.n + " von " + pn.pages + " Folien gibt es Notizen (nur für die Lehrkraft: in ihrer Präsentationsansicht und in der „Präsentation mit Anmerkungen“ unter „Material nur für die Lehrkraft“). " +
     "Neue Notizen gehören als Dateianhang " + NOTES_FILE + " in eine neue PDF der Präsentation – je Folie zuerst die Anweisung „" + NOTE_DO_LABEL + " …“ an die Lehrkraft (siehe Präsentations-Prompt).");
   // Videofolien der Präsentation (Nachtrag 38): dort spielt Unterricks im Unterricht das YouTube-Video eingebettet ab
@@ -455,6 +456,16 @@ async function lessonDump(db, l, now = Date.now()) {
   if (pv.length) parts.push("", "## Videofolien der Präsentation", "Auf diesen Folien spielt Unterricks im Unterricht das YouTube-Video eingebettet am Beamer ab (Schüler:innen sehen live nur die Folie, nach der Stunde einen Link):",
     ...pv.map((v) => "- Folie " + v.n + ": " + (v.title ? "„" + v.title + "“ – " : "") + videoWatchUrl({ id: v.id }) + (videoClipText(v) ? " (" + videoClipText(v) + ")" : "")),
     "Eine neue PDF der Präsentation braucht auf jeder Videofolie wieder die unsichtbare Zeile „" + VIDEO_MARK + ": <Link> | Titel: …“ (Aufbau wie im Präsentations-Prompt).");
+  // Umfragefolien der Präsentation (Nachtrag 46): dort stimmen die Schüler:innen live anonym ab; dazu die Ergebnisse beendeter Umfragen dieser Sitzung (nur Zahlen)
+  const pp = pn ? pollSlidesOf({ polls: pollSlidesData(pn.poll_slides, pn.pages) }) : [];
+  if (pp.length) parts.push("", "## Umfragefolien der Präsentation", "Auf diesen Folien stimmen die Schüler:innen im Unterricht anonym ab (nur solange die Folie live gezeigt wird, je Gerät einmal; " +
+    "etwa 2 Minuten nach der ersten Antwort endet die Abstimmung, dann sehen die Schüler:innen das Ergebnis in Unterricks):",
+    ...pp.map((v) => "- Folie " + v.n + ": „" + v.q + "“ – " + v.options.map((o) => "„" + o + "“").join(", ")),
+    "Eine neue PDF der Präsentation braucht auf jeder Umfragefolie wieder die unsichtbare Zeile „" + POLL_MARK + ": <Frage> | <Antwort> | <Antwort>“, z. B. " + pollMarkLine(pp[0]) + " (Aufbau wie im Präsentations-Prompt). " +
+    "Eine Umfrage legt die Lehrkraft fest – erfinde keine eigene.");
+  const pr = pollResultsData(l.polls);
+  if (pr.length) parts.push("", "## Abstimmungsergebnisse dieser Sitzung (anonym, nur Zahlen)",
+    ...pr.map((x) => { const pc = pollPercents(x.counts); return "- „" + x.q + "“ (" + votesText(x.total) + "): " + x.options.map((o, i) => o + " " + x.counts[i] + " (" + pc[i] + " %)").join(" · "); }));
   // Selbstlern-Phase (Nachtrag 29): Stationen, Hausaufgabe, Archiv – bzw. eine ältere Vertretung; dazu alle übrigen Dateien mit file_id (Stationen, Hinweis zum Löschen)
   parts.push(...(await otherFilesSection(db, l.id)));
   parts.push(...(await earlierSheetsSection(db, l)));

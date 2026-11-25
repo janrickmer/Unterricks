@@ -1818,6 +1818,8 @@ export function claudePresentationPrompt(ctx, portalText, messages) {
     "",
     // Videofolien (Nachtrag 38): Abschnitt aus public/videoslides.js (videoPromptSection) – nur, wenn der Stundenverlauf bzw. die Links der Sitzung YouTube-Videos nennen
     ctx.videoSection ? ctx.videoSection + "\n" : "",
+    // Umfragefolien (Nachtrag 46): Abschnitt aus public/polls.js (pollPromptSection) – nicht in Jg. 5/6 (ohne iPads)
+    ctx.pollSection ? ctx.pollSection + "\n" : "",
     "## Zeitlos gestalten",
     "Ziel ist eine zeitlose Präsentation: Sie soll auch in ein paar Jahren noch passen, wenn eine andere Klasse dieses Jahrgangs das Thema lernt. Deshalb steht auf den Folien:",
     "- kein Datum, das sich auf diese Lerngruppe bezieht – kein Datum der Stunde, keine Abgabe- oder Prüfungstermine, keine Wochentage („bis Donnerstag“), kein Schuljahr oder Halbjahr mit Jahreszahl; " +

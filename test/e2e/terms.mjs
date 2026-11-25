@@ -64,9 +64,9 @@ export async function termsE2E({ tp, sp, BASE, T, SA, tool, ok, OUT, SHOT, lesso
   ok(Array.isArray(sv.terms) && sv.terms.length === 4 && sv.terms[1].definition === def2, "ab 2 Minuten vor dem Ende: die Schnittstelle liefert die Begriffe");
   await sp.reload(); await sp.locator("#terms-s button.tcard-btn").first().waitFor({ timeout: 15000 });
   const sec = sp.locator("#terms-s");
-  ok(await sp.evaluate(() => { const s = document.querySelector("#terms-s"), m = document.querySelector("main"); return !!s && !!m && m.lastElementChild.contains(s); })
+  ok(await sp.evaluate(() => { const s = document.querySelector("#terms-s"), m = document.querySelector("main"); if (!s || !m) return false; const w = s.closest(".termsbox-wrap"), last = m.lastElementChild; return !!w && w.nextElementSibling === last && last.classList.contains("pollres-wrap") && !last.querySelector(".pollresbox"); })
     && (await sec.locator("h2").textContent()) === "Fachbegriffe dieser Sitzung" && await sec.locator("button.tcard-btn").count() === 4,
-    "Schüleransicht: Bereich „Fachbegriffe dieser Sitzung“ ganz unten mit vier Karteikarten");
+    "Schüleransicht: Bereich „Fachbegriffe dieser Sitzung“ ganz unten mit vier Karteikarten (darunter nur der – hier leere – Platz für das Abstimmungsergebnis, Nachtrag 46)");
   const btn = (i) => sec.locator("button.tcard-btn").nth(i);
   const geo = await sec.evaluate((el) => [...el.querySelectorAll("li.tcard")].map((li) => li.getBoundingClientRect().height));
   ok(geo.every((hgt) => hgt >= 44) && await btn(0).getAttribute("aria-expanded") === "false" && (await btn(0).textContent()) === "Gewaltenteilung"

@@ -152,6 +152,13 @@ export const COLUMNS = [
   // Fachbegriffe dieser Sitzung (Nachtrag 44, Teil 3; nur Oberstufe, Karteikarten für die Schüler:innen ab 2 Minuten vor dem Ende): {v:1, rev, items:[{t, d}]}
   // als JSON (public/terms.js) – t = Begriff, d = Definition; rev zählt jede Speicherung (Schutz vor Überschreiben). NULL = nie gesetzt
   ["lessons", "terms", "TEXT"],
+  // Umfragefolien einer Präsentation (Nachtrag 46): {v:1, pdf, hand} als JSON (pollSlidesData in public/polls.js) – je Eintrag {n, q, options} (Folie, Frage,
+  // 2–6 Antworten); pdf = aus der unsichtbaren Zeile „Unterricks-Umfrage: …“ erkannt, hand = von der Lehrkraft festgelegt (gilt vor pdf, [] = bewusst keine). NULL = keine
+  ["files", "poll_slides", "TEXT"],
+  // Ergebnisse beendeter Umfragen dieser Sitzung (Nachtrag 46): {v:1, list:[{k, n, q, options, counts, total, at}]} als JSON (public/polls.js) – schreibt das
+  // Durable Object 2 Minuten nach der ersten Antwort (worker/live.js); nur Zahlen je Antwort, nie Geräte. Laufzeitstand – nicht in Sitzungsdatei, Sicherung
+  // und Einheitsdatei; gelöscht mit der Sitzung bzw. mit der Präsentation, zu der die Umfrage gehört. NULL = keine
+  ["lessons", "polls", "TEXT"],
 ];
 
 // Indizes über nachträglich ergänzte Spalten (nach den Spalten angelegt; ein Fehler – z. B. alte Doppelungen – hält den Betrieb nicht auf)
