@@ -1,4 +1,4 @@
-// termsedit.js – Karte „Fachbegriffe dieser Sitzung“ auf der Sitzungsseite der Lehrkraft (Nachtrag 44, Teil 3; nur Oberstufe: E-Phase und Q1–Q4).
+// termsedit.js – Karte „Fachbegriffe dieser Sitzung“ auf der Sitzungsseite der Lehrkraft (Nachtrag 44, Teil 3; seit Nachtrag 47 am Gymnasium ab Jahrgang 5).
 // Zeigt die 3 bis 8 Fachbegriffe mit ihrer Definition, die Claude beim Planen schreibt, und ab wann die Schüler:innen sie als Karteikarten sehen
 // (2 Minuten vor dem Ende der Sitzung). „Bearbeiten“ öffnet je Begriff zwei Felder (Begriff, Definition), dieselbe Prüfung wie der Server (terms.js).
 // Gespeichert wird die ganze Liste mit dem Stand, auf dem die Bearbeitung beruht (termsBase): Hat inzwischen jemand anderes gespeichert (z. B. Claude über

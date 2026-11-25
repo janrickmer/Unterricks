@@ -218,7 +218,8 @@ test("normale Sitzung: kein Erklär-Chatbot, Begriffshilfe nur während der Stun
   const sv = (await scall(c, ST.routeStudentLesson, "GET", undefined, l.id)).data;
   assert.equal(sv.explain, undefined); assert.equal(sv.selbstlern, undefined);
   assert.deepEqual([sv.aiHelp.start, sv.aiHelp.end, sv.aiHelp.selbstlern], [START, START + 45 * 60e3, undefined]);
-  assert.deepEqual(sv.changesAt, [START + 45 * 60e3 + 1000, START + 30 * 60e3, START + 50 * 60e3]);
+  // dazu (Nachtrag 47: Fachbegriffe am ganzen Gymnasium) der Zeitpunkt der Karteikarten, 2 Minuten vor dem Ende
+  assert.deepEqual(sv.changesAt, [START + 45 * 60e3 + 1000, START + 30 * 60e3, START + 50 * 60e3, START + 43 * 60e3]);
   assert.equal((await explain(c, l, { station: "11111111", message: "Hallo du" })).status, 404);
   c.now = START + 46 * 60e3;
   assert.equal((await scall(c, ST.routeStudentAsk, "POST", { question: "Was?", consent: true }, l.id)).data.error, "Die KI-Begriffshilfe gibt es nur während der Unterrichtsstunde.");

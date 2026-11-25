@@ -11,7 +11,7 @@ import { gsCourseStmt, gsCourseOut } from "./gs.js";
 import {
   isValidClass, isValidSubject, isValidCode, normalizeCode, greetingText, planningSystemPrompt, portalMessages, feibeitsblattMessages,
   chatTranscript, extractJsonObject, validatePortalData, renderPortalEntry, normalizeFbDraft, isIsoDate, hasStop, gradeKey, isClockTime, printFileName, printCourse, GS_SUBJECT,
-  planRefs, parentOpensAt, stopParts, planFingerprint, PLAN_FINGERPRINT_STALE, TEACHER_SUMMARY_MAX, savedSinceDecision, lessonTimes, isAnalogClass, isOberstufe,
+  planRefs, parentOpensAt, stopParts, planFingerprint, PLAN_FINGERPRINT_STALE, TEACHER_SUMMARY_MAX, savedSinceDecision, lessonTimes, isAnalogClass, hasTermCards,
 } from "../public/shared.js";
 import { unitContext, STOP_CHOICE_TEXT, stopChatSection, freeDayOn, schoolOf } from "../public/planning.js";
 import { loadFreeDays, assertNotFree } from "./freedays.js";
@@ -22,7 +22,7 @@ import { pollSlidesData } from "../public/polls.js";
 import { cleanShareText, shareTextOf, shareTextStore } from "../public/sharelib.js";
 import { teacherPlanOf, teacherPlanStore, cleanTeacherPlanPhases, teacherPlanFromBody, TEACHER_PLAN_LIMITS } from "../public/teacherplan.js";
 import { revealsOf, revealLast, REVEAL_REF_SQL, REVEAL_REF_RE, REVEAL_LIMITS, REVEAL_ABSENT, materialGate, revealEndRefs } from "../public/reveal.js";
-import { validateTerms, cleanTerms, termsStore, termsRead, TERMS_REV_SQL, TERMS_ONLY_OBERSTUFE } from "../public/terms.js";
+import { validateTerms, cleanTerms, termsStore, termsRead, TERMS_REV_SQL, TERMS_ONLY_GYM } from "../public/terms.js";
 
 export const LIMITS = { title: 200, topic: 500, ideas: 20000, homework: 10000, portal: 30000, message: 30000, answer: 100000, textMaterial: 200000, parentSummary: 800, parentNote: 2000, teacherSummary: TEACHER_SUMMARY_MAX };
 
@@ -40,8 +40,8 @@ export const lessonOut = (r, extra = {}) => ({
   reveals: revealsOf(r.reveals),
   // Gegenstände zum Mitbringen (Nachtrag 28, beide Schulformen; nur Lehrkraft) und ihr Stand (Schutz vor Überschreiben)
   ...bringOut(r),
-  // Fachbegriffe dieser Sitzung (Nachtrag 44, Teil 3; nur Oberstufe – Karteikarten für die Schüler:innen) und ihr Stand (Schutz vor Überschreiben)
-  ...(isOberstufe(r.klass) ? termsOut(r) : {}),
+  // Fachbegriffe dieser Sitzung (Nachtrag 44/47; Gymnasium ab Jg. 5 – Karteikarten für die Schüler:innen) und ihr Stand (Schutz vor Überschreiben)
+  ...(hasTermCards(r.klass) ? termsOut(r) : {}),
   // Grundschule: Inhalt und Hinweis für die Eltern, Ausfall-Eintrag, ob es einen Elternlink gibt (nie der Link selbst)
   ...(r.subject === GS_SUBJECT ? { parentSummary: r.parent_summary || "", parentNote: r.parent_note || "", cancelled: !!r.cancelled, hasParentLink: !!r.parent_hash } : {}), ...extra,
 });
@@ -526,8 +526,8 @@ export async function updateLesson(db, id, body, now) {
   if (f.title !== undefined && !f.title) throw bad("Der Titel darf nicht leer sein.");
   const old = await getLesson(db, id);
   if ((f.parent_summary !== undefined || f.parent_note !== undefined) && old.subject !== GS_SUBJECT) throw bad("Nur bei Sitzungen der Grundschule.");
-  // Fachbegriffe dieser Sitzung (Nachtrag 44, Teil 3): nur in der Oberstufe (E-Phase, Q1–Q4) – sonst nie gespeichert
-  if (f.terms !== undefined && !isOberstufe(old.klass)) throw bad(TERMS_ONLY_OBERSTUFE);
+  // Fachbegriffe dieser Sitzung (Nachtrag 44/47): nur am Gymnasium (Jahrgang 5 bis Q4) – in der Grundschule nie gespeichert
+  if (f.terms !== undefined && !hasTermCards(old.klass)) throw bad(TERMS_ONLY_GYM);
   // Ausfall-Eintrag (Krankmeldung, Grundschule): nur der Hinweis für die Eltern lässt sich ändern
   if (old.cancelled && keys.some((k) => k !== "parent_note")) throw bad("Bei einem Ausfall-Eintrag lässt sich nur der Hinweis der Lehrkraft für die Eltern ändern.");
   // ein neues Datum nie an einem unterrichtsfreien Tag der Schule (Nachtrag 24) – ein bisheriges bleibt, auch wenn es inzwischen frei ist
@@ -662,9 +662,9 @@ export async function routeLessonImport(c, id) {
   // Gegenstände zum Mitbringen (Nachtrag 28): ersetzen die Liste dieser Sitzung (der Browser hat Datum und Lerngruppe in den Hinweisen angepasst);
   // fremde Daten – Ungültiges entfällt, zu lange Hinweise werden gekürzt (cleanBring)
   if (Array.isArray(les.bring)) f.bring = bringStore(cleanBring(les.bring));
-  // Fachbegriffe dieser Sitzung (Nachtrag 44, Teil 3): ersetzen die Liste – nur in einer Sitzung der Oberstufe (sonst gibt es keine Karteikarten; der Browser
+  // Fachbegriffe dieser Sitzung (Nachtrag 44, Teil 3): ersetzen die Liste – nur in einer Sitzung am Gymnasium (sonst gibt es keine Karteikarten; der Browser
   // nennt das im Dialog); fremde Daten: Ungültiges entfällt, Zu-Langes wird gekürzt (cleanTerms)
-  if (Array.isArray(les.terms) && isOberstufe(l.klass)) f.terms = termsStore(cleanTerms(les.terms));
+  if (Array.isArray(les.terms) && hasTermCards(l.klass)) f.terms = termsStore(cleanTerms(les.terms));
   // Absatz für die Weitergabe (Nachtrag 39): kommt mit aus der Datei (fremde Daten – gekürzt wie beim Lesen); fehlt er, bleibt der bisherige
   // Absatz für die Weitergabe (Nachtrag 39): ersetzt wie die übrige Planung – null bzw. leer löscht einen bisherigen (er beschriebe die alte Planung)
   if (les.shareText !== undefined) f.share_text = shareTextStore(les.shareText && typeof les.shareText === "object" ? cleanShareText(les.shareText) : null, c.now);

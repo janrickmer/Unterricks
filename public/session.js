@@ -5,7 +5,7 @@ import { render, go, onLeave } from "./app.js";
 import { T, tapi, teacherBar, teacherFoot, fbAutoConnect, fbUnlock, fbStore, fbForget, askTeacherPassword, notfallBackfill } from "./teacher.js";
 import { subjectName, gradeInfo, formatCode, claudePresentationPrompt, PORTAL_RULES, portalForCopy, insertStop, removeStops, hasStop, isStopLine,
   fmtDay, classShort, gradeKey, isAnalogClass, ANALOG_RULE, isCourseClass, courseMembers, homeworkForPortal, PUBLIC_URL,
-  lessonTimes, fmtClockBerlin, fmtDayBerlin, HOMEWORK_BEFORE_END_MIN, PRESENTATION_AFTER_END_MIN, slidesUpTo, subjectShort, isOberstufe,
+  lessonTimes, fmtClockBerlin, fmtDayBerlin, HOMEWORK_BEFORE_END_MIN, PRESENTATION_AFTER_END_MIN, slidesUpTo, subjectShort, hasTermCards,
   withAgeExpectation, looksLikeSolution, isGsLesson, portalVerbatim, TEACHER_SUMMARY_TITLE, stopForShown, slidePhasesOf, portalPhases } from "./shared.js";
 import { extractUnitChange, stripUnitBlock, unitContext, claudeLessonPrompt, lessonChatName } from "./planning.js";
 import { claudeHandoff } from "./claude.js";
@@ -434,8 +434,8 @@ export async function sessionPage(id) {
     hwLabel, hwTA, hwDue, hwWhen,
     h("div", { class: "row" }, h("button", { class: "btn small", type: "button", onclick: copyHomework }, "Für das Schulportal kopieren")),
     hwHint);
-  /* ======================= Fachbegriffe dieser Sitzung (Nachtrag 44, Teil 3): nur Oberstufe – Karteikarten für die Schüler:innen ======================= */
-  const terms = isOberstufe(L().klass) ? termsCard({ id, L }) : null;
+  /* ======================= Fachbegriffe dieser Sitzung (Nachtrag 44/47): Gymnasium ab Jg. 5 – Karteikarten für die Schüler:innen ======================= */
+  const terms = hasTermCards(L().klass) ? termsCard({ id, L }) : null;
   if (terms) onTimes.push(terms.paintWhen);
 
   const presPromptCard = h("section", { class: "card" }, h("div", { class: "section-title" }, h("h2", { text: "Präsentation mit Claude erstellen" })),
@@ -1490,7 +1490,7 @@ export async function sessionPage(id) {
           // Gegenstände zum Mitbringen (Nachtrag 28): nur, wenn die Datei welche hat
           plan.lesson.bring.length ? h("li", { text: "Gegenstände zum Mitbringen (" + plan.lesson.bring.map((x) => x.item).join(", ") + ") ersetzen die Liste dieser Sitzung" +
             (plan.groupReplaced.length ? "; in ihren Hinweisen wird die Lerngruppe angepasst: " + plan.groupReplaced.map(([a, b]) => a + " → " + b).join(", ") + "." : ".") }) : null,
-          // Fachbegriffe dieser Sitzung (Nachtrag 44, Teil 3): nur Oberstufe – sonst bleiben sie weg (das steht dann hier)
+          // Fachbegriffe dieser Sitzung (Nachtrag 44/47): nur am Gymnasium – sonst bleiben sie weg (das steht dann hier)
           termsImportLine(plan, L())),
         ...warn.map((w) => h("div", { class: "notice warn", text: w }))),
         actions: [{ label: "Abbrechen", onClick: () => { done = true; resolve(false); } }, { label: "Übernehmen", class: "primary", onClick: () => { done = true; resolve(true); } }] });

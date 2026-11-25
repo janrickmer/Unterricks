@@ -99,6 +99,7 @@ implementiert und im End-to-End-Test geprüft (Ausnahmen unten ausdrücklich gen
 | Feibeitsblatt aus einer früheren Sitzung – mit dem Zwischenstand weiterarbeiten (Nachtrag 45 vom 23.11.2026) | Wunsch der Lehrkraft: Ein Feibeitsblatt, das mit dieser und einer früheren Sitzung desselben Kurses verknüpft ist, steht bei den Schüler:innen als „wieder gebraucht“: Feld für die Zwischenstand-PDF, „Im Feibeitsblatt weiterarbeiten“ (Übergabe von Tab zu Tab nach dem mit Feibeitsblatt abgestimmten Protokoll v1, Rückfall nach 10 s), klein der Code und „Von vorn beginnen“. Claude verknüpft ein vorhandenes Blatt per Connector (`link_feibeitsblatt`, auch im Zwischenstopp-Prompt). Siehe 4zq |
 | Prüfung von Nachtrag 44 (Teil 1) und 45 (23.11.2026) | Die **KI-Begriffshilfe** bekommt den Schulportal-Eintrag **ohne Codes** (sie verriete sonst den Code eines wartenden Feibeitsblatts). Die Schüler:innen-Seite lädt nach einer Freigabe **erneut**, bis ihre Daten den Stand erreichen (gescheitertes Neuladen im WLAN der Schule), und wendet eine **ältere Antwort nie nach einer neueren** an. Was nach der Stunde frei geworden ist, bleibt frei, auch wenn die Lehrkraft **danach „Bis hier gezeigt“** setzt (festgehalten). Ein Feibeitsblatt ohne eigenen Titel („Feibeitsblatt“) nennt nicht jede Materialfolie. Fokus nach „Jetzt freigeben“ und nach der Übergabe der Zwischenstand-PDF; „Von vorn beginnen“ öffnet den Tab direkt im Klick; „neu“ nur am zuletzt Erschienenen; volle Liste der Freigaben → Meldung statt „sichtbar“. Bestätigt: Eine Präsentation, die nie live läuft, gibt ihr Material erst nach der Stunde frei („Jetzt freigeben“ sofort). Siehe 4zo, 4zq |
 | Anonyme Umfrage in der Live-Präsentation (Nachtrag 46 vom 24.11.2026) | Wunsch der Lehrkraft: „Baue ein, dass eine Präsentation zu einer anonymen Umfrage aufrufen kann. Dazu stellt die Präsentationsfolie die Umfrage-Frage und die Single-Choice-Antwortoptionen zur Verfügung. Beim Erstellen der Präsentation soll das durch die Lehrkraft festgelegt werden. Die Teilnahme der Umfrage soll pro Gerät nur einmal möglich sein und auch nur während der Live-Präsentation in dem Moment, in dem die Präsentation die Folie dazu offen hat. Das Ergebnis soll für die Schüler bei Unterricks ganz unten unter einem neuen Bereich "Abstimmungsergebnis" aufklappbar in der Schüler-Ansicht dieser Sitzung ca. 2 Minuten nach der ersten Schülerantwort auf die Umfrage angezeigt werden.“ Rückfragen beantwortet: festgelegt **über Claude mit Kontrolle** (Umfragefolie mit unsichtbarer Zeile „Unterricks-Umfrage: Frage \| Antwort \| Antwort“, auf der Sitzungsseite prüfen, ändern oder von Hand ergänzen); **die Abstimmung endet**, sobald das Ergebnis erscheint (2 Minuten nach der ersten Antwort – niemand sieht das Ergebnis vor der eigenen Stimme); die Lehrkraft sieht **live** die Zahl der Antworten und die Verteilung, der Beamer nur die Zahl, bis sie **„Ergebnis am Beamer zeigen“** wählt. Gezählt wird im Durable Object der Sitzung (Zahlen je Antwort, getrennt davon Prüfwerte der Geräte); das beendete Ergebnis steht in D1. Siehe 4zs |
+| Fachbegriffe-Karteikarten am ganzen Gymnasium (Nachtrag 47 vom 25.11.2026) | Wunsch der Lehrkraft: „Bisher gibt es zu jeder Unterrichtssitzung in der Q-Phase in der Schüleransicht ganz unten die favorisierten Fachbegriff zu dieser Unterrichtssitzung für die Schüler zum Nachschauen und lernen. Genau so soll das nun auch in allen Unterrichtssitzungen am Gymnasium, egal in welchem Jahrgang ab Jg. 5 sein.“ Rückfragen beantwortet: **weiter 3 bis 8 Begriffe, die Sprache dem Jahrgang angepasst**; schon geplante Sitzungen bekommen ihre Begriffe **beim nächsten Planen** (kein Nachtragen von selbst). Siehe 4zt |
 
 ## 2. Gesamtarchitektur
 
@@ -3661,3 +3662,30 @@ deshalb nur, was gespeichert wird.
 je Gerät einmal, Ende und Wecker, scheiterndes D1, zwei Umfragen, Löschen; Wege der Schüler:innen und der Lehrkraft; Prompt), `test/unit/pollui.test.mjs`
 (Abstimmen, „Abstimmungsergebnis“, Beamer, Formular) und `test/e2e/polls.mjs` (Lehrkraft mit Beamerfenster, iPad und Handy; die Prüfung wartet die 2 Minuten
 wirklich ab).
+
+## 4zt. Fachbegriffe-Karteikarten am ganzen Gymnasium (Nachtrag 47)
+
+Wortlaut (25.11.2026): „Bisher gibt es zu jeder Unterrichtssitzung in der Q-Phase in der Schüleransicht ganz unten die favorisierten Fachbegriff zu dieser
+Unterrichtssitzung für die Schüler zum Nachschauen und lernen. Genau so soll das nun auch in allen Unterrichtssitzungen am Gymnasium, egal in welchem Jahrgang
+ab Jg. 5 sein.“ Antworten auf die Rückfragen: weiter **3 bis 8 Begriffe**, die **Sprache dem Jahrgang angepasst**; schon geplante Sitzungen bekommen ihre
+Begriffe **beim nächsten Planen** bzw. Überarbeiten mit Claude (oder von Hand auf der Sitzungsseite) – ohne Begriffe zeigt die Schüleransicht den Bereich nicht.
+
+**Umsetzung.** Alles aus 4zr gilt unverändert (Zeitpunkt 2 Minuten vor dem Ende, danach dauerhaft, Server prüft die Zeit, Karte der Sitzungsseite, Connector,
+Sitzungsdatei, Sicherung, „Alle Unterlagen“) – nur die Bedingung ist weiter: `hasTermCards(k)` in `public/shared.js` = `gradeInfo(k).stufe ≥ 5`, also alle
+Klassen 5A–10H, die Kurse 5-K–10-K, die E-Phase (EA–EH, E-K) und Q1–Q4; nie die Grundschule (ihre Kurse sind keine gültigen Klassen des Gymnasiums) und nichts
+Ungültiges. Sie ersetzt `isOberstufe` an allen Stellen der Karteikarten (Prompt, Sitzungsseite, PATCH, Sitzungsdatei laden, Schüler:innen samt `changesAt`,
+`get_lesson`, `update_lesson`); `isOberstufe` bleibt für anderes erhalten. Die Meldung heißt jetzt `TERMS_ONLY_GYM` „Fachbegriffe dieser Sitzung (Karteikarten)
+gibt es nur in Sitzungen am Gymnasium (Jahrgang 5 bis Q4) – nicht in der Grundschule.“, der Satz im Dialog „Sitzung aus Datei laden“ „… – Karteikarten gibt es
+nur in Sitzungen am Gymnasium.“
+
+**Sprache nach Jahrgang** (`termsLevel(klass)` in `public/terms.js`, im Speicherschritt des Prompts `termsSaveStep(klass)` und – solange noch keine Begriffe da
+sind – im Abschnitt von `get_lesson`): Jg. 5–7 „Definitionen in einfachen, kurzen Sätzen, wie für 10- bis 11-Jährige (usw.), möglichst mit einem kleinen
+Alltagsbeispiel; Fremdwörter nur, wenn sie selbst erklärt werden; nur Begriffe, die in dieser Stunde wirklich vorkommen“; Jg. 8–10 „fachlich korrekt und gut
+verständlich, Fachsprache behutsam und mit Erklärung“; E-Phase bzw. Q-Phase „fachsprachlich präzise, auf dem Niveau der gymnasialen Oberstufe“. Grenzen
+(3–8, Begriff 60, Definition 300 Zeichen) gelten für alle gleich. Auch in Jg. 5/6 (ohne iPads im Unterricht) stehen die Karteikarten in der Schüleransicht –
+zum Nachschauen zu Hause.
+
+**Tests.** `test/unit/terms.test.mjs` (hasTermCards für alle Jahrgänge und die Grundschule, Sprache je Jahrgang, Prompt für Jg. 5–Q4, PATCH, Schüler:innen in
+Sek I mit Zeitpunkt, Connector mit Jg. 6, Sitzungsdatei), `test/unit/zwischenstopp.test.mjs` (Prompt von Jg. 6 mit dem Schritt, sonst byte-gleich),
+`test/unit/selbstlernview.test.mjs` (Zeitpunkt der Karteikarten in `changesAt` einer Sitzung der 8B); E2E: Karte auf der Sitzungsseite einer 8C
+(`test/e2e/polls.mjs`).

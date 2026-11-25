@@ -69,10 +69,10 @@ const withoutTeacherPlan = (p, gs, subject, klass) => {
   assert.ok(p.includes(SH.shareSaveStep(subject, klass) + step), "direkt nach dem Schritt zum Absatz für die Weitergabe");
   return p.replace(step, "");
 };
-// Nachtrag 44, Teil 3 (23.11.2026): nur Oberstufe – genau ein Speicherschritt „Fachbegriffe dieser Sitzung“ direkt nach dem zur Hausaufgabe (vor den
-// Gegenständen zum Mitbringen); ohne ihn byte-gleich. Jg. 5/6 und die Grundschule bekommen ihn nie
-const withoutTerms = (p) => {
-  const step = "\n" + TM.termsSaveStep();
+// Nachtrag 44, Teil 3 (23.11.2026) und 47 (25.11.2026): am Gymnasium (Jg. 5 bis Q4) genau ein Speicherschritt „Fachbegriffe dieser Sitzung“ (Sprache nach dem
+// Jahrgang) direkt nach dem zur Hausaufgabe (vor den Gegenständen zum Mitbringen); ohne ihn byte-gleich. Die Grundschule bekommt ihn nie
+const withoutTerms = (p, klass) => {
+  const step = "\n" + TM.termsSaveStep(klass);
   assert.equal(p.split(step).length - 1, 1, "der Schritt zu den Fachbegriffen steht genau einmal im Prompt");
   const hw = p.indexOf("   - Hausaufgabe bis zur nächsten Sitzung → `update_lesson` mit `hausaufgabe`");
   assert.ok(hw > 0 && p.indexOf("\n", hw) === p.indexOf(step) && p.indexOf(step) < p.indexOf(B.bringSaveStep(false)), "direkt nach der Hausaufgabe, vor dem Mitbringen");
@@ -114,12 +114,13 @@ const withoutCards = (p) => {
 };
 test("ohne Zwischenstopp: beide Prompts byte-gleich zum Stand vor S11 (Gymnasium: bis auf den Satz zu Links in Feibeitsblättern; beide bis auf die Zusammenfassung und die Gegenstände zum Mitbringen; Grundschule bis auf die Konzentrationsaufgabe)", () => {
   const s = F.sekCtx(P.unitContext), g = F.gsCtx(P.unitContext);
-  assert.equal(sha(withoutLinkRule(withoutSummary(withoutBring(withoutShare(withoutTeacherPlan(withoutTerms(P.claudeLessonPrompt(s)), false, s.subject, s.klass), s.subject, s.klass), false), false))), BEFORE.sek);
+  assert.equal(sha(withoutLinkRule(withoutSummary(withoutBring(withoutShare(withoutTeacherPlan(withoutTerms(P.claudeLessonPrompt(s), s.klass), false, s.subject, s.klass), s.subject, s.klass), false), false))), BEFORE.sek);
   const sek6 = P.claudeLessonPrompt({ ...s, klass: "6B", unit: null, row: null, unitText: "", messages: [] }), gs = G.claudeGsLessonPrompt(g), gs0 = G.claudeGsLessonPrompt({ ...g, unit: null, row: null, unitText: "" });
   for (const p of [sek6, gs, gs0]) assert.ok(!p.includes(S.FB_LINK_RULE) && !p.includes("[Linktext](https://…)"));
-  for (const p of [sek6, gs, gs0]) assert.ok(!p.includes(TM.termsSaveStep()) && !p.includes("`fachbegriffe`"), "Fachbegriffe nur in der Oberstufe");
+  for (const p of [gs, gs0]) assert.ok(!p.includes("„Fachbegriffe dieser Sitzung“") && !p.includes("`fachbegriffe`"), "Fachbegriffe nie in der Grundschule");
+  assert.ok(sek6.includes(TM.termsSaveStep("6B")) && TM.termsSaveStep("6B").includes("Jahrgang 6: Definitionen in einfachen, kurzen Sätzen"), "Jg. 6: Fachbegriffe in einfacher Sprache (Nachtrag 47)");
   for (const p of [P.claudeLessonPrompt(s), sek6]) assert.ok(!p.includes("Konzentrationsaufgabe"), "Gymnasium (auch Jg. 5/6) ohne Konzentrationsaufgabe");
-  assert.equal(sha(withoutSummary(withoutBring(withoutShare(withoutTeacherPlan(sek6, false, s.subject, "6B"), s.subject, "6B"), false), false, true)), BEFORE.sek6);
+  assert.equal(sha(withoutSummary(withoutBring(withoutShare(withoutTeacherPlan(withoutTerms(sek6, "6B"), false, s.subject, "6B"), s.subject, "6B"), false), false, true)), BEFORE.sek6);
   assert.equal(sha(withoutCards(withoutConc(withoutSummary(withoutBring(withoutShare(withoutTeacherPlan(gs, true, "gs", "gs"), "gs", "gs"), true), true), g.lesson))), BEFORE.gs);
   assert.equal(sha(withoutCards(withoutConc(withoutSummary(withoutBring(withoutShare(withoutTeacherPlan(gs0, true, "gs", "gs"), "gs", "gs"), true), true), g.lesson))), BEFORE.gs0);
   for (const p of [P.claudeLessonPrompt(s), sek6]) assert.ok(!p.includes(G.CARDS_ALWAYS) && !p.includes("add_picture_cards"), "Gymnasium ohne Bildkarten");

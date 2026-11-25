@@ -20,7 +20,7 @@ import { shortImages } from "./render.js";
 import { ESCAPE_FORMAT_HINT, PART_TYPES } from "../public/escape-data.js";
 import { SUBJECTS, ALL_CLASSES, subjectName, gradeInfo, formatCode, normalizeCode, isValidCode, lessonContext, chatTranscript, PORTAL_RULES, PORTAL_EXAMPLE, PORTAL_TEACHER_RULE, SYSTEM_PROMPT_ROLE, FEIBEITSBLATT_INFO, FB_LINK_HINT, classShort, fmtDay, materialDesignText, printFileName, printCourse, GS_SUBJECT,
   STOP_LINE, hasStop, planRefs, pdfRef, PLAN_REF_RE, NOTES_FILE, NOTE_DO_LABEL, TEACHER_SUMMARY_TITLE, TEACHER_SUMMARY_MAX, teacherSummaryRules, summaryHead, summaryOutdated, fmtStampBerlin, addDays, berlinToday, cardPrintsOf, refCardsOf, FB_MEDIA, portalPhases,
-  isOberstufe, lessonTimes, fmtClockBerlin, fmtDayBerlin, TERMS_BEFORE_END_MIN } from "../public/shared.js";
+  hasTermCards, lessonTimes, fmtClockBerlin, fmtDayBerlin, TERMS_BEFORE_END_MIN } from "../public/shared.js";
 import { gsLessonContext, GS_MATERIAL_RULES, CARD_DESIGN_RULES, VERLAUFSPLAN_EXAMPLE, VERLAUFSPLAN_RULES, CONC_TITLE, CONC_PRINT, CONC_PAGES_MAX, isConcName, concTitleOf, concSaveArgs, concSection, concMissingText, concUnplannedText,
   storyInPlan, cardsMissingText, CARD_PRINT_TEXT, printSettingsText } from "../public/gsplanning.js";
 import { saveCardSet, setCardTexts } from "./cards.js";
@@ -30,7 +30,7 @@ import { videoSlidesData, videoSlidesOf, videoWatchUrl, videoClipText, VIDEO_MAR
 import { pollSlidesData, pollSlidesOf, pollResultsData, pollPercents, pollMarkLine, votesText, POLL_MARK } from "../public/polls.js";
 import { SHARE_LIMITS, SHARE_RULES, SHARE_TEXT_TITLE, cleanShareText, shareTextOf, shareTextStore, shareTextComplete, shareSessions, competenceSource } from "../public/sharelib.js";
 import { TEACHER_PLAN_TITLE, TEACHER_PLAN_LIMITS, teacherPlanRules, teacherPlanFromArgs, teacherPlanOf, teacherPlanFits, phaseList } from "../public/teacherplan.js";
-import { TERMS_LIMITS, TERMS_TITLE, TERMS_ONLY_OBERSTUFE, validateTerms, termsRead, termsSection } from "../public/terms.js";
+import { TERMS_LIMITS, TERMS_TITLE, TERMS_ONLY_GYM, validateTerms, termsRead, termsSection } from "../public/terms.js";
 
 const MODERN = "2026-07-28";
 const LEGACY = ["2025-11-25", "2025-06-18", "2025-03-26", "2024-11-05"];
@@ -112,7 +112,7 @@ const TOOLS = [
       "Mit weitergabe speicherst du den „" + SHARE_TEXT_TITLE + "“ (was passiert, zentrale Kompetenz, Ziel) – zusammen mit der Zusammenfassung, wenn du eine Stunde planst; für viele Sitzungen einer Einheit auf einmal gibt es save_weitergabe. " +
       "Mit kurzplan_lehrkraft speicherst du den „" + TEACHER_PLAN_TITLE + "“ (Gymnasium und Grundschule; Unterricks zeigt ihn nur der Lehrkraft in „Ich bin jetzt im Unterricht“ statt des langen Verlaufsplans) – zusammen mit der Zusammenfassung, " +
       "nachdem der Schulportal-Eintrag bzw. Verlaufsplan gespeichert ist, und neu, wenn er sich ändert. " +
-      "Mit fachbegriffe speicherst du – nur in der Oberstufe (E-Phase, Q1–Q4) – die „" + TERMS_TITLE + "“: Unterricks zeigt sie den Schüler:innen ab " + TERMS_BEFORE_END_MIN + " Minuten vor dem Ende der Sitzung als Karteikarten.",
+      "Mit fachbegriffe speicherst du – in Sitzungen am Gymnasium ab Jahrgang 5 (nicht in der Grundschule), die Definitionen in der Sprache des Jahrgangs – die „" + TERMS_TITLE + "“: Unterricks zeigt sie den Schüler:innen ab " + TERMS_BEFORE_END_MIN + " Minuten vor dem Ende der Sitzung als Karteikarten.",
     inputSchema: { type: "object", properties: { lesson_id: ID_ARG, titel: { type: "string", maxLength: 200 }, thema: { type: "string", maxLength: 500 },
       dauer_minuten: { type: "integer", minimum: 5, maximum: 600 }, datum: { type: "string", pattern: "^\\d{4}-\\d{2}-\\d{2}$" },
       beginn: { type: "string", pattern: "^([01]\\d|2[0-3]):[0-5]\\d$", description: "Uhrzeit des Unterrichtsbeginns, z. B. 07:45" }, ideen: { type: "string", maxLength: 20000 },
@@ -133,7 +133,7 @@ const TOOLS = [
         items: { type: "object", properties: { gegenstand: { type: "string", maxLength: BRING_LIMITS.item, description: "z. B. „Bibel“" },
           wofuer: { type: "string", maxLength: BRING_LIMITS.note, description: "höchstens zwei Sätze: an welcher Stelle der Stunde (Phase) und in welcher Lerngruppe der Gegenstand gebraucht wird, z. B. „In Phase 2 (Erzählung) im Kurs 8-K zum Vorlesen der Schöpfungsgeschichte.“" } },
           required: ["gegenstand", "wofuer"], additionalProperties: false } },
-      fachbegriffe: { type: "array", maxItems: TERMS_LIMITS.max, description: "Nur Oberstufe (E-Phase, Q1–Q4): „" + TERMS_TITLE + "“ – " + TERMS_LIMITS.min + " bis " + TERMS_LIMITS.max +
+      fachbegriffe: { type: "array", maxItems: TERMS_LIMITS.max, description: "Nur Gymnasium (Jahrgang 5 bis Q4, nicht Grundschule): „" + TERMS_TITLE + "“ – " + TERMS_LIMITS.min + " bis " + TERMS_LIMITS.max +
         " zentrale Fachbegriffe, die in dieser Stunde eingeführt oder gebraucht werden, je mit einer kurzen Definition. Unterricks zeigt sie den Schüler:innen ab " + TERMS_BEFORE_END_MIN +
         " Minuten vor dem Ende der Sitzung als Karteikarten (vorne der Begriff, hinten die Definition). Ersetzt die bisherige Liste (siehe get_lesson); [] leert sie. Nie Namen von Schüler:innen.",
         items: { type: "object", properties: { begriff: { type: "string", maxLength: TERMS_LIMITS.term, description: "der Fachbegriff, z. B. „Gewaltenteilung“" },
@@ -437,8 +437,8 @@ async function lessonDump(db, l, now = Date.now()) {
     ...teacherPlanSection(l, { substitute: !!sub && sub.status === "aktiv", selbstlern: !!sub && sub.status === SELBSTLERN }),
     ...shareSection(l),
     ...bringSection(bringRead(l.bring).items),
-    // Fachbegriffe dieser Sitzung (Nachtrag 44, Teil 3): nur Oberstufe – Sek I bleibt byte-gleich
-    ...(isOberstufe(l.klass) ? termsSection(termsRead(l.terms).items, termsWhen(l)) : []),
+    // Fachbegriffe dieser Sitzung (Nachtrag 44/47): Gymnasium ab Jahrgang 5 – die Grundschule bleibt byte-gleich
+    ...(hasTermCards(l.klass) ? termsSection(termsRead(l.terms).items, termsWhen(l), l.klass) : []),
     "", "## Planungsverlauf", chatTranscript(msgs, 60000) || "(leer)",
   ];
   const ds = (drafts.results || []);
@@ -968,10 +968,10 @@ async function callTool(c, name, a) {
         if (wrong >= 0) return toolError("mitbringen, Eintrag " + (wrong + 1) + ": gegenstand und wofuer sind Pflicht (wofuer: in höchstens zwei Sätzen, an welcher Stelle der Stunde und in welcher Lerngruppe er gebraucht wird).");
         b.bring = a.mitbringen.map((x) => ({ item: x.gegenstand, note: x.wofuer }));
       }
-      // Fachbegriffe dieser Sitzung (Nachtrag 44, Teil 3): nur Oberstufe; 3 bis 8 oder [] – geprüft wie auf der Sitzungsseite, Fehler als Meldung (nichts gespeichert)
+      // Fachbegriffe dieser Sitzung (Nachtrag 44/47): Gymnasium ab Jg. 5; 3 bis 8 oder [] – geprüft wie auf der Sitzungsseite, Fehler als Meldung (nichts gespeichert)
       if (a.fachbegriffe !== undefined) {
         if (!Array.isArray(a.fachbegriffe)) return toolError("fachbegriffe ist eine Liste [{begriff, definition}] ([] leert sie).");
-        if (!isOberstufe(l0.klass)) return toolError(TERMS_ONLY_OBERSTUFE + " Lass fachbegriffe bei dieser Sitzung weg.");
+        if (!hasTermCards(l0.klass)) return toolError(TERMS_ONLY_GYM + " Lass fachbegriffe bei dieser Sitzung weg.");
         const wrong = a.fachbegriffe.findIndex((x) => !x || typeof x !== "object" || typeof x.begriff !== "string" || !x.begriff.trim() || typeof x.definition !== "string" || !x.definition.trim());
         if (wrong >= 0) return toolError("fachbegriffe, Eintrag " + (wrong + 1) + ": begriff und definition sind Pflicht (definition: kurze Erklärung in ein bis zwei Sätzen, höchstens " + TERMS_LIMITS.def + " Zeichen).");
         b.terms = a.fachbegriffe.map((x) => ({ term: x.begriff, definition: x.definition }));

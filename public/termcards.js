@@ -1,4 +1,4 @@
-// termcards.js – Karteikarten „Fachbegriffe dieser Sitzung“ in der Ansicht der Schüler:innen (Nachtrag 44, Teil 3; nur Oberstufe: E-Phase und Q1–Q4).
+// termcards.js – Karteikarten „Fachbegriffe dieser Sitzung“ in der Ansicht der Schüler:innen (Nachtrag 44, Teil 3; seit Nachtrag 47 am Gymnasium ab Jahrgang 5).
 // Der Server liefert die Begriffe erst ab 2 Minuten vor dem Ende der Sitzung (worker/student.js); danach bleiben sie. Vorne steht der Begriff, ein Tippen,
 // Klicken bzw. Enter oder Leertaste dreht die Karte, hinten steht die Definition. Barrierefrei als Aufklapp-Muster: ein echter Knopf je Karte (Name = Begriff,
 // aria-expanded, aria-controls auf die Rückseite), die gerade nicht sichtbare Seite ist aria-hidden. Gedreht wird nur ohne „Bewegung reduzieren“ (3D, nur

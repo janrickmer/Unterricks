@@ -290,7 +290,7 @@ async function studentRoom(lessonId) {
       paintPortalPreview(h("div", { class: "hwtext" }), hw.text)));
   };
   paintHomework(d.homework);
-  // Fachbegriffe dieser Sitzung (Nachtrag 44, Teil 3; nur Oberstufe): Karteikarten ganz unten – der Server liefert sie erst ab 2 Minuten vor dem Ende
+  // Fachbegriffe dieser Sitzung (Nachtrag 44/47; Gymnasium ab Jg. 5): Karteikarten ganz unten – der Server liefert sie erst ab 2 Minuten vor dem Ende
   const termsView = termCards();
   termsView.update(d.terms);
   // Anonyme Umfrage (Nachtrag 46): abstimmen direkt unter der Live-Präsentation – nur solange die Lehrkraft die Umfragefolie zeigt (der Stand kommt über die

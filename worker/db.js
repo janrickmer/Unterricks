@@ -149,7 +149,7 @@ export const COLUMNS = [
   // der Codefolien, die live gezeigt wurden (schreibt das Durable Object, worker/live.js), refs = von der Lehrkraft freigegebenes Material („f:<Datei>“,
   // „s:<Code>“). Nur wachsend, nie zurückgesetzt; gelöscht mit der Sitzung. Laufzeitstand – nicht in Sitzungsdatei, Sicherung und Einheitsdatei. NULL = nichts
   ["lessons", "reveals", "TEXT"],
-  // Fachbegriffe dieser Sitzung (Nachtrag 44, Teil 3; nur Oberstufe, Karteikarten für die Schüler:innen ab 2 Minuten vor dem Ende): {v:1, rev, items:[{t, d}]}
+  // Fachbegriffe dieser Sitzung (Nachtrag 44/47; Gymnasium ab Jg. 5, Karteikarten für die Schüler:innen ab 2 Minuten vor dem Ende): {v:1, rev, items:[{t, d}]}
   // als JSON (public/terms.js) – t = Begriff, d = Definition; rev zählt jede Speicherung (Schutz vor Überschreiben). NULL = nie gesetzt
   ["lessons", "terms", "TEXT"],
   // Umfragefolien einer Präsentation (Nachtrag 46): {v:1, pdf, hand} als JSON (pollSlidesData in public/polls.js) – je Eintrag {n, q, options} (Folie, Frage,

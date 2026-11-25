@@ -3,7 +3,7 @@
 import { lazy } from "./update.js";
 import { apiUrl, upload } from "./ui.js";
 import { T, tapi } from "./teacher.js";
-import { formatCode, GS_SUBJECT, summaryOutdated, isOberstufe } from "./shared.js";
+import { formatCode, GS_SUBJECT, summaryOutdated, hasTermCards } from "./shared.js";
 import { teacherPlanFits } from "./teacherplan.js";
 import { SESSION_FILE, sessionFileName, sheetToDraft, cleanSessionFile, adaptDates, adaptBringGroup } from "./sessionfile.js";
 import { makeZip, readZip } from "./zip.js";
@@ -129,7 +129,7 @@ export async function buildSessionZip(detail, { fb = T.fb, onStep = () => {}, ho
       // Kurzplan für die Lehrkraft (Nachtrag 42) – nur, wenn es einen gibt; passt er schon jetzt nicht mehr zur Planung, steht das in der Datei (wie bei der Zusammenfassung)
       ...(L.teacherPlan && Array.isArray(L.teacherPlan.phases) && L.teacherPlan.phases.length ? { teacherPlan: L.teacherPlan.phases.map((p) => ({ n: p.n, steps: [...p.steps] })),
         ...(teacherPlanFits(L.teacherPlan, portal !== undefined ? portal : L.portal || "").why === "changed" ? { teacherPlanOutdated: true } : {}) } : {}),
-      // Fachbegriffe dieser Sitzung (Nachtrag 44, Teil 3, nur Oberstufe) – nur, wenn es welche gibt (sonst bleibt die Datei, wie sie war)
+      // Fachbegriffe dieser Sitzung (Nachtrag 44/47, Gymnasium) – nur, wenn es welche gibt (sonst bleibt die Datei, wie sie war)
       ...(Array.isArray(L.terms) && L.terms.length ? { terms: L.terms.map((x) => ({ term: x.term, definition: x.definition })) } : {}) },
     chat: (detail.messages || []).filter((m) => (m.role === "user" || m.role === "assistant") && m.model !== "begruessung").map((m) => ({ role: m.role, content: m.content, model: m.model || null, mode: m.mode || null })),
     files, drafts, sheets, notes };
@@ -184,10 +184,10 @@ export function planSessionImport(data, target) {
     // Kurzplan für die Lehrkraft (Nachtrag 42): Datumsangaben angepasst wie in den übrigen Texten; ohne Kurzplan in der Datei wird ein bisheriger gelöscht
     teacherPlan: (data.lesson.teacherPlan || []).map((p) => ({ n: p.n, steps: p.steps.map((x) => fix(x, "Kurzplan für die Lehrkraft, Phase " + p.n)) })),
     ...(data.lesson.teacherPlanOutdated ? { teacherPlanOutdated: true } : {}),
-    // Fachbegriffe dieser Sitzung (Nachtrag 44, Teil 3): ersetzen die Liste der Zielsitzung (ohne Begriffe in der Datei: leer) – nur in der Oberstufe; sonst
+    // Fachbegriffe dieser Sitzung (Nachtrag 44, Teil 3): ersetzen die Liste der Zielsitzung (ohne Begriffe in der Datei: leer) – nur am Gymnasium; sonst
     // bleiben sie weg (termsDropped nennt ihre Zahl für den Dialog)
-    terms: isOberstufe(target.klass) ? (data.lesson.terms || []).map((x) => ({ term: x.term, definition: x.definition })) : [] };
-  const termsDropped = isOberstufe(target.klass) ? 0 : (data.lesson.terms || []).length;
+    terms: hasTermCards(target.klass) ? (data.lesson.terms || []).map((x) => ({ term: x.term, definition: x.definition })) : [] };
+  const termsDropped = hasTermCards(target.klass) ? 0 : (data.lesson.terms || []).length;
   const texts = [], links = [], prints = [], bins = [];
   for (const f of data.files) {
     if (f.kind === "link") links.push({ area: f.area, title: f.name, url: f.url });

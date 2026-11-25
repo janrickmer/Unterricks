@@ -46,6 +46,12 @@ export async function pollsE2E({ browser, tp, BASE, T, ok, OUT, SHOT, horizontal
   ok((await toast.textContent()).includes("Auf Folie 2 stimmen die Schüler:innen im Unterricht anonym ab (siehe „Umfragefolien“)."), "Hochladen: „Auf Folie 2 stimmen die Schüler:innen im Unterricht anonym ab (siehe „Umfragefolien“).“");
   let pf = (await T("GET", "/api/teacher/lessons/" + A.id)).data.files.find((f) => f.area === "presentation");
   ok(JSON.stringify(pf.polls) === JSON.stringify({ pdf: [{ n: 2, q: Q, options: OPTS }], hand: null }), "Umfragefolie aus der unsichtbaren Zeile erkannt: Folie 2 mit Frage und drei Antworten");
+  // Nachtrag 47: auch diese Sitzung in Jg. 8 hat die Karte „Fachbegriffe dieser Sitzung“ (Karteikarten am ganzen Gymnasium ab Jg. 5)
+  await tp.locator("#terms").waitFor({ timeout: 15000 });
+  const tr = await T("PATCH", "/api/teacher/lessons/" + A.id, { terms: [{ term: "Wahlalter", definition: "Das Alter, ab dem man wählen darf." }, { term: "Wahlrecht", definition: "Das Recht, bei Wahlen abzustimmen." },
+    { term: "Bundestag", definition: "Das Parlament, das in Berlin die Gesetze beschließt." }], termsBase: 0 });
+  ok(tr.status === 200 && tr.data.lesson.terms.length === 3 && (await tp.locator("#terms-h").textContent()) === "Fachbegriffe dieser Sitzung",
+    "Jg. 8 (Nachtrag 47): Karte „Fachbegriffe dieser Sitzung“ auf der Sitzungsseite, drei Begriffe gespeichert");
   const K = P.pollKey(pf.id, 2);
   await tp.reload();
   const box = tp.locator("details#polls");

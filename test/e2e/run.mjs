@@ -1768,7 +1768,7 @@ async function main() {
     await sp.locator(".item", { hasText: "Das Bundesverfassungsgericht" }).waitFor();
     ok(await sp.locator(".item", { hasText: "Das Bundesverfassungsgericht" }).locator(".badge", { hasText: "Hausaufgabe" }).count() === 1, "… und in ihrer Sitzungsliste");
     // Nachtrag 44, Teil 3: Fachbegriffe dieser Sitzung (Q2-GK) – Connector, Karte der Lehrkraft, Karteikarten der Schüler:innen erst ab 2 Minuten vor dem Ende
-    step("Fachbegriffe dieser Sitzung: Karteikarten ab 2 Minuten vor dem Ende (nur Oberstufe)");
+    step("Fachbegriffe dieser Sitzung: Karteikarten ab 2 Minuten vor dem Ende (hier Q2-GK; seit Nachtrag 47 am ganzen Gymnasium ab Jg. 5)");
     await termsE2E({ tp, sp, BASE, T, SA, tool, ok, OUT, SHOT, lessonId, setWhen, horizontalIssues });
     // Sitzung vorbei (Beginn vor zwei Stunden): Präsentation frei – wegen der Markierung nur Folie 1–2; keine Begriffshilfe mehr
     await setWhen(Date.now() - 120 * 60e3);

@@ -1,13 +1,14 @@
-// terms.js – „Fachbegriffe dieser Sitzung“ (Nachtrag 44, Teil 3 vom 23.11.2026; nur Oberstufe: E-Phase und Q1–Q4): 3 bis 8 Fachbegriffe je Sitzung mit je
+// terms.js – „Fachbegriffe dieser Sitzung“ (Nachtrag 44, Teil 3 vom 23.11.2026, zuerst nur Oberstufe; seit Nachtrag 47 vom 25.11.2026 in allen Sitzungen am
+// Gymnasium ab Jahrgang 5 – hasTermCards in public/shared.js; nie in der Grundschule): 3 bis 8 Fachbegriffe je Sitzung mit je
 // einer kurzen Definition. Claude schreibt sie beim Planen (update_lesson mit fachbegriffe), die Lehrkraft sieht und ändert sie auf der Sitzungsseite
 // (termsedit.js); Schüler:innen sehen sie ab 2 Minuten vor dem Ende der Sitzung als Karteikarten (termcards.js) – den Zeitpunkt prüft der Server
 // (worker/student.js), vorher liefert er sie nie aus. Reine Funktionen für Browser und Worker: Prüfen, Speicherform, Bausteine für Prompt und get_lesson.
 // Eigene Namen (terms, Fachbegriffe): nicht zu verwechseln mit den Bildkarten der Grundschule (cards) und der KI-Begriffshilfe (aiHelp).
-import { TERMS_BEFORE_END_MIN, isOberstufe } from "./shared.js";
+import { TERMS_BEFORE_END_MIN, hasTermCards, gradeInfo } from "./shared.js";
 
 export const TERMS_LIMITS = { min: 3, max: 8, term: 60, def: 300 };
 export const TERMS_TITLE = "Fachbegriffe dieser Sitzung";
-export const TERMS_ONLY_OBERSTUFE = "Fachbegriffe dieser Sitzung (Karteikarten) gibt es nur in der Oberstufe (E-Phase, Q1–Q4).";
+export const TERMS_ONLY_GYM = "Fachbegriffe dieser Sitzung (Karteikarten) gibt es nur in Sitzungen am Gymnasium (Jahrgang 5 bis Q4) – nicht in der Grundschule.";
 
 // Steuer- und unsichtbare Formatzeichen entfernen, Leerraum (auch Zeilenumbrüche) zu einem Leerzeichen – Begriff und Definition sind einzeilig
 const strip = (v) => String(v == null ? "" : v).replace(/[\u0000-\u0008\u000B\u000C\u000E-\u001F\u007F\u200B-\u200F\u2028\u2029\u202A-\u202E\u2060-\u2064\uFEFF]/g, "");
@@ -76,25 +77,35 @@ export function termsRead(raw) {
  * plan = planSessionImport(…) (lesson.terms, termsDropped), target = Zielsitzung (klass, terms) */
 export function termsImportText(plan, target) {
   const xs = plan && plan.lesson && Array.isArray(plan.lesson.terms) ? plan.lesson.terms : [], dropped = plan && plan.termsDropped ? plan.termsDropped : 0;
-  if (dropped) return (dropped === 1 ? "Der Fachbegriff aus der Datei wird" : "Die " + dropped + " Fachbegriffe aus der Datei werden") + " nicht übernommen – Karteikarten gibt es nur in der Oberstufe.";
-  if (!target || !isOberstufe(target.klass)) return "";
+  if (dropped) return (dropped === 1 ? "Der Fachbegriff aus der Datei wird" : "Die " + dropped + " Fachbegriffe aus der Datei werden") + " nicht übernommen – Karteikarten gibt es nur in Sitzungen am Gymnasium.";
+  if (!target || !hasTermCards(target.klass)) return "";
   if (xs.length) return "Die Fachbegriffe aus der Datei (" + xs.map((x) => x.term).join(", ") + ") ersetzen die Liste dieser Sitzung.";
   return Array.isArray(target.terms) && target.terms.length ? "Die Datei enthält keine Fachbegriffe – die bisherigen dieser Sitzung werden gelöscht." : "";
 }
 
-/* ---------- Claude: Prompt „Stunde mit Claude planen“ (nur Oberstufe) und get_lesson ---------- */
+/* ---------- Claude: Prompt „Stunde mit Claude planen“ (Gymnasium ab Jg. 5) und get_lesson ---------- */
+/* Sprache der Definitionen nach Jahrgang (Nachtrag 47, Antwort der Lehrkraft: weiter 3 bis 8 Begriffe, die Sprache dem Jahrgang angepasst) */
+export function termsLevel(klass) {
+  const g = gradeInfo(klass), s = g.stufe;
+  if (!Number.isInteger(s)) return "";
+  if (s <= 7) return "Jahrgang " + s + ": Definitionen in einfachen, kurzen Sätzen, wie für " + (s + 5) + "- bis " + (s + 6) + "-Jährige, möglichst mit einem kleinen Alltagsbeispiel; " +
+    "Fremdwörter nur, wenn sie selbst erklärt werden; nur Begriffe, die in dieser Stunde wirklich vorkommen";
+  if (s <= 10) return "Jahrgang " + s + ": Definitionen fachlich korrekt und gut verständlich, Fachsprache behutsam und mit Erklärung";
+  return (g.halfYear === "E" ? "Einführungsphase" : "Qualifikationsphase") + ": Definitionen fachsprachlich präzise, auf dem Niveau der gymnasialen Oberstufe";
+}
 const HOW = "je `begriff` (höchstens " + TERMS_LIMITS.term + " Zeichen) und `definition`: eine kurze, fachlich korrekte Erklärung in ein bis zwei Sätzen (höchstens " + TERMS_LIMITS.def +
   " Zeichen), verständlich für diese Lerngruppe, als schlichter Text ohne Schulportal-Zeichen";
 const SHOWN = "Unterricks zeigt sie den Schüler:innen ab " + TERMS_BEFORE_END_MIN + " Minuten vor dem Ende der Sitzung als Karteikarten (vorne der Begriff, hinten die Definition)";
-/* Speicherschritt im Prompt „Stunde mit Claude planen“ – nur für Sitzungen der Oberstufe (planning.js prüft die Klasse) */
-export const termsSaveStep = () => "   - „" + TERMS_TITLE + "“ → `update_lesson` mit `fachbegriffe`: " + TERMS_LIMITS.min + " bis " + TERMS_LIMITS.max +
-  " zentrale Fachbegriffe, die in dieser Stunde eingeführt oder gebraucht werden, " + HOW + "; die Liste ersetzt die bisherige aus `get_lesson`. " + SHOWN +
-  ". Ändern wir die Planung später, passe auch die Fachbegriffe an.";
-/* Abschnitt „Fachbegriffe dieser Sitzung“ von get_lesson (nur Oberstufe); when = Satz, ab wann die Schüler:innen sie sehen (aus Datum, Beginn und Dauer) */
-export function termsSection(items, when = "") {
-  const xs = cleanTerms(items);
+/* Speicherschritt im Prompt „Stunde mit Claude planen“ – für Sitzungen am Gymnasium ab Jg. 5 (planning.js prüft die Klasse); klass = Klasse der Sitzung (Sprache) */
+export const termsSaveStep = (klass) => { const lv = termsLevel(klass); return "   - „" + TERMS_TITLE + "“ → `update_lesson` mit `fachbegriffe`: " + TERMS_LIMITS.min + " bis " + TERMS_LIMITS.max +
+  " zentrale Fachbegriffe, die in dieser Stunde eingeführt oder gebraucht werden, " + HOW + (lv ? " (" + lv + ")" : "") + "; die Liste ersetzt die bisherige aus `get_lesson`. " + SHOWN +
+  ". Ändern wir die Planung später, passe auch die Fachbegriffe an."; };
+/* Abschnitt „Fachbegriffe dieser Sitzung“ von get_lesson (Gymnasium ab Jg. 5); when = Satz, ab wann die Schüler:innen sie sehen (aus Datum, Beginn und Dauer);
+   klass = Klasse der Sitzung (Sprache der Definitionen) */
+export function termsSection(items, when = "", klass = null) {
+  const xs = cleanTerms(items), lv = klass ? termsLevel(klass) : "";
   const out = ["", "## " + TERMS_TITLE + " (Karteikarten für die Schüler:innen, sichtbar ab " + TERMS_BEFORE_END_MIN + " Minuten vor dem Ende der Sitzung)"];
-  if (!xs.length) return [...out, "(noch keine – schreibe nach der Freigabe der Lehrkraft " + TERMS_LIMITS.min + " bis " + TERMS_LIMITS.max + " zentrale Fachbegriffe dieser Stunde mit update_lesson und fachbegriffe: " + HOW + ")"];
+  if (!xs.length) return [...out, "(noch keine – schreibe nach der Freigabe der Lehrkraft " + TERMS_LIMITS.min + " bis " + TERMS_LIMITS.max + " zentrale Fachbegriffe dieser Stunde mit update_lesson und fachbegriffe: " + HOW + (lv ? " (" + lv + ")" : "") + ")"];
   return [...out, ...xs.map((x) => "- " + x.term + ": " + x.definition), ...(when ? [when] : []),
     "(Ändern mit update_lesson und fachbegriffe – die Liste ersetzt die bisherige, [] leert sie.)"];
 }

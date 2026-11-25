@@ -2,7 +2,7 @@
 // ZIP-Ordner mit allem, was die Lehrkraft für diese eine Sitzung braucht – zum Lesen, Ausdrucken und Mitnehmen, nicht zum Wiederladen in Unterricks
 // (dafür bleibt „Sitzung als Datei“, sessionio.js). Inhalt:
 //   Verlaufsplan - <Titel>.pdf            Stundenverlauf bzw. Verlaufsplan (ohne „⏸ Zwischenstopp“), Hausaufgabe, Links, Feibeitsblätter mit Code,
-//                                         Gegenstände zum Mitbringen, Fachbegriffe dieser Sitzung (Oberstufe, Nachtrag 44), Zusammenfassung für die Lehrkraft
+//                                         Gegenstände zum Mitbringen, Fachbegriffe dieser Sitzung (Gymnasium, Nachtrag 44/47), Zusammenfassung für die Lehrkraft
 //                                         und eine Liste des Ordners
 //   Präsentation - <Titel>.pdf / .pptx    die Präsentation, wie sie hochgeladen ist, und als PowerPoint daraus (jede Folie ein Bild, Notizen in der
 //                                         Referentenansicht – sharepres.js pdfToPptx)
@@ -200,7 +200,7 @@ export async function buildLessonZip({ st, gs = false, course = null, portal = n
   }
   const bring = (L.bring || []).filter((b) => b && b.item);
   if (bring.length) extra.push({ t: "h", text: "Gegenstände zum Mitbringen" }, ...bring.map((b) => ({ t: "li", runs: [{ text: b.item + (b.note ? " – " + b.note : "") }] })));
-  // Fachbegriffe dieser Sitzung (Nachtrag 44, Teil 3; nur Oberstufe – die Liste gibt es nur dort): Begriff fett, dahinter die Definition
+  // Fachbegriffe dieser Sitzung (Nachtrag 44/47; Gymnasium ab Jg. 5 – die Liste gibt es nur dort): Begriff fett, dahinter die Definition
   const terms = (Array.isArray(L.terms) ? L.terms : []).filter((x) => x && x.term);
   if (terms.length) extra.push({ t: "h", text: "Fachbegriffe dieser Sitzung (Karteikarten für die Schüler:innen)" }, ...terms.map((x) => ({ t: "li", runs: [{ text: x.term, b: true }, { text: " – " + (x.definition || "") }] })));
   const planName = LZ_DOCS.plan(L.title);

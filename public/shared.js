@@ -57,9 +57,12 @@ export function gradeInfo(k) {
 export const classLabel = (k) => (isValidClass(k) ? (isCourseClass(k) ? "" : "Klasse/Kurs ") + classShort(k) + " – " + gradeInfo(k).text : "");
 /* Jahrgänge 5 und 6 haben keine iPads: nur analoge, ausdruckbare Materialien (keine Feibeitsblätter, keine Escape-Rooms) */
 export const isAnalogClass = (k) => { const s = gradeInfo(k).stufe; return s === 5 || s === 6; };
-/* Oberstufe: E-Phase (EA–EH und der Kurs E-K) und Qualifikationsphase (Q1-GK … Q4-LK) – nur dort gibt es die Karteikarten „Fachbegriffe dieser Sitzung“
-   (Nachtrag 44, Teil 3; public/terms.js). Geprüft wird immer die Klasse bzw. der Kurs der Sitzung, nie die eines Geräts. */
+/* Oberstufe: E-Phase (EA–EH und der Kurs E-K) und Qualifikationsphase (Q1-GK … Q4-LK) */
 export const isOberstufe = (k) => !!gradeInfo(k).halfYear;
+/* Karteikarten „Fachbegriffe dieser Sitzung“ (public/terms.js): zuerst nur in der Oberstufe (Nachtrag 44, Teil 3), seit Nachtrag 47 in allen Sitzungen am
+   Gymnasium ab Jahrgang 5 (Klassen 5A–10H, Kurse 5-K–10-K, E-Phase, Q1–Q4) – nie in der Grundschule. Geprüft wird immer die Klasse bzw. der Kurs der Sitzung,
+   nie die eines Geräts. */
+export const hasTermCards = (k) => { const s = gradeInfo(k).stufe; return Number.isInteger(s) && s >= 5; };
 export const ANALOG_RULE = "In den Jahrgängen 5 und 6 haben die Schüler:innen an dieser Schule keine iPads und können nicht digital lernen: Entwickle KEINE digitalen Arbeitsformate " +
   "(keine Feibeitsblätter, keine Escape-Rooms, keine Online-Aufgaben), sondern analoges Arbeitsmaterial als ausdruckbare PDF-Arbeitsblätter.";
 
@@ -132,8 +135,8 @@ export function berlinTime(iso, hhmm) {
   return t;
 }
 /* Zeitpunkte einer Sitzung: Beginn, Ende, ab wann Schüler:innen die Hausaufgabe sehen (15 Minuten vor dem Ende) und die Präsentation
-   selbst öffnen können (5 Minuten nach dem Ende). Ohne Datum, Startzeit oder Dauer: null (dann bleibt beides gesperrt). Dazu (Nachtrag 44, Teil 3, nur
-   Oberstufe) ab wann die Karteikarten „Fachbegriffe dieser Sitzung“ erscheinen: 2 Minuten vor dem Ende – danach bleiben sie sichtbar. */
+   selbst öffnen können (5 Minuten nach dem Ende). Ohne Datum, Startzeit oder Dauer: null (dann bleibt beides gesperrt). Dazu (Nachtrag 44, Teil 3; seit
+   Nachtrag 47 am ganzen Gymnasium) ab wann die Karteikarten „Fachbegriffe dieser Sitzung“ erscheinen: 2 Minuten vor dem Ende – danach bleiben sie sichtbar. */
 export const HOMEWORK_BEFORE_END_MIN = 15, PRESENTATION_AFTER_END_MIN = 5, TERMS_BEFORE_END_MIN = 2;
 export function lessonTimes(l) {
   const start = l ? berlinTime(l.date, l.startTime) : null, dur = l ? Number(l.durationMin) : NaN;

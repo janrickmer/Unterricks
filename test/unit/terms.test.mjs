@@ -1,4 +1,5 @@
-// Nachtrag 44, Teil 3 (23.11.2026): „Fachbegriffe dieser Sitzung“ – Karteikarten nur in der Oberstufe (E-Phase, Q1–Q4). Reine Funktionen (public/terms.js,
+// Nachtrag 44, Teil 3 (23.11.2026): „Fachbegriffe dieser Sitzung“ – Karteikarten zuerst nur in der Oberstufe, seit Nachtrag 47 (25.11.2026) in allen Sitzungen am
+// Gymnasium ab Jahrgang 5 (hasTermCards), nie in der Grundschule. Reine Funktionen (public/terms.js,
 // isOberstufe und termsAt in public/shared.js), Prompt „Stunde mit Claude planen“, Worker (PATCH mit Stand, Schüler-Route mit Zeitprüfung, Sitzungsdatei,
 // EMPTY_LESSON), Connector (update_lesson fachbegriffe, get_lesson), Karte der Lehrkraft (public/termsedit.js) und Karteikarten der Schüler:innen
 // (public/termcards.js) im Browser-Ersatz, Gestaltung (styles.css). Frei erfundene Inhalte.
@@ -38,6 +39,9 @@ const THREE = [{ term: "Gewaltenteilung", definition: "Aufteilung der Staatsgewa
 test("isOberstufe: E-Phase (EA–EH, E-K) und Q1–Q4 (GK und LK) – nie Sek I, Kurse der Sek I, Grundschule oder Ungültiges; termsAt = 2 Minuten vor dem Ende", () => {
   for (const k of ["EA", "EH", "E-K", ...S.Q_COURSES]) assert.equal(S.isOberstufe(k), true, k);
   for (const k of ["5A", "6B", "8B", "10H", "8-K", "10-K", "gs12345678", "", null, undefined, "Q5-GK", "EI"]) assert.equal(S.isOberstufe(k), false, String(k));
+  // Nachtrag 47: Karteikarten am ganzen Gymnasium ab Jahrgang 5 – Klassen, Kurse der Sek I, E-Phase, Q-Phase; nie Grundschule oder Ungültiges
+  for (const k of ["5A", "6B", "8B", "10H", "5-K", "8-K", "10-K", "EA", "E-K", ...S.Q_COURSES]) assert.equal(S.hasTermCards(k), true, k);
+  for (const k of ["gs12345678", "", null, undefined, "Q5-GK", "EI", "4A", "11Z"]) assert.equal(S.hasTermCards(k), false, String(k));
   const t = S.lessonTimes({ date: "2026-11-17", startTime: "10:00", durationMin: 90 });
   assert.equal(S.TERMS_BEFORE_END_MIN, 2);
   assert.equal(t.termsAt, t.end - 2 * 60e3);
@@ -83,11 +87,19 @@ test("Speicherform: {v:1, rev, items:[{t, d}]}; lesen tolerant (kaputtes JSON, f
 });
 
 test("Bausteine: Speicherschritt des Prompts, get_lesson-Abschnitt (leer und gefüllt), Satz im Dialog „Sitzung aus Datei laden“", () => {
-  const step = TM.termsSaveStep();
+  const step = TM.termsSaveStep("Q2-GK");
   for (const s of ["„Fachbegriffe dieser Sitzung“ → `update_lesson` mit `fachbegriffe`", "3 bis 8 zentrale Fachbegriffe, die in dieser Stunde eingeführt oder gebraucht werden",
     "`begriff` (höchstens 60 Zeichen)", "`definition`: eine kurze, fachlich korrekte Erklärung in ein bis zwei Sätzen (höchstens 300 Zeichen), verständlich für diese Lerngruppe",
     "ab 2 Minuten vor dem Ende der Sitzung als Karteikarten (vorne der Begriff, hinten die Definition)", "die Liste ersetzt die bisherige aus `get_lesson`"]) assert.ok(step.includes(s), s);
   assert.ok(step.startsWith("   - "));
+  // Sprache der Definitionen nach Jahrgang (Nachtrag 47)
+  assert.ok(step.includes("(Qualifikationsphase: Definitionen fachsprachlich präzise, auf dem Niveau der gymnasialen Oberstufe)"));
+  assert.ok(TM.termsSaveStep("5A").includes("(Jahrgang 5: Definitionen in einfachen, kurzen Sätzen, wie für 10- bis 11-Jährige, möglichst mit einem kleinen Alltagsbeispiel;"));
+  assert.ok(TM.termsSaveStep("7-K").includes("(Jahrgang 7: Definitionen in einfachen, kurzen Sätzen"));
+  assert.ok(TM.termsSaveStep("9D").includes("(Jahrgang 9: Definitionen fachlich korrekt und gut verständlich, Fachsprache behutsam und mit Erklärung)"));
+  assert.ok(TM.termsSaveStep("E-K").includes("(Einführungsphase: Definitionen fachsprachlich präzise"));
+  assert.equal(TM.termsLevel("gs12345678"), "");
+  assert.ok(TM.termsSection([], "", "6B")[2].includes("(Jahrgang 6: Definitionen in einfachen, kurzen Sätzen"), "get_lesson nennt die Sprache, solange noch keine Begriffe da sind");
   const e = TM.termsSection([]);
   assert.deepEqual(e.slice(0, 2), ["", "## Fachbegriffe dieser Sitzung (Karteikarten für die Schüler:innen, sichtbar ab 2 Minuten vor dem Ende der Sitzung)"]);
   assert.ok(e[2].startsWith("(noch keine – schreibe nach der Freigabe der Lehrkraft 3 bis 8 zentrale Fachbegriffe dieser Stunde mit update_lesson und fachbegriffe"));
@@ -96,21 +108,21 @@ test("Bausteine: Speicherschritt des Prompts, get_lesson-Abschnitt (leer und gef
     "- Judikative: Die rechtsprechende Gewalt, also die unabhängigen Gerichte.", "Die Schüler:innen sehen sie ab …", "(Ändern mit update_lesson und fachbegriffe – die Liste ersetzt die bisherige, [] leert sie.)"]);
   // Dialog „Sitzung aus Datei laden“
   assert.equal(TM.termsImportText({ lesson: { terms: THREE }, termsDropped: 0 }, { klass: "Q2-GK", terms: [] }), "Die Fachbegriffe aus der Datei (Gewaltenteilung, Legislative, Judikative) ersetzen die Liste dieser Sitzung.");
-  assert.equal(TM.termsImportText({ lesson: { terms: [] }, termsDropped: 3 }, { klass: "8B" }), "Die 3 Fachbegriffe aus der Datei werden nicht übernommen – Karteikarten gibt es nur in der Oberstufe.");
+  assert.equal(TM.termsImportText({ lesson: { terms: [] }, termsDropped: 3 }, { klass: "8B" }), "Die 3 Fachbegriffe aus der Datei werden nicht übernommen – Karteikarten gibt es nur in Sitzungen am Gymnasium.");
   assert.equal(TM.termsImportText({ lesson: { terms: [] }, termsDropped: 0 }, { klass: "EA", terms: THREE }), "Die Datei enthält keine Fachbegriffe – die bisherigen dieser Sitzung werden gelöscht.");
   assert.equal(TM.termsImportText({ lesson: { terms: [] }, termsDropped: 0 }, { klass: "EA", terms: [] }), "");
-  assert.equal(TM.termsImportText({ lesson: { terms: [] }, termsDropped: 0 }, { klass: "8B" }), "");
+  assert.equal(TM.termsImportText({ lesson: { terms: [] }, termsDropped: 0 }, { klass: "gs12345678" }), "");
+  assert.equal(TM.termsImportText({ lesson: { terms: THREE }, termsDropped: 0 }, { klass: "6B", terms: [] }), "Die Fachbegriffe aus der Datei (Gewaltenteilung, Legislative, Judikative) ersetzen die Liste dieser Sitzung.", "Nachtrag 47: auch Jg. 6");
 });
 
-test("Prompt „Stunde mit Claude planen“: genau ein Schritt direkt nach der Hausaufgabe – nur Oberstufe; nie Sek I, Jg. 5/6, Grundschule, Selbstlern-, Präsentations- und Einheiten-Prompt", () => {
+test("Prompt „Stunde mit Claude planen“: genau ein Schritt direkt nach der Hausaufgabe – am ganzen Gymnasium ab Jg. 5 (Nachtrag 47), Sprache nach dem Jahrgang; nie Grundschule, Selbstlern-, Präsentations- und Einheiten-Prompt", () => {
   const base = { lessonId: "a".repeat(16), subject: "powi", lesson: { title: "Gewaltenteilung", topic: "Gewaltenteilung", durationMin: 90 }, materials: [], sheets: [], messages: [] };
-  const step = TM.termsSaveStep();
-  for (const klass of ["EA", "E-K", "Q1-GK", "Q4-LK"]) {
-    const p = P.claudeLessonPrompt({ ...base, subject: klass === "E-K" ? "evrel" : "powi", klass });
+  for (const klass of ["5A", "6B", "8B", "10H", "8-K", "EA", "E-K", "Q1-GK", "Q4-LK"]) {
+    const step = TM.termsSaveStep(klass);
+    const p = P.claudeLessonPrompt({ ...base, subject: klass === "E-K" ? "evrel" : klass === "8-K" ? "ethik" : "powi", klass });
     assert.equal(p.split(step).length - 1, 1, klass);
     assert.ok(p.includes("Schulportal-Zeichen erlaubt). Geänderte Sitzungsdaten (Titel, Thema, Dauer) ebenfalls mit `update_lesson`.\n" + step), "direkt nach der Hausaufgabe: " + klass);
   }
-  for (const klass of ["8B", "6B", "10H", "8-K"]) assert.ok(!P.claudeLessonPrompt({ ...base, subject: klass === "8-K" ? "ethik" : "powi", klass }).includes("fachbegriffe"), klass);
   const gl = G.claudeGsLessonPrompt({ lessonId: "b".repeat(16), subject: "gs", klass: "gs12345678", course: { short: "Religion 2ab", label: "Religion · Jahrgang 2 (Klassen 2a, 2b)", subjectName: "Religion", grade: 2, classes: ["a", "b"] }, lesson: { title: "Josef", durationMin: 45 }, materials: [] });
   assert.ok(!gl.includes("fachbegriffe") && !gl.includes(TM.TERMS_TITLE));
   assert.ok(!SL.claudeSelbstlernPrompt({ ...base, klass: "Q2-GK", row: null }).includes("fachbegriffe"), "Selbstlern-Phase ohne den Schritt");
@@ -141,13 +153,18 @@ async function base() {
 }
 const lesson = (c, klass, extra = {}) => L.createLesson(c.db, { subject: "powi", klass, title: "Gewaltenteilung", date: "2026-11-17", startTime: "10:00", durationMin: 90, ...extra }, c.now);
 
-test("PATCH: nur Oberstufe; speichert 3–8 bzw. [] mit Stand (409 bei veraltetem Stand), 400 bei ungültiger Liste; lessonOut nur in der Oberstufe mit terms/termsRev", async () => {
+// eine Sitzung der Grundschule (dort gibt es nie Karteikarten)
+async function gsLesson(c) {
+  const course = (await call(c, GS.routeGsCourseCreate, "POST", "/x", { grade: 2, classes: ["a"], religion: true, weekdays: [{ day: 2, minutes: 45, time: "08:00" }] })).data.course;
+  return L.createLesson(c.db, { subject: "gs", klass: course.id, title: "Josef", date: "2026-11-17", startTime: "10:00", durationMin: 90 }, c.now);
+}
+test("PATCH: Gymnasium ab Jg. 5 (Nachtrag 47); speichert 3–8 bzw. [] mit Stand (409 bei veraltetem Stand), 400 bei ungültiger Liste; lessonOut mit terms/termsRev – nie in der Grundschule", async () => {
   const c = await base();
-  const q = await lesson(c, "Q2-GK"), s1 = await lesson(c, "8B");
+  const q = await lesson(c, "Q2-GK"), s1 = await gsLesson(c);
   let r = await call(c, L.routeLessonGet, "GET", "/x", undefined, q.id);
   assert.deepEqual([r.data.lesson.terms, r.data.lesson.termsRev], [[], 0]);
   r = await call(c, L.routeLessonGet, "GET", "/x", undefined, s1.id);
-  assert.ok(!("terms" in r.data.lesson) && !("termsRev" in r.data.lesson), "Sek I: Antwort wie bisher");
+  assert.ok(!("terms" in r.data.lesson) && !("termsRev" in r.data.lesson), "Grundschule: Antwort wie bisher");
   r = await call(c, L.routeLessonPatch, "PATCH", "/x", { terms: THREE, termsBase: 0 }, q.id);
   assert.equal(r.status, 200, JSON.stringify(r.data));
   assert.deepEqual([r.data.lesson.terms, r.data.lesson.termsRev], [THREE, 1]);
@@ -166,24 +183,25 @@ test("PATCH: nur Oberstufe; speichert 3–8 bzw. [] mit Stand (409 bei veraltete
   assert.deepEqual([r.status, r.data.error], [400, "Bitte mindestens 3 Fachbegriffe angeben (höchstens 8) – oder die Liste ganz leeren."]);
   r = await call(c, L.routeLessonPatch, "PATCH", "/x", { terms: THREE, termsBase: "x" }, q.id);
   assert.deepEqual([r.status, r.data.error], [400, "Stand der Fachbegriffe fehlt."]);
-  // nicht Oberstufe: 400, nichts gespeichert (auch nicht die übrigen Felder)
+  // Grundschule: 400, nichts gespeichert (auch nicht die übrigen Felder)
   r = await call(c, L.routeLessonPatch, "PATCH", "/x", { terms: THREE, title: "Neu" }, s1.id);
-  assert.deepEqual([r.status, r.data.error], [400, TM.TERMS_ONLY_OBERSTUFE]);
+  assert.deepEqual([r.status, r.data.error], [400, TM.TERMS_ONLY_GYM]);
   assert.equal(c.db.raw.prepare("SELECT terms, title FROM lessons WHERE id=?").get(s1.id).terms, null);
-  assert.equal(c.db.raw.prepare("SELECT title FROM lessons WHERE id=?").get(s1.id).title, "Gewaltenteilung");
-  // E-Phase und der Kurs E-K gehören dazu
-  for (const k of ["EA", "E-K"]) {
-    const l = await L.createLesson(c.db, { subject: k === "E-K" ? "evrel" : "powi", klass: k, title: "T", date: "2026-11-17" }, c.now);
+  assert.equal(c.db.raw.prepare("SELECT title FROM lessons WHERE id=?").get(s1.id).title, "Josef");
+  // Nachtrag 47: alle Jahrgänge des Gymnasiums ab 5 gehören dazu – Klassen und Kurse der Sek I, E-Phase
+  for (const k of ["5A", "6B", "8B", "10H", "8-K", "EA", "E-K"]) {
+    const l = await L.createLesson(c.db, { subject: k === "E-K" ? "evrel" : k === "8-K" ? "ethik" : "powi", klass: k, title: "T", date: "2026-11-17" }, c.now);
     assert.equal((await call(c, L.routeLessonPatch, "PATCH", "/x", { terms: THREE }, l.id)).status, 200, k);
+    assert.deepEqual((await call(c, L.routeLessonGet, "GET", "/x", undefined, l.id)).data.lesson.terms, THREE, k);
   }
 });
 
-test("Schüler:innen: erst ab 2 Minuten vor dem Ende (Server), danach dauerhaft; ohne Beginn nie; Sek I nie; changesAt nur in der Oberstufe; nie in der Sitzungsliste oder beim Code einlösen; auch in der Selbstlern-Phase", async () => {
+test("Schüler:innen: erst ab 2 Minuten vor dem Ende (Server), danach dauerhaft; ohne Beginn nie; auch in Sek I (Nachtrag 47); nie in der Sitzungsliste oder beim Code einlösen; auch in der Selbstlern-Phase", async () => {
   const c = await base();
   const q = await lesson(c, "Q2-GK"), sek = await lesson(c, "9D");
   const secret = [{ term: "TERMGEHEIM", definition: "DEFGEHEIM – nur nach der Zeit." }, ...THREE.slice(1)];
   assert.equal((await call(c, L.routeLessonPatch, "PATCH", "/x", { terms: secret }, q.id)).status, 200);
-  c.db.raw.prepare("UPDATE lessons SET terms=? WHERE id=?").run(TM.termsStore(secret), sek.id);   // Sek I (nur direkt in der Datenbank denkbar)
+  assert.equal((await call(c, L.routeLessonPatch, "PATCH", "/x", { terms: secret }, sek.id)).status, 200, "Sek I (Nachtrag 47)");
   for (const [dev, klass] of [[DEV, "Q2-GK"], ["cdcdcdcdcdcdcdcd", "9D"]])
     c.db.raw.prepare("INSERT INTO student_devices(id, token_hash, klass, subject, created_at, last_seen, auth_until) VALUES(?, ?, ?, 'powi', ?, ?, ?)").run(dev, await sha256Hex(dev === DEV ? STOKEN : STOKEN + "9"), klass, c.now, c.now, c.now + 3600e3 * 24 * 30);
   const join = await scall(c, ST.routeStudentJoin, "POST", "/api/student/join", { code: q.code });
@@ -201,14 +219,13 @@ test("Schüler:innen: erst ab 2 Minuten vor dem Ende (Server), danach dauerhaft;
   c.now = TERMS_AT + 3 * 864e5;
   assert.deepEqual((await view(q.id)).terms, secret, "danach dauerhaft (auch Tage später)");
   for (const x of [join.data, (await scall(c, ST.routeStudentMe, "GET", "/api/student/me")).data]) assert.ok(!JSON.stringify(x).includes("TERMGEHEIM") && !JSON.stringify(x).includes("DEFGEHEIM"));
-  // Sek I: nie (auch nicht mit Begriffen in der Datenbank), kein Zeitpunkt der Karteikarten
+  // Sek I (Nachtrag 47): genauso – vorher nichts, ab 2 Minuten vor dem Ende die Karteikarten, der Zeitpunkt steht in changesAt
   c.now = NOW;
   await callAs(STOKEN + "9")(c, ST.routeStudentJoin, "POST", "/api/student/join", { code: sek.code });
-  assert.ok(!(await view(sek.id, STOKEN + "9")).changesAt.includes(TERMS_AT), "Sek I: kein Zeitpunkt für Karteikarten");
-  c.now = TERMS_AT + 864e5;
-  const sv = await view(sek.id, STOKEN + "9");
-  assert.equal(sv.terms, null);
-  assert.ok(!JSON.stringify(sv).includes("TERMGEHEIM"));
+  const sv0 = await view(sek.id, STOKEN + "9");
+  assert.ok(sv0.changesAt.includes(TERMS_AT) && sv0.terms === null && !JSON.stringify(sv0).includes("TERMGEHEIM"), "Sek I: vorher nichts, aber der Zeitpunkt");
+  c.now = TERMS_AT;
+  assert.deepEqual((await view(sek.id, STOKEN + "9")).terms, secret, "Sek I: ab 2 Minuten vor dem Ende");
   // ohne Beginn: nie, auch kein Zeitpunkt
   await call(c, L.routeLessonPatch, "PATCH", "/x", { startTime: null }, q.id);
   v = await view(q.id);
@@ -224,13 +241,15 @@ test("Schüler:innen: erst ab 2 Minuten vor dem Ende (Server), danach dauerhaft;
   assert.deepEqual((await view(q.id)).terms, secret);
 });
 
-test("Connector: update_lesson fachbegriffe (Antwort mit Zeitpunkt, [] löscht), Fehler ohne Speichern, nur Oberstufe; get_lesson-Abschnitt nur in der Oberstufe; Server-Anweisungen unverändert", async () => {
+test("Connector: update_lesson fachbegriffe (Antwort mit Zeitpunkt, [] löscht), Fehler ohne Speichern, am Gymnasium ab Jg. 5; get_lesson-Abschnitt dort (nie in der Grundschule); Server-Anweisungen unverändert", async () => {
   const c = await base();
-  const q = await lesson(c, "Q2-GK"), s1 = await lesson(c, "8B");
+  const q = await lesson(c, "Q2-GK"), s1 = await gsLesson(c), sek = await lesson(c, "6B");
   let g = await tool(c, "get_lesson", { lesson_id: q.id });
   assert.ok(g.text.includes("## Fachbegriffe dieser Sitzung (Karteikarten für die Schüler:innen, sichtbar ab 2 Minuten vor dem Ende der Sitzung)\n(noch keine – schreibe nach der Freigabe"));
   assert.ok(g.text.indexOf("## Mitbringen") < g.text.indexOf("## Fachbegriffe") && g.text.indexOf("## Fachbegriffe") < g.text.indexOf("## Planungsverlauf"));
-  assert.ok(!(await tool(c, "get_lesson", { lesson_id: s1.id })).text.includes("Fachbegriffe dieser Sitzung"), "Sek I: kein Abschnitt");
+  assert.ok(!(await tool(c, "get_lesson", { lesson_id: s1.id })).text.includes("Fachbegriffe dieser Sitzung"), "Grundschule: kein Abschnitt");
+  assert.ok((await tool(c, "get_lesson", { lesson_id: sek.id })).text.includes("## Fachbegriffe dieser Sitzung (Karteikarten") && (await tool(c, "get_lesson", { lesson_id: sek.id })).text.includes("(Jahrgang 6: Definitionen in einfachen, kurzen Sätzen"),
+    "Jg. 6 (Nachtrag 47): Abschnitt mit der Sprache des Jahrgangs");
   const args = THREE.map((x) => ({ begriff: x.term, definition: x.definition }));
   let r = await tool(c, "update_lesson", { lesson_id: q.id, fachbegriffe: args });
   assert.equal(r.text, "Gespeichert. Fachbegriffe dieser Sitzung (3): Gewaltenteilung, Legislative, Judikative – die Schüler:innen sehen sie ab Di., 17.11.2026, 11:28 Uhr (2 Minuten vor dem Ende der Sitzung).");
@@ -247,7 +266,9 @@ test("Connector: update_lesson fachbegriffe (Antwort mit Zeitpunkt, [] löscht),
   const after = (await call(c, L.routeLessonGet, "GET", "/x", undefined, q.id)).data.lesson;
   assert.deepEqual([after.title, after.terms.length], ["Gewaltenteilung", 3], "nach Fehlern unverändert");
   r = await tool(c, "update_lesson", { lesson_id: s1.id, fachbegriffe: args });
-  assert.ok(r.isError && r.text === TM.TERMS_ONLY_OBERSTUFE + " Lass fachbegriffe bei dieser Sitzung weg.", r.text);
+  assert.ok(r.isError && r.text === TM.TERMS_ONLY_GYM + " Lass fachbegriffe bei dieser Sitzung weg.", r.text);
+  r = await tool(c, "update_lesson", { lesson_id: sek.id, fachbegriffe: args });
+  assert.ok(!r.isError && r.text.startsWith("Gespeichert. Fachbegriffe dieser Sitzung (3)"), "Jg. 6: gespeichert");
   r = await tool(c, "update_lesson", { lesson_id: q.id, fachbegriffe: [] });
   assert.equal(r.text, "Gespeichert. Die „Fachbegriffe dieser Sitzung“ sind gelöscht.");
   r = await tool(c, "update_lesson", { lesson_id: q.id, titel: "Gewaltenteilung 2" });
@@ -261,13 +282,13 @@ test("Connector: update_lesson fachbegriffe (Antwort mit Zeitpunkt, [] löscht),
   const p = ul.inputSchema.properties.fachbegriffe;
   assert.equal(p.maxItems, 8); assert.deepEqual(p.items.required, ["begriff", "definition"]);
   assert.deepEqual([p.items.properties.begriff.maxLength, p.items.properties.definition.maxLength], [60, 300]);
-  assert.ok(p.description.startsWith("Nur Oberstufe (E-Phase, Q1–Q4): „Fachbegriffe dieser Sitzung“") && p.description.includes("[] leert sie") && p.description.includes("Nie Namen von Schüler:innen"));
-  assert.ok(ul.description.includes("Mit fachbegriffe speicherst du – nur in der Oberstufe (E-Phase, Q1–Q4) – die „Fachbegriffe dieser Sitzung“"));
+  assert.ok(p.description.startsWith("Nur Gymnasium (Jahrgang 5 bis Q4, nicht Grundschule): „Fachbegriffe dieser Sitzung“") && p.description.includes("[] leert sie") && p.description.includes("Nie Namen von Schüler:innen"));
+  assert.ok(ul.description.includes("Mit fachbegriffe speicherst du – in Sitzungen am Gymnasium ab Jahrgang 5 (nicht in der Grundschule), die Definitionen in der Sprache des Jahrgangs – die „Fachbegriffe dieser Sitzung“"));
   const init = await mcp(c, "initialize", { protocolVersion: "2025-06-18" });
   assert.ok(!init.instructions.includes("fachbegriffe") && !init.instructions.includes("Fachbegriffe dieser Sitzung") && init.instructions.length === 5646, "Server-Anweisungen byte-gleich lang");
 });
 
-test("Sitzungsdatei und Sicherung: Begriffe in der Datei (nur wenn vorhanden), tolerant gelesen; Laden ersetzt sie in der Oberstufe, eine Sek-I-Sitzung lässt sie weg (Satz im Dialog)", async () => {
+test("Sitzungsdatei und Sicherung: Begriffe in der Datei (nur wenn vorhanden), tolerant gelesen; Laden ersetzt sie am Gymnasium (auch Sek I), eine Sitzung der Grundschule lässt sie weg (Satz im Dialog)", async () => {
   const detail = (lesson) => ({ lesson: { id: "l1", subject: "powi", klass: "Q2-GK", title: "Macht", topic: "Macht", date: "2026-11-17", nextDate: "2026-11-19", portal: "", ...lesson }, files: [], drafts: [], sheets: [], messages: [] });
   const read = async (lesson) => (await IO.readSessionZip((await IO.buildSessionZip(detail(lesson), { fb: null })).bytes)).data;
   assert.ok(!("terms" in (await read({})).lesson), "ohne Begriffe bleibt die Datei, wie sie war");
@@ -280,21 +301,26 @@ test("Sitzungsdatei und Sicherung: Begriffe in der Datei (nur wenn vorhanden), t
   let plan = IO.planSessionImport(data, { klass: "Q3-LK", date: "2026-11-24" });
   assert.deepEqual([plan.lesson.terms, plan.termsDropped], [THREE, 0]);
   plan = IO.planSessionImport(data, { klass: "8B", date: "2026-11-24" });
-  assert.deepEqual([plan.lesson.terms, plan.termsDropped], [[], 3]);
+  assert.deepEqual([plan.lesson.terms, plan.termsDropped], [THREE, 0], "Nachtrag 47: Sek I übernimmt sie");
+  plan = IO.planSessionImport(data, { klass: "gs12345678", date: "2026-11-24" });
+  assert.deepEqual([plan.lesson.terms, plan.termsDropped], [[], 3], "Grundschule lässt sie weg");
   assert.deepEqual(IO.planSessionImport(await read({}), { klass: "EA", date: "2026-11-24" }).lesson.terms, []);
   // Server: Oberstufe ersetzt (bereinigt, Stand zählt), Sek I bleibt ohne Spalte
   const c = await base();
-  const q = await lesson(c, "Q3-LK"), s1 = await lesson(c, "8B");
+  const q = await lesson(c, "Q3-LK"), s1 = await gsLesson(c), sek = await lesson(c, "8B");
   await call(c, L.routeLessonPatch, "PATCH", "/x", { terms: [{ term: "Alt", definition: "a" }, { term: "Alt2", definition: "b" }, { term: "Alt3", definition: "c" }] }, q.id);
   let r = await call(c, L.routeLessonImport, "POST", "/x", { lesson: { title: "Neu", terms: [...THREE, { term: "z".repeat(90), definition: "y" }] }, chat: [] }, q.id);
   assert.equal(r.status, 200, JSON.stringify(r.data));
   r = await call(c, L.routeLessonGet, "GET", "/x", undefined, q.id);
   assert.deepEqual([r.data.lesson.terms.map((x) => x.term), r.data.lesson.termsRev], [[...THREE.map((x) => x.term), "z".repeat(60)], 2]);
+  // (in die Grundschule lässt sich gar keine Sitzungsdatei laden – dort ändert sich nichts)
   r = await call(c, L.routeLessonImport, "POST", "/x", { lesson: { title: "Neu", terms: THREE }, chat: [] }, s1.id);
-  assert.equal(r.status, 200);
-  assert.equal(c.db.raw.prepare("SELECT terms FROM lessons WHERE id=?").get(s1.id).terms, null, "Sek I: nichts gespeichert");
+  assert.equal(r.status, 400);
+  assert.equal(c.db.raw.prepare("SELECT terms FROM lessons WHERE id=?").get(s1.id).terms, null, "Grundschule: nichts gespeichert");
+  r = await call(c, L.routeLessonImport, "POST", "/x", { lesson: { title: "Neu", terms: THREE }, chat: [] }, sek.id);
+  assert.deepEqual([r.status, TM.termsRead(c.db.raw.prepare("SELECT terms FROM lessons WHERE id=?").get(sek.id).terms).items], [200, THREE], "Sek I (Nachtrag 47): gespeichert");
   // Lies-mich der Sicherung nennt sie; „Alle Unterlagen“ nimmt sie in den Verlaufsplan
-  assert.ok(src("public/backup.js").includes("Fachbegriffen dieser Sitzung (Oberstufe)"));
+  assert.ok(src("public/backup.js").includes("Fachbegriffen dieser Sitzung (Gymnasium)"));
 });
 
 test("EMPTY_LESSON: eine Sitzung nur mit Fachbegriffen ist nicht leer (fällt beim Überarbeiten einer Einheit nicht weg)", async () => {
@@ -483,12 +509,12 @@ test("Karte der Lehrkraft: inzwischen von Claude geändert (409) → Rückfrage,
   assert.equal(m.q(".save-state").textContent, "Aktualisiert");
 });
 
-test("Sitzungsseite (Quelltext): Karte nur in der Oberstufe nach der Hausaufgabe, folgt Datum und Beginn, übernimmt Änderungen von außen, fragt vor „Alle Unterlagen“ nach; Dialog „Sitzung aus Datei laden“", () => {
+test("Sitzungsseite (Quelltext): Karte am Gymnasium ab Jg. 5 nach der Hausaufgabe, folgt Datum und Beginn, übernimmt Änderungen von außen, fragt vor „Alle Unterlagen“ nach; Dialog „Sitzung aus Datei laden“", () => {
   const s = src("public/session.js");
-  for (const x of ["const terms = isOberstufe(L().klass) ? termsCard({ id, L }) : null;", "if (terms) onTimes.push(terms.paintWhen);", "portalCard, hwCard, terms ? terms.el : null, presPromptCard,",
+  for (const x of ["const terms = hasTermCards(L().klass) ? termsCard({ id, L }) : null;", "if (terms) onTimes.push(terms.paintWhen);", "portalCard, hwCard, terms ? terms.el : null, presPromptCard,",
     "if (terms) terms.update(r.lesson);", 'terms && terms.dirty() ? "den Fachbegriffen dieser Sitzung" : ""', "termsImportLine(plan, L())"]) assert.ok(s.includes(x), x);
-  assert.equal(TE.termsImportLine({ lesson: { terms: [] }, termsDropped: 0 }, { klass: "8B" }), null);
-  assert.equal(TE.termsImportLine({ lesson: { terms: [] }, termsDropped: 2 }, { klass: "8B" }).textContent, "Die 2 Fachbegriffe aus der Datei werden nicht übernommen – Karteikarten gibt es nur in der Oberstufe.");
+  assert.equal(TE.termsImportLine({ lesson: { terms: [] }, termsDropped: 0 }, { klass: "gs12345678" }), null);
+  assert.equal(TE.termsImportLine({ lesson: { terms: [] }, termsDropped: 2 }, { klass: "gs12345678" }).textContent, "Die 2 Fachbegriffe aus der Datei werden nicht übernommen – Karteikarten gibt es nur in Sitzungen am Gymnasium.");
 });
 
 /* ---------- Schüler:innen: Karteikarten (public/termcards.js) ---------- */

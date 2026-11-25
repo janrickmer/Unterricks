@@ -10,7 +10,7 @@ import { SELBSTLERN, readSelbstlern, selbstlernAiWindow, selbstlernHelpPrompt, e
 import { liveTicket, liveState, stub } from "./live.js";
 import { pollResultsForStudents, POLL_KEY_RE, POLL_ERRORS } from "../public/polls.js";
 import { normalizeCode, isValidCode, subjectName, classShort, isCourseClass, courseMembers, cleanWebUrl, lessonTimes, fmtClockBerlin, fmtDayBerlin, studentHelpPrompt, STUDENT_HELP_LIMITS, GS_SUBJECT, STUDENT_SLIDE_BLOCK,
-  isAnalogClass, cleanCodeSlides, laterLessonState, laterLiveCounts, NEWER_POLL_MS, isOberstufe } from "../public/shared.js";
+  isAnalogClass, cleanCodeSlides, laterLessonState, laterLiveCounts, NEWER_POLL_MS, hasTermCards } from "../public/shared.js";
 import { termsRead } from "../public/terms.js";
 import { loadSubjectConfigs } from "./bases.js";
 import { videoSlidesData, videoSlidesOf, videoAt, videoWatchUrl, videoClipText } from "../public/videoslides.js";
@@ -21,10 +21,10 @@ import { materialGate, revealFilterFiles, revealFilterSheets, revealRefOf, REVEA
 const timesOf = (l) => lessonTimes({ date: l.lesson_date, startTime: l.start_time, durationMin: l.duration_min });
 // Selbstlern-Phase (Nachtrag 29): die Hausaufgabe – alle Stationen bis zur nächsten Sitzung mit der Lehrkraft – sehen die Schüler:innen von Anfang an
 const homeworkShown = (l, now) => { if (!String(l.homework || "").trim()) return false; if (l.sub_status === SELBSTLERN) return true; const t = timesOf(l); return !!t && now >= t.homeworkAt; };
-/* Fachbegriffe dieser Sitzung (Nachtrag 44, Teil 3): nur in der Oberstufe (Klasse bzw. Kurs der Sitzung), erst ab 2 Minuten vor dem Ende der Sitzung und danach
+/* Fachbegriffe dieser Sitzung (Nachtrag 44/47): am Gymnasium ab Jahrgang 5 (Klasse bzw. Kurs der Sitzung), erst ab 2 Minuten vor dem Ende der Sitzung und danach
    dauerhaft – ohne Beginn oder Dauer nie (wie die Hausaufgabe), auch in einer Selbstlern-Phase. Vorher liefert der Server sie auf keinem Weg aus. → Liste oder null */
 const termsShown = (l, now) => {
-  if (!isOberstufe(l.klass)) return null;
+  if (!hasTermCards(l.klass)) return null;
   const t = timesOf(l);
   if (!t || now < t.termsAt) return null;
   const xs = termsRead(l.terms).items;
@@ -175,8 +175,8 @@ export async function routeStudentLesson(c, lessonId) {
     // (Nachtrag 44, Teil 2: auch der geplante Beginn der späteren Sitzung und die halbe Stunde davor – ab dort fragt die Seite jede Minute, newerSoon)
     changesAt: [...(times ? [times.start, times.end + 1000, times.homeworkAt, times.presentationAt] : []), ...(win ? [win.start, win.end + 1000] : []),
       ...(newer.nextAt !== null ? [newer.nextAt - NEWER_POLL_MS, newer.nextAt] : []),
-      // (Oberstufe: dazu der Zeitpunkt der Fachbegriffe – unabhängig davon, ob es welche gibt, Nachtrag 44 Teil 3)
-      ...(times && isOberstufe(lesson.klass) ? [times.termsAt] : [])].filter((t) => t > c.now),
+      // (Gymnasium: dazu der Zeitpunkt der Fachbegriffe – unabhängig davon, ob es welche gibt, Nachtrag 44/47)
+      ...(times && hasTermCards(lesson.klass) ? [times.termsAt] : [])].filter((t) => t > c.now),
     // Nachtrag 44 (Teil 2): eine spätere Sitzung des Kurses ist schon dran – nur ja/nein (der Zeitpunkt steht als Neuladen in changesAt)
     newer: newer.newer,
     // … bzw. beginnt heute in höchstens 30 Minuten und wird noch nicht live gezeigt: die sichtbare Seite fragt bis dahin jede Minute (Gegenprüfung)
