@@ -3,7 +3,7 @@
 // und HKDF der Anmeldeschlüssel und der Schlüssel zum Öffnen des privaten RSA-Schlüssels abgeleitet. Abgaben werden hier entschlüsselt.
 // Schlüssel liegen im Arbeitsspeicher; auf Wunsch speichert Unterricks den Feibeitsblatt-Schlüssel Ende-zu-Ende verschlüsselt im
 // Benutzerkonto (fblink.js), dann verbindet connectMaster ohne erneute Eingabe.
-import { withAgeExpectation, fbTaskMedia } from "./shared.js";
+import { withAgeExpectation, fbTaskMedia, fbPrefill } from "./shared.js";
 const subtle = crypto.subtle, te = new TextEncoder(), td = new TextDecoder();
 const b64 = (buf) => { const b = buf instanceof Uint8Array ? buf : new Uint8Array(buf); let s = ""; for (let i = 0; i < b.length; i += 0x8000) s += String.fromCharCode.apply(null, b.subarray(i, i + 0x8000)); return btoa(s); };
 const unb64 = (s) => { const bin = atob(String(s)); const out = new Uint8Array(bin.length); for (let i = 0; i < bin.length; i++) out[i] = bin.charCodeAt(i); return out; };
@@ -112,7 +112,10 @@ export class FbClient {
       const { videos } = fbTaskMedia(t);   // YouTube-Videos (Nachtrag 37) gehen mit dem Blatt; Bilder und PDF-Dateien lädt uploadMedia (fbmedia.js) danach hoch
       if (videos) task.videos = videos;
       if (photo) task.answer = { type: "photo" };
-      else if (t.answer && t.answer.type === "table" && Array.isArray(t.answer.columns) && t.answer.columns.length) task.answer = { type: "table", columns: t.answer.columns.slice(0, 8), rows: Math.min(30, Math.max(1, Number(t.answer.rows) || 3)) };
+      else if (t.answer && t.answer.type === "table" && Array.isArray(t.answer.columns) && t.answer.columns.length) {
+        const columns = t.answer.columns.slice(0, 8), pre = fbPrefill(t.answer.cells, columns.length, Math.min(30, Math.max(1, Number(t.answer.rows) || 3)));   // Vorgaben (für die Schüler:innen gesperrt)
+        task.answer = { type: "table", columns, rows: pre.rows, ...(pre.cells ? { cells: pre.cells } : {}) };
+      }
       return task;
     });
     const body = { title: String(draft.title || "").trim(), tasks };

@@ -28,7 +28,7 @@ test("Notfall-Feibeitsblatt: PDF mit Querverweistabelle, Weltkarte, Video-Link, 
   assert.ok(!s.includes("GEHEIMER"), "der Auftrag an die KI steht nie im Arbeitsblatt (Inhalte sind komprimiert, aber auch Info und Links nicht)");
   const plain = await makeAnalogPdf({ code: "K457A4", title: "Ohne Checkliste", tasks: tasks.slice(0, 1), shows: new Map(), aiNote: false, checkUrl: "" });
   assert.ok(!latin(plain).includes("#checkliste="), "ohne Checklistenpunkte kein QR-Code");
-  assert.equal(analogPdfName("K457A4", "Über Gerechtigkeit"), "Feibeitsblatt-Arbeitsblatt-K45-7A4-Ueber Gerechtigkeit.pdf");
+  assert.equal(analogPdfName("K457A4", "Über Gerechtigkeit"), "Notfall-Feibeitsblatt-Ueber Gerechtigkeit-K45-7A4.pdf");   // wie im Feibeitsblatt (seit dem 10.11.2026)
   assert.ok(qrMatrix(checkUrlOf("K457A4")).version <= 4);
 });
 
@@ -37,4 +37,18 @@ test("Notfall-Feibeitsblatt: Stand (mit/ohne QR-Code, mit/ohne KI-Satz) bestimmt
   assert.equal(notfallSig(false, false), "v1"); assert.equal(notfallSig(true, false), "v1-qr"); assert.equal(notfallSig(true, true), "v1-qr-ki"); assert.equal(notfallSig(false, true), "v1-ki");
   setFeibeitsblattUrl("javascript:alert(1)");
   assert.equal(checkUrlOf("K457A4"), "https://feibeitsblatt.janrickmer.de/#checkliste=K457A4", "nur https-Adressen werden übernommen");
+});
+
+test("Notfall-Feibeitsblatt: Vorgaben einer Tabelle stehen kursiv in ihren Zellen (Block TABLEPRE aus dem Feibeitsblatt)", async () => {
+  const { inflateSync } = await import("node:zlib");
+  const t = [{ text: "Trage die Hauptstädte ein.", answer: { type: "table", columns: ["Land", "Hauptstadt"], rows: 3, cells: [["Italien", ""], ["Frankreich", ""]] } }];
+  const pdf = Buffer.from(await makeAnalogPdf({ code: "K457A4", title: "Hauptstädte", tasks: t, shows: new Map(), aiNote: false, checkUrl: "" }));
+  const s = pdf.toString("latin1"), shown = [];
+  for (const m of s.matchAll(/<<([^>]*?\/FlateDecode[^>]*?)>>\nstream\n/g)) {
+    const len = Number(/\/Length (\d+)/.exec(m[1])[1]), start = m.index + m[0].length;
+    try { shown.push(inflateSync(pdf.subarray(start, start + len)).toString("latin1")); } catch { /* kein Inhalt */ }
+  }
+  const content = shown.join("\n");
+  assert.match(content, /\/F3 10 Tf [\d.]+ [\d.]+ Td \(Italien\) Tj/);
+  assert.match(content, /\/F3 10 Tf [\d.]+ [\d.]+ Td \(Frankreich\) Tj/);
 });

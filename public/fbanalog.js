@@ -1,4 +1,4 @@
-// fbanalog.js – AUTOMATISCH ERZEUGT von scripts/fbanalog-sync.mjs aus dem Feibeitsblatt (index.html, Stand 742004d vom 10.11.2026). Nicht von Hand ändern:
+// fbanalog.js – AUTOMATISCH ERZEUGT von scripts/fbanalog-sync.mjs aus dem Feibeitsblatt (index.html, Stand 742ea2f vom 26.11.2026). Nicht von Hand ändern:
 // Änderungen gehören ins Feibeitsblatt, danach das Skript erneut ausführen.
 // Inhalt: das analoge Arbeitsblatt als PDF (makeAnalogPdf, ohne Bibliothek) mit allen Bausteinen – in Unterricks „Notfall-Feibeitsblatt“.
 /* eslint-disable */
@@ -143,12 +143,88 @@ const ITEM_ID_RE = /^[a-z0-9-]{1,40}$/, COUNTRY_ID_RE = /^\d{3}$/, CHECK_RE = /^
 
 const oneLine = (v, n) => String(v == null ? "" : v).replace(/[\u0000-\u001f\u007f]+/g, " ").replace(/\s+/g, " ").trim().slice(0, n);
 
+/* TABLEPRE:BEGIN – Vorgaben der Lehrkraft in Tabellen (Wunsch der Lehrkraft vom 26.11.2026), reine Funktionen ohne Abhängigkeiten
+ * (test/unit/tablepre.test.mjs liest diesen Block). spec.cells = je Zeile so viele Texte wie Spalten, "" = offene Zelle; vorgegebene
+ * Zellen sind für die Schüler:innen gesperrt. Die Textform der Antwort bleibt wie bei jeder Tabelle (erste Zeile Überschriften, dann
+ * je nicht leerer Zeile „Zelle | Zelle“, vorgegebene Zellen stehen darin) – leere Zeilen entfallen, deshalb ordnet tablePlace die
+ * Zeilen der Textform beim Wiederherstellen den Zeilen der Vorlage zu. Ohne eigenen Eintrag ist die Antwort "" (wie eine leere
+ * Tabelle: leere Aufgaben, „Schreibe zuerst eine Antwort …“, x von n bearbeitet). */
+const PRE_LIMITS = { cell: 200, total: 3000, rows: 30 };
+const PRE_NOTE_STUDENT = "Grau hinterlegte Zellen hat deine Lehrkraft schon ausgefüllt – trage deine Antworten in die leeren Zellen ein.";
+const PRE_BUILDER_HINT = "Vorgaben (optional): Was Sie hier in eine Zelle eintragen, steht schon in der Tabelle der Schüler:innen – sie können es nicht ändern und füllen nur die leeren Zellen aus.";
+const PRE_NOTE_TEACHER = "Grau und kursiv: Vorgaben aus Ihrer Tabelle – die Schüler:innen konnten sie nicht ändern.";   // = LIMITS.tableCell, tablePrefill, tableRows im Worker
+const preCell = (s) => String(s == null ? "" : s).normalize("NFC").replace(/[\u0000-\u001f\u007f-\u009f]+/g, " ").replace(/\|/g, "/").replace(/\s+/g, " ").trim();
+// Fremde Daten (Server, Sicherung, Unterricks) → Zeilen aus nCols Texten (gekappt) oder null, wenn nichts vorgegeben ist
+function cleanPrefill(raw, nCols) {
+  if (!Array.isArray(raw) || !nCols) return null;
+  let total = 0;
+  const rows = raw.slice(0, PRE_LIMITS.rows).map((r) => Array.from({ length: nCols }, (_, k) => {
+    let t = Array.isArray(r) && typeof r[k] === "string" ? preCell(r[k]).slice(0, PRE_LIMITS.cell) : "";
+    if (total + t.length > PRE_LIMITS.total) t = "";
+    total += t.length;
+    return t;
+  }));
+  while (rows.length && !rows[rows.length - 1].some(Boolean)) rows.pop();
+  return rows.length ? rows : null;
+}
+// Eingaben im Blatt-Editor → {cells | null, err} mit denselben Grenzen wie der Server; rows = Zeilen der Tabelle
+function prefillCheck(grid, nCols, rows) {
+  const g = (Array.isArray(grid) ? grid : []).slice(0, rows).map((r) => Array.from({ length: nCols }, (_, k) => preCell(Array.isArray(r) ? r[k] : "")));
+  const long = g.findIndex((r) => r.some((c) => c.length > PRE_LIMITS.cell));
+  if (long >= 0) return { cells: null, err: `Eine Vorgabe in Zeile ${long + 1} der Tabelle ist zu lang (höchstens ${PRE_LIMITS.cell} Zeichen).` };
+  if (g.reduce((n, r) => n + r.reduce((m, c) => m + c.length, 0), 0) > PRE_LIMITS.total) return { cells: null, err: `Die Vorgaben der Tabelle sind zusammen zu lang (höchstens ${PRE_LIMITS.total.toLocaleString("de-DE")} Zeichen).` };
+  while (g.length && !g[g.length - 1].some(Boolean)) g.pop();
+  if (!g.length) return { cells: null, err: "" };
+  if (g.length >= rows && g.every((r) => r.every(Boolean))) return { cells: null, err: "In der Tabelle muss mindestens eine Zelle zum Ausfüllen leer bleiben." };
+  return { cells: g, err: "" };
+}
+const preHas = (pre, r) => !!(pre && Array.isArray(pre[r]) && pre[r].some(Boolean));
+const preLocked = (pre, r, k) => !!(pre && Array.isArray(pre[r]) && pre[r][k]);
+/* Zeilen der Textform (data = je Zeile die Zellen, ohne Kopf) → Zeile der Vorlage je Datenzeile. Zeilen mit Vorgaben stehen immer in der
+   Textform (sie sind nie leer); gesucht wird je Vorgabe-Zeile die passende Datenzeile, die spätestmögliche, für die die freien Zeilen
+   davor reichen (eine Zeile ohne Vorgaben, in die jemand zufällig denselben Text geschrieben hat, wird so nicht verwechselt). Die übrigen
+   Datenzeilen füllen die Zeilen ohne Vorgaben in ihrer Reihenfolge; was nicht passt, kommt ans Ende. */
+function tablePlace(pre, data) {
+  const out = data.map(() => -1);
+  if (!pre || !pre.length) return data.map((_, d) => d);
+  const P = pre.length, match = (r, d) => pre[r].every((v, k) => !v || String((d && d[k]) || "") === v);
+  const free = (a, b) => { const f = []; for (let r = a; r < b; r++) if (!preHas(pre, r)) f.push(r); return f; };
+  let j = 0, prevR = -1;
+  const place = (from, to, slots) => { for (let d = from; d < to; d++) if (slots.length) out[d] = slots.shift(); };
+  for (let r = 0; r < P; r++) {
+    if (!preHas(pre, r)) continue;
+    const slots = free(prevR + 1, r);
+    let hit = -1;
+    for (let d = Math.min(data.length - 1, j + slots.length); d >= j; d--) if (match(r, data[d])) { hit = d; break; }
+    for (let d = j + slots.length + 1; hit < 0 && d < data.length; d++) if (match(r, data[d])) hit = d;   // mehr Zeilen als Platz: die nächste passende
+    if (hit < 0) continue;
+    place(j, hit, slots); out[hit] = r; j = hit + 1; prevR = r;
+  }
+  let next = Math.max(P, prevR + 1);
+  const tail = free(prevR + 1, P);
+  for (let d = j; d < data.length; d++) out[d] = tail.length ? tail.shift() : next++;
+  let end = Math.max(P, ...out.map((x) => x + 1));
+  return out.map((x) => (x < 0 ? end++ : x));
+}
+// Textform-Zeilen → Zellwerte je Zeile der Vorlage (vorgegebene Zellen immer mit ihrer Vorgabe), mindestens nRows Zeilen, höchstens 30
+function tableFill(pre, data, nRows, nCols) {
+  const at = tablePlace(pre, data), len = Math.min(PRE_LIMITS.rows, Math.max(nRows, pre ? pre.length : 0, ...at.map((x) => x + 1)));
+  const grid = Array.from({ length: len }, (_, r) => Array.from({ length: nCols }, (_, k) => (preLocked(pre, r, k) ? pre[r][k] : "")));
+  data.forEach((d, i) => { const r = at[i]; if (r < len) for (let k = 0; k < nCols; k++) if (!preLocked(pre, r, k)) grid[r][k] = String((d && d[k]) || ""); });
+  return grid;
+}
+// Hat die Schülerin bzw. der Schüler selbst etwas eingetragen (eine offene Zelle nicht leer)?
+const preOwn = (pre, grid) => grid.some((r, ri) => r.some((c, k) => !preLocked(pre, ri, k) && preCell(c)));
+/* TABLEPRE:END */
+
 function cleanAnswer(a, full, imageRe) {   // imageRe: Kennung eines Kartenbildes (Server: 16 Hex, Sicherung: Ref „<exportId>-<k>“)
   if (!a || typeof a !== "object") return { type: "text" };
   if (a.type === "photo") return { type: "photo" };
   if (a.type === "table") {
     const columns = (Array.isArray(a.columns) ? a.columns : []).slice(0, ANS_LIMITS.columns).map((c) => oneLine(c, ANS_LIMITS.columnName).replace(/\|/g, "/")).filter(Boolean);
-    return columns.length ? { type: "table", columns, rows: Math.max(1, Math.min(ANS_LIMITS.rows, Number.isInteger(a.rows) ? a.rows : 1)) } : { type: "text" };
+    if (!columns.length) return { type: "text" };
+    const rows = Math.max(1, Math.min(ANS_LIMITS.rows, Number.isInteger(a.rows) ? a.rows : 1)), cells = cleanPrefill(a.cells, columns.length);   // Vorgaben (Block TABLEPRE)
+    return cells ? { type: "table", columns, rows: Math.max(rows, cells.length), cells } : { type: "table", columns, rows };
   }
   if (a.type !== "map") return { type: "text" };
   const ids = new Set(), items = [];
@@ -614,9 +690,13 @@ async function makeAnalogPdf(o) {
     };
     head();
     for (let r = 0; r < spec.rows; r++) {
-      if (y + ANALOG_ROW_PT > MAXY) { grid(); newPage(); top = y; head(); }
-      hline(ML, ML + TW, y + ANALOG_LINE_PT, "0.8", 0.4);   // helle Hilfslinie zwischen den beiden Schreibzeilen
-      y += ANALOG_ROW_PT; bottoms.push(y);
+      // Vorgaben der Lehrkraft (Block TABLEPRE): kursiv in ihrer Zelle, die Zeile so hoch wie nötig; offene Zellen bleiben leer
+      const wrapped = preHas(spec.cells, r) ? cols.map((_, k) => (preLocked(spec.cells, r, k) ? pdfWrap(pdfPlain(spec.cells[r][k]), 10, false, cw - 2 * pad) : [])) : null;
+      const rh = wrapped ? Math.max(ANALOG_ROW_PT, Math.max(...wrapped.map((l) => l.length)) * 12.5 + 12) : ANALOG_ROW_PT;
+      if (y + rh > MAXY) { grid(); newPage(); top = y; head(); }
+      if (wrapped) wrapped.forEach((ls, k) => ls.forEach((l, j) => text(ML + k * cw + pad, y + 15 + j * 12.5, l, 10, { i: true }, "0.2 0.2 0.2")));
+      else hline(ML, ML + TW, y + ANALOG_LINE_PT, "0.8", 0.4);   // helle Hilfslinie zwischen den beiden Schreibzeilen
+      y += rh; bottoms.push(y);
     }
     grid();
   }
@@ -738,9 +818,9 @@ async function makeAnalogPdf(o) {
   return out;
 }
 
-const analogPdfName = (code, title) => {   // „Feibeitsblatt-Arbeitsblatt-K7Q-M4X-Titel.pdf“ – Titel nur ASCII wie bei der Sicherung
-  const t = pdfAscii(title || "").replace(/[\\/:*?"<>|]+/g, "-").replace(/\s+/g, " ").trim().slice(0, 60).trim().replace(/^\.+/, "");
-  return `Feibeitsblatt-Arbeitsblatt-${fmtCode(code)}${t ? "-" + t : ""}.pdf`;
+const analogPdfName = (code, title) => {   // „Notfall-Feibeitsblatt-Titel-K7Q-M4X.pdf“ (ohne Titel „Notfall-Feibeitsblatt-K7Q-M4X.pdf“) – Titel nur ASCII wie bei der Sicherung
+  const t = pdfAscii(title || "").replace(/[\\/:*?"<>|]+/g, "-").replace(/\s+/g, " ").trim().slice(0, 60).trim().replace(/^\.+/, "").replace(/[\s-]+$/, "");   // kein „--“ vor dem Code
+  return `Notfall-Feibeitsblatt-${t ? t + "-" : ""}${fmtCode(code)}.pdf`;
 };
 
 /* QR:BEGIN – reine Funktionen ohne Abhängigkeiten (test/unit/qr.test.mjs liest diesen Block) */

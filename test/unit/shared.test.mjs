@@ -205,6 +205,19 @@ test("Feibeitsblatt-Entwurf normalisieren", () => {
   assert.equal(d.tasks[0].solution, "K1");
   assert.throws(() => normalizeFbDraft({ tasks: [] }), /keine Aufgabe/);
 });
+test("Feibeitsblatt-Entwurf: Vorgaben einer Tabelle (vorgaben/cells) – bereinigt wie im Feibeitsblatt, mindestens eine Zelle bleibt offen", () => {
+  const ans = (antwort) => normalizeFbDraft({ titel: "T", aufgaben: [{ text: "A", ki_auftrag: "K", antwort }] }).tasks[0].answer;
+  assert.deepEqual(ans({ tabelle: ["Land", "Hauptstadt"], zeilen: 3, vorgaben: [[" Italien ", ""], ["a|b", 7], ["", ""]] }),
+    { type: "table", columns: ["Land", "Hauptstadt"], rows: 3, cells: [["Italien", ""], ["a/b", ""]] });
+  assert.deepEqual(ans({ tabelle: ["Land"], zeilen: 1, vorgaben: [["A"], ["B"]] }), { type: "table", columns: ["Land"], rows: 3, cells: [["A"], ["B"]] });   // alles vorgegeben: eine Zeile mehr
+  assert.deepEqual(ans({ tabelle: ["Land"], zeilen: 2, vorgaben: [["", ""]] }), { type: "table", columns: ["Land"], rows: 2 });
+  assert.deepEqual(ans({ columns: ["A", "B"], rows: 2, cells: [["x", ""]] }), { type: "table", columns: ["A", "B"], rows: 2, cells: [["x", ""]] });   // gespeicherte Form
+  const full = ans({ tabelle: ["A"], zeilen: 30, vorgaben: Array.from({ length: 30 }, (_, k) => ["Z" + k]) });
+  assert.equal(full.rows, 30); assert.equal(full.cells.length, 29);   // 30 Zeilen voll: die letzte bleibt offen
+  assert.equal(ans({ tabelle: ["A"], zeilen: 1, vorgaben: [["x".repeat(500)]] }).cells[0][0].length, 200);
+  const big = ans({ tabelle: ["A"], zeilen: 30, vorgaben: Array.from({ length: 20 }, () => ["x".repeat(200)]) });
+  assert.equal(big.cells.flat().join("").length, 3000);
+});
 
 import { insertStop, removeStops, portalForCopy, hasStop, STOP_LINE, addDays, daysBetween, fmtDay, isIsoDate, isWeekend, lessonContext } from "../../public/shared.js";
 

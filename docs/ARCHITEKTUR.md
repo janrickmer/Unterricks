@@ -690,6 +690,15 @@ implementiert und im End-to-End-Test geprüft (Ausnahmen unten ausdrücklich gen
   veröffentlichen). Kennt das Feibeitsblatt die Antwortart noch nicht, meldet Unterricks das beim Anlegen klar.
   Grenzen (laut Erweiterung): mit Fotos je Abgabe etwa 0,2–0,8 MB – die kostenlose D1-Datenbank des Feibeitsblatts (500 MB) und das
   Abgabe-Kontingent je Schulnetz (60 MB/Stunde) füllen sich schneller; auf echten Geräten (Kamera, HEIC) noch nicht erprobt.
+* **Tabellen-Vorgaben (Wunsch der Lehrkraft vom 26.11.2026).** Eine Tabellenaufgabe kann vorausgefüllte Zellen haben: Claude gibt sie in
+  `propose_feibeitsblatt` als `antwort.vorgaben` an (je Zeile so viele Texte wie Spalten, `""` = offene Zelle, je Zelle ≤ 200 und zusammen
+  ≤ 3000 Zeichen), die Lehrkraft trägt sie im Entwurf unter „Antwort als: Tabelle“ in ein Raster ein (`.fbpre-table`). Gespeichert als
+  `answer.cells` (`fbPrefill` in shared.js: bereinigt wie im Feibeitsblatt, leere Zeilen am Ende entfallen, `rows` wächst mit; sind alle
+  Zellen vorgegeben, kommt eine offene Zeile dazu, bei 30 Zeilen entfällt die Vorgabe der letzten), `createSheet` schickt sie als
+  `answer.cells` ans Feibeitsblatt; „Vorhandenes Feibeitsblatt“ als Entwurf übernimmt sie (`vorgaben`). Im Feibeitsblatt sind die Zellen für
+  die Schüler:innen gesperrt (grau, kursiv), die KI bekommt sie als Vorgabe markiert, auf dem Notfall-Feibeitsblatt (`fbanalog.js`, per
+  `scripts/fbanalog-sync.mjs` samt Block TABLEPRE übernommen) stehen sie kursiv in ihren Zellen. Ein älteres Feibeitsblatt ohne die
+  Erweiterung lässt `cells` unbeachtet (die Tabelle bleibt leer).
 
 ## 4c. Escape-Room-Vorlage der Plattform (Ergänzung vom 10.11.2026)
 

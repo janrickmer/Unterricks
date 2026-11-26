@@ -4,7 +4,7 @@
 //
 //   node scripts/fbanalog-sync.mjs <Pfad zu feibeitsblatt/index.html> [Quelle, z. B. Commit]
 //
-// Übernommen werden nur benannte Bausteine (Funktionen, Konstanten und die markierten Blöcke VIDEO, PDFPLAIN, QR, WORLDMAP).
+// Übernommen werden nur benannte Bausteine (Funktionen, Konstanten und die markierten Blöcke VIDEO, TABLEPRE, PDFPLAIN, QR, WORLDMAP).
 // Regel des Feibeitsblatts: Deklarationen beginnen in Spalte 0, ihr Inhalt ist eingerückt, eine Funktion endet mit „}“ in Spalte 0.
 import { readFileSync, writeFileSync } from "node:fs";
 
@@ -38,7 +38,7 @@ const parts = [
   decl(/^const IMAGE_ID_RE = /),
   decl(/^const FILE_ID_RE = /), decl(/^const FILE_MAX_BYTES = /), decl(/^function safeFileName\(/), decl(/^function cleanFiles\(/),
   marked("VIDEO"),
-  decl(/^function cleanImages\(/), decl(/^const ANS_LIMITS = /), decl(/^const ITEM_ID_RE = /), decl(/^const oneLine = /), decl(/^function cleanAnswer\(/),
+  decl(/^function cleanImages\(/), decl(/^const ANS_LIMITS = /), decl(/^const ITEM_ID_RE = /), decl(/^const oneLine = /), marked("TABLEPRE"), decl(/^function cleanAnswer\(/),
   decl(/^const PDF_W_REG = /), decl(/^const PDF_W_BOLD = /), marked("PDFPLAIN"),
   decl(/^function pdfBytes\(/), decl(/^function pdfStr\(/), decl(/^const PDF_W_EXTRA = /), decl(/^function pdfWidth\(/), decl(/^function pdfWrap\(/),
   decl(/^const pdfUtf16 = /), decl(/^const latin1 = /),

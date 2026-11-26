@@ -1720,7 +1720,7 @@ export function portalMessages(ctx, chatText) {
 export function feibeitsblattMessages(ctx, chatText, wish) {
   const system = "Du entwirfst ein Feibeitsblatt für den Unterricht. " + FEIBEITSBLATT_INFO + " " +
     "Antworte ausschließlich mit einem JSON-Objekt der Form {\"title\": \"…\", \"tasks\": [{\"text\": \"Aufgabenstellung\", \"material\": \"optionaler Materialtext oder leer\", " +
-    "\"ki_auftrag\": \"Auftrag an die KI für das Feedback\", \"antwort\": \"text\" oder {\"tabelle\": [\"Spalte 1\", \"Spalte 2\"], \"zeilen\": 3}}]}. " +
+    "\"ki_auftrag\": \"Auftrag an die KI für das Feedback\", \"antwort\": \"text\" oder {\"tabelle\": [\"Spalte 1\", \"Spalte 2\"], \"zeilen\": 3, \"vorgaben\": [[\"schon ausgefüllt\", \"\"]]}}]} (\"vorgaben\" optional: Zellen, die schon ausgefüllt sein sollen – je Zeile so viele Texte wie Spalten, \"\" = offene Zelle zum Ausfüllen; die Schüler:innen können Vorgaben nicht ändern, mindestens eine Zelle bleibt offen). " +
     "Regeln: 1–6 Aufgaben mit Operatoren passend zur Jahrgangsstufe; der „ki_auftrag“ ist keine Musterlösung, sondern ein Auftrag an die korrigierende KI: Er beschreibt konkret, " +
     "welche Inhalte, Kriterien und typischen Fehler sie beim Lesen der Antwort beachten soll (als Anweisung formuliert, z. B. „Achte darauf, ob …“), damit ihre Rückmeldung zeigt, " +
     "was schon gut ist und was verbessert werden sollte – ohne den Schüler:innen die Lösung vorzusagen. Die Erwartungen passen zur Jahrgangsstufe (siehe Sitzung): " +
@@ -1985,6 +1985,26 @@ export function fbTaskMedia(t) {
 }
 export const fbMediaCount = (tasks) => (tasks || []).reduce((n, t) => n + ((t.images || []).length + (t.files || []).length + (t.videos || []).length), 0);
 
+/* Vorgaben einer Tabelle (Feibeitsblatt answer.cells, Wunsch der Lehrkraft vom 26.11.2026): je Zeile so viele Texte wie Spalten, "" = offene
+   Zelle; im Feibeitsblatt für die Schüler:innen gesperrt. Grenzen wie dort (je Zelle 200, zusammen 3000 Zeichen, höchstens 30 Zeilen; „|“ → „/“,
+   einzeilig); leere Zeilen am Ende entfallen. Mindestens eine Zelle muss offen bleiben – sind alle vorgegeben, kommt eine Zeile dazu (bei 30
+   Zeilen entfällt die Vorgabe der letzten). → {cells | null, rows} */
+export const FB_PREFILL = { cell: 200, total: 3000, rows: 30 };
+export function fbPrefill(raw, nCols, rows) {
+  if (!Array.isArray(raw) || !nCols) return { cells: null, rows };
+  let total = 0;
+  const cells = raw.slice(0, FB_PREFILL.rows).map((r) => Array.from({ length: nCols }, (_, k) => {
+    let t = Array.isArray(r) && typeof r[k] === "string" ? r[k].normalize("NFC").replace(/[\u0000-\u001f\u007f-\u009f]+/g, " ").replace(/\|/g, "/").replace(/\s+/g, " ").trim().slice(0, FB_PREFILL.cell) : "";
+    if (total + t.length > FB_PREFILL.total) t = "";
+    total += t.length;
+    return t;
+  }));
+  while (cells.length && !cells[cells.length - 1].some(Boolean)) cells.pop();
+  if (!cells.length) return { cells: null, rows };
+  rows = Math.min(FB_PREFILL.rows, Math.max(rows, cells.length));
+  if (rows === cells.length && cells.every((r) => r.every(Boolean))) { if (rows < FB_PREFILL.rows) rows++; else cells.pop(); }
+  return { cells: cells.length ? cells : null, rows };
+}
 export function normalizeFbDraft(obj, opt = {}) {
   if (!obj || typeof obj !== "object") throw new Error("Der Entwurf ist leer.");
   const tasks = (Array.isArray(obj.tasks) ? obj.tasks : Array.isArray(obj.aufgaben) ? obj.aufgaben : []).slice(0, 20).map((t) => {
@@ -1994,7 +2014,8 @@ export function normalizeFbDraft(obj, opt = {}) {
     else if (ans && typeof ans === "object") {
       const cols = (ans.tabelle || ans.columns || []).map((c) => String(c || "").slice(0, 60)).filter(Boolean).slice(0, 8);
       const rows = Math.min(30, Math.max(1, Number(ans.zeilen || ans.rows) || 3));
-      if (cols.length) answer = { type: "table", columns: cols, rows };
+      const pre = cols.length ? fbPrefill(ans.vorgaben || ans.cells, cols.length, rows) : null;   // Vorgaben (vom Konnektor „vorgaben“, gespeichert „cells“)
+      if (cols.length) answer = { type: "table", columns: cols, rows: pre.rows, ...(pre.cells ? { cells: pre.cells } : {}) };
     }
     return {
       text: String((t && (t.text || t.aufgabe)) || "").slice(0, 4000),
