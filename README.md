@@ -763,7 +763,9 @@ der **Podcast für den kommenden Unterricht** (derselbe wie auf der Startseite �
   Druckaufträgen für den nächsten Arbeitstag – nie in der Elternansicht und nie für die Kinder (als Bildkarten, die Eltern sehen, nimmt
   Unterricks sie gar nicht erst an). Anzahl und Druckart ändern Sie dort wie bei
   jeder Druckvorlage. Im Verlaufsplan nennt Claude sie in der ersten Plenumsphase (gelb markiert). Fehlt sie noch, erinnert Unterricks Claude
-  beim Lesen der Sitzung und beim Speichern des Verlaufsplans; hat sie mehr als zwei Seiten, sagt Unterricks es Claude beim Ablegen.
+  beim Lesen der Sitzung und beim Speichern des Verlaufsplans; hat sie mehr als zwei Seiten, sagt Unterricks es Claude beim Ablegen. Je Sitzung gibt es
+  **nur eine** (seit dem 26.11.2026): Legt Claude eine neue an, obwohl die Sitzung schon eine von Claude gestaltete hat (z. B. eine im alten Aufbau von vor dem
+  23.11.2026), ersetzt die neue sie – dieselbe Datei auf der Druckliste, Ihre Druckeinstellungen bleiben. Eine von Ihnen hochgeladene bleibt unangetastet.
 * **Elternansicht:** **„Sitzungslink für Eltern kopieren“** legt einen geheimen, nicht erratbaren Link in die Zwischenablage (zum
   Weitergeben, z. B. per Elternbrief oder Messenger). Wer ihn hat, sieht diese Sitzung und alle vorherigen Sitzungen dieses Kurses im
   Schuljahr – jede erst, wenn sie laut Plan zu Ende ist (vorher „Diese Unterrichtssitzung hat noch nicht stattgefunden.“). Eltern sehen:

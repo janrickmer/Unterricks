@@ -174,10 +174,20 @@ test("add_material_pdf (Grundschule): Konzentrationsaufgabe immer nur auf der Dr
   assert.deepEqual([f.area, f.name, f.print_copies, f.print_duplex, f.print_color], ["print", "Konzentrationsaufgabe – Josef.pdf", 5, 1, 0]);
   assert.ok(r.content[0].text.includes("„5x - sw - beidseitig - Reli2 - Konzentrationsaufgabe – Josef.pdf“ – nie für Eltern oder Kinder") &&
     r.content[0].text.includes("(Die Konzentrationsaufgabe legt Unterricks immer so auf die Druckliste: 5x, beidseitig, schwarz-weiß – die Lehrkraft kann das in der Sitzung ändern.)"), r.content[0].text);
-  // ohne bereich: Druckliste
-  r = await mcp2("add_material_pdf", { lesson_id: l2.id, titel: "Konzentrationsaufgabe", html: "<h1>x</h1>" });
-  f = await F.getFile(c2.db, r.structuredContent.file_id);
-  assert.deepEqual([f.area, f.name, f.print_copies], ["print", "Konzentrationsaufgabe – Josef in Ägypten.pdf", 5], "Titel ohne Thema: das der Sitzung");
+  // Nachtrag 48: eine zweite ohne file_id ersetzt die vorhandene (dieselbe Datei, Druckeinstellungen der Lehrkraft bleiben) – es gibt nie zwei
+  const first = r.structuredContent.file_id;
+  await c2.db.prepare("UPDATE files SET print_copies=7 WHERE id=?1").bind(first).run();
+  r = await mcp2("add_material_pdf", { lesson_id: l2.id, titel: "Konzentrationsaufgabe", html: "<h1>neu</h1>" });
+  assert.equal(r.structuredContent.file_id, first, "dieselbe file_id");
+  f = await F.getFile(c2.db, first);
+  assert.deepEqual([f.area, f.name, f.print_copies, f.html.includes("neu")], ["print", "Konzentrationsaufgabe – Josef in Ägypten.pdf", 7, true], "Titel ohne Thema: das der Sitzung; Anzahl der Lehrkraft bleibt");
+  assert.ok(r.content[0].text.includes("überarbeitet und als PDF gedruckt") && r.content[0].text.includes("Diese Sitzung hatte schon eine Konzentrationsaufgabe („Konzentrationsaufgabe – Josef.pdf“, file_id " + first +
+    ") – die neue Gestaltung ersetzt sie (dieselbe file_id, die Druckeinstellungen der Lehrkraft bleiben), damit es nur eine gibt.") && !r.content[0].text.includes("Achtung: Diese Sitzung hat jetzt"), r.content[0].text);
+  assert.equal((await c2.db.prepare("SELECT COUNT(*) AS n FROM files WHERE lesson_id=?1").bind(l2.id).first()).n, 1, "nur eine Datei");
+  // von der Lehrkraft hochgeladen (ohne Gestaltung): bleibt unangetastet – die neue kommt dazu, die Antwort sagt es
+  await c2.db.prepare("UPDATE files SET html=NULL WHERE id=?1").bind(first).run();
+  r = await mcp2("add_material_pdf", { lesson_id: l2.id, titel: "Konzentrationsaufgabe – Josef", html: "<h1>x</h1>" });
+  assert.notEqual(r.structuredContent.file_id, first);
   assert.ok(r.content[0].text.includes("Achtung: Diese Sitzung hat jetzt 2 Konzentrationsaufgaben") && r.content[0].text.includes("überzählige kann nur die Lehrkraft in der Sitzung löschen"), r.content[0].text);
   // mehr als zwei Seiten: gespeichert, aber gemeldet
   printerPages = 3;

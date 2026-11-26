@@ -173,7 +173,8 @@ const TOOLS = [
       "\n\nGrundschule: bereich \"schueler\" = Arbeitsblätter der Kinder (Eltern sehen sie nach der Stunde, wenn der Verlaufsplan sie vor einem Zwischenstopp nennt); gib dort anzahl an (und, wenn nötig, beidseitig und farbe), dann steht das Blatt auch auf der Druckliste. " +
       "bereich \"druck\" nur für Material, das Eltern nicht sehen sollen (Tafel- und Bodenbilder, Kärtchen). " +
       "Zu jeder Sitzung der Grundschule gehört die „" + CONC_TITLE + "“ (Zweck und Aufbau siehe get_lesson; titel „" + CONC_TITLE + " – <Thema der Stunde>“): Unterricks legt sie immer nur auf die Druckliste der Lehrkraft (" +
-      CONC_PRINT.copies + "x, beidseitig, schwarz-weiß; nie für Eltern oder Kinder) und meldet, wenn sie mehr als " + CONC_PAGES_MAX + " Seiten hat. " +
+      CONC_PRINT.copies + "x, beidseitig, schwarz-weiß; nie für Eltern oder Kinder) und meldet, wenn sie mehr als " + CONC_PAGES_MAX + " Seiten hat. Es gibt je Sitzung nur eine: Hat die Sitzung schon eine von dir gestaltete, " +
+      "ersetzt die neue sie, auch ohne file_id (dieselbe file_id, die Druckeinstellungen der Lehrkraft bleiben). " +
       "Zusätzliche Gestaltungsregeln Grundschule (gehen vor):\n" + GS_MATERIAL_RULES.map((r) => "- " + r).join("\n"),
     inputSchema: { type: "object", properties: { lesson_id: ID_ARG, bereich: { type: "string", enum: ["schueler", "lehrkraft", "druck"], description: "bei file_id nur angeben, wenn er sich ändert (schueler ↔ lehrkraft)" },
       titel: { type: "string", maxLength: 160, description: "Dateiname ohne Endung, z. B. „Arbeitsblatt – Gewaltenteilung“" }, html: { type: "string", maxLength: 1600000, description: "vollständige HTML-Seite mit <style>" },
@@ -1053,10 +1054,18 @@ async function callTool(c, name, a) {
       if (conc && old && old.lesson_id === lx.id && old.html != null && old.area !== "print")
         return toolError("Die " + CONC_TITLE + " gehört nur auf die Druckliste der Lehrkraft (nie für Eltern oder Kinder) – dieses Material liegt " + (old.area === "student" ? "beim Material für die Kinder" : "beim Material nur für die Lehrkraft") +
           ". Lege sie neu an: add_material_pdf ohne file_id mit bereich \"druck\".");
-      let title = a.titel, print = { copies: a.anzahl, duplex: a.beidseitig, color: a.farbe }, concNote = "";
+      let title = a.titel, print = { copies: a.anzahl, duplex: a.beidseitig, color: a.farbe }, concNote = "", fileId = a.file_id || null, replaced = null;
+      // Nachtrag 48 (Wunsch der Lehrkraft vom 26.11.2026): nie zwei Konzentrationsaufgaben – legt Claude ohne file_id eine neue an, obwohl die Sitzung schon eine von
+      // Claude gestaltete auf der Druckliste hat, tritt die neue an ihre Stelle (dieselbe Datei, die Druckeinstellungen der Lehrkraft bleiben). Von der Lehrkraft
+      // hochgeladene bleiben unangetastet.
+      if (conc && !fileId) {
+        const prev = ((await c.db.prepare("SELECT id, name, area, html IS NOT NULL AS designed, created_at FROM files WHERE lesson_id=?1 AND area='print' AND cards IS NULL ORDER BY created_at DESC")
+          .bind(lx.id).all()).results || []).find((x) => x.designed && isConcName(x.name));
+        if (prev) { fileId = prev.id; replaced = prev; }
+      }
       if (conc) {
         title = a.titel ? concTitleOf(a.titel, topic) : a.titel;
-        if (a.file_id) { area = ""; print = {}; }
+        if (fileId) { area = ""; print = {}; }
         else {
           const asked = (a.bereich && a.bereich !== "druck") || (a.anzahl != null && a.anzahl !== CONC_PRINT.copies) || a.beidseitig === false || a.farbe === true;
           area = "print"; print = { ...CONC_PRINT };
@@ -1064,7 +1073,7 @@ async function callTool(c, name, a) {
         }
       }
       // Material einer Selbstlern-Phase (Nachtrag 29, nur Gymnasium): Schüler:innen sehen es erst nach dem Umstellen, „Wiederherstellen“ löscht es (beim Überarbeiten bleibt die Herkunft)
-      const f = await saveDesign(c, a.lesson_id, { area, title, html: a.html, print, source: a.selbstlern === true && !gs ? SELBSTLERN : "claude", fileId: a.file_id || null, gsPrint: gs });
+      const f = await saveDesign(c, a.lesson_id, { area, title, html: a.html, print, source: a.selbstlern === true && !gs ? SELBSTLERN : "claude", fileId, gsPrint: gs });
       const pName = () => printNameOf(f);   // Kurs der Sitzung aus der Zeile (getFile, Nachtrag 32)
       const where = gs && f.area === "student" ? "für die Kinder (Eltern sehen es nach der Stunde)" + (f.print_copies != null ? " und in der Liste „Von der Lehrkraft auszudrucken“ als „" + pName() + "“" : "")
         : f.area === "student" ? "für die Schüler:innen" : f.area === "teacher" ? "nur für die Lehrkraft" : "in der Liste „Von der Lehrkraft auszudrucken“ als „" + pName() + "“" + (conc ? " – nie für Eltern oder Kinder" : "");
@@ -1072,6 +1081,7 @@ async function callTool(c, name, a) {
       if (conc) {
         // mehrere Konzentrationsaufgaben in einer Sitzung: sagen (löschen kann nur die Lehrkraft)
         const all = ((await c.db.prepare("SELECT id, name FROM files WHERE lesson_id=?1 AND area<>'archive' AND cards IS NULL").bind(lx.id).all()).results || []).filter((x) => isConcName(x.name));
+        if (replaced) concNote += " Diese Sitzung hatte schon eine " + CONC_TITLE + " („" + replaced.name + "“, file_id " + replaced.id + ") – die neue Gestaltung ersetzt sie (dieselbe file_id, die Druckeinstellungen der Lehrkraft bleiben), damit es nur eine gibt.";
         ref += concNote + (all.length > 1 ? " Achtung: Diese Sitzung hat jetzt " + all.length + " Konzentrationsaufgaben (" + all.map((x) => "file_id " + x.id).join(", ") +
           ") – überarbeite künftig die vorhandene mit ihrer file_id; überzählige kann nur die Lehrkraft in der Sitzung löschen." : "");
       }
@@ -1080,14 +1090,14 @@ async function callTool(c, name, a) {
       try {
         const r = await renderDesign(c, f, { waitMs: 30000 });
         const kb = Math.max(1, Math.round(r.bytes / 1024));
-        return toolText("„" + r.file.name + "“ " + (a.file_id ? "überarbeitet" : "gespeichert") + " und als PDF gedruckt: " + (r.pages ? r.pages + (r.pages === 1 ? " Seite" : " Seiten") : "Seitenzahl unbekannt") + ", " + kb + " KB, " + where + "." +
+        return toolText("„" + r.file.name + "“ " + (fileId ? "überarbeitet" : "gespeichert") + " und als PDF gedruckt: " + (r.pages ? r.pages + (r.pages === 1 ? " Seite" : " Seiten") : "Seitenzahl unbekannt") + ", " + kb + " KB, " + where + "." +
           (r.current ? "" : " (Inzwischen kam eine neuere Gestaltung an – Unterricks druckt sie nach.)") + tooLong(r.pages) + " Ändern: add_material_pdf mit file_id " + f.id + "." + ref,
           { file_id: f.id, pages: r.pages || null, bytes: r.bytes, status: "gedruckt", ...(conc ? { konzentrationsaufgabe: true, zu_lang: r.pages > CONC_PAGES_MAX } : {}) });
       } catch (e) {
         const code = e && e.code ? String(e.code) : "";
         const later = code === "render_busy" || code === "render_quota" || code === "render_config";
-        return toolText("„" + f.name + "“ ist " + (a.file_id ? "überarbeitet" : "gespeichert") + " (" + where + "), aber noch nicht als PDF gedruckt: " + (e && e.message ? e.message : "Fehler beim Druck") + " " +
-          (later ? "Unterricks druckt es automatisch nach, sobald die Lehrkraft Unterricks öffnet; bis dahin sehen die Schüler:innen " + (a.file_id && f.status === "ready" ? "die bisherige Fassung." : "es noch nicht.")
+        return toolText("„" + f.name + "“ ist " + (fileId ? "überarbeitet" : "gespeichert") + " (" + where + "), aber noch nicht als PDF gedruckt: " + (e && e.message ? e.message : "Fehler beim Druck") + " " +
+          (later ? "Unterricks druckt es automatisch nach, sobald die Lehrkraft Unterricks öffnet; bis dahin sehen die Schüler:innen " + (fileId && f.status === "ready" ? "die bisherige Fassung." : "es noch nicht.")
             : "Bitte die Gestaltung prüfen und mit add_material_pdf (file_id " + f.id + ") korrigiert erneut senden.") + ref,
           { file_id: f.id, status: later ? "wartet auf den Druck" : "Druckfehler", error: e && e.message ? e.message : null, ...(conc ? { konzentrationsaufgabe: true } : {}) });
       }

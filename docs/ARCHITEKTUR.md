@@ -100,6 +100,7 @@ implementiert und im End-to-End-Test geprüft (Ausnahmen unten ausdrücklich gen
 | Prüfung von Nachtrag 44 (Teil 1) und 45 (23.11.2026) | Die **KI-Begriffshilfe** bekommt den Schulportal-Eintrag **ohne Codes** (sie verriete sonst den Code eines wartenden Feibeitsblatts). Die Schüler:innen-Seite lädt nach einer Freigabe **erneut**, bis ihre Daten den Stand erreichen (gescheitertes Neuladen im WLAN der Schule), und wendet eine **ältere Antwort nie nach einer neueren** an. Was nach der Stunde frei geworden ist, bleibt frei, auch wenn die Lehrkraft **danach „Bis hier gezeigt“** setzt (festgehalten). Ein Feibeitsblatt ohne eigenen Titel („Feibeitsblatt“) nennt nicht jede Materialfolie. Fokus nach „Jetzt freigeben“ und nach der Übergabe der Zwischenstand-PDF; „Von vorn beginnen“ öffnet den Tab direkt im Klick; „neu“ nur am zuletzt Erschienenen; volle Liste der Freigaben → Meldung statt „sichtbar“. Bestätigt: Eine Präsentation, die nie live läuft, gibt ihr Material erst nach der Stunde frei („Jetzt freigeben“ sofort). Siehe 4zo, 4zq |
 | Anonyme Umfrage in der Live-Präsentation (Nachtrag 46 vom 24.11.2026) | Wunsch der Lehrkraft: „Baue ein, dass eine Präsentation zu einer anonymen Umfrage aufrufen kann. Dazu stellt die Präsentationsfolie die Umfrage-Frage und die Single-Choice-Antwortoptionen zur Verfügung. Beim Erstellen der Präsentation soll das durch die Lehrkraft festgelegt werden. Die Teilnahme der Umfrage soll pro Gerät nur einmal möglich sein und auch nur während der Live-Präsentation in dem Moment, in dem die Präsentation die Folie dazu offen hat. Das Ergebnis soll für die Schüler bei Unterricks ganz unten unter einem neuen Bereich "Abstimmungsergebnis" aufklappbar in der Schüler-Ansicht dieser Sitzung ca. 2 Minuten nach der ersten Schülerantwort auf die Umfrage angezeigt werden.“ Rückfragen beantwortet: festgelegt **über Claude mit Kontrolle** (Umfragefolie mit unsichtbarer Zeile „Unterricks-Umfrage: Frage \| Antwort \| Antwort“, auf der Sitzungsseite prüfen, ändern oder von Hand ergänzen); **die Abstimmung endet**, sobald das Ergebnis erscheint (2 Minuten nach der ersten Antwort – niemand sieht das Ergebnis vor der eigenen Stimme); die Lehrkraft sieht **live** die Zahl der Antworten und die Verteilung, der Beamer nur die Zahl, bis sie **„Ergebnis am Beamer zeigen“** wählt. Gezählt wird im Durable Object der Sitzung (Zahlen je Antwort, getrennt davon Prüfwerte der Geräte); das beendete Ergebnis steht in D1. Siehe 4zs |
 | Fachbegriffe-Karteikarten am ganzen Gymnasium (Nachtrag 47 vom 25.11.2026) | Wunsch der Lehrkraft: „Bisher gibt es zu jeder Unterrichtssitzung in der Q-Phase in der Schüleransicht ganz unten die favorisierten Fachbegriff zu dieser Unterrichtssitzung für die Schüler zum Nachschauen und lernen. Genau so soll das nun auch in allen Unterrichtssitzungen am Gymnasium, egal in welchem Jahrgang ab Jg. 5 sein.“ Rückfragen beantwortet: **weiter 3 bis 8 Begriffe, die Sprache dem Jahrgang angepasst**; schon geplante Sitzungen bekommen ihre Begriffe **beim nächsten Planen** (kein Nachtragen von selbst). Siehe 4zt |
+| Nur eine Konzentrationsaufgabe je Sitzung (Nachtrag 48 vom 26.11.2026) | Frage der Lehrkraft: „Kann es sein, dass nun in der Planung zwei verschiedene Konzentrationsaufgaben immer generiert werden? Einmal die frühere Version und einmal die neuere? Ich will nur die neuere.“ Antwort auf die Rückfrage: **„Alte ersetzen“** – legt Claude ohne file_id eine neue an, tritt sie an die Stelle der vorhandenen. Siehe 4zu |
 
 ## 2. Gesamtarchitektur
 
@@ -3689,3 +3690,26 @@ zum Nachschauen zu Hause.
 Sek I mit Zeitpunkt, Connector mit Jg. 6, Sitzungsdatei), `test/unit/zwischenstopp.test.mjs` (Prompt von Jg. 6 mit dem Schritt, sonst byte-gleich),
 `test/unit/selbstlernview.test.mjs` (Zeitpunkt der Karteikarten in `changesAt` einer Sitzung der 8B); E2E: Karte auf der Sitzungsseite einer 8C
 (`test/e2e/polls.mjs`).
+
+## 4zu. Nur eine Konzentrationsaufgabe je Sitzung (Nachtrag 48)
+
+Frage der Lehrkraft (26.11.2026): „Kann es sein, dass nun in der Planung zwei verschiedene Konzentrationsaufgaben immer generiert werden? Einmal die frühere
+Version und einmal die neuere? Ich will nur die neuere.“ Sie hatte beim Herunterladen zwei an ihrem Speicherort.
+
+**Befund.** Prompt („Stunde mit Claude planen“), `get_lesson`, `save_verlaufsplan` und `add_material_pdf` kennen seit Nachtrag 43 nur noch den neuen Aufbau
+(`concRules` in `public/gsplanning.js`); die alte Fassung (Nachtrag 27: Ausmalbilder, rote Karte, eine Aufgabe danach) steht nirgends mehr. Zwei Dateien
+entstehen trotzdem, wenn eine Sitzung schon eine Konzentrationsaufgabe hat (vor dem 23.11.2026 im alten Aufbau gestaltet oder aus einem früheren Planungschat)
+und Claude beim erneuten Planen eine neue **ohne** `file_id` anlegt, statt die vorhandene zu überarbeiten – bisher legte Unterricks sie dann daneben und
+warnte nur („Diese Sitzung hat jetzt 2 Konzentrationsaufgaben …“). Außerdem tragen Konzentrationsaufgaben den Titel „Konzentrationsaufgabe – <Thema>“ mit
+dem Thema der Einheit: Zwei Sitzungen desselben Kurses am selben Tag ergeben in den Druckaufträgen des Tages zwei gleich benannte Dateien („… (2).pdf“).
+Die echten Daten der Lehrkraft ließen sich über den Connector in dieser Prüfung nicht lesen (die Antwort von `get_lesson` kam hier nur als Kurzangabe an).
+
+**Umsetzung.** `add_material_pdf` (Grundschule): Ist es eine Konzentrationsaufgabe ohne `file_id` und hat die Sitzung schon eine **von Claude gestaltete**
+auf der Druckliste (`area='print'`, `html` gesetzt, keine Bildkarten), wird die neueste davon überarbeitet – dieselbe `file_id`, der neue Titel, die
+Druckeinstellungen der Lehrkraft bleiben (wie beim Überarbeiten mit `file_id`); die Antwort sagt „Diese Sitzung hatte schon eine Konzentrationsaufgabe („…“,
+file_id …) – die neue Gestaltung ersetzt sie …“. Von der Lehrkraft hochgeladene Konzentrationsaufgaben (ohne Gestaltung) bleiben unangetastet; dann kommt
+die neue wie bisher dazu, mit der Warnung. Die Beschreibung von `add_material_pdf` sagt es Claude. Schon vorhandene doppelte Dateien löscht die Lehrkraft
+wie bisher in der Sitzung.
+
+**Tests.** `test/unit/konzentration.test.mjs`: zweite ohne `file_id` → dieselbe Datei, neuer Inhalt, Anzahl der Lehrkraft bleibt, nur eine Datei; nach dem
+Hochladen durch die Lehrkraft (ohne Gestaltung) kommt eine zweite dazu, mit Warnung.
