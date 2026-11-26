@@ -6,7 +6,7 @@ import { T, tapi, teacherBar, teacherFoot, fbAutoConnect, fbUnlock, fbStore, fbF
 import { subjectName, gradeInfo, formatCode, claudePresentationPrompt, PORTAL_RULES, portalForCopy, insertStop, removeStops, hasStop, isStopLine,
   fmtDay, classShort, gradeKey, isAnalogClass, ANALOG_RULE, isCourseClass, courseMembers, homeworkForPortal, PUBLIC_URL,
   lessonTimes, fmtClockBerlin, fmtDayBerlin, HOMEWORK_BEFORE_END_MIN, PRESENTATION_AFTER_END_MIN, slidesUpTo, subjectShort, hasTermCards,
-  withAgeExpectation, looksLikeSolution, isGsLesson, portalVerbatim, TEACHER_SUMMARY_TITLE, stopForShown, slidePhasesOf, portalPhases } from "./shared.js";
+  withAgeExpectation, looksLikeSolution, isGsLesson, portalVerbatim, TEACHER_SUMMARY_TITLE, stopForShown, slidePhasesOf, portalPhases, FB_PREFILL } from "./shared.js";
 import { extractUnitChange, stripUnitBlock, unitContext, claudeLessonPrompt, lessonChatName } from "./planning.js";
 import { claudeHandoff } from "./claude.js";
 import { leupoldView } from "./units.js";
@@ -1120,11 +1120,25 @@ export async function sessionPage(id) {
         const cols = h("input", { value: (t.answer.columns || []).join(", "), placeholder: "Spalten, durch Komma getrennt" });
         const rows = h("input", { type: "number", min: "1", max: "30", value: t.answer.rows || 3, style: { maxWidth: "6rem" } });
         const tableBox = h("div", { class: "row" + (t.answer.type === "table" ? "" : " hidden") }, h("div", { class: "grow" }, cols), h("span", { class: "small", text: "Zeilen:" }), rows);
+        // Vorgaben der Tabelle (Wunsch der Lehrkraft vom 26.11.2026): je Zelle ein Feld; im Feibeitsblatt für die Schüler:innen gesperrt
+        const cells = (t.answer.cells || []).map((r) => (Array.isArray(r) ? r.slice() : []));   // bleibt beim Umschalten der Antwortart erhalten
+        const preBox = h("div", { class: "fbpre" });
+        const paintPre = () => {
+          clear(preBox);
+          if (typ.value !== "table" || !t.answer.columns || !t.answer.columns.length) return;
+          const c = t.answer.columns;
+          preBox.append(h("p", { class: "hint", text: "Vorgaben (optional): Was Sie hier in eine Zelle eintragen, steht schon in der Tabelle der Schüler:innen – sie können es nicht ändern und füllen nur die leeren Zellen aus." }),
+            h("div", { class: "fbpre-scroll" }, h("table", { class: "fbpre-table" }, h("thead", null, h("tr", null, ...c.map((x) => h("th", { scope: "col", text: x })))),
+              h("tbody", null, ...Array.from({ length: t.answer.rows }, (_, r) => h("tr", null, ...c.map((x, k) => h("td", null, h("input", { value: (cells[r] && cells[r][k]) || "", maxlength: String(FB_PREFILL.cell),
+                "aria-label": "Vorgabe für „" + x + "“, Zeile " + (r + 1) + " (Aufgabe " + (i + 1) + ")",
+                oninput: (e) => { while (cells.length <= r) cells.push([]); cells[r][k] = e.target.value; t.answer.cells = cells.slice(0, t.answer.rows); } })))))))));
+        };
         const solBox = h("div");
-        const syncAns = () => { t.answer = typ.value === "table" ? { type: "table", columns: cols.value.split(",").map((s) => s.trim()).filter(Boolean).slice(0, 8), rows: Math.min(30, Math.max(1, Number(rows.value) || 3)) } : { type: typ.value === "photo" ? "photo" : "text" };
-          tableBox.classList.toggle("hidden", typ.value !== "table"); solBox.classList.toggle("hidden", typ.value === "photo");
+        const syncAns = () => { t.answer = typ.value === "table" ? { type: "table", columns: cols.value.split(",").map((s) => s.trim()).filter(Boolean).slice(0, 8), rows: Math.min(30, Math.max(1, Number(rows.value) || 3)), cells: cells.slice(0, Math.min(30, Math.max(1, Number(rows.value) || 3))) } : { type: typ.value === "photo" ? "photo" : "text" };   // Vorgaben nur in den Zeilen der Tabelle
+          tableBox.classList.toggle("hidden", typ.value !== "table"); solBox.classList.toggle("hidden", typ.value === "photo"); paintPre();
           if (typ.value === "photo" && data.tasks.filter((x) => x.answer && x.answer.type === "photo").length > PHOTO_TASKS_MAX) toast("Höchstens " + PHOTO_TASKS_MAX + " Foto-Aufgaben je Feibeitsblatt.", "err"); };
         typ.onchange = syncAns; cols.oninput = syncAns; rows.oninput = syncAns;
+        paintPre();
         tasksBox.append(h("div", { class: "task-edit" },
           h("div", { class: "row between" }, h("strong", { text: "Aufgabe " + (i + 1) }), h("div", { class: "row" },
             h("button", { class: "btn small ghost iconbtn", type: "button", "aria-label": "Aufgabe " + (i + 1) + " nach oben", disabled: i === 0 ? true : null, onclick: () => { data.tasks.splice(i - 1, 0, data.tasks.splice(i, 1)[0]); paintTasks(); } }, icon("up")),
@@ -1136,7 +1150,7 @@ export async function sessionPage(id) {
             matLinks.box),
           mediaField(t, i),
           solBox,
-          h("div", { class: "row" }, h("span", { class: "small", text: "Antwort als:" }), typ), tableBox,
+          h("div", { class: "row" }, h("span", { class: "small", text: "Antwort als:" }), typ), tableBox, preBox,
           h("p", { class: "hint" + (t.answer.type === "photo" ? "" : " hidden"), text: "Foto: Die Schüler:innen fotografieren z. B. ihr Lernprodukt und laden das Bild hoch (verkleinert, ohne Ortsdaten, verschlüsselt). Fotos gehen nie an die KI – deshalb gibt es hier keinen Auftrag an die KI." })));
         solBox.append(h("div", { class: "field" }, h("label", null, "Auftrag an die KI (Einstellung der KI-Rückmeldung)"), sol, solWarn,
           h("p", { class: "hint", text: "Keine Musterlösung, sondern ein Auftrag an die korrigierende KI: Worauf soll sie achten, wenn sie die Antwort liest? Erwartete Inhalte, Kriterien, typische Fehler, " +

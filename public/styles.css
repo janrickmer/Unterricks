@@ -926,6 +926,12 @@ body:has(> .presenter) #toasts { top: 1rem; bottom: auto; }   /* im Präsentatio
 .fb-card { display: flex; gap: .8rem; align-items: center; flex-wrap: wrap; }
 .task-edit { border: 1px solid var(--line); border-radius: 12px; padding: .85rem; background: var(--surface-2); }
 .task-edit + .task-edit { margin-top: .75rem; }
+/* Vorgaben einer Tabelle im Feibeitsblatt-Entwurf */
+.fbpre-scroll { overflow-x: auto; }
+.fbpre-table { border-collapse: collapse; min-width: 100%; }
+.fbpre-table th { text-align: left; font-size: .85rem; padding: .3rem .5rem; border: 1px solid var(--line); background: var(--surface); }
+.fbpre-table td { border: 1px solid var(--line); padding: 0; }
+.fbpre-table input { width: 100%; min-width: 8rem; border: 0; border-radius: 0; padding: .35rem .5rem; background: transparent; }
 /* Feibeitsblatt-Entwurf: Bilder, PDF-Dateien und YouTube-Videos einer Aufgabe (Nachtrag 37) – eine Liste wie die übrigen Dateien, Vorschau 64px */
 .fbmedia { border: 1px solid var(--line); border-radius: var(--radius-s); padding: .45rem .75rem .6rem; margin: .6rem 0 0; background: var(--paper); }
 .fbmedia legend { font-weight: 700; padding: 0 .3rem; }

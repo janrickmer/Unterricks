@@ -39,7 +39,7 @@ export function sheetToDraft(sheet) {
   const tasks = (Array.isArray(sheet && sheet.tasks) ? sheet.tasks : []).slice(0, 20).map((t, i) => {
     const a = (t && t.answer) || {};
     let antwort = "text";
-    if (a.type === "table" && Array.isArray(a.columns)) antwort = { tabelle: a.columns.slice(0, 8), zeilen: a.rows || 3 };
+    if (a.type === "table" && Array.isArray(a.columns)) antwort = { tabelle: a.columns.slice(0, 8), zeilen: a.rows || 3, ...(Array.isArray(a.cells) && a.cells.length ? { vorgaben: a.cells } : {}) };
     else if (a.type === "photo") antwort = "foto";
     else if (a.type === "map") notes.push("Aufgabe " + (i + 1) + " (Weltkarte) kommt als Textaufgabe – die Karte bitte im Feibeitsblatt selbst neu anlegen.");
     if (Array.isArray(t && t.images) && t.images.length) notes.push("Aufgabe " + (i + 1) + ": Bilder werden nicht übernommen.");
